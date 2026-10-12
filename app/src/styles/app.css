@@ -18,6 +18,7 @@
   --shell-bar-h: 52px;
   --shell-strip-h: 48px;
   --shell-drawer-w: 380px;
+  --agent-drawer-w: 420px;
   display: flex;
   flex-direction: column;
   align-self: stretch;

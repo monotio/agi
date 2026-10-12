@@ -39,8 +39,36 @@ export function releaseName(version: string): string {
  * the known release (a 1.0 Project download added again with Add game).
  */
 export function shelfTitle(game: CachedGameMeta, catalog: readonly GameCatalogEntry[]): string {
-  const release = storedRelease(game);
-  if (!release) return game.title;
+  return releaseTitle(game.title, storedRelease(game), catalog);
+}
+
+/**
+ * An installed game's shelf title. A development fixture whose bytes are a
+ * known release the catalog no longer carries is named like a stored copy,
+ * "Adventure Department 1.0", and keeps its own card: older releases are
+ * never folded into the current tutorial. A declared remix is its own game.
+ */
+export function installedShelfTitle(
+  game: InstalledGameDescriptor,
+  catalog: readonly GameCatalogEntry[],
+): string {
+  if (game.parent !== undefined || game.revision === undefined) return game.title;
+  return releaseTitle(game.title, knownRelease(game.revision, game.title), catalog);
+}
+
+interface ShelfRelease {
+  readonly id: string;
+  readonly name: string;
+  readonly version?: string;
+}
+
+/** The title with its release name unless the catalog still carries the release. */
+function releaseTitle(
+  title: string,
+  release: ShelfRelease | undefined,
+  catalog: readonly GameCatalogEntry[],
+): string {
+  if (!release) return title;
   const carried = catalog.some(
     (entry) =>
       entry.id === release.id &&
@@ -48,26 +76,32 @@ export function shelfTitle(game: CachedGameMeta, catalog: readonly GameCatalogEn
         ? entry.version === release.version
         : releaseName(entry.version) === release.name),
   );
-  return carried ? game.title : `${game.title} ${release.name}`;
+  return carried ? title : `${title} ${release.name}`;
 }
 
 /**
- * The catalog release a stored game is, by provenance or by its bytes: a
- * known release's alias is its catalog id and short release name
- * ("adventure-department-1.0"; the current release's alias is the bare id).
+ * The catalog release a stored game is, by provenance or by its bytes
+ * (an unchanged, unrenamed copy of a known release).
  */
-function storedRelease(
-  game: CachedGameMeta,
-): { id: string; name: string; version?: string } | undefined {
+function storedRelease(game: CachedGameMeta): ShelfRelease | undefined {
   const library = game.library;
   if (library?.source === "catalog")
     return library.catalog
       ? { ...library.catalog, name: releaseName(library.catalog.version) }
       : undefined;
   if (!library || library.source === "remix") return undefined;
-  const known = getKnownGameByRevision(library.revision);
+  return knownRelease(library.revision, game.title);
+}
+
+/**
+ * The known release these bytes are, under its own title: a known release's
+ * alias is its catalog id and short release name ("adventure-department-1.0";
+ * the current release's alias is the bare id, which names no older release).
+ */
+function knownRelease(revision: string, title: string): ShelfRelease | undefined {
+  const known = getKnownGameByRevision(revision);
   const match = known?.alias.match(/^(.+)-(\d+\.\d+)$/);
-  if (!known || !match || known.title !== game.title) return undefined;
+  if (!known || !match || known.title !== title) return undefined;
   return { id: match[1]!, name: match[2]! };
 }
 

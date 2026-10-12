@@ -937,6 +937,29 @@ editor.selectLaunch.value = async (id) => {
   const room = editor.actionRoom.value;
   if (room !== undefined) await selectRoomLaunch(room, id);
 };
+editor.showRoom.value = async (room) => {
+  // Show answers the Create it was clicked in: leaving Create, even for a
+  // moment, a newer launch, or another run taking the game while the save
+  // finishes cancels it before it moves anything.
+  const serial = launchSerial;
+  const owner = engine.getProjectSession();
+  const runToken = owner?.runToken;
+  await flushWorkspace();
+  if (
+    retired ||
+    !props.creating ||
+    serial !== launchSerial ||
+    engine.getProjectSession() !== owner ||
+    owner?.closed === true ||
+    owner?.runToken !== runToken
+  )
+    return;
+  const picture = groups.value
+    .flatMap((group) => group.entries)
+    .find((row) => row.room === room && row.key.startsWith("picture:"));
+  if (picture) openPart(picture.key);
+  await runSelectedLaunch({ room, beginning: false, fromMyGame: false });
+};
 let launchSerial = 0;
 async function runSelectedLaunch(entry?: {
   room: number;
@@ -993,7 +1016,11 @@ watch(
   },
 );
 watch([editor.selected, roomHint, () => props.creating], () => {
-  if (!props.creating) returnRoom.value = visitingRoom.value = undefined;
+  if (props.creating) return;
+  returnRoom.value = visitingRoom.value = undefined;
+  // "Updated · … restarted" reports this visit's update; Play ends the visit.
+  editor.updateResult.value = "";
+  editor.updatedParts.value = 0;
 });
 
 let returningRemovedRoom = false;
@@ -2372,6 +2399,7 @@ onBeforeUnmount(() => {
   offDrafts?.();
   editor.update.value = undefined;
   editor.selectLaunch.value = undefined;
+  editor.showRoom.value = undefined;
   editor.discardDrafts.value = undefined;
   editor.changeCount.value = 0;
   phoneQuery.removeEventListener("change", phoneLayout);
@@ -3073,25 +3101,23 @@ onBeforeUnmount(() => {
         >
           <span class="workspace-history__name">{{ name }}</span>
           <div class="workspace-history__actions">
-            <UiButton
+            <UiIconButton
+              icon="pencil"
               size="sm"
-              variant="ghost"
               :disabled="editingPaused || editor.busy.value"
-              :aria-label="`Rename ${name}`"
+              :label="`Rename ${name}`"
               @click="
                 editingName = name;
                 versionName = name;
               "
-              >Rename</UiButton
-            >
-            <UiButton
+            />
+            <UiIconButton
+              icon="x"
               size="sm"
-              variant="ghost"
               :disabled="editingPaused || editor.busy.value"
-              :aria-label="`Clear ${name}`"
+              :label="`Clear ${name}`"
               @click="clearName(name)"
-              >Clear</UiButton
-            >
+            />
           </div>
         </div>
         <span
@@ -3165,7 +3191,8 @@ onBeforeUnmount(() => {
 }
 .workspace-game-bar__where {
   display: flex;
-  flex: 1;
+  /* Back sits beside the room name, clear of a drawer over the bar's far end. */
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;

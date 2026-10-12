@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
@@ -226,6 +227,9 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   // patched world where the player left it (room 2) without reauthoring.
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.resumed)).toBe(true);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  // Returning to Play started room 2 fresh for the sign; its entry message is up.
+  await expectPrintWindow(page, "generated room 2");
+  await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await openGameOptions(page, "settings-menu");
   await expect(page.getByTestId("btn-download-game")).toBeVisible();

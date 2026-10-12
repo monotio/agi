@@ -225,6 +225,7 @@ function makeHarness(opts?: {
       resumes.push(owner);
     },
     getSession: () => (opts?.noSession ? null : (fakeSession as never)),
+    closeAgent: () => {},
     adoptSession: async (_game: BootedGame, boot: HistoryBoot, snapshot: unknown) => {
       if (opts?.adoptError) throw new Error(opts.adoptError);
       adoptions.push({ boot, snapshot });

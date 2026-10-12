@@ -10,7 +10,6 @@ import type { GameContainer } from "../../src/types.ts";
 import {
   HISTORY_INFLIGHT_MAX,
   historySyncDigest,
-  type HistoryBatch,
   type HistorySegment,
 } from "../../src/agent/history.ts";
 import { traceImageChanges } from "../../src/creative/imageOperations.ts";
@@ -26,7 +25,7 @@ import { rngDraw } from "../../src/runtime/rng.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { installBaseTemplate } from "../../src/agent/baseTemplate.ts";
-import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
+import { collectSegments, gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testRevision } from "./identity.ts";
 import { appendHistoryBatch, loadGameHistory } from "../src/history/historyStorage.ts";
@@ -206,43 +205,6 @@ function historyHarness(
     timers.shift()?.fn();
   };
   return { ctx, control, presentation, send, tick, soundStep, timers, fireTimer };
-}
-
-/**
- * Fold the posted historyBatch traffic into per-segment records, deduped by
- * batch number — the resend path reposts un-acked batches and the host
- * filters the duplicates the same way.
- */
-function collectSegments(control: WorkerControl[]): HistorySegment[] {
-  const segments = new Map<string, HistorySegment>();
-  const seen = new Set<string>();
-  for (const message of control) {
-    if (message.type !== "historyBatch") continue;
-    const batch: HistoryBatch = message.batch;
-    const key = `${batch.segment}:${batch.batch}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    let segment = segments.get(batch.segment);
-    if (segment === undefined) {
-      assert.ok(batch.boot !== undefined, `segment ${batch.segment} opens with a boot batch`);
-      segment = {
-        id: batch.segment,
-        boot: batch.boot,
-        anchors: [],
-        events: [],
-        marks: [],
-        sync: [],
-      };
-      segments.set(batch.segment, segment);
-    }
-    segment.events.push(...batch.events);
-    segment.marks.push(...batch.marks);
-    segment.sync.push(...batch.sync);
-    if (batch.clock !== undefined) (segment.clock ??= []).push(...batch.clock);
-    if (batch.anchor !== undefined) segment.anchors.push(batch.anchor);
-    if (batch.end !== undefined) segment.end = batch.end;
-  }
-  return [...segments.values()];
 }
 
 test("a recorded live session replays from its boot to the same observed state", () => {

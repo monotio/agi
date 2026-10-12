@@ -172,7 +172,7 @@ test("leaving Create restores the Play print continuation and RNG", (t) => {
   assert.equal(ctx.run.engine!.modalKind, "print");
 });
 
-test("a paused Play moment stays paused after Create runs and returns", (t) => {
+test("a paused Play moment stays paused after Create while the page holds its pause", (t) => {
   const { ctx } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();
@@ -180,7 +180,7 @@ test("a paused Play moment stays paused after Create runs and returns", (t) => {
   const image = ctx.run.engine!.recordingImage();
   enter(ctx);
   ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 2, x: 0, y: 0, launch: {} });
-  onWorkerMessage(ctx, { type: "pause", paused: false });
+  // The page owns the pause; app/test/worker-room-show.test.ts covers its release.
   onWorkerMessage(ctx, { type: "projectPlay" });
   assert.equal(ctx.run.cycle.paused, true);
   ctx.fns.stepHostTick(ctx.ports.now() + 2_000);
@@ -201,16 +201,22 @@ test("Back repeatedly restores the Create entry point, including after another L
   }
 });
 
-test("Back and From my game adopt the captured Play pause state", (t) => {
-  const { ctx } = workerHarness(game());
-  t.after(() => ctx.fns.stopTimers());
-  ctx.fns.tickEngine();
-  onWorkerMessage(ctx, { type: "pause", paused: true });
-  enter(ctx);
-  for (const request of [{ visit: "back" as const }, { launch: { fromMyGame: true } }]) {
-    onWorkerMessage(ctx, { type: "pause", paused: false });
-    ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 1, x: 0, y: 0, ...request });
-    assert.equal(ctx.run.cycle.paused, true);
+// The page owns the pause: a run rebuilt from the captured moment never
+// restores a pause the page no longer shows, which froze a game shown running.
+test("Back, From my game and Restart follow the page's pause, not the captured one", (t) => {
+  for (const pageHolds of [false, true]) {
+    const { ctx } = workerHarness(game());
+    t.after(() => ctx.fns.stopTimers());
+    ctx.fns.tickEngine();
+    onWorkerMessage(ctx, { type: "pause", paused: !pageHolds });
+    enter(ctx);
+    onWorkerMessage(ctx, { type: "pause", paused: pageHolds });
+    for (const request of [{ visit: "back" as const }, { launch: { fromMyGame: true } }]) {
+      ctx.fns.onPlayHere({ type: "playHere", id: 2, room: 1, x: 0, y: 0, ...request });
+      assert.equal(ctx.run.cycle.paused, pageHolds, JSON.stringify(request));
+    }
+    onWorkerMessage(ctx, { type: "projectPlay", restart: true });
+    assert.equal(ctx.run.cycle.paused, pageHolds, "Restart");
   }
 });
 

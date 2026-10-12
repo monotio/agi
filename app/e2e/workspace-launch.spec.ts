@@ -414,7 +414,9 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
   // 3. Launch editor opens as a tab titled "Launches · Meadow"
   const launchEditor = page.getByTestId("launch-editor");
   await expect(launchEditor).toBeVisible();
-  await expect(launchEditor.getByText("Launches · Meadow")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Launches · Meadow", exact: true })).toBeVisible();
+  // The tab already names the room; the editor does not repeat it as a heading.
+  await expect(launchEditor.getByRole("heading", { name: /Launches/ })).toHaveCount(0);
 
   // Screenshot of launch editor at 1440x900
   await page.screenshot({

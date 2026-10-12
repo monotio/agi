@@ -108,6 +108,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const launchChoices = shallowRef<readonly Launch[]>([]);
   const selectedLaunch = ref("carry");
   const selectLaunch = shallowRef<(id: string) => Promise<void>>();
+  /** Create's own visit: the hero enters a room carrying the game's state, with Back. */
+  const showRoom = shallowRef<(room: number) => Promise<void>>();
   const openLaunchEditor = shallowRef<(mode: "new" | "edit", room: number) => void>();
   function requestLaunchEditor(mode: "new" | "edit"): void {
     const room = actionRoom.value;
@@ -445,6 +447,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     launchChoices,
     selectedLaunch,
     selectLaunch,
+    showRoom,
     openLaunchEditor,
     requestLaunchEditor,
     phonePlaytest,

@@ -156,6 +156,10 @@ The audience includes children building their first game, so copy is plain and c
 ## Tests and evals
 
 - A check nobody has seen fail is only a comment: watch each new test or eval fail once, then pass.
+- A test protects a product decision, not the current code. Name the player-visible rule in the
+  test or cite it in `docs/`, and assert what the player sees; internal state agreeing with itself
+  proves only the implementation. A change that rewrites an existing test's expected behavior is a
+  product decision: the pull request lists it under Decisions to confirm, and the owner approves it.
 - Assert the cheapest exact thing first: structure, bytes or pixels, then content, then an LLM judge
   whose failures get read. Renderer and bytecode expectations are hand-computed, never
   snapshot-then-trust.

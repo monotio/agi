@@ -5,11 +5,14 @@
  * (20, 100) with step size and time 1, so a click at frame (161, 108) walks
  * ego to x = 161/2 - 2 = 78.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { isolateStorage, observe, textHook, waitForCycles } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
+
+test.use({ keepDetectedProfileOption: false });
 
 /** 1 loop, 1 cel: a solid width x height block of color 5. */
 function solidView(width: number, height: number): Uint8Array {

@@ -430,6 +430,11 @@ export async function configureAi(page: Page, configuration: AiConfiguration): P
 
 /** Open the single shared connection dialog through Settings. */
 export async function openAiSettings(page: Page): Promise<void> {
+  // AI settings stay closed while the Agent is still opening; a click then does nothing.
+  // A production build has no test hooks, so it skips this wait.
+  await expect
+    .poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy ?? false))
+    .toBe(false);
   const settings = page.getByTestId("settings-menu");
   if ((await settings.getAttribute("aria-expanded")) !== "true") await settings.click();
   await page.getByTestId("open-ai-settings").click();
@@ -673,11 +678,19 @@ export async function savePlayProgress(page: Page): Promise<void> {
   const play = page.getByRole("radio", { name: "Play", exact: true });
   await expect(create).toBeVisible();
   const creating = (await create.getAttribute("aria-checked")) === "true";
-  const cycle = creating
-    ? await clickModeAndWait(page, "play", play)
-    : (await textHook(page)).cycle;
-  await waitForAutosaveAfter(page, cycle);
-  if (creating) await clickModeAndWait(page, "create", create);
+  if (!creating) {
+    await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+    return;
+  }
+  // Play's first save can carry the cycle its frame already shows: a room
+  // restarted for a change parks on its entry message. Clear the stored mark
+  // (Create stores none) and wait for any save the Play run stores.
+  await page.evaluate(() => {
+    if (window.__AGI_TEXT__) window.__AGI_TEXT__.autosave = -1;
+  });
+  await clickModeAndWait(page, "play", play);
+  await waitForAutosaveAfter(page, -1);
+  await clickModeAndWait(page, "create", create);
 }
 
 async function clickModeAndWait(

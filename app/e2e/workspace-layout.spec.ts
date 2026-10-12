@@ -128,13 +128,13 @@ for (const size of sizes) {
       }
       if (size.width > 600) {
         await fit(page);
-        // The drawer overlays the workspace: the stage keeps its full width.
+        // The drawer sits beside the workspace: the stage ends where it starts.
         await expect
           .poll(() =>
             page.locator(".shell-body").evaluate((body) => {
-              const parts = body.querySelector(".parts-list")!.getBoundingClientRect();
               const stage = body.querySelector(".stage")!.getBoundingClientRect();
-              return Math.abs(stage.width - (body.getBoundingClientRect().width - parts.width));
+              const drawer = document.querySelector(".agent-drawer")!.getBoundingClientRect();
+              return Math.abs(stage.right - drawer.left);
             }),
           )
           .toBeLessThanOrEqual(1);

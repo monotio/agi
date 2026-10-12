@@ -12,6 +12,7 @@ import { base64ToBytes } from "../project/bytes.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import {
+  computed,
   effectScope,
   getCurrentScope,
   onScopeDispose,
@@ -174,6 +175,7 @@ export function useEngine(
     gameEnded: null,
     otherTab: false,
     returnProblem: "",
+    returnNote: "",
     entryProblem: "",
     conversationTransitioning: false,
     staleTab: false,
@@ -279,7 +281,7 @@ export function useEngine(
     observationListeners,
     onBehindStorage: tellBehindStorage,
   });
-  const { pauseEngine, resumeEngine, resetPauseOwners } = createPauseHolds({
+  const { pauseEngine, resumeEngine, resetPauseOwners, pauseOwners } = createPauseHolds({
     post: (paused) =>
       link.getWorker()?.postMessage({ type: "pause", paused } satisfies WorkerInbound),
     audio: { setPaused: (paused) => audio?.setPaused(paused) },
@@ -1010,6 +1012,21 @@ export function useEngine(
     }
   }
 
+  /**
+   * An open Agent pauses Play, never Create, however it opened: a panel carried
+   * into Play pauses the game as opening it there does, and Create's game runs
+   * beside it so applied changes show.
+   */
+  function holdAgentPause(): void {
+    const held = pauseOwners().includes("powerUp");
+    const wanted = projectMode === "play" && state.powerUp.open;
+    if (wanted && !held) pauseEngine("powerUp");
+    else if (!wanted && held) resumeEngine("powerUp");
+  }
+  // An Agent that opens or closes on its own, as a finished map build closes
+  // it, follows the same rule; only the Agent's own hold changes.
+  watch(() => state.powerUp.open, holdAgentPause);
+
   let powerUpVisibilityGeneration = 0;
   const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) => {
     const generation = ++powerUpVisibilityGeneration;
@@ -1041,6 +1058,8 @@ export function useEngine(
     powerUpVisibilityGeneration++;
     state.powerUp.open = false;
     authoringController?.closePowerUp();
+    // A hold taken before the authoring controller loaded ends here.
+    if (pauseOwners().includes("powerUp")) resumeEngine("powerUp");
   }
   const submitPowerUp: ReturnType<typeof useAuthoringController>["submitPowerUp"] = async (
     ...args
@@ -1223,6 +1242,7 @@ export function useEngine(
         getSession: () => authoringController?.getSession() ?? null,
         adoptSession: adoptHistorySession,
         logAgent,
+        closeAgent: closePowerUp,
       });
       link.deps.handleHistoryView = historyView.applyReport;
       roomMap.value =
@@ -1254,7 +1274,10 @@ export function useEngine(
     change: number,
   ): Promise<boolean> {
     const prior = projectMode;
-    if (mode === "create") state.entryProblem = "";
+    if (mode === "create") {
+      state.entryProblem = "";
+      state.returnNote = "";
+    }
     if (mode === "play" && state.phase === "running") {
       const reply = await link.query("projectPlay", restart ? { restart: true } : {});
       if (change !== projectModeChange) return false;
@@ -1262,9 +1285,14 @@ export function useEngine(
         state.returnProblem = reply.reason ?? "Your game needs a restart.";
         return false;
       }
+      state.returnNote =
+        reply.restartedRoom === undefined
+          ? ""
+          : `Room ${reply.restartedRoom} started fresh with your changes.`;
     }
     if (mode === "play") state.returnProblem = "";
     projectMode = mode;
+    holdAgentPause();
     loadTried();
     link.getWorker()?.postMessage({
       type: "observeSentences",
@@ -1303,6 +1331,7 @@ export function useEngine(
               : STALE_SAVE_MESSAGE
             : "Could not open Create. Reload and try again.";
         projectMode = prior;
+        holdAgentPause();
       }
       return false;
     }
@@ -1400,6 +1429,7 @@ export function useEngine(
           return false;
         if (!reply.grant) {
           projectMode = prior;
+          holdAgentPause();
           state.entryProblem = reply.reason ?? "Open this game in Create to edit it.";
           state.status = state.entryProblem;
           return false;
@@ -1463,6 +1493,8 @@ export function useEngine(
   }
 
   return {
+    /** The room the running game is in, from the worker's cycle heartbeat. */
+    currentRoom: computed(() => hook.room),
     playerSentences,
     loadPlayerSentences,
     resolvePlayerSentence(entry: PlayerSentence) {

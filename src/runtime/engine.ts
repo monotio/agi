@@ -880,6 +880,8 @@ export class Engine {
   private cycleCursor: CycleCursor | null = null;
   /** Host room entry owes LOGIC 0 without another input phase. */
   private hostRoomEntryPending = false;
+  /** A detached copy asked whether a room entry redraws; it never asks again. */
+  private entryTrial = false;
   private resumedSequence: number | null = null;
   private executionSequence = 0;
   private invocationSequence = 0;
@@ -1206,6 +1208,10 @@ export class Engine {
     if (issued.staged === null) {
       return settle(result("refused", "preview plan carries no staged candidate"));
     }
+    // A room entry still to run decides what the screen shows: a visual change
+    // the screen cannot take now waits for it, and the host retries.
+    if (this.hostRoomEntryPending && issued.staged.compositionBlocked !== null)
+      return result("deferred");
     const blocked = this.previewDynamicBlock(issued.staged, roomReentry);
     if (blocked !== null)
       return settle({
@@ -1434,6 +1440,34 @@ export class Engine {
    * geometry of every loaded view and bound object, and genuinely new
    * OBJECT slots must not already carry meaningful live locations.
    */
+  /** Whether entering the room again on the staged files draws its whole picture. */
+  private entryRedraws(staged: StagedPreviewUpdate): boolean {
+    try {
+      const image = this.autosaveImage();
+      if (image === null) return false;
+      const trial = new Engine(
+        this.container,
+        {
+          print() {},
+          displayAt() {},
+          statusLine() {},
+          takeInputLine: () => null,
+          takeKeys: () => [],
+        },
+        this.dictionary,
+        { profile: this.profile, amigaRegion: this.amigaRegion },
+      );
+      trial.entryTrial = true;
+      trial.restoreImage(image);
+      const entry = trial.prepareRoomReentry({ files: staged.container.files });
+      if (trial.commitRoomReentry(entry).status !== "committed") return false;
+      trial.tick();
+      return analyzePictureComposition(trial.hostReplay, trial.hostReplayOverflow).complete;
+    } catch {
+      return false;
+    }
+  }
+
   private previewDynamicBlock(
     staged: StagedPreviewUpdate,
     roomReentry = false,
@@ -1447,6 +1481,15 @@ export class Engine {
     }
     if (staged.compositionBlocked !== null && !roomReentry) {
       return { status: "restartRequired", reason: staged.compositionBlocked };
+    }
+    // Entering the room again shows these visual changes only if its entry
+    // draws a whole picture; earlier drawing never proves the next entry's
+    // branches, so a detached copy runs that entry on the staged files.
+    if (staged.compositionBlocked !== null && !this.entryTrial && !this.entryRedraws(staged)) {
+      return {
+        status: "restartRequired",
+        reason: "Entering the room again does not redraw it; restart applies these visual changes.",
+      };
     }
     for (const change of staged.changed) {
       if (change.kind === "logic") {
@@ -7716,6 +7759,29 @@ export class Engine {
       terminated: this.terminated,
       inventory: [],
     };
+  }
+
+  /**
+   * What the current room has in use: its own LOGIC and every loaded LOGIC,
+   * PICTURE and VIEW, plus the pictures drawn into the screen and the VIEWs
+   * stamped into it. Entry code has already run
+   * on these, so a change to one shows only once the room is entered again.
+   */
+  roomResources(): { logic: number[]; picture: number[]; view: number[] } {
+    const sorted = (nums: Iterable<number>) => [...new Set(nums)].sort((a, b) => a - b);
+    const composition = analyzePictureComposition(this.hostReplay, this.hostReplayOverflow);
+    return {
+      logic: sorted([this.vars[V_ROOM]!, ...this.logics.keys()]),
+      // A picture drawn or overlaid on screen stays there after it is discarded.
+      picture: sorted([this.lastPicture, ...this.pictures, ...composition.ops.map((op) => op.num)]),
+      // A VIEW stamped into the picture stays on screen after it is discarded.
+      view: sorted([...this.views.keys(), ...composition.stampedViews]),
+    };
+  }
+
+  /** A host re-entry set the room up; its entry pass runs on the next cycle. */
+  get roomEntryPending(): boolean {
+    return this.hostRoomEntryPending;
   }
 
   /**

@@ -34,16 +34,24 @@ export function createAutosave(ctx: WorkerContext) {
     if (!ctx.run.engine || ctx.run.progress.mode === "create" || !ctx.run.owner.active)
       return false;
     if (!force && ctx.run.cycle.cycleCount === ctx.run.autosave.lastAutosaveCycle) return false;
+    // A forced checkpoint this boundary cannot take stays owed: each host poll
+    // retries it until the game reaches a boundary that can be saved.
+    if (force) ctx.run.autosave.checkpointDue = true;
     // A debugger-parked or armed mid-pass engine has no resumable boundary:
     // the engine would throw on capture, so the last good image is kept.
     if (ctx.fns.debugCaptureBlocked()) return false;
     // A game that quit has ended: its image would resume a stopped
     // interpreter. The autosave taken before the quit stays the one to continue.
-    if (ctx.run.engine.readLeanState().terminated) return false;
+    if (ctx.run.engine.readLeanState().terminated) {
+      ctx.run.autosave.checkpointDue = false;
+      return false;
+    }
     let image: Uint8Array | null;
     try {
       image = ctx.run.engine.autosaveImage();
     } catch (error) {
+      // A failing capture is logged once, not retried every poll.
+      ctx.run.autosave.checkpointDue = false;
       ctx.ports.presentation({
         type: "log",
         text: `Autosave snapshot failed: ${String(error)}`,
@@ -94,6 +102,7 @@ export function createAutosave(ctx: WorkerContext) {
     ctx.ports.presentation(msg);
     ctx.run.autosave.lastAutosaveCycle = ctx.run.cycle.cycleCount;
     ctx.run.autosave.lastAutosaveAt = ctx.ports.now();
+    ctx.run.autosave.checkpointDue = false;
     // The autosave cadence is the history anchor cadence — same boundary.
     ctx.fns.historyAnchor("autosave");
     return true;

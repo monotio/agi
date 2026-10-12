@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { loadGame } from "../../test/game-fixture.ts";
 import { cacheGame, enterCreateMode } from "./engineProbe.ts";

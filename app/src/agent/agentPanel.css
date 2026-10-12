@@ -203,14 +203,15 @@
   flex-wrap: wrap;
 }
 
-/* The drawer overlays the workspace from the right; the editor keeps its
-   width in both arrangements. On the blank stage there is no game bar. */
+/* The drawer sits at the right of the workspace, which makes room for it
+   (workspace.css); on a phone it covers the sheet. On the blank stage there
+   is no game bar. */
 .agent-drawer {
   position: fixed;
   top: var(--shell-bar-h);
   right: 0;
   bottom: 0;
-  width: min(420px, 100vw);
+  width: min(var(--agent-drawer-w), 100vw);
   z-index: var(--z-dock);
   display: flex;
   flex-direction: column;
@@ -304,8 +305,8 @@
   z-index: 2;
   top: var(--shell-bar-h);
   bottom: 0;
-  right: min(420px, 100vw);
-  width: min(520px, calc(100vw - 420px));
+  right: min(var(--agent-drawer-w), 100vw);
+  width: min(520px, calc(100vw - var(--agent-drawer-w)));
   display: flex;
   flex-direction: column;
   background: var(--surface-1);

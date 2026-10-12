@@ -1,6 +1,12 @@
 import { providerReply } from "../../test/provider-stream.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { disassembleLogic } from "../../src/logic/disassembler.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { test, expect } from "./test.ts";
 import {
+  addWorkspaceAction,
   openStoredWorkspace,
   openWorkspaceLogic,
   replaceWorkspaceDocument,
@@ -10,6 +16,7 @@ import {
   textHook,
   configureAi,
   workspaceUpdated,
+  observe,
   openWorkspaceAgent,
   openWorkspacePicture,
 } from "./engineProbe.ts";
@@ -291,6 +298,14 @@ for (const size of [
     await openWorkspaceAgent(page);
     const panel = page.getByTestId("workspace-agent-panel");
     await expect(panel).toBeVisible();
+    if (size.width > 600) {
+      // The Agent sits beside the game and the editor, never over them.
+      const drawer = (await page.getByTestId("agent-drawer").boundingBox())!;
+      for (const part of [".shell-body--workspace > .play-area", ".workspace-editor"]) {
+        const box = (await page.locator(part).boundingBox())!;
+        expect(box.x + box.width, part).toBeLessThanOrEqual(drawer.x + 1);
+      }
+    }
     const header = panel.locator(".agent-panel__header");
     await expect(header).toBeVisible();
 
@@ -627,4 +642,231 @@ test("a review whose preview code cannot load still offers Approve", async ({ pa
   await expect
     .poll(async () => (await documents(page))["logic:1"])
     .toContain('said("look", "sign")');
+});
+
+test("an approved change shows at once in Create and again when Play resumes", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await panel.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  const input = page.getByTestId("input-line");
+  await input.focus();
+  if ((await textHook(page)).modal) {
+    await input.press("Enter");
+    await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  }
+  // Room 1's entry code places the hero at (80, 140); walk away from it, then stop.
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(95);
+  // Entering a room keeps the hero's walking direction, so the hero must stand still.
+  await expect
+    .poll(async () => {
+      const before = (await textHook(page)).egoX;
+      await page.waitForTimeout(250);
+      if ((await textHook(page)).egoX === before) return true;
+      await page.keyboard.press("ArrowRight");
+      return false;
+    })
+    .toBe(true);
+  await openWorkspaceAgent(page);
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  // The change to Room 1's LOGIC re-runs its entry code in Create.
+  await expect.poll(async () => (await textHook(page)).egoX).toBe(80);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  // Play resumes the walked-away moment, then re-enters Room 1 for the change.
+  await expect(page.getByTestId("return-note")).toHaveText(
+    "Room 1 started fresh with your changes.",
+  );
+  // The Agent is still open, so Play waits paused; closing it plays on.
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
+  await expect.poll(async () => (await textHook(page)).egoX).toBe(80);
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  await page.screenshot({ path: test.info().outputPath("play-resumes-with-change-1440.png") });
+});
+
+/** A new Room 2, then one approved Agent turn that writes its LOGIC: the result offers Show. */
+async function changeRoomTwo(page: Page): Promise<void> {
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `room-two-${requests}`,
+        status: "completed",
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "write",
+                  name: "write_logic",
+                  arguments: JSON.stringify({
+                    room: 2,
+                    source: 'if (said("look")) { print("Room two."); } return;',
+                  }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [],
+      }),
+    );
+  });
+  await start(page, "openai", false);
+  await addWorkspaceAction(page, "Add a room", { "Room name": "Grove" }, "world");
+  await expect.poll(async () => (await documents(page))["logic:2"]).toBeDefined();
+  // Play reaches the Meadow; Create opens on that moment, so Back has one to return to.
+  await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/#create\//);
+  await openWorkspaceAgent(page);
+  await page.getByTestId("agent-message").fill("Give room two a look answer");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect(page.getByTestId("agent-show-room")).toHaveText("Show Grove");
+}
+
+/** Hold the project's next save until `releaseSave` runs in the page. */
+async function holdSave(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: { getSession(): { flush(): Promise<unknown> } };
+      }
+    ).__AGI_PROJECT__.getSession();
+    const flush = session.flush.bind(session);
+    const held = Promise.withResolvers<void>();
+    session.flush = async () => {
+      Object.assign(window, { saveHeld: true });
+      await held.promise;
+      return flush();
+    };
+    Object.assign(window, {
+      releaseSave: () => {
+        session.flush = flush;
+        held.resolve();
+      },
+    });
+  });
+}
+
+async function releaseSave(page: Page): Promise<void> {
+  await page.evaluate(() => (window as unknown as { releaseSave(): void }).releaseSave());
+}
+
+test("Show Room takes the hero to a changed room, and Back returns", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await changeRoomTwo(page);
+  const before = await textHook(page);
+  expect(before.room).toBe(1);
+  await page.getByTestId("agent-show-room").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await page.screenshot({ path: test.info().outputPath("show-room-1440.png") });
+  await page.getByRole("button", { name: "Back to Meadow", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  expect((await textHook(page)).egoX).toBe(before.egoX);
+});
+
+// A Show clicked in Create answers that Create only: leaving it while the save
+// finishes cancels the visit, so Play stays where the player was.
+for (const back of [false, true]) {
+  test(`a Show Room still saving when Play opens${back ? " and Create returns" : ""} goes nowhere`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await changeRoomTwo(page);
+    await holdSave(page);
+    await page.getByTestId("agent-show-room").click();
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { saveHeld?: boolean }).saveHeld))
+      .toBe(true);
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await expect(page).toHaveURL(/#play\//);
+    if (back) {
+      await page.getByRole("radio", { name: "Create", exact: true }).click();
+      await expect(page).toHaveURL(/#create\//);
+    }
+    await releaseSave(page);
+    await observe(page);
+    expect((await textHook(page)).room).toBe(1);
+    await expect(page.getByRole("button", { name: "Back to Meadow", exact: true })).toHaveCount(0);
+  });
+}
+
+// An imported game keeps its LOGIC as compiled bytes. The review reads them as
+// the LOGIC editor does, so an Agent edit that adds one line shows one line,
+// not the whole file as new.
+test("an Agent edit to an imported game's LOGIC shows only the changed lines", async ({ page }) => {
+  const payload = assembleLogic(
+    'if (isset(f5)) { display(5, 4, "A carrot patch."); } accept.input(); return;',
+    { dictionary: new Map() },
+  ).payload;
+  const game = createContainer();
+  game.putResource("logic", 0, payload);
+  const zip = buildZip(
+    [...game.files]
+      .map(([name, data]) => ({ name, data }))
+      .concat([{ name: "WORDS.TOK", data: new Uint8Array(52) }]),
+  );
+  const before = disassembleLogic(payload, { profile: PROFILES["2.936"], dictionary: new Map() });
+  const edited = `${before}display(6, 4, m1);\n`;
+  expect(edited).not.toBe(before);
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `imported-${requests}`,
+        status: "completed",
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "write",
+                  name: "write_logic",
+                  arguments: JSON.stringify({ room: 0, source: edited }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [],
+      }),
+    );
+  });
+  await isolateStorage(page);
+  await page.goto("/");
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "carrots.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(zip),
+  });
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
+  await openWorkspaceAgent(page);
+  await page.getByTestId("agent-message").fill("Add a line about the carrots");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  const diff = page.getByTestId("agent-code-diff");
+  await expect.poll(() => diff.locator(".line-insert").count()).toBe(1);
+  expect(await diff.locator(".line-delete").count()).toBe(0);
 });

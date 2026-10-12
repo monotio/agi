@@ -460,6 +460,7 @@ async function onRecordSave(): Promise<void> {
   <div v-if="state.copyCreated" class="copy-created-anchor">
     <UiToast
       dismissible
+      timed
       class="copy-created-note"
       data-testid="copy-created-note"
       @dismiss="state.copyCreated = null"

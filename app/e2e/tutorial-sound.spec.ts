@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
+import { isolateStorage, textHook, waitForRoom } from "./engineProbe.ts";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 
 interface TutorialAudioProbe {
@@ -86,7 +87,7 @@ test("tutorial plays its opening and earned cues through the real sound worker a
   });
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect.poll(async () => (await audioState(page)).started).toEqual([1]);
   await expect.poll(async () => (await audioState(page)).contextStates).toContain("running");
   await expect.poll(async () => (await audioState(page)).outputs).toBeGreaterThan(0);

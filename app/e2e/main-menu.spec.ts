@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { configureAi, isolateStorage, openCreateAdventure, textHook } from "./engineProbe.ts";
 

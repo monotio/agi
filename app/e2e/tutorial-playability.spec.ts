@@ -1,11 +1,12 @@
-import { expect, test, type Page } from "@playwright/test";
-import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
+import { isolateStorage, textHook, waitForCycles, waitForRoom } from "./engineProbe.ts";
 
 test("tutorial walking speed commands change movement without a modal", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 
   const measure = async (speed: string | null): Promise<number> => {
     if (speed !== null) await command(page, speed);
@@ -77,7 +78,7 @@ test("tutorial walls and three exhibits work through the real browser controls",
   await page.setViewportSize({ width: 1000, height: 820 });
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("ArrowUp");
   await waitForCycles(page, 55);

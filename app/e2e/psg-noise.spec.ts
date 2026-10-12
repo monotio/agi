@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 
 test("a host stop cancels queued PSG volume writes while retaining the chip clock @webkit-desktop", async ({
   page,

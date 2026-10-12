@@ -358,7 +358,8 @@ export function createReplay(ctx: WorkerContext) {
     ctx.replay.isSeeking = false;
     ctx.replay.snapshots.clear();
     ctx.fns.rebaselineJournal();
-    ctx.run.cycle.paused = false;
+    // Live play takes the page's pause back from the recording.
+    ctx.run.cycle.paused = ctx.livePause;
     ctx.run.presentation.recentRing.reset();
     ctx.run.presentation.historyRing.reset();
     ctx.run.clocks.sound.reset(ctx.ports.now());

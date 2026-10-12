@@ -5,9 +5,9 @@ import {
   cacheGame,
   isolateStorage,
   openGameOptions,
+  savePlayProgress,
   surfaceBox,
   textHook,
-  savePlayProgress,
   waitForCycles,
   waitForRoom,
 } from "./engineProbe.ts";
@@ -24,7 +24,7 @@ async function bootTutorial(page: Parameters<typeof textHook>[0]): Promise<void>
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await waitForCycles(page, 2);
 }
 
@@ -224,7 +224,7 @@ test("reduced motion: the shell neither animates nor scrolls smoothly", async ({
   expect(await behaviors()).not.toContain("smooth");
   await page.keyboard.press("Escape");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   // Scoped component animations too: the key hint's settle, the resume caption.
   const animated = await page
     .locator(".app-container")

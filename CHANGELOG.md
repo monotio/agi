@@ -3,7 +3,50 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
-## [1.2.2] - Unreleased
+## [1.2.3] - 2026-10-12
+
+### Fixed
+
+- A change applied in Create shows at once. When it touches what the current
+  room uses, the room starts fresh so its entry code runs the new version. Since
+  1.2.1 Agent changes waited until the hero left the room. A picture the room
+  kept from the room before is not drawn again on entry, so a change to it asks
+  for a restart.
+- Returning to Play starts its room fresh when Create changed what that room
+  uses, and says so. Play, Back, From my game, Restart, a project restart and
+  Take control follow the pause the page shows. This also works when the room's
+  picture can no longer be rebuilt, such as a VIEW stamped into it losing the
+  frame it showed: Play keeps your progress instead of asking for a restart.
+- Play saves its progress as soon as the edited game has drawn, and periodic
+  saves continue when a busy browser runs the game's timer late.
+- An Agent panel opened in Create and kept open into Play pauses the game, as
+  opening it in Play does. Play no longer runs on while ignoring the keyboard,
+  and returning to Create lets the game run beside the panel again. While the
+  Agent holds Play, the play bar offers Resume, which closes the Agent and plays
+  on; however the Agent closes, the game takes the keyboard back.
+- A room that starts fresh for a change does so even while the game is paused,
+  so the change shows and Play's progress is saved; then the game waits.
+- In Create, the Agent sits beside the game and the editor instead of over
+  their right side, so an applied change is in view. On a phone it still
+  covers the screen.
+- The "Saved as your own copy" and "started fresh" notices close by themselves
+  after a few seconds, and stay up while the pointer rests on them.
+- A test recording that sees an applied change restart the room is marked
+  changed.
+- An applied change to another room offers Show Room N, which takes the hero
+  there.
+- An Agent change to an imported game's LOGIC shows only the lines it changed,
+  instead of the whole file as new. In a VIEW review a cel opens itself in the
+  editor, and suggested commands, checkpoint names and figure rows use one
+  named icon or the item itself instead of a text button repeated per item.
+- A restart notice says in plain words why a picture change needs one.
+- The Agent tells players to switch to Create to apply a change, the mode's name
+  in the workspace.
+- The SOUND and Launches editors no longer repeat their tab's name as a heading.
+- An installed older release of a catalog game is named by its release, such as
+  "Adventure Department 1.0", and keeps its own card beside the current one.
+
+## [1.2.2] - 2026-10-10
 
 ### Added
 

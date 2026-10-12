@@ -475,10 +475,14 @@ function handleCanvasDrag(event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="launch-editor" data-testid="launch-editor">
+  <div
+    class="launch-editor"
+    role="region"
+    :aria-label="`Launches · ${roomName}`"
+    data-testid="launch-editor"
+  >
     <header class="launch-editor__header">
       <div class="launch-editor__title-row">
-        <h2 class="launch-editor__title">Launches · {{ roomName }}</h2>
         <UiButton size="sm" variant="ghost" data-testid="launch-editor-done" @click="emit('close')"
           >Done</UiButton
         >
@@ -993,14 +997,8 @@ function handleCanvasDrag(event: MouseEvent): void {
 
 .launch-editor__title-row {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-}
-
-.launch-editor__title {
-  margin: 0;
-  font: var(--weight-bold) var(--text-md) / 1.2 var(--font-sans);
-  color: var(--ink);
 }
 
 .launch-editor__tabs {

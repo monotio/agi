@@ -256,7 +256,12 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       control({
         type: "engineState",
         id: msg.id,
-        state: ctx.run.engine ? ctx.run.engine.readState() : null,
+        state: ctx.run.engine
+          ? {
+              ...ctx.run.engine.readState(),
+              runtime: { paused: ctx.run.cycle.paused, cycle: ctx.run.cycle.cycleCount },
+            }
+          : null,
       });
       return;
     }
@@ -466,6 +471,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       };
       if ((boot.progressMode ?? (boot.projectMode === "create" ? "create" : "play")) === "create")
         prepared.progress = prepareCreateProgress(ctx, prepared);
+      // A boot starts a new game, and the page clears its pause holds with it.
+      ctx.livePause = false;
       replaceRun(ctx, "boot", prepared);
       if (restored) control(restored);
       ctx.fns.setKeyWaiting(engine.awaitingKey);
@@ -636,8 +643,9 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     if (msg.type === "projectPlay") {
       ctx.previewVisitSerial++;
       try {
-        returnToPlay(ctx, msg.restart);
-        if (msg.id !== undefined) control({ type: "projectPlayed", id: msg.id, ok: true });
+        const played = returnToPlay(ctx, msg.restart);
+        if (msg.id !== undefined)
+          control({ type: "projectPlayed", id: msg.id, ok: true, ...played });
       } catch (cause) {
         const reason = cause instanceof Error ? cause.message : String(cause);
         if (msg.id === undefined) throw cause;

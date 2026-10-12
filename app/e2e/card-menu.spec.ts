@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -15,7 +16,10 @@ import {
   savedGameCard,
   textHook,
   waitForAutosaveAfter,
+  waitForRoom,
 } from "./engineProbe.ts";
+
+test.use({ keepDetectedProfileOption: false });
 
 /**
  * The game card's play split button and ⋯ menu (S6). The primary button
@@ -64,7 +68,7 @@ async function seedOwnedGame(page: Page, key: string, title: string): Promise<vo
 /** Play the tutorial far enough to own a saved game, then leave it. */
 async function playTutorialOnce(page: Page): Promise<void> {
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("btn-exit").click();
 }
 

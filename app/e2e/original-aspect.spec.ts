@@ -1,10 +1,11 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import {
   isolateStorage,
   openGameOptions,
   surfaceBox,
-  textHook,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -13,7 +14,7 @@ import {
  * display only — the frame, and the mapping from a click to a frame
  * pixel, are unchanged.
  */
-async function screenRatio(page: Parameters<typeof textHook>[0]): Promise<number> {
+async function screenRatio(page: Page): Promise<number> {
   const box = await surfaceBox(page);
   return box.width / box.height;
 }
@@ -27,7 +28,7 @@ for (const viewport of [
     await isolateStorage(page);
     await page.goto("/");
     await page.getByTestId("catalog-play-adventure-department").click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await waitForRoom(page, 1, { coldBoot: true });
     await waitForCycles(page, 2);
     expect(await screenRatio(page)).toBeCloseTo(1.6, 1);
 

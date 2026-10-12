@@ -1,9 +1,12 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { isolateStorage, openGameOptions, openPlayMore, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { buildZip } from "../src/archive/zip.ts";
+
+test.use({ keepDetectedProfileOption: false });
 
 async function bootSoundGame(page: Page, profile = "amiga-2.310"): Promise<void> {
   await isolateStorage(page);

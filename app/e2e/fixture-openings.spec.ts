@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { fixtureSkip } from "../../test/fixtures.ts";
 import { OPENING_ROUTES, TITLE_SCREENS, openingRoute } from "../../test/speedrun/openings.ts";
 import { isolateStorage, revealFoldedBoot, textHook } from "./engineProbe.ts";

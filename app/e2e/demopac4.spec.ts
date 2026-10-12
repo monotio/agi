@@ -1,5 +1,5 @@
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { gameHint, isolateStorage, textHook } from "./engineProbe.ts";
 
 /**

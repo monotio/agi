@@ -5,13 +5,14 @@ import {
   configureAi,
   enterCreateMode,
   isolateStorage,
-  openWorkspaceAgent,
   openGameOptions,
+  openWorkspaceAgent,
   savedGameCard,
+  savePlayProgress,
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
-  savePlayProgress,
+  waitForRoom,
   workspaceSaved,
 } from "./engineProbe.ts";
 
@@ -71,7 +72,7 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
   await page.goto("/");
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
   await expect(page, "catalog cards must mount under their release identity").toHaveURL(
     new RegExp(`#play/${TUTORIAL_PROJECT_ID}$`),

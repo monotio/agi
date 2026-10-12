@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test.ts";
 import { fileURLToPath } from "node:url";
 
 for (const provider of ["openai", "anthropic"] as const) {

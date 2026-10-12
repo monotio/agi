@@ -168,4 +168,6 @@ test("Ask refuses a writer by its read-only list", async (t) => {
   const bodies = scriptProvider(t, "write_words", { words: ["lamp"], groups: null });
   await modelSession().runAsk("What is here?", 1);
   assert.match(toolResult(bodies), /Ask mode is read-only/);
+  // The player sees the editing mode as Create; the internal name never reaches them.
+  assert.match(toolResult(bodies), /switch to Create/);
 });

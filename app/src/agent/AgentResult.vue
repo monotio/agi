@@ -1,20 +1,43 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { AgentResult } from "../../../src/agent/chats.ts";
-import { documentLabel } from "../../../src/logic/numberedLabels.ts";
+import { documentLabel, numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import UiButton from "../ui/UiButton.vue";
-const { result } = defineProps<{ result: AgentResult }>();
-defineEmits<{ command: [command: string]; resource: [resource: string]; review: [] }>();
+const { result, showRooms = false } = defineProps<{ result: AgentResult; showRooms?: boolean }>();
+defineEmits<{
+  command: [command: string];
+  resource: [resource: string];
+  review: [];
+  room: [room: number];
+}>();
 const labels = useProjectLabels();
+const engine = useEngineApi();
+/** Applied changes to rooms other than the one on screen show once the hero goes there. */
+const elsewhere = computed(() => {
+  if (!showRooms || result.kind !== "changes" || result.status !== "applied") return [];
+  const rooms = new Set(labels.value.rooms?.map((entry) => entry.room));
+  return result.resources
+    .map((key) => /^logic:(\d+)$/.exec(key))
+    .map((match) => (match ? Number(match[1]) : -1))
+    .filter((room) => rooms.has(room) && room !== engine.currentRoom.value);
+});
 </script>
 <template>
   <div class="agent-result" data-testid="agent-result">
     <ul v-if="result.kind === 'commands'" class="agent-result__commands">
+      <!-- The command itself types into the game; no button per command. -->
       <li v-for="command in result.commands" :key="command">
-        <code>{{ command }}</code>
-        <UiButton size="sm" variant="ghost" @click="$emit('command', command)"
-          >Use command</UiButton
+        <button
+          type="button"
+          class="agent-result__command"
+          :aria-label="`Type ${command} into the game`"
+          :title="`Type ${command} into the game`"
+          @click="$emit('command', command)"
         >
+          <code>{{ command }}</code>
+        </button>
       </li>
     </ul>
     <table v-else-if="result.kind === 'table'">
@@ -51,14 +74,20 @@ const labels = useProjectLabels();
         >{{ documentLabel(resource, labels) }}</UiButton
       >
     </div>
-    <UiButton
-      v-else-if="result.kind === 'changes'"
-      size="sm"
-      variant="ghost"
-      data-testid="agent-view-result"
-      @click="$emit('review')"
-      >View changes</UiButton
-    >
+    <template v-else-if="result.kind === 'changes'">
+      <UiButton size="sm" variant="ghost" data-testid="agent-view-result" @click="$emit('review')"
+        >View changes</UiButton
+      >
+      <UiButton
+        v-for="room in elsewhere"
+        :key="room"
+        size="sm"
+        variant="ghost"
+        data-testid="agent-show-room"
+        @click="$emit('room', room)"
+        >Show {{ numberedLabel("room", room, labels) }}</UiButton
+      >
+    </template>
   </div>
 </template>
 <style scoped>
@@ -73,8 +102,21 @@ const labels = useProjectLabels();
 .agent-result__commands li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
+}
+.agent-result__command {
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.agent-result__command:hover,
+.agent-result__command:focus-visible {
+  border-color: var(--focus);
+  outline: none;
 }
 .agent-result table {
   width: 100%;

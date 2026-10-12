@@ -21,6 +21,7 @@ import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
 import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
 import { enterCreateRun } from "./resumePoint.ts";
+import { roomResourcesChanged } from "./roomChange.ts";
 import { installProjectRestart } from "./projectRestart.ts";
 import { detachedHost } from "./runSession.ts";
 import { prepareRoomLaunch, runRoomLaunch, type PreparedRoomLaunch } from "./roomLaunch.ts";
@@ -739,7 +740,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
           ...(launch
             ? {
                 rng: launch.rng,
-                paused: ctx.run.cycle.paused,
+                paused: ctx.livePause,
                 activate: launch.activate,
                 debug: launch.debug,
                 ...(launch.debugSession ? { debugSession: launch.debugSession } : {}),
@@ -826,16 +827,32 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       );
       return;
     }
-    const roomReentry =
+    let roomReentry =
       msg.mode === "reenter" ||
       (msg.mode === undefined &&
         !launchMetadataOnly &&
         ctx.run.projectAdmission === lane &&
         engine.continuationPending &&
         (engine.modalKind === "print" || engine.awaitingKey));
+    // An applied change shows at once: when it touches what the room has in
+    // use, the room re-enters after the swap, journaled in the same segment.
+    // An entry already waiting to run picks up the new bytes by itself.
+    const liveApply =
+      !roomReentry &&
+      msg.mode === undefined &&
+      !launchMetadataOnly &&
+      ctx.run.projectAdmission === lane;
+    const showChange =
+      liveApply &&
+      !engine.roomEntryPending &&
+      roomResourcesChanged(engine, engine.containerFiles, candidate.files);
     const commit = () =>
       roomReentry
         ? engine.commitRoomReentry(plan, () => {
+            // A test recording cannot replay the new resources or the entry.
+            const recording = ctx.run.recording.recording;
+            if (recording && recording.tainted === null)
+              recording.tainted = "Game resources changed during recording.";
             ctx.fns.historyEnd("resume");
             ctx.fns.setKeyWaiting(false);
             ctx.fns.abandonHostRequest();
@@ -847,7 +864,19 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
             sourceAuthorityChanged: sourceAuthorityChanged && !adoptingRoom && !launchMetadataOnly,
             messageWaiting: msg.mode === "keep",
           });
-    const result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
+    let result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
+    // A change the running room cannot take in place (a loaded VIEW's new
+    // layout, a VIEW stamped into the picture) enters the room with it
+    // instead of waiting for Re-enter room.
+    if (liveApply && result.status === "restartRequired" && result.roomReentry === true) {
+      roomReentry = true;
+      plan = engine.prepareRoomReentry(
+        candidate.profile === undefined
+          ? { files: candidate.files }
+          : { files: candidate.files, profile: candidate.profile },
+      );
+      result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
+    }
 
     if (result.status === "deferred") {
       // A busy boundary is a terminal, honest answer: nothing is queued,
@@ -923,6 +952,8 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       ctx.fns.historyResume();
       ctx.fns.postFrame(true);
     }
+    if (installed && showChange && !roomReentry && result.status === "committed")
+      ctx.fns.onReenter({ type: "reenter" });
     // A reload needs progress for these admitted bytes, even when the last
     // periodic checkpoint belongs to the image before the edit.
     if (ctx.run.projectAdmission === lane && result.status === "committed") ctx.fns.autosave(true);

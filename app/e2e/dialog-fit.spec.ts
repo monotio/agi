@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -13,6 +14,8 @@ import {
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
+
+test.use({ keepDetectedProfileOption: false });
 
 /**
  * On a phone every dialog keeps each of its buttons whole on screen: a footer

@@ -189,6 +189,12 @@ test("readState is a detached snapshot of the var and flag arrays", () => {
   assert.equal(engine.flags[200], 1);
 });
 
+test("roomResources names what the room's entry code has in use", () => {
+  const { engine } = bootedEngine();
+  // LOGIC 0 called room 1, whose init block loaded and drew PICTURE 1 and set VIEW 0.
+  assert.deepEqual(engine.roomResources(), { logic: [0, 1], picture: [1], view: [0] });
+});
+
 test("reenterRoom re-runs the room's init block after a live patch", () => {
   const { engine, host } = bootedEngine();
   assert.deepEqual(host.prints, ["You are in room one."]);

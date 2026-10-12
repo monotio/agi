@@ -13,6 +13,11 @@ import {
   waitForRoom,
 } from "./engineProbe.ts";
 
+/**
+ * A checkpoint at a still boundary. The raw pause bypasses the page, so it is
+ * released again unless the page holds a pause of its own: the page and the
+ * game must agree on whether it runs.
+ */
 async function checkpoint(page: Page): Promise<number[]> {
   return page.evaluate(async () => {
     const project = (
@@ -20,6 +25,8 @@ async function checkpoint(page: Page): Promise<number[]> {
     ).__AGI_PROJECT__;
     project.getWorker().postMessage({ type: "pause", paused: true });
     const image = await project.query("checkpoint");
+    if (!window.__AGI_STATE__?.paused)
+      project.getWorker().postMessage({ type: "pause", paused: false });
     if (!image) throw new Error("The game needs a checkpoint.");
     return [...image];
   });
@@ -217,7 +224,9 @@ test.describe("Play continuation", () => {
   });
 });
 
-test("a changed scan.start refuses exact return and Restart enters current files @webkit-desktop", async ({
+// A room whose own LOGIC resumed from scan.start starts fresh on its new code
+// when Play returns, keeping the player's place instead of asking for Restart.
+test("a room LOGIC changed after scan.start starts fresh when Play returns @webkit-desktop", async ({
   page,
   browserName,
 }) => {
@@ -271,29 +280,24 @@ test("a changed scan.start refuses exact return and Restart enters current files
     await shot(page, `return-before-${width}`, browserName);
   }
   await page.getByRole("radio", { name: "Play", exact: true }).click();
-  const notice = page.getByTestId("return-notice");
-  await expect(notice).toBeVisible();
-  await expect(notice).toContainText("LOGIC 1 changed after scan.start.");
-  await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("radio", { name: "Play", exact: true })).toHaveAttribute(
     "aria-checked",
     "true",
   );
+  const note = page.getByTestId("return-note");
+  await expect(note).toHaveText("Room 1 started fresh with your changes.");
+  await expect(page.getByTestId("return-notice")).toHaveCount(0);
+  await expect.poll(() => screenText(page)).toContain("New start");
+  expect((await textHook(page)).room).toBe(1);
   for (const [width, height] of [
     [1063, 815],
     [1440, 900],
     [390, 844],
   ] as const) {
     await page.setViewportSize({ width, height });
-    await expect(notice).toBeVisible();
+    await expect(note).toBeVisible();
     await shot(page, `return-after-${width}`, browserName);
   }
-  await notice.getByRole("button", { name: "Restart", exact: true }).click();
-  await expect(page.getByRole("radio", { name: "Play", exact: true })).toHaveAttribute(
-    "aria-checked",
-    "true",
-  );
-  await expect(notice).toBeHidden();
-  await expect.poll(() => screenText(page)).toContain("New start");
 });
 
 test("newest tab takes Play, rejects the old writer, and Take back survives closing the other tab @webkit-desktop", async ({
@@ -351,6 +355,10 @@ test("newest tab takes Play, rejects the old writer, and Take back survives clos
   await expect(other).toBeVisible();
   await expect(other).toContainText("This game is open in another tab.");
   await expect(notice).toBeHidden();
+  // Hold the game still the way a player does, so the page shows the pause the
+  // checkpoints below rely on.
+  await page.getByTestId("btn-transport-pause").click();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await checkpoint(page);
   // Establish the paused cycle's cadence before changing its image.
   expect(await flushCheckpoint(page)).toBe(true);

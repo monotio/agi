@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import {
   enterCreateMode,
   isolateStorage,
@@ -7,6 +7,7 @@ import {
   openWorkspaceAgent,
   savedGameCard,
   textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -164,7 +165,7 @@ test("library details stay concise and Add game is a secondary action", async ({
   });
   expect(await add.evaluate(appearance)).toEqual(secondary);
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
   const height = (await card.boundingBox())!.height;
@@ -241,7 +242,7 @@ test("keyboard focus draws one ring on page buttons and dialog buttons alike", a
   expect(await cancel.evaluate(ring), "a dialog button").toEqual(expected);
   await page.keyboard.press("Escape");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByRole("radio", { name: "Play", exact: true }).focus();
   await page.keyboard.press("Shift+Tab");
   const eject = page.getByTestId("btn-exit");

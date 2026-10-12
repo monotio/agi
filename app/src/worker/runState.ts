@@ -37,6 +37,7 @@ export function newRunSession(now: number): RunSession {
       lastCycleReportAt: 0,
       lastHistoryAt: 0,
       initialLogicStarted: false,
+      pausedEntry: false,
       lastInputReady: false,
       paused: false,
       pendingClock: null,
@@ -47,6 +48,7 @@ export function newRunSession(now: number): RunSession {
       lastAutosaveAt: 0,
       lastAutosaveCycle: -1,
       lastPatchGeneration: 0,
+      checkpointDue: false,
     },
     presentation: {
       recentRing: new FrameRing(100),

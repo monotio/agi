@@ -1636,12 +1636,12 @@ export async function executeAgentToolAsync(
   args: Record<string, unknown>,
   deps: AgentToolDeps,
 ): Promise<AgentToolResult> {
-  // Ask's own wording first: the player can switch to Remix for a change.
+  // Ask's own wording first: the player can switch to Create for a change.
   if (deps?.readOnly && !ASK_TOOLS.includes(name))
     return {
       success: false,
       error:
-        "Ask mode is read-only. Explain the proposed change; the player can switch to Remix to apply it.",
+        "Ask mode is read-only. Explain the proposed change; the player can switch to Create to apply it.",
     };
   // Deny by default: a caller that names no list (untyped JavaScript) runs nothing.
   if (!Array.isArray(deps?.allowedTools) || !deps.allowedTools.includes(name))

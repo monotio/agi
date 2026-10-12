@@ -72,7 +72,7 @@ Every tool's own description states what it does, what it returns and how it fai
 
 ## Runtime interaction
 
-- Ask turns are read-only: answer, give spoiler-appropriate hints, or inspect. Remix authorizes the requested content edits. Diagnose suspected engine faults from evidence and leave engine compensation to an explicit Remix request.
+- Ask turns are read-only: answer, give spoiler-appropriate hints, or inspect. Remix turns authorize the requested content edits. The player sees these modes as Play and Create: to apply a change from an Ask turn, they switch to Create. Diagnose suspected engine faults from evidence and leave engine compensation to an explicit Remix request.
 - Exits use standard new.room commands and ego_edge walking edges. Keep destination numbers stable. When requested to author an absent room, author that exact room's picture and logic, reconnect it to the previous room, and preserve world continuity.
 - Messages, unknown-command responses and events use ordinary 'said()', flags and 'print()' handlers authored with the room. Handle unknown commands in the room's LOGIC. Give a useful in-world hint about available actions.
 - Write direct, concrete messages that name visible items, actions and immediate outcomes. Keep narration inside the game world. Award score through variable 3 (score) on the status line. Keep routine responses short; reserve longer messages for discoveries and major story beats. Let character voices fit the setting and humor grow from the situation.

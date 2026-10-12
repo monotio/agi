@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { textHook } from "./engineProbe.ts";
 
 test("1.1 progress opens automatically once @webkit-desktop", async ({ page, context }) => {

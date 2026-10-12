@@ -1,11 +1,12 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
 import {
-  isolateStorage,
-  textHook,
   configureAi,
+  isolateStorage,
   openWorkspaceAgent,
   openWorkspacePicture,
+  textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { openWorkspaceLogic } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
@@ -122,7 +123,7 @@ for (const ending of ["closed", "reopened", "create-route"] as const) {
     await page.goto("/");
     await configureAi(page, { provider: "stub" });
     await page.getByTestId("catalog-play-adventure-department").click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await waitForRoom(page, 1, { coldBoot: true });
     await page.getByRole("button", { name: "Agent", exact: true }).click();
     await expect.poll(() => requested).toBe(true);
     const panel = page.getByTestId("workspace-agent-panel");
@@ -179,7 +180,7 @@ test("failed Agent module loading releases initialization and shows recovery @we
   await page.goto("/");
   await configureAi(page, { provider: "stub" });
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   await expect.poll(() => requested).toBe(true);
   const panel = page.getByTestId("workspace-agent-panel");
@@ -200,7 +201,7 @@ test("failed Agent module loading releases initialization and shows recovery @we
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
 
-test("agent drawer overlays the workspace without narrowing the editor in both arrangements @webkit-desktop", async ({
+test("agent drawer sits beside the editor in both arrangements @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -214,14 +215,10 @@ test("agent drawer overlays the workspace without narrowing the editor in both a
     const pressed = arrangement === "Side by side" ? "true" : "false";
     if ((await layout.getAttribute("aria-pressed")) !== pressed) await layout.click();
     await expect(layout).toHaveAttribute("aria-pressed", pressed);
-    const before = await editorBox(page);
     await openWorkspaceAgent(page);
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId("agent-message")).toBeFocused();
-    const after = await editorBox(page);
-    expect(after.width).toBe(before.width);
-    expect(after.height).toBe(before.height);
-    // The drawer hugs the right edge over the workspace, opaque.
+    // The drawer hugs the right edge, opaque, and the editor ends where it starts.
     const drawer = page.locator(".agent-drawer");
     await expect
       .poll(async () => {
@@ -232,6 +229,12 @@ test("agent drawer overlays the workspace without narrowing the editor in both a
     const box = (await drawer.boundingBox())!;
     expect(box.x + box.width).toBe(1440);
     expect(box.width).toBeGreaterThanOrEqual(400);
+    await expect
+      .poll(async () => {
+        const editor = await editorBox(page);
+        return editor.x + editor.width - box.x;
+      })
+      .toBeLessThanOrEqual(1);
     const bg = await drawer.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg).not.toBe("rgba(0, 0, 0, 0)");
     expect(bg).not.toBe("transparent");

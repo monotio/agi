@@ -740,10 +740,19 @@ function reject(): void {
 function close() {
   engine.closePowerUp();
   emit("close");
-  void nextTick().then(() => {
-    editor.returnFromAgent.value?.();
-    if (!creating.value) bridge.focusGameInput();
-  });
+  void nextTick().then(() => editor.returnFromAgent.value?.());
+}
+// However the Agent closes in Play (its ×, the bar's Resume, a finished map
+// build), the game takes the keyboard back.
+watch(
+  () => engine.state.powerUp.open,
+  (open, wasOpen) => {
+    if (wasOpen && !open && !creating.value) void nextTick().then(() => bridge.focusGameInput());
+  },
+);
+function showRoom(room: number): void {
+  const show = editor.showRoom.value;
+  if (show) void action(() => show(room));
 }
 function useCommand(command: string): void {
   close();
@@ -961,6 +970,8 @@ onBeforeUnmount(() => {
           <AgentResult
             v-if="message.result"
             :result="message.result"
+            :show-rooms="creating && editor.showRoom.value !== undefined"
+            @room="showRoom"
             @command="useCommand"
             @resource="openResult(message, $event)"
             @review="openResult(message)"
@@ -1159,13 +1170,13 @@ onBeforeUnmount(() => {
           >
             <header>
               <h4>{{ documentLabel(change.key, labels) }}</h4>
-              <UiButton
+              <UiIconButton
                 v-if="change.content !== null && (props.session || engine.getProjectSession())"
+                icon="folder-open"
                 size="sm"
-                variant="ghost"
+                :label="`Open ${documentLabel(change.key, labels)}`"
                 @click="openResource(resultMessage, change.key, true)"
-                >Open current resource</UiButton
-              >
+              />
             </header>
             <Suspense>
               <AgentResourceReview

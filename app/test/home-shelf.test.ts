@@ -5,6 +5,7 @@ import { GAME_CATALOG } from "../src/library/gameCatalog.ts";
 import { formatRelativeTime } from "../src/home/relativeTime.ts";
 import {
   coalescesInstalled,
+  installedShelfTitle,
   isInstalledCatalogCopy,
   parentDisplayTitle,
   releaseName,
@@ -209,6 +210,37 @@ test("an installed fixture folds into the catalog card only as the verified rele
   const { revision: _rev, ...legacy } = installedTutorial();
   assert.equal(isInstalledCatalogCopy(legacy, entry), false);
   assert.equal(isInstalledCatalogCopy({ ...legacy, alias: "other-alias" }, entry), false);
+});
+
+test("an installed older release is titled with its release and keeps its own card", () => {
+  // Older tutorial releases stay separate entries, never folded into the
+  // current tutorial, and each is named by its release.
+  const entry = GAME_CATALOG[0]!;
+  const older = (alias: string): InstalledGameDescriptor =>
+    installedTutorial({
+      alias,
+      folder: alias,
+      hash: getKnownGameByAlias(alias)!.wordsSha256,
+      revision: getKnownGameByAlias(alias)!.targetRevision,
+    });
+  const v10 = older("adventure-department-1.0");
+  assert.equal(installedShelfTitle(v10, GAME_CATALOG), "Adventure Department 1.0");
+  assert.equal(isInstalledCatalogCopy(v10, entry), false);
+  const v11 = older("adventure-department-1.1");
+  assert.equal(installedShelfTitle(v11, GAME_CATALOG), "Adventure Department 1.1");
+  assert.equal(isInstalledCatalogCopy(v11, entry), false);
+  // The current release, a renamed copy, a changed bundle, an unverified
+  // descriptor and a declared remix all keep their own title.
+  assert.equal(installedShelfTitle(installedTutorial(), GAME_CATALOG), "Adventure Department");
+  assert.equal(installedShelfTitle({ ...v10, title: "My gallery" }, GAME_CATALOG), "My gallery");
+  assert.equal(
+    installedShelfTitle({ ...v10, revision: testRevision("other-volumes") }, GAME_CATALOG),
+    "Adventure Department",
+  );
+  const { revision: _rev, ...unverified } = v10;
+  assert.equal(installedShelfTitle(unverified, GAME_CATALOG), "Adventure Department");
+  const remix = { ...v10, parent: { project: testProjectId("tutorial"), revision: v10.revision! } };
+  assert.equal(installedShelfTitle(remix, GAME_CATALOG), "Adventure Department");
 });
 
 test("a saved project coalesces with an installed instance only on symmetric interpreter evidence", () => {

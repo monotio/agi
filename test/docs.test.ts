@@ -69,3 +69,15 @@ test("public documentation local links resolve", () => {
   }
   assert.deepEqual(broken, []);
 });
+
+test("the changelog dates every release, starting with the package version", () => {
+  const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
+  const { version } = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+    version: string;
+  };
+  const headings = [...changelog.matchAll(/^## \[([^\]]+)\] - (.+)$/gm)];
+  // docs/hosting.md: a release pull request dates its entry on the day it opens.
+  assert.equal(headings[0]?.[1], version, "the newest entry names the package version");
+  for (const [, release, date] of headings)
+    assert.match(date!, /^\d{4}-\d{2}-\d{2}$/, `${release} carries a release date`);
+});

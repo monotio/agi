@@ -1,14 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import {
-  gameHint,
   cacheGame,
+  gameHint,
+  isolateStorage,
   openDeveloperActivity,
   openLibraryActions,
-  isolateStorage,
   openSavedGameDetails,
   savedGameCard,
   textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 import { buildTutorial } from "../../games/adventure-department/game.ts";
@@ -139,7 +140,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   });
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("input-line").fill("east");
   await page.getByTestId("input-line").press("Enter");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
@@ -337,7 +338,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   const originalProjectId = await page.evaluate(
@@ -423,7 +424,7 @@ test("the tutorial is one card that carries its progress, ahead of equal-height 
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("btn-exit").click();
   // One card per game: the tutorial's stored copy is the tutorial card, with its progress.
   const original = savedGameCard(page, "Adventure Department");

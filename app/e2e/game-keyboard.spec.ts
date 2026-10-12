@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { textHook } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {

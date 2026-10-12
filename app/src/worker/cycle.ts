@@ -161,8 +161,36 @@ export function createCycle(ctx: WorkerContext) {
         const parked = obs?.sound ?? ctx.run.clocks.sound.advance(now, true);
         for (let i = 0; i < parked; i++) recordedClock();
         ctx.run.clocks.cycle.poll(now, engine.vars[10]!, true);
-        return false;
+        // A room entry the host began still draws the room under a pause, so
+        // a change shows, and Play's save has its room, while the game waits.
+        // A recording whose poll ran no cycle replays it the same way; an armed
+        // pass counts once when it completes and its yielded remainder runs on
+        // the next paused polls, as a cycle poll's would.
+        const owed =
+          engine.roomEntryPending || (ctx.run.cycle.pausedEntry && engine.executionYieldPending);
+        if (
+          !owed ||
+          obs?.cycle === false ||
+          !ctx.run.cycle.paused ||
+          !ctx.run.owner.active ||
+          ctx.fns.debugStoppedHeld()
+        )
+          return false;
+        if (engine.executionControlActive) {
+          const completed = tickEngine();
+          ctx.run.cycle.pausedEntry = !completed && engine.executionYieldPending;
+          ctx.fns.noteTransition();
+          ctx.fns.flushTraceBatch();
+          ctx.fns.postFrame(completed);
+          return completed;
+        }
+        ctx.run.cycle.pausedEntry = false;
+        tickEngine();
+        finishCycle();
+        ctx.fns.postFrame(true);
+        return true;
       }
+      ctx.run.cycle.pausedEntry = false;
       // pause freezes the original pacing counter; ordinary modal waits do not.
       if (engine.timerPaused) ctx.run.clocks.cycle.freeze(now);
       else ctx.run.clocks.cycle.advance(now);
@@ -256,7 +284,11 @@ export function createCycle(ctx: WorkerContext) {
         egoY: scalars.egoY,
         delay: ctx.run.engine.vars[10]!,
       });
-    } else if (now - ctx.run.autosave.lastAutosaveAt >= ctx.run.autosave.autosaveIntervalMs)
+    }
+    // Checkpoints never wait on the report: a late poll timer would otherwise
+    // starve them. An owed checkpoint takes the poll's one capture attempt.
+    if (ctx.run.autosave.checkpointDue) ctx.fns.autosave(true);
+    else if (now - ctx.run.autosave.lastAutosaveAt >= ctx.run.autosave.autosaveIntervalMs)
       ctx.fns.autosave(false);
   }
 
@@ -284,7 +316,8 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   function onPause(msg: Inbound<"pause">): void {
-    ctx.run.cycle.paused = msg.paused === true;
+    ctx.livePause = msg.paused === true;
+    ctx.run.cycle.paused = ctx.livePause;
     // An adopted session carries its recorded clock across the parked
     // interval: restoring it at adopt time would lose the accumulators to
     // the first parked poll, so it lands now — once, on release.

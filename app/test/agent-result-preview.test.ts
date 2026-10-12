@@ -3,8 +3,11 @@ import test from "node:test";
 import {
   compileCapturedResource,
   capturedResourceDocuments,
+  reviewText,
 } from "../src/agent/agentResultPreview.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { derivedLogicSource } from "../src/studio/logic/logicWorkspace.ts";
 import type { ProjectContent } from "../../src/authoring/projectContent.ts";
 
 test("a malformed captured dependency does not hide valid sibling native bytes", () => {
@@ -138,4 +141,18 @@ test("resource snapshots validate their own content and preserve legacy snapshot
       /captured resource/,
     );
   }
+});
+
+test("a review reads an imported LOGIC's bytes as the editor shows them", () => {
+  const profile = PROFILES["2.936"];
+  const words = '[["look",10]]';
+  const payload = assembleLogic('if (said("look")) { print("A carrot patch."); } return;', {
+    dictionary: new Map([["look", 10]]),
+  }).payload;
+  const text = reviewText("logic:16", payload, { words }, profile)!;
+  assert.equal(text, derivedLogicSource(payload, "2.936", [["look", 10]]).source);
+  assert.match(text, /said\("look"\)/);
+  assert.equal(reviewText("logic:16", "return;", { words }, profile), "return;");
+  assert.equal(reviewText("picture:1", payload, { words }, profile), undefined);
+  assert.equal(reviewText("logic:16", undefined, { words }, profile), undefined);
 });

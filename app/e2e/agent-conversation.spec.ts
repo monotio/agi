@@ -4,6 +4,7 @@ import {
   configureAi,
   textHook,
   openWorkspaceAgent,
+  waitForGameInput,
   workspaceSaved,
 } from "./engineProbe.ts";
 import {
@@ -151,9 +152,7 @@ for (const width of [1440, 390]) {
     await expect(result.getByTestId("agent-earlier-version")).toBeVisible();
     await expect(result.getByTestId("agent-code-diff")).not.toContainText("Later human edit");
     await expect(result.getByTestId("agent-approve")).toHaveCount(0);
-    await expect(
-      result.getByRole("button", { name: "Open current resource", exact: true }).first(),
-    ).toBeVisible();
+    await expect(result.getByRole("button", { name: /^Open / }).first()).toBeVisible();
     await result.getByRole("button", { name: "Back to chat", exact: true }).click();
     await expect(composer).toHaveValue("My next question stays here");
   });
@@ -220,7 +219,10 @@ test("captured view opens a cel in the already-mounted native editor @webkit-des
   await expect(result.getByTestId("agent-earlier-version")).toHaveCount(0);
   const loop = view.locator("details").nth(2);
   await loop.locator("summary").click();
-  await loop.getByRole("button", { name: "Open current cel", exact: true }).nth(1).click();
+  // Each cel is itself the button that opens it.
+  await loop
+    .getByRole("button", { name: "Open loop 2, cel 1 in the VIEW editor", exact: true })
+    .click();
   await expect(result).toBeHidden();
   await expect(studio.getByRole("button", { name: "Loop 2, cel 1", exact: true })).toHaveAttribute(
     "aria-pressed",
@@ -230,8 +232,7 @@ test("captured view opens a cel in the already-mounted native editor @webkit-des
   await view
     .locator("details")
     .first()
-    .getByRole("button", { name: "Open current cel", exact: true })
-    .first()
+    .getByRole("button", { name: "Open loop 0, cel 0 in the VIEW editor", exact: true })
     .click();
   await expect(studio.getByRole("button", { name: "Loop 0, cel 0", exact: true })).toHaveAttribute(
     "aria-pressed",
@@ -485,4 +486,35 @@ test("first Agent save failure keeps its owner, draft and retry available @webki
   await expect(page.getByTestId("agent-retry-save")).toHaveCount(0);
   await page.getByRole("button", { name: "Chats", exact: true }).click();
   await expect(page.getByRole("button", { name: "Untitled chat", exact: true })).toHaveCount(1);
+});
+
+// An open Agent pauses Play, never Create, however it opened: a panel carried
+// into Play pauses the game as opening it there does, so the bar never shows a
+// running game whose keyboard the panel holds, and Create's game keeps running
+// beside it so applied changes show.
+test("an open Agent pauses Play, never Create, until it closes", async ({ page }) => {
+  await starter(page);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  expect((await textHook(page)).paused).toBe(false);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect(panel.getByTestId("agent-message")).toHaveAttribute(
+    "placeholder",
+    "Ask about this game…",
+  );
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  await expect(page.getByRole("textbox", { name: "Game command", exact: true })).toBeDisabled();
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/#create\//);
+  await expect(panel).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  // The bar says what the game is doing: Resume closes the Agent and plays on.
+  const resume = page.getByTestId("btn-transport-resume");
+  await expect(resume).toHaveAccessibleName("Resume");
+  await resume.click();
+  await expect(panel).toBeHidden();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  await waitForGameInput(page);
 });

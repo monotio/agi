@@ -18,7 +18,7 @@
  * Measured values print to the test log so a regression reads against the
  * numbers, not just the assertions.
  */
-import { expect, test, devices } from "@playwright/test";
+import { expect, test, devices } from "./test.ts";
 import { stampBoot, type HistoryBoot } from "../../src/agent/history.ts";
 
 test.use({ ...devices["Moto G4"] });

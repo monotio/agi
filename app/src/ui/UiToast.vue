@@ -1,21 +1,55 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted } from "vue";
 import UiIconButton from "./UiIconButton.vue";
 
 /**
  * A transient notice over the stage: it slides up into place (the motion
  * recipe's toast), never takes focus and never blocks the game. The slot is
  * the message and any inline action; `dismissible` adds the × that emits
- * `dismiss`. `tone` tints the edge: warn for "something changed under you".
+ * `dismiss`, and `timed` also emits it after a few seconds while neither the
+ * pointer nor focus rests on the notice. `tone` tints the edge: warn for
+ * "something changed under you".
  */
-const { tone = "neutral", dismissible = false } = defineProps<{
+const {
+  tone = "neutral",
+  dismissible = false,
+  timed = false,
+} = defineProps<{
   tone?: "neutral" | "warn";
   dismissible?: boolean;
+  timed?: boolean;
 }>();
-defineEmits<{ dismiss: [] }>();
+const emit = defineEmits<{ dismiss: [] }>();
+
+const NOTICE_MS = 6000;
+// Browser tests keep timed notices up unless a test sets their duration.
+const noticeMs = () => (import.meta.env.MODE === "test" ? window.__AGI_NOTICE_MS__ : NOTICE_MS);
+const holds = new Set<"pointer" | "focus">();
+let timer: ReturnType<typeof setTimeout> | undefined;
+function restart(): void {
+  clearTimeout(timer);
+  const ms = noticeMs();
+  if (timed && holds.size === 0 && ms !== undefined) timer = setTimeout(() => emit("dismiss"), ms);
+}
+function hold(by: "pointer" | "focus", held: boolean): void {
+  if (held) holds.add(by);
+  else holds.delete(by);
+  restart();
+}
+onMounted(restart);
+onBeforeUnmount(() => clearTimeout(timer));
 </script>
 
 <template>
-  <p class="ui-toast" :class="[`ui-toast--${tone}`]" role="status">
+  <p
+    class="ui-toast"
+    :class="[`ui-toast--${tone}`]"
+    role="status"
+    @pointerenter="hold('pointer', true)"
+    @pointerleave="hold('pointer', false)"
+    @focusin="hold('focus', true)"
+    @focusout="hold('focus', false)"
+  >
     <span class="ui-toast__body"><slot /></span>
     <UiIconButton
       v-if="dismissible"

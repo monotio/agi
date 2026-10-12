@@ -16,6 +16,7 @@ import { detachedHost, replaceRun, type PreparedRun } from "./runSession.ts";
 import { newRunSession } from "./runState.ts";
 import { configureSessionTiming } from "./session.ts";
 import { createHistory } from "./history.ts";
+import { roomResourcesChanged } from "./roomChange.ts";
 import type { WorkerContext } from "./context.ts";
 
 /** A Create boot owns its return point before any callback can execute the candidate. */
@@ -88,6 +89,12 @@ export function adoptResumePoint(
     tick?: number;
     debug?: boolean;
     returnToPlay?: boolean;
+    /**
+     * Restore the moment on the files it was captured with, then enter its
+     * room on the current ones: for a picture whose replay names parts the
+     * edited files no longer have, when the room's own parts changed.
+     */
+    freshEntry?: boolean;
     from?: { segment: string; seq: number; tick: number } | null;
   },
 ): void {
@@ -95,7 +102,8 @@ export function adoptResumePoint(
   const recordedFiles = new Map(
     Object.entries(boot.files).map(([name, data]) => [name, base64ToBytes(data)]),
   );
-  const files = options.currentFiles ? ctx.run.engine!.containerFiles : recordedFiles;
+  const live = options.currentFiles ? ctx.run.engine!.containerFiles : recordedFiles;
+  const files = options.freshEntry ? recordedFiles : live;
   const profile = options.currentFiles ? ctx.run.engine!.profile : boot.profile;
   if (
     options.currentFiles &&
@@ -104,8 +112,8 @@ export function adoptResumePoint(
   )
     throw new Error("The interpreter profile changed.");
   const dictionary = options.currentFiles
-    ? files.get("WORDS.TOK")
-      ? stageDictionary(files.get("WORDS.TOK")!)
+    ? live.get("WORDS.TOK")
+      ? stageDictionary(live.get("WORDS.TOK")!)
       : new Map<string, number>()
     : new Map(boot.dictionary);
   const facade = detachedHost(ctx, boot.soundDevice);
@@ -152,7 +160,8 @@ export function adoptResumePoint(
     }
   }
   if (options.currentFiles) {
-    const after = openContainer(files, { profile: candidate.profile });
+    // A message still waiting keeps refusing a changed LOGIC, fresh entry or not.
+    const after = openContainer(live, { profile: candidate.profile });
     const imageContinuation =
       boot.image === undefined ? null : decodeHostImage(base64ToBytes(boot.image)).continuation;
     for (const continuation of [imageContinuation, boot.replay?.continuation]) {
@@ -163,17 +172,20 @@ export function adoptResumePoint(
       }
     }
   }
-  if (boot.image !== undefined)
-    candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
-  else candidate.flags[9] = 1;
-  if (boot.menus !== undefined) candidate.restoreMenuState(boot.menus);
-  if (boot.replay !== undefined)
-    candidate.restoreReplayState({
-      ...boot.replay,
-      patchGeneration: options.currentFiles
-        ? ctx.run.engine!.patchGeneration
-        : boot.replay.patchGeneration,
-    });
+  const restoreOnto = (engine: Engine) => {
+    if (boot.image !== undefined)
+      engine.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
+    else engine.flags[9] = 1;
+    if (boot.menus !== undefined) engine.restoreMenuState(boot.menus);
+    if (boot.replay !== undefined)
+      engine.restoreReplayState({
+        ...boot.replay,
+        patchGeneration: options.currentFiles
+          ? ctx.run.engine!.patchGeneration
+          : boot.replay.patchGeneration,
+      });
+  };
+  restoreOnto(candidate);
   if (!options.currentFiles) {
     if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
       throw new Error(`History fingerprint ${boot.fingerprint.v} is unavailable.`);
@@ -187,6 +199,16 @@ export function adoptResumePoint(
     if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
     if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
       throw new Error("The saved moment could not be reproduced.");
+  }
+  if (options.freshEntry) {
+    if (!roomResourcesChanged(candidate, recordedFiles, live))
+      throw new Error("The room's own parts did not change.");
+    // The detached candidate takes the current files and owes its room entry
+    // before anything is replaced: a refusal leaves Create as it was, and the
+    // admission, boot files and debugger below all bind to the final image.
+    const entered = candidate.commitRoomReentry(candidate.prepareRoomReentry({ files: live }));
+    if (entered.status !== "committed")
+      throw new Error(entered.reason ?? "The room could not start fresh.");
   }
   const project = options.currentFiles ? ctx.boot.project : boot.project;
   const admission = ctx.projectLoader.prepareReplacement?.(candidate, project) ?? null;
@@ -233,13 +255,21 @@ export function adoptResumePoint(
   });
   ctx.history.resumedFrom = options.from ?? null;
   ctx.fns.setKeyWaiting(candidate.awaitingKey);
+  // The owed entry is the room's next transition; the resumed segment boots
+  // once that entry has drawn the room on the current files.
+  if (options.freshEntry) ctx.fns.markReenter();
   ctx.fns.historyResume();
   ctx.fns.postFrame(true);
 }
 
-export function returnToPlay(ctx: WorkerContext, restart = false): void {
+/**
+ * Play continues from the moment Create captured, on the current files. A
+ * change to what that room has in use re-enters it, so Play shows the change;
+ * the result names the room that started fresh.
+ */
+export function returnToPlay(ctx: WorkerContext, restart = false): { restartedRoom?: number } {
   const progress = ctx.run.progress;
-  if (progress.mode === "play") return;
+  if (progress.mode === "play") return {};
   if (ctx.replay.replay || ctx.view.drive)
     throw new Error("Play needs the live game. Leave the replay or history view first.");
   if (restart) {
@@ -252,28 +282,51 @@ export function returnToPlay(ctx: WorkerContext, restart = false): void {
       project: ctx.boot.project,
       rng: prepared.rng,
       activate: prepared.activate,
-      paused: false,
+      paused: ctx.livePause,
       progress: { mode: "play" },
       scratchSlots: {},
     });
     runRoomLaunch(ctx, prepared);
     ctx.fns.autosave(true);
-    return;
+    return {};
   }
+  // The pause holds belong to the page, not to the captured moment, and the
+  // page never hears of a restored pause.
+  const options = {
+    currentFiles: true,
+    paused: ctx.livePause,
+    cycle: progress.cycle,
+    tick: progress.tick,
+    returnToPlay: true,
+  };
+  let fresh = false;
   try {
-    adoptResumePoint(ctx, progress.returnPoint, {
-      currentFiles: true,
-      paused: progress.returnPoint.clock?.paused ?? false,
-      cycle: progress.cycle,
-      tick: progress.tick,
-      returnToPlay: true,
-    });
+    adoptResumePoint(ctx, progress.returnPoint, options);
   } catch (cause) {
-    throw new Error(
-      `${cause instanceof Error ? cause.message : String(cause)} Choose Restart to play from the beginning.`,
-      { cause },
-    );
+    // The captured picture may not replay on the edited files. When the room's
+    // own parts changed, it starts fresh from the captured moment instead.
+    try {
+      if (progress.returnPoint.image === undefined) throw cause;
+      adoptResumePoint(ctx, progress.returnPoint, { ...options, freshEntry: true });
+      fresh = true;
+    } catch {
+      throw new Error(
+        `${cause instanceof Error ? cause.message : String(cause)} Choose Restart to play from the beginning.`,
+        { cause },
+      );
+    }
   }
+  const engine = ctx.run.engine!;
+  const captured = new Map(
+    Object.entries(progress.returnPoint.files).map(([name, data]) => [name, base64ToBytes(data)]),
+  );
+  // A cold return point boots the edited files from the start: no room ran yet.
+  const restarted =
+    fresh ||
+    (progress.returnPoint.image !== undefined &&
+      roomResourcesChanged(engine, captured, engine.containerFiles));
+  if (restarted && !fresh) ctx.fns.onReenter({ type: "reenter" });
   ctx.previewVisitSerial++;
   ctx.fns.autosave(true);
+  return restarted ? { restartedRoom: engine.vars[0]! } : {};
 }

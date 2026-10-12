@@ -457,3 +457,39 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   // The picture's own source: nothing says Rebuilt.
   await expect(page.locator(".workspace-status").getByTestId("studio-source-kind")).toHaveCount(0);
 });
+
+// The copy and fresh-room notices are toasts: each closes by itself, and stays
+// up while the pointer rests on it.
+test("the copy and fresh-room notices close by themselves", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__AGI_NOTICE_MS__ = 1000;
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await enterCreateMode(page);
+  await openWorkspacePicture(page, 1);
+  const studio = page.getByTestId("room-studio");
+  await page.keyboard.press("2");
+  await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
+  await studio.locator('[role="treeitem"][data-row]').first().click();
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("ArrowUp");
+  await workspaceUpdated(page);
+  const copyNote = page.getByTestId("copy-created-note");
+  await expect(copyNote).toBeVisible();
+  await expect(copyNote).toHaveCount(0, { timeout: 5_000 });
+  await closeWorkspaceEditor(page);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  const returnNote = page.getByTestId("return-note");
+  await expect(returnNote).toHaveText("Room 1 started fresh with your changes.");
+  await returnNote.hover();
+  await page.waitForTimeout(2_000);
+  await expect(returnNote).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(returnNote).toHaveCount(0, { timeout: 5_000 });
+  // The update note reported that Create visit; the next one starts without it.
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/#create\//);
+  await expect(page.getByTestId("workspace-updated")).toHaveCount(0);
+});

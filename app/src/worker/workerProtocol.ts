@@ -603,7 +603,7 @@ export type WorkerControl =
     }
   | { type: "error"; message: string; id?: number }
   | { type: "frames"; id: number; source: "history" | "recent"; frames: RingFrame[] }
-  | { type: "engineState"; id: number; state: EngineStateReport | null }
+  | { type: "engineState"; id: number; state: WorkerStateReport | null }
   | { type: "objects"; id: number; objects: ScreenObjectState[] }
   | { type: "debugWritten"; id: number; error?: string }
   /** ok: ego stands at the spot; otherwise `reason`, and where the game is now. */
@@ -861,6 +861,8 @@ export type WorkerControl =
       id: number;
       ok: boolean;
       reason?: string;
+      /** The room Play re-entered because a change touched what it had in use. */
+      restartedRoom?: number;
     }
   | {
       type: "projectCreated";
@@ -1005,6 +1007,11 @@ interface HistoryViewDivergence {
   expected?: string;
   actual?: string;
 }
+
+/** The engine's state plus the worker's own scheduling of it. */
+type WorkerStateReport = EngineStateReport & {
+  runtime: { paused: boolean; cycle: number };
+};
 
 /** Every message the worker may post. */
 export type WorkerOutbound = WorkerControl | WorkerPresentation;

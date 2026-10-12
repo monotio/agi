@@ -356,7 +356,7 @@ test("restart recompiles current documents before replacing the run; invalid sou
   }
 });
 
-test("session offers room re-entry for a loaded VIEW layout, keeps its token and global state, and records executable candidate files", async () => {
+test("a loaded VIEW layout change re-enters the room at once, keeps its token and global state, and records executable candidate files", async () => {
   const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
   const f = await fixture("reenter-view", {
     "logic:0":
@@ -372,9 +372,7 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
       "view:0",
       JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }, { cels: [cel] }] }),
     );
-    assert.equal(result.status, "restartRequired");
-    assert.equal(f.session.capture().pendingRestart?.action, "reenter");
-    assert.equal((await f.session.reenterRoom())?.status, "committed");
+    assert.equal(result.status, "committed");
     assert.equal(f.ctx.run.engine, old);
     assert.equal(f.session.runToken, token);
     assert.equal(f.session.pendingRestart, null);
@@ -410,11 +408,193 @@ test("session offers room re-entry for a loaded VIEW layout, keeps its token and
     );
     await f.session.flush();
     assert.equal(f.session.history.capture().commits.length, 2);
-    assert.equal((await f.session.undo())?.status, "restartRequired");
-    assert.equal(f.session.capture().pendingRestart?.action, "reenter");
-    assert.equal((await f.session.reenterRoom())?.status, "committed");
+    assert.equal((await f.session.undo())?.status, "committed");
+    assert.equal(f.session.pendingRestart, null);
     old.tick();
     assert.equal(old.getPresentation().visual[100 * 160 + 40], 14);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+/**
+ * Let a room entry still to run take its pass, then wait for the edits that
+ * waited for it (the session retries a deferred admission) to settle.
+ */
+async function settle(f: Awaited<ReturnType<typeof fixture>>): Promise<void> {
+  f.tick();
+  if (!f.session.capture().pendingAdmission) return;
+  await new Promise<void>((resolve) => {
+    const off = f.session.subscribe(() => {
+      if (f.session.capture().pendingAdmission) return;
+      off();
+      resolve();
+    });
+  });
+}
+
+test("quick edits in a row all land once the room's restart has run", async () => {
+  // Undo and Redo send edits faster than the game runs a cycle; each one must
+  // reach the running game, or Play resumes on an older version of the project.
+  // Edits the screen cannot take while the room's entry is still to run wait
+  // for it, then land on what the entry drew.
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("reenter-quick", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); load.view(0); animate.obj(o0); set.view(o0,0); position(o0,40,100); draw(o0); stop.motion(o0); } return;",
+    "view:0": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    assert.equal((await f.edit("picture:0", "vis 4\nfill 1,1\nend\n")).status, "committed");
+    assert.equal(
+      (
+        await f.edit(
+          "view:0",
+          JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [2, 2, 2, 2] }] }] }),
+        )
+      ).status,
+      "committed",
+    );
+    assert.equal((await f.edit("picture:0", "vis 5\nfill 1,1\nend\n")).status, "committed");
+    await settle(f);
+    f.tick();
+    f.tick();
+    const visual = f.ctx.run.engine!.getPresentation().visual;
+    assert.equal(visual[100 * 160 + 40], 2, "the hero shows the last VIEW edit");
+    assert.equal(visual[50 * 160 + 100], 5, "the room shows the last PICTURE edit");
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+// Room 1 keeps the picture room 0 drew, so entering it again would not draw an
+// edit to that picture: the edit asks for a restart and the game keeps its bytes.
+const INHERITED_BACKDROP = {
+  "logic:0":
+    "if (isset(f5)) { if (equaln(v0,0)) { load.pic(0); draw.pic(0); show.pic(); new.room(1); } } if (equaln(v0,1)) { call(1); } return;",
+  "logic:1": "if (isset(f5)) { increment(v90); } return;",
+};
+
+test("a picture edit in a room that kept the previous picture asks for a restart", async () => {
+  const f = await fixture("inherited-backdrop", INHERITED_BACKDROP);
+  try {
+    const engine = f.ctx.run.engine!;
+    assert.equal(engine.vars[0], 1);
+    assert.equal(engine.vars[90], 1);
+    assert.equal(engine.getPresentation().visual[50 * 160 + 100], 1);
+    const before = new Map([...engine.containerFiles].map(([key, bytes]) => [key, bytes.slice()]));
+    const result = await f.edit("picture:0", "vis 3\nfill 1,1\nend\n");
+    assert.equal(result.status, "restartRequired");
+    f.tick();
+    f.tick();
+    const after = f.ctx.run.engine!;
+    assert.equal(after.vars[90], 1, "the room was not entered again");
+    assert.deepEqual(after.containerFiles, before, "the game keeps its picture bytes");
+    assert.equal(after.getPresentation().visual[50 * 160 + 100], 1);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("a picture edit right after a room code edit in that room asks for a restart", async () => {
+  const f = await fixture("inherited-backdrop-quick", INHERITED_BACKDROP);
+  try {
+    const logic = await f.edit(
+      "logic:1",
+      "if (isset(f5)) { increment(v90); assignn(v91,2); } return;",
+    );
+    assert.equal(logic.status, "committed");
+    assert.equal(f.ctx.run.engine!.roomEntryPending, true);
+    const before = new Map(f.ctx.run.engine!.containerFiles);
+    await f.edit("picture:0", "vis 3\nfill 1,1\nend\n");
+    await settle(f);
+    assert.notEqual(f.session.pendingRestart, null, "the picture edit asks for a restart");
+    f.tick();
+    const engine = f.ctx.run.engine!;
+    assert.deepEqual(engine.containerFiles, before, "the game keeps its picture bytes");
+    assert.equal(engine.vars[90], 2, "the room code edit entered the room again");
+    assert.equal(engine.vars[91], 2);
+    assert.equal(engine.getPresentation().visual[50 * 160 + 100], 1);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("an edit to a VIEW stamped into the picture and then unloaded shows at once", async () => {
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("reenter-stamped", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); load.view(1); add.to.pic(1,0,0,40,100,4,0); discard.view(1); show.pic(); } return;",
+    "view:1": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    assert.equal(f.ctx.run.engine!.getPresentation().visual[100 * 160 + 40], 14);
+    const result = await f.edit(
+      "view:1",
+      JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }] }),
+    );
+    assert.equal(result.status, "committed");
+    assert.equal(f.session.pendingRestart, null);
+    f.tick();
+    f.tick();
+    assert.equal(f.ctx.run.engine!.getPresentation().visual[100 * 160 + 40], 4);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("Play shows an edit to a VIEW its room stamped into the picture", async () => {
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("play-stamped", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); load.view(0); add.to.pic(0,0,0,40,100,4,0); discard.view(0); show.pic(); } return;",
+    "view:0": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    onWorkerMessage(f.ctx, { type: "projectCreate", id: 900 });
+    const result = await f.edit(
+      "view:0",
+      JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }] }),
+    );
+    assert.equal(result.status, "committed");
+    onWorkerMessage(f.ctx, { type: "projectPlay", id: 901 });
+    const reply = f.messages.findLast((m) => m.type === "projectPlayed");
+    assert.ok(reply?.type === "projectPlayed" && reply.ok, JSON.stringify(reply));
+    assert.equal(reply.restartedRoom, 0);
+    f.tick();
+    f.tick();
+    assert.equal(f.ctx.run.engine!.getPresentation().visual[100 * 160 + 40], 4);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("a test recording that sees the room restart for a VIEW layout change is marked changed", async () => {
+  // The recording cannot replay a change to the game's resources, so it must
+  // not offer itself as a clean test.
+  const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
+  const f = await fixture("reenter-recording", {
+    "logic:0":
+      "if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); load.view(0); animate.obj(o0); set.view(o0,0); position(o0,40,100); draw(o0); stop.motion(o0); } return;",
+    "view:0": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    onWorkerMessage(f.ctx, { type: "startRecording", id: 900 });
+    const result = await f.edit(
+      "view:0",
+      JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [4, 4, 4, 4] }] }, { cels: [cel] }] }),
+    );
+    assert.equal(result.status, "committed");
+    assert.equal(
+      f.ctx.run.recording.recording?.tainted,
+      "Game resources changed during recording.",
+    );
   } finally {
     f.session.dispose();
     f.ctx.fns.stopTimers();
@@ -457,6 +637,9 @@ test("Create keeps progress temporary and Play autosave leaves the saved pending
     await f.session.flush();
     assert.equal(f.ctx.fns.autosave(true), false, "Create progress stays temporary");
     onWorkerMessage(f.ctx, { type: "projectPlay" });
+    // Play's room uses the changed PICTURE, so it re-entered; its entry pass runs first.
+    assert.equal(f.ctx.fns.autosave(true), false);
+    f.tick();
     assert.equal(f.ctx.fns.autosave(true), true);
     const progress = f.presentations.findLast((m) => m.type === "autosave");
     assert.ok(progress?.type === "autosave");
@@ -489,6 +672,80 @@ test("acknowledged project restart ends Playtest recording and starts a fresh hi
     assert.notEqual(f.ctx.history.segment, oldSegment);
     onWorkerMessage(f.ctx, { type: "startRecording", id: 901 });
     assert.ok(f.ctx.run.recording.recording, "the replacement run can start a new Playtest");
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+// A room's earlier drawing never proves what its next entry draws: a picture
+// drawn once under a flag, at a later cycle, or by code an edit removed stays
+// as it was when the room is entered again. The visual edit asks for a restart
+// and the game keeps its bytes, rather than reporting Applied over the old screen.
+for (const [name, logic0, edited] of [
+  [
+    "draws once under a flag",
+    "if (isset(f5)) { increment(v83); assignn(v81,1); } if (!isset(f201)) { set(f201); load.pic(0); draw.pic(0); show.pic(); } return;",
+    "if (isset(f5)) { increment(v83); assignn(v81,2); } if (!isset(f201)) { set(f201); load.pic(0); draw.pic(0); show.pic(); } return;",
+  ],
+  [
+    "draws only on its third cycle",
+    "increment(v84); if (equaln(v84,3)) { load.pic(0); draw.pic(0); show.pic(); } if (isset(f5)) { increment(v83); assignn(v81,1); } return;",
+    "increment(v84); if (equaln(v84,3)) { load.pic(0); draw.pic(0); show.pic(); } if (isset(f5)) { increment(v83); assignn(v81,2); } return;",
+  ],
+  [
+    "loses its drawing code to the first edit",
+    "if (isset(f5)) { increment(v83); assignn(v81,1); load.pic(0); draw.pic(0); show.pic(); } return;",
+    "if (isset(f5)) { increment(v83); assignn(v81,2); } return;",
+  ],
+] as const) {
+  test(`a picture edit right after a code edit to a room that ${name} asks for a restart`, async () => {
+    const f = await fixture(`redraw-${name.replaceAll(" ", "-")}`, { "logic:0": logic0 });
+    try {
+      for (let i = 0; i < 6; i++) f.tick();
+      assert.equal(f.ctx.run.engine!.getPresentation().visual[50 * 160 + 100], 1);
+      assert.equal((await f.edit("logic:0", edited)).status, "committed");
+      const before = new Map(f.ctx.run.engine!.containerFiles);
+      await f.edit("picture:0", "vis 3\nfill 1,1\nend\n");
+      await settle(f);
+      for (let i = 0; i < 4; i++) f.tick();
+      const engine = f.ctx.run.engine!;
+      assert.equal(engine.vars[81], 2, "the room entered again on its edited code");
+      assert.notEqual(f.session.pendingRestart, null, "the picture edit asks for a restart");
+      assert.match(
+        f.session.pendingRestart!.reason,
+        /^(This room keeps its picture when it starts again\.|The game can't update the picture on screen right now\.)$/,
+        "in plain words",
+      );
+      assert.deepEqual(engine.containerFiles, before, "the game keeps its picture bytes");
+      assert.equal(engine.getPresentation().visual[50 * 160 + 100], 1);
+    } finally {
+      f.session.dispose();
+      f.ctx.fns.stopTimers();
+    }
+  });
+}
+
+test("an edit to a VIEW a room stamped only once asks for a restart", async () => {
+  const cel = { width: 2, height: 2, pixels: [7, 7, 7, 7] };
+  const f = await fixture("stamped-once", {
+    "logic:0":
+      "if (!isset(f201)) { set(f201); load.pic(0); draw.pic(0); load.view(1); add.to.pic(1,0,0,40,100,4,0); discard.view(1); show.pic(); } return;",
+    "view:1": JSON.stringify({ loops: [{ cels: [cel] }] }),
+  });
+  try {
+    assert.equal(f.ctx.run.engine!.getPresentation().visual[100 * 160 + 40], 7);
+    const before = new Map(f.ctx.run.engine!.containerFiles);
+    await f.edit(
+      "view:1",
+      JSON.stringify({ loops: [{ cels: [{ ...cel, pixels: [5, 5, 5, 5] }] }] }),
+    );
+    await settle(f);
+    for (let i = 0; i < 4; i++) f.tick();
+    const engine = f.ctx.run.engine!;
+    assert.notEqual(f.session.pendingRestart, null, "the VIEW edit asks for a restart");
+    assert.deepEqual(engine.containerFiles, before, "the game keeps its VIEW bytes");
+    assert.equal(engine.getPresentation().visual[100 * 160 + 40], 7);
   } finally {
     f.session.dispose();
     f.ctx.fns.stopTimers();
