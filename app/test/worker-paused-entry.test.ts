@@ -81,7 +81,8 @@ test("a room entry that yields under a pause finishes its remainder once on late
   assert.equal(engine.executionYieldPending, true);
   assert.equal(engine.vars[43], 0);
   assert.equal(h.ctx.run.cycle.cycleCount, cycles);
-  for (let i = 0; i < 8 && engine.vars[43] !== 9; i++) poll();
+  const marked = () => engine.vars[43];
+  for (let i = 0; i < 8 && marked() !== 9; i++) poll();
   assert.equal(engine.vars[43], 9, "the remainder ran");
   assert.equal(engine.vars[44], 2, "once: one entry at boot, one now");
   assert.equal(h.ctx.run.cycle.cycleCount, cycles + 1, "and counted once");
