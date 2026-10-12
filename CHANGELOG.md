@@ -22,6 +22,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - An Agent panel opened in Create and kept open into Play pauses the game, as
   opening it in Play does. Play no longer runs on while ignoring the keyboard,
   and returning to Create lets the game run beside the panel again.
+- In Create, the Agent sits beside the game and the editor instead of over
+  their right side, so an applied change is in view. On a phone it still
+  covers the screen.
 - The "Saved as your own copy" and "started fresh" notices close by themselves
   after a few seconds, and stay up while the pointer rests on them.
 - A test recording that sees an applied change restart the room is marked

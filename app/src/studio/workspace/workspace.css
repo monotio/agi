@@ -39,6 +39,10 @@
 .shell-body--workspace.shell-body--fold-left {
   --workspace-parts: 0px;
 }
+/* The Agent sits beside the game and the editor, never over them. */
+.shell-body--workspace.assistant-open:not(.shell-body--sheet) {
+  padding-right: min(var(--agent-drawer-w), 100vw);
+}
 .shell-body--workspace.shell-body--no-editor {
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
 }

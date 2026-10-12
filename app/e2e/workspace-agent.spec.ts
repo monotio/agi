@@ -293,6 +293,14 @@ for (const size of [
     await openWorkspaceAgent(page);
     const panel = page.getByTestId("workspace-agent-panel");
     await expect(panel).toBeVisible();
+    if (size.width > 600) {
+      // The Agent sits beside the game and the editor, never over them.
+      const drawer = (await page.getByTestId("agent-drawer").boundingBox())!;
+      for (const part of [".shell-body--workspace > .play-area", ".workspace-editor"]) {
+        const box = (await page.locator(part).boundingBox())!;
+        expect(box.x + box.width, part).toBeLessThanOrEqual(drawer.x + 1);
+      }
+    }
     const header = panel.locator(".agent-panel__header");
     await expect(header).toBeVisible();
 
