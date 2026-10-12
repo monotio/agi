@@ -10,6 +10,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
@@ -18,7 +19,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await waitForCycles(page, 2);
   const spawnX = (await textHook(page)).egoX;
 

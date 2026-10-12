@@ -1,6 +1,6 @@
 import { test, expect } from "./test.ts";
 import type { Page } from "@playwright/test";
-import { textHook } from "./engineProbe.ts";
+import { waitForRoom } from "./engineProbe.ts";
 import { decodePng } from "../../scripts/png.ts";
 
 async function play(page: Page, full = false): Promise<void> {
@@ -28,7 +28,7 @@ async function play(page: Page, full = false): Promise<void> {
     });
   });
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByTestId("gpu-canvas")).toBeVisible();
 }
 

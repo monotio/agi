@@ -9,9 +9,9 @@ import { buildProjectZip } from "../src/archive/projectArchive.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { testProjectId } from "../test/identity.ts";
 import {
-  gameHint,
   configureAi,
   enterCreateMode,
+  gameHint,
   isolateStorage,
   openLibraryActions,
   openWorkspaceAgent,
@@ -19,6 +19,7 @@ import {
   storedAutosave,
   textHook,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
@@ -395,7 +396,7 @@ test("the offline tutorial has a cached thumbnail and fits a phone", async ({ pa
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("game-library-phone.png"), fullPage: true });
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(5);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("HELP");
   await expect(await gameHint(page, "resume-caption")).toHaveCount(0);
@@ -591,7 +592,7 @@ test("a late Agent panel keeps Settings open @webkit-desktop", async ({ page }) 
   });
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
   await page.getByTestId("workspace-agent").click();
   await page.getByTestId("settings-menu").click();

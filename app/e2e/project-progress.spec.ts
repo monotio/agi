@@ -9,10 +9,10 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import {
-  gameHint,
-  isolateStorage,
   agentActivity,
   downloadFromSettings,
+  gameHint,
+  isolateStorage,
   openDeveloperActivity,
   openLibraryActions,
   progressStorageKey,
@@ -22,6 +22,7 @@ import {
   type TextHook,
   waitForAutosaveAfter,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 type TextFrame = Pick<TextHook, "cycle" | "frame" | "room" | "modal" | "rows">;
@@ -238,7 +239,7 @@ test("the project archive moves the autosave to another browser; the game export
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await waitForCycles(page, 2);
   const spawnX = (await textHook(page)).egoX;
   await page.getByTestId("input-line").focus();

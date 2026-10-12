@@ -12,6 +12,7 @@ import {
   savedGameCard,
   textHook,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -61,7 +62,7 @@ test("Undo start over returns to the earlier session, and the timeline marks the
   await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await waitForCycles(page, 2);
   const spawnX = (await textHook(page)).egoX;
   // No note on a first run: there is no earlier session to go back to.
@@ -144,7 +145,7 @@ test("Undo after the game's own Start over returns to the exact moment it was us
   await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await waitForCycles(page, 2);
   const spawnX = (await textHook(page)).egoX;
 
@@ -231,7 +232,7 @@ test("the game's Start over waits for an unsaved timeline, and Start over anyway
   await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await waitForCycles(page, 2);
   const spawnX = (await textHook(page)).egoX;
   const walkEastAndStop = async () => {

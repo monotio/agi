@@ -1,9 +1,9 @@
 import { expect, test } from "./test.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import {
+  enterPlayMode,
   isolateStorage,
   openAiSettings,
-  enterPlayMode,
   textHook,
   waitForRoom,
 } from "./engineProbe.ts";
@@ -90,7 +90,7 @@ test("AI settings pause only their own game interaction and preserve the assista
   });
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   const before = await textHook(page);
   await openAiSettings(page);
@@ -154,7 +154,7 @@ test("AI settings settle a pending Assistant attachment before saving @webkit-de
   try {
     await page.goto("/");
     await page.getByTestId("catalog-play-adventure-department").click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await waitForRoom(page, 1, { coldBoot: true });
     await enterPlayMode(page);
     await page.getByTestId("menu-assistant").click();
     await controllerRequested.promise;
@@ -217,7 +217,7 @@ test("a running Assistant task refuses settings without publishing the draft @we
     await expect(dialog).toBeHidden();
     const saved = await page.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"));
     await page.getByTestId("catalog-play-adventure-department").click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await waitForRoom(page, 1, { coldBoot: true });
     await enterPlayMode(page);
     await page.getByTestId("menu-assistant").click();
     await expect(page.getByTestId("agent-message")).toBeEnabled();
@@ -276,7 +276,7 @@ test("a rejected settings write preserves the next Assistant request @webkit-des
   await expect(dialog).toBeHidden();
   const saved = await page.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"));
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await enterPlayMode(page);
   await page.getByTestId("menu-assistant").click();
   await expect(page.getByTestId("agent-message")).toBeEnabled();

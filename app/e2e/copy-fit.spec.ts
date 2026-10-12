@@ -7,7 +7,7 @@ import {
   openGameOptions,
   openLibraryActions,
   savedGameCard,
-  textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 
@@ -106,7 +106,7 @@ test("Settings rows and the history transport show in full", async ({ page }) =>
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByTestId("history-transport")).toBeVisible();
   await expectFits(page, "live play");
 

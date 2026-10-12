@@ -6,7 +6,7 @@ import {
   openPlayMore,
   openWorkspaceAgent,
   savedGameCard,
-  textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -91,7 +91,7 @@ test("the featured opening image does not move the controls below it", async ({ 
 
 test("Settings keeps the AI budget and the agent drawer stays compact", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByRole("button", { name: "AI settings", exact: true })).toHaveCount(0);
   await page.getByTestId("settings-menu").click();
   await page.getByTestId("open-ai-settings").click();
@@ -130,7 +130,7 @@ test("Settings keeps the AI budget and the agent drawer stays compact", async ({
 
 test("library puts rename inline and secondary actions into menus", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
   // Rename lives in the ⋯ menu and edits the title in place on the card.

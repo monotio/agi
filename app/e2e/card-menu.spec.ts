@@ -15,6 +15,7 @@ import {
   savedGameCard,
   textHook,
   waitForAutosaveAfter,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -64,7 +65,7 @@ async function seedOwnedGame(page: Page, key: string, title: string): Promise<vo
 /** Play the tutorial far enough to own a saved game, then leave it. */
 async function playTutorialOnce(page: Page): Promise<void> {
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("btn-exit").click();
 }
 

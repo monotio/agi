@@ -1,11 +1,12 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
 import {
-  isolateStorage,
-  textHook,
   configureAi,
+  isolateStorage,
   openWorkspaceAgent,
   openWorkspacePicture,
+  textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { openWorkspaceLogic } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
@@ -122,7 +123,7 @@ for (const ending of ["closed", "reopened", "create-route"] as const) {
     await page.goto("/");
     await configureAi(page, { provider: "stub" });
     await page.getByTestId("catalog-play-adventure-department").click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await waitForRoom(page, 1, { coldBoot: true });
     await page.getByRole("button", { name: "Agent", exact: true }).click();
     await expect.poll(() => requested).toBe(true);
     const panel = page.getByTestId("workspace-agent-panel");
@@ -179,7 +180,7 @@ test("failed Agent module loading releases initialization and shows recovery @we
   await page.goto("/");
   await configureAi(page, { provider: "stub" });
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   await expect.poll(() => requested).toBe(true);
   const panel = page.getByTestId("workspace-agent-panel");
