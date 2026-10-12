@@ -152,9 +152,7 @@ for (const width of [1440, 390]) {
     await expect(result.getByTestId("agent-earlier-version")).toBeVisible();
     await expect(result.getByTestId("agent-code-diff")).not.toContainText("Later human edit");
     await expect(result.getByTestId("agent-approve")).toHaveCount(0);
-    await expect(
-      result.getByRole("button", { name: "Open current resource", exact: true }).first(),
-    ).toBeVisible();
+    await expect(result.getByRole("button", { name: /^Open / }).first()).toBeVisible();
     await result.getByRole("button", { name: "Back to chat", exact: true }).click();
     await expect(composer).toHaveValue("My next question stays here");
   });
@@ -221,7 +219,10 @@ test("captured view opens a cel in the already-mounted native editor @webkit-des
   await expect(result.getByTestId("agent-earlier-version")).toHaveCount(0);
   const loop = view.locator("details").nth(2);
   await loop.locator("summary").click();
-  await loop.getByRole("button", { name: "Open current cel", exact: true }).nth(1).click();
+  // Each cel is itself the button that opens it.
+  await loop
+    .getByRole("button", { name: "Open loop 2, cel 1 in the VIEW editor", exact: true })
+    .click();
   await expect(result).toBeHidden();
   await expect(studio.getByRole("button", { name: "Loop 2, cel 1", exact: true })).toHaveAttribute(
     "aria-pressed",
@@ -231,8 +232,7 @@ test("captured view opens a cel in the already-mounted native editor @webkit-des
   await view
     .locator("details")
     .first()
-    .getByRole("button", { name: "Open current cel", exact: true })
-    .first()
+    .getByRole("button", { name: "Open loop 0, cel 0 in the VIEW editor", exact: true })
     .click();
   await expect(studio.getByRole("button", { name: "Loop 0, cel 0", exact: true })).toHaveAttribute(
     "aria-pressed",
@@ -336,7 +336,8 @@ test("unfinished captured LOGIC stays readable beside a valid captured view @web
   await result.getByRole("button", { name: "Back to chat", exact: true }).click();
   await buttons.nth(1).click();
   await expect(result.getByTestId("agent-view-review").locator("details")).toHaveCount(4);
-  await expect(result.getByTestId("agent-view-review").getByRole("img").first()).toHaveAttribute(
+  // A cel that opens its editor is a labelled button around a decorative image.
+  await expect(result.getByTestId("agent-view-review").locator("img").first()).toHaveAttribute(
     "src",
     /^data:image\/png;base64,/,
   );

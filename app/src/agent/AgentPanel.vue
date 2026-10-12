@@ -1170,13 +1170,13 @@ onBeforeUnmount(() => {
           >
             <header>
               <h4>{{ documentLabel(change.key, labels) }}</h4>
-              <UiButton
+              <UiIconButton
                 v-if="change.content !== null && (props.session || engine.getProjectSession())"
+                icon="folder-open"
                 size="sm"
-                variant="ghost"
+                :label="`Open ${documentLabel(change.key, labels)}`"
                 @click="openResource(resultMessage, change.key, true)"
-                >Open current resource</UiButton
-              >
+              />
             </header>
             <Suspense>
               <AgentResourceReview

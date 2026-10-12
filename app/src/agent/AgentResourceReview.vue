@@ -14,11 +14,10 @@ import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.
 import { parseView, selectViewCel } from "../../../src/view/view.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
-import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { parseGameTests } from "../../../src/agent/gameTestFormat.ts";
 import { readInventoryObjects } from "../../../src/authoring/inventory.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
-import UiButton from "../ui/UiButton.vue";
+import { reviewText } from "./agentResultPreview.ts";
 const props = defineProps<{
   documentKey: string;
   before: ProjectContent | undefined;
@@ -143,29 +142,14 @@ const sounds = computed(() => {
       };
     });
 });
-const source = computed(() => {
-  if (!props.inspection) return undefined;
-  if (typeof props.after === "string") return props.after;
-  if (!(props.after instanceof Uint8Array) || !props.documentKey.startsWith("logic:"))
-    return undefined;
-  const words = props.afterDocuments["words"];
-  let dictionary: Map<string, number> | undefined;
-  try {
-    dictionary = new Map(
-      typeof words === "string"
-        ? (JSON.parse(words) as [string, number][])
-        : words
-          ? parseWordsTok(words).map(({ word, id }) => [word, id])
-          : [],
-    );
-  } catch {
-    /* Numeric word identities remain available. */
-  }
-  return disassembleLogic(props.after, {
-    profile: props.profile,
-    ...(dictionary ? { dictionary } : {}),
-  });
-});
+// A LOGIC kept as compiled bytes reads as the editor shows it, on both sides.
+const beforeText = computed(() =>
+  reviewText(props.documentKey, props.before, props.beforeDocuments, props.profile),
+);
+const afterText = computed(() =>
+  reviewText(props.documentKey, props.after, props.afterDocuments, props.profile),
+);
+const source = computed(() => (props.inspection ? afterText.value : undefined));
 const tests = computed(() => {
   if (props.documentKey !== "tests") return [];
   return sides.value.map(({ index }) => {
@@ -225,17 +209,25 @@ const removed = computed(() =>
           <summary>Loop {{ loop.index }} · {{ loop.cels.length }} cels</summary>
           <div class="agent-view-review__cels">
             <figure v-for="cel in loop.cels" :key="cel.index">
-              <img :src="cel.url" :alt="`${view.label}, loop ${loop.index}, cel ${cel.index}`" />
-              <figcaption>Cel {{ cel.index }}</figcaption>
-              <UiButton
+              <!-- The cel itself opens that cel in its editor; no button per cel. -->
+              <button
                 v-if="navigation && view.after"
-                size="sm"
-                variant="ghost"
+                type="button"
+                class="agent-view-review__open"
+                :aria-label="`Open loop ${loop.index}, cel ${cel.index} in the VIEW editor`"
+                :title="`Open loop ${loop.index}, cel ${cel.index}`"
                 @click="
                   $emit('open', { resource: view.resource, loop: loop.index, cel: cel.index })
                 "
-                >Open current cel</UiButton
               >
+                <img :src="cel.url" alt="" />
+              </button>
+              <img
+                v-else
+                :src="cel.url"
+                :alt="`${view.label}, loop ${loop.index}, cel ${cel.index}`"
+              />
+              <figcaption>Cel {{ cel.index }}</figcaption>
             </figure>
           </div>
         </details>
@@ -281,9 +273,9 @@ const removed = computed(() =>
   </div>
   <pre v-else-if="source !== undefined" class="agent-source-preview">{{ source }}</pre>
   <CodeDiff
-    v-else-if="typeof before === 'string' || typeof after === 'string'"
-    :before="typeof before === 'string' ? before : ''"
-    :after="typeof after === 'string' ? after : ''"
+    v-else-if="beforeText !== undefined || afterText !== undefined"
+    :before="beforeText ?? ''"
+    :after="afterText ?? ''"
   />
   <p v-else>{{ beforeBytes }} → {{ afterBytes }} bytes</p>
 </template>
@@ -343,6 +335,19 @@ const removed = computed(() =>
 }
 .agent-view-review__cels figure {
   margin: 0;
+}
+.agent-view-review__open {
+  display: block;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+.agent-view-review__open:hover,
+.agent-view-review__open:focus-visible {
+  border-color: var(--focus);
+  outline: none;
 }
 .agent-view-review__cels img {
   image-rendering: pixelated;

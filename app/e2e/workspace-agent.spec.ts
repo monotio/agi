@@ -1,4 +1,9 @@
 import { providerReply } from "../../test/provider-stream.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { disassembleLogic } from "../../src/logic/disassembler.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { test, expect } from "./test.ts";
 import {
   addWorkspaceAction,
@@ -801,3 +806,67 @@ for (const back of [false, true]) {
     await expect(page.getByRole("button", { name: "Back to Meadow", exact: true })).toHaveCount(0);
   });
 }
+
+// An imported game keeps its LOGIC as compiled bytes. The review reads them as
+// the LOGIC editor does, so an Agent edit that adds one line shows one line,
+// not the whole file as new.
+test("an Agent edit to an imported game's LOGIC shows only the changed lines", async ({ page }) => {
+  const payload = assembleLogic(
+    'if (isset(f5)) { display(5, 4, "A carrot patch."); } accept.input(); return;',
+    { dictionary: new Map() },
+  ).payload;
+  const game = createContainer();
+  game.putResource("logic", 0, payload);
+  const zip = buildZip(
+    [...game.files]
+      .map(([name, data]) => ({ name, data }))
+      .concat([{ name: "WORDS.TOK", data: new Uint8Array(52) }]),
+  );
+  const before = disassembleLogic(payload, { profile: PROFILES["2.936"], dictionary: new Map() });
+  const edited = `${before}display(6, 4, m1);\n`;
+  expect(edited).not.toBe(before);
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `imported-${requests}`,
+        status: "completed",
+        output:
+          requests === 1
+            ? [
+                {
+                  type: "function_call",
+                  call_id: "write",
+                  name: "write_logic",
+                  arguments: JSON.stringify({ room: 0, source: edited }),
+                },
+                {
+                  type: "function_call",
+                  call_id: "finish",
+                  name: "finish",
+                  arguments: '{"notes":null}',
+                },
+              ]
+            : [],
+      }),
+    );
+  });
+  await isolateStorage(page);
+  await page.goto("/");
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "carrots.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(zip),
+  });
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
+  await openWorkspaceAgent(page);
+  await page.getByTestId("agent-message").fill("Add a line about the carrots");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  const diff = page.getByTestId("agent-code-diff");
+  await expect.poll(() => diff.locator(".line-insert").count()).toBe(1);
+  expect(await diff.locator(".line-delete").count()).toBe(0);
+});
