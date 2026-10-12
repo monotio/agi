@@ -221,3 +221,38 @@ test("Play starts its room fresh when a stamped VIEW lost the frame it showed", 
       assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(engine));
   }
 });
+
+// The page pauses Play for an Agent kept open from Create right after Play
+// answers. The room entry Play began still runs and is saved; then it waits.
+test("Play's room entry runs and is saved under a pause that lands right after it", async (t) => {
+  // The engine saves only a room that has drawn, so this room draws PICTURE 1.
+  const drawn = (version: number) =>
+    candidate(
+      `if(isset(f5)){increment(v83);assignn(v81,${version});assignn(v10,1);load.pic(v10);draw.pic(v10);show.pic();}return;`,
+      "return;",
+      LOGIC_0,
+      { "picture:1": "vis 1\nfill 1,1\nend\n" },
+    );
+  const { ctx, control, presentations, update } = await created(t, false, false, drawn(1));
+  const next = drawn(2);
+  update(next, 2);
+  onWorkerMessage(ctx, { type: "projectPlay", id: 9 });
+  const reply = control.findLast((m) => m.type === "projectPlayed");
+  assert.ok(reply?.type === "projectPlayed" && reply.restartedRoom === 1, JSON.stringify(reply));
+  onWorkerMessage(ctx, { type: "pause", paused: true });
+  ctx.fns.hostTick();
+  const engine = ctx.run.engine!;
+  assert.deepEqual([engine.vars[81], engine.vars[83]], [2, 2], "the room entered on the new code");
+  const saved = presentations.findLast((m) => m.type === "autosave");
+  assert.ok(saved?.type === "autosave" && saved.revision === next.revision, "and Play saved it");
+  const cycles = ctx.run.cycle.cycleCount;
+  ctx.fns.hostTick();
+  assert.equal(ctx.run.cycle.cycleCount, cycles, "then the game waits");
+  assert.equal(ctx.run.cycle.paused, true);
+  // The timeline replays the entry under the pause to the same state.
+  onWorkerMessage(ctx, { type: "flush", id: 20 });
+  const replayed = replayHistorySegment(collectSegments(control).at(-1)!);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null);
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(engine));
+});

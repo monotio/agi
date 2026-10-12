@@ -161,6 +161,19 @@ export function createCycle(ctx: WorkerContext) {
         const parked = obs?.sound ?? ctx.run.clocks.sound.advance(now, true);
         for (let i = 0; i < parked; i++) recordedClock();
         ctx.run.clocks.cycle.poll(now, engine.vars[10]!, true);
+        // A room entry the host began still draws the room under a pause, so
+        // a change shows, and Play's save has its room, while the game waits.
+        if (
+          ctx.run.cycle.paused &&
+          ctx.run.owner.active &&
+          !ctx.fns.debugStoppedHeld() &&
+          engine.roomEntryPending
+        ) {
+          tickEngine();
+          finishCycle();
+          ctx.fns.postFrame(true);
+          return true;
+        }
         return false;
       }
       // pause freezes the original pacing counter; ordinary modal waits do not.
