@@ -215,7 +215,8 @@ See the [1.1.0 release notes](https://github.com/monotio/agi/releases/tag/v1.1.0
 
 See the [1.0.0 release notes](https://github.com/monotio/agi/releases/tag/v1.0.0).
 
-[1.2.2]: https://github.com/monotio/agi/compare/v1.2.1...HEAD
+[1.2.3]: https://github.com/monotio/agi/releases/tag/v1.2.3
+[1.2.2]: https://github.com/monotio/agi/releases/tag/v1.2.2
 [1.2.1]: https://github.com/monotio/agi/releases/tag/v1.2.1
 [1.2.0]: https://github.com/monotio/agi/releases/tag/v1.2.0
 [1.1.0]: https://github.com/monotio/agi/releases/tag/v1.1.0
