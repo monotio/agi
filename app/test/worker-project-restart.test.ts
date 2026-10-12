@@ -450,6 +450,59 @@ test("quick edits in a row all land while the room's restart is still to run", a
   }
 });
 
+// Room 1 keeps the picture room 0 drew, so entering it again would not draw an
+// edit to that picture: the edit asks for a restart and the game keeps its bytes.
+const INHERITED_BACKDROP = {
+  "logic:0":
+    "if (isset(f5)) { if (equaln(v0,0)) { load.pic(0); draw.pic(0); show.pic(); new.room(1); } } if (equaln(v0,1)) { call(1); } return;",
+  "logic:1": "if (isset(f5)) { increment(v90); } return;",
+};
+
+test("a picture edit in a room that kept the previous picture asks for a restart", async () => {
+  const f = await fixture("inherited-backdrop", INHERITED_BACKDROP);
+  try {
+    const engine = f.ctx.run.engine!;
+    assert.equal(engine.vars[0], 1);
+    assert.equal(engine.vars[90], 1);
+    assert.equal(engine.getPresentation().visual[50 * 160 + 100], 1);
+    const before = new Map([...engine.containerFiles].map(([key, bytes]) => [key, bytes.slice()]));
+    const result = await f.edit("picture:0", "vis 3\nfill 1,1\nend\n");
+    assert.equal(result.status, "restartRequired");
+    f.tick();
+    f.tick();
+    const after = f.ctx.run.engine!;
+    assert.equal(after.vars[90], 1, "the room was not entered again");
+    assert.deepEqual(after.containerFiles, before, "the game keeps its picture bytes");
+    assert.equal(after.getPresentation().visual[50 * 160 + 100], 1);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("a picture edit right after a room code edit in that room asks for a restart", async () => {
+  const f = await fixture("inherited-backdrop-quick", INHERITED_BACKDROP);
+  try {
+    const logic = await f.edit(
+      "logic:1",
+      "if (isset(f5)) { increment(v90); assignn(v91,2); } return;",
+    );
+    assert.equal(logic.status, "committed");
+    assert.equal(f.ctx.run.engine!.roomEntryPending, true);
+    const picture = await f.edit("picture:0", "vis 3\nfill 1,1\nend\n");
+    assert.equal(picture.status, "restartRequired");
+    f.tick();
+    f.tick();
+    const engine = f.ctx.run.engine!;
+    assert.equal(engine.vars[90], 2, "the room code edit entered the room again");
+    assert.equal(engine.vars[91], 2);
+    assert.equal(engine.getPresentation().visual[50 * 160 + 100], 1);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
 test("an edit to a VIEW stamped into the picture and then unloaded shows at once", async () => {
   const cel = { width: 2, height: 2, pixels: [14, 14, 14, 14] };
   const f = await fixture("reenter-stamped", {

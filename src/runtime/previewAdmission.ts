@@ -119,6 +119,8 @@ export interface StagedPreviewUpdate {
   readonly surface: PictureSurface | null;
   /** Why an affected composition cannot commit, when it cannot. */
   readonly compositionBlocked: string | null;
+  /** True when entering the room again would not redraw the blocked composition either. */
+  readonly compositionBlocksEntry: boolean;
 }
 
 /**

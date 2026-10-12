@@ -9,7 +9,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 - A change applied in Create shows at once. When it touches what the current
   room uses, the room starts fresh so its entry code runs the new version. Since
-  1.2.1 Agent changes waited until the hero left the room.
+  1.2.1 Agent changes waited until the hero left the room. A picture the room
+  kept from the room before is not drawn again on entry, so a change to it asks
+  for a restart.
 - Returning to Play starts its room fresh when Create changed what that room
   uses, and says so. Play, Back, From my game, Restart, a project restart and
   Take control follow the pause the page shows.

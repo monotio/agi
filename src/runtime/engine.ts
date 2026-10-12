@@ -880,6 +880,11 @@ export class Engine {
   private cycleCursor: CycleCursor | null = null;
   /** Host room entry owes LOGIC 0 without another input phase. */
   private hostRoomEntryPending = false;
+  /**
+   * The pending host entry redraws the screen: the room drew its whole picture
+   * since it was last entered, so entering it again draws it from new bytes.
+   */
+  private hostEntryRedraws = false;
   private resumedSequence: number | null = null;
   private executionSequence = 0;
   private invocationSequence = 0;
@@ -1319,18 +1324,21 @@ export class Engine {
     );
     let surface: PictureSurface | null = null;
     let compositionBlocked: string | null = null;
+    let compositionBlocksEntry = false;
     const stampedViewChange = changes.find(
       (change) => change.kind === "view" && composition.stampedViews.includes(change.num),
     );
-    // A host room entry still to run draws the room from the installed bytes,
-    // so the screen it replaces needs no rebuilding.
+    // A pending entry into a room that drew its own picture draws it again
+    // from the installed bytes, so the screen it replaces needs no rebuilding.
+    // Without that evidence, entering the room again may keep the old screen.
     if (
-      !this.hostRoomEntryPending &&
+      !(this.hostRoomEntryPending && this.hostEntryRedraws) &&
       !composition.complete &&
       changes.some((change) => change.kind === "picture" || change.kind === "view")
     ) {
       compositionBlocked =
         "Picture replay evidence is incomplete; restart applies these visual changes.";
+      compositionBlocksEntry = true;
     } else if (stampedViewChange !== undefined) {
       compositionBlocked = `view ${stampedViewChange.num} is baked into add.to.pic; restart applies this edit`;
     }
@@ -1376,6 +1384,7 @@ export class Engine {
       compositionAffected,
       surface,
       compositionBlocked,
+      compositionBlocksEntry,
     };
   }
 
@@ -1448,7 +1457,7 @@ export class Engine {
         reason: "picture replay evidence moved between preparation and commit",
       };
     }
-    if (staged.compositionBlocked !== null && !roomReentry) {
+    if (staged.compositionBlocked !== null && (!roomReentry || staged.compositionBlocksEntry)) {
       return { status: "restartRequired", reason: staged.compositionBlocked };
     }
     for (const change of staged.changed) {
@@ -7770,6 +7779,13 @@ export class Engine {
     // A deliberate host visit abandons the old pass before the new room runs.
     if (this.roomReentryWaiting()) this.abortInteraction();
     this.assertExecutionBoundary();
+    // Entering the same room again redraws it only when it drew its own picture
+    // since its last entry; an entry already pending keeps that evidence.
+    const redraws =
+      room === this.vars[V_ROOM] &&
+      (this.hostRoomEntryPending
+        ? this.hostEntryRedraws
+        : analyzePictureComposition(this.hostReplay, this.hostReplayOverflow).complete);
     if (entry !== undefined) this.vars[V_EDGE] = entry.cameFrom?.edge ?? 0;
     try {
       this.newRoom(room);
@@ -7779,6 +7795,7 @@ export class Engine {
     this.runRoomPhase(room, entry);
     this.messageUpdatePending = false;
     this.hostRoomEntryPending = true;
+    this.hostEntryRedraws = redraws;
   }
 
   private applyRoomEntry(entry: RoomEntryState): void {
