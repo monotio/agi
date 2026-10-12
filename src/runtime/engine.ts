@@ -880,11 +880,8 @@ export class Engine {
   private cycleCursor: CycleCursor | null = null;
   /** Host room entry owes LOGIC 0 without another input phase. */
   private hostRoomEntryPending = false;
-  /**
-   * The pending host entry redraws the screen: the room drew its whole picture
-   * since it was last entered, so entering it again draws it from new bytes.
-   */
-  private hostEntryRedraws = false;
+  /** A detached copy asked whether a room entry redraws; it never asks again. */
+  private entryTrial = false;
   private resumedSequence: number | null = null;
   private executionSequence = 0;
   private invocationSequence = 0;
@@ -1211,6 +1208,10 @@ export class Engine {
     if (issued.staged === null) {
       return settle(result("refused", "preview plan carries no staged candidate"));
     }
+    // A room entry still to run decides what the screen shows: a visual change
+    // the screen cannot take now waits for it, and the host retries.
+    if (this.hostRoomEntryPending && issued.staged.compositionBlocked !== null)
+      return result("deferred");
     const blocked = this.previewDynamicBlock(issued.staged, roomReentry);
     if (blocked !== null)
       return settle({
@@ -1324,21 +1325,15 @@ export class Engine {
     );
     let surface: PictureSurface | null = null;
     let compositionBlocked: string | null = null;
-    let compositionBlocksEntry = false;
     const stampedViewChange = changes.find(
       (change) => change.kind === "view" && composition.stampedViews.includes(change.num),
     );
-    // A pending entry into a room that drew its own picture draws it again
-    // from the installed bytes, so the screen it replaces needs no rebuilding.
-    // Without that evidence, entering the room again may keep the old screen.
     if (
-      !(this.hostRoomEntryPending && this.hostEntryRedraws) &&
       !composition.complete &&
       changes.some((change) => change.kind === "picture" || change.kind === "view")
     ) {
       compositionBlocked =
         "Picture replay evidence is incomplete; restart applies these visual changes.";
-      compositionBlocksEntry = true;
     } else if (stampedViewChange !== undefined) {
       compositionBlocked = `view ${stampedViewChange.num} is baked into add.to.pic; restart applies this edit`;
     }
@@ -1384,7 +1379,6 @@ export class Engine {
       compositionAffected,
       surface,
       compositionBlocked,
-      compositionBlocksEntry,
     };
   }
 
@@ -1446,6 +1440,34 @@ export class Engine {
    * geometry of every loaded view and bound object, and genuinely new
    * OBJECT slots must not already carry meaningful live locations.
    */
+  /** Whether entering the room again on the staged files draws its whole picture. */
+  private entryRedraws(staged: StagedPreviewUpdate): boolean {
+    try {
+      const image = this.autosaveImage();
+      if (image === null) return false;
+      const trial = new Engine(
+        this.container,
+        {
+          print() {},
+          displayAt() {},
+          statusLine() {},
+          takeInputLine: () => null,
+          takeKeys: () => [],
+        },
+        this.dictionary,
+        { profile: this.profile, amigaRegion: this.amigaRegion },
+      );
+      trial.entryTrial = true;
+      trial.restoreImage(image);
+      const entry = trial.prepareRoomReentry({ files: staged.container.files });
+      if (trial.commitRoomReentry(entry).status !== "committed") return false;
+      trial.tick();
+      return analyzePictureComposition(trial.hostReplay, trial.hostReplayOverflow).complete;
+    } catch {
+      return false;
+    }
+  }
+
   private previewDynamicBlock(
     staged: StagedPreviewUpdate,
     roomReentry = false,
@@ -1457,8 +1479,17 @@ export class Engine {
         reason: "picture replay evidence moved between preparation and commit",
       };
     }
-    if (staged.compositionBlocked !== null && (!roomReentry || staged.compositionBlocksEntry)) {
+    if (staged.compositionBlocked !== null && !roomReentry) {
       return { status: "restartRequired", reason: staged.compositionBlocked };
+    }
+    // Entering the room again shows these visual changes only if its entry
+    // draws a whole picture; earlier drawing never proves the next entry's
+    // branches, so a detached copy runs that entry on the staged files.
+    if (staged.compositionBlocked !== null && !this.entryTrial && !this.entryRedraws(staged)) {
+      return {
+        status: "restartRequired",
+        reason: "Entering the room again does not redraw it; restart applies these visual changes.",
+      };
     }
     for (const change of staged.changed) {
       if (change.kind === "logic") {
@@ -7778,13 +7809,6 @@ export class Engine {
     // A deliberate host visit abandons the old pass before the new room runs.
     if (this.roomReentryWaiting()) this.abortInteraction();
     this.assertExecutionBoundary();
-    // Entering the same room again redraws it only when it drew its own picture
-    // since its last entry; an entry already pending keeps that evidence.
-    const redraws =
-      room === this.vars[V_ROOM] &&
-      (this.hostRoomEntryPending
-        ? this.hostEntryRedraws
-        : analyzePictureComposition(this.hostReplay, this.hostReplayOverflow).complete);
     if (entry !== undefined) this.vars[V_EDGE] = entry.cameFrom?.edge ?? 0;
     try {
       this.newRoom(room);
@@ -7794,7 +7818,6 @@ export class Engine {
     this.runRoomPhase(room, entry);
     this.messageUpdatePending = false;
     this.hostRoomEntryPending = true;
-    this.hostEntryRedraws = redraws;
   }
 
   private applyRoomEntry(entry: RoomEntryState): void {
