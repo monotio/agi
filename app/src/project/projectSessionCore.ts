@@ -103,25 +103,36 @@ export interface ComputedRoomRemovalReview {
 }
 
 function restartReason(reason: string): string {
-  return reason
-    .replace(/^preview candidate /, "This change ")
-    .replace(/; restart applies.*$/, "")
-    .replace(
-      /logic (\d+) holds a nonzero scan.start resume offset/,
-      "LOGIC $1 remembers a position in its instructions.",
-    )
-    .replace(
-      /view (\d+) changes its loop\/cel layout while loaded/,
-      "VIEW $1 has new loops or cels for a loaded actor.",
-    )
-    .replace(
-      /view (\d+) changes the live geometry of object (\d+)/,
-      "VIEW $1 changes the size of actor $2.",
-    )
-    .replace(/view (\d+) is baked into add.to.pic/, "VIEW $1 is drawn into the room background.")
-    .replace(/\bview\b/g, "VIEW")
-    .replace(/\blogic\b/g, "LOGIC")
-    .replace(/\bpicture\b/g, "PICTURE");
+  return (
+    reason
+      .replace(/^preview candidate /, "This change ")
+      .replace(/; restart applies.*$/, "")
+      .replace(
+        /logic (\d+) holds a nonzero scan.start resume offset/,
+        "LOGIC $1 remembers a position in its instructions.",
+      )
+      .replace(
+        /view (\d+) changes its loop\/cel layout while loaded/,
+        "VIEW $1 has new loops or cels for a loaded actor.",
+      )
+      .replace(
+        /view (\d+) changes the live geometry of object (\d+)/,
+        "VIEW $1 changes the size of actor $2.",
+      )
+      .replace(/view (\d+) is baked into add.to.pic/, "VIEW $1 is drawn into the room background.")
+      .replace(/\bview\b/g, "VIEW")
+      .replace(/\blogic\b/g, "LOGIC")
+      .replace(/\bpicture\b/g, "PICTURE")
+      // Plain words, after the resource names: these sentences name no resource.
+      .replace(
+        /^Entering the room again does not redraw it$/,
+        "This room keeps its picture when it starts again.",
+      )
+      .replace(
+        /^Picture replay evidence is incomplete$/,
+        "The game can't update the picture on screen right now.",
+      )
+  );
 }
 interface SessionStorage {
   readonly commit: typeof commitProject;

@@ -712,6 +712,11 @@ for (const [name, logic0, edited] of [
       const engine = f.ctx.run.engine!;
       assert.equal(engine.vars[81], 2, "the room entered again on its edited code");
       assert.notEqual(f.session.pendingRestart, null, "the picture edit asks for a restart");
+      assert.match(
+        f.session.pendingRestart!.reason,
+        /^(This room keeps its picture when it starts again\.|The game can't update the picture on screen right now\.)$/,
+        "in plain words",
+      );
       assert.deepEqual(engine.containerFiles, before, "the game keeps its picture bytes");
       assert.equal(engine.getPresentation().visual[50 * 160 + 100], 1);
     } finally {
