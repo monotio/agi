@@ -186,6 +186,8 @@ interface CycleState {
   lastCycleReportAt: number;
   lastHistoryAt: number;
   initialLogicStarted: boolean;
+  /** A room entry that began under a pause yielded mid-pass; paused polls finish it. */
+  pausedEntry: boolean;
   lastInputReady: boolean;
   /**
    * The remix freeze. A `pause` message sets it; messages from one sender are

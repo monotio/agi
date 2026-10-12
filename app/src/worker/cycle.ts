@@ -163,19 +163,34 @@ export function createCycle(ctx: WorkerContext) {
         ctx.run.clocks.cycle.poll(now, engine.vars[10]!, true);
         // A room entry the host began still draws the room under a pause, so
         // a change shows, and Play's save has its room, while the game waits.
+        // A recording whose poll ran no cycle replays it the same way; an armed
+        // pass counts once when it completes and its yielded remainder runs on
+        // the next paused polls, as a cycle poll's would.
+        const owed =
+          engine.roomEntryPending || (ctx.run.cycle.pausedEntry && engine.executionYieldPending);
         if (
-          ctx.run.cycle.paused &&
-          ctx.run.owner.active &&
-          !ctx.fns.debugStoppedHeld() &&
-          engine.roomEntryPending
-        ) {
-          tickEngine();
-          finishCycle();
-          ctx.fns.postFrame(true);
-          return true;
+          !owed ||
+          obs?.cycle === false ||
+          !ctx.run.cycle.paused ||
+          !ctx.run.owner.active ||
+          ctx.fns.debugStoppedHeld()
+        )
+          return false;
+        if (engine.executionControlActive) {
+          const completed = tickEngine();
+          ctx.run.cycle.pausedEntry = !completed && engine.executionYieldPending;
+          ctx.fns.noteTransition();
+          ctx.fns.flushTraceBatch();
+          ctx.fns.postFrame(completed);
+          return completed;
         }
-        return false;
+        ctx.run.cycle.pausedEntry = false;
+        tickEngine();
+        finishCycle();
+        ctx.fns.postFrame(true);
+        return true;
       }
+      ctx.run.cycle.pausedEntry = false;
       // pause freezes the original pacing counter; ordinary modal waits do not.
       if (engine.timerPaused) ctx.run.clocks.cycle.freeze(now);
       else ctx.run.clocks.cycle.advance(now);
