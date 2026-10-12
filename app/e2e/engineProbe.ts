@@ -430,6 +430,8 @@ export async function configureAi(page: Page, configuration: AiConfiguration): P
 
 /** Open the single shared connection dialog through Settings. */
 export async function openAiSettings(page: Page): Promise<void> {
+  // AI settings stay closed while the Agent is still opening; a click then does nothing.
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(false);
   const settings = page.getByTestId("settings-menu");
   if ((await settings.getAttribute("aria-expanded")) !== "true") await settings.click();
   await page.getByTestId("open-ai-settings").click();
