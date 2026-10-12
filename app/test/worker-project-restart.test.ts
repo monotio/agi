@@ -425,6 +425,7 @@ test("a loaded VIEW layout change re-enters the room at once, keeps its token an
 async function settle(f: Awaited<ReturnType<typeof fixture>>): Promise<void> {
   for (let i = 0; i < 40 && f.session.capture().pendingAdmission; i++) {
     f.tick();
+    // wall-clock: the session retries a deferred admission on its own 50 ms timer.
     await new Promise((resolve) => setTimeout(resolve, 60));
   }
   assert.equal(f.session.capture().pendingAdmission, false, "the waiting edit settled");
