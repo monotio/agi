@@ -1,8 +1,10 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test.ts";
 import { isolateStorage, openSavedGameDetails, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
+
+test.use({ keepDetectedProfileOption: false });
 
 function syntheticGame(): Buffer {
   const game = createContainer();

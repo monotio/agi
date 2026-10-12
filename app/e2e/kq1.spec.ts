@@ -6,7 +6,8 @@ import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import {
   canvasColors,
   canvasHash,

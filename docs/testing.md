@@ -310,8 +310,13 @@ worker. Retries stay at zero so every failure is visible.
 
 Every browser test ends with a check from `app/e2e/test.ts`: the pause the page
 shows must match the pause the worker reports in its state query. A game that is
-frozen while the bar says it runs fails the test that left it so. Pages a test
-opens in its own browser context are checked when the test closes that context.
+frozen while the bar says it runs fails the test that left it so. Every spec under
+`app/e2e/` takes `test` and `expect` from that module, so each one gets the check;
+`app/test/e2e-shared-test.test.ts` fails a spec that imports them from
+`@playwright/test` instead. The exception list in that test is empty. The check
+covers the fixture page, every other page in the default context, and every page
+in a context the test opens. Each is checked once, just before it closes, while its
+worker can still answer.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.

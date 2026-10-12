@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -17,6 +18,8 @@ import {
   waitForAutosaveAfter,
   waitForRoom,
 } from "./engineProbe.ts";
+
+test.use({ keepDetectedProfileOption: false });
 
 /**
  * The game card's play split button and ⋯ menu (S6). The primary button

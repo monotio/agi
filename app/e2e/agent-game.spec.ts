@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";

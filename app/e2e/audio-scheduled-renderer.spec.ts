@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 
 // The browser renders each lane to PCM. Delivery happens together; only the
 // stream's logical tick controls the first nonzero sample of each note.

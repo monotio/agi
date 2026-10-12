@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 test.describe("Synthetic Walkthrough", () => {

@@ -1,6 +1,6 @@
 import { cacheGame, configureAi, agentActivity } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";

@@ -1,5 +1,5 @@
-import { devices, type Page } from "@playwright/test";
-import { expect, test } from "./test.ts";
+import { devices, expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { configureAi, isolateStorage, waitForRoom, workspaceUpdated } from "./engineProbe.ts";
 import { replaceWorkspaceDocument } from "./workspaceShared.ts";
 

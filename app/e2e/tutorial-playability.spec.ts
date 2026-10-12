@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import { isolateStorage, textHook, waitForCycles, waitForRoom } from "./engineProbe.ts";
 
 test("tutorial walking speed commands change movement without a modal", async ({ page }) => {

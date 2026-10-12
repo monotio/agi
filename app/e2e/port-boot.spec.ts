@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import { fixtureSkip } from "../../test/fixtures.ts";
 import { isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";

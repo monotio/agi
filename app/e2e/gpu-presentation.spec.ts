@@ -1,5 +1,5 @@
 import { cacheGame } from "./engineProbe.ts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
