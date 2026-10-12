@@ -2,6 +2,7 @@ import { expect, test } from "./test.ts";
 import type { Page } from "@playwright/test";
 import {
   configureAi,
+  enterCreateMode,
   enterPlayMode,
   isolateStorage,
   agentActivity,
@@ -380,4 +381,58 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   // The return route the stub authored still works.
   await say(page, "west");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
+});
+
+// A build started from Create keeps the Agent open into Play, where the open
+// Agent holds the game. When the build finishes and closes the Agent, Play
+// runs again: the Agent's own hold goes with it.
+test("a map build that finishes after Play opens closes the Agent and lets Play run", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await openDeveloperActivity(page);
+  await page.getByTestId("boot-agent").click();
+  await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
+  await waitForRoom(page, 1, { coldBoot: true });
+  await enterCreateMode(page);
+  await page.getByTestId("btn-world-map").click();
+  await page.getByTestId("btn-world-plan").click();
+  const allRooms = page.getByTestId("world-map").getByTestId("world-all-rooms");
+  if (await allRooms.isVisible()) await allRooms.click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
+  // The build's first question to the game waits until the test lets it go.
+  await page.evaluate(() => {
+    const worker = (
+      window as unknown as { __AGI_PROJECT__: { getWorker(): Worker } }
+    ).__AGI_PROJECT__.getWorker();
+    const post = worker.postMessage.bind(worker);
+    const held: unknown[] = [];
+    worker.postMessage = ((message: { type?: string }, transfer?: Transferable[]) => {
+      if (message?.type === "state" && held !== null) {
+        held.push(message);
+        return;
+      }
+      post(message, transfer ?? []);
+    }) as Worker["postMessage"];
+    Object.assign(window, {
+      stateHeld: () => held.length > 0,
+      releaseState: () => {
+        worker.postMessage = post;
+        for (const message of held.splice(0)) post(message);
+      },
+    });
+  });
+  await page.getByTestId("map-build-room").click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { stateHeld(): boolean }).stateHeld()))
+    .toBe(true);
+  await page.getByTestId("map-close").click();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.open)).toBe(true);
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  await page.evaluate(() => (window as unknown as { releaseState(): void }).releaseState());
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("authored room 2");
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.open)).toBe(false);
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });

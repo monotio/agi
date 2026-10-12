@@ -1019,9 +1019,13 @@ export function useEngine(
    */
   function holdAgentPause(): void {
     const held = pauseOwners().includes("powerUp");
-    if (projectMode === "play" && state.powerUp.open && !held) pauseEngine("powerUp");
-    else if (projectMode === "create" && held) resumeEngine("powerUp");
+    const wanted = projectMode === "play" && state.powerUp.open;
+    if (wanted && !held) pauseEngine("powerUp");
+    else if (!wanted && held) resumeEngine("powerUp");
   }
+  // An Agent that opens or closes on its own, as a finished map build closes
+  // it, follows the same rule; only the Agent's own hold changes.
+  watch(() => state.powerUp.open, holdAgentPause);
 
   let powerUpVisibilityGeneration = 0;
   const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) => {
