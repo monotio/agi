@@ -317,6 +317,8 @@ frozen while the bar says it runs fails the test that left it so. Every spec und
 covers the fixture page, every other page in the default context, and every page
 in a context the test opens. Each is checked once, just before it closes, while its
 worker can still answer.
+The production suites in `app/production/` reuse some of these specs against a built app,
+which has no test hooks, so the check has nothing to read there and passes.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
