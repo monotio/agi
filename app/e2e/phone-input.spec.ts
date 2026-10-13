@@ -88,7 +88,7 @@ async function boot(
   await expect.poll(async () => (await textHook(page)).egoX).toBe(60);
 }
 
-test("touch Backspace updates the engine-rendered parser draft", async ({ page }) => {
+test("touch Backspace updates the engine-rendered parser draft @phone", async ({ page }) => {
   await boot(page);
   const input = page.getByTestId("input-line");
   await input.fill("look");
@@ -101,7 +101,9 @@ test("touch Backspace updates the engine-rendered parser draft", async ({ page }
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("loo");
 });
 
-test("touch function keys cannot insert characters into a string prompt", async ({ page }) => {
+test("touch function keys cannot insert characters into a string prompt @phone", async ({
+  page,
+}) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
@@ -125,7 +127,9 @@ test("desktop navigation includes diagonals", async ({ page }) => {
 });
 
 for (const hold of [false, true]) {
-  test(`touch directions preserve ${hold ? "hold.key" : "toggle"} behavior`, async ({ page }) => {
+  test(`touch directions preserve ${hold ? "hold.key" : "toggle"} behavior @phone`, async ({
+    page,
+  }) => {
     await boot(page, hold);
     const pad = page.getByTestId("touch-controls");
     await expect(pad).toBeVisible();
@@ -149,7 +153,7 @@ for (const hold of [false, true]) {
   });
 }
 
-test("touch hold release during a game-triggered print stops ego after dismissal", async ({
+test("touch hold release during a game-triggered print stops ego after dismissal @phone", async ({
   page,
 }) => {
   await boot(page, true, "print");
@@ -168,7 +172,7 @@ test("touch hold release during a game-triggered print stops ego after dismissal
 
 for (const modal of ["menu", "save"] as const) {
   for (const hold of [false, true]) {
-    test(`${modal} navigation releases preserve ${hold ? "the next held gesture" : "toggle walking"}`, async ({
+    test(`${modal} navigation releases preserve ${hold ? "the next held gesture" : "toggle walking"} @phone`, async ({
       page,
     }) => {
       await boot(page, hold, modal);
@@ -210,7 +214,9 @@ for (const modal of ["menu", "save"] as const) {
   }
 }
 
-test("phone text input answers string and numeric prompts without keydown", async ({ page }) => {
+test("phone text input answers string and numeric prompts without keydown @phone", async ({
+  page,
+}) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
@@ -244,7 +250,7 @@ test("phone text input answers string and numeric prompts without keydown", asyn
   await page.mouse.move(0, 0);
 });
 
-test("touch pad exposes all eight walking directions", async ({ page }) => {
+test("touch pad exposes all eight walking directions @phone", async ({ page }) => {
   await boot(page, true);
   const pad = page.getByTestId("touch-controls");
   const directions = [
@@ -273,7 +279,9 @@ test("touch pad exposes all eight walking directions", async ({ page }) => {
 });
 
 for (const interruption of ["pointercancel", "blur"] as const) {
-  test(`touch hold stops after ${interruption} and accepts a new direction`, async ({ page }) => {
+  test(`touch hold stops after ${interruption} and accepts a new direction @phone`, async ({
+    page,
+  }) => {
     await boot(page, true);
     const right = page
       .getByTestId("touch-controls")
@@ -299,7 +307,7 @@ for (const desktop of [false, true]) {
       hasTouch: !desktop,
       viewport: desktop ? { width: 1280, height: 900 } : { width: 390, height: 844 },
     });
-    test("real mouse hold on another arrow survives the previous arrow's focus", async ({
+    test(`real mouse hold on another arrow survives the previous arrow's focus${desktop ? "" : " @phone"}`, async ({
       page,
     }) => {
       await boot(page, true);
@@ -345,7 +353,7 @@ for (const desktop of [false, true]) {
 }
 
 for (const key of ["Enter", "Space"]) {
-  test(`focused touch arrow supports ${key} hold and release`, async ({ page }) => {
+  test(`focused touch arrow supports ${key} hold and release @phone`, async ({ page }) => {
     await boot(page, true);
     const east = page
       .getByTestId("touch-controls")
@@ -362,7 +370,9 @@ for (const key of ["Enter", "Space"]) {
 }
 
 for (const key of ["Enter", "Space"]) {
-  test(`focused touch arrow ${key} activation toggles walking exactly once`, async ({ page }) => {
+  test(`focused touch arrow ${key} activation toggles walking exactly once @phone`, async ({
+    page,
+  }) => {
     await boot(page);
     const east = page
       .getByTestId("touch-controls")
@@ -396,7 +406,9 @@ for (const key of ["Enter", "Space"]) {
   });
 }
 
-test("assistive click holds movement until repeated activation or blur", async ({ page }) => {
+test("assistive click holds movement until repeated activation or blur @phone", async ({
+  page,
+}) => {
   await boot(page, true);
   const east = page
     .getByTestId("touch-controls")
@@ -427,7 +439,9 @@ test("assistive click holds movement until repeated activation or blur", async (
   expect((await textHook(page)).egoX).toBe(blurred);
 });
 
-test("touch letter modifiers dispatch the game's Ctrl and Alt bindings", async ({ page }) => {
+test("touch letter modifiers dispatch the game's Ctrl and Alt bindings @phone", async ({
+  page,
+}) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
@@ -439,7 +453,7 @@ test("touch letter modifiers dispatch the game's Ctrl and Alt bindings", async (
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALT A");
 });
 
-test("native phone typing honors a printable set.key binding", async ({ page }) => {
+test("native phone typing honors a printable set.key binding @phone", async ({ page }) => {
   await boot(page);
   const input = page.getByTestId("input-line");
   await input.fill("x");
@@ -447,7 +461,9 @@ test("native phone typing honors a printable set.key binding", async ({ page }) 
   await expect(input).toHaveValue("");
 });
 
-test("native phone text delivers both characters across blocking key waits", async ({ page }) => {
+test("native phone text delivers both characters across blocking key waits @phone", async ({
+  page,
+}) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
@@ -457,7 +473,7 @@ test("native phone text delivers both characters across blocking key waits", asy
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("TWO KEYS");
 });
 
-test("physical Ctrl keys reach raw graphics input", async ({ page }) => {
+test("physical Ctrl keys reach raw graphics input @phone", async ({ page }) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
@@ -468,7 +484,7 @@ test("physical Ctrl keys reach raw graphics input", async ({ page }) => {
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("RAW CTRL C");
 });
 
-test("cancelling a native save description leaves the slot empty", async ({ page }) => {
+test("cancelling a native save description leaves the slot empty @phone", async ({ page }) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
@@ -511,7 +527,7 @@ test("cancelling a native save description leaves the slot empty", async ({ page
   await expect.poll(async () => (await textHook(page)).modal).toBeNull();
 });
 
-test("touch inventory selects and cancels, and save restores carried items and variables", async ({
+test("touch inventory selects and cancels, and save restores carried items and variables @phone", async ({
   page,
 }) => {
   await boot(page);
@@ -563,7 +579,9 @@ test("touch inventory selects and cancels, and save restores carried items and v
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("State: 99");
 });
 
-test("touch keys navigate game menus and preserve raw text-screen answers", async ({ page }) => {
+test("touch keys navigate game menus and preserve raw text-screen answers @phone", async ({
+  page,
+}) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");
   await pad.getByText("Keys", { exact: true }).tap();
@@ -587,7 +605,7 @@ test("touch keys navigate game menus and preserve raw text-screen answers", asyn
 });
 
 for (const replacement of [false, true]) {
-  test(`native raw-key ${replacement ? "replacement" : "answer"} preserves the unfinished parser draft`, async ({
+  test(`native raw-key ${replacement ? "replacement" : "answer"} preserves the unfinished parser draft @phone`, async ({
     page,
   }) => {
     await boot(page, false, undefined, true);
@@ -608,7 +626,7 @@ for (const replacement of [false, true]) {
 }
 
 for (const completion of ["touch Enter", "touch Esc", "native form submit"] as const) {
-  test(`${completion} preserves the parser draft after a prompt`, async ({ page }) => {
+  test(`${completion} preserves the parser draft after a prompt @phone`, async ({ page }) => {
     await boot(page);
     const input = page.getByTestId("input-line");
     await input.fill("look");
@@ -646,7 +664,9 @@ for (const consumer of [
   "disabled parser",
   "mapped Enter",
 ] as const) {
-  test(`native form Enter reaches ${consumer} and preserves the parser draft`, async ({ page }) => {
+  test(`native form Enter reaches ${consumer} and preserves the parser draft @phone`, async ({
+    page,
+  }) => {
     await boot(
       page,
       false,
@@ -706,7 +726,7 @@ for (const consumer of [
   });
 }
 
-test("a text-screen string prompt shows answer instructions and accepts touch input", async ({
+test("a text-screen string prompt shows answer instructions and accepts touch input @phone", async ({
   page,
 }) => {
   await boot(page);

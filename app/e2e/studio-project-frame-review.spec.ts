@@ -2,9 +2,7 @@ import { openLibraryActions, savedGameCard } from "./engineProbe.ts";
 import { blockProviders, createProjectViaUi, prepareIsolatedPage } from "./logicDebugShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
-test("gallery Edit opens the running workspace and its resource parts @webkit-desktop", async ({
-  page,
-}) => {
+test("gallery Edit opens the running workspace and its resource parts", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);

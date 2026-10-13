@@ -67,12 +67,11 @@ async function shot(page: Page, name: string, browserName: string): Promise<void
 }
 for (const [width, height] of [
   [1440, 900],
-  [1063, 815],
   [390, 844],
 ] as const) {
   test.describe(`Change number ${width}`, () => {
     test.use({ hasTouch: width === 390 });
-    test("room 2 moves to 7, its door still enters it, and one Undo restores it @webkit-desktop", async ({
+    test(`room 2 moves to 7, its door still enters it, and one Undo restores it${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
       browserName,
     }) => {

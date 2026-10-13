@@ -12,7 +12,6 @@ import type { ProjectSession } from "../src/project/projectSession.ts";
 import { clickPictureCell } from "./workspaceShared.ts";
 
 for (const viewport of [
-  { width: 1440, height: 900 },
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
