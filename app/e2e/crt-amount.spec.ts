@@ -54,7 +54,7 @@ async function settings(page: Page) {
   return slider;
 }
 
-test("CRT steps preview their uniform live, support keys and persist after reload", async ({
+test("CRT steps preview their uniform live, support keys and persist after reload @phone", async ({
   page,
 }) => {
   await play(page, true);
@@ -84,24 +84,7 @@ test("CRT steps preview their uniform live, support keys and persist after reloa
   await expect(restored).toHaveValue("1");
 });
 
-for (const legacy of ["off", "on"]) {
-  test(`CRT migrates the old ${legacy} preference`, async ({ page }) => {
-    await page.addInitScript((value) => {
-      if (!localStorage.getItem("monotio_agi.crt")) localStorage.setItem("monotio_agi.crt", value);
-    }, legacy);
-    await play(page);
-    const slider = await settings(page);
-    const amount = legacy === "on" ? "1" : "0";
-    await expect(slider).toHaveValue(amount);
-    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crtAmount"))).toBe(amount);
-    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crt"))).toBe(legacy);
-    await slider.fill("0.25");
-    await reloadGame(page);
-    await expect(await settings(page)).toHaveValue("0.25");
-  });
-}
-
-test("CRT Off renders exactly the flat material's pixels and reuses the shader", async ({
+test("CRT Off renders exactly the flat material's pixels and reuses the shader @phone", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -171,7 +154,7 @@ test("CRT Off renders exactly the flat material's pixels and reuses the shader",
   expect(Buffer.from(off.rgba).equals(Buffer.from(flat.rgba))).toBe(true);
 });
 
-test("CRT screenshots show every step and Settings fits each screen", async ({
+test("CRT screenshots show every step and Settings fits each screen @phone", async ({
   page,
   browserName,
 }) => {

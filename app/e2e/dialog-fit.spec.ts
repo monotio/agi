@@ -100,7 +100,9 @@ for (const [width, height] of [
   [390, 844],
   [360, 740],
 ] as const) {
-  test(`every dialog keeps its buttons on screen at ${width}×${height}`, async ({ page }) => {
+  test(`every dialog keeps its buttons on screen at ${width}×${height}${width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height });
     await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
     await isolateStorage(page);

@@ -70,7 +70,7 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
 });
 
 for (const open of [true, false]) {
-  test(`Help enters Create with Agent ${open ? "already open" : "closed"} and retains its draft @webkit-desktop`, async ({
+  test(`Help enters Create with Agent ${open ? "already open" : "closed"} and retains its draft${open ? " @webkit-desktop @phone" : " @webkit-desktop"}`, async ({
     page,
   }) => {
     await starter(page);
@@ -98,7 +98,7 @@ for (const open of [true, false]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`native review survives Apply and opens its earlier preview with the composer intact ${width} @webkit-desktop`, async ({
+  test(`native review survives Apply and opens its earlier preview with the composer intact ${width} ${width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
@@ -492,7 +492,7 @@ test("first Agent save failure keeps its owner, draft and retry available @webki
 // into Play pauses the game as opening it there does, so the bar never shows a
 // running game whose keyboard the panel holds, and Create's game keeps running
 // beside it so applied changes show.
-test("an open Agent pauses Play, never Create, until it closes", async ({ page }) => {
+test("an open Agent pauses Play, never Create, until it closes @phone", async ({ page }) => {
   await starter(page);
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeVisible();
