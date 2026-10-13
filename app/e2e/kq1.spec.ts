@@ -676,9 +676,10 @@ test("a corrupt autosave refuses recovery and preserves the stored checkpoint @w
   }, autosaveKey);
 
   await page.reload();
-  // Recovery reports the unreadable image and keeps the contributor's bytes.
+  // Recovery reports the unreadable image and keeps the contributor's bytes. The reload boots
+  // KQ1 again before it reads the checkpoint: the same budget as the resume after a reload above.
   const error = page.getByTestId("error-panel");
-  await expect(error).toBeVisible();
+  await expect(error).toBeVisible({ timeout: 20_000 });
   await expect(error).toContainText("The checkpoint could not be restored");
   await expect(page.locator(".screen")).toBeHidden();
   expect(await page.evaluate((key) => localStorage.getItem(key), autosaveKey)).toBe(damaged);
