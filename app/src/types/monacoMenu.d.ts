@@ -34,3 +34,12 @@ declare module "monaco-editor/editor/contrib/codeAction/browser/codeActionModel.
     setState(state: CodeActionsState, skipNotify?: boolean): void;
   }
 }
+
+declare module "monaco-editor/editor/contrib/rename/browser/renameWidget.js" {
+  export class RenameWidget {
+    _editor: { hasTextFocus(): boolean };
+    _inputWithButton: { input: HTMLInputElement };
+    _show(): void;
+    afterRender(position: number | null): void;
+  }
+}

@@ -286,6 +286,50 @@ test("name hover opens resources and message actions keep readable text @webkit-
   expect(await workspaceDocument(page, "logic:1")).toContain("print(m2)");
 });
 
+// On a busy device the editor draws a frame late. The rename box that F2 opens
+// must still take the typing, or the keys would change the code instead.
+test("the rename box takes typing when the editor draws late @webkit-desktop", async ({ page }) => {
+  await start(page);
+  await replaceWorkspaceDocument(page, "logic:1", "load.sound(chime_sound);\nreturn;");
+  await findWord(page, "chime_sound");
+  await page.evaluate(() => {
+    const request = window.requestAnimationFrame.bind(window);
+    const cancel = window.cancelAnimationFrame.bind(window);
+    const late = new Map<number, number>();
+    let next = -1;
+    window.requestAnimationFrame = (callback) => {
+      const id = next--;
+      late.set(
+        id,
+        window.setTimeout(() => {
+          late.delete(id);
+          request(callback);
+        }, 250),
+      );
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => {
+      const timer = late.get(id);
+      if (timer === undefined) return cancel(id);
+      window.clearTimeout(timer);
+      late.delete(id);
+    };
+  });
+  await page.keyboard.press("F2");
+  const rename = page
+    .getByTestId("workspace-logic-editor")
+    .locator(".rename-box input")
+    .filter({ visible: true });
+  await expect(rename).toBeVisible();
+  await expect(rename).toBeFocused();
+  await page.keyboard.type("birdsong");
+  await page.keyboard.press("Enter");
+  await expect(rename).toBeHidden();
+  await expect
+    .poll(() => workspaceDocument(page, "logic:1"))
+    .toBe("load.sound(birdsong);\nreturn;");
+});
+
 test("Home offers one Your own game card and neutral entries clear an AI pick", async ({
   page,
 }) => {
