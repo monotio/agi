@@ -108,7 +108,9 @@ for (const width of [1440, 390]) {
     await page.getByTestId("agent-send").click();
     const result = page.getByTestId("agent-result-preview");
     await expect(result).toBeVisible();
-    await expect(result.getByTestId("agent-code-diff")).toBeVisible();
+    // The first code diff loads Monaco: in a cold first wave the dev server answers its 300-odd
+    // module requests slowly, so it gets the 30 s budget of a first LOGIC editor mount.
+    await expect(result.getByTestId("agent-code-diff")).toBeVisible({ timeout: 30_000 });
     await expect(result.getByTestId("agent-art-review")).toBeVisible();
     await result.getByRole("button", { name: "Back to chat", exact: true }).click();
     await composer.fill("My next question stays here");
