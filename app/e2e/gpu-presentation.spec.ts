@@ -222,6 +222,30 @@ test("a lost GPU context leaves the flat picture, and the next game gets the sta
   await expect.poll(() => bluePixels(page, gpu)).toBeGreaterThan(1000);
 });
 
+// The browser's context-lost event can reach the renderer while it starts, before the stage
+// listens for it; the player still gets the flat picture.
+test("a GPU context lost while the stage starts leaves the flat picture", async ({ page }) => {
+  await page.addInitScript(() => {
+    const listen = HTMLCanvasElement.prototype.addEventListener;
+    HTMLCanvasElement.prototype.addEventListener = function (
+      this: HTMLCanvasElement,
+      ...args: Parameters<typeof listen>
+    ) {
+      listen.apply(this, args);
+      if (args[0] === "webglcontextlost" && this.dataset["testid"] === "gpu-canvas")
+        queueMicrotask(() =>
+          this.dispatchEvent(new Event("webglcontextlost", { cancelable: true })),
+        );
+    } as typeof listen;
+  });
+  await openSavedAdventure(page);
+  await page.getByTestId("btn-resume-cached").click();
+  const flat = page.getByTestId("game-canvas");
+  await expect(flat).toBeVisible();
+  await expect(page.getByTestId("gpu-canvas")).toBeHidden();
+  await expect.poll(() => bluePixels(page, flat)).toBeGreaterThan(1000);
+});
+
 test.describe("without the GPU stage", () => {
   // The flat 2D picture is what a player gets when WebGPU and WebGL are unavailable.
   test.use({ gpuStage: false });

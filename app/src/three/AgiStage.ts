@@ -838,7 +838,16 @@ export class AgiStage {
       let renderer: WebGPURenderer | null = null;
       try {
         renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL, context });
+        // A context or device lost while the renderer starts arrives before the stage can pass
+        // it on, so it counts as a failed start and the caller shows the flat picture.
+        let lost = false;
+        const deviceLost = renderer.onDeviceLost.bind(renderer);
+        renderer.onDeviceLost = (info) => {
+          lost = true;
+          deviceLost(info);
+        };
         await renderer.init();
+        if (lost || context?.isContextLost()) throw new Error("The GPU was lost while starting.");
         const gpu =
           !forceWebGL &&
           Boolean((renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend);

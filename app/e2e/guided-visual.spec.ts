@@ -81,6 +81,21 @@ async function messagePixels(preview: Locator): Promise<void> {
     .toBeGreaterThan(1000);
 }
 
+/** A lost GPU canvas shows the browser's grey broken-canvas mark; a drawn preview has colour. */
+async function colourPixels(preview: Locator): Promise<void> {
+  await expect
+    .poll(async () => {
+      const { rgba } = decodePng(await preview.screenshot());
+      let colour = 0;
+      for (let index = 0; index < rgba.length; index += 4) {
+        const channels = [rgba[index]!, rgba[index + 1]!, rgba[index + 2]!];
+        if (Math.max(...channels) - Math.min(...channels) > 80) colour++;
+      }
+      return colour;
+    })
+    .toBeGreaterThan(1000);
+}
+
 for (const [width, height] of [
   [1063, 815],
   [1440, 900],
@@ -273,6 +288,74 @@ test("message preview draws a fallback when the renderer fails after WebGL2 star
   await expect(preview).toBeVisible();
   await preview.scrollIntoViewIfNeeded();
   await messagePixels(preview);
+  expect(errors).toEqual([]);
+});
+
+// A GPU reset, sleep and wake, or a driver update drops every GPU context on the page; the message
+// preview then draws on the flat canvas, the same way the play stage falls back.
+test("message preview keeps drawing after the GPU drops its context", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await start(page);
+  const form = await open(page, "Answer a sentence");
+  const says = form.getByLabel("The game says…", { exact: true });
+  await says.fill("Hello from your game.");
+  const preview = form.getByRole("img", { name: "Game message preview" });
+  await messagePixels(preview);
+  const first = Buffer.from(decodePng(await preview.screenshot()).rgba);
+  await preview
+    .locator("canvas")
+    .first()
+    .evaluate(async (canvas: HTMLCanvasElement) => {
+      const lost = new Promise((resolve) => canvas.addEventListener("webglcontextlost", resolve));
+      canvas.getContext("webgl2")!.getExtension("WEBGL_lose_context")!.loseContext();
+      await lost;
+    });
+  await says.fill("The sun shines above the clearing.");
+  await messagePixels(preview);
+  await colourPixels(preview);
+  await expect
+    .poll(async () => Buffer.from(decodePng(await preview.screenshot()).rgba).equals(first))
+    .toBe(false);
+  expect(errors).toEqual([]);
+});
+
+// The context can also be lost while the renderer starts, before the preview listens for it: the
+// browser's context-lost event reaches the renderer as soon as the renderer starts listening.
+test("message preview draws a picture when the GPU drops its context while starting", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    const listen = HTMLCanvasElement.prototype.addEventListener;
+    HTMLCanvasElement.prototype.addEventListener = function (
+      this: HTMLCanvasElement,
+      ...args: Parameters<typeof listen>
+    ) {
+      listen.apply(this, args);
+      if (
+        args[0] === "webglcontextlost" &&
+        this.getAttribute("aria-label") === "Game message preview"
+      )
+        queueMicrotask(() =>
+          this.dispatchEvent(new Event("webglcontextlost", { cancelable: true })),
+        );
+    } as typeof listen;
+  });
+  await start(page);
+  const form = await open(page, "Answer a sentence");
+  const says = form.getByLabel("The game says…", { exact: true });
+  await says.fill("Hello from your game.");
+  const preview = form.getByRole("img", { name: "Game message preview" });
+  await messagePixels(preview);
+  const first = Buffer.from(decodePng(await preview.screenshot()).rgba);
+  await says.fill("The sun shines above the clearing.");
+  await messagePixels(preview);
+  await colourPixels(preview);
+  await expect
+    .poll(async () => Buffer.from(decodePng(await preview.screenshot()).rgba).equals(first))
+    .toBe(false);
   expect(errors).toEqual([]);
 });
 
