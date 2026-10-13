@@ -135,8 +135,6 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
 test("computed placements move a preview, and game motion never paints the picture @webkit-desktop", async ({
   page,
 }) => {
-  // The rule watches the game walk, so this test keeps the engine's full motion timing.
-  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await page.evaluate(async () => {
