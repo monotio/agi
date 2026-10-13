@@ -3,6 +3,7 @@ import { VOCABULARY } from "../../src/vocabulary.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import {
   enterCreateMode,
+  FIRST_LOAD_BUDGET_MS,
   openLibraryActions,
   savedGameCard,
   waitForGameInput,
@@ -28,7 +29,7 @@ export async function openStoredWorkspace(page: Page, title: string): Promise<vo
   const parts = page.getByTestId("parts-list");
   if (page.viewportSize()!.width <= 600 && !(await parts.isVisible()))
     await page.getByTestId("workspace-parts").click();
-  await expect(parts).toBeVisible();
+  await expect(parts).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await workspaceSaved(page);
 }
 
@@ -42,7 +43,9 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
     .click();
   if (await show.isVisible()) await show.click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
-  await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({ timeout: 30_000 });
+  await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({
+    timeout: FIRST_LOAD_BUDGET_MS,
+  });
   return editor;
 }
 
