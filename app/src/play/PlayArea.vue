@@ -133,7 +133,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   // The next game screen mounts its own canvas and stage.
-  presentation.releaseStage();
+  presentation.closeScreen();
   document.removeEventListener("keydown", onHelpEscape, true);
   document.removeEventListener("pointerdown", onHelpOutside);
   document.removeEventListener("focusin", onFocusMove);
