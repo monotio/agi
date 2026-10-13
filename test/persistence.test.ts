@@ -1526,9 +1526,11 @@ describe("restart", () => {
 
 test("an unconfigured game saves the default replay capacity and keeps recording after restore", () => {
   // The interpreters always hold a configured capacity (the save layout has no
-  // unconfigured state); without script.size the engine's default applies and
+  // unconfigured state); without script.size the shipped default applies and
   // travels in the image, so a restore neither caps the game at the pairs it
-  // had recorded nor loses the limit.
+  // had recorded nor loses the limit. The default is 50 pairs: SCRIPTSIZE =
+  // 0x0032 at DS+0x141 in the kq3 2.936 / kq1 2.917 / gr1 3.002.149
+  // AGIDATA.OVL data images.
   const container = createContainer();
   container.putResource(
     "logic",
@@ -1557,7 +1559,7 @@ test("an unconfigured game saves the default replay capacity and keeps recording
   engine.tick();
   const image = engine.serialize();
   const saved = decodeSave(image, engine.profile);
-  assert.equal(saved.replayCapacity, 200, "the default capacity is written");
+  assert.equal(saved.replayCapacity, 50, "the default capacity is written");
   assert.equal(saved.replayActive, 2);
   const restored = new Engine(container, host);
   restored.restoreImage(image);

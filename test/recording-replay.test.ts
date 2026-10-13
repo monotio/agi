@@ -866,3 +866,64 @@ test("script.size still replaces the shipped 50-pair default", () => {
   });
   engine.tick();
 });
+
+test("script.size drops the recorded pairs it already holds", () => {
+  // Player-visible rule: script.size starts the recorded resource sequence
+  // over, so pairs recorded before it no longer count against the new
+  // capacity. The 0x8e handler stores SCRIPTSIZE then runs RestoreAll +
+  // InitScript (scriptTop := script, SCRIPTENTRIES := 0) + AllInBack
+  // (kq3 2.936 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149 0x74E8).
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `load.view(1); load.view(1); script.size(3); load.view(1); load.view(1); load.view(1); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+});
+
+test("script.size redraws every drawn object over text written since its draw", () => {
+  // Player-visible rule: script.size refreshes the update lists, so a drawn
+  // cel's saved background is restored and text printed over the cel since
+  // its draw disappears even while the object is not updating (RestoreAll +
+  // AllInBack, kq3 2.936 0x716A).
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `load.view(1); animate.obj(1); set.view(1,1); position(1,8,96); draw(1);
+       stop.update(1); display(13,2,"X"); script.size(50); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+  assert.notEqual(engine.textRow(13).charAt(2), "X");
+});
