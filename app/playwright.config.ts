@@ -21,7 +21,7 @@ export default defineConfig({
   },
   // Chromium emulates reduced motion, so clicks do not wait out entrance animations; the WebKit
   // configs replace `projects` and keep full motion. A test whose rule needs motion opts out with
-  // test.use({ reducedMotion: "no-preference" }).
+  // page.emulateMedia({ reducedMotion: "no-preference" }) and says why.
   projects: [{ name: "chromium", use: { reducedMotion: "reduce" } }],
   // Each run owns its server; keep source files stable during verification.
   webServer: {
