@@ -431,7 +431,9 @@ a test title:
 tags runs once in each. Tag a scenario by ending its title with the tag; the config selects it from
 its existing spec. WebKit keeps the rules that depend on the engine: pointer, touch, focus, Escape,
 clipboard, files and downloads, canvas paint, fonts, scrolling and layout metrics. DOM state, request
-bodies, saved bytes, refusal text and worker message order need only Chromium.
+bodies, saved bytes, refusal text and worker message order need only Chromium. When a test drops
+its phone run because it asserts no touch rule, give it `@webkit-desktop` if its rule depends on
+the engine and the phone run was its only WebKit run.
 
 Width policy: a loop over widths runs only the widths whose layout the rule depends on. Chromium
 defaults to 1063 and 390, and uses 1440 only for a rule about the wide layout. WebKit desktop

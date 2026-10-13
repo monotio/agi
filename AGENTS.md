@@ -181,6 +181,11 @@ The audience includes children building their first game, so copy is plain and c
 - Browser behavior needs a scripted run against the real app: screenshots for visual changes,
   request and download assertions for transport changes. A stub-provider pass says nothing about
   model quality, cost or player enjoyment.
+- A browser test runs at the widths and in the engines its rule depends on: Chromium runs every
+  test, `@webkit-desktop` adds Linux WebKit for engine-dependent rules, `@phone` adds phone WebKit
+  for touch and phone layout, and logic gets a unit test instead. Engine and touch are separate
+  questions: a phone run with no touch rule may still be the test's only WebKit run. The suite and
+  width policy is in docs/testing.md.
 - A recurring model failure becomes a stored bad case in `evals/fixtures/bad-cases/`, replayed by
   `npm run eval:replay`. A recurring code defect becomes a lint or ast-grep rule or a permanent
   test.
