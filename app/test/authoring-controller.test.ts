@@ -2589,6 +2589,107 @@ for (const outcome of ["ready", "disposed", "retired"] as const) {
   });
 }
 
+// Opening the Agent on a catalog game saves its first chat, which turns the game into the
+// player's own copy. Settings saved while an opening whose engine query timed out still apply to
+// that copy: the game the player plays did not change.
+for (const fork of ["before the opening ends", "during the Save"] as const) {
+  test(`AI settings saved during a timed-out opening apply to the catalog copy made ${fork}`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId("settings-opening-fork");
+    const files = createTestFiles();
+    const revision = computeResourceRevision(files);
+    await saveAuthoredGame(projectId, {
+      title: "Catalog",
+      files,
+      words: [],
+      library: {
+        version: 1,
+        source: "catalog",
+        revision,
+        catalog: { id: "settings", version: "1" },
+        validation: { status: "ready", message: "Ready" },
+      },
+    });
+    const data = (await loadAuthoredGame(projectId))!;
+    let game: BootedGame = {
+      installed: false,
+      projectId,
+      title: data.title,
+      revision,
+      files,
+      words: [],
+      authoredGame: data,
+      historyLifetime: await readHistoryLifetime(projectId),
+    };
+    const project = openProjectSession({
+      data,
+      lifetime: game.historyLifetime!,
+      admission: {
+        runToken: "settings-opening-fork-run",
+        admit: async () => assert.fail("a chat never admits resource changes"),
+      },
+      forked(saved, lifetime) {
+        game = {
+          ...game,
+          projectId: saved.projectId,
+          authoredGame: saved,
+          historyLifetime: lifetime,
+        };
+      },
+    });
+    t.after(() => project.dispose());
+    // The Agent panel opens the conversation project on its own; it is not open yet.
+    let activeProject: typeof project | null = null;
+    const engineState = Promise.withResolvers<never>();
+    const powerUp = createMockPowerUp();
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp,
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getConversationMode: () => "play",
+      getProjectSession: () => activeProject,
+      ensureProjectSession: async () => activeProject,
+      getWorker: () => null,
+      query: () => engineState.promise,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: (next) => {
+        game = next!;
+      },
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      loadAuthoring: async () => authoringStack,
+    });
+    const opening = controller.openPowerUp(mockConfig);
+    const applying = controller.updateAiConfig({ ...mockConfig, model: "next-model" });
+    activeProject = project;
+    await project.saveChats(project.chats());
+    if (fork === "before the opening ends") {
+      await project.flush();
+      assert.notEqual(game.projectId, projectId, "the first chat save made the player's copy");
+    }
+    engineState.reject(new Error("worker query state timed out"));
+    await opening;
+    assert.equal(powerUp.error, "worker query state timed out");
+    await applying;
+    assert.notEqual(game.projectId, projectId);
+    assert.equal(controller.getSession()?.getProviderContext().model, "next-model");
+    await clearCachedGame(projectId);
+    await clearCachedGame(game.projectId!);
+  });
+}
+
 test("a stale tab's AI settings change says the game changed elsewhere and never saves over the newer project", async (t) => {
   const { ui, controller, untouched } = await staleTab(t, "two-tab-ai-config");
   await controller.updateAiConfig({ ...mockConfig, model: "another-model" });
