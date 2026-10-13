@@ -9,6 +9,7 @@ import {
 } from "./engineProbe.ts";
 import {
   focusWorkspaceLogic,
+  logicEditorLaidOut,
   openWorkspaceLogic,
   replaceWorkspaceDocument,
   workspaceDocument,
@@ -258,6 +259,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
       await part.click();
     }
     await expect(editor).toBeVisible();
+    await logicEditorLaidOut(page);
     await expect(editor.locator(".view-lines")).toContainText(/m1\s+"Hello\s+there"/);
     await page.screenshot({
       path: test.info().outputPath(`message-hints-${viewport.width}.png`),
@@ -265,6 +267,7 @@ test("name hover opens resources and message actions keep readable text @webkit-
     });
   }
   await page.setViewportSize({ width: 1440, height: 900 });
+  await logicEditorLaidOut(page);
   await findWord(page, "m1");
   const mac = await page.evaluate(() => navigator.userAgent.includes("Macintosh"));
   await page.keyboard.press(mac ? "Meta+." : "Control+.");

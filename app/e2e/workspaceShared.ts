@@ -98,6 +98,27 @@ export async function workspaceDocumentEnd(page: Page): Promise<void> {
   await page.keyboard.press(mac ? "Meta+ArrowDown" : "Control+End");
 }
 
+/**
+ * The LOGIC editor lays itself out on the animation frame after its box
+ * resizes, and that layout closes an open Quick Fix menu. After a viewport
+ * change, wait until the editor fills its box before opening a menu.
+ */
+export async function logicEditorLaidOut(page: Page): Promise<void> {
+  const host = page.getByTestId("workspace-logic-editor").filter({ visible: true });
+  await expect
+    .poll(() =>
+      host.evaluate((element) => {
+        const editor = element.querySelector<HTMLElement>(":scope > .monaco-editor");
+        return (
+          !!editor &&
+          editor.offsetWidth === element.clientWidth &&
+          editor.offsetHeight === element.clientHeight
+        );
+      }),
+    )
+    .toBe(true);
+}
+
 export async function focusWorkspaceLogic(page: Page): Promise<void> {
   await page
     .getByTestId("workspace-logic-editor")
