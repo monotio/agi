@@ -66,7 +66,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
   const aiSettingsContext = ref<AiSettingsContext>("header");
   const aiSettingsUnavailable = computed(
     () =>
-      state.powerUp.busy ||
+      (state.powerUp.busy && !state.powerUp.opening) ||
       state.agentTask?.status === "running" ||
       state.agentTask?.status === "paused",
   );

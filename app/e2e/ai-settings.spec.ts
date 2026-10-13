@@ -377,3 +377,56 @@ test("changing the shared provider affects the next Ask without losing the conve
   expect(JSON.parse(requests[0]!.body).reasoning.effort).toBe("low");
   expect(JSON.parse(requests[1]!.body).output_config.effort).toBe("medium");
 });
+
+test("AI settings and Connect AI open while the Agent is still opening", async ({ page }) => {
+  await isolateStorage(page);
+  // Hold the opening's first engine query, so the Agent stays in its opening phase.
+  await page.addInitScript(() => {
+    const held: (() => void)[] = [];
+    const post = Worker.prototype.postMessage;
+    let holding = false;
+    Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+      const message = args[0] as { type?: string } | undefined;
+      if (holding && message?.type === "state") {
+        holding = false;
+        held.push(() => (post as (...a: unknown[]) => void).apply(this, args));
+        return;
+      }
+      (post as (...a: unknown[]) => void).apply(this, args);
+    } as typeof Worker.prototype.postMessage;
+    Object.assign(window, {
+      holdNextStateQuery: () => void (holding = true),
+      releaseHeldQueries: () => held.splice(0).forEach((send) => send()),
+    });
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  await enterPlayMode(page);
+  await page.evaluate(() =>
+    (window as never as { holdNextStateQuery(): void }).holdNextStateQuery(),
+  );
+  await page.getByTestId("menu-assistant").click();
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
+
+  // The Agent has not finished opening: both entry points still reach the dialog.
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await expect(page.getByTestId("agent-open-ai-settings")).toBeEnabled();
+  await page.getByTestId("agent-open-ai-settings").click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.getByTestId("settings-menu").click();
+  await expect(page.getByTestId("open-ai-settings")).toBeEnabled();
+  await page.getByTestId("open-ai-settings").click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("provider-select").selectOption("openai");
+  await dialog.getByTestId("api-key-input").fill("test-openai-key");
+  await dialog.getByTestId("ai-settings-save").click();
+  // Saving waits for the opening, which still waits for the held query.
+  await page.evaluate(() =>
+    (window as never as { releaseHeldQueries(): void }).releaseHeldQueries(),
+  );
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+});
