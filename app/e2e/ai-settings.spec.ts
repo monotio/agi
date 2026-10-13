@@ -8,7 +8,7 @@ import {
   waitForRoom,
 } from "./engineProbe.ts";
 
-test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
+test("one shared AI setup preserves the brief and keeps provider keys separate @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -79,7 +79,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   expect(providerCalls).toBe(0);
 });
 
-test("AI settings pause only their own game interaction and preserve the assistant draft", async ({
+test("AI settings pause only their own game interaction and preserve the assistant draft @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -306,7 +306,7 @@ test("a rejected settings write preserves the next Assistant request @webkit-des
   expect(authorizations.every((value) => value === "Bearer test-stored-key")).toBe(true);
 });
 
-test("changing the shared provider affects the next Ask without losing the conversation", async ({
+test("changing the shared provider affects the next Ask without losing the conversation @phone", async ({
   page,
 }) => {
   await isolateStorage(page);

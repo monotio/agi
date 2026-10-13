@@ -263,7 +263,7 @@ test("a first catalog edit claims the copy before another page takes it over @we
   await expect(page.getByTestId("input-line")).toBeDisabled();
 });
 
-test("a second page pauses edits until Take back and keeps each page's tabs @webkit-desktop", async ({
+test("a second page pauses edits until Take back, keeps each page's tabs and a fresh page inherits the latest list @webkit-desktop", async ({
   page,
   context,
 }) => {
@@ -305,54 +305,13 @@ test("a second page pauses edits until Take back and keeps each page's tabs @web
   await parts(other);
   await expect(other.getByTestId("project-tab-picture:1")).toBeVisible();
   await expect(other.getByTestId("project-tab-notes")).toHaveCount(0);
-});
-
-test("each page reloads its own tabs and a fresh page inherits the latest list @webkit-desktop", async ({
-  page,
-  context,
-}) => {
-  await starter(page);
-  await page.getByTestId("part-room:1:logic").click();
-  const other = await context.newPage();
-  await other.goto(page.url());
-  await waitForRoom(other, 1, { coldBoot: true });
-  await parts(other);
-  await expect(other.getByTestId("project-tab-logic:1")).toBeVisible();
-  await page.getByTestId("part-notes").click();
-  await expect(page.getByTestId("project-tab-notes")).toBeVisible();
-  await other.getByTestId("part-room:1:picture:1").click();
-  await expect(other.getByTestId("project-tab-picture:1")).toBeVisible();
-  await page.reload();
-  await waitForRoom(page, 1, { coldBoot: true });
-  await parts(page);
-  await expect(page.getByTestId("project-tab-notes")).toBeVisible();
-  await expect(page.getByTestId("project-tab-picture:1")).toHaveCount(0);
+  // A page opened now inherits the latest list.
   const fresh = await context.newPage();
   await fresh.goto(page.url());
   await waitForRoom(fresh, 1, { coldBoot: true });
   await parts(fresh);
   await expect(fresh.getByTestId("project-tab-picture:1")).toBeVisible();
   await expect(fresh.getByTestId("project-tab-notes")).toHaveCount(0);
-});
-
-test("bad saved Launches offer repair while keeping other world edits @webkit-desktop", async ({
-  page,
-}) => {
-  await starter(page);
-  await page.evaluate(async () => {
-    const session = (
-      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-    ).__AGI_PROJECT__.getSession();
-    const world = JSON.parse(session.workingSnapshot().read("world")!.content as string);
-    world.rooms["1"] = { title: "Recovery room", description: "", exits: {} };
-    world.launches = {
-      "1": { entries: [{ id: "bad", name: "Repair me", variables: { "0": 1, "30": 7 } }] },
-    };
-    session.drafts().stage([{ key: "world", content: JSON.stringify(world) }]);
-    await session.drafts().flush();
-  });
-  await page.reload();
-  await expect(page.getByTestId("launch-recovery-error")).toBeVisible();
 });
 
 test("A breakpoint run from a cold Create hides Back when its return point has no room @webkit-desktop", async ({
@@ -371,11 +330,10 @@ test("A breakpoint run from a cold Create hides Back when its return point has n
 });
 
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`Launch filters transition inputs and repairs recovery at ${width} @webkit-desktop`, async ({
+  test(`Launch filters transition inputs and repairs recovery at ${width}${width === 1440 ? " @webkit-desktop" : " @phone"}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });

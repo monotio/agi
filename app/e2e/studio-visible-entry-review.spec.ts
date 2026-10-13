@@ -2,9 +2,7 @@ import { openLibraryActions, savedGameCard, storedAutosave } from "./engineProbe
 import { blockProviders, createProjectViaUi, prepareIsolatedPage } from "./logicDebugShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
-test("a manually created game has a Edit action in its game menu @webkit-desktop", async ({
-  page,
-}) => {
+test("a manually created game has a Edit action in its game menu", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);
@@ -24,7 +22,7 @@ test("a manually created game has a Edit action in its game menu @webkit-desktop
   expect(providers.count()).toBe(0);
 });
 
-test("leaving during cold creation saves the project without Play progress when editors finish loading @webkit-desktop", async ({
+test("leaving during cold creation saves the project without Play progress when editors finish loading", async ({
   page,
 }) => {
   await prepareIsolatedPage(page);

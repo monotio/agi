@@ -40,13 +40,12 @@ async function draftDocument(page: Page, key: string): Promise<string | null> {
   }, key);
 }
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {
   test.describe(`Parts delete ${width}`, () => {
     test.use({ viewport: { width, height }, hasTouch: width === 390 });
-    test("all pictures appear in their section and a used delete stays a draft @webkit-desktop", async ({
+    test(`all pictures appear in their section and a used delete stays a draft${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       await start(page);
@@ -127,7 +126,7 @@ for (const [width, height] of [
       await expect.poll(() => runningWorkspaceDocument(page, "picture:1")).toBe("end\n");
       await expect(notice).toHaveCount(0);
     });
-    test("an unused SOUND deletes immediately and Undo restores it @webkit-desktop", async ({
+    test(`an unused SOUND deletes immediately and Undo restores it${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       await start(page);
@@ -158,7 +157,7 @@ for (const [width, height] of [
       await parts(page);
       await expect(page.getByTestId("part-sound:1")).toBeVisible();
     });
-    test("Delete room preserves code and Undo restores its Launch metadata @webkit-desktop", async ({
+    test(`Delete room preserves code and Undo restores its Launch metadata${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       await start(page);

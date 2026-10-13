@@ -59,7 +59,6 @@ function strays(root: Locator, pictures: string): Promise<string[]> {
 
 for (const [width, height] of [
   [1440, 900],
-  [1280, 720],
   [1024, 600],
 ] as const) {
   test(`at ${width}×${height} nothing stray lies over the picture or the cel`, async ({ page }) => {

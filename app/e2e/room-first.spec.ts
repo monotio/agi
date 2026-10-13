@@ -3,6 +3,10 @@ import { test, expect } from "./test.ts";
 import { isolateStorage, textHook, workspaceSaved, workspaceUpdated } from "./engineProbe.ts";
 import { clickContextAction, workspaceDocument } from "./workspaceShared.ts";
 
+/** Desktop WebKit runs the 1063 variant and phone WebKit the 390 one; other widths run in Chromium only. */
+const suites = (width: number) =>
+  width === 390 ? " @phone" : width === 1063 ? " @webkit-desktop" : "";
+
 /** The room-first journey: a blank game grows rooms, names and a door with no forms. */
 async function blankGame(page: Page, title: string): Promise<void> {
   await isolateStorage(page);
@@ -45,10 +49,9 @@ test.describe("touch room naming", () => {
 
   for (const [width, height] of [
     [1063, 815],
-    [1440, 900],
     [390, 844],
   ] as const) {
-    test(`opening a room picture keeps the name selected at ${width} @webkit-desktop`, async ({
+    test(`opening a room picture keeps the name selected at ${width}${suites(width)}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height });
@@ -87,7 +90,7 @@ test.describe("touch room naming", () => {
       await expect(room).toContainText("Meadow");
     });
 
-    test(`leaving a fresh room name commits it before the next edit at ${width} @webkit-desktop`, async ({
+    test(`leaving a fresh room name commits it before the next edit at ${width}${suites(width)}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height });
@@ -152,7 +155,7 @@ test.describe("touch room naming", () => {
   }
 });
 
-test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @webkit-desktop", async ({
+test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @phone", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -258,7 +261,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`a blank game's WORDS + adds the first room and opens WORDS at ${width} @webkit-desktop`, async ({
+  test(`a blank game's WORDS + adds the first room and opens WORDS at ${width}${suites(width)}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -281,7 +284,7 @@ for (const [width, height] of [
   [1063, 815],
   [390, 844],
 ] as const) {
-  test(`room-first layout at ${width} @webkit-desktop`, async ({ page }) => {
+  test(`room-first layout at ${width}${suites(width)}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await blankGame(page, `Room first ${width}`);
     await page.screenshot({
@@ -310,10 +313,9 @@ for (const [width, height] of [
 
 for (const [width, height] of [
   [1063, 815],
-  [1440, 900],
   [390, 844],
 ] as const) {
-  test(`Game state keeps game names flat and reserved slots folded at ${width} @webkit-desktop`, async ({
+  test(`Game state keeps game names flat and reserved slots folded at ${width}${suites(width)}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });

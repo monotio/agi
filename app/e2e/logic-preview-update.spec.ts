@@ -23,7 +23,7 @@ async function state(page: Page) {
   );
 }
 
-test("Update game applies LOGIC while preserving play @webkit-desktop", async ({ page }) => {
+test("Update game applies LOGIC while preserving play", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);

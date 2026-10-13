@@ -3,7 +3,7 @@ import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 import { openWorkspaceLogic, focusWorkspaceLogic } from "./workspaceShared.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
-test("project errors mark operands and both error links select their exact range @webkit-desktop", async ({
+test("project errors mark operands and both error links select their exact range", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -42,7 +42,7 @@ test("project errors mark operands and both error links select their exact range
   await expect.poll(selection).toBe("s5");
 });
 
-test("a refused Launch opens its inventory row @webkit-desktop", async ({ page }) => {
+test("a refused Launch opens its inventory row", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -74,7 +74,7 @@ test("a refused Launch opens its inventory row @webkit-desktop", async ({ page }
   await expect(launch.getByTestId("launch-item-select")).toBeFocused();
 });
 
-test("Problems opens a refused inventory entry @webkit-desktop", async ({ page }) => {
+test("Problems opens a refused inventory entry", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -108,9 +108,7 @@ test("Problems opens a refused inventory entry @webkit-desktop", async ({ page }
   ).toBeFocused();
 });
 
-test("Problems selects a missing resource binding in Game state @webkit-desktop", async ({
-  page,
-}) => {
+test("Problems selects a missing resource binding in Game state", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -149,7 +147,7 @@ for (const [key, label, content] of [
   ["words", "Words", '[["look",1],null]'],
   ["inventory", "Objects", '[{"name":"lamp","startingRoom":1},null]'],
 ] as const) {
-  test(`Problems opens malformed ${key} rows for repair @webkit-desktop`, async ({ page }) => {
+  test(`Problems opens malformed ${key} rows for repair`, async ({ page }) => {
     await isolateStorage(page);
     await page.goto("/#create-adventure");
     await page.getByTestId("local-create-kind-starter").click();

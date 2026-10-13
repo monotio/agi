@@ -65,9 +65,7 @@ const visual = (bytes: Uint8Array): Uint8Array => {
 };
 const at = (plane: Uint8Array, x: number, y: number): number => plane[y * 160 + x]!;
 
-test("Update game saves exact PICTURE pixels and source and reopens cold @webkit-desktop", async ({
-  page,
-}) => {
+test("Update game saves exact PICTURE pixels and source and reopens cold", async ({ page }) => {
   await isolateStorage(page);
   let providerCalls = 0;
   await page.route(/api\.openai\.com|api\.anthropic\.com/, (route) => {
@@ -119,7 +117,7 @@ test("Update game saves exact PICTURE pixels and source and reopens cold @webkit
   expect(providerCalls).toBe(0);
 });
 
-test("Update game saves exact VIEW recolour bytes and retains an unrelated LOGIC edit @webkit-desktop", async ({
+test("Update game saves exact VIEW recolour bytes and retains an unrelated LOGIC edit", async ({
   page,
 }) => {
   await isolateStorage(page);

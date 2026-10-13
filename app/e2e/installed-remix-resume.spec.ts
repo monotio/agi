@@ -17,7 +17,7 @@ import {
 } from "./engineProbe.ts";
 
 for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] as const)
-  test(`an installed-game conversation survives ${handoff} owner handoff @webkit-desktop`, async ({
+  test(`an installed-game conversation survives ${handoff} owner handoff${handoff === "new" ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     const attachedInPlay = handoff === "attached";

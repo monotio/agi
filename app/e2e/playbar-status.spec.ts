@@ -8,7 +8,9 @@ for (const [width, height] of [
 ] as const) {
   test.describe(`viewport ${width}`, () => {
     test.use({ hasTouch: width === 390 });
-    test(`play strip stays still at ${width} @webkit-desktop`, async ({ page }) => {
+    test(`play strip stays still at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
+      page,
+    }) => {
       await page.setViewportSize({ width, height });
       await isolateStorage(page);
       await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));

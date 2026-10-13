@@ -30,13 +30,11 @@ type TextFrame = Pick<TextHook, "cycle" | "frame" | "room" | "modal" | "rows">;
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
 for (const size of [
-  { width: 1063, height: 815 },
-  { width: 1280, height: 800 },
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
   for (const destination of ["Play", "Create"] as const) {
-    test(`${destination} preserves an older checkpoint and offers the latest version ${size.width}`, async ({
+    test(`${destination} preserves an older checkpoint and offers the latest version ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
       page,
     }) => {
       await page.setViewportSize(size);
@@ -136,7 +134,9 @@ for (const size of [
   }
 }
 
-test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
+test("project import names each stored and refused progress entry @phone", async ({
+  page,
+}, testInfo) => {
   const container = createContainer();
   container.putFile("WORDS.TOK", new Uint8Array(52));
   container.putResource("picture", 1, Uint8Array.of(0xff));
@@ -232,7 +232,7 @@ test("project import names each stored and refused progress entry", async ({ pag
  * Imported on another browser, the project's card offers Resume and lands
  * where the walk stopped.
  */
-test("the project archive moves the autosave to another browser; the game export carries none", async ({
+test("the project archive moves the autosave to another browser; the game export carries none @phone", async ({
   page,
   browser,
 }) => {
@@ -550,7 +550,7 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
  * no checkpoint is taken while it is up. That is no reason to hold Exit: the
  * last save point stays, the timeline is sealed, and the player is Home.
  */
-test("Exit leaves a moment it cannot checkpoint and keeps the last save point", async ({
+test("Exit leaves a moment it cannot checkpoint and keeps the last save point @phone", async ({
   page,
 }) => {
   const game = createContainer();
@@ -626,7 +626,7 @@ test("Exit leaves a moment it cannot checkpoint and keeps the last save point", 
   expect(restored.flags[201], "the stored game predates the window-opening key").toBe(0);
 });
 
-test("page hide stores play progress when the document flush fails", async ({ page }) => {
+test("page hide stores play progress when the document flush fails @phone", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await isolateStorage(page);

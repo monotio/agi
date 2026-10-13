@@ -125,9 +125,7 @@ test("a pending game question keeps Play open and explains when Create can open 
 
 test.describe("Play continuation", () => {
   test.use({ hasTouch: false });
-  test("From my game and Back repeat the Play print wait on current files @webkit-desktop", async ({
-    page,
-  }) => {
+  test("From my game and Back repeat the Play print wait on current files", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await start(page);
     await page.evaluate(async () => {
@@ -226,7 +224,7 @@ test.describe("Play continuation", () => {
 
 // A room whose own LOGIC resumed from scan.start starts fresh on its new code
 // when Play returns, keeping the player's place instead of asking for Restart.
-test("a room LOGIC changed after scan.start starts fresh when Play returns @webkit-desktop", async ({
+test("a room LOGIC changed after scan.start starts fresh when Play returns", async ({
   page,
   browserName,
 }) => {

@@ -186,7 +186,7 @@ test("opening the agent on an existing remix shows no copy event", async ({ page
   await expect(page.getByTestId("copy-created-note")).toHaveCount(0);
 });
 
-test("a played remix exposes its origin in Details @webkit-desktop", async ({ page }) => {
+test("a played remix exposes its origin in Details", async ({ page }) => {
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);
   await page.goto("/");
@@ -210,9 +210,7 @@ test("a played remix exposes its origin in Details @webkit-desktop", async ({ pa
   expect(providers.count()).toBe(0);
 });
 
-test("a later source revision cannot rename a remix's historical origin @webkit-desktop", async ({
-  page,
-}) => {
+test("a later source revision cannot rename a remix's historical origin", async ({ page }) => {
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);
   await page.goto("/");

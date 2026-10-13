@@ -267,9 +267,7 @@ test("Download… offers the project file and the playable game", async ({ page 
   await expect(card.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
 });
 
-test("the in-game Settings sheet has one Download… opening the same dialog @webkit-desktop", async ({
-  page,
-}) => {
+test("the in-game Settings sheet has one Download… opening the same dialog", async ({ page }) => {
   await playTutorialOnce(page);
   await savedGameCard(page, "Adventure Department")
     .getByTestId("catalog-play-adventure-department")

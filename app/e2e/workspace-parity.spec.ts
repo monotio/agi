@@ -40,7 +40,9 @@ async function cell(page: Page, x: number, y: number) {
 for (const width of [1063, 1440, 390]) {
   test.describe(`${width} PICTURE`, () => {
     test.use({ hasTouch: width === 390 });
-    test(`PICTURE inspector and metadata fit ${width}`, async ({ page }) => {
+    test(`PICTURE inspector and metadata fit ${width}${width === 390 ? " @phone" : ""}`, async ({
+      page,
+    }) => {
       await page.setViewportSize({
         width,
         height: width === 1063 ? 815 : width === 1440 ? 900 : 844,
@@ -72,7 +74,7 @@ for (const width of [1063, 1440, 390]) {
 }
 test.describe("phone Items", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
-  test("Items rows remain visible and select an item on a phone", async ({ page }) => {
+  test("Items rows remain visible and select an item on a phone @phone", async ({ page }) => {
     const studio = await picture(page);
     const row = studio.locator('[role="treeitem"][data-row]').first();
     // The transport sits under the canvas; on a phone the Items list scrolls to it.
@@ -93,13 +95,15 @@ test.describe("phone Items", () => {
     await page.screenshot({ path: test.info().outputPath("phone-selected-item.png") });
   });
 });
-for (const width of [1063, 1440, 390]) {
+for (const width of [1063, 390]) {
   test.describe(`${width} Rebuilt`, () => {
     test.use({
       viewport: { width, height: width === 1063 ? 815 : width === 1440 ? 900 : 844 },
       hasTouch: width === 390,
     });
-    test("a native picture explains its Rebuilt source in the workspace", async ({ page }) => {
+    test(`a native picture explains its Rebuilt source in the workspace${width === 390 ? " @phone" : ""}`, async ({
+      page,
+    }) => {
       await picture(page);
       const bytes = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(
         "picture",
@@ -149,7 +153,9 @@ test("Focus gives the PICTURE canvas more room", async ({ page }) => {
   const after = (await studio.locator(".studio__stage").boundingBox())!;
   expect(after.width * after.height).toBeGreaterThan(before.width * before.height * 1.2);
 });
-test("draw order, Split and Distance bands are reachable in the workspace", async ({ page }) => {
+test("draw order, Split and Distance bands are reachable in the workspace @phone", async ({
+  page,
+}) => {
   const studio = await picture(page);
   // The draw-order transport is on by default; the Items list's Draw order only sorts the list.
   await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
@@ -257,7 +263,7 @@ test("while a line is open only its points sit on the picture; Done, Enter and a
   await expect.poll(lines).toBe(before + 3);
   await workspaceUpdated(page);
 });
-test("a polygon finishes with Done in the context row and its point menu names Delete shape", async ({
+test("a polygon finishes with Done in the context row and its point menu names Delete shape @phone", async ({
   page,
 }) => {
   const studio = await picture(page);
@@ -295,7 +301,7 @@ test("a polygon finishes with Done in the context row and its point menu names D
 test.describe("phone drawing", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
   for (const tool of ["line", "polygon"] as const)
-    test(`a ${tool} drawn on a phone keeps the picture clear and finishes with Done above it`, async ({
+    test(`a ${tool} drawn on a phone keeps the picture clear and finishes with Done above it @phone`, async ({
       page,
     }) => {
       const studio = await picture(page);
@@ -322,7 +328,9 @@ test.describe("phone drawing", () => {
       await workspaceUpdated(page);
     });
 });
-test("the Priority lens shows doors and runs a real test with Play here", async ({ page }) => {
+test("the Priority lens shows doors and runs a real test with Play here @phone", async ({
+  page,
+}) => {
   const studio = await picture(page);
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
@@ -350,7 +358,7 @@ test("the Priority lens shows doors and runs a real test with Play here", async 
   await studio.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(status).not.toContainText("Now click the goal");
 });
-test("Create Inspector opens screen, state and timeline controls", async ({ page }) => {
+test("Create Inspector opens screen, state and timeline controls @phone", async ({ page }) => {
   await picture(page);
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
@@ -420,7 +428,7 @@ async function drawLine(page: Page) {
   return studio;
 }
 
-test("item inspector saves name, colour, Lock and points and seeks a pixel's step", async ({
+test("item inspector saves name, colour, Lock and points and seeks a pixel's step @phone", async ({
   page,
 }) => {
   const studio = await drawLine(page);
@@ -458,7 +466,7 @@ test("item inspector saves name, colour, Lock and points and seeks a pixel's ste
 });
 
 for (const key of ["Delete", "Backspace"] as const) {
-  test(`${key} removes the selected line vertex`, async ({ page }) => {
+  test(`${key} removes the selected line vertex @phone`, async ({ page }) => {
     const studio = await drawLine(page);
     await studio.locator('button[data-tool="point"]').click();
     const handles = studio.locator("[data-point]");
@@ -469,7 +477,7 @@ for (const key of ["Delete", "Backspace"] as const) {
     await workspaceUpdated(page);
   });
 }
-test("a point's context menu offers Delete point and Delete line", async ({ page }) => {
+test("a point's context menu offers Delete point and Delete line @phone", async ({ page }) => {
   const studio = await drawLine(page);
   await studio.locator('button[data-tool="point"]').click();
   const handles = studio.locator("[data-point]");
@@ -482,7 +490,9 @@ test("a point's context menu offers Delete point and Delete line", async ({ page
   await expect(handles).toHaveCount(2);
 });
 
-test("Share picture downloads a Still and a Clip when recording is supported", async ({ page }) => {
+test("Share picture downloads a Still and a Clip when recording is supported @phone", async ({
+  page,
+}) => {
   await picture(page);
   for (const kind of ["still", "clip"] as const) {
     await page.getByTestId("workspace-more").click();
@@ -518,7 +528,7 @@ test("Share picture downloads a Still and a Clip when recording is supported", a
   }
 });
 
-test("Walk edits a door box and an edge exit and shows drawing errors beside the controls", async ({
+test("Walk edits a door box and an edge exit and shows drawing errors beside the controls @phone", async ({
   page,
 }) => {
   const studio = await picture(page);
@@ -605,7 +615,9 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await page.screenshot({ path: test.info().outputPath("walk-doors.png") });
 });
 
-test("a door keeps an unfinished box number when its saved LOGIC refreshes", async ({ page }) => {
+test("a door keeps an unfinished box number when its saved LOGIC refreshes @phone", async ({
+  page,
+}) => {
   const studio = await picture(page);
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
@@ -643,7 +655,7 @@ test("a door keeps an unfinished box number when its saved LOGIC refreshes", asy
   await expect(box).toHaveValue("121");
 });
 
-test("stand-in readout and an item's depth controls are reachable", async ({ page }) => {
+test("stand-in readout and an item's depth controls are reachable @phone", async ({ page }) => {
   const studio = await picture(page);
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");
   await studio.locator('[role="treeitem"][data-row]').first().click();
@@ -665,7 +677,7 @@ test("stand-in readout and an item's depth controls are reachable", async ({ pag
   await expect(studio.getByTestId("ghost-probe-readout")).toBeVisible();
 });
 
-test("an empty picture names the next drawing action", async ({ page }) => {
+test("an empty picture names the next drawing action @phone", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();

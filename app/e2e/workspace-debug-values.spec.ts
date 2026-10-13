@@ -10,7 +10,7 @@ for (const size of [
   { width: 1440, height: 900 },
   { width: 1063, height: 815 },
 ]) {
-  test(`paused hover edits and inline values at ${size.width} @webkit-desktop`, async ({
+  test(`paused hover edits and inline values at ${size.width}${size.width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize(size);

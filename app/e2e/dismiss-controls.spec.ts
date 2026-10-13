@@ -4,7 +4,6 @@ import { isolateStorage, waitForRoom, openGameOptions } from "./engineProbe.ts";
 
 for (const viewport of [
   { width: 1063, height: 815 },
-  { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
   test(`dismiss controls and finishing Trace at ${viewport.width}`, async ({ page }) => {

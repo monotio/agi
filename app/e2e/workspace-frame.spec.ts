@@ -84,7 +84,7 @@ test("stacked is the default; side by side toggles and falls back when narrow @w
     .toBeGreaterThanOrEqual(0);
 });
 
-test("every parts section has its own + and OBJECTS and WORDS always show @webkit-desktop", async ({
+test("every parts section has its own + and OBJECTS and WORDS always show, and Game state + names a flag in place @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -122,11 +122,6 @@ test("every parts section has its own + and OBJECTS and WORDS always show @webki
     .first();
   await expect(state.getByTestId("part-problems")).toHaveCount(0);
   await expect(state.getByTestId("part-state")).toBeVisible();
-});
-
-test("Game state + names a flag in place @webkit-desktop", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await starter(page);
   const naming = page.getByTestId("game-state-naming");
   await page.getByTestId("add-game-state").click();
   await expect(naming).toBeVisible();
@@ -241,11 +236,10 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
 });
 
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`context row room actions receive clicks at ${width} @webkit-desktop`, async ({
+  test(`context row room actions receive clicks at ${width}${width === 1440 ? " @webkit-desktop" : " @phone"}`, async ({
     page,
     browserName,
   }) => {

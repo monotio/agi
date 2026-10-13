@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "./test.ts";
 import { textHook } from "./engineProbe.ts";
 
-test("1.1 progress opens automatically once @webkit-desktop", async ({ page, context }) => {
+test("1.1 progress opens automatically once", async ({ page, context }) => {
   const fixture = JSON.parse(
     await readFile(new URL("../test/fixtures/progress-v1.1.json", import.meta.url), "utf8"),
   ) as {
