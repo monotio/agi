@@ -2702,12 +2702,18 @@ export class Engine {
       case "print":
       case "showObj":
       case "showPri":
-        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || byte === AGI_KEY.SPACE)
+        // ChkAcAb accepts CR (1) or ESC (0) only; every other key keeps
+        // waiting — Space is not an acknowledgement key (demopac4 3.002.102
+        // 0x4A34 / kq3 2.936 0x45F0).
+        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE)
           this.closeModal();
         return;
       case "inventory":
         if (!m.interactive) {
-          if (byte !== 0) this.closeModal();
+          // The acknowledgement-only list ends on a bare WaitEvent: ANY event
+          // dismisses it, including zero-low-byte extended words (demopac4
+          // 3.002.102 0x3696 / kq3 2.936 0x32E9).
+          this.closeModal();
           return;
         }
         if (byte === AGI_KEY.ENTER) {
@@ -2738,6 +2744,12 @@ export class Engine {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     const m = this.modal;
     if (!m) return;
+    // The non-interactive inventory's bare WaitEvent ends on ANY event,
+    // navigation included (demopac4 3.002.102 0x3696).
+    if (m.kind === "inventory" && !m.interactive) {
+      this.closeModal();
+      return;
+    }
     if (m.kind === "inventory" && m.interactive && m.items.length > 0) {
       const n = m.items.length;
       if (value === 1 || value === 7) m.selected = (m.selected - 1 + n) % n;
@@ -4327,6 +4339,12 @@ export class Engine {
       while (this.modal) {
         const event = this.inputQueue.dequeue();
         if (!event) break;
+        if (this.modal.kind === "inventory" && !this.modal.interactive) {
+          // WaitEvent: any queued event dismisses the acknowledgement-only
+          // list, controllers included (demopac4 3.002.102 0x3696).
+          this.closeModal();
+          continue;
+        }
         if (event.type === 2) this.modalNavigate(event.value);
         else if (event.type === 1) this.modalKey(event.value);
       }

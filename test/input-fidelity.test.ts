@@ -4,6 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { buildObjectFile } from "../src/agent/agentState.ts";
+import { buildView } from "../src/view/view.ts";
 
 class Host implements EngineHost {
   keys: number[] = [];
@@ -408,4 +409,87 @@ test("the input-phase line editor never normalizes keypad words", () => {
   engine.tick();
   assert.equal(engine.flags[2], 0, "no line was accepted");
   assert.equal(engine.vars[19], 0x01, "the editor saw the raw low byte");
+});
+
+test("a message window dismisses on Enter or Escape only, never Space", () => {
+  // Player-visible rule: Space does not acknowledge a modal message. Every
+  // print/show.obj/show.pri modal funnels to WaitAcAb → ChkAcAb: CR accepts,
+  // ESC aborts, anything else keeps waiting (demopac4 3.002.102 ChkAcAb
+  // 0x4A34: cmp 0x0d / cmp 0x1b / else -1; kq3 2.936 0x45F0).
+  const host = new Host();
+  const engine = game(
+    `
+    if (!isset(f200)) { set(f200); print("hello"); }
+    return;
+  `,
+    host,
+  );
+  engine.tick();
+  assert.equal(engine.modalKind, "print");
+  host.keys.push(0x20);
+  engine.tick();
+  assert.equal(engine.modalKind, "print", "Space is not an acknowledgement");
+  host.keys.push(0x0d);
+  engine.tick();
+  assert.equal(engine.modalKind, null, "Enter dismisses");
+});
+
+test("show.obj dismisses on Escape but not Space", () => {
+  const host = new Host();
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); load.view(1); show.obj(1); } return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  const engine = new Engine(container, host);
+  engine.tick();
+  assert.equal(engine.modalKind, "showObj");
+  host.keys.push(0x20);
+  engine.tick();
+  assert.equal(engine.modalKind, "showObj", "Space is not an acknowledgement");
+  host.keys.push(0x1b);
+  engine.tick();
+  assert.equal(engine.modalKind, null, "Escape dismisses");
+});
+
+test("the non-interactive inventory list dismisses on any event", () => {
+  // Player-visible rule: with f13 clear the carried-items list ends on ANY
+  // event — navigation, a controller, or an extended key with a zero low
+  // byte — not just on printable keys. demopac4 3.002.102 0x3696: a bare
+  // WaitEvent; kq3 2.936 0x32E9 likewise.
+  const host = new Host();
+  const engine = game(
+    `
+    if (!isset(f200)) { set(f200); status(); }
+    return;
+  `,
+    host,
+  );
+  engine.tick();
+  assert.equal(engine.modalKind, "inventory");
+  host.keys.push(0x4800); // Up arrow: a navigation event, not a key byte
+  engine.tick();
+  assert.equal(engine.modalKind, null, "navigation dismisses the list");
+
+  const host2 = new Host();
+  const engine2 = game(
+    `
+    if (!isset(f200)) { set(f200); status(); }
+    return;
+  `,
+    host2,
+  );
+  engine2.tick();
+  host2.keys.push(0x3b00); // F1: type-1 event with a zero low byte
+  engine2.tick();
+  assert.equal(engine2.modalKind, null, "an extended key dismisses the list");
 });
