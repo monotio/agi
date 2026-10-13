@@ -259,11 +259,21 @@ export function createPresentation() {
   }
 
   /**
-   * The game screen unmounted: its stage and its picture go with it, so the
-   * next screen shows only frames its own game sends.
+   * The game screen unmounted: its GPU stage goes with it. The picture stays,
+   * because the screen remounts for the same game when an opening is refused.
    */
   function closeScreen(): void {
     dispose();
+  }
+
+  /**
+   * A new engine replaced the game, or the game was left: its picture goes
+   * with it, so the next screen shows only frames its own game sends.
+   */
+  function forgetFrame(): void {
+    if (presentationRaf !== null && typeof cancelAnimationFrame !== "undefined")
+      cancelAnimationFrame(presentationRaf);
+    presentationRaf = null;
     pendingPresentationFrame = null;
     pendingTextOverride = undefined;
     lastFrame.value = null;
@@ -293,6 +303,7 @@ export function createPresentation() {
     onScreenPointerMove,
     initStage,
     closeScreen,
+    forgetFrame,
     dispose,
   };
 }

@@ -86,6 +86,8 @@ export interface GameLifecycleOptions {
   readonly resetPauseOwners: () => void;
   /** The history transport's scratch session dies with the worker. */
   readonly resetHistoryView: () => void;
+  /** The screen's last picture belongs to the replaced or departed game. */
+  readonly onScreenReset?: () => void;
   readonly flushProject?: () => Promise<void>;
   readonly pendingEditorChanges?: () => boolean;
   readonly getProjectMode?: () => "create" | "play";
@@ -222,6 +224,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     hook.room = 0;
     hook.egoX = 0;
     hook.egoY = 0;
+    options.onScreenReset?.();
   }
 
   /**

@@ -53,8 +53,9 @@ test("the flat picture shows a frame that arrived before the game screen mounted
   assert.deepEqual(screen.pixel(FRAME_WIDTH - 1, FRAME_HEIGHT - 25), EGA_PALETTE[2]);
 });
 
-// The next game's screen mounts before that game's first frame arrives, so
-// it must start blank rather than show the previous game's last picture.
+// A new engine replaces the game (the lifecycle's screen reset) and the next
+// screen mounts before that game's first frame arrives, so it must start
+// blank rather than show the previous game's last picture.
 test("a new game screen never shows the previous game's picture", async () => {
   const presentation = createPresentation();
   const first = flatCanvas();
@@ -64,6 +65,7 @@ test("a new game screen never shows the previous game's picture", async () => {
   assert.deepEqual(first.pixel(0, 8), EGA_PALETTE[2]);
   presentation.closeScreen();
   presentation.canvasEl.value = undefined;
+  presentation.forgetFrame();
   const next = flatCanvas();
   presentation.canvasEl.value = next.canvas;
   await presentation.initStage(1);
