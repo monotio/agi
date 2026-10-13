@@ -1,8 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fixtureSkip } from "../test/fixtures.ts";
-import { Speedrun } from "../test/speedrun/runner.ts";
-import { walkthrough, runWalkthrough } from "../test/speedrun/walkthroughs.ts";
+import { walkthrough, runWalkthrough, shippedSpeedrun } from "../test/speedrun/walkthroughs.ts";
 import {
   walkthroughFixtureHashes,
   walkthroughServedRevisions,
@@ -17,7 +16,7 @@ if (missing) {
 } else {
   const output = resolve(process.argv[3] ?? `/tmp/agi-${route.alias}-speedrun.json`);
   const started = performance.now();
-  const run = new Speedrun(route.hash, route.seed ?? 1, { dwellModals: true, rngVersion: 2 });
+  const run = shippedSpeedrun(route);
   const fixtureHashes = walkthroughFixtureHashes(route.hash);
   const servedRevisions = await walkthroughServedRevisions(route.hash);
   let failure: string | null = null;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { fixtureDir, fixtureFiles } from "../fixtures.ts";
 import { BUILTIN_GAME_BUILDERS, loadGame } from "../game-fixture.ts";
 import type { GameIdentity, ResourceRevision } from "../../src/gameIdentity.ts";
@@ -76,6 +77,11 @@ export function walkthroughFixtureHashes(target: string): Record<string, string>
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([name, bytes]) => [name, createHash("sha256").update(bytes).digest("hex")]),
   );
+}
+
+/** The committed tape the app offers under Watch walkthrough. */
+export function shippedTapePath(alias: string): string {
+  return fileURLToPath(new URL(`../../app/public/walkthroughs/${alias}.json`, import.meta.url));
 }
 
 /** Read a completed replay; consumers also match its hashes to their fixture files. */

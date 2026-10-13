@@ -104,6 +104,8 @@ export class Speedrun {
   private readonly keys: number[] = [];
   private readonly answers: string[] = [];
   private readonly numAnswers: number[] = [];
+  /** A tape's recorded answers, in prompt order, while `replay` plays it back. */
+  private recordedAnswers: string[] | null = null;
   private navigationHeading: number | null = null;
   private clockPollTick = 0;
   private rngState: number;
@@ -159,7 +161,7 @@ export class Speedrun {
       },
       promptString: (prompt) => {
         this.textPrompts.push(prompt);
-        const answer = this.answers.shift();
+        const answer = this.recordedAnswers ? this.recordedAnswers.shift() : this.answers.shift();
         assert.notEqual(answer, undefined, "Walkthrough must supply an explicit prompt answer");
         this.actions.push({ kind: "answer", text: answer! });
         return answer!;
@@ -173,7 +175,12 @@ export class Speedrun {
           room: this.engine.vars[0]!,
           rowText: this.engine.textRow(row),
         });
-        const answer = this.numAnswers.shift();
+        const recorded = this.recordedAnswers?.shift();
+        const answer = this.recordedAnswers
+          ? recorded === undefined
+            ? undefined
+            : Number(recorded)
+          : this.numAnswers.shift();
         assert.notEqual(answer, undefined, "Walkthrough must supply an explicit prompt answer");
         this.actions.push({ kind: "answer", text: String(answer!) });
         return answer!;
@@ -783,6 +790,50 @@ export class Speedrun {
       { budgets: { hostPolls: max } },
     );
     this.finishNavigation(result.outcome, max);
+  }
+
+  /**
+   * Play a recorded tape from a cold boot. The host records wait-key Enters
+   * and prompt answers while time advances, so the replay checks those
+   * entries against the tape instead of sending them a second time.
+   */
+  replay(tape: readonly Action[]): void {
+    assert.equal(this.actions.length, 0, "a tape replays from a cold boot");
+    this.recordedAnswers = tape.flatMap((action) =>
+      action.kind === "answer" ? [action.text] : [],
+    );
+    try {
+      for (const [index, action] of tape.entries()) {
+        if (index < this.actions.length) {
+          assert.deepEqual(
+            this.actions[index],
+            action,
+            `tape action ${index} at tick ${this.ticks}`,
+          );
+          continue;
+        }
+        if (action.kind === "key") this.key(action.code);
+        else if (action.kind === "advance") this.advance(action.ticks);
+        else if (action.kind === "checkpoint") {
+          const { room, score, x, y } = this.state();
+          assert.deepEqual(
+            { room, score, x, y },
+            {
+              room: action.room,
+              score: action.score,
+              x: action.x,
+              y: action.y,
+            },
+            `checkpoint "${action.label}"`,
+          );
+          this.actions.push({ ...action });
+        } else assert.fail(`tape action ${index} (${action.kind}) arrived without its prompt`);
+      }
+      assert.equal(this.actions.length, tape.length, "tape length");
+      assert.deepEqual(this.recordedAnswers, [], "every recorded answer was asked for");
+    } finally {
+      this.recordedAnswers = null;
+    }
   }
 
   /** Assert progress without adding a timeline highlight. */

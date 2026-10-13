@@ -149,6 +149,15 @@ export function verifyWalkthrough(
   if (expected.egoView !== undefined) assert.equal(egoView, expected.egoView, "ending view");
 }
 
+/**
+ * The settings every shipped tape is recorded with: modal text stays on
+ * screen for a reading pause, and the seeded random source is the app's
+ * replay sequence.
+ */
+export function shippedSpeedrun(route: Walkthrough): Speedrun {
+  return new Speedrun(route.hash, route.seed ?? 1, { dwellModals: true, rngVersion: 2 });
+}
+
 export function runWalkthrough(
   route: Walkthrough,
   run = new Speedrun(route.hash, route.seed ?? 1),
