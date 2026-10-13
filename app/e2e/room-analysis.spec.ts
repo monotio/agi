@@ -29,7 +29,9 @@ function mapGame() {
   return game;
 }
 
-test("the full map and ROOMS include shared and picture-free rooms", async ({ page }) => {
+test("the full map and ROOMS include shared and picture-free rooms @webkit-desktop", async ({
+  page,
+}) => {
   const game = mapGame();
   // An incoming exit makes ROOM 255 appear in the parts list.
   game.putResource(

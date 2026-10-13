@@ -86,7 +86,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`guided visual sentences and dock placement at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
+  test(`guided visual sentences and dock placement at ${width}${width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -310,7 +310,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`guided placement stays crisp with CRT Full saved at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
+  test(`guided placement stays crisp with CRT Full saved at ${width}${width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });

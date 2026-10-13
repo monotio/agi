@@ -15,7 +15,7 @@ for (const [width, order] of [
   [1440, "native-first"],
   [390, "draft-first"],
 ] as const) {
-  test(`mixed captured LOGIC previews preserve native and draft vocabulary after reload (${order}, ${width})${width === 1440 ? " @webkit-desktop" : ""}`, async ({
+  test(`mixed captured LOGIC previews preserve native and draft vocabulary after reload (${order}, ${width})${width === 1440 ? " @webkit-desktop" : " @phone"}`, async ({
     page,
   }) => {
     await page.setViewportSize({

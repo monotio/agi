@@ -19,9 +19,7 @@ async function parts(page: Page): Promise<void> {
   await expect(page.getByTestId("parts-list")).toBeVisible();
 }
 
-test("debug controls follow LOGIC and a paused session @webkit-desktop @phone", async ({
-  page,
-}) => {
+test("debug controls follow LOGIC and a paused session @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();

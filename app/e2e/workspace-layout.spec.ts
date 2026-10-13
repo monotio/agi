@@ -21,8 +21,9 @@ const sizes = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ];
-/** The phone WebKit run covers the 390 layout only. */
-const phone = (width: number) => (width === 390 ? " @phone" : "");
+/** WebKit runs the 390 layout in the phone suite and the 1063 layout in the desktop suite. */
+const phone = (width: number) =>
+  width === 390 ? " @phone" : width === 1063 ? " @webkit-desktop" : "";
 async function start(page: Page) {
   await isolateStorage(page);
   await page.goto("/");
@@ -493,7 +494,7 @@ for (const size of sizes) {
   });
 }
 
-test("A native refused write rejects the deferred update and rolls back its records", async ({
+test("A native refused write rejects the deferred update and rolls back its records @webkit-desktop", async ({
   page,
 }) => {
   const pageErrors: string[] = [];

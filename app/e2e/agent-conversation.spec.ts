@@ -70,7 +70,7 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
 });
 
 for (const open of [true, false]) {
-  test(`Help enters Create with Agent ${open ? "already open" : "closed"} and retains its draft${open ? " @webkit-desktop @phone" : " @webkit-desktop"}`, async ({
+  test(`Help enters Create with Agent ${open ? "already open" : "closed"} and retains its draft @webkit-desktop`, async ({
     page,
   }) => {
     await starter(page);

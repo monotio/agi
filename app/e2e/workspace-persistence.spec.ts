@@ -120,8 +120,8 @@ test("Name this version saves the draft and names the running update", async ({ 
 
 for (const key of ["notes", "logic", "words", "sound"] as const) {
   for (const stage of ["draft storage", "worker admission"] as const) {
-    // Admission refusal does not depend on the document kind; LOGIC and SOUND cover it.
-    if (stage === "worker admission" && (key === "notes" || key === "words")) continue;
+    // The held admission stages notes, so only NOTES shares a document with it; WORDS adds nothing.
+    if (stage === "worker admission" && key === "words") continue;
     test(`${key} draft downloads and restores before Update game when read-only (${stage})`, async ({
       page,
     }) => {
@@ -326,7 +326,7 @@ test("Read-only unsaved edits keeps tempo metadata for both retained SOUND buffe
 });
 
 for (const size of [
-  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
   test(`a failed flush refuses a version name and Retry names the visible source at ${size.width}`, async ({

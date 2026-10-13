@@ -177,7 +177,7 @@ async function cursor(page: Page) {
         .capture().history.cursor,
   );
 }
-test("trace handles preview privately and Update makes each chosen History step with Reset and Undo", async ({
+test("trace handles preview privately and Update makes each chosen History step with Reset and Undo @webkit-desktop", async ({
   page,
 }) => {
   await start(page);

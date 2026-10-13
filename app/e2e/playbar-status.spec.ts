@@ -8,7 +8,7 @@ for (const [width, height] of [
 ] as const) {
   test.describe(`viewport ${width}`, () => {
     test.use({ hasTouch: width === 390 });
-    test(`play strip stays still at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
+    test(`play strip stays still at ${width}${width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : ""}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height });

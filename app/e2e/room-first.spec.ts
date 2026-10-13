@@ -155,7 +155,7 @@ test.describe("touch room naming", () => {
   }
 });
 
-test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @phone", async ({
+test("blank game to Meadow, Room 2, a door drawn on the game and Play Room 2 @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
