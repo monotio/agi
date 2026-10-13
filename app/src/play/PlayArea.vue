@@ -132,6 +132,8 @@ onMounted(() => {
   readKeyboard();
 });
 onBeforeUnmount(() => {
+  // The next game screen mounts its own canvas and stage.
+  presentation.releaseStage();
   document.removeEventListener("keydown", onHelpEscape, true);
   document.removeEventListener("pointerdown", onHelpOutside);
   document.removeEventListener("focusin", onFocusMove);

@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import type { GpuStageOption } from "./e2e/test.ts";
 
 /**
  * Documentation screenshots, run by `npm run media:capture` (scripts/capture-media.ts),
@@ -8,7 +9,7 @@ import { defineConfig } from "@playwright/test";
  */
 const PORT = Number(process.env["AGI_MEDIA_PORT"] ?? 5871);
 
-export default defineConfig({
+export default defineConfig<GpuStageOption>({
   testDir: "./e2e/media",
   testMatch: "*.media.ts",
   outputDir: "../.captures/media/results",
@@ -23,6 +24,8 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
     reducedMotion: "reduce",
+    // Documentation shows the picture players see.
+    gpuStage: true,
     locale: "en-US",
     timezoneId: "UTC",
     trace: "retain-on-failure",

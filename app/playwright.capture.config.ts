@@ -1,8 +1,9 @@
 import { defineConfig } from "@playwright/test";
+import type { GpuStageOption } from "./e2e/test.ts";
 import base from "./playwright.config.ts";
 
 /** Small, provider-mocked scenarios using original resources for documentation captures. */
-export default defineConfig({
+export default defineConfig<GpuStageOption>({
   ...base,
   testMatch: [
     "**/tutorial-playability.spec.ts",
@@ -13,6 +14,8 @@ export default defineConfig({
   workers: 1,
   use: {
     ...base.use,
+    // Documentation shows the picture players see.
+    gpuStage: true,
     viewport: { width: 1280, height: 900 },
     video: { mode: "on", size: { width: 1280, height: 900 } },
   },

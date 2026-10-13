@@ -1158,32 +1158,37 @@ async function sourceColourOf(page: Page): Promise<number[]> {
   });
 }
 
-test("Create renders crisp while Play retains the CRT preference", async ({ page }) => {
-  // Hold the GPU stage until Create runs, so it also arrives after the game starts.
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/src/three/AgiStage.ts", async (route) => {
-    await gate;
-    await route.continue();
+test.describe(() => {
+  // About the GPU stage, so it creates one (e2e/test.ts `gpuStage`).
+  test.use({ gpuStage: true });
+
+  test("Create renders crisp while Play retains the CRT preference", async ({ page }) => {
+    // Hold the GPU stage until Create runs, so it also arrives after the game starts.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/src/three/AgiStage.ts", async (route) => {
+      await gate;
+      await route.continue();
+    });
+    await page.addInitScript(() => {
+      localStorage.clear();
+      localStorage.setItem("monotio_agi.e2e.isolated", "1");
+      localStorage.setItem("monotio_agi.crt", "on");
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await starter(page);
+    release();
+    // Compare with the game's own picture once it has painted.
+    await expect.poll(() => sourceColourOf(page)).not.toEqual([0, 0, 0]);
+    const sourceColour = await sourceColourOf(page);
+    const renderedColour = () => renderedColourOf(page);
+    await expect.poll(renderedColour).toEqual(sourceColour);
+    await page.getByTestId("part-room:1:picture:1").click();
+    await expect.poll(renderedColour).toEqual(sourceColour);
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await expect.poll(renderedColour).not.toEqual(sourceColour);
+    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crt"))).toBe("on");
+    await page.getByRole("radio", { name: "Create", exact: true }).click();
+    await expect.poll(renderedColour).toEqual(sourceColour);
   });
-  await page.addInitScript(() => {
-    localStorage.clear();
-    localStorage.setItem("monotio_agi.e2e.isolated", "1");
-    localStorage.setItem("monotio_agi.crt", "on");
-  });
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await starter(page);
-  release();
-  // Compare with the game's own picture once it has painted.
-  await expect.poll(() => sourceColourOf(page)).not.toEqual([0, 0, 0]);
-  const sourceColour = await sourceColourOf(page);
-  const renderedColour = () => renderedColourOf(page);
-  await expect.poll(renderedColour).toEqual(sourceColour);
-  await page.getByTestId("part-room:1:picture:1").click();
-  await expect.poll(renderedColour).toEqual(sourceColour);
-  await page.getByRole("radio", { name: "Play", exact: true }).click();
-  await expect.poll(renderedColour).not.toEqual(sourceColour);
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crt"))).toBe("on");
-  await page.getByRole("radio", { name: "Create", exact: true }).click();
-  await expect.poll(renderedColour).toEqual(sourceColour);
 });

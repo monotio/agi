@@ -180,9 +180,17 @@ export class AgiStage {
 
   private readonly stopLayoutWatch: () => void;
 
+  /** Called when the GPU drops this stage's context or device; the stage draws nothing after. */
+  onLost: (() => void) | null = null;
+
   private constructor(renderer: WebGPURenderer, isWebGpu: boolean, canvas: HTMLCanvasElement) {
     this.renderer = renderer;
     this.isWebGpu = isWebGpu;
+    const deviceLost = renderer.onDeviceLost.bind(renderer);
+    renderer.onDeviceLost = (info) => {
+      deviceLost(info);
+      if (!this.disposed) this.onLost?.();
+    };
     this.fit(canvas);
     this.observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => this.fit(canvas));
@@ -925,6 +933,7 @@ export class AgiStage {
     this.picTexture?.dispose();
     this.picPriTexture?.dispose();
     this.ownerTexture?.dispose();
+    this.previewTexture?.dispose();
     this.textTexture?.dispose();
     this.geometry.dispose();
     this.flatMaterial.dispose();

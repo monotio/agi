@@ -381,33 +381,40 @@ test("Create Inspector opens screen, state and timeline controls @phone", async 
   );
   await page.screenshot({ path: test.info().outputPath("game-inspector.png") });
 });
-test("splitter saves once on release and keeps the game buffer during drag @webkit-desktop", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await picture(page);
-  await page.getByTestId("part-room:1:logic").click();
-  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible();
-  const separator = page.getByRole("separator", { name: "Editor height" });
-  await expect(separator).toBeVisible();
-  const before = await page.evaluate(() => ({
-    stored: localStorage.getItem("monotio_agi.workspaceSplit"),
-    width: document.querySelector<HTMLCanvasElement>('[data-testid="gpu-canvas"]')!.width,
-  }));
-  const box = (await separator.boundingBox())!;
-  await page.mouse.move(box.x + 40, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + 40, box.y + 160, { steps: 20 });
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).toBe(
-    before.stored,
-  );
-  expect(
-    await page.getByTestId("gpu-canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width),
-  ).toBe(before.width);
-  await page.mouse.up();
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).not.toBe(
-    before.stored,
-  );
+test.describe(() => {
+  // About the GPU stage, so it creates one (e2e/test.ts `gpuStage`).
+  test.use({ gpuStage: true });
+
+  test("splitter saves once on release and keeps the game buffer during drag @webkit-desktop", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await picture(page);
+    await page.getByTestId("part-room:1:logic").click();
+    await expect(
+      page.getByTestId("workspace-logic-editor").locator(".monaco-editor"),
+    ).toBeVisible();
+    const separator = page.getByRole("separator", { name: "Editor height" });
+    await expect(separator).toBeVisible();
+    const before = await page.evaluate(() => ({
+      stored: localStorage.getItem("monotio_agi.workspaceSplit"),
+      width: document.querySelector<HTMLCanvasElement>('[data-testid="gpu-canvas"]')!.width,
+    }));
+    const box = (await separator.boundingBox())!;
+    await page.mouse.move(box.x + 40, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 40, box.y + 160, { steps: 20 });
+    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).toBe(
+      before.stored,
+    );
+    expect(
+      await page.getByTestId("gpu-canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width),
+    ).toBe(before.width);
+    await page.mouse.up();
+    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).not.toBe(
+      before.stored,
+    );
+  });
 });
 
 async function drawLine(page: Page) {

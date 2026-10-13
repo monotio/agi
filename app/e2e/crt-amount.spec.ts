@@ -3,6 +3,9 @@ import type { Page } from "@playwright/test";
 import { waitForRoom } from "./engineProbe.ts";
 import { decodePng } from "../../scripts/png.ts";
 
+// About the GPU stage, so every test creates one (e2e/test.ts `gpuStage`).
+test.use({ gpuStage: true });
+
 async function play(page: Page, full = false): Promise<void> {
   if (full) {
     await page.addInitScript(() => {

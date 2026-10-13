@@ -1,4 +1,5 @@
-import { cacheGame } from "./engineProbe.ts";
+import { cacheGame, openDeveloperActivity, openGameOptions, openInspector } from "./engineProbe.ts";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -6,9 +7,11 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { textHook } from "./engineProbe.ts";
 
-test("saved game keeps its message visible through resize, then changes rooms and draws ego", async ({
-  page,
-}) => {
+// These tests are about the GPU stage, so they create it (e2e/test.ts `gpuStage`).
+test.use({ gpuStage: true });
+
+/** A small saved game: a blue picture, an opening message, then room 1 with ego. */
+async function openSavedAdventure(page: Page): Promise<void> {
   const game = createContainer();
   game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
   game.putResource(
@@ -55,6 +58,41 @@ test("saved game keeps its message visible through resize, then changes rooms an
     words: [],
   });
   await page.reload();
+}
+
+/** Pixels of the visible game picture that read as the room's blue. */
+async function bluePixels(page: Page, surface: Locator): Promise<number> {
+  const png = await surface.screenshot();
+  return page.evaluate(
+    async (bytes) => {
+      const bitmap = await createImageBitmap(
+        new Blob([new Uint8Array(bytes)], { type: "image/png" }),
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let blue = 0;
+      for (let i = 0; i < pixels.length; i += 4)
+        if (
+          pixels[i + 2]! > 30 &&
+          pixels[i + 2]! > pixels[i]! * 2 &&
+          pixels[i + 2]! > pixels[i + 1]! * 2
+        )
+          blue++;
+      return blue;
+    },
+    [...png],
+  );
+}
+
+test("saved game keeps its message visible through resize, then changes rooms and draws ego", async ({
+  page,
+}) => {
+  await openSavedAdventure(page);
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");
   expect((await textHook(page)).room).toBe(0);
@@ -63,33 +101,7 @@ test("saved game keeps its message visible through resize, then changes rooms an
     .toContain("Welcome to your saved adventure.");
   const gpu = page.getByTestId("gpu-canvas");
   await expect(gpu).toBeVisible();
-  const coloredPixels = async () => {
-    const png = await gpu.screenshot();
-    return page.evaluate(
-      async (bytes) => {
-        const bitmap = await createImageBitmap(
-          new Blob([new Uint8Array(bytes)], { type: "image/png" }),
-        );
-        const canvas = document.createElement("canvas");
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
-        const context = canvas.getContext("2d")!;
-        context.drawImage(bitmap, 0, 0);
-        bitmap.close();
-        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        let blue = 0;
-        for (let i = 0; i < pixels.length; i += 4)
-          if (
-            pixels[i + 2]! > 30 &&
-            pixels[i + 2]! > pixels[i]! * 2 &&
-            pixels[i + 2]! > pixels[i + 1]! * 2
-          )
-            blue++;
-        return blue;
-      },
-      [...png],
-    );
-  };
+  const coloredPixels = () => bluePixels(page, gpu);
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
   await page.screenshot({ path: test.info().outputPath("gpu-opening-message.png") });
   await page.setViewportSize({ width: 800, height: 720 });
@@ -119,4 +131,123 @@ test("saved game keeps its message visible through resize, then changes rooms an
   await crtSlider.press("Home");
   await expect(crtSlider).toHaveValue("0");
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
+});
+
+/**
+ * Count the page's WebGL 2 contexts that are still alive. Chrome keeps at most
+ * sixteen and silently drops the oldest beyond that, so a game page must hold
+ * one, whatever number of games the player has opened.
+ */
+async function countGpuContexts(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const contexts: WebGL2RenderingContext[] = [];
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (
+      this: HTMLCanvasElement,
+      ...args: Parameters<typeof getContext>
+    ) {
+      const context = getContext.apply(this, args);
+      if (args[0] === "webgl2" && context && !contexts.includes(context as WebGL2RenderingContext))
+        contexts.push(context as WebGL2RenderingContext);
+      return context;
+    } as typeof getContext;
+    (window as unknown as { liveGpuContexts: () => number }).liveGpuContexts = () =>
+      contexts.filter((context) => !context.isContextLost()).length;
+  });
+}
+
+function liveGpuContexts(page: Page): Promise<number> {
+  return page.evaluate(() =>
+    (window as unknown as { liveGpuContexts: () => number }).liveGpuContexts(),
+  );
+}
+
+test("opening games again and again keeps the picture drawn on one GPU context", async ({
+  page,
+}) => {
+  await countGpuContexts(page);
+  await openSavedAdventure(page);
+  const gpu = page.getByTestId("gpu-canvas");
+  const openedPicture = async () => {
+    await expect(gpu).toBeVisible();
+    await expect.poll(() => bluePixels(page, gpu)).toBeGreaterThan(1000);
+    await expect.poll(() => liveGpuContexts(page)).toBe(1);
+  };
+  // Leaving to the library and resuming mounts a fresh game screen each time.
+  for (let opening = 0; opening < 3; opening++) {
+    await page.getByTestId("btn-resume-cached").click();
+    await openedPicture();
+    await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("btn-resume-cached")).toBeVisible();
+  }
+  // Start over boots the game again from inside it.
+  await page.getByTestId("btn-resume-cached").click();
+  await openedPicture();
+  for (let restart = 0; restart < 2; restart++) {
+    await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await openGameOptions(page, "settings-menu");
+    await page.getByTestId("btn-start-over").click();
+    await expect.poll(async () => (await textHook(page)).room).toBe(0);
+    await openedPicture();
+  }
+});
+
+test("a lost GPU context leaves the flat picture, and the next game gets the stage back", async ({
+  page,
+}) => {
+  await openSavedAdventure(page);
+  await page.getByTestId("btn-resume-cached").click();
+  const gpu = page.getByTestId("gpu-canvas");
+  const flat = page.getByTestId("game-canvas");
+  await expect(gpu).toBeVisible();
+  await expect.poll(() => bluePixels(page, gpu)).toBeGreaterThan(1000);
+
+  await gpu.evaluate((canvas: HTMLCanvasElement) =>
+    canvas.getContext("webgl2")!.getExtension("WEBGL_lose_context")!.loseContext(),
+  );
+  await expect(flat).toBeVisible();
+  await expect(gpu).toBeHidden();
+  await expect.poll(() => bluePixels(page, flat)).toBeGreaterThan(1000);
+  // The game plays on: the message closes and the next room draws.
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(() => bluePixels(page, flat)).toBeGreaterThan(1000);
+
+  await page.getByTestId("btn-exit").click();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect(gpu).toBeVisible();
+  await expect(flat).toBeHidden();
+  await expect.poll(() => bluePixels(page, gpu)).toBeGreaterThan(1000);
+});
+
+test.describe("without the GPU stage", () => {
+  // The flat 2D picture is what a player gets when WebGPU and WebGL are unavailable.
+  test.use({ gpuStage: false });
+
+  test("the flat picture shows the game with a keyboard outline and no CRT controls", async ({
+    page,
+  }) => {
+    await openSavedAdventure(page);
+    await page.getByTestId("btn-resume-cached").click();
+    await openDeveloperActivity(page);
+    await expect(page.getByTestId("gpu-backend")).toHaveText("canvas2d");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("developer-activity-sheet")).toBeHidden();
+
+    const flat = page.getByTestId("game-canvas");
+    await expect(flat).toBeVisible();
+    await expect(page.getByTestId("gpu-canvas")).toBeHidden();
+    await expect.poll(() => bluePixels(page, flat)).toBeGreaterThan(1000);
+    await page.getByLabel("Game command").focus();
+    await expect(page.locator(".screen")).toHaveCSS("outline-style", "solid");
+
+    await openGameOptions(page, "settings-menu");
+    await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+    await expect(page.getByRole("slider", { name: "CRT", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await openInspector(page);
+    await expect(page.getByTestId("dbg-mode-explode")).toBeDisabled();
+  });
 });
