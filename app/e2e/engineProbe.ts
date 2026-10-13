@@ -199,14 +199,16 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
 }
 
 /**
- * A cold Vite dev server transforms and serves the boot's whole module graph
- * on first request, so the first game boot of a run — and any fresh page load
- * or deep link — can sit far past the settled-state poll before room 1 shows.
+ * The Vite dev server serves code one module at a time, so the first time a page
+ * loads a module graph waits for all of it: the game boot (and any fresh page load
+ * or deep link), and each lazily imported editor (Create's workspace, Room Studio,
+ * Sprite Studio, Monaco). Under a loaded suite that can sit far past the default
+ * expect budget, so a wait that covers a first load spends this budget instead.
  */
-const COLD_BOOT_BUDGET_MS = 30_000;
+export const FIRST_LOAD_BUDGET_MS = 30_000;
 
 /**
- * Wait until the engine reports `room`. `coldBoot` spends the cold-boot
+ * Wait until the engine reports `room`. `coldBoot` spends the first-load
  * budget on a wait that covers a fresh boot; a warm room change keeps the
  * default poll budget.
  */
@@ -218,7 +220,7 @@ export async function waitForRoom(
   await expect
     .poll(
       async () => (await textHook(page)).room,
-      options?.coldBoot === true ? { timeout: COLD_BOOT_BUDGET_MS } : {},
+      options?.coldBoot === true ? { timeout: FIRST_LOAD_BUDGET_MS } : {},
     )
     .toBe(room);
 }
@@ -590,7 +592,7 @@ export async function openWorkspacePicture(
   )
     await page.getByTestId("workspace-focus").click();
   const studio = page.getByTestId("room-studio").filter({ visible: true });
-  await expect(studio).toBeVisible();
+  await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   return studio;
 }
@@ -612,7 +614,7 @@ export async function openWorkspaceView(
   )
     await page.getByTestId("workspace-focus").click();
   const studio = page.getByTestId("sprite-studio").filter({ visible: true });
-  await expect(studio).toBeVisible();
+  await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await studio.getByTestId("sprite-stage").focus();
   return studio;
 }

@@ -64,7 +64,7 @@ export const test = base.extend<
   {
     keepDetectedProfile: void;
     keepDetectedProfileOption: boolean;
-    cpuThrottle: void;
+    throttle: void;
     pauseAgreement: void;
     flatPictureUnlessStage: void;
   } & GpuStageOption
@@ -118,13 +118,26 @@ export const test = base.extend<
     },
     { auto: true },
   ],
-  cpuThrottle: [
+  // Diagnostic CPU and request slowdowns for reproducing load races (docs/testing.md).
+  throttle: [
     async ({ page, browserName }, use) => {
       const rate = Number(process.env["AGI_E2E_CPU_RATE"] ?? 1);
+      const latency = Number(process.env["AGI_E2E_LATENCY_MS"] ?? 0);
+      if ((rate > 1 || latency > 0) && browserName !== "chromium")
+        throw new Error("Throttling requires Chromium");
       if (rate > 1) {
-        if (browserName !== "chromium") throw new Error("CPU throttling requires Chromium");
         const session = await page.context().newCDPSession(page);
         await session.send("Emulation.setCPUThrottlingRate", { rate });
+      }
+      if (latency > 0) {
+        const session = await page.context().newCDPSession(page);
+        await session.send("Network.enable");
+        await session.send("Network.emulateNetworkConditions", {
+          offline: false,
+          latency,
+          downloadThroughput: -1,
+          uploadThroughput: -1,
+        });
       }
       await use();
     },
