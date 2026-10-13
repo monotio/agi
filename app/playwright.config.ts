@@ -19,6 +19,10 @@ export default defineConfig({
     // trace keeps the actions, console and network. Rerun with --trace=on for a DOM-level diagnosis.
     trace: { mode: "retain-on-failure", snapshots: false },
   },
+  // Chromium emulates reduced motion, so clicks do not wait out entrance animations; the WebKit
+  // configs replace `projects` and keep full motion. A test whose rule needs motion opts out with
+  // test.use({ reducedMotion: "no-preference" }).
+  projects: [{ name: "chromium", use: { reducedMotion: "reduce" } }],
   // Each run owns its server; keep source files stable during verification.
   webServer: {
     command: `npx vite --mode test --port ${PORT}`,

@@ -1,7 +1,7 @@
 import { workspaceUpdated, workspaceSaved } from "./engineProbe.ts";
 import { focusWorkspaceGame, workspaceDocumentEnd } from "./workspaceShared.ts";
 import { test, expect, reviewShot } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, textHook, waitForGameInput } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -797,6 +797,8 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     .poll(async () => (await textHook(page)).rows.join("\n"))
     .toContain("Keyboard flower.");
   await page.keyboard.press("Enter");
+  // The game takes its prompt back before the focus-zone shortcuts move focus off it.
+  await waitForGameInput(page);
   // Use the workspace's focus-zone shortcut before the header's native Tab walk.
   await page.keyboard.press("Shift+F6");
   await expect(page.getByTestId("workspace-editor")).toBeFocused();
@@ -1097,6 +1099,8 @@ test("parts show keyboard focus and align the VIEW thumbnail with other rows", a
 test("VIEW thumbnails animate only in visible parts and follow reduced motion @webkit-desktop", async ({
   page,
 }) => {
+  // The rule starts from motion on, so this test opts out of the suite's reduced motion.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => {
     const timers = new Set<number>();

@@ -416,7 +416,9 @@ Chromium runs every test except `@perf`, so every test is protected there. Tests
 across files and within them (`fullyParallel`); a file whose tests share state declares
 `test.describe.configure({ mode: "serial" })` with the reason in a comment. Failure traces keep
 actions, console and network without DOM snapshots; rerun a failing spec with `--trace=on` for
-the DOM.
+the DOM. Chromium runs with reduced motion, so clicks do not wait out entrance animations, and
+WebKit runs with full motion; a test whose rule needs motion opts out with
+`page.emulateMedia({ reducedMotion: "no-preference" })` and says why.
 
 Linux WebKit is one config, `app/playwright.webkit.config.ts`, with two projects selected by tag in
 a test title:

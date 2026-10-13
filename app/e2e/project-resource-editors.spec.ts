@@ -40,7 +40,6 @@ async function seedLocalProject(
     },
     { title, kind },
   );
-  await page.waitForLoadState("networkidle");
   return projectId;
 }
 

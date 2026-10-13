@@ -32,6 +32,8 @@ const animation = (locator: ReturnType<Page["locator"]>) =>
 test("dialogs, sheets, menus and the Ask drawer share one entrance, and reduced motion stills it", async ({
   page,
 }) => {
+  // The rule is the entrance animation itself, so this test opts out of the suite's reduced motion.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await playTutorial(page);
   // Settings: a sheet slides from under the bar.
   await openGameOptions(page, "settings-menu");
