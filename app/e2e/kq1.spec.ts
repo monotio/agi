@@ -86,9 +86,21 @@ async function advanceToCourtyard(page: Page): Promise<void> {
   await page.mouse.move(0, 0);
 }
 
-test("boots authentic KQ1 to the title screen and advances to courtyard", async ({ page }) => {
+test("boots authentic KQ1 on its detected profile to the title screen and advances to courtyard", async ({
+  page,
+}) => {
   await page.goto("/");
   await bootKq1(page);
+  // games/kq1/AGIDATA.OVL carries "Adventure Game Interpreter\n      Version 2.917";
+  // the loader ships that file to the worker, which detects the 2.917 profile
+  // (actions 0x00..0xad, exactly-four-loop direction selection) instead of the
+  // 2.936 fallback. Verified by hand against the fixture bytes.
+  await expect
+    .poll(async () => (await textHook(page)).profile, {
+      message: "the interpreter profile detected from KQ1's own AGIDATA.OVL",
+      timeout: 15_000,
+    })
+    .toBe("2.917");
 
   // The title screen (Room 83) uses the authentic vector renderer with Roberta Williams credits
   await expect.poll(() => canvasColors(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(8);
@@ -99,16 +111,6 @@ test("boots authentic KQ1 to the title screen and advances to courtyard", async 
   await expect.poll(async () => (await textHook(page)).rows[0]).toContain("Score:");
   await expect.poll(() => canvasColors(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(8);
   await page.screenshot({ path: test.info().outputPath("kq1-courtyard.png") });
-});
-
-test("KQ1 boots on the interpreter profile detected from its own AGIDATA.OVL", async ({ page }) => {
-  await page.goto("/");
-  await bootKq1(page);
-  // games/kq1/AGIDATA.OVL carries "Adventure Game Interpreter\n      Version 2.917";
-  // the loader ships that file to the worker, which detects the 2.917 profile
-  // (actions 0x00..0xad, exactly-four-loop direction selection) instead of the
-  // 2.936 fallback. Verified by hand against the fixture bytes.
-  await expect.poll(async () => (await textHook(page)).profile, { timeout: 15_000 }).toBe("2.917");
 });
 
 test("a printable key wakes a graphics-mode have.key wait on the title screen", async ({

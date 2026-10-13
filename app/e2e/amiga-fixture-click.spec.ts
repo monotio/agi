@@ -56,9 +56,14 @@ async function settleOpening(page: Page): Promise<void> {
   throw new Error("The original opening did not finish within the observed cycle limit.");
 }
 
+// test/amiga-player-control.test.ts settles every click target in the engine.
+// Here a diagonal click per edition proves both axes of the canvas mapping;
+// SQ1 also types its name before play.
+const BROWSER_TARGETS = new Set(["diagonal"]);
+
 for (const fixture of fixtures) {
   const missing = fixtureSkip(fixture.alias, [fixture.executable]);
-  for (const target of fixture.targets) {
+  for (const target of fixture.targets.filter(({ name }) => BROWSER_TARGETS.has(name))) {
     test(`${fixture.alias}: original opening room settles at ${target.name} canvas click @webkit-desktop`, async ({
       page,
     }) => {
