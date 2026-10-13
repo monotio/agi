@@ -9,7 +9,7 @@ import {
 import { expect, reviewShot, test } from "./test.ts";
 
 for (const close of [false, true]) {
-  test(`a pending blank creation ${close ? "retires on Close" : "opens its current stage"} @webkit-desktop`, async ({
+  test(`a pending blank creation ${close ? "retires on Close" : "opens its current stage"}`, async ({
     page,
   }) => {
     await isolateStorage(page);
@@ -79,9 +79,7 @@ for (const close of [false, true]) {
   });
 }
 
-test("closing new-game setup retires its pending Create intent @webkit-desktop", async ({
-  page,
-}) => {
+test("closing new-game setup retires its pending Create intent", async ({ page }) => {
   await isolateStorage(page);
   const requested = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -118,7 +116,7 @@ test("closing new-game setup retires its pending Create intent @webkit-desktop",
   ).toBe(1);
 });
 
-test("a failed game load keeps the saved Starter and shows recovery in Create @webkit-desktop", async ({
+test("a failed game load keeps the saved Starter and shows recovery in Create", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -163,9 +161,7 @@ test("a failed game load keeps the saved Starter and shows recovery in Create @w
   ).toEqual([project]);
 });
 
-test("Create with AI shows a load failure before any game is saved @webkit-desktop", async ({
-  page,
-}) => {
+test("Create with AI shows a load failure before any game is saved", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
   await configureAi(page, { provider: "stub" });
@@ -193,7 +189,7 @@ test("Create with AI shows a load failure before any game is saved @webkit-deskt
 });
 
 for (const fail of [false, true]) {
-  test(`the blank stage opens its saved first room after ${fail ? "reload recovery" : "admission"} @webkit-desktop`, async ({
+  test(`the blank stage opens its saved first room after ${fail ? "reload recovery" : "admission"}`, async ({
     page,
   }) => {
     await isolateStorage(page);
