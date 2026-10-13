@@ -263,6 +263,41 @@ test("a first catalog edit claims the copy before another page takes it over @we
   await expect(page.getByTestId("input-line")).toBeDisabled();
 });
 
+test("Game notes wait for the project to open, so a note typed after it opens waits for Update", async ({
+  page,
+}) => {
+  // The notes box renders before the project session opens. Typing into it then went
+  // nowhere, and the opening session replaced the text with the stored notes.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/engine/mainProjectAdmission.ts", async (route) => {
+    await held;
+    await route.continue();
+  });
+  try {
+    await isolateStorage(page);
+    await page.goto("/");
+    await page.getByTestId("catalog-play-adventure-department").click();
+    await waitForRoom(page, 1);
+    await enterCreateMode(page);
+    await parts(page);
+    await page.getByTestId("part-notes").click();
+    const notes = page.getByLabel("Game notes", { exact: true });
+    await expect(notes).toBeVisible();
+    await expect(notes).toHaveJSProperty("readOnly", true);
+    release();
+    await expect(notes).toHaveJSProperty("readOnly", false);
+    await notes.fill("My first change");
+    await expect(page.getByTestId("workspace-pending")).toHaveText("1 change not in the game yet");
+    await workspaceSaved(page);
+    await expect(notes).toHaveValue("My first change");
+  } finally {
+    release();
+  }
+});
+
 test("a second page pauses edits until Take back, keeps each page's tabs and a fresh page inherits the latest list @webkit-desktop", async ({
   page,
   context,

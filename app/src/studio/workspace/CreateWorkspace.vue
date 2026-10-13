@@ -432,6 +432,8 @@ const groupMetadata = shallowRef<{
 }>({ world: undefined, bindings: undefined });
 const editorEpoch = ref(0);
 let session: ProjectSession | null = null;
+/** Notes render before the project opens; until then they have no stored text to edit. */
+const sessionOpen = ref(false);
 let unsubscribe: (() => void) | undefined;
 let retired = false;
 const writeConflict = ref(false);
@@ -535,6 +537,7 @@ function attach(): void {
   if (next !== session) {
     unsubscribe?.();
     session = next;
+    sessionOpen.value = session !== null;
     offDrafts?.();
     optimistic.value = {};
     deletedParts.value = [];
@@ -2972,7 +2975,7 @@ onBeforeUnmount(() => {
         @open="openPart(`sound:${$event}`)"
       />
       <NotesEditor
-        :read-only="editingPaused || actionBusy"
+        :read-only="editingPaused || actionBusy || !sessionOpen"
         v-else-if="key === 'notes'"
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
