@@ -33,7 +33,7 @@ for (const width of [1063, 390]) {
       viewport: { width, height: width === 1063 ? 815 : 844 },
       hasTouch: width === 390,
     });
-    test(`palette follows the tool and selection with one Undo step${width === 390 ? " @phone" : ""}`, async ({
+    test(`palette follows the tool and selection with one Undo step${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       const studio = await picture(page);

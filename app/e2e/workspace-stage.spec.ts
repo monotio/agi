@@ -416,7 +416,9 @@ for (const size of [
   });
 }
 
-test("stacked persists on reload and its splitter drags vertically", async ({ page }) => {
+test("stacked persists on reload and its splitter drags vertically @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   await start(page);
   await open(page, "part-room:1:logic");
@@ -446,7 +448,9 @@ for (const size of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`stage storyboard ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({ page }) => {
+  test(`stage storyboard ${size.width}${size.width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+    page,
+  }) => {
     await page.setViewportSize(size);
     await start(page);
     await shot(page, "stage");

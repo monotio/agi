@@ -28,7 +28,7 @@ function artPixel(studio: Locator, x: number, y: number): Promise<number[]> {
   );
 }
 
-test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places it", async ({
+test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places it @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -132,7 +132,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await expect(page.getByRole("slider", { name: "Views", exact: true })).toHaveValue("100");
 });
 
-test("computed placements move a preview, and game motion never paints the picture", async ({
+test("computed placements move a preview, and game motion never paints the picture @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -447,7 +447,7 @@ test("picture-only editor sits beside the game with a Views slider", async ({ pa
   await expect(slider).toHaveValue("0");
 });
 
-test("the picture fits its 1063px side panel", async ({ page }) => {
+test("the picture fits its 1063px side panel @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   await start(page);
   await open(page, "part-room:1:picture:1");

@@ -17,7 +17,7 @@ for (const width of [1440, 390]) {
   test(`room setting and quiet Game state ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width, height: width === 1063 ? 815 : width === 390 ? 844 : 900 });
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await isolateStorage(page);
     await page.goto("/#create-adventure");
     await page.getByTestId("local-create-title").fill("Room setting");

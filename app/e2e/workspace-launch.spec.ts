@@ -563,7 +563,7 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
 });
 
 for (const [width, height] of [
-  [1440, 900],
+  [1063, 815],
   [390, 844],
 ] as const) {
   test(`room removal names Launch changes and one Undo restores both ${width} ${width === 390 ? "@phone" : "@webkit-desktop"}`, async ({

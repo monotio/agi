@@ -325,7 +325,7 @@ test("Stand in the room gives the item its base distance and a wall along its ba
   expect(Number(block.match(/\npri 0\nline \d+,(\d+) \d+,\1\n/)![1])).toBe(base);
 });
 
-test("Items rows drag to a new place in the draw order", async ({ page }) => {
+test("Items rows drag to a new place in the draw order @webkit-desktop", async ({ page }) => {
   const studio = await picture(page);
   await studio.getByRole("button", { name: "Draw order", exact: true }).click();
   const rows = studio.locator('[role="treeitem"][data-row]');

@@ -133,10 +133,10 @@ async function scrubToTape(page: Page, fraction: number): Promise<void> {
 }
 
 for (const viewport of [
-  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  const phone = viewport.width === 390 ? " @phone" : "";
+  const phone = viewport.width === 390 ? " @phone" : " @webkit-desktop";
   test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}${phone}`, async ({
     page,
   }) => {
@@ -791,7 +791,7 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 1024, height: 600 },
 ]) {
-  test(`the transport's cards never cover Ask at ${viewport.width}×${viewport.height}`, async ({
+  test(`the transport's cards never cover Ask at ${viewport.width}×${viewport.height}${viewport.width === 1024 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);

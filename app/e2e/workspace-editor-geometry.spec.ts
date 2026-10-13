@@ -49,7 +49,7 @@ for (const size of sizes) {
 
   // The 1063 layout class covers 1440 for these boxes.
   if (size.width !== 1440)
-    test(`stacked editors and game keep usable space at ${size.width}${size.width === 1063 ? " @webkit-desktop" : ""}`, async ({
+    test(`stacked editors and game keep usable space at ${size.width}${size.width === 1063 ? " @webkit-desktop" : size.width === 390 ? " @phone" : ""}`, async ({
       page,
     }) => {
       await page.setViewportSize(size);
@@ -88,7 +88,7 @@ for (const size of sizes) {
 
   // The 1063 layout class covers 1440 for these boxes.
   if (size.width !== 1440)
-    test(`stage chip stays inside the stage beneath History at ${size.width}${size.width === 1063 ? " @webkit-desktop" : ""}`, async ({
+    test(`stage chip stays inside the stage beneath History at ${size.width}${size.width === 1063 ? " @webkit-desktop" : size.width === 390 ? " @phone" : ""}`, async ({
       page,
     }) => {
       await page.setViewportSize(size);

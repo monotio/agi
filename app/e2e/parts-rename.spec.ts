@@ -33,7 +33,7 @@ function stateRow(page: Page, name: string, num: number) {
 }
 
 for (const [width, height] of [
-  [1440, 900],
+  [1063, 815],
   [390, 844],
 ] as const)
   test(`Game state names rename on their row at ${width}${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({

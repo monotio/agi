@@ -117,7 +117,7 @@ for (const [width, height] of [
 ] as const) {
   test.describe("Draft viewport " + width, () => {
     test.use({ hasTouch: width === 390 });
-    test(`Update game draft storyboard at ${width}${width === 1063 ? " @webkit-desktop" : ""}`, async ({
+    test(`Update game draft storyboard at ${width}${width === 1063 ? " @webkit-desktop" : " @phone"}`, async ({
       page,
       browserName,
     }) => {
