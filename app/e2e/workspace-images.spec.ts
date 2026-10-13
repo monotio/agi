@@ -546,7 +546,14 @@ test("rewind preserves saved PNG attachments and trace settings", async ({ page 
   await expect(timeline).toBeVisible();
   await expect(timeline).toHaveAttribute("aria-valuenow", "100");
   const box = (await timeline.boundingBox())!;
-  await timeline.click({ position: { x: box.width * 0.2, y: box.height / 2 } });
+  // Resume from here stays off from the tape's start until a few cycles after the room re-enters,
+  // and a fixed fraction of the tape lands there when many cycles ran before the update. Rewind
+  // halfway from the re-entry mark to the paused end, where the room is playing.
+  const reentry = page.locator('.history-marker[title*="re-entered after a remix"]').last();
+  const from = Number.parseFloat(
+    await reentry.evaluate((mark) => (mark as HTMLElement).style.left),
+  );
+  await timeline.click({ position: { x: (box.width * (from + 100)) / 200, y: box.height / 2 } });
   await expect(page.getByTestId("btn-history-resume")).toBeEnabled();
   await page.getByTestId("btn-history-resume").click();
   await expect

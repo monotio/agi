@@ -805,18 +805,17 @@ const livePreview = shallowRef<{
   objects: readonly ScreenObjectState[];
 }>({ state: null, objects: [] });
 let previewRead = 0;
-watch(
-  [editor.selected, revision, engine.roomMap.currentRoom],
-  async () => {
-    const ticket = ++previewRead;
-    const [state, objects] = await Promise.all([
-      engine.readEngineState().catch(() => null),
-      engine.readObjects().catch(() => []),
-    ]);
-    if (ticket === previewRead && !retired) livePreview.value = { state, objects };
-  },
-  { immediate: true },
-);
+async function readLivePreview(): Promise<void> {
+  const ticket = ++previewRead;
+  const [state, objects] = await Promise.all([
+    engine.readEngineState().catch(() => null),
+    engine.readObjects().catch(() => []),
+  ]);
+  if (ticket === previewRead && !retired) livePreview.value = { state, objects };
+}
+watch([editor.selected, revision, engine.roomMap.currentRoom], readLivePreview, {
+  immediate: true,
+});
 let studioContextKey = "";
 let admittedStudioContext: ReturnType<typeof workspaceStudioContext>;
 const studioContext = computed(() => {
@@ -994,6 +993,15 @@ const unusedArt = computed(
   () =>
     (editor.kind.value === "picture" || editor.kind.value === "view") &&
     selectedRoom.value === undefined,
+);
+// A VIEW that LOGIC picks at run time counts as used once the running room shows it. An update
+// restarts the room, and a read before the room's first cycle finds no objects yet, so while the
+// note says unused, each heartbeat of the running game checks again.
+watch(
+  () => (unusedArt.value && editor.kind.value === "view" ? engine.currentCycle.value : undefined),
+  (cycle) => {
+    if (cycle !== undefined) void readLivePreview();
+  },
 );
 /** The context row shows only when the open tab has tools to offer. */
 const contextRow = computed(() => {
