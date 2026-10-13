@@ -720,7 +720,13 @@ for (const outcome of [
         outcome === "no-game" ? undefined : "next-model",
       );
     } else {
-      assert.match(String(error), /game changed|current agent task|Settings storage refused/);
+      // The notice names what happened: a closed Agent asks for another Save.
+      assert.match(
+        String(error),
+        outcome === "closed" || outcome === "closed-reopened"
+          ? /^Error: The Agent closed before the settings applied\. Save again\.$/
+          : /game changed|current agent task|Settings storage refused/,
+      );
       assert.equal(commits, outcome === "commit-refused" ? 1 : 0);
       assert.equal(controller.getSession(), author);
       assert.equal(author.getProviderContext().model, mockConfig.model);
