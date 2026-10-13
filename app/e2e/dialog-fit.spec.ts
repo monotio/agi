@@ -22,7 +22,7 @@ test.use({ keepDetectedProfileOption: false });
  * too narrow for its row of buttons stacks them full width instead of pushing
  * Cancel, the safe choice, off the dialog's edge. A button may sit below the
  * fold of a scrolling body, never past a dialog's side or the viewport's.
- * Runs in Chromium and the iphone-webkit project (playwright.webkit.config.ts).
+ * Every size runs in Chromium; 390 also runs in the iphone-webkit project.
  */
 test.use({ hasTouch: true });
 

@@ -57,7 +57,7 @@ async function pauseDisagreement(page: Page): Promise<string | null> {
   }
 }
 
-/** The fixture option a test or config sets to create the GPU stage in Chromium. */
+/** The option a test or config sets to create the GPU stage in Chromium and desktop WebKit. */
 export type GpuStageOption = { gpuStage: boolean };
 
 export const test = base.extend<

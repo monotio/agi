@@ -20,8 +20,8 @@ export default defineConfig({
     trace: { mode: "retain-on-failure", snapshots: false },
   },
   // Chromium emulates reduced motion, so clicks do not wait out entrance animations; the WebKit
-  // configs replace `projects` and keep full motion. A test whose rule needs motion opts out with
-  // page.emulateMedia({ reducedMotion: "no-preference" }) and says why.
+  // config replaces `projects` and sets motion per project. A test whose rule needs motion opts
+  // out with page.emulateMedia({ reducedMotion: "no-preference" }) and says why.
   projects: [{ name: "chromium", use: { reducedMotion: "reduce" } }],
   // Each run owns its server; keep source files stable during verification.
   webServer: {
