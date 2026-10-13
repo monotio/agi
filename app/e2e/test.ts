@@ -133,11 +133,14 @@ export const test = base.extend<
   // The GPU stage draws the picture players see, but most tests read the flat
   // frame copy (engineProbe.ts). Chromium creates the stage only for a test
   // that sets `test.use({ gpuStage: true })` and for the timing budgets (@perf);
-  // WebKit always creates it. Test mode reads the flag; builds ignore it.
+  // so does desktop WebKit, while phone WebKit always creates it. Test mode reads
+  // the flag; builds ignore it.
   gpuStage: [false, { scope: "test", option: true }],
   flatPictureUnlessStage: [
     async ({ context, browser, browserName, gpuStage }, use, testInfo) => {
-      if (browserName !== "chromium" || gpuStage || testInfo.tags.includes("@perf")) {
+      // Phone WebKit (iphone-webkit) keeps the stage in every test.
+      const flatProject = browserName === "chromium" || testInfo.project.name === "desktop-webkit";
+      if (!flatProject || gpuStage || testInfo.tags.includes("@perf")) {
         await use();
         return;
       }
