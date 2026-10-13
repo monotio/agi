@@ -29,5 +29,8 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
     timeout: 30_000,
+    // Vite's own lines (ready, dependency re-bundling, restarts) go into the run's log, so a
+    // failure while the server re-bundles or restarts can be told apart from a test fault.
+    stdout: "pipe",
   },
 });
