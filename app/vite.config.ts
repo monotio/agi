@@ -479,8 +479,39 @@ function buildIdentity(): Plugin {
   };
 }
 
+/**
+ * Browser-test servers (`--mode test`) pre-bundle dependencies afresh at every
+ * start, into a cache of their own port. Vite keys its dependency cache on the
+ * lockfile and this config only, so a cache left by an older checkout lacks a
+ * package import the current source added; the server then finds it while
+ * tests run, bundles again and reloads every open page, and module requests
+ * already in flight fail with 504 Outdated Optimize Dep. A cache per port also
+ * keeps two servers in one checkout, and the development server, from
+ * replacing each other's files.
+ */
+function testServerDependencies(): Plugin {
+  return {
+    name: "agi-test-server-dependencies",
+    apply: "serve",
+    config(config, { mode }) {
+      if (mode !== "test") return;
+      return {
+        cacheDir: `node_modules/.vite-test/${config.server?.port ?? "default"}`,
+        optimizeDeps: { force: true },
+      };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [vue(), fixtureServer(), devProviderKeys(), bundleGraph(), buildIdentity()],
+  plugins: [
+    vue(),
+    fixtureServer(),
+    devProviderKeys(),
+    bundleGraph(),
+    buildIdentity(),
+    testServerDependencies(),
+  ],
   // Discover the lazy editor's dependencies before a browser connects. Finding
   // them on first Studio open otherwise makes Vite reload the authoring page.
   // This prebundles dependencies on the server; Play still loads no editor code.
