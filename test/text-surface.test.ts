@@ -203,7 +203,9 @@ test("input line: prompt marker, typed keys, backspace, Enter, echo.line, cancel
   engine.tick();
   assert.equal(engine.lastInputLine, "loo");
   assert.equal(engine.textRow(22), "_" + spaces(39));
-  assert.equal(engine.vars[19], 0, "Enter that accepts a line is not also a raw key");
+  // Enter lands in v19 even though the editor consumed it: the type-1 case
+  // stores the low byte FIRST (kq3 2.936 0x35B0).
+  assert.equal(engine.vars[19], 0x0d);
 
   engine.flags[201] = 1; // echo.line restores the accepted line
   engine.tick();
