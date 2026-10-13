@@ -106,6 +106,7 @@ const engine = useEngine(
     onPromptType: (text) => {
       playArea.value?.handlePromptType(text);
     },
+    onScreenReset: () => presentation.forgetFrame(),
   },
 );
 provideEngine(engine);

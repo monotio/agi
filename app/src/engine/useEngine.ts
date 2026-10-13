@@ -110,6 +110,8 @@ export function useEngine(
     onPromptType?: (text: string) => void;
     flushWorkspace?: () => Promise<void>;
     pendingEditorChanges?: () => boolean;
+    /** A new engine replaced the game, or the game was left: drop its picture. */
+    onScreenReset?: () => void;
   },
 ) {
   let projectMode: "create" | "play" = "play";
@@ -889,6 +891,7 @@ export function useEngine(
       historyView?.resetHistoryView();
       startOverNote.hide();
     },
+    onScreenReset: () => engineOptions?.onScreenReset?.(),
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     pendingEditorChanges: () =>
       (engineOptions?.pendingEditorChanges?.() ?? false) ||

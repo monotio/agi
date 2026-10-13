@@ -17,7 +17,7 @@ import type { DebugViewMode } from "../inspector/debugView.ts";
 import type { Frame } from "../engine/useEngine.ts";
 
 export function createPresentation() {
-  const testMode = import.meta.env.MODE === "test";
+  const testMode = import.meta.env?.MODE === "test";
 
   const canvasEl = ref<HTMLCanvasElement>();
   const gpuCanvasEl = ref<HTMLCanvasElement>();
@@ -212,6 +212,10 @@ export function createPresentation() {
   async function initStage(amount: number): Promise<void> {
     crtAmount = amount;
     releaseStage();
+    // A still room sends one frame, which can arrive before this screen's
+    // canvas mounted. Draw it now, so the flat picture shows the room without
+    // a GPU stage and while one starts.
+    repaint();
     // Test mode only: Playwright's Chromium and desktop WebKit runs ask for the
     // flat picture unless a test is about the stage itself (e2e/test.ts `gpuStage`).
     if (
@@ -254,6 +258,27 @@ export function createPresentation() {
     releaseStage();
   }
 
+  /**
+   * The game screen unmounted: its GPU stage goes with it. The picture stays,
+   * because the screen remounts for the same game when an opening is refused.
+   */
+  function closeScreen(): void {
+    dispose();
+  }
+
+  /**
+   * A new engine replaced the game, or the game was left: its picture goes
+   * with it, so the next screen shows only frames its own game sends.
+   */
+  function forgetFrame(): void {
+    if (presentationRaf !== null && typeof cancelAnimationFrame !== "undefined")
+      cancelAnimationFrame(presentationRaf);
+    presentationRaf = null;
+    pendingPresentationFrame = null;
+    pendingTextOverride = undefined;
+    lastFrame.value = null;
+  }
+
   return {
     get crtAmount(): number {
       return stage?.crtAmount ?? 0;
@@ -277,7 +302,8 @@ export function createPresentation() {
     debugPick3d,
     onScreenPointerMove,
     initStage,
-    releaseStage,
+    closeScreen,
+    forgetFrame,
     dispose,
   };
 }
