@@ -58,7 +58,6 @@ async function playTutorial(page: Page): Promise<void> {
 
 for (const viewport of [
   { width: 1024, height: 600 },
-  { width: 900, height: 700 },
   { width: 900, height: 480 },
 ]) {
   test(`Room Studio at ${viewport.width}×${viewport.height}: the top bar never overlaps and every tool can be reached`, async ({

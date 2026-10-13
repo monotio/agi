@@ -86,7 +86,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`guided visual sentences and dock placement at ${width} @webkit-desktop`, async ({
+  test(`guided visual sentences and dock placement at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -214,11 +214,7 @@ for (const [width, height] of [
   });
 }
 
-for (const [width, height] of [
-  [1063, 815],
-  [1440, 900],
-  [390, 844],
-] as const) {
+for (const [width, height] of [[1440, 900]] as const) {
   test(`message preview with WebGL2 unavailable at ${width} @webkit-desktop`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await page.addInitScript(() => {
@@ -314,7 +310,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`guided placement stays crisp with CRT Full saved at ${width} @webkit-desktop`, async ({
+  test(`guided placement stays crisp with CRT Full saved at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });

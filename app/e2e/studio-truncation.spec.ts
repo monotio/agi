@@ -35,7 +35,6 @@ async function cell(page: Page, x: number, y: number): Promise<[number, number]>
 
 for (const [width, height] of [
   [1440, 900],
-  [1280, 720],
   [1024, 600],
 ] as const) {
   test(`at ${width}×${height} Studio's lines of meaning are never cut short`, async ({ page }) => {

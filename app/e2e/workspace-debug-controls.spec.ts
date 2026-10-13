@@ -19,7 +19,9 @@ async function parts(page: Page): Promise<void> {
   await expect(page.getByTestId("parts-list")).toBeVisible();
 }
 
-test("debug controls follow LOGIC and a paused session @webkit-desktop", async ({ page }) => {
+test("debug controls follow LOGIC and a paused session @webkit-desktop @phone", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
@@ -74,7 +76,9 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`picture debugger layout at ${width} @webkit-desktop`, async ({ page }) => {
+  test(`picture debugger layout at ${width}${width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height });
     await starter(page);
     await parts(page);

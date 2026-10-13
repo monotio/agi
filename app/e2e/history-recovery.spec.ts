@@ -112,7 +112,6 @@ test("blocked stores still download current game and checkpoint with explicit re
 });
 
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {

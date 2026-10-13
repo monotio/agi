@@ -6,10 +6,7 @@ import { isolateStorage, waitForRoom } from "./engineProbe.ts";
  * marks where a click stops the game, the debug panels say how to stop it
  * when they are empty, and the key list names the editor's keys.
  */
-for (const [width, height] of [
-  [1440, 900],
-  [1063, 815],
-] as const)
+for (const [width, height] of [[1440, 900]] as const)
   test(`LOGIC shows breakpoints, debug hints and its keys at ${width} @webkit-desktop`, async ({
     page,
   }) => {

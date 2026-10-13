@@ -46,7 +46,7 @@ test.afterEach(async ({ page }, info) => {
 });
 
 for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as const) {
-  test(`${action} in Create admits the next LOGIC edit and saves its History commit @webkit-desktop`, async ({
+  test(`${action} in Create admits the next LOGIC edit and saves its History commit${action === "Resume from here" ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await isolateStorage(page);

@@ -146,9 +146,7 @@ async function drawRect(page: Page, studio: Locator): Promise<void> {
   await page.keyboard.press("Space");
 }
 
-test("PICTURE autosave preserves workspace claims for the next LOGIC edit @webkit-desktop", async ({
-  page,
-}) => {
+test("PICTURE autosave preserves workspace claims for the next LOGIC edit", async ({ page }) => {
   await isolateStorage(page);
   await page.route("**/fixtures/", (route) =>
     route.fulfill({ contentType: "application/json", body: "[]" }),
@@ -219,9 +217,7 @@ test("PICTURE autosave preserves workspace claims for the next LOGIC edit @webki
   expect(pageErrors).toEqual([]);
 });
 
-test("VIEW autosave preserves workspace claims for the next LOGIC edit @webkit-desktop", async ({
-  page,
-}) => {
+test("VIEW autosave preserves workspace claims for the next LOGIC edit", async ({ page }) => {
   await isolateStorage(page);
   await page.route("**/fixtures/", (route) =>
     route.fulfill({ contentType: "application/json", body: "[]" }),

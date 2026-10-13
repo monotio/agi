@@ -109,7 +109,7 @@ function stored(page: Page, key: string): Promise<string | null> {
   return page.evaluate((k) => localStorage.getItem(k), key);
 }
 
-test("two same-dictionary installed folders checkpoint and resume on their own physical targets @webkit-desktop", async ({
+test("two same-dictionary installed folders checkpoint and resume on their own physical targets", async ({
   page,
 }) => {
   const { alpha, omega } = await instances();

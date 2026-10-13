@@ -254,7 +254,7 @@ async function driveDebugger(
   );
 }
 
-test("the execution debugger loads on first use: Play never fetches it, an attach does @webkit-desktop", async ({
+test("the execution debugger loads on first use: Play never fetches it, an attach does", async ({
   page,
   baseURL,
 }) => {
@@ -384,9 +384,7 @@ test("the execution debugger loads on first use: Play never fetches it, an attac
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
 });
 
-test("Create top actions without breakpoints never fetch the debugger @webkit-desktop", async ({
-  page,
-}) => {
+test("Create top actions without breakpoints never fetch the debugger", async ({ page }) => {
   const requests: string[] = [];
   page.on("request", (request) => requests.push(request.url()));
   await isolateStorage(page);

@@ -3,7 +3,7 @@ import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.t
 
 test.describe("Synthetic Walkthrough", () => {
   test.use({ hasTouch: true });
-  test("runs synthetic walkthrough from game actions menu with speed, seek, and take-control", async ({
+  test("runs synthetic walkthrough from game actions menu with speed, seek, and take-control @phone", async ({
     page,
   }) => {
     await isolateStorage(page);
