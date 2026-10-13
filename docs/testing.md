@@ -416,8 +416,8 @@ Chromium runs every test except `@perf`, so every test is protected there. Tests
 across files and within them (`fullyParallel`); a file whose tests share state declares
 `test.describe.configure({ mode: "serial" })` with the reason in a comment. Failure traces keep
 actions, console and network without DOM snapshots; rerun a failing spec with `--trace=on` for
-the DOM. Chromium runs with reduced motion, so clicks do not wait out entrance animations, and
-WebKit runs with full motion; a test whose rule needs motion opts out with
+the DOM. Chromium and desktop WebKit run with reduced motion, so clicks do not wait out entrance
+animations, and phone WebKit runs with full motion; a test whose rule needs motion opts out with
 `page.emulateMedia({ reducedMotion: "no-preference" })` and says why.
 
 Linux WebKit is one config, `app/playwright.webkit.config.ts`, with two projects selected by tag in
@@ -442,9 +442,10 @@ defaults to 1063 and 390, and uses 1440 only for a rule about the wide layout. W
 runs one width, 1440 by default, at the Desktop Safari scale factor of 2. Phone WebKit runs 390
 only. A variant whose rule needs no particular width runs once.
 
-GPU stage: Chromium creates it only for tests that read its pixels, uniforms or exploded view
-(`test.use({ gpuStage: true })` from `app/e2e/test.ts`) and for `@perf`, so every other test sees
-the flat picture players get without WebGPU or WebGL; WebKit creates it in every test.
+GPU stage: Chromium and desktop WebKit create it only for tests that read its pixels, uniforms or
+exploded view (`test.use({ gpuStage: true })` from `app/e2e/test.ts`) and for `@perf`, so every
+other test sees the flat picture players get without WebGPU or WebGL; phone WebKit creates it in
+every test.
 
 CI runs WebKit on Linux, and its result is the one that counts. WebKit on macOS
 reports a Mac platform and uses Mac fonts, so results can differ, and it cannot

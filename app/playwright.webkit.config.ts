@@ -21,6 +21,9 @@ export default defineConfig({
       grep: /@webkit-desktop/,
       use: {
         ...devices["Desktop Safari"],
+        // Entrance animations are not waited out; phone WebKit keeps full motion, and a test
+        // whose rule needs motion opts out with page.emulateMedia({ reducedMotion: "no-preference" }).
+        reducedMotion: "reduce",
         // Desktop Safari advertises macOS even on Linux. Monaco derives its
         // shortcuts from that identity; the shell and Playwright use the host OS.
         ...(process.platform === "linux"
