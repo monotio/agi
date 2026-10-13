@@ -2,7 +2,10 @@ import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
 
-/** Select the first match in the focused editor. The Find box must be open before text goes in: under load a typed query lands in the source. */
+/**
+ * Select the first match in the focused editor. The Find box must be open before text goes in:
+ * under load, a query typed too early lands in the source.
+ */
 async function findInEditor(page: Page, text: string): Promise<void> {
   await page.keyboard.press("ControlOrMeta+f");
   const find = page.getByRole("textbox", { name: "Find", exact: true });

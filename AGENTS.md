@@ -35,7 +35,7 @@ node --test --experimental-strip-types test/<file>.test.ts   # one engine test f
 npm run test:app                              # app unit tests
 npm run test:e2e                              # Playwright on its own `vite --mode test` server
 npm --prefix app run e2e -- e2e/<file>.spec.ts               # one browser spec
-npm --prefix app run e2e:webkit-desktop                      # desktop scenarios tagged @webkit-desktop
+npm --prefix app run e2e:webkit                              # WebKit: tests tagged @webkit-desktop or @phone
 npm --prefix app run e2e:perf                 # timing budgets, alone on one worker
 npm --prefix app run build && npm run check:bundle           # build and bundle boundaries
 ```

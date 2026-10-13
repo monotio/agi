@@ -212,8 +212,8 @@ export function createPresentation() {
   async function initStage(amount: number): Promise<void> {
     crtAmount = amount;
     releaseStage();
-    // Test mode only: Playwright's Chromium suite asks for the flat picture
-    // unless a test is about the stage itself (e2e/test.ts `gpuStage`).
+    // Test mode only: Playwright's Chromium and desktop WebKit runs ask for the
+    // flat picture unless a test is about the stage itself (e2e/test.ts `gpuStage`).
     if (
       testMode &&
       (globalThis as { __AGI_SKIP_GPU_STAGE__?: boolean }).__AGI_SKIP_GPU_STAGE__ === true
