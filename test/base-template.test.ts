@@ -983,7 +983,7 @@ describe("base template engine behaviour", () => {
     const { engine, host } = templateEngine();
     tick(engine, 4);
     assert.equal(engine.readState().room, 1);
-    assert.match(engine.textRow(0), /Score: 0 of 0/);
+    assert.match(engine.textRow(0), /Score:0 of 0 {2}/);
     assert.match(engine.textRow(0), /Sound:on/);
     host.keys.push(0x1b); // ESC
     tick(engine, 2);
