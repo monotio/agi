@@ -1018,6 +1018,10 @@ onBeforeUnmount(() => {
         size="sm"
         variant="ghost"
         data-testid="agent-open-ai-settings"
+        :disabled="settings.aiSettingsUnavailable.value"
+        :title="
+          settings.aiSettingsUnavailable.value ? 'Available when the Agent is idle' : undefined
+        "
         @click="settings.openAiSettings($event, 'assistant')"
         >Connect AI</UiButton
       >

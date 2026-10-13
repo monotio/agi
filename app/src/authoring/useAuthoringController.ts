@@ -90,6 +90,8 @@ export interface PowerUpUiState {
   needsConfig: boolean;
   /** An agent turn is in flight; the prompt line is disabled. */
   busy: boolean;
+  /** The Agent is still opening. AI settings stay available: saving waits for the opening. */
+  opening?: boolean;
   /** Index into agentLog where this remix turn's feed begins. */
   feedStart: number;
   /** Sequence cursor in agentLog where this remix turn's feed begins. */
@@ -785,6 +787,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     pauseEngine("powerUp");
     state.powerUp.open = true;
     state.powerUp.busy = true;
+    state.powerUp.opening = true;
     state.powerUp.reply = "";
     // A game behind a newer save keeps saying so until it reloads.
     const current = getBootedGame();
@@ -835,7 +838,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     } catch (e) {
       if (currentOpening()) state.powerUp.error = e instanceof Error ? e.message : String(e);
     } finally {
-      if (currentOpening()) state.powerUp.busy = false;
+      if (currentOpening()) {
+        state.powerUp.busy = false;
+        state.powerUp.opening = false;
+      }
     }
   }
 
@@ -926,6 +932,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       openingGeneration++;
       powerUpOpening = null;
       state.powerUp.busy = false;
+      state.powerUp.opening = false;
     }
     resumeEngine("powerUp");
   }

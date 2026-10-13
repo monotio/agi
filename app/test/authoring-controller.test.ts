@@ -417,12 +417,14 @@ for (const reopened of [false, true]) {
     });
     const opening = controller.openPowerUp(mockConfig);
     assert.equal(powerUp.busy, true);
+    assert.equal(powerUp.opening, true, "AI settings stay available while the Agent opens");
     // The engine wrapper hides the drawer immediately before the controller closes it.
     powerUp.open = false;
     controller.closePowerUp();
     assert.equal(pauseState.paused, false);
     assert.deepEqual(holds.pauseOwners(), []);
     assert.equal(powerUp.busy, false);
+    assert.equal(powerUp.opening, false);
     const replacement = reopened ? controller.openPowerUp(mockConfig) : undefined;
     if (reopened) {
       assert.equal(powerUp.open, true);
@@ -439,6 +441,7 @@ for (const reopened of [false, true]) {
       assert.equal(powerUp.open, true);
       assert.equal(powerUp.room, 23);
       assert.equal(powerUp.busy, false);
+      assert.equal(powerUp.opening, false);
       assert.deepEqual(holds.pauseOwners(), ["powerUp"]);
       controller.closePowerUp();
     }
