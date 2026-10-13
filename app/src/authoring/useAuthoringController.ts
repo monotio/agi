@@ -854,7 +854,20 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const opening = powerUpOpening;
     const openedProject = options.getProjectSession?.();
     if (opening) await opening.promise;
-    const ownerProject = openedProject ?? opening?.owner.project;
+    let ownerProject = openedProject ?? opening?.owner.project;
+    // An opening whose engine query failed ends before it adopts the Agent's conversation
+    // project. The Agent panel still opens that project for this game, and its first chat save
+    // turns a catalog game into the player's own copy. The Save waits for the project and belongs
+    // to it, as after an opening that finished; a project that cannot open leaves the game check.
+    if (
+      !ownerProject &&
+      opening &&
+      mode !== undefined &&
+      options.ensureProjectSession &&
+      opening.owner.opening === openingGeneration &&
+      generation === requestGeneration
+    )
+      ownerProject = await options.ensureProjectSession().catch(() => null);
     function requireConfigOwner(): void {
       if (
         generation !== requestGeneration ||
