@@ -1495,6 +1495,8 @@ export function useEngine(
   return {
     /** The room the running game is in, from the worker's cycle heartbeat. */
     currentRoom: computed(() => hook.room),
+    /** The running game's cycle count from the same heartbeat; it advances while the game runs. */
+    currentCycle: computed(() => hook.cycle),
     playerSentences,
     loadPlayerSentences,
     resolvePlayerSentence(entry: PlayerSentence) {

@@ -1,6 +1,7 @@
 import { decodePng } from "../../scripts/png.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { test, expect } from "./test.ts";
 import { textHook, waitForRoom, workspaceSaved } from "./engineProbe.ts";
 
@@ -198,9 +199,15 @@ for (const dynamic of [false, true]) {
     await page.setViewportSize({ width: 1440, height: 900 });
     await start(page);
     await page.evaluate(async (dynamic) => {
-      const session = (
-        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-      ).__AGI_PROJECT__.getSession();
+      const project = (
+        window as unknown as {
+          __AGI_PROJECT__: { getSession(): ProjectSession; query: WorkerQueryFn };
+        }
+      ).__AGI_PROJECT__;
+      // A slow game (v10 = 15, 0.75 s a cycle) keeps the restarted room undrawn while the VIEW
+      // opens, as on a busy device: the note must still follow the room once it draws.
+      await project.query("debugWrite", { vars: [[10, 15]] });
+      const session = project.getSession();
       const setup = dynamic
         ? "assignn(v101,0);load.view.v(v101);set.view.v(o0,v101);"
         : "load.view(0);set.view(o0,0);";
