@@ -813,9 +813,17 @@ async function readLivePreview(): Promise<void> {
   ]);
   if (ticket === previewRead && !retired) livePreview.value = { state, objects };
 }
-watch([editor.selected, revision, engine.roomMap.currentRoom], readLivePreview, {
-  immediate: true,
-});
+/** Heartbeats of the running game that check again after a selection, update or room change. */
+const LIVE_RECHECKS = 8;
+let liveRechecksLeft = 0;
+watch(
+  [editor.selected, revision, engine.roomMap.currentRoom],
+  () => {
+    liveRechecksLeft = LIVE_RECHECKS;
+    void readLivePreview();
+  },
+  { immediate: true },
+);
 let studioContextKey = "";
 let admittedStudioContext: ReturnType<typeof workspaceStudioContext>;
 const studioContext = computed(() => {
@@ -996,11 +1004,14 @@ const unusedArt = computed(
 );
 // A VIEW that LOGIC picks at run time counts as used once the running room shows it. An update
 // restarts the room, and a read before the room's first cycle finds no objects yet, so while the
-// note says unused, each heartbeat of the running game checks again.
+// note says unused, the next few heartbeats in which the game ran check again. Then the reads stop:
+// a sprite left open does not keep the worker and Create busy for the rest of the session.
 watch(
   () => (unusedArt.value && editor.kind.value === "view" ? engine.currentCycle.value : undefined),
   (cycle) => {
-    if (cycle !== undefined) void readLivePreview();
+    if (cycle === undefined || liveRechecksLeft <= 0) return;
+    liveRechecksLeft--;
+    void readLivePreview();
   },
 );
 /** The context row shows only when the open tab has tools to offer. */

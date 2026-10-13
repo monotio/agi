@@ -238,6 +238,56 @@ for (const dynamic of [false, true]) {
   });
 }
 
+// An unused VIEW checks the running room for a short while after it opens, then stops reading,
+// so a sprite left open does not keep the game and Create busy.
+test("an unused VIEW stops checking the running room after a few heartbeats", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  // Count the object reads Create sends to the running game's worker.
+  await page.evaluate(() => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getWorker(): Worker };
+      objectReads: number;
+    };
+    probe.objectReads = 0;
+    const worker = probe.__AGI_PROJECT__.getWorker();
+    const post = worker.postMessage;
+    worker.postMessage = function (message, ...args) {
+      if (message?.type === "objects") probe.objectReads++;
+      return Reflect.apply(post, this, [message, ...args]);
+    };
+  });
+  /** Resolves once the heartbeat has reported `count` new cycle values. */
+  const heartbeats = (count: number) =>
+    page.evaluate(
+      (count) =>
+        new Promise<void>((resolve) => {
+          let last = window.__AGI_TEXT__?.cycle;
+          let seen = 0;
+          const timer = setInterval(() => {
+            const cycle = window.__AGI_TEXT__?.cycle;
+            if (cycle === last) return;
+            last = cycle;
+            if (++seen < count) return;
+            clearInterval(timer);
+            resolve();
+          }, 20);
+        }),
+      count,
+    );
+  const reads = () =>
+    page.evaluate(() => (window as unknown as { objectReads: number }).objectReads);
+  await open(page, "part-view:9");
+  await expect(page.getByTestId("workspace-unused")).toContainText("Not used by a room yet");
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  await heartbeats(12);
+  const settled = await reads();
+  expect(settled).toBeGreaterThan(0);
+  await heartbeats(8);
+  expect(await reads()).toBe(settled);
+  await expect(page.getByTestId("workspace-unused")).toContainText("Not used by a room yet");
+});
+
 test("a shared PICTURE opens the room chosen in Parts", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
