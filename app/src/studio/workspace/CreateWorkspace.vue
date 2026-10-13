@@ -204,7 +204,8 @@ const engine = useEngineApi();
 const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
-// One stable function: Vue calls it on mount and unmount only, not on every render.
+// Vue calls a function ref on every patch of its element; writing the same element to the
+// shallowRef again triggers nothing, so Room Studio moves only when the row mounts or unmounts.
 function setContextTarget(element: Element | ComponentPublicInstance | null): void {
   editor.contextTarget.value = element instanceof HTMLElement ? element : null;
 }
