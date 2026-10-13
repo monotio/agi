@@ -35,11 +35,7 @@ declare module "monaco-editor/editor/contrib/codeAction/browser/codeActionModel.
   }
 }
 
+// The rename focus fix checks the private members it reads at run time (renameFocus.ts).
 declare module "monaco-editor/editor/contrib/rename/browser/renameWidget.js" {
-  export class RenameWidget {
-    _editor: { hasTextFocus(): boolean };
-    _inputWithButton: { input: HTMLInputElement };
-    _show(): void;
-    afterRender(position: number | null): void;
-  }
+  export class RenameWidget {}
 }
