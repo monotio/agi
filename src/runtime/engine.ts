@@ -2652,6 +2652,11 @@ export class Engine {
       return;
     }
     const byte = key & 0xff;
+    // v19 receives the low byte of every type-1 event FIRST — before the
+    // input-acceptance gate and before the line editor consumes Enter,
+    // Backspace or printable bytes (kq3 2.936 0x35B0; demopac4 3.002.102
+    // 0x3963; gr1 3.002.149 0x38FB).
+    this.vars[V_KEY] = byte;
     if (this.inputAccepted && !this.textMode) {
       if (byte === AGI_KEY.ENTER && this.editLine.length > 0) {
         this.acceptLine(this.editLine);
@@ -2668,7 +2673,6 @@ export class Engine {
         return;
       }
     }
-    this.vars[V_KEY] = byte;
   }
 
   // ---------- modal windows ----------

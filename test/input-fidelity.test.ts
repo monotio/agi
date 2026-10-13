@@ -327,3 +327,34 @@ test("deferred tracked releases use eligibility captured when the key was releas
   ineligible.tick();
   assert.equal(ineligible.vars[6], 3, "opening the gate later does not admit an earlier release");
 });
+
+test("editing keys reach v19 before the line editor consumes them", () => {
+  // Player-visible rule: a script reads the key byte in v19 even when the
+  // line editor consumes it — Enter, Backspace and echoing printables all
+  // land in v19. The type-1 input case stores the event's low byte into v19
+  // unconditionally and FIRST, before the acceptance gate and before
+  // EditLine (kq3 2.936 0x35B0; demopac4 3.002.102 0x3963; gr1 3.002.149
+  // 0x38FB).
+  const host = new Host();
+  const engine = game(
+    `
+    if (!isset(f200)) { set(f200); accept.input(); }
+    if (isset(f201)) { reset(f201); assignv(v100,v19); }
+    return;
+  `,
+    host,
+  );
+  engine.tick();
+  engine.flags[201] = 1; // logic reads v19 in the same cycle the key lands
+  host.keys.push(0x61); // 'a': echoed into the edit buffer
+  engine.tick();
+  assert.equal(engine.vars[100], 0x61, "the echoed printable is visible in v19");
+  engine.flags[201] = 1;
+  host.keys.push(0x08); // Backspace: consumed by the editor
+  engine.tick();
+  assert.equal(engine.vars[100], 0x08, "Backspace is visible in v19");
+  engine.flags[201] = 1;
+  host.keys.push(0x0d); // Enter accepts the line AND lands in v19
+  engine.tick();
+  assert.equal(engine.vars[100], 0x0d, "Enter is visible in v19");
+});
