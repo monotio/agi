@@ -358,3 +358,54 @@ test("editing keys reach v19 before the line editor consumes them", () => {
   engine.tick();
   assert.equal(engine.vars[100], 0x0d, "Enter is visible in v19");
 });
+
+test("have.key normalizes keypad Enter to a carriage return", () => {
+  // Player-visible rule: keypad Enter satisfies have.key as Enter (v19 =
+  // 0x0d), not as a stray 0x01 byte. The event queue stores the full word
+  // (demopac4 3.002.102 PostEvent 0x48DD) and ButtonToChar (0x4A78) maps
+  // 0x0101/0x0301 → CR inside GetKey, which have.key drains (0x0C13).
+  class LateHost extends Host {
+    polls = 0;
+    override takeKeys(): number[] {
+      // Polls 1-2 are the boot and current cycle's input phases; the third
+      // poll is have.key's own drain inside the logic pass.
+      return ++this.polls === 3 ? [0x0101] : [];
+    }
+  }
+  const host = new LateHost();
+  const engine = game(
+    `
+    if (isset(f201)) {
+      reset(f201);
+      assignn(v19,0);
+      if (have.key()) { assignv(v100,v19); } else { assignn(v100,255); }
+    }
+    return;
+  `,
+    host,
+  );
+  engine.tick();
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.vars[100], 0x0d, "keypad Enter reads as Enter");
+});
+
+test("the input-phase line editor never normalizes keypad words", () => {
+  // Player-visible rule: keypad Enter does not accept the command line — the
+  // EditLine path is the one key consumer ButtonToChar never reaches
+  // (demopac4 3.002.102: no call to 0x4A78 from EditLine 0x3A05); the word
+  // reaches the editor as low byte 0x01.
+  const host = new Host();
+  const engine = game(
+    `
+    if (!isset(f200)) { set(f200); accept.input(); }
+    return;
+  `,
+    host,
+  );
+  engine.tick();
+  host.keys.push(0x61, 0x0101);
+  engine.tick();
+  assert.equal(engine.flags[2], 0, "no line was accepted");
+  assert.equal(engine.vars[19], 0x01, "the editor saw the raw low byte");
+});

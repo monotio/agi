@@ -41,7 +41,7 @@ import { TraceWindow } from "./trace.ts";
 import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
 import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
-import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
+import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeKeyWord } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
 import {
@@ -2331,7 +2331,9 @@ export class Engine {
   private drainDialogKey(): number | undefined {
     for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) return event.value;
+      // The selector's wait runs GetKey too, so keypad Enter/Escape words
+      // normalize here (demopac4 3.002.102 call site 0x36A7).
+      if (event.type === 1) return normalizeKeyWord(event.value);
       if (event.type === 2 && event.value !== 0) {
         const navigationKey = NAV_KEY_CODES[event.value];
         if (navigationKey !== undefined) return navigationKey;
@@ -2640,7 +2642,10 @@ export class Engine {
    */
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) return event.value;
+      // GetKey normalizes the keypad Enter/Escape words on every consumer of
+      // this path (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey
+      // 0x49D2, which have.key 0x0C13 drains).
+      if (event.type === 1) return normalizeKeyWord(event.value);
     }
     return undefined;
   }
@@ -2686,7 +2691,7 @@ export class Engine {
     }
     const m = this.modal;
     if (!m) return;
-    key = normalizeModalKey(key);
+    key = normalizeKeyWord(key);
     const nav = NAV_KEYS[key];
     if (nav !== undefined) {
       this.modalNavigate(nav);

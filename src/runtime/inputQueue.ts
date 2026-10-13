@@ -1,5 +1,5 @@
 /** AGI event queue, clean-room from agi-re "Event queue" and "Raw-key condition". */
-import { NAV_KEYS, normalizeModalKey } from "./keys.ts";
+import { NAV_KEYS } from "./keys.ts";
 
 export type InputEvent = {
   type: 1 | 2 | 3;
@@ -27,23 +27,30 @@ export class InputQueue {
   }
 
   /**
-   * A key as the original's timer-driven keyboard poll queues it: navigation
-   * words become type-2 events and everything else stays a raw type-1 key.
+   * A key as the original's keyboard poll queues it: navigation words become
+   * type-2 events, ASCII keys keep only their ASCII byte, and everything else
+   * stays a raw type-1 key. The queue stores full 16-bit words (demopac4
+   * 3.002.102 PostEvent 0x48DD): the keypad Enter/Escape duplicates
+   * 0x0101/0x0201/0x0301/0x0401 arrive whole and are normalized by the
+   * consuming GetKey path (ButtonToChar 0x4A78), never at enqueue.
    * Script mappings (set.key) apply only when the cycle's input phase consumes
    * the event; have.key and modal windows read it raw (docs/fidelity.md,
    * "Script key mappings and have.key").
    */
   enqueueKey(word: number): boolean {
-    const key = word & 0xff ? word & 0xff : word & 0xffff;
+    const full = word & 0xffff;
+    const keypad =
+      full === 0x0101 || full === 0x0201 || full === 0x0301 || full === 0x0401;
+    const key = keypad ? full : word & 0xff ? word & 0xff : full;
     const navigation = NAV_KEYS[key];
     return this.enqueue(
       navigation === undefined ? { type: 1, value: key } : { type: 2, value: navigation },
     );
   }
 
-  /** A raw host key delivered while a modal owns the interpreter: keypad Enter/Escape normalize to their twins. */
+  /** A raw host key delivered while a modal owns the interpreter; the modal drain normalizes keypad words. */
   enqueueModalKey(word: number): boolean {
-    return this.enqueueKey(normalizeModalKey(word));
+    return this.enqueueKey(word);
   }
 
   dequeue(): InputEvent | undefined {
