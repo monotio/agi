@@ -699,7 +699,11 @@ export class Engine {
   private menuFinalized = false;
   private menuHeading = 0;
   private menuRequested = false;
-  private menuInteractionGate = 0;
+  // The menu-interaction gate (action 0xb1) is a word that ships 1 in the
+  // data image and is never re-initialized — not even by restart, whose
+  // ResetAll clears only vars/flags/controllers/object records (mh1
+  // 3.002.107 ovl DS+0x5E3 = 01 00; gr1 3.002.149 ovl DS+0x403 = 01 00).
+  private menuInteractionGate = 1;
   private blockRect: { left: number; top: number; right: number; bottom: number } | null = null;
   private textMode = false;
   private inputPrompt = "";
@@ -4380,8 +4384,16 @@ export class Engine {
       if (line !== null && this.inputAccepted) this.acceptLine(line);
       let menuOpened = false;
       if (this.menuRequested) {
-        this.menuRequested = false;
-        menuOpened = this.openMenu();
+        // The v3 gate is tested at the head of DoMenu, and the gated exit
+        // leaves the request word set: a gated request pends until allow.menu
+        // re-enables it (mh1 3.002.107 0x9895-0x989C; the request's only clear
+        // is the menu-close path 0x993F).
+        if (this.profile.menuInteractionGate && this.menuInteractionGate === 0) {
+          menuOpened = false;
+        } else {
+          this.menuRequested = false;
+          menuOpened = this.openMenu();
+        }
       }
       // An opened menu abandons the rest of this pass, so a stop here owes no
       // phase remainder — the modal wait keeps the pass parked, and the next
@@ -7156,11 +7168,14 @@ export class Engine {
         // menu.input: the v3 profiles add a separate menu-interaction gate set
         // by action 0xb1 (profile.menuInteractionGate); the v2 profiles gate on
         // f14 alone. On Amiga the slot is the stub routine (menuInputAction).
+        // The request itself tests f14 only; the gate is consulted at menu-open
+        // time with the request still pending (mh1 3.002.107 menu.input 0x9859
+        // tests IsSet(14) then sets the request word; the gate test sits at the
+        // DoMenu head 0x9895).
         if (
           this.profile.menuInputAction === "effect" &&
           this.profile.menuActions === "full" &&
-          this.flags[F_MENU_ENABLED] !== 0 &&
-          (!this.profile.menuInteractionGate || this.menuInteractionGate !== 0)
+          this.flags[F_MENU_ENABLED] !== 0
         ) {
           this.menuRequested = true;
         }
@@ -7592,7 +7607,6 @@ export class Engine {
     this.menuFinalized = false;
     this.menuHeading = 0;
     this.menuRequested = false;
-    this.menuInteractionGate = 0;
     this.pendingController = null;
     this.parsedWords = [];
     this.parsedWordTexts = [];
