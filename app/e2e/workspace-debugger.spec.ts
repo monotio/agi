@@ -1,6 +1,15 @@
 import { test, expect, reviewShot } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
+
+/** Select the first match in the focused editor. The Find box must be open before text goes in: under load a typed query lands in the source. */
+async function findInEditor(page: Page, text: string): Promise<void> {
+  await page.keyboard.press("ControlOrMeta+f");
+  const find = page.getByRole("textbox", { name: "Find", exact: true });
+  await expect(find).toBeVisible();
+  await find.fill(text);
+  await find.press("Escape");
+}
 async function runWithF5(page: Page): Promise<void> {
   await page.evaluate(() => {
     const host = window as unknown as {
@@ -70,9 +79,7 @@ for (const size of [{ width: 1440, height: 900 }]) {
     expect(loaded.some((url) => /workspaceDebug|debugController/.test(url))).toBe(false);
     await tabTo(page, editor.getByRole("textbox", { name: "Editor content", exact: true }));
     await page.keyboard.press("Escape");
-    await page.keyboard.press("ControlOrMeta+f");
-    await page.keyboard.type('print("You stand');
-    await page.keyboard.press("Escape");
+    await findInEditor(page, 'print("You stand');
     await page.keyboard.press("F9");
     await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
     await runWithF5(page);
@@ -154,9 +161,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   const editor = page.getByTestId("workspace-logic-editor");
   await expect(editor).toBeVisible();
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
-  await page.keyboard.press("ControlOrMeta+f");
-  await page.keyboard.type('print("You stand');
-  await page.keyboard.press("Escape");
+  await findInEditor(page, 'print("You stand');
   await page.keyboard.press("F9");
   await expect(editor.locator(".workspace-breakpoint")).toHaveCount(1);
   // Gutter click removes and restores the same source breakpoint.
@@ -200,9 +205,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   // Replace the message in place: multiline insertText is typed input, so Monaco's
   // auto-indent would move the saved breakpoint column from print to the if.
-  await page.keyboard.press("ControlOrMeta+f");
-  await page.keyboard.type("You stand in a sunny clearing.");
-  await page.keyboard.press("Escape");
+  await findInEditor(page, "You stand in a sunny clearing.");
   await page.keyboard.insertText("A blue flower grows in the clearing.");
   await expect(
     page.getByRole("button", { name: "Show running source", exact: true }),
