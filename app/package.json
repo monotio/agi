@@ -13,8 +13,9 @@
     "e2e": "playwright test --grep-invert '@perf|@walkthrough-full'",
     "e2e:perf": "playwright test --grep @perf --workers=1",
     "e2e:walkthrough-full": "playwright test --grep @walkthrough-full",
-    "e2e:phone": "playwright test --config playwright.phone.config.ts",
-    "e2e:webkit-desktop": "playwright test --config playwright.webkit.config.ts",
+    "e2e:webkit": "playwright test --config playwright.webkit.config.ts",
+    "e2e:webkit-desktop": "playwright test --config playwright.webkit.config.ts --project=desktop-webkit",
+    "e2e:phone": "playwright test --config playwright.webkit.config.ts --project=iphone-webkit",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && vue-tsc --noEmit -p tsconfig.worker.json",
     "e2e:production": "playwright test --config playwright.production.config.ts",
     "e2e:ui": "playwright test --ui"

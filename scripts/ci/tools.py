@@ -97,8 +97,8 @@ def discover(suite="chromium"):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / 'discovery.json'
         env = {**os.environ, 'PLAYWRIGHT_JSON_OUTPUT_FILE': str(output)}
-        selection = (['--config', 'playwright.webkit.config.ts'] if suite == 'webkit'
-                     else ['--grep-invert', '@perf'])
+        selection = (['--config', 'playwright.webkit.config.ts', '--project=desktop-webkit'] if suite == 'webkit'
+                     else ['--grep-invert', '@perf|@walkthrough-full'])
         subprocess.run(
             ['npm', 'exec', '--', 'playwright', 'test', *selection, '--list',
              '--reporter=json'], cwd='app', env=env, check=True, stdout=subprocess.DEVNULL)

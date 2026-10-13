@@ -211,6 +211,7 @@ async function walkToRoom(
 // Each phase reads the same durable project in a fresh browser context.
 // Authoring and native play/export keep separate contracts within the test budget.
 test.describe("the first guided game", () => {
+  // Serial: each test continues the project and stored session the one before it left.
   test.describe.configure({ mode: "serial" });
   let projectId: string;
   let authored: Awaited<ReturnType<BrowserContext["storageState"]>>;

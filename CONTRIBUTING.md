@@ -87,7 +87,8 @@ server is already running, give the browser tests their own port:
 | `npm --prefix app run preview`                               | Serve app/dist for a local preview                                    |
 | `npm --prefix app run e2e`                                   | Chromium browser scenarios, excluding performance                     |
 | `npm --prefix app run e2e:perf`                              | Performance budgets, one worker                                       |
-| `npm --prefix app run e2e:phone`                             | Phone scenarios in Chromium and WebKit                                |
+| `npm --prefix app run e2e:webkit`                            | Both WebKit projects in one run                                       |
+| `npm --prefix app run e2e:phone`                             | Scenarios tagged @phone in WebKit                                     |
 | `npm --prefix app run e2e:webkit-desktop`                    | Scenarios tagged @webkit-desktop in WebKit                            |
 | `npm --prefix app run typecheck`                             | Check app DOM and worker projects                                     |
 | `npm --prefix app run e2e:production`                        | Browser checks against production output or AGI_DEPLOY_URL            |
