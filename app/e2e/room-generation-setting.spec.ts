@@ -13,8 +13,10 @@ import {
 import { openWorkspaceLogic, workspaceDocument } from "./workspaceShared.ts";
 
 const label = "AI makes new rooms when the hero walks into one";
-for (const width of [1063, 1440, 390]) {
-  test(`room setting and quiet Game state ${width} @webkit-desktop`, async ({ page }) => {
+for (const width of [1440, 390]) {
+  test(`room setting and quiet Game state ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: width === 1063 ? 815 : width === 390 ? 844 : 900 });
     await isolateStorage(page);
     await page.goto("/#create-adventure");

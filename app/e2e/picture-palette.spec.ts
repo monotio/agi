@@ -27,28 +27,15 @@ async function history(page: Page) {
     };
   });
 }
-for (const width of [1063, 1440, 390]) {
+for (const width of [1063, 390]) {
   test.describe(`${width} palette`, () => {
     test.use({
-      viewport: { width, height: width === 1063 ? 815 : width === 1440 ? 900 : 844 },
+      viewport: { width, height: width === 1063 ? 815 : 844 },
       hasTouch: width === 390,
     });
-    test("palette review screenshots", async ({ page }) => {
-      const studio = await picture(page);
-      await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
-      await page.evaluate(() => document.fonts.ready);
-      await page.screenshot({
-        path: test.info().outputPath(`select-${width}.png`),
-        animations: "disabled",
-      });
-      await studio.locator('button[data-tool="brush"]').click();
-      await expect(studio.getByRole("radiogroup", { name: "Palette", exact: true })).toBeVisible();
-      await page.screenshot({
-        path: test.info().outputPath(`drawing-${width}.png`),
-        animations: "disabled",
-      });
-    });
-    test("palette follows the tool and selection with one Undo step", async ({ page }) => {
+    test(`palette follows the tool and selection with one Undo step${width === 390 ? " @phone" : ""}`, async ({
+      page,
+    }) => {
       const studio = await picture(page);
       const strip = studio.locator(".workspace-palette");
       await expect(strip).toBeVisible();

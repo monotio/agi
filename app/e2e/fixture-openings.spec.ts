@@ -5,8 +5,16 @@ import { isolateStorage, revealFoldedBoot, textHook } from "./engineProbe.ts";
 import { BrowserReplay } from "./speedrunReplay.ts";
 
 // Opening-room checks exercise development discovery, loading and the worker.
-// Complete resource validation is a separate fixtures:audit command.
-for (const game of TITLE_SCREENS) {
+// Complete resource validation is a separate fixtures:audit command. One game
+// per directory format (KQ1 split, MH1 combined) proves the gallery boot here;
+// test/openings.test.ts checks every fixture's profile and title room, and
+// walkthroughs.spec.ts boots every game with a tape from the gallery.
+const GALLERY_BOOTS = new Set(["kq1", "mh1"]);
+// sq2 answers a name prompt before play, and the synthetic chamber needs no
+// fixture; the other opening routes replay in test/openings.test.ts.
+const BROWSER_OPENINGS = new Set(["sq2", "synthetic"]);
+
+for (const game of TITLE_SCREENS.filter(({ alias }) => GALLERY_BOOTS.has(alias))) {
   // The alias resolves by fixture folder first; a hash query throws when an
   // imported project under games/ duplicates a fixture's WORDS.TOK.
   const missing = fixtureSkip(game.alias, ["AGIDATA.OVL"], { checkVolumes: false });
@@ -38,7 +46,7 @@ for (const game of TITLE_SCREENS) {
   });
 }
 
-for (const game of OPENING_ROUTES) {
+for (const game of OPENING_ROUTES.filter(({ alias }) => BROWSER_OPENINGS.has(alias))) {
   const { alias, hash } = game;
   const missing = fixtureSkip(alias, ["AGIDATA.OVL"]);
   test(`${alias}: browser replays the opening through player-controlled movement`, async ({

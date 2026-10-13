@@ -38,7 +38,9 @@ for (const game of [
   { hash: KNOWN_GAME_HASH.KQ3, alias: "kq3", intro: 45, room: 7, profile: "2.936", maxScore: 210 },
 ]) {
   const missing = fixtureSkip(game.hash, ["AGIDATA.OVL"]);
-  test(`${game.alias} opens, walks, saves and restores using phone controls`, async ({ page }) => {
+  test(`${game.alias} opens, walks, saves and restores using phone controls @phone`, async ({
+    page,
+  }) => {
     test.skip(Boolean(missing), missing || "");
     await isolateStorage(page);
     await page.goto("/");

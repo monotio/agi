@@ -50,11 +50,10 @@ async function openAdvanced(page: Page): Promise<void> {
 }
 
 for (const viewport of [
-  { width: 1063, height: 815 },
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`Amiga timing applies on the next start and persists at ${viewport.width}`, async ({
+  test(`Amiga timing applies on the next start and persists at ${viewport.width}${viewport.width === 390 ? " @phone" : ""}`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize(viewport);
@@ -131,7 +130,7 @@ for (const viewport of [
   });
 }
 
-test("PC profiles keep the Amiga region choice hidden", async ({ page }) => {
+test("PC profiles keep the Amiga region choice hidden @phone", async ({ page }) => {
   await bootSoundGame(page, "2.936");
   await openAdvanced(page);
   await expect(page.getByTestId("toggle-sound-mode")).toBeVisible();

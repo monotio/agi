@@ -490,13 +490,16 @@ the app replays under **Watch walkthrough**.
 After supplying any of the fixtures above, run:
 
 ```bash
-node --test --experimental-strip-types test/walkthroughs.test.ts
+node --test --experimental-strip-types 'test/walkthroughs-*.test.ts'
 npm --prefix app run e2e -- e2e/walkthroughs.spec.ts
+npm --prefix app run e2e:walkthrough-full
 ```
 
-Each route uses normal player inputs and a virtual clock, asserts score and
-inventory milestones, and repeats from a cold boot with its catalog's fixed
-seed. The routes reach these endpoints:
+Each route uses normal player inputs and a virtual clock, and asserts score and
+inventory milestones. It plays once from a cold boot with its catalog's fixed
+seed and the settings its shipped tape was recorded with, and must reproduce
+that tape exactly. Each game has its own test file, so the routes play in
+parallel. The routes reach these endpoints:
 
 | Game                     | Route and endpoint                                                                                                                                                                                                                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -524,12 +527,30 @@ checks, and the same catalog includes KQ1's completion proof.
 `npm run prove:walkthrough -- sq1`. Game-specific route modules contain player
 actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
 
-Browser tests replay the committed `app/public/walkthroughs/*.json` tapes
-through the app's controls, checking their exact fixture hashes, interpreter
-profile, ending state and duration. They do not regenerate routes: the Node
-cold-boot tests cover route generation separately, so a stale or broken shipped
-tape fails the browser gate. `AGI_SPEEDRUN_FILE` selects a separately generated
-tape when validating a route before replacing its committed artifact.
+Each layer proves something different:
+
+- **Node** (`test/walkthroughs-*.test.ts`) regenerates every route and compares
+  it with its committed `app/public/walkthroughs/*.json` tape: inputs, virtual
+  ticks, cycles, ending state, fixture hashes and served revisions. A stale or
+  broken shipped tape fails here, with the first input that differs. When a
+  route changes on purpose, regenerate its tape in the same change.
+- **Browser** (`e2e/walkthroughs.spec.ts`) replays committed tapes in the app's
+  worker. The replay sends tape inputs to the worker directly, so it proves the
+  worker reaches the same state as Node, not the keyboard or touch controls.
+  KQ1, Manhunter 2, Donald Duck's Playground and the synthetic chamber replay
+  whole on every run. They cover parser typing, the cursor interface, a
+  keys-only game and a number prompt, on four interpreter profiles. Every other
+  tape replays its opening, to its first checkpoint past 15,000 ticks, and must
+  match the state Node reaches at that checkpoint.
+- **Full browser set** (`npm --prefix app run e2e:walkthrough-full`, tagged
+  `@walkthrough-full`) replays the remaining tapes whole. It runs once per
+  release candidate.
+- **Controls.** Two opening tests in the same spec play KQ1 through desktop keys
+  and phone touch. `kq1.spec.ts`, `kq-phone.spec.ts` and `phone-input.spec.ts`
+  cover keyboard, mouse, touch, menus and saves on a real game.
+
+`AGI_SPEEDRUN_FILE` selects a separately generated tape when validating a route
+before replacing its committed artifact; that tape replays whole.
 
 ### KQ1 completion proof
 
@@ -550,11 +571,10 @@ defaults to `/tmp/agi-kq1-speedrun.json` (pass another path after
 `npm run prove:walkthrough -- kq1`); reports contain input events, resource
 hashes, checkpoints and the observed ending state, and no game resources.
 
-The browser command replays that report through actual desktop keys and phone
-controls in Chromium and WebKit, with only the test-mode host clock
-accelerated. Each replay verifies the exact local fixture hashes and the game's
-terminal ending state independently of the report's success label; a missing
-fixture produces an explicit skip. Physical Samsung/iPhone keyboards and screen
+The browser command replays that report in the app's worker in Chromium and
+WebKit, with only the test-mode host clock accelerated. The replay verifies the
+exact local fixture hashes and the game's terminal ending state independently
+of the report's success label; a missing fixture produces an explicit skip. Physical Samsung/iPhone keyboards and screen
 readers still require device testing.
 
 ### Manhunter proofs

@@ -19,6 +19,7 @@ import {
   observe,
   openWorkspaceAgent,
   openWorkspacePicture,
+  waitForCycles,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic = true) {
@@ -134,10 +135,7 @@ test("Auto-approve shows a rejected handover without admitting its edits @webkit
     animations: "disabled",
   });
 });
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`workspace agent reviews coordinated changes and keyboard approval ${size.width}`, async ({
     page,
   }) => {
@@ -271,7 +269,6 @@ test("Agent toggles from composer, editor and game and Escape returns to the ori
 
 for (const size of [
   { width: 1440, height: 900 },
-  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
   test(`agent panel opaque header, one Agent title, secondary chat history and Escape ${size.width}`, async ({
@@ -397,7 +394,20 @@ test("a turn that stops without a change or a reply says so plainly", async ({ p
                   arguments: '{"notes":null}',
                 },
               ]
-            : [],
+            : bodies.length > 2
+              ? [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "output_text",
+                        text: 'Hello **builder** and *player*.\n\n- Use `said()`.\n- Read words.\n\n1. Look\n2. Open\n\n```agi\nprint("Welcome");\n```\n\n<img src=x onerror="window.injected=true">',
+                      },
+                    ],
+                  },
+                ]
+              : [],
       }),
     );
   });
@@ -415,41 +425,18 @@ test("a turn that stops without a change or a reply says so plainly", async ({ p
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect(page.getByTestId("agent-error")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("stopped-turn-1440.png") });
-});
-
-test("Agent replies render safe Markdown", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.route("**/api/openai/v1/responses", async (route) => {
-    await route.fulfill(
-      providerReply("openai", {
-        id: "markdown",
-        output: [
-          {
-            type: "message",
-            role: "assistant",
-            content: [
-              {
-                type: "output_text",
-                text: 'Hello **builder** and *player*.\n\n- Use `said()`.\n- Read words.\n\n1. Look\n2. Open\n\n```agi\nprint("Welcome");\n```\n\n<img src=x onerror="window.injected=true">',
-              },
-            ],
-          },
-        ],
-      }),
-    );
-  });
-  await start(page, "openai");
+  // A later reply renders as safe Markdown.
   await page.getByTestId("agent-message").fill("Explain commands");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  const reply = page.locator(".agent-panel__markdown").last();
-  await expect(reply.locator("strong")).toHaveText("builder");
-  await expect(reply.locator("em")).toHaveText("player");
-  await expect(reply.locator("ul li")).toHaveCount(2);
-  await expect(reply.locator("ol li")).toHaveCount(2);
-  await expect(reply.locator("li code")).toHaveText("said()");
-  await expect(reply.locator("pre code")).toHaveText('print("Welcome");');
-  await expect(reply.locator("img")).toHaveCount(0);
-  await expect(reply).toContainText('<img src=x onerror="window.injected=true">');
+  const markdown = page.locator(".agent-panel__markdown").last();
+  await expect(markdown.locator("strong")).toHaveText("builder");
+  await expect(markdown.locator("em")).toHaveText("player");
+  await expect(markdown.locator("ul li")).toHaveCount(2);
+  await expect(markdown.locator("ol li")).toHaveCount(2);
+  await expect(markdown.locator("li code")).toHaveText("said()");
+  await expect(markdown.locator("pre code")).toHaveText('print("Welcome");');
+  await expect(markdown.locator("img")).toHaveCount(0);
+  await expect(markdown).toContainText('<img src=x onerror="window.injected=true">');
   await page.screenshot({ path: test.info().outputPath("markdown-1440.png") });
 });
 
@@ -543,8 +530,11 @@ test("an approved change after attaching reference art saves without pausing edi
   const { encodePngRgb } = await import("../../src/picture/png.ts");
   await start(page, "stub", false);
   const panel = page.getByTestId("workspace-agent-panel");
+  // The workspace composer offers reference art.
+  await expect(panel.getByTestId("agent-attach-reference")).toBeVisible();
   await panel.getByTestId("agent-attach-reference").click();
   const upload = page.getByTestId("reference-upload");
+  await expect(upload).toBeVisible();
   await upload.getByTestId("reference-room-file").setInputFiles({
     name: "bridge.png",
     mimeType: "image/png",
@@ -578,15 +568,6 @@ test("an approved change after attaching reference art saves without pausing edi
     .toBe("saved");
   await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
   await expect(panel.getByTestId("agent-message")).toBeEnabled();
-});
-
-test("the workspace composer offers reference art", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await start(page);
-  const attach = page.getByTestId("workspace-agent-panel").getByTestId("agent-attach-reference");
-  await expect(attach).toBeVisible();
-  await attach.click();
-  await expect(page.getByTestId("reference-upload")).toBeVisible();
 });
 
 test("a slow preview keeps Approve working through preview loading", async ({ page }) => {
@@ -663,7 +644,8 @@ test("an approved change shows at once in Create and again when Play resumes", a
   await expect
     .poll(async () => {
       const before = (await textHook(page)).egoX;
-      await page.waitForTimeout(250);
+      // Let the game run a few cycles, then compare where the hero stands.
+      await waitForCycles(page, 4);
       if ((await textHook(page)).egoX === before) return true;
       await page.keyboard.press("ArrowRight");
       return false;

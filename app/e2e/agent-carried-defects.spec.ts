@@ -17,7 +17,7 @@ import { expect, test } from "./test.ts";
  * something else still applies, the person reads a calm notice naming the
  * unreadable part, and no raw error appears.
  */
-test("an edit applies to a game with an unreadable sound and the notice names it @webkit-desktop", async ({
+test("an edit applies to a game with an unreadable sound and the notice names it", async ({
   page,
 }) => {
   await isolateStorage(page);

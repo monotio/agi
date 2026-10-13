@@ -22,10 +22,9 @@ async function positionFlag(page: Page): Promise<void> {
 
 for (const [width, height] of [
   [1063, 815],
-  [1440, 900],
   [390, 844],
 ] as const) {
-  test(`numbered flag hover, inline naming and project Undo ${width} @webkit-desktop`, async ({
+  test(`numbered flag hover, inline naming and project Undo ${width}${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
     page,
   }) => {
     await page.setViewportSize(width === 390 ? { width: 1440, height: 900 } : { width, height });

@@ -1,13 +1,13 @@
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { rngDraw } from "../../src/runtime/rng.ts";
-import { chromium } from "@playwright/test";
+import { chromium, type Browser } from "@playwright/test";
 import { offlineSpectrogram } from "./offlineSpectrogram.ts";
 import type * as OfflineMeasurements from "./offlineSpectrogram.ts";
-import { startFixtureServer } from "./fixtureServerHarness.ts";
+import { startFixtureServer, type RunningFixtureServer } from "./fixtureServerHarness.ts";
 import { findFixture, fixtureSkip } from "../../test/fixtures.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { parseSound, type SoundOutput } from "../../src/sound/sound.ts";
@@ -22,7 +22,28 @@ interface Boundary {
   type: "start" | "end" | "rest" | "dma-off" | "source-end";
 }
 
+// One dev server and one Chromium serve every case; they start with the first
+// case that has its fixture.
+let renderer: Promise<{ server: RunningFixtureServer; browser: Browser }> | undefined;
+function startRenderer() {
+  renderer ??= Promise.all([startFixtureServer([]), chromium.launch({ headless: true })]).then(
+    ([server, browser]) => ({ server, browser }),
+  );
+  return renderer;
+}
+after(async () => {
+  if (!renderer) return;
+  const { server, browser } = await renderer;
+  await browser.close();
+  await server.close();
+});
+
+const renderDir = process.env["AGI_AUDIO_RENDER_DIR"];
+
 for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
+  // Per-voice renders and boundary spectra feed pq1-amiga's step assertions
+  // and the opt-in render report; the other cases assert on the mix alone.
+  const perVoice = query === "pq1-amiga" || Boolean(renderDir);
   // PQ's cold boot starts SOUND 36, repeats 19, then plays SOUND 37 and 30.
   // Render the complete cold boot through
   // the shipped scheduler and browser audio graph, with no speaker device fallback.
@@ -135,10 +156,9 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
         );
       }
       assert.ok(sounds.length > 0, "real LOGIC plays SOUND during the cold boot");
-      const server = await startFixtureServer([]);
-      const browser = await chromium.launch({ headless: true });
+      const { server, browser } = await startRenderer();
+      const page = await browser.newPage();
       try {
-        const page = await browser.newPage();
         await page.goto(`${server.url}/`);
         const instrumentFiles =
           query === "sq2-iigs"
@@ -153,7 +173,7 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
               )
             : {};
         const rendered = await page.evaluate(
-          async ({ packets, boundaries, instrumentFiles }) => {
+          async ({ packets, boundaries, instrumentFiles, perVoice }) => {
             const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
             const metricsPath = "/test/offlineSpectrogram.ts";
             const { boundaryMetrics, paulaReference } = (await import(
@@ -254,7 +274,13 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
             const samples = (await render(null)).pcm;
             const measurements = [];
             const voices = [];
-            for (const voice of new Set(boundaries.map((boundary) => boundary.voice))) {
+            const laneVoices = [...new Set(boundaries.map((boundary) => boundary.voice))];
+            if (!perVoice) {
+              // One muted-lane render still checks that lane muting renders.
+              const lane = (await render(laneVoices[0] ?? 0)).pcm;
+              if (!lane.every(Number.isFinite)) throw new Error("A lane render is not finite");
+            }
+            for (const voice of perVoice ? laneVoices : []) {
               const laneRender = await render(voice);
               const pcm = laneRender.pcm;
               const expected = reference ? await renderReference(voice) : null;
@@ -287,11 +313,22 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
                 });
               }
             }
-            return { samples, measurements, voices };
+            // A base64 string crosses the page boundary far faster than
+            // 1.44 million JSON numbers; the bytes are the render's own floats.
+            const bytes = new Uint8Array(new Float32Array(samples).buffer);
+            let binary = "";
+            for (let i = 0; i < bytes.length; i += 0x8000)
+              binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+            return { mix: btoa(binary), measurements, voices };
           },
-          { packets, boundaries, instrumentFiles },
+          { packets, boundaries, instrumentFiles, perVoice },
         );
-        const { samples, measurements, voices } = rendered;
+        const { measurements, voices } = rendered;
+        const samples = new Float32Array(
+          new Uint8Array(Buffer.from(rendered.mix, "base64")).buffer,
+        );
+        // The boundaries the render measures: everything before the last 25 ms.
+        const captured = boundaries.filter((boundary) => boundary.time < 29.975);
         // First 4 ms: differences measure discontinuities; a short DFT measures
         // onset energy above 8 kHz, well beyond the tone fundamentals in SOUND 36.
         let maxJump = 0;
@@ -330,7 +367,7 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
           backend: packets
             .flatMap((packet) => packet.outputs)
             .find((event) => event.kind !== "speaker")?.kind,
-          boundaryCount: measurements.length,
+          boundaryCount: captured.length,
           maxStep: Math.max(...measurements.map((m) => m.step)),
           maxLowEnergy: Math.max(...measurements.map((m) => m.lowEnergy)),
           maxExcessLowEnergy: Math.max(...measurements.map((m) => m.excessLowEnergy)),
@@ -341,7 +378,7 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
         };
         t.diagnostic(JSON.stringify(metrics));
         // Explicit opt-in output belongs to this render test. Game PCM stays private.
-        const output = process.env["AGI_AUDIO_RENDER_DIR"];
+        const output = renderDir;
         if (output) {
           mkdirSync(output, { recursive: true });
           const wav = Buffer.alloc(44 + samples.length * 4);
@@ -361,7 +398,7 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
           writeFileSync(join(output, `${query}-intro.wav`), wav);
           writeFileSync(
             join(output, `${query}-spectrogram.png`),
-            await offlineSpectrogram(page, samples),
+            await offlineSpectrogram(page, Array.from(samples)),
           );
           writeFileSync(
             join(output, `${query}-metrics.json`),
@@ -369,11 +406,11 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
           );
         }
         assert.ok(
-          measurements.some((m) => m.type === "start"),
+          captured.some((boundary) => boundary.type === "start"),
           "capture covers note starts",
         );
         assert.ok(
-          measurements.some((m) => m.type === "end"),
+          captured.some((boundary) => boundary.type === "end"),
           "capture covers note ends",
         );
         if (query === "sq2-iigs") {
@@ -400,8 +437,7 @@ for (const query of ["pq1", "pq1-amiga", "sq2", "sq2-amiga", "sq2-iigs"]) {
           );
         }
       } finally {
-        await browser.close();
-        await server.close();
+        await page.close();
       }
     },
   );

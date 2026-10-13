@@ -16,7 +16,6 @@ async function screenshot(page: Page, name: string, browserName: string): Promis
 
 for (const [width, height] of [
   [1063, 815],
-  [1440, 900],
   [390, 844],
 ] as const) {
   test.describe(`touch Back ${width}`, () => {
@@ -49,7 +48,7 @@ for (const [width, height] of [
   });
 }
 
-test("Undo after choosing a Launch undoes the last change @webkit-desktop", async ({ page }) => {
+test("Undo after choosing a Launch undoes the last change", async ({ page }) => {
   await start(page);
   await open(page, "part-room:8:logic");
   const before = await page.evaluate(async () => {

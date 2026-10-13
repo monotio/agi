@@ -40,7 +40,9 @@ async function assertFits(page: Page, label: string): Promise<void> {
   expect(overlaps(screen, pad), `${label}: the screen clears the pad`).toBe(false);
 }
 
-test("phone landscape fits Play in the visible height, with Keys open too", async ({ page }) => {
+test("phone landscape fits Play in the visible height, with Keys open too @phone", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();

@@ -6,6 +6,8 @@ import type { ProjectSession } from "../src/project/projectSession.ts";
 function imageShot(page: Page, name: string) {
   return page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled" });
 }
+/** Desktop WebKit runs the 1063 variant and phone WebKit the 390 one. */
+const suites = (width: number) => (width === 390 ? " @phone" : " @webkit-desktop");
 async function start(page: Page) {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -58,7 +60,7 @@ async function upload(page: Page) {
     .getByTestId("image-file")
     .setInputFiles({ name: "walk.png", mimeType: "image/png", buffer: sheet() });
 }
-test("trace an attachment and draw over it with normal tools", async ({ page }) => {
+test("trace an attachment and draw over it with normal tools @phone", async ({ page }) => {
   await start(page);
   await blankRoom(page);
   await page.getByTestId("part-room:1:picture:1").click();
@@ -188,7 +190,7 @@ test("trace an attachment and draw over it with normal tools", async ({ page }) 
     )
     .toContain("Pasted image");
 });
-test("make a four-cel walk loop and preview it on the running hero", async ({ page }) => {
+test("make a four-cel walk loop and preview it on the running hero @phone", async ({ page }) => {
   await start(page);
   await page.getByTestId("part-view:0").click();
   await page
@@ -331,9 +333,7 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
     .toBe(commits + 1);
   await imageShot(page, "walk-cels");
 });
-test("Generate sends one styled request and Use image opens tracing @webkit-desktop", async ({
-  page,
-}) => {
+test("Generate sends one styled request and Use image opens tracing @phone", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await page.evaluate(() =>
@@ -438,10 +438,12 @@ test("Generate sends one styled request and Use image opens tracing @webkit-desk
 
 for (const viewport of [
   { width: 1063, height: 815 },
-  { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`image controls ${viewport.width} @webkit-desktop`, async ({ page, browserName }) => {
+  test(`image controls ${viewport.width}${suites(viewport.width)}`, async ({
+    page,
+    browserName,
+  }) => {
     await page.setViewportSize(viewport);
     await start(page);
     if (viewport.width < 600)
@@ -469,7 +471,7 @@ for (const viewport of [
     await panel.getByTestId("generate-review").scrollIntoViewIfNeeded();
     await expect(panel.getByTestId("generate-review")).toBeInViewport({ ratio: 1 });
   });
-  test(`cel image controls receive clicks at ${viewport.width} @webkit-desktop`, async ({
+  test(`cel image controls receive clicks at ${viewport.width}${suites(viewport.width)}`, async ({
     page,
     browserName,
   }) => {

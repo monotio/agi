@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
-test("first visit has one route per action and aligned sections", async ({ page }) => {
+test("first visit has one route per action and aligned sections @phone", async ({ page }) => {
   const hero = page.locator(".hero");
   await expect(hero).toBeVisible();
   await expect(hero.getByRole("button").nth(0)).toBeVisible();
@@ -66,7 +66,7 @@ test("first visit has one route per action and aligned sections", async ({ page 
   }
 });
 
-test("the featured opening image does not move the controls below it", async ({ page }) => {
+test("the featured opening image does not move the controls below it @phone", async ({ page }) => {
   for (const width of [390, 700]) {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
@@ -89,7 +89,7 @@ test("the featured opening image does not move the controls below it", async ({ 
   }
 });
 
-test("Settings keeps the AI budget and the agent drawer stays compact", async ({ page }) => {
+test("Settings keeps the AI budget and the agent drawer stays compact @phone", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await expect(page.getByRole("button", { name: "AI settings", exact: true })).toHaveCount(0);
@@ -128,7 +128,7 @@ test("Settings keeps the AI budget and the agent drawer stays compact", async ({
   }
 });
 
-test("library puts rename inline and secondary actions into menus", async ({ page }) => {
+test("library puts rename inline and secondary actions into menus @phone", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("btn-exit").click();

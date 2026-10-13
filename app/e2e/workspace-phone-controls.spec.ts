@@ -3,7 +3,7 @@ import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
 
 test.use({ hasTouch: true });
 
-test("phone Edit shows LOGIC and Playtest keeps game controls in the play pane", async ({
+test("phone Edit shows LOGIC and Playtest keeps game controls in the play pane @phone", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });

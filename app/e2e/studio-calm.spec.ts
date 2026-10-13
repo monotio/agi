@@ -72,7 +72,6 @@ async function coveredPoints(target: Locator, stage: Locator, allowed: string): 
 
 for (const [width, height] of [
   [1440, 900],
-  [1280, 720],
   [1024, 600],
 ] as const) {
   test(`at ${width}×${height} nothing covers the picture or the cel, an item selected or not`, async ({

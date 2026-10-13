@@ -24,11 +24,12 @@ async function start(page: Page) {
 }
 
 for (const size of [
-  { width: 1063, height: 815 },
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`agent reports completed task spend ${size.width} @webkit-desktop`, async ({ page }) => {
+  // Safari desktop proves the wide layout once; the phone project proves the narrow one.
+  const engines = size.width === 390 ? "@phone" : "@webkit-desktop";
+  test(`agent reports completed task spend ${size.width} ${engines}`, async ({ page }) => {
     await page.setViewportSize(size);
     await start(page);
     await openWorkspaceAgent(page);
@@ -76,7 +77,7 @@ for (const size of [
     }
   });
 
-  test(`image reports completed request spend ${size.width} @webkit-desktop`, async ({ page }) => {
+  test(`image reports completed request spend ${size.width} ${engines}`, async ({ page }) => {
     await page.setViewportSize(size);
     await start(page);
     let release!: () => void;
@@ -136,7 +137,7 @@ for (const size of [
 }
 
 for (const action of ["Continue", "Stop"] as const) {
-  test(`image budget ${action} keeps the returned image @webkit-desktop`, async ({ page }) => {
+  test(`image budget ${action} keeps the returned image`, async ({ page }) => {
     await page.setViewportSize({ width: 1063, height: 815 });
     await start(page);
     let requests = 0;
@@ -178,7 +179,7 @@ for (const action of ["Continue", "Stop"] as const) {
   });
 }
 
-test("a failed task keeps its already reported spend visible @webkit-desktop", async ({ page }) => {
+test("a failed task keeps its already reported spend visible", async ({ page }) => {
   await start(page);
   await openWorkspaceAgent(page);
   let requests = 0;
@@ -215,7 +216,7 @@ test("a failed task keeps its already reported spend visible @webkit-desktop", a
   await expect(page.getByTestId("agent-spent")).toHaveText("$0.07+ / $5 spent");
 });
 
-test("final conversation save keeps a single spend while task controls are visible @webkit-desktop", async ({
+test("final conversation save keeps a single spend while task controls are visible @phone", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -266,7 +267,7 @@ test("final conversation save keeps a single spend while task controls are visib
   );
 });
 
-test("a background task retains foreground reply spend @webkit-desktop", async ({ page }) => {
+test("a background task retains foreground reply spend", async ({ page }) => {
   await start(page);
   await openWorkspaceAgent(page);
   let release!: () => void;

@@ -11,30 +11,31 @@ import {
 
 for (const [width, height] of [
   [1063, 815],
-  [1440, 900],
   [390, 844],
 ] as const) {
   test.describe(`Calm editor ${width}`, () => {
     test.use({ viewport: { width, height }, hasTouch: width === 390 });
-    test("typing an unfinished condition keeps the editor in place @webkit-desktop", async ({
-      page,
-    }) => {
-      await start(page);
-      await open(page, "part-room:1:logic");
-      const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
-      await expect(editor.locator(".monaco-editor")).toBeVisible();
-      await focusWorkspaceLogic(page);
-      await workspaceDocumentEnd(page);
-      await page.keyboard.press("Enter");
-      await page.evaluate(() => document.fonts.ready);
-      const before = await editor.boundingBox();
-      await page.keyboard.type("if (");
-      await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
-      expect(await editor.boundingBox()).toEqual(before);
-      await expect(page.getByTestId("workspace-last-good")).toHaveCount(0);
-    });
+    // The editor box does not depend on the width: one run per engine.
+    if (width === 1063)
+      test("typing an unfinished condition keeps the editor in place @webkit-desktop", async ({
+        page,
+      }) => {
+        await start(page);
+        await open(page, "part-room:1:logic");
+        const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
+        await expect(editor.locator(".monaco-editor")).toBeVisible();
+        await focusWorkspaceLogic(page);
+        await workspaceDocumentEnd(page);
+        await page.keyboard.press("Enter");
+        await page.evaluate(() => document.fonts.ready);
+        const before = await editor.boundingBox();
+        await page.keyboard.type("if (");
+        await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
+        expect(await editor.boundingBox()).toEqual(before);
+        await expect(page.getByTestId("workspace-last-good")).toHaveCount(0);
+      });
 
-    test("context actions fit and overflow is keyboard accessible @webkit-desktop", async ({
+    test(`context actions fit and overflow is keyboard accessible${width === 1063 ? " @webkit-desktop" : ""}`, async ({
       page,
     }) => {
       await start(page);
@@ -90,9 +91,7 @@ for (const [width, height] of [
 }
 
 for (const action of ["update", "shortcut", "F5", "breakpoint"] as const) {
-  test(`broken draft refuses ${action} and preserves the game @webkit-desktop`, async ({
-    page,
-  }) => {
+  test(`broken draft refuses ${action} and preserves the game`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await start(page);
     await open(page, "part-room:1:logic");
@@ -143,7 +142,7 @@ for (const action of ["update", "shortcut", "F5", "breakpoint"] as const) {
   });
 }
 
-test("a failed build can be repaired from its error notice @webkit-desktop", async ({ page }) => {
+test("a failed build can be repaired from its error notice", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:1:logic");

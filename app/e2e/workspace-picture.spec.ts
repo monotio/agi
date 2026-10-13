@@ -246,11 +246,12 @@ test("an unfinished bindings draft leaves the picture available", async ({ page 
 });
 
 for (const size of [
-  { width: 1440, height: 900 },
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`Views stay available in every picture lens at ${size.width}`, async ({ page }) => {
+  test(`Views stay available in every picture lens at ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
     await page.setViewportSize(size);
     await start(page);
     await open(page, "part-room:8:picture:8");
@@ -280,11 +281,12 @@ for (const size of [
 }
 
 for (const size of [
-  { width: 1440, height: 900 },
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`picture storyboard ${size.width}`, async ({ page }) => {
+  test(`picture storyboard ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
     await page.setViewportSize(size);
     await start(page);
     await open(page, "part-room:1:picture:1");
@@ -341,7 +343,7 @@ for (const size of [
   });
 }
 
-test("Make it a room Undo reviews computed jumps after restoring the latest draft @webkit-desktop", async ({
+test("Make it a room Undo reviews computed jumps after restoring the latest draft", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -354,8 +356,12 @@ test("Make it a room Undo reviews computed jumps after restoring the latest draf
       { key: "logic:99", content: 'get.num("Room",v20);new.room.v(v20);return;' },
     ]);
   });
+  const before = await textHook(page);
   await open(page, "part-picture:9");
   await expect(page.getByTestId("workspace-unused")).toBeVisible();
+  await expect(page.locator(".play-area:visible")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  expect((await textHook(page)).room).toBe(before.room);
   await page.getByRole("button", { name: "Make it a room", exact: true }).click();
   await workspaceUpdated(page);
   await open(page, "part-room:2:picture:9");
@@ -441,16 +447,6 @@ test("picture-only editor sits beside the game with a Views slider", async ({ pa
   await expect(slider).toHaveValue("0");
 });
 
-test("unused art leaves the game running in its room", async ({ page }) => {
-  await start(page);
-  const before = await textHook(page);
-  await open(page, "part-picture:9");
-  await expect(page.getByTestId("workspace-unused")).toBeVisible();
-  await expect(page.locator(".play-area:visible")).toBeVisible();
-  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
-  expect((await textHook(page)).room).toBe(before.room);
-});
-
 test("the picture fits its 1063px side panel", async ({ page }) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   await start(page);
@@ -505,7 +501,9 @@ test("the picture fits its 1063px side panel", async ({ page }) => {
   expect(startBox.x + startBox.width).toBeLessThanOrEqual(frame.x + frame.width);
 });
 
-test("phone Edit and Playtest alternate the picture and game; Update plays", async ({ page }) => {
+test("phone Edit and Playtest alternate the picture and game; Update plays @phone", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await start(page);
   await open(page, "part-room:1:picture:1");

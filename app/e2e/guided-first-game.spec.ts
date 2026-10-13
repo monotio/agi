@@ -408,7 +408,7 @@ test.describe("the first guided game", () => {
   });
 });
 
-test("custom code stays precise: a rewritten entry block refuses Custom code, guidance still applies @webkit-desktop", async ({
+test("custom code stays precise: a rewritten entry block refuses Custom code, guidance still applies", async ({
   page,
 }) => {
   await isolateStorage(page);

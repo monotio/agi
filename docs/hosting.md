@@ -116,6 +116,9 @@ The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from
 1. Each release candidate is a pull request from `rc/X.Y-rc.N` into
    `release/X.Y`, with the version in both `package.json` files set to
    `X.Y.0-rc.N`. It is squash-merged once CI passes and the owner accepts it.
+   Before acceptance, run every walkthrough tape whole in the browser with the
+   local game fixtures: `npm --prefix app run e2e:walkthrough-full`. CI has no
+   fixtures, and other runs replay most tapes only to their openings.
 2. When the release passes QA, bump both versions to `X.Y.0` on `release/X.Y`
    and open a pull request from `release/X.Y` into `main`. Merging it deploys.
 3. Once the deploy job's build identity and asset digest check and the deployed
@@ -127,7 +130,8 @@ The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from
 
 A patch release is a hotfix. It branches from the latest `main`, sets both
 package versions to `X.Y.Z`, and merges into `main` through its own fully
-checked pull request. There is no back-merge into a release branch. Verify
+checked pull request, with the same full walkthrough run before it is
+accepted. There is no back-merge into a release branch. Verify
 deployment before tagging `vX.Y.Z` and publishing its release notes. The next
 minor release, `release/X.(Y+1)`, is cut from `main` when it starts.
 

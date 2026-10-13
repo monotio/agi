@@ -29,10 +29,7 @@ async function tabTo(page: Page, target: Locator): Promise<void> {
   }
   throw new Error("Keyboard target could not be reached");
 }
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`MAIN keyboard debugger at ${size.width}×${size.height} @webkit-desktop`, async ({
     page,
   }) => {

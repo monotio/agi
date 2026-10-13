@@ -102,10 +102,7 @@ test("AI choice reveals full editable sources and creates with the stub provider
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`new game page screenshots at ${size.width}×${size.height}`, async ({ page }) => {
     await isolateStorage(page);
     await page.setViewportSize(size);

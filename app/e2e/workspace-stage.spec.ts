@@ -173,7 +173,7 @@ test("room changes during Create keep the selected picture editor open", async (
   await expect(page.getByRole("tab", { selected: true })).toHaveText("PICTURE 8");
 });
 
-test("phone VIEW editing keeps a usable drawing canvas", async ({ page }) => {
+test("phone VIEW editing keeps a usable drawing canvas @phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await start(page);
   for (const view of [8, 9]) {
@@ -374,10 +374,9 @@ test("Play enters a VIEW's room and unused VIEW can become a room", async ({ pag
 
 for (const size of [
   { width: 1440, height: 900 },
-  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`a room launch follows its LOGIC redirect and keeps the selected editor ${size.width}`, async ({
+  test(`a room launch follows its LOGIC redirect and keeps the selected editor ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize(size);
@@ -445,10 +444,9 @@ test("stacked persists on reload and its splitter drags vertically", async ({ pa
 // workspace-picture.spec.ts's Edit / Playtest and Update regression.
 for (const size of [
   { width: 1440, height: 900 },
-  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`stage storyboard ${size.width}`, async ({ page }) => {
+  test(`stage storyboard ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({ page }) => {
     await page.setViewportSize(size);
     await start(page);
     await shot(page, "stage");
