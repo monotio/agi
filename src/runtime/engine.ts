@@ -4392,6 +4392,11 @@ export class Engine {
     }
 
     if (stage === "pre-logic") {
+      // The ego↔v6 direction mirror runs before the autonomous-direction and
+      // block pass: under program control v6 := ego.dir, else ego.dir := v6
+      // (kq3 2.936 main cycle 0x17B-0x195, dispatcher call at 0x198).
+      if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
+      else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
       // Autonomous direction and rectangle transitions are visible to this
       // cycle's logic; they do not move the objects yet.
       for (const obj of this.objects) {
@@ -4412,8 +4417,6 @@ export class Engine {
           }
         }
       }
-      if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
-      else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
       this.cycleStatusScore = this.vars[V_SCORE]!;
       this.cycleStatusSound = this.flags[F_SOUND_ENABLED]!;
       if (this.observePhase("pre-logic", { phase: "logic" })) return;
