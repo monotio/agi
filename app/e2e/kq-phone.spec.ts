@@ -5,6 +5,9 @@ import { gameHint, isolateStorage, textHook, waitForCycles, waitForFrames } from
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
+// About the GPU stage, so every test creates one (e2e/test.ts `gpuStage`).
+test.use({ gpuStage: true });
+
 async function coloredFraction(page: Page): Promise<number> {
   const png = await page.getByTestId("gpu-canvas").screenshot();
   return page.evaluate(

@@ -8,6 +8,9 @@ import { buildView } from "../../src/view/view.ts";
 
 test.use({ headless: true });
 
+// About the GPU stage, so every test creates one (e2e/test.ts `gpuStage`).
+test.use({ gpuStage: true });
+
 test("inspector shows live priority view, picks the drawn object, and lists state diffs", async ({
   page,
 }) => {
@@ -147,51 +150,48 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   // a pick names the layer that rendered the pixel.
   await page.getByTestId("dbg-tab-screen").click();
   const gpu = page.getByTestId("gpu-canvas");
-  if (await gpu.isVisible()) {
-    const canvasPixels = async (bytes: number[]) =>
-      page.evaluate(async (b) => {
-        const bitmap = await createImageBitmap(
-          new Blob([new Uint8Array(b)], { type: "image/png" }),
-        );
-        const canvas = document.createElement("canvas");
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
-        const context = canvas.getContext("2d")!;
-        context.drawImage(bitmap, 0, 0);
-        bitmap.close();
-        const px = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        let cyan = 0;
-        for (let i = 0; i < px.length; i += 4)
-          if (px[i + 1]! > 80 && px[i + 2]! > 80 && px[i]! < px[i + 1]! / 2) cyan++;
-        const samples: number[] = [];
-        for (let i = 0; i < px.length; i += 4096) samples.push(px[i]!, px[i + 1]!, px[i + 2]!);
-        return { cyan, samples };
-      }, bytes);
-    const shot = async () => canvasPixels([...(await gpu.screenshot())]);
-    const flat = await shot();
-    await page.getByTestId("dbg-mode-explode").click();
-    // Software WebGL (CI's SwiftShader) can take seconds for the first
-    // exploded frame; poll until cyan arrives, then compare the footprint.
-    let exploded = await shot();
-    await expect
-      .poll(async () => (exploded = await shot()).cyan, { timeout: 20_000 })
-      .toBeGreaterThan(500);
-    // Separation is applied: the exploded stack is not the flat bitmap again.
-    expect(exploded.samples).not.toEqual(flat.samples);
+  await expect(gpu).toBeVisible();
+  const canvasPixels = async (bytes: number[]) =>
+    page.evaluate(async (b) => {
+      const bitmap = await createImageBitmap(new Blob([new Uint8Array(b)], { type: "image/png" }));
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const px = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let cyan = 0;
+      for (let i = 0; i < px.length; i += 4)
+        if (px[i + 1]! > 80 && px[i + 2]! > 80 && px[i]! < px[i + 1]! / 2) cyan++;
+      const samples: number[] = [];
+      for (let i = 0; i < px.length; i += 4096) samples.push(px[i]!, px[i + 1]!, px[i + 2]!);
+      return { cyan, samples };
+    }, bytes);
+  const shot = async () => canvasPixels([...(await gpu.screenshot())]);
+  const flat = await shot();
+  await page.getByTestId("dbg-mode-explode").click();
+  // Software WebGL (CI's SwiftShader) can take seconds for the first
+  // exploded frame; poll until cyan arrives, then compare the footprint.
+  let exploded = await shot();
+  await expect
+    .poll(async () => (exploded = await shot()).cyan, { timeout: 20_000 })
+    .toBeGreaterThan(500);
+  // Separation is applied: the exploded stack is not the flat bitmap again.
+  expect(exploded.samples).not.toEqual(flat.samples);
 
-    // Mask-aware picking: a tap raycasts the layer stack, so the latched
-    // pick names the band that rendered the pixel — not the nearest quad.
-    // The canvas centre is sky (picture band 4): the nearer text quad is
-    // transparent there and every sprite quad masks out without an owner,
-    // so the pick must fall through to the band-4 wall.
-    const overlay3d = (await page.getByTestId("dbg-overlay").boundingBox())!;
-    await page.mouse.click(overlay3d.x + overlay3d.width / 2, overlay3d.y + overlay3d.height / 2);
-    const pick3d = page.getByTestId("dbg-pick");
-    await expect(pick3d).toBeVisible();
-    await expect(pick3d).toContainText("layer");
-    await expect(pick3d).toContainText("picture band 4");
-    await expect(pick3d).toContainText("background");
-  }
+  // Mask-aware picking: a tap raycasts the layer stack, so the latched
+  // pick names the band that rendered the pixel — not the nearest quad.
+  // The canvas centre is sky (picture band 4): the nearer text quad is
+  // transparent there and every sprite quad masks out without an owner,
+  // so the pick must fall through to the band-4 wall.
+  const overlay3d = (await page.getByTestId("dbg-overlay").boundingBox())!;
+  await page.mouse.click(overlay3d.x + overlay3d.width / 2, overlay3d.y + overlay3d.height / 2);
+  const pick3d = page.getByTestId("dbg-pick");
+  await expect(pick3d).toBeVisible();
+  await expect(pick3d).toContainText("layer");
+  await expect(pick3d).toContainText("picture band 4");
+  await expect(pick3d).toContainText("background");
 
   // Back to game mode.
   await page.getByTestId("dbg-mode-visual").click();
@@ -300,33 +300,32 @@ test("show.obj renders as its own layer in flat and exploded views, then restore
   await page.getByTestId("dbg-flags").locator("button").nth(43).click();
   await expect.poll(async () => (await textHook(page)).modal).toBe("showObj");
   const gpu = page.getByTestId("gpu-canvas");
-  if (await gpu.isVisible()) {
-    await page.getByTestId("dbg-tab-screen").click();
-    await page.getByTestId("dbg-mode-explode").click();
-    // The exploded preview layer is front-most of the band stack and scales
-    // around the band centre, so probe a small grid around the flat position
-    // until the raycast latches it.
-    const box = (await overlay.boundingBox())!;
-    let latched = "";
-    for (const dy of [0, 10, 20, 34, 48, -8]) {
-      for (const dx of [0, -14, 14]) {
-        await page.mouse.click(
-          box.x + (160 + dx) * (box.width / 320),
-          box.y + (168 + dy) * (box.height / 200),
-        );
-        const text = await page.getByTestId("dbg-pick").textContent();
-        if (text?.includes("modal preview")) {
-          latched = text;
-          break;
-        }
+  await expect(gpu).toBeVisible();
+  await page.getByTestId("dbg-tab-screen").click();
+  await page.getByTestId("dbg-mode-explode").click();
+  // The exploded preview layer is front-most of the band stack and scales
+  // around the band centre, so probe a small grid around the flat position
+  // until the raycast latches it.
+  const box = (await overlay.boundingBox())!;
+  let latched = "";
+  for (const dy of [0, 10, 20, 34, 48, -8]) {
+    for (const dx of [0, -14, 14]) {
+      await page.mouse.click(
+        box.x + (160 + dx) * (box.width / 320),
+        box.y + (168 + dy) * (box.height / 200),
+      );
+      const text = await page.getByTestId("dbg-pick").textContent();
+      if (text?.includes("modal preview")) {
+        latched = text;
+        break;
       }
-      if (latched) break;
     }
-    expect(latched).toContain("modal preview");
-    await expect(pick).toContainText("cycle");
-    // The preview carries no object identity — honest even while visible.
-    await expect(pick).toContainText("background");
+    if (latched) break;
   }
+  expect(latched).toContain("modal preview");
+  await expect(pick).toContainText("cycle");
+  // The preview carries no object identity — honest even while visible.
+  await expect(pick).toContainText("background");
 
   // Close again from exploded: the layer disappears with the modal.
   await page.keyboard.press("Escape");

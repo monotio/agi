@@ -17,6 +17,10 @@ test("bundled tutorial previews and plays on the production origin without a pro
       await route.abort();
     },
   );
+  // Builds ignore the browser-test flag that keeps the flat picture: players get the GPU stage.
+  await page.addInitScript(() => {
+    (globalThis as { __AGI_SKIP_GPU_STAGE__?: boolean }).__AGI_SKIP_GPU_STAGE__ = true;
+  });
   await page.goto("/");
   await expect(page.getByTestId("catalog-adventure-department").getByRole("img")).toHaveAttribute(
     "src",

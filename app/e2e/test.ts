@@ -57,12 +57,18 @@ async function pauseDisagreement(page: Page): Promise<string | null> {
   }
 }
 
-export const test = base.extend<{
-  keepDetectedProfile: void;
-  keepDetectedProfileOption: boolean;
-  cpuThrottle: void;
-  pauseAgreement: void;
-}>({
+/** The fixture option a test or config sets to create the GPU stage in Chromium. */
+export type GpuStageOption = { gpuStage: boolean };
+
+export const test = base.extend<
+  {
+    keepDetectedProfile: void;
+    keepDetectedProfileOption: boolean;
+    cpuThrottle: void;
+    pauseAgreement: void;
+    flatPictureUnlessStage: void;
+  } & GpuStageOption
+>({
   // A spec about the picker itself, or one whose profile is the subject, sets
   // `test.use({ keepDetectedProfileOption: false })` to meet the picker as a user would.
   keepDetectedProfileOption: [true, { scope: "test", option: true }],
@@ -121,6 +127,35 @@ export const test = base.extend<{
         await session.send("Emulation.setCPUThrottlingRate", { rate });
       }
       await use();
+    },
+    { auto: true },
+  ],
+  // The GPU stage draws the picture players see, but most tests read the flat
+  // frame copy (engineProbe.ts). Chromium creates the stage only for a test
+  // that sets `test.use({ gpuStage: true })` and for the timing budgets (@perf);
+  // WebKit always creates it. Test mode reads the flag; builds ignore it.
+  gpuStage: [false, { scope: "test", option: true }],
+  flatPictureUnlessStage: [
+    async ({ context, browser, browserName, gpuStage }, use, testInfo) => {
+      if (browserName !== "chromium" || gpuStage || testInfo.tags.includes("@perf")) {
+        await use();
+        return;
+      }
+      const flat = () => {
+        (globalThis as { __AGI_SKIP_GPU_STAGE__?: boolean }).__AGI_SKIP_GPU_STAGE__ = true;
+      };
+      await context.addInitScript(flat);
+      const newContext = browser.newContext.bind(browser);
+      browser.newContext = async (...args: Parameters<typeof newContext>) => {
+        const opened = await newContext(...args);
+        await opened.addInitScript(flat);
+        return opened;
+      };
+      try {
+        await use();
+      } finally {
+        browser.newContext = newContext;
+      }
     },
     { auto: true },
   ],

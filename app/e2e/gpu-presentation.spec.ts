@@ -7,6 +7,9 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { textHook } from "./engineProbe.ts";
 
+// These tests are about the GPU stage, so they create it (e2e/test.ts `gpuStage`).
+test.use({ gpuStage: true });
+
 /** A small saved game: a blue picture, an opening message, then room 1 with ego. */
 async function openSavedAdventure(page: Page): Promise<void> {
   const game = createContainer();
@@ -217,4 +220,34 @@ test("a lost GPU context leaves the flat picture, and the next game gets the sta
   await expect(gpu).toBeVisible();
   await expect(flat).toBeHidden();
   await expect.poll(() => bluePixels(page, gpu)).toBeGreaterThan(1000);
+});
+
+test.describe("without the GPU stage", () => {
+  // The flat 2D picture is what a player gets when WebGPU and WebGL are unavailable.
+  test.use({ gpuStage: false });
+
+  test("the flat picture shows the game with a keyboard outline and no CRT controls", async ({
+    page,
+  }) => {
+    await openSavedAdventure(page);
+    await page.getByTestId("btn-resume-cached").click();
+    await openDeveloperActivity(page);
+    await expect(page.getByTestId("gpu-backend")).toHaveText("canvas2d");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("developer-activity-sheet")).toBeHidden();
+
+    const flat = page.getByTestId("game-canvas");
+    await expect(flat).toBeVisible();
+    await expect(page.getByTestId("gpu-canvas")).toBeHidden();
+    await expect.poll(() => bluePixels(page, flat)).toBeGreaterThan(1000);
+    await page.getByLabel("Game command").focus();
+    await expect(page.locator(".screen")).toHaveCSS("outline-style", "solid");
+
+    await openGameOptions(page, "settings-menu");
+    await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+    await expect(page.getByRole("slider", { name: "CRT", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await openInspector(page);
+    await expect(page.getByTestId("dbg-mode-explode")).toBeDisabled();
+  });
 });
