@@ -115,10 +115,16 @@ test("menu.input opens the bar and the root heading's pulldown at the next input
   // original's OpenWndw draws solid edge bars, no border glyphs — kq1 2.917
   // 0x54C8). Frame cells are spaces carrying the frame colour.
   const FRAME = attr(15, 0);
-  assert.ok(attrs(engine, 1, 0, 6).every((a) => a === FRAME), "solid top bar");
+  assert.ok(
+    attrs(engine, 1, 0, 6).every((a) => a === FRAME),
+    "solid top bar",
+  );
   assert.equal(engine.textRow(2), " Save " + spaces(34));
   assert.equal(engine.textRow(3), " Quit " + spaces(34));
-  assert.ok(attrs(engine, 4, 0, 6).every((a) => a === FRAME), "solid bottom bar");
+  assert.ok(
+    attrs(engine, 4, 0, 6).every((a) => a === FRAME),
+    "solid bottom bar",
+  );
   assert.equal(attrs(engine, 2, 0, 1)[0], FRAME);
   assert.equal(attrs(engine, 2, 5, 6)[0], FRAME);
   assert.deepEqual(attrs(engine, 2, 1, 5), Array(4).fill(SELECTED), "first item selected");

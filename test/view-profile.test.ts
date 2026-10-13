@@ -176,10 +176,38 @@ describe("view byte strings", () => {
 // rows are [1,2,0] and [3,4,0]; every offset and pixel is hand-computed.
 function fiveSharedLoops(header: number, control = 0): Uint8Array {
   return new Uint8Array([
-    0, 0, 5, 0, 0, 15, 0, 15, 0, 15, 0, 15, 0, 15, 0,
-    header, 5, 0, 11, 0,
-    3, 1, control, 0x11, 0x21, 0,
-    3, 1, control, 0x31, 0x41, 0,
+    0,
+    0,
+    5,
+    0,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    header,
+    5,
+    0,
+    11,
+    0,
+    3,
+    1,
+    control,
+    0x11,
+    0x21,
+    0,
+    3,
+    1,
+    control,
+    0x31,
+    0x41,
+    0,
   ]);
 }
 
@@ -190,10 +218,22 @@ describe("2.230 packed orientation writeback", () => {
     // equal-test compares the full index (xmas 2.230 _SetLoop 0x3545-0x357C:
     // and 0xffcf / or (loop<<4) / byte store).
     const view = views.parseView(fiveSharedLoops(0xc2), PROFILES["2.230"]);
-    assert.deepEqual([...views.selectViewCel(view, 4, 0)!.pixels], [0, 2, 1], "first selection mirrors");
-    assert.deepEqual([...views.selectViewCel(view, 4, 0)!.pixels], [1, 2, 0], "the repeat selection mirrors again");
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [0, 2, 1],
+      "first selection mirrors",
+    );
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [1, 2, 0],
+      "the repeat selection mirrors again",
+    );
     // A loop inside the 2-bit range still mirrors only on a real change.
     assert.deepEqual([...views.selectViewCel(view, 1, 0)!.pixels], [0, 2, 1]);
-    assert.deepEqual([...views.selectViewCel(view, 1, 0)!.pixels], [0, 2, 1], "no re-mirror within range");
+    assert.deepEqual(
+      [...views.selectViewCel(view, 1, 0)!.pixels],
+      [0, 2, 1],
+      "no re-mirror within range",
+    );
   });
 });

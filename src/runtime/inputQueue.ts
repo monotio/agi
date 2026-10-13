@@ -39,8 +39,7 @@ export class InputQueue {
    */
   enqueueKey(word: number): boolean {
     const full = word & 0xffff;
-    const keypad =
-      full === 0x0101 || full === 0x0201 || full === 0x0301 || full === 0x0401;
+    const keypad = full === 0x0101 || full === 0x0201 || full === 0x0301 || full === 0x0401;
     const key = keypad ? full : word & 0xff ? word & 0xff : full;
     const navigation = NAV_KEYS[key];
     return this.enqueue(

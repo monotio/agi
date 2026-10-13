@@ -830,8 +830,7 @@ test("a game without script.size faults on the 51st recorded pair", () => {
   container.putResource(
     "logic",
     0,
-    assembleLogic(`${"load.view(1);".repeat(51)} return;`, { dictionary: new Map() })
-      .payload,
+    assembleLogic(`${"load.view(1);".repeat(51)} return;`, { dictionary: new Map() }).payload,
   );
   const engine = new Engine(container, {
     print() {},

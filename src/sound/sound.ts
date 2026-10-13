@@ -885,10 +885,7 @@ export class SoundPlayback {
           if (this.profile.sound === "early-2.272") {
             control = (control + adjustment) & 255;
             if (control < 128 && control > 15) control = 15;
-          } else if (
-            this.profile.sound === "early-2.411" ||
-            this.profile.sound === "early-2.440"
-          ) {
+          } else if (this.profile.sound === "early-2.411" || this.profile.sound === "early-2.440") {
             control = (control & 0xf0) | Math.min(15, (control & 15) + adjustment);
           }
           outputs.push({ kind: "psg", bytes: [control] });
