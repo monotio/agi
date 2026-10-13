@@ -25,7 +25,6 @@ async function seedProject(
     },
     { title, kind },
   );
-  await page.waitForLoadState("networkidle");
   return projectId;
 }
 
@@ -52,7 +51,6 @@ async function seedMixedProject(page: Page, title: string): Promise<string> {
     },
     { name: title, workspaceModule: WORKSPACE_MODULE },
   );
-  await page.waitForLoadState("networkidle");
   return projectId;
 }
 

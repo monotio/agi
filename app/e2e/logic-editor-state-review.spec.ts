@@ -16,7 +16,6 @@ async function seedLocalProject(page: Page, title: string): Promise<string> {
     await prepared.save();
     return prepared.projectId as string;
   }, title);
-  await page.waitForLoadState("networkidle");
   return projectId;
 }
 
