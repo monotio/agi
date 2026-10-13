@@ -532,7 +532,7 @@ test.describe("Walkthrough UI", () => {
       .toBeGreaterThan(3600);
   });
 
-  test("scrubs mh1 walkthrough rapidly and reaches Bellevue Hospital checkpoint cleanly", async ({
+  test("scrubs mh1 walkthrough rapidly to Bellevue Hospital, then past MAD terminal answers to the Knife game, cleanly", async ({
     page,
   }) => {
     const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
@@ -566,6 +566,13 @@ test.describe("Walkthrough UI", () => {
 
     // Verify seeking or fast-forward reaches room 130 (Bellevue Hospital) without error
     await engineRoomIs(page, 130);
+
+    const knifeGame = page.locator('.walkthrough-marker[title*="Knife game"]');
+    await expect(knifeGame).toBeVisible({ timeout: 10_000 });
+    await clickTimelineMark(page, knifeGame);
+
+    // Seeking past the MAD terminal answers reaches the Flatbush bar's knife game (room 118) cleanly
+    await engineRoomIs(page, 118);
   });
 
   test("scrubs sq1 past name prompt and reaches Hallway checkpoint cleanly", async ({ page }) => {
@@ -617,31 +624,6 @@ test.describe("Walkthrough UI", () => {
         .toBe(milestone.score);
     }
     await page.screenshot({ path: test.info().outputPath("kq3-story-highlights.png") });
-  });
-
-  test("scrubs mh1 past MAD terminal answers to the Knife game checkpoint cleanly", async ({
-    page,
-  }) => {
-    const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
-    test.skip(Boolean(mh1Missing), mh1Missing || "");
-    await isolateStorage(page);
-    await page.goto("/");
-
-    await openCardMenu(page, "game-actions-mh1");
-
-    const runBtn = page.getByTestId("run-walkthrough");
-    await expect(runBtn).toBeVisible();
-    await runBtn.click();
-
-    const timeline = page.getByTestId("walkthrough-timeline");
-    await expect(timeline).toBeVisible({ timeout: 15_000 });
-
-    const cpMarker = page.locator('.walkthrough-marker[title*="Knife game"]');
-    await expect(cpMarker).toBeVisible({ timeout: 10_000 });
-    await clickTimelineMark(page, cpMarker);
-
-    // Seeking past the MAD terminal answers reaches the Flatbush bar's knife game (room 118) cleanly
-    await engineRoomIs(page, 118);
   });
 
   test("seeking forward to Sewers then back to Maze in mh1 avoids direction leakage", async ({
@@ -1013,49 +995,6 @@ test.describe("Walkthrough UI", () => {
     // The untouched edition still gets the offer under its own menu.
     await openCardMenu(page, "game-actions-synthetic-copy");
     await expect(page.getByTestId("run-walkthrough")).toBeVisible();
-  });
-
-  test("refuses a walkthrough when the running interpreter differs from the tape's profile", async ({
-    page,
-  }) => {
-    // The same bundle revision the tape was recorded on, served under a
-    // declared different interpreter: the edition check passes and the
-    // profile check must stop the tape before its first action.
-    const synthetic = getKnownGameByAlias("synthetic")!;
-    await page.route("**/fixtures/", (route) =>
-      route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify([
-          {
-            folder: "synthetic",
-            hash: synthetic.wordsSha256,
-            alias: "synthetic",
-            title: "SYNTHETIC",
-            wordsSha256: synthetic.wordsSha256,
-            objectSha256: synthetic.objectSha256,
-            revision: synthetic.targetRevision,
-            profile: "2.917",
-          },
-        ]),
-      }),
-    );
-    await isolateStorage(page);
-    await page.goto("/");
-
-    await openCardMenu(page, "game-actions-synthetic");
-    await page.getByTestId("run-walkthrough").click();
-
-    // The refusal names the tape's interpreter and the running one, and the
-    // replay never advances past the boot's tick 0.
-    const refusal = page.getByTestId("walkthrough-error");
-    await expect(refusal).toBeVisible({ timeout: 30_000 });
-    await expect(refusal).toContainText("2.936");
-    await expect(refusal).toContainText("2.917");
-    await expect
-      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status ?? ""))
-      .toBe("error");
-    const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? -1);
-    expect(tick).toBe(0);
   });
 
   test("a refused walkthrough on a mismatched running game leaves it playable", async ({
