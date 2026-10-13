@@ -20,6 +20,7 @@ import {
   openWorkspaceAgent,
   openWorkspacePicture,
   waitForCycles,
+  waitForGameInput,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic = true) {
@@ -631,8 +632,9 @@ test("an approved change shows at once in Create and again when Play resumes", a
   const panel = page.getByTestId("workspace-agent-panel");
   await panel.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  // Play resumes its own run; keys reach that run once it owns the keyboard.
+  await waitForGameInput(page);
   const input = page.getByTestId("input-line");
-  await input.focus();
   if ((await textHook(page)).modal) {
     await input.press("Enter");
     await expect.poll(async () => (await textHook(page)).modal).toBeNull();

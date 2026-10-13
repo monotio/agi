@@ -241,6 +241,13 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const partsOpen = ref(false);
   const partsScroll = ref(0);
   const history = ref(false);
+  /**
+   * The context row's slot for the open editor's own context (the picture's drawing place). The
+   * row unmounts while an editor without context is selected, so editors teleport to this live
+   * element, never to a selector resolved once: a stale or missing target would strand or break
+   * the teleported content.
+   */
+  const contextTarget = shallowRef<HTMLElement | null>(null);
   const parts = shallowRef<readonly ChooserItem[]>([]);
   const save = ref("Saved");
   const readOnly = ref(false);
@@ -482,6 +489,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     narrowFrame,
     phoneFrame,
     history,
+    contextTarget,
     parts,
     save,
     readOnly,

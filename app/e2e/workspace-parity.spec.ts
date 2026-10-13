@@ -802,3 +802,46 @@ test("drawing cannot resubmit a door edit over a newer pending LOGIC draft", asy
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
 });
+
+// The picture's open line rides the context row, which leaves while Words is open. A first open
+// can finish loading the picture editor behind Words; going back to the picture, after that or
+// after any visit to Words, still shows the line in the row and keeps the workspace working.
+test("an open line shows in the context row after the picture loads behind Words and after a Words visit", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  // Hold the picture editor's code until Words is open, as a slow first load does.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/RoomStudio\.vue/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await enterCreateMode(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await page.getByTestId("part-words").click();
+  await expect(page.getByTestId("workspace-context")).toHaveCount(0);
+  release();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toHaveCount(1);
+  await page.getByTestId("project-tab-picture:1").click();
+  await expect(studio).toBeVisible();
+  await page.getByTestId("project-tab-words").click();
+  await expect(studio).toBeHidden();
+  await page.getByTestId("project-tab-picture:1").click();
+  await expect(studio).toBeVisible();
+  await studio.locator('button[data-tool="line"]').click();
+  await clickPoints(studio, LINE);
+  const path = page.getByTestId("workspace-context").getByTestId("studio-path");
+  await expect(path).toBeVisible();
+  await expect(path).toContainText("Line · 3 points");
+  expect(errors).toEqual([]);
+});

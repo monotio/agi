@@ -41,6 +41,7 @@ import {
   ref,
   shallowRef,
   watch,
+  type ComponentPublicInstance,
 } from "vue";
 import { compilePictureSource } from "../../../../src/picture/source.ts";
 import { openContainer } from "../../../../src/container/container.ts";
@@ -203,6 +204,10 @@ const engine = useEngineApi();
 const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+// One stable function: Vue calls it on mount and unmount only, not on every render.
+function setContextTarget(element: Element | ComponentPublicInstance | null): void {
+  editor.contextTarget.value = element instanceof HTMLElement ? element : null;
+}
 const commands = useOptionalCommands();
 const presentation = usePresentation();
 const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
@@ -2722,7 +2727,7 @@ onBeforeUnmount(() => {
         >Not used by a room yet</span
       >
       <!-- The open editor's own context (the picture's drawing place) teleports here. -->
-      <span id="workspace-context-editor" class="workspace-context__editor"></span>
+      <span :ref="setContextTarget" class="workspace-context__editor"></span>
       <ImageReferencePanel
         v-if="
           !editingPaused &&
