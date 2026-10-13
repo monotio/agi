@@ -1013,15 +1013,18 @@ onBeforeUnmount(() => {
       >Jump to latest</UiButton
     >
     <p v-if="!settings.aiConfigured.value" class="agent-panel__intro agent-panel__setup">
-      Connect your AI provider in Settings to start a task.
+      <!-- A disabled button's title never reaches touch or keyboard players, so the sentence
+           itself says when Connect AI works again. -->
+      {{
+        settings.aiSettingsUnavailable.value
+          ? "Connect your AI provider when the Agent finishes."
+          : "Connect your AI provider in Settings to start a task."
+      }}
       <UiButton
         size="sm"
         variant="ghost"
         data-testid="agent-open-ai-settings"
         :disabled="settings.aiSettingsUnavailable.value"
-        :title="
-          settings.aiSettingsUnavailable.value ? 'Available when the Agent is idle' : undefined
-        "
         @click="settings.openAiSettings($event, 'assistant')"
         >Connect AI</UiButton
       >

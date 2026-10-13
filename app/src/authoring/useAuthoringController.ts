@@ -860,11 +860,14 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         generation !== requestGeneration ||
         session !== currentSession ||
         options.getConversationMode?.() !== mode ||
-        (opening && (!state.powerUp.open || opening.owner.opening !== openingGeneration)) ||
         (ownerProject && (ownerProject.closed || options.getProjectSession?.() !== ownerProject)) ||
         (getBootedGame() !== game && !ownerProject)
       )
         throw new Error("The game changed while applying AI settings. Try again.");
+      // Settings saved while the Agent opens apply to that opening; once it closes, another
+      // Save applies them directly.
+      if (opening && (!state.powerUp.open || opening.owner.opening !== openingGeneration))
+        throw new Error("The Agent closed before the settings applied. Save again.");
       if (state.powerUp.busy || conversationAgent?.busy)
         throw new Error("Wait for the current agent task to finish before changing AI settings.");
     }

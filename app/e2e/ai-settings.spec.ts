@@ -430,3 +430,41 @@ test("AI settings and Connect AI open while the Agent is still opening", async (
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
 });
+
+// A worker that never answers the opening's engine query cannot hold Save: the query gives up
+// after its timeout, the settings apply and the Agent opens again with them.
+test("AI settings save while the game never answers the Agent's opening", async ({ page }) => {
+  await isolateStorage(page);
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage;
+    let dropping = false;
+    Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+      const message = args[0] as { type?: string } | undefined;
+      if (dropping && message?.type === "state") {
+        dropping = false;
+        return;
+      }
+      (post as (...a: unknown[]) => void).apply(this, args);
+    } as typeof Worker.prototype.postMessage;
+    Object.assign(window, { dropNextStateQuery: () => void (dropping = true) });
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  await enterPlayMode(page);
+  await page.evaluate(() =>
+    (window as never as { dropNextStateQuery(): void }).dropNextStateQuery(),
+  );
+  await page.getByTestId("menu-assistant").click();
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await page.getByTestId("agent-open-ai-settings").click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("provider-select").selectOption("openai");
+  await dialog.getByTestId("api-key-input").fill("test-openai-key");
+  await dialog.getByTestId("ai-settings-save").click();
+  // The engine query gives up after 5 s (workerQueries.ts).
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
