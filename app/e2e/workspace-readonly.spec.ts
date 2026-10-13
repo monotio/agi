@@ -20,7 +20,10 @@ for (const size of [
   { width: 390, height: 844 },
 ]) {
   for (const kind of ["picture", "view", "sound", "words"] as const) {
-    test(`stale ${kind} stays inspectable at ${size.width}`, async ({ page, context }) => {
+    test(`stale ${kind} stays inspectable at ${size.width}${size.width === 390 && (kind === "picture" || kind === "sound") ? " @phone" : ""}`, async ({
+      page,
+      context,
+    }) => {
       await page.setViewportSize(size);
       await isolateStorage(page);
       await page.goto("/#create-adventure");
