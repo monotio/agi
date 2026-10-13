@@ -403,36 +403,38 @@ every game/version are not established by these checks.
 
 Run `npm --prefix app run e2e -- phone-input.spec.ts movement-input.spec.ts game-controls.spec.ts`
 for synthetic browser input coverage. `npm --prefix app run e2e:phone` runs the
-tests tagged `@phone` in the `iphone-webkit` project; with local KQ1–3 fixtures it also checks
-each game's opening room, touch walking and named save/restore slots. Touch
-emulation does not emulate Samsung Keyboard or the iOS keyboard: verify device
-compatibility on physical Android and iPhone browsers with the keyboard open,
-rotation, interruption and save/restore. Full-game compatibility needs recorded
+tests tagged `@phone` in the `iphone-webkit` project; with local KQ1–3 fixtures
+it also checks each game's opening room, touch walking and named save/restore
+slots. Touch emulation does not emulate Samsung Keyboard or the iOS keyboard:
+verify device compatibility on physical Android and iPhone browsers with the
+keyboard open, rotation, interruption and save/restore. Full-game compatibility needs recorded
 completion runs on the specific game edition and interpreter profile.
 
 ### Browser suites, tags and widths
 
-Chromium runs every test except `@perf`, so every test is protected there. Tests run in parallel
-across files and within them (`fullyParallel`); a file whose tests share state declares
-`test.describe.configure({ mode: "serial" })` with the reason in a comment. Failure traces keep
+`npm --prefix app run e2e` runs every test in Chromium except the timing budgets and the full
+walkthrough set, which have their own Chromium scripts, so every test is protected there. Tests
+run in parallel across files and within them (`fullyParallel`); a file whose tests share state
+declares `test.describe.configure({ mode: "serial" })` with the reason in a comment. Failure traces keep
 actions, console and network without DOM snapshots; rerun a failing spec with `--trace=on` for
 the DOM. Chromium and desktop WebKit run with reduced motion, so clicks do not wait out entrance
 animations, and phone WebKit runs with full motion; a test whose rule needs motion opts out with
 `page.emulateMedia({ reducedMotion: "no-preference" })` and says why.
 
-Linux WebKit is one config, `app/playwright.webkit.config.ts`, with two projects selected by tag in
-a test title:
+A tag at the end of a test title selects its extra or separate runs. Linux WebKit is one config,
+`app/playwright.webkit.config.ts`, with one project per WebKit tag:
 
-| Tag               | Project          | Script                                    | Runs                                                                                               |
-| ----------------- | ---------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `@webkit-desktop` | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop` | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review. |
-| `@phone`          | `iphone-webkit`  | `npm --prefix app run e2e:phone`          | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.  |
-| `@perf`           | Chromium         | `npm --prefix app run e2e:perf`           | Timing budgets, alone on one worker.                                                               |
+| Tag                 | Project          | Script                                      | Runs                                                                                               |
+| ------------------- | ---------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review. |
+| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.  |
+| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Timing budgets, alone on one worker.                                                               |
+| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                   |
 
 `npm --prefix app run e2e:webkit` runs both WebKit projects in one invocation. A test carrying both
-tags runs once in each. Tag a scenario by ending its title with the tag; the config selects it from
-its existing spec. WebKit keeps the rules that depend on the engine: pointer, touch, focus, Escape,
-clipboard, files and downloads, canvas paint, fonts, scrolling and layout metrics. DOM state, request
+WebKit tags runs once in each project, and the config selects a tagged test from its existing
+spec. WebKit keeps the rules that depend on the engine: pointer, touch, focus, Escape, clipboard,
+files and downloads, canvas paint, fonts, scrolling and layout metrics. DOM state, request
 bodies, saved bytes, refusal text and worker message order need only Chromium. When a test drops
 its phone run because it asserts no touch rule, give it `@webkit-desktop` if its rule depends on
 the engine and the phone run was its only WebKit run.
@@ -552,8 +554,8 @@ Each layer proves something different:
   tape replays its opening, to its first checkpoint past 15,000 ticks, and must
   match the state Node reaches at that checkpoint.
 - **Full browser set** (`npm --prefix app run e2e:walkthrough-full`, tagged
-  `@walkthrough-full`) replays the remaining tapes whole. It runs once per
-  release candidate.
+  `@walkthrough-full`) replays the remaining tapes whole. It runs before a
+  release is accepted ([release branches](hosting.md#release-branches)).
 - **Controls.** Two opening tests in the same spec play KQ1 through desktop keys
   and phone touch. `kq1.spec.ts`, `kq-phone.spec.ts` and `phone-input.spec.ts`
   cover keyboard, mouse, touch, menus and saves on a real game.
@@ -583,8 +585,9 @@ hashes, checkpoints and the observed ending state, and no game resources.
 The browser command replays that report in the app's worker in Chromium and
 WebKit, with only the test-mode host clock accelerated. The replay verifies the
 exact local fixture hashes and the game's terminal ending state independently
-of the report's success label; a missing fixture produces an explicit skip. Physical Samsung/iPhone keyboards and screen
-readers still require device testing.
+of the report's success label; a missing fixture produces an explicit skip.
+Physical Samsung/iPhone keyboards and screen readers still require device
+testing.
 
 ### Manhunter proofs
 
