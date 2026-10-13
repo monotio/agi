@@ -218,7 +218,7 @@ export interface EngineHost {
   restoreGame?(slot?: number): Uint8Array | null;
   /** log / show.mem: diagnostic text sink (LOGFILE semantics). */
   logText?(text: string): void;
-  /** version: interpreter name/version, stored into string slot 0. */
+  /** version: interpreter name/version, displayed modally. */
   versionString?(): string;
   /** Notification that a resource started; soundOutput owns its timed output. */
   playSound?(soundNum: number, payload: Uint8Array): void;
@@ -7041,9 +7041,13 @@ export class Engine {
       case 0x8c:
         return next;
       case 0x8d: {
-        this.strings[0] = (this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0").slice(
-          0,
-          39,
+        // version: the handler pushes the CONST version string and calls
+        // WindowPrint — a modal window, never a write to string slot 0
+        // (kq3 2.936 0x733C / kq1 2.917 0x7275 / gr1 3.002.149 0x7670).
+        this.emitPrint(
+          this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0",
+          undefined,
+          true,
         );
         return next;
       }
