@@ -6884,9 +6884,14 @@ export class Engine {
         return next;
       }
       case 0x63: {
+        // StopSnd runs FIRST — setting the interrupted sound's done flag —
+        // then the operands are read, the new done flag resets, and only then
+        // can the lookup fault (kq2 2.411 0x4FD5 / lsl1 2.440 0x5007 / xmas
+        // 2.272 0x4943).
+        this.stopSound();
+        this.flags[a(1)] = 0;
         const soundData = this.sounds.get(a(0));
         if (!soundData) throw new Error(`sound ${a(0)} is not loaded`);
-        this.stopSound();
         this.soundPlayback = new SoundPlayback(
           this.profile,
           soundData,
@@ -6895,7 +6900,6 @@ export class Engine {
         );
         this.playingSound = a(0);
         this.soundDoneFlag = a(1);
-        this.flags[a(1)] = 0;
         this.host.playSound?.(a(0), soundData);
         return next;
       }
