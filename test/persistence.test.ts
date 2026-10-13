@@ -2212,3 +2212,64 @@ describe("original restart/restore audit", () => {
     }
   });
 });
+
+test("2.089/2.230/2.272 always show the restart confirmation, f16 or not", () => {
+  // Player-visible rule: in the early family restart.game always asks — the
+  // f16 bypass does not exist yet (sq1 2.089 0x22AB / xmas 2.230 0x21ED /
+  // xmas 2.272 0x2289: no IsSet(0x10) anywhere in the handler).
+  for (const profile of ["2.089", "2.230", "2.272"] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        "if (!isset(f200)) { set(f200); set(f16); assignn(v100, 42); } " +
+          "if (isset(f201)) { reset(f201); restart.game(); } return;",
+        { dictionary: DICT, profile: PROFILES[profile] },
+      ).payload,
+    );
+    const host = new RecordingHost();
+    // Keep the confirmation window open: the default print acknowledgement
+    // would close it before the assertion.
+    host.print = (text: string) => {
+      host.prints.push(text);
+    };
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.ok(
+      host.prints.some((t) => t.startsWith("Press ENTER to restart")),
+      `${profile}: the confirmation prompt shows`,
+    );
+    assert.equal(engine.vars[100], 42, `${profile}: declined prompt keeps state`);
+  }
+});
+
+test("2.089/2.230/2.272 show.mem prints no rm.0 line", () => {
+  // The early format string is "heapsize: %u\nnow: %u  max: %u\nmax script:
+  // %d" — no "rm.0, etc." text exists in any of the three executables (sq1
+  // 2.089 ovl DS+0x70F).
+  for (const profile of ["2.089", "2.230", "2.272"] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic("show.mem(); return;", { dictionary: DICT, profile: PROFILES[profile] })
+        .payload,
+    );
+    const logs: string[] = [];
+    const host: EngineHost = {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+      logText: (text) => logs.push(text),
+    };
+    new Engine(container, host, DICT, { profile }).tick();
+    assert.ok(logs.length > 0, `${profile}: show.mem logged`);
+    assert.ok(!logs.join("\n").includes("rm.0"), `${profile}: no rm.0 line`);
+  }
+});
