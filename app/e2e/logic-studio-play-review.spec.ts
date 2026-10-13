@@ -1,8 +1,10 @@
 import {
   isolateStorage,
   openLibraryActions,
+  playFromCreate,
   savedGameCard,
   textHook,
+  waitForGameInput,
   workspaceSaved,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
@@ -70,10 +72,12 @@ test("a no-key source and vocabulary edit changes the game a player actually run
   }, prepared.id);
   expect(stored.revision).not.toBe(prepared.revision);
   expect(stored.words).toContainEqual(["inspect", look![1]]);
-  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  // Play boots the edited files afresh; until the worker answers, the stage
+  // still shows Create's run, whose input goes away with it.
+  await playFromCreate(page);
+  await waitForGameInput(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const input = page.getByTestId("input-line");
-  await expect(input).toBeEnabled();
   await input.fill("inspect");
   await input.press("Enter");
   await expect

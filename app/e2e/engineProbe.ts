@@ -835,6 +835,21 @@ export async function enterPlayMode(page: Page): Promise<void> {
   await expect(page).toHaveURL(/#play\//);
 }
 
+/**
+ * Switch a running game from Create to Play and wait for the worker's answer.
+ * Play may restart the room or boot the edited files afresh, so until that
+ * answer the play surface still shows Create's run: its input, room and text.
+ * Returns the cycle of the frame Play published.
+ */
+export async function playFromCreate(page: Page): Promise<number> {
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  await expect(play).toHaveAttribute("aria-checked", "false");
+  const cycle = await clickModeAndWait(page, "play", play);
+  await expect(play).toHaveAttribute("aria-checked", "true");
+  await expect(page).toHaveURL(/#play\//);
+  return cycle;
+}
+
 /** Seed through the production persistence boundary, so fixtures use the release contract. */
 export async function cacheGame(
   page: Page,
