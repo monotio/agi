@@ -141,11 +141,13 @@ test("computed placements move a preview, and game motion never paints the pictu
     const session = (
       window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
     ).__AGI_PROJECT__.getSession();
+    // Ego walks slowly (step.time 8, about 45 s to arrive) so it is still moving when the test
+    // samples it on a slow page; a walk that had already ended would show no game motion.
     await session.update([
       {
         key: "logic:8",
         content:
-          "if(isset(f5)){assignn(v100,8);load.pic(v100);draw.pic(v100);show.pic();animate.obj(o0);set.view(o0,8);assignn(v20,60);assignn(v21,140);position.v(o0,v20,v21);draw(o0);program.control();move.obj(o0,120,140,1,f180);accept.input();}return;",
+          "if(isset(f5)){assignn(v100,8);load.pic(v100);draw.pic(v100);show.pic();animate.obj(o0);set.view(o0,8);assignn(v20,60);assignn(v21,140);position.v(o0,v20,v21);draw(o0);program.control();assignn(v22,8);step.time(o0,v22);move.obj(o0,120,140,1,f180);accept.input();}return;",
       },
     ]);
   });
