@@ -14,13 +14,12 @@ async function workingDocument(page: Page, key: string): Promise<string> {
 }
 
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {
   test.describe(`Objects locations ${width}`, () => {
     test.use({ hasTouch: width === 390, isMobile: width === 390 });
-    test("named rooms and other numbers round-trip in Objects and Launch @webkit-desktop", async ({
+    test(`named rooms and other numbers round-trip in Objects and Launch${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height });

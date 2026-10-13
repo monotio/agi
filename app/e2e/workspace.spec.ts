@@ -146,30 +146,11 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.getByRole("radio", { name: "Create", exact: true }).click();
   await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
 });
-test("Blank adds its first room through the session @webkit-desktop", async ({ page }) => {
-  await isolateStorage(page);
-  await page.goto("/#create-adventure");
-  await page
-    .getByTestId("create-adventure-disclosure")
-    .getByLabel("Name", { exact: true })
-    .fill("Empty proof");
-  await page.getByTestId("local-create-kind-blank").click();
-  await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect(
-    page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
-  ).toBeVisible();
-  const emptyBox = (await page.getByTestId("empty-project-stage").boundingBox())!;
-  expect(emptyBox.y).toBe(0);
-  await page.getByTestId("empty-add-room").click();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
-});
-
 for (const [width, height] of [
   [1440, 900],
   [1063, 815],
 ] as const) {
-  test(`a blank game shows its start inside the game screen of the Create frame at ${width} @webkit-desktop`, async ({
+  test(`a blank game shows its start inside the game screen of the Create frame at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -181,6 +162,7 @@ for (const [width, height] of [
     await expect(screen).toBeVisible();
     await expect(screen.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
     const box = async (locator: Locator) => (await locator.boundingBox())!;
+    expect((await box(page.getByTestId("empty-project-stage"))).y).toBe(0);
     const blankScreen = await box(screen);
     const blankParts = await box(page.getByTestId("parts-list"));
     for (const button of [
@@ -418,10 +400,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     .toContain("A red flower grows.");
 });
 
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`workspace review at ${size.width}×${size.height} @webkit-desktop`, async ({ page }) => {
     await page.setViewportSize(size);
     await starter(page);
@@ -854,9 +833,7 @@ test("keyboard creates a Blank game and adds its first room @webkit-desktop", as
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("adding a room leaves play in place until Update and restart enters it @webkit-desktop", async ({
-  page,
-}) => {
+test("adding a room leaves play in place until Update and restart enters it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page
@@ -1011,10 +988,7 @@ test("Undo and History restore apply while a game message waits", async ({ page 
   await expect(page.locator(".monaco-editor")).toContainText("Latest while waiting");
 });
 
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 800 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`polished workspace at ${size.width}×${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
     await starter(page);

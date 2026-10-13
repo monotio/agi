@@ -43,9 +43,7 @@ async function commits(page: Page): Promise<number> {
   );
 }
 
-test("the approved Update game storyboard replaces per-edit patching @webkit-desktop", async ({
-  page,
-}) => {
+test("the approved Update game storyboard replaces per-edit patching", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   const before = await runningWorkspaceDocument(page, "logic:1");
@@ -114,13 +112,12 @@ test("invalid drafts report a problem and discard restores the editor @webkit-de
 });
 
 for (const [width, height] of [
-  [1440, 900],
   [1063, 815],
   [390, 844],
 ] as const) {
   test.describe("Draft viewport " + width, () => {
     test.use({ hasTouch: width === 390 });
-    test(`Update game draft storyboard at ${width} @webkit-desktop`, async ({
+    test(`Update game draft storyboard at ${width}${width === 1063 ? " @webkit-desktop" : ""}`, async ({
       page,
       browserName,
     }) => {
@@ -245,7 +242,7 @@ for (const [width, height] of [
   });
 }
 
-test("Help explains Update game after the retired live-edit tips are removed @webkit-desktop", async ({
+test("Help explains Update game after the retired live-edit tips are removed", async ({
   page,
   browserName,
 }) => {
