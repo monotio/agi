@@ -193,20 +193,50 @@ export function createPresentation() {
     );
   }
 
-  /** Create the GPU stage once the canvas is mounted. */
+  /** Bumped whenever the stage is released, so a creation still in flight drops its result. */
+  let stageGeneration = 0;
+
+  /** Dispose the stage and show the flat canvas until another stage exists. */
+  function releaseStage(): void {
+    stageGeneration++;
+    stage?.dispose();
+    stage = null;
+    gpuBackend.value = undefined;
+  }
+
+  /**
+   * Create the GPU stage once the canvas is mounted. Each game screen mounts
+   * its own canvas, so the previous screen's stage is released first: a page
+   * holds one GPU context however many games the player opens.
+   */
   async function initStage(amount: number): Promise<void> {
     crtAmount = amount;
-    if (!gpuCanvasEl.value) return;
+    releaseStage();
     const canvas = gpuCanvasEl.value;
+    if (!canvas) return;
+    const generation = stageGeneration;
+    const current = () => generation === stageGeneration && gpuCanvasEl.value === canvas;
     const { AgiStage } = await import("../three/AgiStage.ts");
-    if (gpuCanvasEl.value !== canvas) return;
-    stage = await AgiStage.create(canvas);
-    gpuBackend.value = stage?.backend;
-    if (stage) {
-      stage.crtAmount = crtAmount;
-      stage.setAttention(attention.focused, attention.standby);
-      if (lastFrame.value) present(lastFrame.value);
+    if (!current()) return;
+    const created = await AgiStage.create(canvas);
+    if (!current()) {
+      created?.dispose();
+      return;
     }
+    if (!created) return;
+    stage = created;
+    // A lost GPU context or device leaves the player the flat picture.
+    created.onLost = () => {
+      if (stage !== created) return;
+      releaseStage();
+      if (debugViewMode.value === "explode") debugViewMode.value = "visual";
+      repaint();
+    };
+    gpuBackend.value = created.backend;
+    created.crtAmount = crtAmount;
+    created.setAttention(attention.focused, attention.standby);
+    created.setExplodedMode(debugViewMode.value === "explode");
+    if (lastFrame.value) present(lastFrame.value);
   }
 
   function dispose(): void {
@@ -214,8 +244,7 @@ export function createPresentation() {
       cancelAnimationFrame(presentationRaf);
       presentationRaf = null;
     }
-    stage?.dispose();
-    stage = null;
+    releaseStage();
   }
 
   return {
@@ -241,6 +270,7 @@ export function createPresentation() {
     debugPick3d,
     onScreenPointerMove,
     initStage,
+    releaseStage,
     dispose,
   };
 }
