@@ -30,11 +30,11 @@ type TextFrame = Pick<TextHook, "cycle" | "frame" | "room" | "modal" | "rows">;
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
 for (const size of [
-  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
   for (const destination of ["Play", "Create"] as const) {
-    test(`${destination} preserves an older checkpoint and offers the latest version ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
+    test(`${destination} preserves an older checkpoint and offers the latest version ${size.width}${size.width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       await page.setViewportSize(size);

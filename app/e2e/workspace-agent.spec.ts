@@ -269,7 +269,7 @@ test("Agent toggles from composer, editor and game and Escape returns to the ori
 });
 
 for (const size of [
-  { width: 1440, height: 900 },
+  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
   test(`agent panel opaque header, one Agent title, secondary chat history and Escape ${size.width}`, async ({

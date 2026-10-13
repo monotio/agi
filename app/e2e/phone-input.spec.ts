@@ -307,7 +307,7 @@ for (const desktop of [false, true]) {
       hasTouch: !desktop,
       viewport: desktop ? { width: 1280, height: 900 } : { width: 390, height: 844 },
     });
-    test(`real mouse hold on another arrow survives the previous arrow's focus${desktop ? "" : " @phone"}`, async ({
+    test(`real mouse hold on another arrow survives the previous arrow's focus${desktop ? " @webkit-desktop" : " @phone"}`, async ({
       page,
     }) => {
       await boot(page, true);

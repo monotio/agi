@@ -333,7 +333,9 @@ test("make a four-cel walk loop and preview it on the running hero @phone", asyn
     .toBe(commits + 1);
   await imageShot(page, "walk-cels");
 });
-test("Generate sends one styled request and Use image opens tracing @phone", async ({ page }) => {
+test("Generate sends one styled request and Use image opens tracing @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await page.evaluate(() =>

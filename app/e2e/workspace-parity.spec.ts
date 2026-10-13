@@ -40,7 +40,7 @@ async function cell(page: Page, x: number, y: number) {
 for (const width of [1063, 1440, 390]) {
   test.describe(`${width} PICTURE`, () => {
     test.use({ hasTouch: width === 390 });
-    test(`PICTURE inspector and metadata fit ${width}${width === 390 ? " @phone" : ""}`, async ({
+    test(`PICTURE inspector and metadata fit ${width}${width === 390 ? " @phone" : width === 1063 ? " @webkit-desktop" : ""}`, async ({
       page,
     }) => {
       await page.setViewportSize({
@@ -145,7 +145,7 @@ for (const width of [1063, 390]) {
     });
   });
 }
-test("Focus gives the PICTURE canvas more room", async ({ page }) => {
+test("Focus gives the PICTURE canvas more room @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   const studio = await picture(page);
   const before = (await studio.locator(".studio__stage").boundingBox())!;
@@ -381,7 +381,9 @@ test("Create Inspector opens screen, state and timeline controls @phone", async 
   );
   await page.screenshot({ path: test.info().outputPath("game-inspector.png") });
 });
-test("splitter saves once on release and keeps the game buffer during drag", async ({ page }) => {
+test("splitter saves once on release and keeps the game buffer during drag @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await picture(page);
   await page.getByTestId("part-room:1:logic").click();

@@ -236,10 +236,10 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
 });
 
 for (const [width, height] of [
-  [1440, 900],
+  [1063, 815],
   [390, 844],
 ] as const) {
-  test(`context row room actions receive clicks at ${width}${width === 1440 ? " @webkit-desktop" : " @phone"}`, async ({
+  test(`context row room actions receive clicks at ${width}${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
     page,
     browserName,
   }) => {
