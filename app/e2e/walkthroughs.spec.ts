@@ -14,7 +14,6 @@ import { settled } from "./engineProbe.ts";
 
 // Node proves every shipped tape against its route (test/walkthroughs-*.test.ts).
 // These replays prove the app's worker plays the same tapes to the same state.
-test.describe.configure({ mode: "parallel" });
 test.use({ viewport: { width: 1280, height: 900 } });
 
 const path = process.env["AGI_SPEEDRUN_FILE"];
