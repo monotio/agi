@@ -9,11 +9,15 @@ export default defineConfig({
   outputDir: `./test-results/${PORT}`,
   timeout: 60_000,
   retries: 0,
+  // Tests are independent; files that need their order say so with a serial describe.
+  fullyParallel: true,
   ...(process.env["CI"] ? { workers: Number(process.env["PLAYWRIGHT_WORKERS"] ?? 2) } : {}),
   use: {
     baseURL: `http://localhost:${PORT}`,
     headless: true,
-    trace: "retain-on-failure",
+    // Snapshots copy every dev-server module per page load and cost a fifth of test CPU; a failure
+    // trace keeps the actions, console and network. Rerun with --trace=on for a DOM-level diagnosis.
+    trace: { mode: "retain-on-failure", snapshots: false },
   },
   // Each run owns its server; keep source files stable during verification.
   webServer: {

@@ -87,7 +87,7 @@ jobs:
         env:
           REPEAT: ${{ inputs.repeat }}
           INDEX: ${{ matrix.phone }}
-        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --shard="$INDEX/3" --repeat-each="$REPEAT" --reporter=list,json
+        run: npm --prefix app run e2e:phone -- --shard="$INDEX/3" --repeat-each="$REPEAT" --reporter=list,json
       - name: WebKit desktop
         if: matrix.shard != '' && matrix.browser == 'webkit'
         env:

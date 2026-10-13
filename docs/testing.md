@@ -322,7 +322,8 @@ which has no test hooks, so the check has nothing to read there and passes.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
-Tagged WebKit desktop tests use four groups and `scripts/ci/webkit-durations.json`.
+Tagged WebKit desktop tests use four groups and `scripts/ci/webkit-durations.json`; the phone
+project runs in three Playwright shards.
 Every run discovers the current specs through Playwright; new specs receive the
 median measured weight. The longest specs are
 assigned first to the lightest group. JSON report artifacts retain per-test
@@ -402,18 +403,40 @@ every game/version are not established by these checks.
 
 Run `npm --prefix app run e2e -- phone-input.spec.ts movement-input.spec.ts game-controls.spec.ts`
 for synthetic browser input coverage. `npm --prefix app run e2e:phone` runs the
-phone suite in Chromium and WebKit; with local KQ1–3 fixtures it also checks
+tests tagged `@phone` in the `iphone-webkit` project; with local KQ1–3 fixtures it also checks
 each game's opening room, touch walking and named save/restore slots. Touch
 emulation does not emulate Samsung Keyboard or the iOS keyboard: verify device
 compatibility on physical Android and iPhone browsers with the keyboard open,
 rotation, interruption and save/restore. Full-game compatibility needs recorded
 completion runs on the specific game edition and interpreter profile.
 
-Desktop workspace scenarios run in WebKit with
-`npm --prefix app run e2e:webkit-desktop` (`app/playwright.webkit.config.ts`).
-Tag a desktop scenario by ending its title with `@webkit-desktop`; the config
-selects it from its existing spec. Use the tag for visible workspace behavior
-that needs a WebKit check, including editors, keyboard controls and agent review.
+### Browser suites, tags and widths
+
+Chromium runs every test except `@perf`, so every test is protected there. Tests run in parallel
+across files and within them (`fullyParallel`); a file whose tests share state declares
+`test.describe.configure({ mode: "serial" })` with the reason in a comment. Failure traces keep
+actions, console and network without DOM snapshots; rerun a failing spec with `--trace=on` for
+the DOM.
+
+Linux WebKit is one config, `app/playwright.webkit.config.ts`, with two projects selected by tag in
+a test title:
+
+| Tag               | Project          | Script                                    | Runs                                                                                               |
+| ----------------- | ---------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `@webkit-desktop` | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop` | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review. |
+| `@phone`          | `iphone-webkit`  | `npm --prefix app run e2e:phone`          | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.  |
+| `@perf`           | Chromium         | `npm --prefix app run e2e:perf`           | Timing budgets, alone on one worker.                                                               |
+
+`npm --prefix app run e2e:webkit` runs both WebKit projects in one invocation. A test carrying both
+tags runs once in each. Tag a scenario by ending its title with the tag; the config selects it from
+its existing spec. WebKit keeps the rules that depend on the engine: pointer, touch, focus, Escape,
+clipboard, files and downloads, canvas paint, fonts, scrolling and layout metrics. DOM state, request
+bodies, saved bytes, refusal text and worker message order need only Chromium.
+
+Width policy: a loop over widths runs only the widths whose layout the rule depends on. Chromium
+defaults to 1063 and 390, and uses 1440 only for a rule about the wide layout. WebKit desktop
+runs one width, 1440 by default, at the Desktop Safari scale factor of 2. Phone WebKit runs 390
+only. A variant whose rule needs no particular width runs once.
 
 CI runs WebKit on Linux, and its result is the one that counts. WebKit on macOS
 reports a Mac platform and uses Mac fonts, so results can differ, and it cannot
@@ -423,10 +446,10 @@ the installed `playwright-core` package. Use the CI pin to reproduce its exact
 image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
-tar -ch --exclude=node_modules --exclude=.git --exclude=.local . |
+tar -ch --exclude=node_modules --exclude=.git --exclude=.local --exclude=app/test-results . |
   docker run --rm -i --init --ipc=host "$(cat scripts/ci/playwright-image.txt)" \
   bash -lc 'mkdir /w && tar -x -C /w && cd /w && npm ci &&
-    CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
+    CI=1 xvfb-run -a npm --prefix app run e2e:webkit -- e2e/<file>.spec.ts'
 ```
 
 The archive includes ignored local game fixtures and dereferences worktree

@@ -2,21 +2,23 @@ import { defineConfig, devices } from "@playwright/test";
 import base from "./playwright.config.ts";
 
 /**
- * Desktop Studio in Safari's engine. The phone suite covers WebKit's touch
- * input; this project runs the desktop scenarios tagged @webkit-desktop:
- * a Room Studio edit kept, reloaded and exported, an export reimported in a
- * fresh browser, a Sprite Studio repair of a mirrored cel, a test walk and
- * Play here, keyboard-only editing, the unkept-changes dialog, an
- * explainer's popover (Unlock for now, Learn more into Help), the
- * first-run tour with its focus moves, and Start over from Home undone back
- * to the earlier session.
+ * Every WebKit run, selected by tag so a test runs once in each project it names:
+ *
+ * - desktop-webkit runs the tests tagged @webkit-desktop: desktop Studio in Safari's engine
+ *   (an edit kept, reloaded and exported, keyboard-only editing, the unkept-changes dialog, popovers,
+ *   the first-run tour and its focus moves, Start over undone) at the Desktop Safari device scale.
+ * - iphone-webkit runs the tests tagged @phone: the touch-only AGI input contract plus the menu,
+ *   settings and dialog specs whose WebKit pointer, focus and Escape handling must match Safari's
+ *   engine, not only Chromium.
+ *
+ * `npm --prefix app run e2e:webkit` runs both projects; `e2e:webkit-desktop` and `e2e:phone` run one.
  */
 export default defineConfig({
   ...base,
-  grep: /@webkit-desktop/,
   projects: [
     {
       name: "desktop-webkit",
+      grep: /@webkit-desktop/,
       use: {
         ...devices["Desktop Safari"],
         // Desktop Safari advertises macOS even on Linux. Monaco derives its
@@ -31,5 +33,6 @@ export default defineConfig({
           : {}),
       },
     },
+    { name: "iphone-webkit", grep: /@phone/, use: { browserName: "webkit" } },
   ],
 });

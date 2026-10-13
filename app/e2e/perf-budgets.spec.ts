@@ -30,7 +30,7 @@ import {
  * development machines enforce its budget. Frame and boot budgets hold on both.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
-// One test at a time in this file, so the specs do not load each other.
+// Serial: timing budgets, so one test at a time keeps the specs from loading each other.
 test.describe.configure({ mode: "serial" });
 const PERF = { tag: "@perf" };
 
