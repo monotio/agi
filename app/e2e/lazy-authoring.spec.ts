@@ -28,7 +28,7 @@ const app = join(repository, "app");
  * root. The production build answers from the chunk graph app/vite.config.ts
  * records beside it; the development server serves one module per request,
  * files outside app/ under /@fs/, and pre-bundled packages under
- * /node_modules/.vite/deps/, named in its optimizer metadata.
+ * the server's dependency cache, named in its optimizer metadata.
  */
 function modulesOf(url: URL): readonly string[] {
   const path = decodeURIComponent(url.pathname);
@@ -39,13 +39,15 @@ function modulesOf(url: URL): readonly string[] {
     return graph.chunks.find((chunk) => `/${chunk.file}` === path)?.modules ?? [];
   }
   if (path.startsWith("/@fs/")) return [relative(repository, path.slice("/@fs".length))];
-  const prebundled = path.match(/^\/node_modules\/\.vite\/deps\/([^/]+)$/)?.[1];
+  // A test server keeps its own cache per port (app/vite.config.ts).
+  const prebundled = path.match(/^\/(node_modules\/\.vite(?:-test\/[^/]+)?\/deps)\/([^/]+)$/);
   if (prebundled) {
-    const { optimized } = JSON.parse(
-      readFileSync(join(app, "node_modules", ".vite", "deps", "_metadata.json"), "utf8"),
-    ) as { optimized: Record<string, { file: string }> };
+    const [, cache, file] = prebundled;
+    const { optimized } = JSON.parse(readFileSync(join(app, cache!, "_metadata.json"), "utf8")) as {
+      optimized: Record<string, { file: string }>;
+    };
     return Object.entries(optimized)
-      .filter(([, entry]) => entry.file === prebundled)
+      .filter(([, entry]) => entry.file === file)
       .map(([id]) => `app/node_modules/${id}/`);
   }
   return [`app${path}`];
