@@ -3,7 +3,6 @@ import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
 import type { PlayerSentence } from "../project/playerSentences.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
-import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
 import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
 import type { ProjectSession, PendingProjectRestart } from "../project/projectSession.ts";
@@ -43,7 +42,8 @@ import {
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
 import { clearCachedGame } from "../project/gameStorage.ts";
-import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
+import { createProjectPublication } from "./projectPublication.ts";
 import {
   advanceAuthoring,
   ResourceCommitError,
@@ -530,78 +530,30 @@ export function useEngine(
             : {}),
           admission,
           current,
-          async forked(data, lifetime) {
-            if (!current()) return;
-            state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
-            game = {
-              ...game!,
-              installed: false,
-              revision: computeResourceRevision(data.files),
-              files: data.files,
-              projectId: data.projectId,
-              title: data.title,
-              authoredGame: data,
-              historyLifetime: lifetime,
-            };
-            lifecycle.setBootedGame(game);
-            const target = bindProgressTarget(game);
-            autosaveController.reset();
-            hook.autosave = -1;
-            if (target) {
-              await progressOwnership.acquire(target);
-              if (!current()) return;
-              writeResumePointer(localStorage, target.locator);
-            }
-            state.patchTick++;
-            state.worldTick++;
-            void autosaveController.flushAutosave();
-          },
-          publish(snapshot, data, outcome, nativeInstalled) {
-            if (!current()) return;
-            if (
-              computeResourceRevision(game.authoredGame!.files) !==
-              snapshot.lastAdmissibleBuild!.identity.revision
-            ) {
-              hook.autosave = -1;
-              link.publishHook();
-            }
-            const running =
-              nativeInstalled === true ||
-              outcome?.status === "committed" ||
-              outcome?.status === "unchanged";
-            if (running) {
-              game.files = structuredClone(data.files);
-              if (!game.installed) {
-                game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-                bindProgressTarget(game);
-              }
-              if (outcome?.replacementRunToken !== undefined)
-                state.profile = snapshot.lastAdmissibleBuild!.identity.profileId;
-            }
-            if (running)
-              game.words =
-                data.files["WORDS.TOK"] === undefined
-                  ? data.words
-                  : parseWordsTok(data.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
-            game.authoredGame = {
-              ...data,
-              projectId: game.projectId!,
-              authoredAt: game.authoredGame!.authoredAt,
-            };
-            if (running) audio?.useGameFiles(game.files);
-            state.patchTick++;
-            state.worldTick++;
-            if (outcome?.status === "committed") {
+          ...createProjectPublication({
+            getGame: () => game,
+            setGame(next) {
+              game = next;
+              lifecycle.setBootedGame(game);
+            },
+            state,
+            current,
+            progressOwnership,
+            autosaveController,
+            hook,
+            publishHook: link.publishHook,
+            useGameFiles: (files) => audio?.useGameFiles(files),
+            admitted(outcome) {
               roomMap.value?.projectImageAdmitted(outcome.patchGeneration);
               const frame = link.getLatestFrame();
               if (frame !== null) roomMap.value?.observeFrame(frame);
-            }
-          },
-          saved(data, _lifetime, generation) {
+            },
+          }),
+          saved(data, _lifetime, generation, documentOnly) {
             if (current()) {
               advanceAuthoring(game, data.authoringState, data.workspace);
               if (game.authoredGame) game.authoredGame.generation = generation;
-              void autosaveController.flushAutosave();
+              if (!documentOnly) void autosaveController.flushAutosave();
             }
           },
           checkpointReady() {
@@ -855,9 +807,7 @@ export function useEngine(
     query: link.query,
     logAgent,
     getBootedGame: () => lifecycle.getBootedGame(),
-    getOrCreateSession: async (...args) =>
-      (await loadAuthoringController()).getOrCreateSession(...args),
-    commitTestsFile: async (...args) => (await loadAuthoringController()).commitTestsFile(...args),
+    getProjectSession: () => projectSession,
     flushAutosave: () => autosaveController.flushAutosave(),
   });
 
@@ -1124,7 +1074,7 @@ export function useEngine(
     },
   });
 
-  const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =
+  const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest, runTests } =
     testRecorder;
 
   function loadAudio(): Promise<AgiAudio> {
@@ -1741,6 +1691,7 @@ export function useEngine(
     stopTestRecording,
     cancelTestRecording,
     saveRecordedTest,
+    runTests,
     resumeLastGame: autosaveController.resumeLastGame,
     resumeFromRecord: autosaveController.resumeFromRecord,
     /**

@@ -143,3 +143,147 @@ test("deleting and replacing a PICTURE leaves the last build and code intact", (
   );
   assert.deepEqual(before.documents(), model.capture().documents());
 });
+
+for (const cleanup of [true, false])
+  test(`Tests never block game edits: room cleanup ${cleanup ? "removes" : "keeps"} named tests in one undoable draft`, async () => {
+    const tests = JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [
+        { name: "Start", room: 1, steps: [] },
+        { name: "Enter", room: 2, steps: [{ action: "wait", until: { room: 1 } }] },
+        { name: "Keep", room: 2, steps: [], expect: { room: 2 } },
+      ],
+    });
+    const model = project({ tests });
+    const before = model.capture();
+    const plan = preparePartDraftRemoval(before, "logic:1", profile, 1, cleanup);
+    assert.equal(
+      plan.problems.some((problem) => problem.document === "tests"),
+      false,
+    );
+    const testChange = plan.changes.find((change) => change.key === "tests");
+    if (cleanup)
+      assert.deepEqual(
+        JSON.parse(String(testChange?.content)).tests.map((test: { name: string }) => test.name),
+        ["Keep"],
+      );
+    else assert.equal(testChange, undefined);
+    const drafts = openProjectDrafts({
+      projectId: `room-test-cleanup-${cleanup}`,
+      lifetime: "initial",
+      read: (key) => before.read(key)?.content,
+    });
+    await drafts.ready;
+    try {
+      drafts.stageTransaction(plan.changes);
+      assert.equal(drafts.undo(), true);
+      if (cleanup)
+        assert.equal(drafts.changes().find((change) => change.key === "tests")?.content, tests);
+      assert.equal(before.read("tests")?.content, tests);
+    } finally {
+      drafts.dispose();
+    }
+  });
+
+test("Tests never block game edits: room cleanup preserves unreadable tests with a notice", () => {
+  const model = project({ tests: "not json" });
+  const plan = preparePartDraftRemoval(model.capture(), "logic:1", profile, 1, true);
+  assert.equal(
+    plan.changes.some((change) => change.key === "tests"),
+    false,
+  );
+  assert.match(plan.testNotice, /Tests could not be read/);
+});
+
+test("Tests never block game edits: inventory item locations do not make a recorded test use a room", async () => {
+  const { newSaveState, encodeSave } = await import("../../src/runtime/persistence.ts");
+  const { buildObjectFile } = await import("../../src/authoring/inventory.ts");
+  const state = newSaveState(profile);
+  state.vars[0] = 2;
+  state.vars[1] = 1;
+  state.inventory = buildObjectFile([{ name: "Key", startingRoom: 1 }], profile);
+  const image = Buffer.from(encodeSave(state, profile)).toString("base64");
+  const tests = JSON.stringify({
+    format: "monotio.agi.tests.v2",
+    tests: [{ name: "Keep", room: 3, steps: [], setup: { image } }],
+  });
+  const model = project({ tests });
+  const plan = preparePartDraftRemoval(model.capture(), "logic:1", profile, 1, true);
+  assert.equal(
+    plan.changes.some((change) => change.key === "tests"),
+    false,
+  );
+  const used = preparePartDraftRemoval(model.capture(), "logic:2", profile, 2, true);
+  assert.deepEqual(
+    JSON.parse(String(used.changes.find((change) => change.key === "tests")?.content)).tests,
+    [],
+  );
+  assert.equal(model.capture().read("tests")?.content, tests);
+});
+
+test("Tests never block game edits: shared LOGIC deletion keeps tests without room cleanup consent", () => {
+  const tests = JSON.stringify({
+    format: "monotio.agi.tests.v2",
+    tests: [{ name: "Keep", room: 2, steps: [] }],
+  });
+  const model = project({ tests, "logic:2": "return;" });
+  const plan = preparePartDraftRemoval(model.capture(), "logic:2", profile);
+  assert.equal(
+    plan.changes.some((change) => change.key === "tests"),
+    false,
+  );
+});
+
+for (const continuationSource of ["image", "replay"] as const)
+  test(`Tests never block game edits: a shared LOGIC call in the ${continuationSource} does not make a test enter that room`, async () => {
+    const { Engine } = await import("../../src/runtime/engine.ts");
+    const { openContainer } = await import("../../src/container/container.ts");
+    const model = project({
+      "logic:0": "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+      "logic:1":
+        "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); } call(10); return;",
+      "logic:10": 'print("Shared logic"); return;',
+    });
+    const engine = new Engine(openContainer(model.capture().lastAdmissibleBuild!.files()), {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    });
+    engine.tick();
+    assert.equal(engine.vars[0], 1);
+    assert.equal(engine.modalKind, "print");
+    const replay = engine.captureReplayState();
+    assert.deepEqual(
+      replay.continuation?.frames.map((frame) => frame.logic),
+      [0, 1, 10],
+    );
+    const image = Buffer.from(
+      continuationSource === "image" ? engine.recordingImage()! : engine.serialize(),
+    ).toString("base64");
+    const setup = {
+      image,
+      ...(continuationSource === "replay"
+        ? { replay: JSON.stringify({ state: replay, operations: [] }) }
+        : {}),
+    };
+    const tests = JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [{ name: "Room one", room: 1, steps: [], setup }],
+    });
+    const before = model.capture();
+    const snapshot = { ...before, documents: () => ({ ...before.documents(), tests }) };
+    const sharedCall = preparePartDraftRemoval(snapshot, "logic:10", profile, 10, true);
+    assert.equal(
+      sharedCall.changes.some((change) => change.key === "tests"),
+      false,
+    );
+    assert.equal(snapshot.documents().tests, tests);
+    const enteredRoom = preparePartDraftRemoval(snapshot, "logic:1", profile, 1, true);
+    assert.deepEqual(
+      JSON.parse(String(enteredRoom.changes.find((change) => change.key === "tests")!.content))
+        .tests,
+      [],
+    );
+  });

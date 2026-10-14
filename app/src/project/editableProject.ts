@@ -433,7 +433,6 @@ class EditableProjectService implements EditableProject {
         removals,
         image: state.image,
         authoring: this.candidateAuthoring(state.documents),
-        tests: state.documents["tests"],
         references: state.documents["references"],
         drafts,
         keptBindings: state.keptBindings,

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { stampBoot } from "../../src/agent/history.ts";
+import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision, type ProjectId } from "../../src/gameIdentity.ts";
@@ -1150,4 +1151,19 @@ test("an autosave judges a record whose stamp drifted from its files by the file
     "saved",
   );
   assert.deepEqual((await storage.loadAuthoredGame(id))?.files, next);
+});
+
+test("Test autosaves never stale an Agent turn: authoring fingerprints ignore the tests document", () => {
+  const base = storage.authoringFingerprint(undefined, writeProjectWorkspace({ notes: "hello" }));
+  assert.equal(
+    storage.authoringFingerprint(
+      undefined,
+      writeProjectWorkspace({ notes: "hello", tests: "new tests" }),
+    ),
+    base,
+  );
+  assert.notEqual(
+    storage.authoringFingerprint(undefined, writeProjectWorkspace({ notes: "new game notes" })),
+    base,
+  );
 });

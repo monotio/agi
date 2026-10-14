@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { openContainer } from "../../src/container/container.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
+import type { ProjectId } from "../../src/gameIdentity.ts";
 import {
   isolateStorage,
   openGameOptions,
@@ -475,4 +476,75 @@ test("Exit detaches LOGIC while code intelligence is pending @webkit-desktop", a
     }),
   ).toEqual({ pending: 1, cancelled: 1, detached: 1, liveModels: 0 });
   expect(errors).toEqual([]);
+});
+
+test("Header Retry stores tests after a rejected project write", async ({ page }) => {
+  await starter(page);
+  await page.evaluate(async () => {
+    const surface = window as unknown as {
+      __AGI_PROJECT__: { getSession(): ProjectSession };
+      projectWriteAttempts: number;
+      failedProjectId: ProjectId;
+      allowProjectWrites(): void;
+    };
+    const put = IDBObjectStore.prototype.put;
+    let refused = true;
+    surface.projectWriteAttempts = 0;
+    IDBObjectStore.prototype.put = function (...args) {
+      const data = args[0] as {
+        projectId: ProjectId;
+        workspace?: { documents?: { key: string }[] };
+      };
+      if (
+        this.name === "projects" &&
+        data.workspace?.documents?.some(({ key }) => key === "tests")
+      ) {
+        surface.projectWriteAttempts++;
+        surface.failedProjectId = data.projectId;
+        if (refused)
+          throw new DOMException("Browser storage refused the test write.", "QuotaExceededError");
+      }
+      return put.apply(this, args);
+    };
+    surface.allowProjectWrites = () => {
+      refused = false;
+    };
+    // The Tests panel and recorder use this same committed-project save path.
+    const { saveTests } = await import("/src/authoring/saveTests.ts");
+    try {
+      await saveTests(surface.__AGI_PROJECT__.getSession(), {
+        kind: "merge",
+        tests: [{ name: "header retry", room: 1, steps: [], expect: null }],
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("Browser storage refused"))
+        throw error;
+    }
+  });
+  const status = page.getByTestId("workspace-saved");
+  await expect(status).toHaveText("Could not save. Retry");
+  const failedAttempts = await page.evaluate(
+    () => (window as unknown as { projectWriteAttempts: number }).projectWriteAttempts,
+  );
+  expect(failedAttempts).toBeGreaterThan(0);
+  await page.screenshot({ path: test.info().outputPath("failed-project-save.png") });
+  await page.evaluate(() =>
+    (window as unknown as { allowProjectWrites(): void }).allowProjectWrites(),
+  );
+  await status.click();
+  await workspaceSaved(page);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { projectWriteAttempts: number }).projectWriteAttempts,
+    ),
+  ).toBeGreaterThan(failedAttempts);
+  const durable = await page.evaluate(async () => {
+    const projectId = (window as unknown as { failedProjectId: ProjectId }).failedProjectId;
+    const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+    const stored = await loadAuthoredGame(projectId);
+    const content = stored?.workspace?.documents.find((entry) => entry.key === "tests")?.content;
+    if (content?.type !== "text") throw new Error("The retried test was missing from storage.");
+    return content.text;
+  });
+  expect(JSON.parse(durable).tests[0].name).toBe("header retry");
 });

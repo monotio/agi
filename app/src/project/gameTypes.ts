@@ -62,6 +62,10 @@ export interface BootedGame {
    * a revision change rebinds it.
    */
   progressTarget?: ProgressTarget | undefined;
+  /** A document-only copy retains its running progress until a native game edit. */
+  retainedProgressTarget?:
+    | { readonly target: ProgressTarget | null; readonly lifetime: string | null | undefined }
+    | undefined;
   readonly installed: boolean;
   readonly title: string;
   revision: ResourceRevision;
@@ -124,6 +128,7 @@ export interface CurrentGame {
    * card's storage evidence was captured. Ephemeral — never persisted.
    */
   readonly progressTarget?: ProgressTarget | undefined;
+  readonly retainedProgressTarget?: BootedGame["retainedProgressTarget"];
 }
 
 /**

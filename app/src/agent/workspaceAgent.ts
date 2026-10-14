@@ -1,3 +1,8 @@
+import { gameTestsNeedCreatorReview } from "../../../src/agent/gameTestReview.ts";
+import {
+  mergeAgentTestChanges,
+  sameNonTestDocuments,
+} from "../../../src/authoring/projectTestsMerge.ts";
 import { inspectedResourceKeys, resourceRenderingDependencies } from "./agentResults.ts";
 import { agentHandoffContext } from "./agentHandoff.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
@@ -18,6 +23,7 @@ import {
   ASK_TOOLS,
   finishAfterFailures,
   validateAgentHandover,
+  validateAgentGameHandover,
   withReferences,
   executeAgentToolAsync,
   type AgentRuntimeDeps,
@@ -77,6 +83,7 @@ const STOPPED = {
 };
 const HANDOFF =
   "Summarize this task for a different model using the compaction summary pattern: objective, decisions, completed changes, unresolved work, resource identifiers, and next steps. Return only the summary. Preserve user constraints. Omit thinking blocks, credentials and protocol records.";
+class CreatorTestReviewRequired extends Error {}
 export interface AgentReview {
   readonly proposal: ProjectProposal;
   readonly chatId: string;
@@ -379,8 +386,7 @@ export function createWorkspaceAgent(options: Options) {
       stale: () =>
         invalidBase ||
         base.documentId !== pending.baseDocumentId ||
-        session.model.capture().documentId !== pending.baseDocumentId ||
-        session.history.capture().cursor !== pending.baseCommit,
+        !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
     });
   }
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
@@ -502,53 +508,137 @@ export function createWorkspaceAgent(options: Options) {
         .changes()
         .filter((change) => keys === undefined || keys.includes(change.key));
       if (changes.length === 0) throw new Error("Select a change to approve.");
-      const proposal = session.model.propose(
-        session.model.capture(),
-        approving.proposal.label,
-        changes,
-      );
-      // Selection is revalidated as a complete project before entering MAIN.
-      const draft = new ProjectDraft(proposal.documents());
-      const ws = captureAgentWorkspace({
-        draft,
-        files: Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
-        profileId: options.profileId,
-        allowMissingRooms: session.allowMissingRooms,
-      });
-      ws.propose("Validate selection", []);
-      const validatedState = ws.openToolState().state;
-      const verdict = validateAgentHandover(validatedState);
-      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
-      const before = session.history.capture().cursor!;
-      const beforeRevision = proposal.base.lastAdmissibleBuild!.identity.revision;
-      const admittedRevision = computeResourceRevision(
-        Object.fromEntries(validatedState.getFiles()),
-      );
-      assertLive();
-      const result = await session.submit({
-        proposal,
-        beforeCommit: assertLive,
-        label: `AI: ${proposal.label}`,
-        origin: "agent",
-        author: "agent",
-        chatId: approving.chatId,
-        messageId: approving.messageId,
-      });
-      if (!["committed", "unchanged", "restartRequired"].includes(result.status))
-        throw new Error("The changes could not be applied. Check Problems and revise them.");
-      taskRuntime?.advanceRevision?.(
-        beforeRevision,
-        admittedRevision,
-        result.status !== "restartRequired",
-      );
-      const commit = session.history.capture().cursor!;
+      const requireAutomaticTestReview = () => {
+        if (!automatic) return;
+        const current = session.model.capture();
+        const latest = mergeAgentTestChanges(
+          approving.proposal.base.documents(),
+          current.documents(),
+          changes,
+          PROFILES[options.profileId],
+        );
+        const tests = latest.find((change) => change.key === "tests");
+        const offeredTests = changes.find((change) => change.key === "tests");
+        if (
+          tests &&
+          (gameTestsNeedCreatorReview(
+            current.read("tests")?.content,
+            tests.content,
+            PROFILES[options.profileId],
+          ) ||
+            gameTestsNeedCreatorReview(
+              approving.proposal.base.read("tests")?.content,
+              offeredTests?.content,
+              PROFILES[options.profileId],
+            ))
+        )
+          throw new CreatorTestReviewRequired(
+            "Existing test edits need creator review. Review the Tests changes, then choose Apply.",
+          );
+      };
+      let ownedCommit: string | undefined;
+      let ownedParent: string | undefined;
+      let result: Awaited<ReturnType<ConversationSession["submit"]>> | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (approving.stale())
+          throw new Error(
+            "The project changed while the agent worked. Send a follow-up to revise these changes.",
+          );
+        try {
+          requireAutomaticTestReview();
+        } catch (cause) {
+          if (cause instanceof CreatorTestReviewRequired) return;
+          throw cause;
+        }
+        const current = session.model.capture();
+        const merged = mergeAgentTestChanges(
+          approving.proposal.base.documents(),
+          current.documents(),
+          changes,
+          PROFILES[options.profileId],
+        );
+        const proposal = session.model.propose(current, approving.proposal.label, merged);
+        if (!proposal.changes().length) {
+          result = {
+            status: "unchanged",
+            diagnostics: [],
+            expected: null,
+            current: null,
+            patchGeneration: 0,
+          };
+          break;
+        }
+        const gameChanged = merged.some((change) => change.key !== "tests");
+        let admittedRevision = current.lastAdmissibleBuild!.identity.revision;
+        if (gameChanged) {
+          // Validate the complete selected game; test failures remain document evidence.
+          const ws = captureAgentWorkspace({
+            draft: new ProjectDraft(proposal.documents()),
+            files: Object.fromEntries(current.lastAdmissibleBuild!.files()),
+            profileId: options.profileId,
+            allowMissingRooms: session.allowMissingRooms,
+          });
+          ws.propose("Validate selection", []);
+          const validatedState = ws.openToolState().state;
+          const verdict = validateAgentGameHandover(validatedState);
+          if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
+          admittedRevision = computeResourceRevision(Object.fromEntries(validatedState.getFiles()));
+        }
+        const existingCommits = new Set(
+          session.history.capture().commits.map((commit) => commit.id),
+        );
+        assertLive();
+        try {
+          result = await session.submit({
+            proposal,
+            beforeCommit: () => {
+              assertLive();
+              requireAutomaticTestReview();
+            },
+            label: `AI: ${proposal.label}`,
+            origin: "agent",
+            author: "agent",
+            chatId: approving.chatId,
+            messageId: approving.messageId,
+          });
+        } catch (error) {
+          if (error instanceof CreatorTestReviewRequired) return;
+          if (
+            attempt === 0 &&
+            error instanceof Error &&
+            error.message === "Project proposal is stale."
+          )
+            continue;
+          throw error;
+        }
+        if (!["committed", "unchanged", "restartRequired"].includes(result.status))
+          throw new Error("The changes could not be applied. Check Problems and revise them.");
+        const own = session.history
+          .capture()
+          .commits.find(
+            (commit) =>
+              !existingCommits.has(commit.id) &&
+              commit.chatId === approving.chatId &&
+              commit.messageId === approving.messageId,
+          );
+        ownedCommit = own?.id;
+        ownedParent = own?.parent ?? undefined;
+        if (gameChanged)
+          taskRuntime?.advanceRevision?.(
+            current.lastAdmissibleBuild!.identity.revision,
+            admittedRevision,
+            result.status !== "restartRequired",
+          );
+        break;
+      }
+      if (!result) throw new Error("The project changed again. Retry approval.");
+      const commit = ownedCommit;
       const chat = store.chats.find((chat) => chat.id === approving.chatId)!;
       chat.messages = chat.messages.map((message) =>
         message.id === approving.messageId
           ? {
               ...message,
-              beforeCommit: before,
-              commit,
+              ...(commit && ownedParent ? { beforeCommit: ownedParent, commit } : {}),
               result: {
                 kind: "changes",
                 documentId: session.model.capture().documentId,
@@ -563,7 +653,7 @@ export function createWorkspaceAgent(options: Options) {
         resources: changes.map((change) => change.key),
         outcome: result.status,
       });
-      if (chat.id === actionChat)
+      if (chat.id === actionChat && commit)
         appliedDuringRun?.push({
           resources: changes.map((change) => change.key),
           documentId: session.model.capture().documentId,
@@ -614,6 +704,7 @@ export function createWorkspaceAgent(options: Options) {
       return workspace;
     }
     let notes: string | undefined;
+    let finishStatus = "";
     const prepared = new Map<string, ProjectChange>();
     let scene: Awaited<ReturnType<typeof selectionScene>> = {};
     let selection = readOnly
@@ -664,7 +755,30 @@ export function createWorkspaceAgent(options: Options) {
         if (change.content === null) delete documents[change.key];
         else documents[change.key] = change.content;
       }
+      if (notes !== undefined) documents["notes"] = notes;
       return documents;
+    }
+    function hasHandoverDocuments() {
+      if (persisted.some((entry) => entry.commit !== null)) return true;
+      const current = session.model.capture();
+      const changes = mergeAgentTestChanges(
+        base.documents(),
+        current.documents(),
+        diffProjectDocuments(base.documents(), stagedDocuments()),
+        PROFILES[profileId]!,
+      );
+      return session.model.propose(current, "Handover", changes).changes().length > 0;
+    }
+    function handoverState() {
+      const candidate = captureAgentWorkspace({
+        draft: new ProjectDraft(stagedDocuments()),
+        files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+        profileId,
+        allowMissingRooms: session.allowMissingRooms,
+      }).openToolState().state;
+      candidate.readCommittedTests = () => session.model.capture().read("tests")?.content;
+      candidate.finishTestsBase = base.read("tests")?.content ?? null;
+      return candidate;
     }
     function stageChanges(label: string, changes: readonly ProjectChange[]) {
       const offered = driver.pending();
@@ -769,15 +883,27 @@ export function createWorkspaceAgent(options: Options) {
       if (notes !== undefined) combined.set("notes", { key: "notes", content: notes });
       const changes = [...combined.values()];
       if (!changes.length) return false;
-      const candidate = captureAgentWorkspace({
-        draft: new ProjectDraft(stagedDocuments()),
-        files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-        profileId,
-        allowMissingRooms: session.allowMissingRooms,
-      }).openToolState();
-      const verdict = validateAgentHandover(candidate.state);
-      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
-      editWorkspace().propose(chatTitle(instruction), changes);
+      const current = session.model.capture();
+      const actualChanges = mergeAgentTestChanges(
+        base.documents(),
+        current.documents(),
+        changes,
+        PROFILES[profileId]!,
+      );
+      const testsChange = actualChanges.find((change) => change.key === "tests");
+      if (testsChange) {
+        forceReview ||=
+          gameTestsNeedCreatorReview(
+            current.read("tests")?.content,
+            testsChange.content,
+            PROFILES[profileId]!,
+          ) ||
+          gameTestsNeedCreatorReview(
+            base.read("tests")?.content,
+            changes.find((change) => change.key === "tests")?.content,
+            PROFILES[profileId]!,
+          );
+      }
       const proposal = session.model.propose(
         base,
         offered?.label ?? chatTitle(instruction),
@@ -794,9 +920,14 @@ export function createWorkspaceAgent(options: Options) {
           resources: changes.map((change) => change.key),
           status: "pending",
         },
-        text: [text || proposal.label, selectionReview].filter(Boolean).join("\n\n"),
+        text: [
+          finishStatus && !text.startsWith(finishStatus) ? finishStatus : "",
+          text || proposal.label,
+          selectionReview,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       });
-      const capturedDocumentId = base.documentId;
       const capturedCommit = session.history.capture().cursor!;
       chat.pendingReview = {
         label: proposal.label,
@@ -813,9 +944,7 @@ export function createWorkspaceAgent(options: Options) {
         chatId: chat.id,
         messageId,
         changes: () => proposal.changes(),
-        stale: () =>
-          session.model.capture().documentId !== capturedDocumentId ||
-          session.history.capture().cursor !== capturedCommit,
+        stale: () => !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
       };
       reviews.set(chat.id, review);
       notify();
@@ -826,6 +955,10 @@ export function createWorkspaceAgent(options: Options) {
         } catch (cause) {
           error = cause instanceof Error ? cause.message : String(cause);
           notify();
+          return true;
+        }
+        if (review) {
+          forceReview = true;
           return true;
         }
         touched.clear();
@@ -876,6 +1009,7 @@ export function createWorkspaceAgent(options: Options) {
           assertLive();
           inspection = createProjectInspection({
             files: nativeFiles ?? Object.fromEntries(base.lastAdmissibleBuild!.files()),
+            readCommittedTests: () => session.model.capture().read("tests")?.content,
             documents:
               !nativeFiles ||
               computeResourceRevision(nativeFiles) === base.lastAdmissibleBuild!.identity.revision
@@ -907,7 +1041,7 @@ export function createWorkspaceAgent(options: Options) {
           review?.chatId === chat.id
             ? `\nPrevious changes for revision:\n${JSON.stringify(review.changes())}`
             : "";
-        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Answer questions directly; edit when the user requests a change. Attached context identifies the current focus and does not restrict the resources you may inspect or change. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
+        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Answer questions directly; edit when the user requests a change. Attached context identifies the current focus and does not restrict the resources you may inspect or change. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains. Red committed tests require finish notes naming every failure and saying why it stays red. Never change a test's expectation or delete a test to make it pass. Fix the game, or leave it red and say why."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
         let turn = await provider.sendUserMessage(
           prompt,
           sendReference ? [reference.image] : undefined,
@@ -1028,6 +1162,8 @@ export function createWorkspaceAgent(options: Options) {
                   scene,
                 );
                 staged ??= editWorkspace().openToolState();
+                staged.state.readCommittedTests = () =>
+                  session.model.capture().read("tests")?.content;
                 result = await executeAgentToolAsync(staged.state, call.name, call.input, {
                   ...runtime,
                   references,
@@ -1131,8 +1267,21 @@ export function createWorkspaceAgent(options: Options) {
                 if (result.success && call.name === "propose_changes")
                   for (const change of call.input["changes"] as ProjectChange[])
                     touched.add(change.key);
+              } else if (call.name === "finish" || call.name === "run_game_tests") {
+                result =
+                  call.name === "finish" && !hasHandoverDocuments()
+                    ? { success: true, message: "Finished without document changes." }
+                    : await executeAgentToolAsync(handoverState(), call.name, call.input, {
+                        ...runtime,
+                        references,
+                        readOnly,
+                        allowedTools,
+                      });
               } else {
                 staged ??= editWorkspace().openToolState();
+                staged.state.readCommittedTests = () =>
+                  session.model.capture().read("tests")?.content;
+                staged.state.finishTestsBase = base.read("tests")?.content ?? null;
                 result = await executeAgentToolAsync(staged.state, call.name, call.input, {
                   ...runtime,
                   references,
@@ -1150,6 +1299,7 @@ export function createWorkspaceAgent(options: Options) {
               ) {
                 staged = undefined;
                 notes = undefined;
+                finishStatus = "";
                 prepared.clear();
                 selection = undefined;
                 selectionReview = "";
@@ -1186,7 +1336,9 @@ export function createWorkspaceAgent(options: Options) {
                   ...result,
                   message: review?.stale()
                     ? "Proposal retained for review: the project changed during this task."
-                    : "Changes applied as one History commit. Read current documents before further changes.",
+                    : review
+                      ? "Changes ready for creator review."
+                      : "Changes applied as one History commit. Read current documents before further changes.",
                 };
               }
             } catch (cause) {
@@ -1195,9 +1347,12 @@ export function createWorkspaceAgent(options: Options) {
                 error: cause instanceof Error ? cause.message : String(cause),
               };
             }
-            if (call.name === "finish" && result.success) handedOver = true;
+            if (call.name === "finish" && result.success) {
+              handedOver = true;
+              finishStatus = String(result.details?.["testsVerdict"] ?? "");
+            }
             if (!result.success) {
-              failed.push(call.name);
+              if (!result.details?.["gameTestsFailed"]) failed.push(call.name);
               progress.push(`${call.name} failed: ${result.error ?? "no details"}`);
               notify();
             }
@@ -1221,6 +1376,7 @@ export function createWorkspaceAgent(options: Options) {
                   : createProjectInspection({
                       files: Object.fromEntries(staged!.state.getFiles()),
                       documents: {},
+                      readCommittedTests: () => session.model.capture().read("tests")?.content,
                       profileId,
                     });
                 documents = native.documents(resourceKeys);
@@ -1244,6 +1400,7 @@ export function createWorkspaceAgent(options: Options) {
           while (!followup && nextSteps.length) followup = await receiveNextSteps();
           if (followup) {
             handedOver = false;
+            finishStatus = "";
             turn = followup;
             continue;
           }
@@ -1263,7 +1420,38 @@ export function createWorkspaceAgent(options: Options) {
             } else throw cause;
           }
         }
-        if (readOnly || !(await offer(turn.text ?? ""))) {
+        let handoverRejected = false;
+        if (!readOnly && !handedOver) {
+          let verdict: AgentToolResult | undefined;
+          try {
+            if (hasHandoverDocuments())
+              verdict = validateAgentHandover(handoverState(), turn.text ?? "");
+          } catch (cause) {
+            // Candidate construction can fail before the handover verdict. It is
+            // still a visible authoring failure; provider and cancellation errors
+            // are handled by the surrounding task boundary.
+            verdict = {
+              success: false,
+              error: cause instanceof Error ? cause.message : String(cause),
+            };
+          }
+          if (verdict?.success) {
+            finishStatus = String(verdict.details?.["testsVerdict"] ?? "");
+          } else if (verdict) {
+            handoverRejected = true;
+            error = verdict.error ?? "Handover rejected.";
+            progress.push(error);
+            delete chat.pendingReview;
+            reviews.delete(chat.id);
+            if (review?.chatId === chat.id) review = null;
+            turn = {
+              ...turn,
+              text: [verdict.details?.["testsVerdict"], error].filter(Boolean).join("\n"),
+            };
+            notify();
+          }
+        }
+        if (readOnly || handoverRejected || !(await offer(turn.text ?? ""))) {
           const stopped = !formatReply && !turn.text?.trim();
           if (stopped) {
             progress.push(
@@ -1271,6 +1459,11 @@ export function createWorkspaceAgent(options: Options) {
             );
             notify();
           }
+          const reply = handoverRejected
+            ? { text: turn.text! }
+            : formatReply
+              ? formatReply(turn.text ?? "")
+              : { text: stopped ? STOPPED[readOnly ? "ask" : "edit"] : turn.text! };
           chat.messages.push({
             id: id(),
             role: "assistant",
@@ -1289,9 +1482,11 @@ export function createWorkspaceAgent(options: Options) {
                   },
                 }
               : {}),
-            ...(formatReply
-              ? formatReply(turn.text ?? "")
-              : { text: stopped ? STOPPED[readOnly ? "ask" : "edit"] : turn.text! }),
+            ...reply,
+            text:
+              finishStatus && !reply.text.startsWith(finishStatus)
+                ? `${finishStatus}\n${reply.text}`
+                : reply.text,
           });
         }
       });
@@ -1392,7 +1587,7 @@ export function createWorkspaceAgent(options: Options) {
     const message = store.chats
       .flatMap((chat) => chat.messages)
       .find((message) => message.id === messageId);
-    if (!message?.commit || !message.beforeCommit)
+    if (!message?.commit || !message.beforeCommit || message.beforeCommit === message.commit)
       throw new Error("This message has no applied changes.");
     const chat = store.chats.find((entry) => entry.messages.includes(message))!;
     async function recordDecision(result: unknown) {
@@ -1463,7 +1658,8 @@ export function createWorkspaceAgent(options: Options) {
       const message = chat?.messages.find((entry) => entry.id === messageId);
       if (chat?.pendingReview?.messageId === messageId) return structuredClone(chat.pendingReview);
       if (message?.review) return structuredClone(message.review);
-      if (!message?.commit || !message.beforeCommit) return undefined;
+      if (!message?.commit || !message.beforeCommit || message.beforeCommit === message.commit)
+        return undefined;
       const history = session.history.capture();
       const before = history.commits.find((entry) => entry.id === message.beforeCommit);
       const after = history.commits.find((entry) => entry.id === message.commit);

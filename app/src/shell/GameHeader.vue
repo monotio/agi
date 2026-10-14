@@ -81,7 +81,7 @@ const {
   readOldTimeline,
   currentGame,
 } = engine;
-const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
+const { aiSettingsUnavailable, openAiSettings } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
 const workspaceEditor = useWorkspaceEditor();
@@ -379,7 +379,6 @@ async function onRecordSave(): Promise<void> {
       snapshot,
       name,
       recordSuggestions.value.filter((suggestion) => suggestion.selected),
-      llmConfig(),
     );
     if (!result.ok) {
       recordError.value = result.message;

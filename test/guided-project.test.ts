@@ -119,6 +119,26 @@ if (isset(new_room)) {
     assert.equal(draft.capture().read("logic:1"), undefined, "undo removes the room");
   });
 
+  test("Tests never reserve game numbers: adding a room uses the lowest free slot", () => {
+    for (const tests of [
+      JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: [{ name: "Future room", room: 7, steps: [] }],
+      }),
+      "not json",
+      Uint8Array.of(0xff, 0xfe),
+    ]) {
+      const { ctx, draft } = workspace("blank");
+      for (let room = 1; room < 7; room++)
+        draft.edit(`logic:${room}`, "return;", draft.capture().version(`logic:${room}`));
+      draft.edit("tests", tests, draft.capture().version("tests"));
+      const op = mustPrepare(prepareGuidedAddRoom(ctx, { title: "Room seven" }));
+      assert.ok(op.affectedKeys.includes("logic:7"));
+      op.apply();
+      assert.deepEqual(draft.capture().read("tests")?.content, tests);
+    }
+  });
+
   test("honors explicit ids and names bindings only when asked", () => {
     const { ctx, draft } = workspace("blank");
     const op = mustPrepare(

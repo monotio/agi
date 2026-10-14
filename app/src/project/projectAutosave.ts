@@ -10,6 +10,7 @@ export function createProjectAutosave<Capture, Receipt>(input: {
 }) {
   let pending: Capture | undefined;
   let failed: Capture | undefined;
+  let cause: unknown;
   let active: Promise<void> | null = null;
   let writing: Capture | undefined;
   let disposed = false;
@@ -39,10 +40,12 @@ export function createProjectAutosave<Capture, Receipt>(input: {
         if (!current() || stopped) return;
         await input.saved(receipt, capture);
         failed = undefined;
+        cause = undefined;
         writing = undefined;
       } catch (error) {
         if (!current() || stopped) return;
         failed = capture;
+        cause = error;
         writing = undefined;
         stopped = input.conflict(error);
         notify(stopped ? "conflict" : "failed");
@@ -84,15 +87,18 @@ export function createProjectAutosave<Capture, Receipt>(input: {
     },
     flush,
     retry: flush,
-    status: () => ({
-      state,
-      message:
-        state === "failed"
-          ? "Could not save. Retry"
-          : state === "conflict"
-            ? "Changed in another tab. Reopen this game."
-            : "",
-    }),
+    status() {
+      return {
+        state,
+        cause,
+        message:
+          state === "failed"
+            ? "Could not save. Retry"
+            : state === "conflict"
+              ? "Changed in another tab. Reopen this game."
+              : "",
+      };
+    },
     captures: () =>
       [writing ?? failed, pending].filter((capture): capture is Capture => capture !== undefined),
     dispose() {
@@ -100,6 +106,7 @@ export function createProjectAutosave<Capture, Receipt>(input: {
       clearTimers();
       pending = undefined;
       failed = undefined;
+      cause = undefined;
     },
   };
 }

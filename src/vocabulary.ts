@@ -605,7 +605,7 @@ export const VOCABULARY = {
   review: {
     id: "review",
     label: "Review",
-    help: "Review asks before applying changes. Auto-approve applies them as they arrive.",
+    help: "Review asks before applying changes. Auto-approve applies game edits and new tests. Existing test edits need review.",
     technical: "",
   },
   approve: {
@@ -642,7 +642,7 @@ export const VOCABULARY = {
   autoApprove: {
     id: "autoApprove",
     label: "Auto-approve",
-    help: "Review asks before applying changes. Auto-approve applies them as they arrive.",
+    help: "Review asks before applying changes. Auto-approve applies game edits and new tests. Existing test edits need review.",
     technical: "",
   },
   reject: {
@@ -720,7 +720,7 @@ export const VOCABULARY = {
   proposeChanges: {
     id: "proposeChanges",
     label: "Propose changes",
-    help: "Offers changes for the player to approve (Review) or applies them (Auto-approve).",
+    help: "Offers changes for review. Auto-approve applies game edits and new tests. Existing test edits need review.",
     technical: "The active host decides admission.",
   },
   withdrawChanges: {

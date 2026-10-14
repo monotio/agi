@@ -2,12 +2,13 @@ import { installWebLocksFixture } from "./webLocksFixture.ts";
 import { replayHistorySegment } from "./worker-ctx.ts";
 import type { HistorySegment } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { createWorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { createMainProjectAdmission } from "../src/engine/mainProjectAdmission.ts";
+import { useTestRecorder } from "../src/authoring/useTestRecorder.ts";
 import { WorkerQueryTimeoutError } from "../src/engine/workerQueries.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -17,6 +18,7 @@ import {
 } from "../../src/authoring/projectWorkspace.ts";
 import { readProjectHistory } from "../../src/authoring/projectHistoryCodec.ts";
 import { sha256Hex } from "../../src/crypto.ts";
+import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -368,3 +370,294 @@ test("acquiring project admission for a Play conversation preserves the interpre
   assert.equal(ctx.run.progress.mode, "play");
   ctx.fns.stopTimers();
 });
+
+async function openNativeTestsProject(
+  t: TestContext,
+  name: string,
+  documents: Record<string, string>,
+  storedDocuments = documents,
+) {
+  const { saveTests } = await import("../src/authoring/saveTests.ts");
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const storedImage = compileProjectDocuments({
+    files: Object.fromEntries(compiled.files()),
+    documents: storedDocuments,
+    profileId: "2.936",
+  });
+  const id = requireProjectId(name);
+  const first = await storage.commitProject({
+    projectId: id,
+    commitId: "initial",
+    workspaceId: "initial",
+    buildId: storedImage.build.identity.buildId,
+    expected: null,
+    documents: [],
+    data: {
+      title: "Tests",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(storedDocuments),
+    },
+  });
+  const messages: WorkerControl[] = [];
+  const sent: WorkerInbound[] = [];
+  let now = 0;
+  const ctx = createWorkerContext({
+    control: (message) => messages.push(message),
+    presentation: () => {},
+    now: () => now,
+    seedWord: () => 1,
+  });
+  ctx.host = createEngineHost(ctx);
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    profile: "2.936",
+    projectMode: "create",
+    progressMode: "play",
+    projectDocuments: writeProjectWorkspace(documents),
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  t.after(() => ctx.fns.stopTimers());
+  for (let i = 0; i < 4; i++) {
+    now += 100;
+    ctx.fns.hostTick();
+  }
+  const tick = () => {
+    now += 100;
+    ctx.fns.hostTick();
+  };
+  const engine = ctx.run.engine!;
+  const boot = messages.find((message) => message.type === "booted");
+  assert.ok(boot?.type === "booted" && boot.projectAdmission);
+  let queryId = 0;
+  const query = (async (type, extra) => {
+    const id = ++queryId;
+    const request = { type, id, ...extra } as WorkerInbound;
+    sent.push(request);
+    onWorkerMessage(ctx, request);
+    const reply = messages.at(-1);
+    assert.ok(reply && "id" in reply && reply.id === id, `worker answered ${type}`);
+    return reply;
+  }) as WorkerQueryFn;
+  const admission = createMainProjectAdmission({
+    ...boot.projectAdmission,
+    query,
+    current: () => ctx.run.engine === engine,
+    acceptedImage: () => session.model.capture().lastAdmissibleBuild,
+  });
+  const persistence = { reject: false };
+  const session = openProjectSession({
+    data: (await storage.loadAuthoredGame(id))!,
+    async write(request) {
+      if (persistence.reject) throw new Error("Browser storage refused the test write.");
+      return (await storage.commitProject(request)).receipt;
+    },
+    lifetime: first.receipt.saved.lifetime,
+    admission,
+  });
+  t.after(() => session.dispose());
+  return {
+    saveTests,
+    persistence,
+    session,
+    ctx,
+    engine,
+    sent,
+    messages,
+    query,
+    admission,
+    tick,
+    grant: boot.projectAdmission,
+  };
+}
+
+test("saving tests leaves Play, the timeline and recording intact; the next resource edit admits the complete project", async (t) => {
+  const documents = {
+    bindings: "{}",
+    "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
+    "logic:1":
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } return;",
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+  };
+  const { saveTests, session, ctx, engine, sent, messages, query } = await openNativeTestsProject(
+    t,
+    "tests-native-admission",
+    documents,
+  );
+  const start = await query("startRecording");
+  assert.equal(start.ok, true);
+  const recording = ctx.run.recording.recording;
+  assert.ok(recording);
+  const before = {
+    engineState: engine.captureReplayState(),
+    timeline: structuredClone(ctx.history),
+    lane: structuredClone({
+      documentId: ctx.run.projectAdmission!.documentId,
+      epoch: ctx.run.projectAdmission!.epoch,
+      serial: ctx.run.projectAdmission!.updateSerial,
+    }),
+    posted: messages.length,
+    sent: sent.length,
+    tape: structuredClone(recording.tape.operations),
+  };
+  const saved = await saveTests(session, {
+    kind: "merge",
+    tests: [{ name: "stay in room", room: 1, steps: [], expect: { room: 1 } }],
+  });
+  assert.equal(sent.length, before.sent, "tests-only saves send no native admission requests");
+  assert.equal(messages.length, before.posted, "tests-only saves emit no worker timeline events");
+  assert.equal(ctx.run.engine, engine);
+  assert.deepEqual(engine.captureReplayState(), before.engineState);
+  assert.deepEqual(ctx.history, before.timeline);
+  assert.equal(ctx.run.recording.recording, recording);
+  assert.equal(recording.tainted, null);
+  assert.deepEqual(recording.tape.operations, before.tape);
+  assert.deepEqual(
+    {
+      documentId: ctx.run.projectAdmission!.documentId,
+      epoch: ctx.run.projectAdmission!.epoch,
+      serial: ctx.run.projectAdmission!.updateSerial,
+    },
+    before.lane,
+  );
+  await saveTests(session, {
+    kind: "merge",
+    tests: [{ name: "stay in room", room: 1, steps: [], expect: { room: 1 } }],
+  });
+  assert.equal(sent.length, before.sent, "an identical test save sends no native request");
+  assert.deepEqual(
+    ctx.history,
+    before.timeline,
+    "an identical test save leaves the timeline intact",
+  );
+  assert.equal(session.saveStatus().state, "saved", "an identical save still flushes persistence");
+  const tests = new TextDecoder().decode(saved.payload);
+  const outcome = await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Picture", [
+      { key: "picture:1", content: "vis 4\nfill 1,1\nend\n" },
+    ]),
+    label: "Picture",
+    origin: "picture",
+    author: "creator",
+  });
+  assert.equal(outcome.status, "committed");
+  assert.equal(engine.getPictureSurface().visual[161], 4);
+  assert.equal(readProjectWorkspace(ctx.boot.project!.documents)["tests"], tests);
+  assert.equal(ctx.run.projectAdmission!.documentId, session.model.capture().documentId);
+  const update = sent.find((message) => message.type === "previewUpdate");
+  assert.ok(update?.type === "previewUpdate");
+  assert.equal(readProjectWorkspace(update.candidate.documents!)["tests"], tests);
+});
+
+test("Failed saves retain causes and recordings: rejected storage keeps a recorded test available for Retry", async (t) => {
+  const documents = {
+    bindings: "{}",
+    "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
+    "logic:1":
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } return;",
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+  };
+  const claimed = { ...documents, "logic:0": `${documents["logic:0"]}\n// Current source` };
+  const f = await openNativeTestsProject(t, "tests-refused-recording", documents, claimed);
+  f.persistence.reject = true;
+  const projectId = requireProjectId("tests-refused-recording");
+  const game = (await storage.loadAuthoredGame(projectId))!;
+  const booted = { ...game, installed: false, revision: computeResourceRevision(game.files) };
+  let flushed = 0;
+  const recorder = useTestRecorder({
+    state: {
+      phase: "running",
+      recording: { active: false, starting: false, error: "" },
+      powerUp: { open: false, busy: false },
+      modal: null,
+      prompt: null,
+      waitingForKey: false,
+    },
+    getWorker: () => ({}) as Worker,
+    query: f.query,
+    logAgent: () => {},
+    getBootedGame: () => booted,
+    getProjectSession: () => f.session,
+    flushAutosave: async () => {
+      flushed++;
+    },
+  });
+  await recorder.startTestRecording();
+  const snapshot = await recorder.stopTestRecording();
+  assert.ok(snapshot && !("endedBy" in snapshot));
+  const before = f.session.model.capture().documentId;
+  const storedGeneration = game.generation;
+  const result = await recorder.saveRecordedTest(snapshot, "recorded", []);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Browser storage refused the test write/);
+  assert.equal(flushed, 0, "refusal must not flush or report success");
+  assert.notEqual(
+    f.session.model.capture().documentId,
+    before,
+    "the accepted test remains available for Retry",
+  );
+  const stored = (await storage.loadAuthoredGame(projectId))!;
+  assert.equal(stored.generation, storedGeneration, "a refusal cannot persist another capture");
+  assert.equal(readProjectWorkspace(stored.workspace!)["tests"], undefined);
+  f.persistence.reject = false;
+  // The same stopped recording remains available for the player's next Save.
+  const saved = await recorder.saveRecordedTest(snapshot, "recorded", []);
+  assert.equal(saved.ok, true);
+  assert.equal(flushed, 0, "test persistence never flushes the live game");
+  assert.equal(snapshot.tainted, null);
+});
+
+for (const next of ["deferred", "moved room"] as const) {
+  test(`a test save preserves a pending restart when the worker is ${next}`, async (t) => {
+    const documents = {
+      bindings: "{}",
+      "logic:0":
+        "if (isset(f5) && v0 == 0) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); new.room(1); } if (v0 != 0) { call.v(v0); } return;",
+      "logic:1": "return;",
+      "logic:2":
+        "if (isset(f5)) { assignn(v50,2); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+      "picture:1": "vis 1\nfill 1,1\nend\n",
+      "picture:2": "vis 2\nfill 1,1\nend\n",
+    };
+    const f = await openNativeTestsProject(
+      t,
+      `tests-pending-restart-${next.replaceAll(" ", "-")}`,
+      documents,
+    );
+    assert.equal(f.engine.vars[0], 1);
+    const outcome = await f.session.submit({
+      proposal: f.session.model.propose(f.session.model.capture(), "Picture", [
+        { key: "picture:1", content: "vis 4\nfill 1,1\nend\n" },
+      ]),
+      label: "Picture",
+      origin: "picture",
+      author: "creator",
+    });
+    assert.equal(outcome.status, "restartRequired");
+    const restart = f.session.pendingRestart;
+    assert.ok(restart);
+    f.engine.reenterRoom(next === "deferred" ? 1 : 2);
+    if (next === "moved room") f.tick();
+    const before = {
+      sent: f.sent.length,
+      timeline: structuredClone(f.ctx.history),
+      state: f.engine.serialize(),
+    };
+    await f.saveTests(f.session, {
+      kind: "merge",
+      tests: [{ name: "pending", room: 1, steps: [], expect: null }],
+    });
+    assert.equal(f.sent.length, before.sent, "test saves cannot retry a pending resource restart");
+    assert.equal(f.session.pendingRestart, restart);
+    assert.equal(f.session.capture().pendingAdmission, false);
+    assert.deepEqual(f.ctx.history, before.timeline);
+    assert.deepEqual(f.engine.serialize(), before.state);
+  });
+}

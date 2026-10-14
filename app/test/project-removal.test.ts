@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { newSaveState, encodeSave } from "../../src/runtime/persistence.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { createSoundDocument } from "../../src/sound/document.ts";
 import {
@@ -285,14 +287,17 @@ test("a planned world room blocks removing its LOGIC", async () => {
   );
 });
 
-test("a stored test's room use blocks removing its LOGIC", async () => {
+test("Tests never block game edits: retained tests allow room deletion", async () => {
+  const state = newSaveState(PROFILES["2.936"]);
+  state.vars[0] = 9;
+  const setup = { image: Buffer.from(encodeSave(state, PROFILES["2.936"])).toString("base64") };
   const projectId = await seedProject("rm-tests", (data) => {
     const documents = readProjectWorkspace(data.workspace);
     data.workspace = writeProjectWorkspace({
       ...documents,
       tests: JSON.stringify({
         format: "monotio.agi.tests.v1",
-        tests: [{ name: "tower", room: 9, steps: [], expect: { room: 9 } }],
+        tests: [{ name: "tower", room: 9, steps: [], expect: { room: 9 }, setup }],
       }),
     });
   });
@@ -302,10 +307,10 @@ test("a stored test's room use blocks removing its LOGIC", async () => {
 
   edit(ws, "logic:9", null);
   const candidate = ws.buildSelected(["logic:9"]);
-  await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["logic:9"] }),
-    /test 'tower' still enters logic:9/,
-  );
+  await ws.keepCandidate(candidate, { reviewedRemovals: ["logic:9"] });
+  assert.equal(ws.draft.capture().read("logic:9"), undefined);
+  const retained = JSON.parse(String(ws.draft.capture().read("tests")?.content));
+  assert.equal(retained.tests[0].setup.image, setup.image);
 });
 
 test("reference-art metadata blocks removal of its LOGIC target", async () => {

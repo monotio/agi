@@ -28,6 +28,30 @@ import {
 import { resourceSetHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
 
+/** A failure the Tests panel can describe without parsing Agent prose. */
+export interface PlaytestFailure {
+  readonly kind:
+    | "room"
+    | "item"
+    | "flag"
+    | "var"
+    | "printed"
+    | "text"
+    | "score"
+    | "object"
+    | "reachable"
+    | "until"
+    | "navigation"
+    | "setup"
+    | "step"
+    | "simulation";
+  readonly id: number | null;
+  readonly expected: unknown;
+  readonly observed: unknown;
+  /** Null for setup failures and expectations checked after the whole scenario. */
+  readonly stepIndex: number | null;
+}
+
 const DEFAULT_CYCLES = 600;
 /** The most logic cycles one scenario may run: a playtest's cycleBudget or a step's ticks. */
 const MAX_SCENARIO_CYCLES = 60000;
@@ -621,6 +645,8 @@ export function playtestRoom(
   } = {},
 ): AgentToolResult {
   let simulation: Simulation | undefined;
+  let failingStepIndex: number | null = null;
+  let stepFailure: PlaytestFailure | undefined;
   try {
     const room = integer(args["room"], "room", 1, 255);
     const setupImage = options.setupImage;
@@ -663,6 +689,7 @@ export function playtestRoom(
     const captureTicksByStep: number[][] = [];
     let totalCaptureTicks = 0;
     for (let index = 0; index < steps.length; index++) {
+      failingStepIndex = index;
       const step = steps[index];
       if (!step || typeof step !== "object" || Array.isArray(step))
         throw new Error(`steps[${index}] must be an action object.`);
@@ -712,6 +739,7 @@ export function playtestRoom(
     );
     if (recording) simulation.originKind = "recorded";
     else if (setupImage) simulation.originKind = "candidate";
+    failingStepIndex = null;
     const engine = simulation.engine;
     let enteredDirectly = false;
     if (setupImage) {
@@ -757,13 +785,26 @@ export function playtestRoom(
       restored: Boolean(setupImage),
     };
     if (problems.length)
-      return simulation.result(false, "spawn_blocked", problems.join(" "), spawn);
+      return simulation.result(false, "spawn_blocked", problems.join(" "), {
+        ...spawn,
+        failingStepIndex: null,
+        failures: [
+          {
+            kind: "setup",
+            id: 0,
+            expected: { room, x, y, clear: true },
+            observed: { room: engine.vars[0], x, y, clear: false, problems },
+            stepIndex: null,
+          } satisfies PlaytestFailure,
+        ],
+      });
     if (args["spawnX"] != null || args["spawnY"] != null) {
       ego.x = ego.prevX = x;
       ego.y = ego.prevY = y;
     }
     if (steps.length) simulation.estimatedGameTimeMs = engine.vars[10] === 0 ? null : 0;
     for (let index = 0; index < steps.length; index++) {
+      failingStepIndex = index;
       const step = steps[index] as Record<string, unknown>;
       if (!step || typeof step !== "object" || Array.isArray(step))
         throw new Error(`steps[${index}] must be an action object.`);
@@ -1007,16 +1048,35 @@ export function playtestRoom(
                   y1: point.y,
                 }
               : null);
+          stepFailure = {
+            kind: "navigation",
+            id: 0,
+            expected: navigationGoal,
+            observed: navigationOutcome ?? null,
+            stepIndex: index,
+          };
           const message = `steps[${index}]: ${String(action)} did not reach its goal: ${navigationOutcome?.status ?? "budget_exhausted"} (${navigationOutcome?.reason ?? "action budget exhausted"}).`;
           if (navigationOutcome?.status === "needs_input")
             throw new SimulationStop(message, "needs_input");
           throw new Error(message);
         }
       }
-      if (until !== null && !untilMet(engine, until))
+      if (until !== null && !untilMet(engine, until)) {
+        stepFailure = {
+          kind: "until",
+          id: null,
+          expected: until,
+          observed: {
+            room: engine.vars[0],
+            flag: until.flag === null ? null : engine.flags[until.flag.id] !== 0,
+            var: until.var === null ? null : engine.vars[until.var.id],
+          },
+          stepIndex: index,
+        };
         throw new Error(
           `steps[${index}]: ${action} did not satisfy ${describeUntil(until)} within ${ticks} cycles.`,
         );
+      }
       Object.assign(observed, {
         roomAfter: engine.vars[0],
         xAfter: engine.screenObjects[0]!.x,
@@ -1075,10 +1135,20 @@ export function playtestRoom(
       )
         throw new Error(`steps[${index}]: the game did not accept the supplied command.`);
     }
+    failingStepIndex = null;
     if (simulation.answers.length)
       throw new Error("Unused answer steps remain: the game never requested those replies.");
     const expected = args["expect"];
     const failures: string[] = [];
+    const structuredFailures: PlaytestFailure[] = [];
+    const failure = (
+      kind: PlaytestFailure["kind"],
+      id: number | null,
+      expected: unknown,
+      observed: unknown,
+    ) => {
+      structuredFailures.push({ kind, id, expected, observed, stepIndex: null });
+    };
     const nextSteps: string[] = [];
     if (expected != null) {
       if (typeof expected !== "object" || Array.isArray(expected))
@@ -1093,6 +1163,7 @@ export function playtestRoom(
             const b = lastMove["attemptedBaseline"] as { x0: number; y: number; x1: number };
             simulation.navigationFailureTarget = { x0: b.x0, y0: b.y, x1: b.x1, y1: b.y };
           }
+          failure("room", null, wanted, engine.vars[0]);
           failures.push(`Expected room ${wanted}; observed room ${engine.vars[0]}.`);
           nextSteps.push(
             "Use read_room to inspect the exit logic and priority/control plane. For edge exits, check ego boundary variable v2, horizon, footprint and blocking pixels; for portals, check the position condition that should call new.room. Replay the actual movement after repair.",
@@ -1107,6 +1178,7 @@ export function playtestRoom(
           const id = integer(value, "expect.carriedItems entry", 0, 255);
           const item = inventory.find((item) => item.num === id);
           if (item?.room !== 255) {
+            failure("item", id, 255, item?.room ?? null);
             nextSteps.push(
               `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
             );
@@ -1127,6 +1199,7 @@ export function playtestRoom(
             throw new Error("expect.flags value must be boolean.");
           const actual = engine.flags[id] !== 0;
           if (actual !== value.value) {
+            failure("flag", id, value.value, actual);
             failures.push(`Expected flag ${id}=${value.value}; observed ${actual}.`);
             nextSteps.push(
               `Inspect the set/reset paths for f${id}, their input and inventory preconditions, and whether room-entry code resets it each cycle. Use read_plan to check the binding's purpose and read_command_reference for condition semantics. Replay the triggering action instead of forcing the expected flag.`,
@@ -1149,6 +1222,12 @@ export function playtestRoom(
               : (variable.min === null || observed >= variable.min) &&
                 (variable.max === null || observed <= variable.max);
           if (!holds) {
+            failure(
+              "var",
+              variable.id,
+              variable.value ?? { min: variable.min ?? 0, max: variable.max ?? 255 },
+              observed,
+            );
             failures.push(
               variable.value !== null
                 ? `Expected v${variable.id}=${variable.value}; observed ${observed}.`
@@ -1168,6 +1247,7 @@ export function playtestRoom(
         const flat = (text: string) => text.replace(/\s+/g, " ");
         const wanted = flat(assertions["printed"]);
         if (!simulation.messages.some((message) => flat(message).includes(wanted))) {
+          failure("printed", null, wanted, simulation.messages.slice(-32));
           failures.push(
             `Expected a printed message containing ${JSON.stringify(wanted)}; none did.`,
           );
@@ -1183,6 +1263,7 @@ export function playtestRoom(
         const frame = engine.getPresentation();
         const rows = textRows({ ...frame, cycle: simulation.cycles, picRow: engine.displayBase });
         if (!rows.some((row) => row.includes(wanted))) {
+          failure("text", null, wanted, rows);
           failures.push(`Expected visible text containing ${JSON.stringify(wanted)}; none shown.`);
           nextSteps.push(
             "Compare details.text with the display call that should show it; text shows only while nothing repaints its rows, and an open window pauses the room.",
@@ -1192,6 +1273,7 @@ export function playtestRoom(
       if (assertions["score"] != null) {
         const wanted = integer(assertions["score"], "expect.score", 0, 255);
         if (engine.vars[3] !== wanted) {
+          failure("score", 3, wanted, engine.vars[3]);
           failures.push(`Expected score ${wanted}; observed ${engine.vars[3]}.`);
           nextSteps.push(
             "Inspect every addn/subn to v3 on the path the steps take; the score changes in the logic that awards it, not at the assertion.",
@@ -1215,6 +1297,12 @@ export function playtestRoom(
         if (spec.y1 !== null && target.y > spec.y1)
           misses.push(`y <= ${spec.y1}; observed ${target.y}`);
         if (misses.length) {
+          failure("object", spec.num, spec, {
+            active: target.active,
+            view: target.view,
+            x: target.x,
+            y: target.y,
+          });
           failures.push(`Expected object ${spec.num} ${misses.join(", ")}.`);
           nextSteps.push(
             `Inspect object ${spec.num} with read_room and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
@@ -1261,6 +1349,12 @@ export function playtestRoom(
             y1: reachY,
           };
           const walker = engine.screenObjects[0]!;
+          failure(
+            "reachable",
+            0,
+            { x: reachX, y: reachY },
+            { x: walker.x, y: walker.y, status: outcome.status },
+          );
           failures.push(
             `Expected (${reachX},${reachY}) reachable on foot; ego stopped at (${walker.x},${walker.y}).`,
           );
@@ -1271,7 +1365,12 @@ export function playtestRoom(
       }
     }
     if (failures.length)
-      return simulation.result(false, "failed", failures.join(" "), { ...spawn, nextSteps });
+      return simulation.result(false, "failed", failures.join(" "), {
+        ...spawn,
+        nextSteps,
+        failures: structuredFailures,
+        failingStepIndex: null,
+      });
     const warnings = roomWarnings(simulation.engine, state);
     return simulation.result(
       true,
@@ -1292,9 +1391,22 @@ export function playtestRoom(
       Object.hasOwn(state.authoring.world.rooms, String(reached))
     )
       return simulation.result(true, "reached_planned_room", undefined, { plannedRoom: reached });
+    const details = {
+      failures: [
+        stepFailure ??
+          ({
+            kind: failingStepIndex === null ? "simulation" : "step",
+            id: null,
+            expected: null,
+            observed: message,
+            stepIndex: failingStepIndex,
+          } satisfies PlaytestFailure),
+      ],
+      failingStepIndex,
+    };
     return simulation
-      ? simulation.result(false, status, message)
-      : { success: false, error: message };
+      ? simulation.result(false, status, message, details)
+      : { success: false, error: message, details };
   }
 }
 

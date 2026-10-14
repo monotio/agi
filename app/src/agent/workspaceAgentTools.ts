@@ -90,7 +90,7 @@ export const WORKSPACE_AGENT_TOOLS: readonly ToolDefinition[] = [
           ...tool,
           description: toolDescription(
             "propose_changes",
-            "Offer one coordinated change set of complete document replacements or deletions. Include all affected references. Native resource tools and game notes are combined with these changes and the whole project is validated. Review keeps the proposal for approval; Auto-approve admits each valid proposal immediately as its own History commit. Later tools read the admitted project.",
+            "Offer one coordinated change set of complete document replacements or deletions. Include all affected references. Native resource tools and game notes are combined with these changes and the whole project is validated. Review keeps the proposal for approval; Auto-approve admits valid game edits and new tests immediately as their own History commits. Edits or deletions of existing tests always require creator review. Later tools read the admitted project.",
           ),
         }
       : tool,

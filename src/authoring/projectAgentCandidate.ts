@@ -538,7 +538,12 @@ export function captureAgentWorkspace(input: {
       else if (content instanceof Uint8Array) overlaid[key] = new Uint8Array(content);
       else throw new Error("Project document content must be text, bytes or a deletion.");
     }
-    validateDocuments(overlaid);
+    if (changes.some((change) => change.key === "tests")) {
+      const content = overlaid["tests"];
+      parseGameTests(typeof content === "string" ? UTF8_ENCODE.encode(content) : content, profile);
+    }
+    if (!changes.length || changes.some((change) => change.key !== "tests"))
+      validateDocuments(overlaid);
     return draft.propose(snapshot, label, changes);
   };
 
@@ -550,7 +555,9 @@ export function captureAgentWorkspace(input: {
       );
 
     const imageFiles = compiled.files();
-    const container = openContainer(imageFiles, { profile });
+    const resourceFiles = new Map(imageFiles);
+    resourceFiles.delete(GAME_TESTS_FILE);
+    const container = openContainer(resourceFiles, { profile });
 
     // The base payloads every read-back comparison is anchored to.
     const basePayloads = new Map<string, Uint8Array>();
@@ -583,6 +590,7 @@ export function captureAgentWorkspace(input: {
     const state = createAgentSessionState(container, profile);
     // The captured project already exists — this is not a genesis run.
     state.genesisComplete = true;
+    state.readCommittedTests = () => documents["tests"];
     const wordsTok = imageFiles.get("WORDS.TOK");
     const objectFile = imageFiles.get("OBJECT");
     if (wordsTok) state.wordsPayload = new Uint8Array(wordsTok);
@@ -936,7 +944,14 @@ export function captureAgentWorkspace(input: {
         if (content === null) delete effective[key];
         else effective[key] = content;
       }
-      validateDocuments(effective);
+      if (changes.some((change) => change.key === "tests")) {
+        const content = effective["tests"];
+        parseGameTests(
+          typeof content === "string" ? UTF8_ENCODE.encode(content) : content,
+          profile,
+        );
+      }
+      if (changes.some((change) => change.key !== "tests")) validateDocuments(effective);
       return draft.propose(snapshot, label, changes);
     };
 

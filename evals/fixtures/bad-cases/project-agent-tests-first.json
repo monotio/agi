@@ -1,0 +1,54 @@
+{
+  "name": "project-agent-tests-first",
+  "description": "Tests may describe a missing room and finish with notes naming the failure.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[]"
+    },
+    "request": "Write a test before room 5 exists",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "tests",
+            "name": "write_game_tests",
+            "input": {
+              "mode": "merge",
+              "names": null,
+              "tests": [
+                {
+                  "name": "Future room",
+                  "room": 5,
+                  "steps": []
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "finish",
+            "name": "finish",
+            "input": {
+              "notes": "Future room stays red because room 5 has not been built."
+            }
+          }
+        ]
+      }
+    ],
+    "expectedKeys": ["tests"],
+    "expectedOutcomes": {
+      "finish": true
+    },
+    "expectedCommits": 1,
+    "expectedDocuments": {
+      "logic:5": null
+    },
+    "expectedReviewLines": ["Added test \"Future room\""]
+  }
+}

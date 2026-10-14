@@ -1,3 +1,5 @@
+import { gameTestChanges } from "../../../src/agent/gameTestReview.ts";
+import { mergeAgentTestChanges } from "../../../src/authoring/projectTestsMerge.ts";
 import { beginProviderTask } from "./providerBudget.ts";
 import type { AgentChat } from "../../../src/agent/chats.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
@@ -147,7 +149,7 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full committed suite; red tests require notes naming each failure and why it stays red. Never change a test's expectation or delete a test to make it pass. Fix the game, or leave it red and say why. Begin the reply with the test status; with no tests say nothing about tests. Playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 /**
@@ -158,8 +160,8 @@ Look before you write: read_room carries the room's live state, object table and
  * it boots, and an imported game has no genesis to re-litigate. Returns the
  * rejection text, or null when the candidate may commit.
  */
-function remixVerdict(staged: AgentSessionState): string | null {
-  const verdict = validateAgentHandover(staged, null, false);
+function remixVerdict(staged: AgentSessionState, notes: string): string | null {
+  const verdict = validateAgentHandover(staged, notes, false);
   return verdict.success ? null : (verdict.error ?? "Handover rejected.");
 }
 
@@ -439,12 +441,47 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
   }
 
-  private executeTool(
+  private async executeTool(
     ...args: Parameters<typeof executeAgentToolAsync>
   ): ReturnType<typeof executeAgentToolAsync> {
     this.task.assertActive();
     this.assertAdoptable();
-    return executeAgentToolAsync(...args);
+    const [candidate, name] = args;
+    const previous = name === "write_game_tests" ? candidate.testsPayload?.slice() : undefined;
+    const result = await executeAgentToolAsync(...args);
+    if (name === "write_game_tests" && result.success) {
+      let needsReview: boolean;
+      try {
+        const current = candidate.readCommittedTests ? candidate.readCommittedTests() : previous;
+        const merged = mergeAgentTestChanges(
+          previous ? { tests: previous } : {},
+          current === undefined ? {} : { tests: current },
+          [{ key: "tests", content: candidate.testsPayload ?? null }],
+          candidate.profile,
+        );
+        const tests = merged.find((change) => change.key === "tests");
+        const base = candidate.finishTestsBase === undefined ? previous : candidate.finishTestsBase;
+        needsReview =
+          !!tests &&
+          (gameTestChanges(current, tests.content, candidate.profile).some(
+            (change) => change.kind !== "added",
+          ) ||
+            gameTestChanges(base, candidate.testsPayload, candidate.profile).some(
+              (change) => change.kind !== "added",
+            ));
+      } catch {
+        needsReview = true;
+      }
+      if (needsReview) {
+        candidate.testsPayload = previous;
+        return {
+          success: false,
+          error:
+            "Existing test edits need creator review. Open Tests in the workspace to review this change.",
+        };
+      }
+    }
+    return result;
   }
 
   /** Register local context; opening or connecting the panel never calls the provider. */
@@ -570,6 +607,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     const prompt = orientation + art.text + createPowerUpPrompt(instruction, room);
 
     const staged = forkAgentState(this.state);
+    if (staged.finishTestsBase === undefined)
+      staged.finishTestsBase = this.state.testsPayload ?? null;
     const forkRevision = worldRevision(this.state.authoring.world);
     try {
       let turn = await this.observeTurn(
@@ -587,11 +626,15 @@ Answer the player's question using evidence from inspection when needed. For hin
       // until completion or a visible task pause. A text reply may be a
       // progress note while the staged candidate still needs repair.
       let stagedChanges = false;
+      let finishStatus = "";
       for (;;) {
         if (turn.toolCalls.length === 0) {
           if (!stagedChanges) break;
-          const verdict = remixVerdict(staged);
-          if (verdict === null) break;
+          const verdict = remixVerdict(staged, turn.text ?? "");
+          if (verdict === null) {
+            finishStatus = staged.finishTestsStatus ?? "";
+            break;
+          }
           this.task.recordTool(
             "remix_verdict",
             {},
@@ -641,11 +684,13 @@ Answer the player's question using evidence from inspection when needed. For hin
               }),
             );
           }
-          if (!res.success) failed.push(tc.name);
-          if (res.success) {
+          if (!res.success && !res.details?.["gameTestsFailed"]) failed.push(tc.name);
+          if (res.success || res.details?.["gameTestsFailed"]) {
             Object.assign(staged, candidate);
-            if (tc.name === "finish") handedOver = true;
-            else if (
+            if (tc.name === "finish") {
+              handedOver = true;
+              finishStatus = String(res.details?.["testsVerdict"] ?? "");
+            } else if (
               res.details?.["writtenResources"] ||
               res.details?.["updatedFiles"] ||
               res.details?.["authoringChanged"]
@@ -702,7 +747,9 @@ Answer the player's question using evidence from inspection when needed. For hin
           "response",
           "[Remix] A map edit landed mid-remix; the turn's plan change was superseded.",
         );
-      const text = turn.text || "Changes are ready.";
+      const reply = turn.text || "Changes are ready.";
+      const text =
+        finishStatus && !reply.startsWith(finishStatus) ? `${finishStatus}\n${reply}` : reply;
       this.noteUnviewed("Remix", watch.unviewed(text));
       this.messages.push({ role: "assistant", text });
       this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, {
@@ -1099,6 +1146,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     // provider. Admission is explicit: a blank session and the untouched
     // seed are seeded; a session holding completed, imported or divergent
     // authored work is refused rather than silently reseeded.
+    if (this.state.finishTestsBase === undefined)
+      this.state.finishTestsBase = this.state.testsPayload ?? null;
     const seed = installBoilerplateSeed(this.state);
     // Genesis carries no reference art yet, so read_reference_image stays off its list.
     const genesisTools = withReferences(GENESIS_TOOLS, undefined);
@@ -1167,7 +1216,7 @@ Answer the player's question using evidence from inspection when needed. For hin
               : await this.executeTool(this.state, tc.name, tc.input, {
                   allowedTools: genesisTools,
                 });
-          if (!res.success) failed.push(tc.name);
+          if (!res.success && !res.details?.["gameTestsFailed"]) failed.push(tc.name);
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             res.success ? "response" : "error",
@@ -1207,6 +1256,10 @@ Answer the player's question using evidence from inspection when needed. For hin
       }
     }
 
+    this.messages.push({
+      role: "assistant",
+      text: [this.state.finishTestsStatus, turn.text || "Game ready."].filter(Boolean).join("\n"),
+    });
     this.onEvent("response", "Genesis authoring complete! Assembling boot files.");
 
     const files = Object.fromEntries(this.state.getFiles());
@@ -1287,6 +1340,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     // Tools work against a detached container. A failed turn cannot leave
     // half a room in the session that the next attempt mistakes for success.
     let staged = forkAgentState(this.state);
+    if (staged.finishTestsBase === undefined)
+      staged.finishTestsBase = this.state.testsPayload ?? null;
     const forkRevision = worldRevision(this.state.authoring.world);
     staged.genesisComplete = true;
     staged.sources.objects = readInventoryObjects(staged.getFiles().get("OBJECT"), staged.profile);
@@ -1412,7 +1467,7 @@ Answer the player's question using evidence from inspection when needed. For hin
                 tc.input,
                 await this.executeTool(candidate, tc.name, tc.input, snapshot),
               );
-              if (result.success) {
+              if (result.success || result.details?.["gameTestsFailed"]) {
                 validateRoomCandidate(this.state, staged, candidate);
                 staged = candidate;
                 if (
@@ -1430,7 +1485,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           } catch (error) {
             result = { success: false, error: String(error) };
           }
-          if (!result.success) failed.push(tc.name);
+          if (!result.success && !result.details?.["gameTestsFailed"]) failed.push(tc.name);
           this.onEvent(
             result.success ? "response" : "error",
             `[Room tool] ${tc.name} -> ${result.success ? "ok" : result.error}`,
@@ -1450,6 +1505,12 @@ Answer the player's question using evidence from inspection when needed. For hin
         turn = await this.observeTurn(this.conversation.complete(), "room");
       }
       if (!completed) throw new Error(`Room ${room} authoring did not finish.`);
+      this.messages.push({
+        role: "assistant",
+        text: [staged.finishTestsStatus, turn.text || `Built room ${room}.`]
+          .filter(Boolean)
+          .join("\n"),
+      });
       this.noteUnviewed("Room", watch.unviewed(turn.text ?? ""));
 
       // The host's commit gate: a refusal discards the staged room through
@@ -1467,7 +1528,6 @@ Answer the player's question using evidence from inspection when needed. For hin
         resources: changed,
         words: [...staged.sources.words],
         ...(staged.objectPayload ? { objects: Array.from(staged.objectPayload) } : {}),
-        ...(staged.testsPayload ? { tests: Array.from(staged.testsPayload) } : {}),
       });
       prepareRoomPatch(
         openContainer(this.state.getFiles(), { profile: this.state.profile }),

@@ -14,7 +14,7 @@ import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.
 import { parseView, selectViewCel } from "../../../src/view/view.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
-import { parseGameTests } from "../../../src/agent/gameTestFormat.ts";
+import { gameTestReviewLines, readGameTestReviewSide } from "../../../src/agent/gameTestReview.ts";
 import { readInventoryObjects } from "../../../src/authoring/inventory.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { reviewText } from "./agentResultPreview.ts";
@@ -150,17 +150,20 @@ const afterText = computed(() =>
   reviewText(props.documentKey, props.after, props.afterDocuments, props.profile),
 );
 const source = computed(() => (props.inspection ? afterText.value : undefined));
+const testChanges = computed(() => {
+  if (props.documentKey !== "tests" || props.inspection) return [];
+  try {
+    return gameTestReviewLines(props.before, props.after, props.profile);
+  } catch {
+    return [];
+  }
+});
 const tests = computed(() => {
   if (props.documentKey !== "tests") return [];
   return sides.value.map(({ index }) => {
     const content = index ? props.after : props.before;
-    return {
-      label: props.inspection ? "Tests" : index ? "After" : "Before",
-      tests: parseGameTests(
-        typeof content === "string" ? new TextEncoder().encode(content) : (content ?? undefined),
-        props.profile,
-      ).tests,
-    };
+    const label = props.inspection ? "Tests" : index ? "After" : "Before";
+    return { label, ...readGameTestReviewSide(content, props.profile) };
   });
 });
 function entries(content: ProjectContent | null | undefined): string[] {
@@ -240,10 +243,16 @@ const removed = computed(() =>
     :audio="sounds.filter((sound) => sound.url)"
     class="agent-sound-review"
   />
-  <div v-else-if="tests.length" class="agent-tests-review" data-testid="agent-tests-review">
+  <div
+    v-else-if="props.documentKey === 'tests'"
+    class="agent-tests-review"
+    data-testid="agent-tests-review"
+  >
+    <p v-for="line in testChanges" :key="line" data-testid="agent-test-change">{{ line }}</p>
     <section v-for="side in tests" :key="side.label">
       <h4>{{ side.label }}</h4>
-      <table v-if="side.tests.length">
+      <p v-if="side.cause" data-testid="agent-tests-cause">{{ side.cause }}</p>
+      <table v-else-if="side.tests.length">
         <thead>
           <tr>
             <th>Test</th>

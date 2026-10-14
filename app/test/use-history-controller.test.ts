@@ -181,7 +181,7 @@ test("a mid-session storage-key change migrates the tape instead of orphaning it
   );
   assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(2) }), true);
 
-  // Saving a recording converts the catalog game into a remix project:
+  // A native game edit adopts a remix project:
   // `booted` swaps mid-session while the same worker keeps posting the
   // same segment's batches. The record must move — without the migration
   // every later commit refuses against a key that never saw the boot.
@@ -608,4 +608,72 @@ test("an installed folder and a saved project sharing one bare id keep separate 
     (await loadGameHistory(targetOf(installed).locator))?.segments.map((s) => s.id),
     ["inst.s1"],
   );
+});
+
+test("Tests are documents: the first test save keeps the running tape durable and its writer renewable", async () => {
+  const original = await savedGame("hc-tests-original");
+  const copy = await savedGame("hc-tests-copy");
+  const target = targetOf(original);
+  const lifetime = original.historyLifetime;
+  const state = {
+    historyPending: 0,
+    historyUnsaved: null as { batches: number; since: number } | null,
+  };
+  const logs: string[] = [];
+  let renew: (() => void) | undefined;
+  const controller = useHistoryController({
+    state,
+    getBootedGame: () => original,
+    getProfile: () => "2.936",
+    logAgent: (_kind, message) => logs.push(message),
+    scheduleRenewal: (callback) => {
+      renew = callback;
+      return () => {
+        renew = undefined;
+      };
+    },
+  });
+  const batch = (number: number, code: number, boot = false): HistoryBatch => ({
+    segment: "sTestCopy.s1",
+    batch: number,
+    seqStart: number - 1,
+    seqEnd: number,
+    events: [{ seq: number - 1, tick: number, cycle: number, cause: { kind: "key", code } }],
+    marks: [],
+    sync: [],
+    ...(boot ? { boot: BOOT } : {}),
+  });
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch(1, 65, true) }), true);
+  Object.assign(original, {
+    projectId: copy.projectId,
+    historyLifetime: copy.historyLifetime,
+    retainedProgressTarget: { target, lifetime },
+  });
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch(2, 66) }), true);
+  renew!();
+  await controller.drainHistoryCommits();
+  assert.equal(state.historyUnsaved, null);
+  assert.deepEqual(logs, []);
+  const { loadGameHistory } = await import("../src/history/historyStorage.ts");
+  const recorded = await loadGameHistory(target.locator);
+  assert.deepEqual(
+    recorded?.segments[0]!.events.map((event) => event.cause),
+    [
+      { kind: "key", code: 65 },
+      { kind: "key", code: 66 },
+    ],
+  );
+  assert.equal(
+    await loadGameHistory(targetOf(copy).locator),
+    null,
+    "test saving does not move the running tape",
+  );
+  bindProgressTarget(original);
+  assert.equal(
+    await controller.handleHistoryBatch({ epoch: 0, batch: batch(3, 67) }),
+    true,
+    "a native game adoption can relocate the same tape to its copy",
+  );
+  assert.equal((await loadGameHistory(targetOf(copy).locator))?.segments[0]!.events.length, 3);
+  controller.stopWriterRenewal();
 });

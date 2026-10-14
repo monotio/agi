@@ -221,6 +221,8 @@ function validateResult(value: AgentResult): void {
   }
 }
 function validateReview(pending: PendingAgentReview, messageIds: Set<string>): void {
+  // Earlier readers stored these notes; accept them without using them for approval.
+  const legacy = pending as PendingAgentReview & { finishNotes?: unknown };
   if (
     !pending ||
     typeof pending.label !== "string" ||
@@ -231,6 +233,7 @@ function validateReview(pending: PendingAgentReview, messageIds: Set<string>): v
     typeof pending.baseDocumentId !== "string" ||
     !/^[a-f0-9]{64}$/.test(pending.baseDocumentId) ||
     typeof pending.baseCommit !== "string" ||
+    (legacy.finishNotes !== undefined && typeof legacy.finishNotes !== "string") ||
     !onlyKeys(pending, [
       "label",
       "messageId",
@@ -240,6 +243,7 @@ function validateReview(pending: PendingAgentReview, messageIds: Set<string>): v
       "base",
       "baseImage",
       "candidate",
+      "finishNotes",
     ])
   )
     throw new Error("Invalid pending agent review.");

@@ -283,6 +283,30 @@ test("candidate spawn honors horizon, dimensions, and AGI object baseline collis
   }
 });
 
+test("a blocked spawn reports the requested placement and setup failure before any step", () => {
+  const result = playtestRoom(world(), { room: 1, steps: [], spawnX: 0, spawnY: 0 });
+  assert.equal(result.success, false);
+  assert.equal(result.details!["failingStepIndex"], null);
+  assert.deepEqual(result.details!["failures"], [
+    {
+      kind: "setup",
+      id: 0,
+      expected: { room: 1, x: 0, y: 0, clear: true },
+      observed: {
+        room: 1,
+        x: 0,
+        y: 0,
+        clear: false,
+        problems: [
+          "Ego 3x2 at (0,0) extends outside the picture.",
+          "Baseline y=0 must be below horizon 36.",
+        ],
+      },
+      stepIndex: null,
+    },
+  ]);
+});
+
 test("a room-only check does not claim a tested route and can enter a later authored room", () => {
   const state = world();
   const room = state.container.getResource("logic", 1)!;

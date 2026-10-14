@@ -1,6 +1,6 @@
 {
   "name": "project-agent-failed-finish-tests",
-  "description": "A rejected finish must never admit staged changes when a provider ends with text.",
+  "description": "Agent finish refuses unnamed red tests; notes naming every failure permit handover.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -52,19 +52,26 @@
         ]
       },
       {
-        "text": "Done",
-        "toolCalls": []
+        "toolCalls": [
+          {
+            "id": "finish-with-notes",
+            "name": "finish",
+            "input": {
+              "notes": "Impossible score needs its score implementation."
+            }
+          }
+        ]
       }
     ],
     "expectedKeys": [],
     "expectedOutcomes": {
-      "finish": false
+      "finish": false,
+      "finish-with-notes": true
     },
-    "expectedError": "Handover rejected",
     "autoApprove": true,
     "expectedDocuments": {
-      "world": null,
-      "tests": null
-    }
+      "world": null
+    },
+    "expectedCommits": 2
   }
 }

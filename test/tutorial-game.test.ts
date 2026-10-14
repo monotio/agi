@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GAME_TESTS_FILE } from "../src/agent/gameTestFormat.ts";
-import { readStoredTests, runGameTests } from "../src/agent/gameTests.ts";
+import { readStoredTests, runGameTests } from "../src/agent/gameTestsRunner.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { openContainer } from "../src/container/container.ts";
 import { TUTORIAL_GAME_TESTS } from "../games/adventure-department/tests.ts";

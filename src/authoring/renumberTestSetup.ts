@@ -124,20 +124,22 @@ export function renumberTestSetup(input: {
 export function testSetupReferences(
   setup: GameTestSetup,
   profile: AgiProfile,
+  options: { readonly activeOnly?: boolean } = {},
 ): readonly { kind: ResourceKind; num: number }[] {
   const references: { kind: ResourceKind; num: number }[] = [];
   const host = decodeHostImage(decodeBase64(setup.image, "test setup"));
   const state = decodeSave(host.image, profile);
   const add = (kind: ResourceKind, num: number) => references.push({ kind, num });
   add("logic", state.vars[0]!);
-  add("logic", state.vars[1]!);
-  for (const entry of state.logicResume) add("logic", entry.logic);
-  for (const object of state.objects) add("view", object.view);
-  add("picture", state.lastPicture);
+  if (!options.activeOnly) add("logic", state.vars[1]!);
+  if (!options.activeOnly) for (const entry of state.logicResume) add("logic", entry.logic);
+  for (const object of state.objects)
+    if (!options.activeOnly || (object.state & 1) !== 0) add("view", object.view);
+  if (!options.activeOnly) add("picture", state.lastPicture);
   const size = (state.inventory[0] ?? 0) | ((state.inventory[1] ?? 0) << 8);
   for (
     let at = profile.inventoryHeaderBytes;
-    at < profile.inventoryHeaderBytes + size;
+    !options.activeOnly && at < profile.inventoryHeaderBytes + size;
     at += profile.inventoryEntryBytes
   ) {
     const room = state.inventory[at + 2]!;

@@ -41,6 +41,7 @@ async function draftDocument(page: Page, key: string): Promise<string | null> {
 }
 for (const [width, height] of [
   [1440, 900],
+  [1063, 900],
   [390, 844],
 ] as const) {
   test.describe(`Parts delete ${width}`, () => {
@@ -156,6 +157,86 @@ for (const [width, height] of [
       expect(await draftDocument(page, "sound:1")).toBe(before);
       await parts(page);
       await expect(page.getByTestId("part-sound:1")).toBeVisible();
+    });
+    test(`Tests never block game edits: room deletion offers checked test cleanup and Cancel${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+      page,
+    }) => {
+      await start(page);
+      const tests = JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: [
+          { name: "Home", room: 1, steps: [] },
+          { name: "Future", room: 2, steps: [] },
+        ],
+      });
+      await page.evaluate(async (tests) => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        await session.stage([{ key: "tests", content: tests }]);
+      }, tests);
+      const before = await draftDocument(page, "logic:1");
+      await remove(page, "part-room:1", true);
+      const dialog = page.getByRole("dialog", { name: "Delete room", exact: true });
+      await expect(dialog).toContainText("Delete room 1.");
+      const cleanup = dialog.getByRole("checkbox", {
+        name: "Also delete tests that use this room",
+        exact: true,
+      });
+      await expect(cleanup).toBeChecked();
+      await cleanup.uncheck();
+      await expect(dialog).toContainText("Tests that use this room will fail when run.");
+      await reviewShot(page, `delete-room-tests-${width}`);
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      expect(await draftDocument(page, "logic:1")).toBe(before);
+      expect(await draftDocument(page, "tests")).toBe(tests);
+      await remove(page, "part-room:1", true);
+      await expect(cleanup).toBeChecked();
+      await cleanup.uncheck();
+      await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+      expect(await draftDocument(page, "logic:1")).toBeNull();
+      expect(await draftDocument(page, "tests")).toBe(tests);
+      await page.getByTestId("workspace-undo").click();
+      expect(await draftDocument(page, "logic:1")).toBe(before);
+      await remove(page, "part-room:1", true);
+      await expect(cleanup).toBeChecked();
+      await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+      expect(
+        JSON.parse((await draftDocument(page, "tests"))!).tests.map(
+          (test: { name: string }) => test.name,
+        ),
+      ).toEqual(["Future"]);
+      await page.getByTestId("workspace-undo").click();
+      expect(await draftDocument(page, "tests")).toBe(tests);
+      expect(await draftDocument(page, "logic:1")).toBe(before);
+    });
+    test(`Tests never block game edits: room deletion refreshes a stale tests preview${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+      page,
+    }) => {
+      await start(page);
+      await remove(page, "part-room:1", true);
+      const dialog = page.getByRole("dialog", { name: "Delete room", exact: true });
+      const tests = JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: [{ name: "Late", room: 1, steps: [] }],
+      });
+      await page.evaluate(async (tests) => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        await session.stage([{ key: "tests", content: tests }]);
+      }, tests);
+      await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+      await expect(dialog).toBeVisible();
+      expect(await draftDocument(page, "logic:1")).not.toBeNull();
+      expect(await draftDocument(page, "tests")).toBe(tests);
+      await dialog
+        .getByRole("checkbox", { name: "Also delete tests that use this room", exact: true })
+        .uncheck();
+      await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+      await expect(dialog).toBeHidden();
+      expect(await draftDocument(page, "logic:1")).toBeNull();
+      expect(await draftDocument(page, "tests")).toBe(tests);
     });
     test(`Delete room preserves code and Undo restores its Launch metadata${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,

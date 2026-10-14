@@ -25,6 +25,8 @@ import { pruneRoomLaunches } from "../../../src/authoring/launches.ts";
 import { validateAuthoringState } from "../../../src/authoring/authoringState.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import { gameTestUsesRoom } from "../../../src/authoring/gameTestRoomUse.ts";
+import { parseGameTests, serializeGameTests } from "../../../src/agent/gameTestFormat.ts";
 import { documentLabel } from "../../../src/logic/numberedLabels.ts";
 
 export interface DraftRemovalProblem {
@@ -71,7 +73,6 @@ export function inspectPartDraftRemovals(
       removals,
       image,
       authoring,
-      tests: documents["tests"],
       references: documents["references"],
       drafts: [],
       keptBindings: bindings,
@@ -158,6 +159,7 @@ export function preparePartDraftRemoval(
   key: string,
   profile: AgiProfile,
   room?: number,
+  deleteTests = true,
 ) {
   const changes: ProjectChange[] = [{ key, content: null }];
   const documents = { ...snapshot.documents() };
@@ -179,6 +181,24 @@ export function preparePartDraftRemoval(
       changes.push({ key: "world", content });
     }
   }
+  let testNotice = "";
+  if (room !== undefined && documents["tests"] !== undefined) {
+    try {
+      const content = documents["tests"];
+      const tests = parseGameTests(
+        typeof content === "string" ? new TextEncoder().encode(content) : content,
+        profile,
+      );
+      const kept = tests.tests.filter((test) => !gameTestUsesRoom(test, room, profile));
+      if (deleteTests && kept.length !== tests.tests.length) {
+        const content = new TextDecoder().decode(serializeGameTests(kept));
+        documents["tests"] = content;
+        changes.push({ key: "tests", content });
+      }
+    } catch (cause) {
+      testNotice = `Tests could not be read. They will be kept. ${cause instanceof Error ? cause.message : String(cause)}`;
+    }
+  }
   const candidate = { ...snapshot, keys: Object.keys(documents), documents: () => documents };
   const problems = inspectPartDraftRemovals(candidate, [key], profile);
   const messages = [
@@ -189,7 +209,7 @@ export function preparePartDraftRemoval(
       ),
     ),
   ];
-  return { changes, problems, messages, metadata };
+  return { changes, problems, messages, metadata, testNotice };
 }
 
 type Journal = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">;

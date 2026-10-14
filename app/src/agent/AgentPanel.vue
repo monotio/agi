@@ -986,7 +986,10 @@ onBeforeUnmount(() => {
             data-testid="agent-review-outcome"
             >{{ agent.reviewOutcome(message.id) }}</UiChip
           >
-          <div v-if="message.commit && creating" class="agent-panel__checkpoints">
+          <div
+            v-if="message.commit && message.beforeCommit !== message.commit && creating"
+            class="agent-panel__checkpoints"
+          >
             <UiButton
               size="sm"
               variant="ghost"

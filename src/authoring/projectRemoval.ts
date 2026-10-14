@@ -5,20 +5,16 @@ import { numberedLabel, type NumberedLabelContext } from "../logic/numberedLabel
  * deletion may Keep. compileProjectSelection already strict-compiles the
  * candidate and inventories its native image; this review adds the candidate's
  * authoring intent (bindings reservations, world room plans, music intent),
- * the preserved metadata documents it carries (stored tests and reference-art
- * associations) and every unselected open draft that could still name a
- * removed ID.
+ * the preserved reference-art associations it carries and every unselected open
+ * draft that could still name a removed ID.
  *
  * LOGIC and PICTURE targets use room-flow analysis; other variable resource operands
  * block same-family removal. Input a checker
- * cannot enumerate — an unreadable document, damaged draft source, an opaque
- * test save image or an unrecognized references entry — refuses rather than
- * guesses. Approval matching, storage CAS and the durable write belong to the
+ * cannot enumerate — an unreadable document, damaged draft source or an
+ * unrecognized references entry — refuses rather than guesses. Approval matching, storage CAS and the durable write belong to the
  * calling service.
  */
 import { pruneWorldLaunches, type WorldLaunches } from "./launches.ts";
-import { testSetupReferences } from "./renumberTestSetup.ts";
-import { parseGameTests, type GameTestsDocument } from "../agent/gameTestFormat.ts";
 import { createRoomFlow, VAR_WRITES } from "../agent/roomFlow.ts";
 import { openContainer } from "../container/container.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
@@ -64,8 +60,6 @@ export interface ProjectRemovalInput {
   readonly image: ImageInspection;
   /** The candidate's validated authoring intent: bindings, world and music. */
   readonly authoring: AuthoringState;
-  /** The candidate's preserved stored-tests document, verbatim. */
-  readonly tests: DocumentContent | undefined;
   /** The candidate's preserved reference-art metadata document, verbatim. */
   readonly references: DocumentContent | undefined;
   /**
@@ -252,82 +246,6 @@ function inspectMusicIntent(
         undefined,
         { path: [num] },
       );
-  }
-}
-
-function roomUse(room: unknown, removedKeys: ReadonlySet<string>): string | undefined {
-  if (typeof room !== "number" || !Number.isInteger(room)) return undefined;
-  const key = `logic:${room}`;
-  return removedKeys.has(key) ? key : undefined;
-}
-
-/** Stored tests: literal room/view uses are definite; an opaque setup image or an unreadable file cannot be inventoried. */
-function inspectTestsDocument(
-  document: string,
-  content: DocumentContent | undefined,
-  removedKeys: ReadonlySet<string>,
-  profile: AgiProfile,
-  report: Report,
-  renumbering?: string,
-): void {
-  if (content === undefined) return;
-  let parsed: GameTestsDocument;
-  try {
-    const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
-    parsed = parseGameTests(bytes, profile);
-  } catch (error) {
-    report(
-      document,
-      `${document} cannot be enumerated (${reason(error)}), so its uses cannot be inventoried.`,
-    );
-    return;
-  }
-  for (const [index, test] of parsed.tests.entries()) {
-    const path = ["tests", index] as const;
-    const label = `test '${test.name}'`;
-    if (test.setup !== undefined && renumbering === undefined)
-      report(
-        document,
-        `${label} restores a save image whose resource uses cannot be inventoried.`,
-        undefined,
-        undefined,
-        { path: [...path, "setup"] },
-      );
-    if (test.setup && renumbering !== undefined)
-      for (const reference of testSetupReferences(test.setup, profile)) {
-        const key = `${reference.kind}:${reference.num}`;
-        if (removedKeys.has(key))
-          report(document, `${label} still restores ${key}.`, undefined, undefined, {
-            path: [...path, "setup"],
-          });
-      }
-    const entered = roomUse(test.room, removedKeys);
-    if (entered !== undefined)
-      report(document, `${label} still enters ${entered}.`, undefined, undefined, {
-        path: [...path, "room"],
-      });
-    const expected = roomUse(test.expect?.["room"], removedKeys);
-    if (expected !== undefined)
-      report(document, `${label} still expects ${expected}.`, undefined, undefined, {
-        path: [...path, "expect", "room"],
-      });
-    const object = test.expect?.["object"];
-    if (isRecord(object)) {
-      const view = object["view"];
-      if (typeof view === "number" && Number.isInteger(view) && removedKeys.has(`view:${view}`))
-        report(document, `${label} still expects view:${view}.`, undefined, undefined, {
-          path: [...path, "expect", "object", "view"],
-        });
-    }
-    for (const [stepIndex, step] of test.steps.entries()) {
-      const until = step["until"];
-      if (!isRecord(until)) continue;
-      const waited = roomUse(until["room"], removedKeys);
-      if (waited !== undefined)
-        report(document, `${label} still waits for ${waited}.`, undefined, undefined, {
-          path: [...path, "steps", stepIndex, "until", "room"],
-        });
-    }
   }
 }
 
@@ -525,7 +443,6 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
   inspectBindingReservations("bindings", input.authoring.bindings, removedKeys, report);
   inspectWorldPlan("world", input.authoring.world, removedKeys, report);
   inspectMusicIntent("music", input.authoring.music, removedKeys, report);
-  inspectTestsDocument("tests", input.tests, removedKeys, input.profile, report, input.renumbering);
   inspectReferencesDocument("references", input.references, removedKeys, report);
 
   for (const draft of input.drafts) {
@@ -609,10 +526,6 @@ export function inspectProjectRemoval(input: ProjectRemovalInput): readonly Remo
           `draft ${draft.key} cannot be enumerated (${reason(error)}), so its intent cannot be inventoried.`,
         );
       }
-      continue;
-    }
-    if (draft.key === "tests") {
-      inspectTestsDocument(draft.key, draft.content, removedKeys, input.profile, report);
       continue;
     }
     if (draft.key === "references") {
