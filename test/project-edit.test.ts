@@ -89,35 +89,48 @@ for (const [document, content, message] of [
   ],
   ["references", '[{"id":"ref","kind":"room","target":253,"images":[]}]', "still targets"],
 ] as const) {
-  test(`${document} removal navigation locates the field that ${message}`, () => {
-    const model = setup();
-    const added = prepareProjectEdit({
-      model,
-      proposal: model.propose(model.capture(), "Metadata", [
-        { key: "logic:253", content: "return;" },
-        {
-          key: "tests",
-          content: document === "tests" ? content : '{"format":"monotio.agi.tests.v1","tests":[]}',
-        },
-        { key: "references", content: document === "references" ? content : "[]" },
-      ]),
-      profileId: "2.936",
-      policy: {},
-    });
-    assert.equal(added.status, "ready", JSON.stringify(added.diagnostics));
-    model.apply(added.application);
-    const removed = prepareProjectEdit({
-      model,
-      proposal: model.propose(model.capture(), "Remove", [{ key: "logic:253", content: null }]),
-      profileId: "2.936",
-      policy: {},
-    });
-    const finding = removed.diagnostics.find(
-      (entry) => entry.document === document && entry.message.includes(message),
-    )!;
-    assert.ok(finding, JSON.stringify(removed.diagnostics));
-    assert.equal(content.slice(finding.start, finding.end), "253");
-  });
+  test(
+    document === "tests"
+      ? `Tests never block game edits: room deletion preserves the document that ${message}`
+      : `${document} removal navigation locates the field that ${message}`,
+    () => {
+      const model = setup();
+      const added = prepareProjectEdit({
+        model,
+        proposal: model.propose(model.capture(), "Metadata", [
+          { key: "logic:253", content: "return;" },
+          {
+            key: "tests",
+            content:
+              document === "tests" ? content : '{"format":"monotio.agi.tests.v1","tests":[]}',
+          },
+          { key: "references", content: document === "references" ? content : "[]" },
+        ]),
+        profileId: "2.936",
+        policy: {},
+      });
+      assert.equal(added.status, "ready", JSON.stringify(added.diagnostics));
+      model.apply(added.application);
+      const removed = prepareProjectEdit({
+        model,
+        proposal: model.propose(model.capture(), "Remove", [{ key: "logic:253", content: null }]),
+        profileId: "2.936",
+        policy: {},
+      });
+      if (document === "tests") {
+        assert.equal(removed.status, "ready", JSON.stringify(removed.diagnostics));
+        model.apply(removed.application);
+        assert.equal(model.capture().read("logic:253"), undefined);
+        assert.equal(model.capture().read("tests")!.content, content);
+      } else {
+        const finding = removed.diagnostics.find(
+          (entry) => entry.document === document && entry.message.includes(message),
+        )!;
+        assert.ok(finding, JSON.stringify(removed.diagnostics));
+        assert.equal(content.slice(finding.start, finding.end), "253");
+      }
+    },
+  );
 }
 
 for (const [name, state, message] of [
