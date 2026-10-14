@@ -233,3 +233,57 @@ test("Tests never block game edits: shared LOGIC deletion keeps tests without ro
     false,
   );
 });
+
+for (const continuationSource of ["image", "replay"] as const)
+  test(`Tests never block game edits: a shared LOGIC call in the ${continuationSource} does not make a test enter that room`, async () => {
+    const { Engine } = await import("../../src/runtime/engine.ts");
+    const { openContainer } = await import("../../src/container/container.ts");
+    const model = project({
+      "logic:0": "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+      "logic:1":
+        "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); } call(10); return;",
+      "logic:10": 'print("Shared logic"); return;',
+    });
+    const engine = new Engine(openContainer(model.capture().lastAdmissibleBuild!.files()), {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    });
+    engine.tick();
+    assert.equal(engine.vars[0], 1);
+    assert.equal(engine.modalKind, "print");
+    const replay = engine.captureReplayState();
+    assert.deepEqual(
+      replay.continuation?.frames.map((frame) => frame.logic),
+      [0, 1, 10],
+    );
+    const image = Buffer.from(
+      continuationSource === "image" ? engine.recordingImage()! : engine.serialize(),
+    ).toString("base64");
+    const setup = {
+      image,
+      ...(continuationSource === "replay"
+        ? { replay: JSON.stringify({ state: replay, operations: [] }) }
+        : {}),
+    };
+    const tests = JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [{ name: "Room one", room: 1, steps: [], setup }],
+    });
+    const before = model.capture();
+    const snapshot = { ...before, documents: () => ({ ...before.documents(), tests }) };
+    const sharedCall = preparePartDraftRemoval(snapshot, "logic:10", profile, 10, true);
+    assert.equal(
+      sharedCall.changes.some((change) => change.key === "tests"),
+      false,
+    );
+    assert.equal(snapshot.documents().tests, tests);
+    const enteredRoom = preparePartDraftRemoval(snapshot, "logic:1", profile, 1, true);
+    assert.deepEqual(
+      JSON.parse(String(enteredRoom.changes.find((change) => change.key === "tests")!.content))
+        .tests,
+      [],
+    );
+  });
