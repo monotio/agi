@@ -1336,10 +1336,14 @@ test("settings, recordings and successive plan edits retain the owned writer and
     'print("Current typing"); return;',
   );
   const author = controller.getSession()!;
-  const tests = new TextEncoder().encode('{"format":"monotio.agi.tests.v1","tests":[]}');
-  await controller.commitTestsFile(game, author, tests);
+  const { saveTests } = await import("../src/authoring/saveTests.ts");
+  const edited = await saveTests(session, {
+    kind: "text",
+    text: '{"format":"monotio.agi.tests.v1","tests":[]}',
+  });
+  const tests = edited.payload;
   assert.equal(session.model.capture().read("tests")!.content, new TextDecoder().decode(tests));
-  assert.equal(session.history.capture().commits.at(-1)!.label, "Recorded test");
+  assert.equal(session.history.capture().commits.at(-1)!.label, "Tests");
   const exported = controller.assembleExportData(
     {
       projectId: game.projectId!,

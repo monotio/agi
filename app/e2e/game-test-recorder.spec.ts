@@ -76,6 +76,8 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   browser,
 }) => {
   let requests = 0;
+  const modules: string[] = [];
+  page.on("request", (request) => modules.push(request.url()));
   const respond = (body: unknown) => providerReply("openai", body);
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
@@ -132,9 +134,12 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await expect(page.getByTestId("record-check-flag-30")).toBeChecked();
   await expect(page.getByTestId("record-check-score")).toBeChecked();
   await expect(page.getByTestId("record-check-printed-0")).toBeChecked();
+  // Recording and saving are ordinary project edits; no provider is configured yet.
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
   await page.getByTestId("record-name").fill("recorded mural repair");
   await page.getByTestId("record-save").click();
   await expect(dialog).toBeHidden();
+  expect(modules.some((url) => url.includes("/src/agent/authoringStack.ts"))).toBe(false);
   // The seven tutorial tests plus the recording; saving converted the catalog
   // game into its writable remix project, exactly like a remix does.
   await expect(page.getByTestId("record-result")).toContainText("8 game tests stored");

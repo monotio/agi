@@ -855,9 +855,11 @@ export function useEngine(
     query: link.query,
     logAgent,
     getBootedGame: () => lifecycle.getBootedGame(),
-    getOrCreateSession: async (...args) =>
-      (await loadAuthoringController()).getOrCreateSession(...args),
-    commitTestsFile: async (...args) => (await loadAuthoringController()).commitTestsFile(...args),
+    getProjectSession: () => projectSession,
+    writeBlockReason: () =>
+      projectSession?.closed
+        ? "Editing is paused. Reopen this game before editing tests."
+        : (authoringController?.testsWriteBlockReason() ?? null),
     flushAutosave: () => autosaveController.flushAutosave(),
   });
 
@@ -1124,7 +1126,7 @@ export function useEngine(
     },
   });
 
-  const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =
+  const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest, runTests } =
     testRecorder;
 
   function loadAudio(): Promise<AgiAudio> {
@@ -1741,6 +1743,7 @@ export function useEngine(
     stopTestRecording,
     cancelTestRecording,
     saveRecordedTest,
+    runTests,
     resumeLastGame: autosaveController.resumeLastGame,
     resumeFromRecord: autosaveController.resumeFromRecord,
     /**

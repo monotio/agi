@@ -1,10 +1,12 @@
 /**
  * Saving a recorded game test, end to end over fake ports: the real
- * recorder and authoring controller drive the real worker link and dispatch
- * against the IndexedDB fixture. The recording's TESTS.JSON reaches the
- * session and the running game only after storage took it, so a stale
- * refusal leaves all three as they were.
+ * recorder drives the real worker link and dispatch against the IndexedDB
+ * fixture. TESTS.JSON belongs to the project session; saving it keeps the
+ * running interpreter and a later active recording intact. A stale tab
+ * cannot overwrite another tab's saved resources.
  */
+import { openProjectSession } from "../src/project/projectSession.ts";
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -38,6 +40,7 @@ import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 
 installIndexedDbFixture();
+installWebLocksFixture();
 
 const localValues = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -51,9 +54,6 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const STUB: LlmConfig = { provider: "stub", model: "offline-stub", apiKey: "" };
-/** The refusal a stale remix turn ends with; the recorder says the same. */
-const STALE =
-  "The game was changed elsewhere while the assistant worked, so nothing was applied. Reload the game, then ask again.";
 
 /** Logic 0 enters room 1; room 1 draws PIC 1, so a recording has a room to resume. */
 function gameFiles(): Record<string, Uint8Array> {
@@ -205,6 +205,20 @@ async function rig(t: TestContext, name: string) {
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
   });
+  const project = openProjectSession({
+    data: (await loadAuthoredGame(projectId))!,
+    lifetime: (await readHistoryLifetime(projectId))!,
+    admission: {
+      runToken: name,
+      admit: async () => ({
+        status: "unchanged",
+        expected: null,
+        current: null,
+        patchGeneration: 0,
+      }),
+    },
+  });
+  t.after(() => project.dispose());
   const recorderState: TestRecorderState = {
     phase: "running",
     recording: { active: false, starting: false, error: "" },
@@ -219,8 +233,7 @@ async function rig(t: TestContext, name: string) {
     query: link.query,
     logAgent: () => {},
     getBootedGame: () => game,
-    getOrCreateSession: controller.getOrCreateSession,
-    commitTestsFile: controller.commitTestsFile,
+    getProjectSession: () => project,
     flushAutosave: async () => {},
   });
 
@@ -238,6 +251,7 @@ async function rig(t: TestContext, name: string) {
   const workerTests = () => ctx.run.engine!.containerFiles.get("TESTS.JSON");
   return {
     projectId,
+    project,
     files,
     ctx,
     posted,
@@ -272,14 +286,12 @@ test("a recorded test refused as stale leaves the session, the worker and storag
   assert.equal(await updateAuthoredGameFiles(r.projectId, elsewhere), true);
   const posts = r.posted.length;
 
-  const result = await r.recorder.saveRecordedTest(
-    snapshot,
-    "idle in room 1",
-    [{ id: "room", kind: "room", label: "room 1", room: 1, selected: true }],
-    STUB,
-  );
+  const result = await r.recorder.saveRecordedTest(snapshot, "idle in room 1", [
+    { id: "room", kind: "room", label: "room 1", room: 1, selected: true },
+  ]);
 
-  assert.deepEqual(result, { ok: false, message: STALE });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Changed in another tab/);
   assert.equal(author.state.testsPayload, undefined, "the session holds no recorded test");
   assert.equal(r.workerTests(), undefined, "the running game holds no recorded test");
   assert.deepEqual(
@@ -292,15 +304,15 @@ test("a recorded test refused as stale leaves the session, the worker and storag
   assert.deepEqual(stored.files, elsewhere, "the other tab's save stands");
 });
 
-test("a recorded test is stored, then held by the session and installed in the running game", async (t) => {
+test("a recorded test is stored in the project without altering the live engine or active recording", async (t) => {
   const r = await rig(t, "recorded-saved");
   const snapshot = await r.record();
-  const result = await r.recorder.saveRecordedTest(
-    snapshot,
-    "idle in room 1",
-    [{ id: "room", kind: "room", label: "room 1", room: 1, selected: true }],
-    STUB,
-  );
+  const engine = r.ctx.run.engine;
+  const tape = r.ctx.run.journal;
+  await r.recorder.startTestRecording();
+  const result = await r.recorder.saveRecordedTest(snapshot, "idle in room 1", [
+    { id: "room", kind: "room", label: "room 1", room: 1, selected: true },
+  ]);
   assert.equal(result.ok, true, result.message);
 
   const stored = (await loadAuthoredGame(r.projectId))!.files["TESTS.JSON"];
@@ -310,9 +322,13 @@ test("a recorded test is stored, then held by the session and installed in the r
     tests.tests.map((entry) => entry.name),
     ["idle in room 1"],
   );
-  const author = r.controller.getSession()!;
-  assert.deepEqual(author.state.testsPayload, stored, "the session holds the stored file");
-  assert.deepEqual(r.workerTests(), stored, "the running game holds the stored file");
+  assert.equal(r.controller.getSession(), null, "saving never opens an AI session");
+  assert.equal(r.ctx.run.engine, engine);
+  assert.equal(r.ctx.run.journal, tape);
+  assert.equal(r.recorderState.recording.active, true);
+  assert.equal(r.ctx.run.recording.recording?.tainted, null);
+  assert.equal(r.project.model.capture().read("tests")?.content, new TextDecoder().decode(stored));
+  assert.equal(r.workerTests(), undefined, "tests are project documents, not live game metadata");
   assert.equal(r.game().revision, await gameRevision((await loadAuthoredGame(r.projectId))!.files));
 });
 

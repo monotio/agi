@@ -1,3 +1,7 @@
+import { buildRecordedTest } from "../src/authoring/gameRecording.ts";
+import type { RecordedOperation } from "../../src/agent/recordedReplay.ts";
+import { saveTests } from "../src/authoring/saveTests.ts";
+import { Engine } from "../../src/runtime/engine.ts";
 import { installWebLocksFixture } from "./webLocksFixture.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -632,4 +636,94 @@ test("closing before room generation and its room edit commit replays the settin
     "text",
   );
   assert.equal(request.buildId, owner.model.capture().lastAdmissibleBuild!.identity.buildId);
+});
+
+test("pagehide carries a recorded test and its setup image before its write commits", async () => {
+  const events = new EventTarget();
+  const descriptors = ["document", "addEventListener", "removeEventListener"].map(
+    (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const,
+  );
+  Object.defineProperty(globalThis, "addEventListener", {
+    configurable: true,
+    value: events.addEventListener.bind(events),
+  });
+  Object.defineProperty(globalThis, "removeEventListener", {
+    configurable: true,
+    value: events.removeEventListener.bind(events),
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: Object.assign(new EventTarget(), { visibilityState: "visible" }),
+  });
+  const owner = await session("recorded-pagehide");
+  try {
+    const engine = new Engine(
+      createContainer(),
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+      },
+      new Map(),
+    );
+    engine.vars[0] = 1;
+    const image = Buffer.from(engine.serialize()).toString("base64");
+    const operations = Array.from({ length: 4864 }, (): RecordedOperation => [
+      "tick",
+      [
+        ["line", null],
+        ["keys", []],
+      ],
+    ]);
+    const start = { room: 1, vars: [...engine.vars], flags: [...engine.flags], inventory: [] };
+    const recorded = buildRecordedTest(
+      "recorded",
+      {
+        start: { image, cycle: 0, state: start, replayState: engine.captureReplayState(true) },
+        operations,
+        events: [],
+        printed: [],
+        endState: start,
+        endCycle: 4864,
+        tainted: null,
+      },
+      [],
+    );
+    assert.equal(JSON.stringify(operations).length, 179969);
+    // A capture is accepted before the writer starts its asynchronous storage work.
+    const flush = owner.flush;
+    const held = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    owner.flush = async () => {
+      entered.resolve();
+      await held.promise;
+      return flush();
+    };
+    const saving = saveTests(owner, {
+      kind: "merge",
+      tests: [recorded],
+    });
+    await entered.promise;
+    assert.equal(journals().length, 0);
+    events.dispatchEvent(new Event("pagehide"));
+    const capture = captured();
+    const request = await rebuildProjectJournal(baseData, capture, {
+      fingerprint: authoringFingerprint,
+      commit: commitProject,
+    });
+    assert.ok(request);
+    const tests = JSON.parse(new TextDecoder().decode(request.data.files["TESTS.JSON"]!));
+    assert.equal(tests.tests[0].name, "recorded");
+    assert.equal(tests.tests[0].setup.image, image);
+    assert.equal(tests.tests[0].setup.replay, (recorded["setup"] as { replay: string }).replay);
+    held.resolve();
+    await saving;
+  } finally {
+    owner.dispose();
+    for (const [key, descriptor] of descriptors)
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+  }
 });

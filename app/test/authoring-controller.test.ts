@@ -2681,7 +2681,7 @@ for (const fork of ["before the opening ends", "during the Save"] as const) {
     }
     engineState.reject(new Error("worker query state timed out"));
     await opening;
-    assert.equal(powerUp.error, "worker query state timed out");
+    assert.equal(powerUp.error, "The game did not answer. Reopen the Agent to try again.");
     await applying;
     assert.notEqual(game.projectId, projectId);
     assert.equal(controller.getSession()?.getProviderContext().model, "next-model");

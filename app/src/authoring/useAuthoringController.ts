@@ -207,12 +207,8 @@ export interface AuthoringController {
     author: AgentSession,
     files: Record<string, Uint8Array>,
   ): Promise<void>;
-  /**
-   * Store `tests` as the game's TESTS.JSON the way a remix turn lands: the
-   * durable write first, then `author` and the running game take the file.
-   * A stale refusal (STALE_TURN_MESSAGE) changes nothing.
-   */
-  commitTestsFile(game: BootedGame, author: AgentSession, tests: Uint8Array): Promise<void>;
+  /** Hand edits wait for an Agent turn and review without loading an AI session. */
+  testsWriteBlockReason(): string | null;
   createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession>;
   attachSessionRuntime(s: AgentSession, game: BootedGame, profile?: string): void;
   getOrCreateSession(game: BootedGame, config: LlmConfig): Promise<AgentSession>;
@@ -836,7 +832,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         String(engineState?.profile ?? state.profile ?? "unknown"),
       );
     } catch (e) {
-      if (currentOpening()) state.powerUp.error = e instanceof Error ? e.message : String(e);
+      if (currentOpening()) {
+        const message = e instanceof Error ? e.message : String(e);
+        state.powerUp.error =
+          message === "worker query state timed out"
+            ? "The game did not answer. Reopen the Agent to try again."
+            : message;
+      }
     } finally {
       if (currentOpening()) {
         state.powerUp.busy = false;
@@ -1125,40 +1127,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     bindProgressTarget(owner);
   }
 
-  async function commitTestsFile(
-    game: BootedGame,
-    author: AgentSession,
-    tests: Uint8Array,
-  ): Promise<void> {
-    const project = options.getProjectSession?.();
-    if (project && !game.installed) {
-      const snapshot = project.model.capture();
-      await project.submit({
-        proposal: project.model.propose(snapshot, "Recorded test", [
-          { key: "tests", content: new TextDecoder().decode(tests) },
-        ]),
-        label: "Recorded test",
-        origin: "guided",
-        author: "creator",
-      });
-      await project.flush();
-      if (project.saveStatus().state !== "saved") throw new Error(project.saveStatus().message);
-      author.state.testsPayload = tests.slice();
-      return;
-    }
-    const current = await query("exportFiles");
-    if (!current || getBootedGame() !== game)
-      throw new Error("The game changed while saving the recording. Try again.");
-    const saved: SavedFiles = { files: { ...current, "TESTS.JSON": tests.slice() } };
-    const owner = await saveTurn(game, author, saved.files);
-    author.state.testsPayload = tests.slice();
-    await installSaved(
-      runningGame(owner, author),
-      saved,
-      { resources: [], metadata: { "TESTS.JSON": tests.slice() } },
-      "The recorded test",
-    );
-    bindProgressTarget(owner);
+  function testsWriteBlockReason(): string | null {
+    if (state.powerUp.busy || conversationAgent?.busy || activeAskAgent?.busy)
+      return "Wait for the Agent to finish before editing tests.";
+    if (conversationAgent?.pending() || activeAskAgent?.pending())
+      return "Review the Agent's changes before editing tests.";
+    return null;
   }
 
   /** The running game an install of `owner`'s saved files goes to, as it stands now. */
@@ -2132,7 +2106,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     },
     updateAiConfig,
     persistRemix,
-    commitTestsFile,
+    testsWriteBlockReason,
     getAgentRuntime,
     createGameSession,
     attachSessionRuntime,
