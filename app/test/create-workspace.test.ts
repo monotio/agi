@@ -136,11 +136,12 @@ test("Parts toggles temporarily beside the Agent and preserves the stored dock c
   const open = ref(false);
   const focus = ref(true);
   const temporary = ref(true);
+  const phone = ref(false);
   const ws = createCreateWorkspace({
     panelDock: () => undefined,
     storage,
     compactAgent: () => temporary.value,
-    parts: { open, focus, phone: () => false },
+    parts: { open, focus, phone: () => phone.value },
   });
   ws.toggleParts();
   assert.equal(open.value, true);
@@ -149,7 +150,11 @@ test("Parts toggles temporarily beside the Agent and preserves the stored dock c
   ws.toggleParts();
   assert.equal(open.value, false);
   assert.equal(storage.data.get(DOCKS_STORAGE_KEY), undefined);
+  ws.toggleParts();
+  assert.equal(open.value, true);
   temporary.value = false;
+  assert.equal(open.value, false);
+  assert.equal(ws.collapsed.left, false);
   ws.toggleParts();
   assert.equal(ws.collapsed.left, true);
   const folded = storage.data.get(DOCKS_STORAGE_KEY);
@@ -157,8 +162,14 @@ test("Parts toggles temporarily beside the Agent and preserves the stored dock c
   ws.toggleParts();
   assert.equal(open.value, true);
   temporary.value = false;
-  ws.toggleParts();
   assert.equal(open.value, false);
   assert.equal(ws.collapsed.left, true);
   assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
+  temporary.value = true;
+  ws.toggleParts();
+  assert.equal(open.value, true);
+  phone.value = true;
+  temporary.value = false;
+  assert.equal(open.value, false);
+  assert.equal(ws.collapsed.left, true);
 });

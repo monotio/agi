@@ -108,7 +108,13 @@ test.describe("compact layout", () => {
         expect(await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"))).toBe(
           saved,
         );
-        await page.getByTestId("workspace-parts").click();
+        await page
+          .getByTestId("workspace-agent-panel")
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
+        await expect(page.getByTestId("parts-list")).toBeVisible();
+        await openWorkspaceAgent(page);
+        await expect(page.getByTestId("parts-list")).toBeHidden();
         await page
           .getByTestId("workspace-agent-panel")
           .getByRole("button", { name: "Close", exact: true })
@@ -132,6 +138,17 @@ test.describe("compact layout", () => {
         expect(
           await page.getByTestId("parts-list").evaluate((el) => el.getBoundingClientRect().width),
         ).toBeGreaterThan(200);
+        await page
+          .getByTestId("workspace-agent-panel")
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
+        await expect(page.getByTestId("parts-list")).toBeHidden();
+        expect(await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"))).toBe(
+          folded,
+        );
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(page.getByTestId("parts-list")).toBeHidden();
+        await page.setViewportSize(size);
       }
       await openWorkspaceAgent(page);
       if (size.width === 390)

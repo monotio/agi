@@ -265,9 +265,17 @@ const phoneQuery = window.matchMedia("(max-width: 600px)");
 const phoneWidth = ref(phoneQuery.matches);
 function phoneLayout(event: MediaQueryListEvent): void {
   phoneWidth.value = event.matches;
+  if (event.matches) editor.partsOpen.value = false;
 }
 phoneQuery.addEventListener("change", phoneLayout);
-// A temporary fold never writes the saved dock setting. Opening Parts wins for this visit.
+watch(
+  () => engine.state.powerUp.open,
+  (open) => {
+    if (!open && !phoneWidth.value) editor.partsOpen.value = false;
+  },
+  { flush: "sync" },
+);
+// A temporary fold never writes the saved dock setting. Opening Parts beside the Agent lasts only while the Agent is open.
 const autoFoldParts = computed(
   () => props.creating && workspace.compactAgent.value && !editor.partsOpen.value,
 );
