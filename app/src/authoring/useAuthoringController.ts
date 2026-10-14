@@ -7,6 +7,7 @@ import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts
 import type { AgentSession } from "../agent/agentSession.ts";
 import { loadAuthoringStack, type AuthoringLoader } from "../agent/authoringLoader.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
+type RoomAuthoringRequest = LlmRequest & { readonly signal?: AbortSignal };
 import type { AgentRunState } from "../agent/agentRun.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
@@ -222,7 +223,7 @@ export interface AuthoringController {
   stopRoomGeneration(): void;
   retryRoomGeneration(): void;
   handleRoomAuthoring(
-    req: LlmRequest,
+    req: RoomAuthoringRequest,
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
   ): Promise<string>;
@@ -343,7 +344,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   let openingGeneration = 0;
   let roomActive = false;
   let mapBuildActive = false;
-  let roomStopped = false;
+  let cancelRoomAuthoring: (() => void) | null = null;
   let recoverRoom: ((retry: boolean) => void) | null = null;
   let planSaveTail: Promise<void> = Promise.resolve();
   let remixNeedsSave = false;
@@ -1148,7 +1149,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   /** A project opened during setup joins the same room/map hand-write hold. */
   function holdBuildTestWrites() {
     const releases = new Map<ProjectSession, () => void>();
+    let released = false;
     function attach() {
+      if (released) return;
       const project = options.getProjectSession?.();
       if (project && !releases.has(project)) releases.set(project, holdAgentTestWrites(project));
     }
@@ -1156,6 +1159,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     return {
       attach,
       release() {
+        released = true;
         for (const release of releases.values()) release();
         releases.clear();
       },
@@ -1420,7 +1424,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   function stopRoomGeneration(): void {
-    roomStopped = true;
+    cancelRoomAuthoring?.();
     cancelAnsweredRoom();
     session?.task.cancel();
     recoverRoom?.(false);
@@ -1444,15 +1448,15 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   async function handleRoomAuthoring(
-    req: LlmRequest,
+    req: RoomAuthoringRequest,
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
   ): Promise<string> {
+    if (req.signal?.aborted) return "";
     if (roomActive || state.powerUp.busy)
       throw new Error("Wait for the current agent task to finish.");
     roomActive = true;
     const testWrites = holdBuildTestWrites();
-    roomStopped = false;
     state.roomGeneration = {
       room: Number(req.context["room"]),
       busy: true,
@@ -1460,17 +1464,44 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       feedStartSeq: (state.agentLog.at(-1)?.seq ?? 0) + 1,
     };
     const progress = state.roomGeneration;
+    function current() {
+      return cancelRoomAuthoring === cancel && !req.signal?.aborted;
+    }
+    function finish() {
+      req.signal?.removeEventListener("abort", cancel);
+      testWrites.release();
+      if (cancelRoomAuthoring === cancel) {
+        cancelRoomAuthoring = null;
+        roomActive = false;
+        recoverRoom = null;
+      }
+    }
+    function cancel() {
+      if (cancelRoomAuthoring === cancel) {
+        cancelAnsweredRoom();
+        session?.task.cancel();
+        recoverRoom?.(false);
+        state.roomGeneration = null;
+      }
+      finish();
+    }
+    cancelRoomAuthoring = cancel;
+    req.signal?.addEventListener("abort", cancel, { once: true });
     try {
       for (;;) {
         progress.busy = true;
         progress.error = "";
         try {
-          const result = await attemptRoomAuthoring(req, agent, sendDirection, testWrites);
-          if (roomStopped) return "";
+          const result = await attemptRoomAuthoring(req, agent, sendDirection, {
+            writes: testWrites,
+            current,
+            finish,
+          });
+          if (!current()) return "";
           progress.busy = false;
           return result;
         } catch (error) {
-          if (roomStopped) return "";
+          if (!current()) return "";
           progress.busy = false;
           progress.error = (error instanceof Error ? error.message : String(error)).replace(
             /^\d{3}\s+/,
@@ -1479,16 +1510,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           const retry = await new Promise<boolean>((resolve) => {
             recoverRoom = resolve;
           });
-          if (!retry || roomStopped) return "";
+          if (!retry || !current()) return "";
         }
       }
     } finally {
       if (answeredRoomTestWrites !== testWrites) {
-        roomActive = false;
-        testWrites.release();
+        finish();
       }
-      recoverRoom = null;
-      if (roomStopped) state.roomGeneration = null;
     }
   }
 
@@ -1496,7 +1524,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     req: LlmRequest,
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
-    testWrites: ReturnType<typeof holdBuildTestWrites>,
+    turn: {
+      readonly writes: ReturnType<typeof holdBuildTestWrites>;
+      current(): boolean;
+      finish(): void;
+    },
   ): Promise<string> {
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     const game = getBootedGame();
@@ -1533,25 +1565,34 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     try {
       if (!author) {
         author = await createGameSession(game!, sessionConfig!);
-        if (roomStopped) return "";
+        if (!turn.current()) return "";
         attachSessionRuntime(author, game!);
         setSession(author);
       }
-      testWrites.attach();
+      if (!turn.current()) return "";
+      turn.writes.attach();
       // The stored-project gate remix and map-build turns commit through:
       // refuse before the turn spends, and again before its staged room
       // lands in the session. A refusal keeps the player in the departure
       // room while the overlay offers Retry or Stop.
       const turnBase = turnBaseGuard(game, author ? await refreshProjectTask(author) : undefined);
-      await turnBase();
-      if (roomStopped) return "";
-      const result = await agent.handle(req, turnBase);
+      async function beforeAdopt() {
+        if (!turn.current()) throw new Error("This room request was cancelled.");
+        await turnBase();
+        if (!turn.current()) throw new Error("This room request was cancelled.");
+      }
+      if (!turn.current()) return "";
+      await beforeAdopt();
+      if (!turn.current()) return "";
+      const result = await agent.handle(req, beforeAdopt);
+      if (!turn.current()) return "";
       if (!result)
         throw new Error("The next room could not be created. Connect your model and try again.");
       if (state.roomGeneration === progress) {
         if (game && getBootedGame() === game && author && game.projectId) {
           if (projectRoom) {
             const { validateAgentState } = await import("../agent/projectTurn.ts");
+            if (!turn.current()) return "";
             validateAgentState(
               projectTurnBases.get(game)!,
               author.state,
@@ -1560,6 +1601,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             );
             const owner = game;
             const completed = author;
+            const testWrites = turn.writes;
             answeredRoomTestWrites = testWrites;
             publishAnsweredRoom = async () => {
               try {
@@ -1581,7 +1623,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
                 // again after publication so its image names the saved revision.
                 if (getBootedGame() === owner) await flushAutosave();
               } finally {
-                testWrites.release();
+                turn.finish();
                 if (answeredRoomTestWrites === testWrites) {
                   answeredRoomTestWrites = null;
                   roomActive = false;
