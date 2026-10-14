@@ -23,6 +23,7 @@ import {
   ASK_TOOLS,
   finishAfterFailures,
   validateAgentHandover,
+  validateAgentGameHandover,
   withReferences,
   executeAgentToolAsync,
   type AgentRuntimeDeps,
@@ -571,7 +572,7 @@ export function createWorkspaceAgent(options: Options) {
         }
         const gameChanged = merged.some((change) => change.key !== "tests");
         let admittedRevision = current.lastAdmissibleBuild!.identity.revision;
-        if (gameChanged || approving.finishNotes !== undefined) {
+        if (gameChanged) {
           // Validate the complete selected game; test failures remain document evidence.
           const ws = captureAgentWorkspace({
             draft: new ProjectDraft(proposal.documents()),
@@ -581,9 +582,7 @@ export function createWorkspaceAgent(options: Options) {
           });
           ws.propose("Validate selection", []);
           const validatedState = ws.openToolState().state;
-          validatedState.readCommittedTests = () => session.model.capture().read("tests")?.content;
-          validatedState.finishTestsBase = approving.proposal.base.read("tests")?.content ?? null;
-          const verdict = validateAgentHandover(validatedState, approving.finishNotes);
+          const verdict = validateAgentGameHandover(validatedState);
           if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
           admittedRevision = computeResourceRevision(Object.fromEntries(validatedState.getFiles()));
         }
@@ -761,6 +760,17 @@ export function createWorkspaceAgent(options: Options) {
       }
       return documents;
     }
+    function handoverState() {
+      const candidate = captureAgentWorkspace({
+        draft: new ProjectDraft(stagedDocuments()),
+        files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+        profileId,
+        allowMissingRooms: session.allowMissingRooms,
+      }).openToolState().state;
+      candidate.readCommittedTests = () => session.model.capture().read("tests")?.content;
+      candidate.finishTestsBase = base.read("tests")?.content ?? null;
+      return candidate;
+    }
     function stageChanges(label: string, changes: readonly ProjectChange[]) {
       const offered = driver.pending();
       const native = staged?.finish(label, offered?.changes() ?? []);
@@ -884,21 +894,6 @@ export function createWorkspaceAgent(options: Options) {
             changes.find((change) => change.key === "tests")?.content,
             PROFILES[profileId]!,
           );
-      }
-      if (session.model.propose(current, "Validate handover", actualChanges).changes().length) {
-        const candidate = captureAgentWorkspace({
-          draft: new ProjectDraft(stagedDocuments()),
-          files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-          profileId,
-          allowMissingRooms: session.allowMissingRooms,
-        }).openToolState();
-        candidate.state.readCommittedTests = () => session.model.capture().read("tests")?.content;
-        candidate.state.finishTestsBase = base.read("tests")?.content ?? null;
-        const verdict = validateAgentHandover(candidate.state, finishNotes ?? text);
-        if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
-        finishNotes ??= text;
-        finishStatus = String(verdict.details?.["testsVerdict"] ?? "");
-        editWorkspace().propose(chatTitle(instruction), changes);
       }
       const proposal = session.model.propose(
         base,
@@ -1265,6 +1260,13 @@ export function createWorkspaceAgent(options: Options) {
                 if (result.success && call.name === "propose_changes")
                   for (const change of call.input["changes"] as ProjectChange[])
                     touched.add(change.key);
+              } else if (call.name === "finish" || call.name === "run_game_tests") {
+                result = await executeAgentToolAsync(handoverState(), call.name, call.input, {
+                  ...runtime,
+                  references,
+                  readOnly,
+                  allowedTools,
+                });
               } else {
                 staged ??= editWorkspace().openToolState();
                 staged.state.readCommittedTests = () =>
@@ -1287,6 +1289,8 @@ export function createWorkspaceAgent(options: Options) {
               ) {
                 staged = undefined;
                 notes = undefined;
+                finishNotes = undefined;
+                finishStatus = "";
                 prepared.clear();
                 selection = undefined;
                 selectionReview = "";
@@ -1388,6 +1392,8 @@ export function createWorkspaceAgent(options: Options) {
           while (!followup && nextSteps.length) followup = await receiveNextSteps();
           if (followup) {
             handedOver = false;
+            finishNotes = undefined;
+            finishStatus = "";
             turn = followup;
             continue;
           }
@@ -1407,7 +1413,42 @@ export function createWorkspaceAgent(options: Options) {
             } else throw cause;
           }
         }
-        if (readOnly || !(await offer(turn.text ?? ""))) {
+        let handoverRejected = false;
+        if (
+          !readOnly &&
+          !handedOver &&
+          (driver.pending() || staged || prepared.size || notes !== undefined)
+        ) {
+          let verdict: AgentToolResult;
+          try {
+            verdict = validateAgentHandover(handoverState(), turn.text ?? "");
+          } catch (cause) {
+            // Candidate construction can fail before the handover verdict. It is
+            // still a visible authoring failure; provider and cancellation errors
+            // are handled by the surrounding task boundary.
+            verdict = {
+              success: false,
+              error: cause instanceof Error ? cause.message : String(cause),
+            };
+          }
+          if (verdict.success) {
+            finishNotes = turn.text ?? "";
+            finishStatus = String(verdict.details?.["testsVerdict"] ?? "");
+          } else {
+            handoverRejected = true;
+            error = verdict.error ?? "Handover rejected.";
+            progress.push(error);
+            delete chat.pendingReview;
+            reviews.delete(chat.id);
+            if (review?.chatId === chat.id) review = null;
+            turn = {
+              ...turn,
+              text: [verdict.details?.["testsVerdict"], error].filter(Boolean).join("\n"),
+            };
+            notify();
+          }
+        }
+        if (readOnly || handoverRejected || !(await offer(turn.text ?? ""))) {
           const stopped = !formatReply && !turn.text?.trim();
           if (stopped) {
             progress.push(

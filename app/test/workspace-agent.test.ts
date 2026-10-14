@@ -132,10 +132,7 @@ for (const mode of ["review", "auto", "background"] as const) {
           if (mode === "review") await agent.approve();
           assert.match(String(session.model.capture().read("tests")?.content), /Impossible score/);
         } else {
-          await assert.rejects(
-            mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"),
-            /Handover rejected/,
-          );
+          await (mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"));
           assert.equal(
             results.find((entry) => entry.toolCallId === "finish")?.result.success,
             false,
@@ -2977,7 +2974,7 @@ test("An Agent turn that commits nothing has no Undo message and cannot undo a c
         };
       },
       async complete() {
-        return { text: "Echo", toolCalls: [] };
+        return { text: "Intro needs room 1. Echo unchanged.", toolCalls: [] };
       },
     }),
   });
@@ -3209,7 +3206,10 @@ for (const explained of [false, true])
         await restored.approve();
         assert.match(String(session.model.capture().read("tests")?.content), /Future/);
       } else {
-        await assert.rejects(agent.send("Write tests first"), /Not finished: "Future" fail/);
+        await agent.send("Write tests first");
+        assert.match(agent.error ?? "", /Not finished: "Future" fail/);
+        assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Future" fail/);
+        assert.equal(agent.pending(), null);
         assert.equal(session.model.capture().read("tests"), undefined);
       }
     } finally {
@@ -3248,7 +3248,7 @@ for (const tool of ["write_game_tests", "propose_changes"] as const)
       const input =
         tool === "propose_changes"
           ? {
-              label: "Open door stays red because the score needs implementation",
+              label: "Update tests",
               changes: [{ key: "tests", content: document(candidate) }],
             }
           : change === "delete"
@@ -3381,6 +3381,262 @@ for (const timing of ["before approval", "inside queue"] as const)
         JSON.parse(String(session.model.capture().read("tests")!.content)).tests[0].room,
         5,
       );
+    } finally {
+      session.dispose();
+    }
+  });
+
+const scoreRoom = (score: number) =>
+  `if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input(); } assignn(v3,${score}); return;`;
+
+for (const fixes of [true, false])
+  test(`Agent handover tests the pending proposal: ${fixes ? "a proposed fix passes" : "a proposed regression stays red without aborting the conversation"}`, async () => {
+    const { session } = fixture();
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "view:0", content: DOT_EGO },
+        { key: "logic:1", content: fixes ? scoreRoom(0) : scoreRoom(5) },
+        {
+          key: "tests",
+          content: JSON.stringify({
+            format: "monotio.agi.tests.v2",
+            tests: [
+              {
+                name: "Score test",
+                room: 1,
+                steps: [{ action: "wait", ticks: 1 }],
+                expect: { score: 5 },
+              },
+            ],
+          }),
+        },
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const results: {
+      toolCallId: string;
+      result: { success: boolean; message?: string | undefined; error?: string | undefined };
+    }[] = [];
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              {
+                id: "native-picture",
+                name: "write_picture",
+                input: { room: 1, source: "vis 3\nfill 0,0\nend\n" },
+              },
+              {
+                id: "proposal",
+                name: "propose_changes",
+                input: {
+                  label: "Update score",
+                  changes: [{ key: "logic:1", content: fixes ? scoreRoom(5) : scoreRoom(0) }],
+                },
+              },
+              { id: "run", name: "run_game_tests", input: { names: null } },
+            ],
+          };
+        },
+        appendToolResults(entries) {
+          results.push(...entries);
+        },
+        async complete() {
+          return round++ === 0
+            ? { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] }
+            : { text: "Done", toolCalls: [] };
+        },
+      }),
+    });
+    try {
+      await agent.send("Update the score");
+      assert.equal(results.find((entry) => entry.toolCallId === "run")?.result.success, fixes);
+      assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, fixes);
+      if (fixes) {
+        assert.match(agent.current().messages.at(-1)!.text, /^All 1 tests pass\./);
+        assert.equal(
+          agent
+            .pending()!
+            .changes()
+            .find((change) => change.key === "picture:1")!.content,
+          "vis 3\nfill 0,0\nend\n",
+          "handover retains native writes alongside pending proposals",
+        );
+      } else {
+        assert.match(
+          results.find((entry) => entry.toolCallId === "finish")?.result.error ?? "",
+          /Not finished: "Score test" fail/,
+        );
+        assert.match(agent.error ?? "", /Not finished: "Score test" fail/);
+        assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Score test" fail/);
+        assert.equal(agent.pending(), null);
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+
+test("Auto-approve commits a game proposal with red tests; only finish notes explain failures", async () => {
+  const { session } = fixture();
+  const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Creator test", [
+      {
+        key: "logic:0",
+        content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+      },
+      { key: "view:0", content: DOT_EGO },
+      { key: "logic:1", content: scoreRoom(0) },
+      {
+        key: "tests",
+        content: JSON.stringify({
+          format: "monotio.agi.tests.v2",
+          tests: [{ name: "Score test", room: 1, steps: [], expect: { score: 5 } }],
+        }),
+      },
+    ]),
+    label: "Creator test",
+    origin: "guided",
+    author: "creator",
+  });
+  const results: { toolCallId: string; result: { success: boolean } }[] = [];
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "proposal",
+              name: "propose_changes",
+              input: {
+                label: "Update room",
+                changes: [{ key: "picture:1", content: "vis 2\nfill 0,0\nend\n" }],
+              },
+            },
+            {
+              id: "finish",
+              name: "finish",
+              input: { notes: "Score test needs the score implementation." },
+            },
+          ],
+        };
+      },
+      appendToolResults(entries) {
+        results.push(...entries);
+      },
+      async complete() {
+        throw new Error("Successful finish ends the provider turn: " + JSON.stringify(results));
+      },
+    }),
+  });
+  agent.autoApprove = true;
+  try {
+    await agent.send("Recolor the room");
+    assert.equal(results.find((entry) => entry.toolCallId === "proposal")?.result.success, true);
+    assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, true);
+    assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
+    assert.match(agent.current().messages.at(-1)!.text, /^1 tests fail: Score test/);
+  } finally {
+    session.dispose();
+  }
+});
+
+for (const creatorAction of ["partial approval", "save a red test"] as const)
+  test(`Creator actions never rerun the Agent finish check: ${creatorAction}`, async () => {
+    const { session } = fixture();
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const document = (names: readonly string[]) =>
+      JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: names.map((name) => ({
+          name,
+          room: 1,
+          steps: [{ action: "wait", ticks: 1 }],
+          expect: { score: name === "Score test" ? 5 : 9 },
+        })),
+      });
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "view:0", content: DOT_EGO },
+        { key: "logic:1", content: scoreRoom(0) },
+        { key: "tests", content: document(["Score test"]) },
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults(entries) {
+          for (const entry of entries)
+            assert.equal(entry.result.success, true, JSON.stringify(entry));
+        },
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              { id: "logic", name: "write_logic", input: { room: 1, source: scoreRoom(5) } },
+              {
+                id: "picture",
+                name: "write_picture",
+                input: { room: 1, source: "vis 2\nfill 0,0\nend\n" },
+              },
+              { id: "finish", name: "finish", input: { notes: null } },
+            ],
+          };
+        },
+        async complete() {
+          throw new Error("Successful finish ends the provider turn");
+        },
+      }),
+    });
+    try {
+      await agent.send("Fix score and recolor");
+      assert.match(agent.current().messages.at(-1)!.text, /^All 1 tests pass\./);
+      if (creatorAction === "save a red test")
+        await session.submit({
+          proposal: session.model.propose(session.model.capture(), "Creator adds a test", [
+            { key: "tests", content: document(["Score test", "Treasure"]) },
+          ]),
+          label: "Creator adds a test",
+          origin: "guided",
+          author: "creator",
+        });
+      await agent.approve(creatorAction === "partial approval" ? ["picture:1"] : undefined);
+      assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
+      assert.equal(
+        session.model.capture().read("logic:1")!.content,
+        creatorAction === "partial approval" ? scoreRoom(0) : scoreRoom(5),
+      );
+      assert.match(agent.current().messages.at(-1)!.text, /^All 1 tests pass\./);
+      assert.equal(agent.pending(), null);
     } finally {
       session.dispose();
     }

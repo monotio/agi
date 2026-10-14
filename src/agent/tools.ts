@@ -1792,16 +1792,13 @@ export function finishAfterFailures(failed: readonly string[]): string | undefin
   return `Not finished: ${names.join(", ")} failed earlier in this batch. Read ${failed.length === 1 ? "that result" : "those results"}, repair the change or say why it can stay, then call finish again.`;
 }
 
-/** The shared host verdict for the exact candidate being handed over. */
-export function validateAgentHandover(
+/** Validate game exits and initial playability for Agent or creator admission. */
+export function validateAgentGameHandover(
   session: AgentSessionState,
-  notes: unknown = null,
   checkGenesis = true,
 ): AgentToolResult {
-  // Handover is the validation gate, not the agent's word that it tested:
-  // Game tests report evidence without holding back edits. Every declared plan exit must
-  // be backed by a reachable compiled transition, and the first finish
-  // of a session also boots the world to a shown, interactive scene.
+  // Every declared plan exit needs a reachable compiled transition. The first
+  // handover of a new game also boots it to a shown, interactive scene.
   const connections = verifyPlanConnections(
     collectLogics(session.container),
     session.authoring.world.rooms,
@@ -1836,6 +1833,18 @@ export function validateAgentHandover(
         },
       };
   }
+  return { success: true, details: { connections } };
+}
+
+/** The Agent's final handover check; creator admission validates the game separately. */
+export function validateAgentHandover(
+  session: AgentSessionState,
+  notes: unknown = null,
+  checkGenesis = true,
+): AgentToolResult {
+  const game = validateAgentGameHandover(session, checkGenesis);
+  if (!game.success) return game;
+  const connections = game.details!["connections"] as ReturnType<typeof verifyPlanConnections>;
   // Tests run last, against the committed document and final candidate resources.
   const testRun = runFinishGameTests(session);
   const gameTests = testRun.details?.["gameTests"] as readonly GameTestOutcome[] | undefined;

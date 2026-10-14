@@ -849,7 +849,10 @@ Stored tests travel only in project archives.
 
 The Agent may finish while tests are red when its notes name every failing test
 and explain why each stays red. Finish checks all committed tests, including
-creator tests and failures from earlier turns, plus newly proposed tests. It
+creator tests and failures from earlier turns, plus newly proposed tests, against
+all prepared edits and pending proposals. This is the Agent's handover check;
+Apply, partial approval and creator test saves do not rerun it. Auto-approve
+commits proposals without treating their labels as finish notes. Finish
 starts its result and reply with `N tests fail: name, name` or `All N tests pass.`;
 with no tests it adds no test status. The Agent fixes the game or leaves a test
 red and explains why. Only the creator changes an expectation or deletes a test
