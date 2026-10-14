@@ -789,15 +789,7 @@ names its builds, method and addresses, then the engine mapping and tests.
   [PC booter 2.001 profile](#pc-booter-2001-profile),
   [booter inventory file](#pc-booter-inventory-file),
   [booter action 0x8f](#pc-booter-action-0x8f-maxdrawnobjects),
-  [booter sound rows](#pc-booter-sound-rows),
-  [early PC family (2.089/2.230/2.272)](#early-pc-family-208922302272),
-  [script capacity and version handlers](#original-script-capacity-and-version-handlers)
-- **Wave-3 disassembly audits:**
-  [directory and resource loading](#original-directory-and-resource-loading),
-  [input, menu and modal handling](#original-input-menu-and-modal-handling),
-  [window and status-line text](#original-window-and-status-line-text),
-  [picture drawing and fill](#original-picture-drawing-and-fill),
-  [cel handling and priority table](#original-cel-handling-and-priority-table)
+  [booter sound rows](#pc-booter-sound-rows)
 
 ### Original RNG and wander countdown — binary investigation
 
@@ -838,22 +830,6 @@ kq4          b9b27b403015bb18f6562ba1b8b04c2829e0c3b53c042196bee7924d1df7be65
 demopac4     7cf6eac9d5bbfbd944a2b5d7189878ffe4b2d608646d91c87d5372399fa9d1d0
 mh1          ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e
 gr1          12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41
-```
-
-Wave-3 static-disassembly inputs (disassembled, not RNG-executed; shipped
-files hashed in full, decoded images identified by their recorded 16-hex
-prefixes):
-
-```text
-sq1-dos-2.089 AGI shipped    4a1cca1097544dc4da97ba6ecfd2b3dfe935fbcb892e0dd1460e3e572478dc5e
-sq1-dos-2.089 AGI decoded    e31e5e8611c8…
-sq1-dos-2.089 AGIDATA.OVL    47b34a71bf394302f2826f5e43788b8b5ac0c3eaa1b853ef6bfb4713d0b48bde
-xmas-dos-2.230 AGI.EXE       875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de1332245df9f60ff4570
-xmas-dos-2.230 AGIDATA.OVL   33a327736deb611df48d0d3232c1958b00af1b1cae5fba45ed3aadf88871af8a
-xmas-dos-2.272 AGI.EXE       a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a
-xmas-dos-2.272 AGIDATA.OVL   2e2a695a4da7d545c52ea0c01556d198b6d0c3f7eba19e6cbc2b65642616ec40
-ddp-booter disk1.img         254c1406aeb25868fd5a188a534faa2855f468c5e02e76f4b628df8fbd8560c2
-ddp-booter decoded           424da51a6c16…
 ```
 
 With the carry-correct loader decoding, the KQ1, KQ2, KQ3 and BC images all
@@ -1046,17 +1022,6 @@ regressions were each observed failing before the engine matched these vectors.
 Full-machine boot, asynchronous interrupt arrival inside arbitrary instructions,
 BIOS/PIT wall-time accuracy and successful disk-transfer latency remain outside
 this probe's evidence.
-
-#### Wave-3 timer verdict
-
-- **F-timing-03 (fact; engine matches).** PC timer cadence (kq3 2.936 runtime
-  0x8447, kq1 2.917 0x8380, gr1 3.002.149 body 0x874D — identical bytes
-  `B0 36 E6 43 B8 AE 4D E6 40 86 C4 E6 40`): PIT channel 0 mode 3 divisor
-  0x4DAE = 60 Hz; the IRQ8 handler services sound every tick and chains the
-  BIOS vector only when a counter byte decrements from 3 to 0 (every 3rd
-  tick), so INT 1Ch TimerInt fires at 20 Hz; TimerInt divides by 20 (0x14)
-  into the var[11..14] 60/60/24 clock cascade — 50 ms v10 increments, 1 s v11
-  seconds.
 
 ### Timer-interrupt sound during blocking input
 
@@ -1339,74 +1304,6 @@ python scripts/probe-interpreter-motion.py games/mh1/AGI --profile 3.002.107
 python scripts/probe-interpreter-motion.py games/gr1/AGI --profile 3.002.149
 ```
 
-#### Wave-3 motion verdicts
-
-Static disassembly of the decoded KQ3 2.936 image (`4b50c681…`, runtime
-offsets) and the KQ4 3.002.086 code body (`f05abff4…`, body offsets); quoted
-data-table bytes come from the hash-pinned overlays. Facts below are read
-directly off the machine code; each entry names the finding it settles.
-
-- **F-motion-02 (fact; engine diverges).** Pre-logic order (2.936, kq3
-  `4b50c681`, main cycle 0x150): the ego↔v6 direction mirror runs before the
-  autonomous-direction/block dispatcher — under program control v6 := ego.dir
-  (0x186-0x189), else ego.dir := v6 (0x18E-0x195) — then dispatcher 0x644
-  runs; a second post-logic ego.dir := v6 store sits at 0x1EA. Engine order
-  (motion pass then mirror) is backwards.
-- **F-motion-03 (fact; engine matches).** Zero-step reposition pass (2.936 kq3
-  0x150A / 3.002.086 kq4 body 0x1751): the REPOS test (0x0400) skips only the
-  direction-delta computation; border clamps+reporting, Collide, CanBHere and
-  FindPosn all run, REPOS cleared at pass end. Left-edge compare is `jnl`
-  (x<0) in 2.936 but `jg` (x<=0) in 3.002.086 — a repositioned-to-x=0 ego
-  reports v2=4 each due pass under 3.002.086 (kq4 body 0x17E2).
-- **F-motion-05 (fact; engine matches).** Border completion (2.936 kq3
-  0x1657): the EndMoveObj call (restore stepsize, Set(completion flag),
-  motion:=0, ego: userCtrl:=1 / v6:=0) is gated on motion==MOVETO;
-  wander/follow border stops report v2/v4/v5 only and never restore player
-  control.
-- **F-motion-06 (fact; engine matches).** normal.motion (2.936 kq3, handler
-  0x6EA1) is a single `mov byte [rec+0x22],0` after the record index; it
-  never touches userCtrl/v6, so ego stays under program control until
-  player.control.
-- **F-motion-07 (fact; engine diverges).** Direction deltas (2.936 kq3): xs/ys
-  9-word tables at DS+0xA61/0xA73 indexed `imul word [bx+0xA61]` with the raw
-  direction byte — no bounds check; dir>8 reads the following data (the
-  move.obj direction table at DS+0xA85). Loop-select tables DS+0x8DD/0x8E7
-  likewise indexed unchecked.
-- **F-motion-08 (fact; engine matches).** Footprint flag timing (2.936 kq3):
-  MoveObjs calls Collide (0x4719) before CanBHere (0x56B8) with
-  short-circuit; the f3/f0 Set/Reset calls live at CanBHere 0x572B-0x574C
-  (ego only), so they are written per scan attempt, including FindPosn's
-  per-candidate re-calls (0x598D-0x59A7).
-- **F-motion-09 (fact; engine matches).** set.horizon (2.936 kq3, handler
-  0x7E7C) is operand-fetch + store to the horizon global DS:0x12D and
-  returns; no object relocation — enforcement is lazy via the MoveObjs clamp
-  and GoodPos.
-- **F-motion-10 (fact; engine matches).** new.room object loop (2.936 kq3
-  0x17B6): flags `&= 0xFFBE; |= 0x10`; celptr/viewptr/save := NULL;
-  movefreq/moveclk/cycleclk/cyclfreq/stepsize all := 1; x, y, dir preserved.
-- **F-motion-12 (fact; engine diverges).** FindPosn (2.936 kq3 0x593A): spiral
-  legs x--/y++/x++/y-- with leg length incremented after the down and up
-  legs; the only exits are GoodPos∧¬Collide∧CanBHere acceptance. No bound or
-  iteration cap — degenerate screens hang/wrap; the engine's exhaustion throw
-  has no original counterpart.
-- **F-motion-13 (fact; engine matches).** Movement clamps (2.936 kq3 0x159B):
-  X then Y, each an else-if chain; Y order top (y-ysize<-1) → bottom (>167) →
-  horizon (!IGNRHRZ ∧ y≤horizon → horizon+1, border 1). Top clamp pre-empts
-  the horizon clamp.
-- **F-motion-18 (fact; engine matches).** Pre-logic block check (2.936 kq3,
-  ChkBlock 0x6D9): next point = x/y ± record stepsize (+0x1E) via an 8-case
-  dir switch; gated only on moveclk==1 and dir≠0 — the REPOS suppressed-step
-  case still uses full stepsize.
-- **F-motion-19 (fact; engine matches).** Animate first sweep (2.936 kq3
-  0x563): per updating record, direction-based loop selection
-  (twoLoop/fourLoop, moveclk==1, !FIXEDLOOP, SetLoop 0x3BB7) precedes the
-  CYCLE countdown and AdvanceCel (0x48B3) in the same iteration.
-- **F-motion-20 (fact; engine matches).** Redraw cadence (2.936 kq3 0x610):
-  the per-frame path restores/moves/rebuilds/draws only the update list
-  DS:0x16FF (predicate (ctl&0x51)==0x51); stopped objects (predicate ==0x41)
-  live in list DS:0x1703, touched only by whole-screen routines — no
-  per-frame redraw of stopped-update objects.
-
 ### Completion animation updates
 
 `end.of.loop` and `reverse.loop` select the updating object partition as well as
@@ -1671,44 +1568,6 @@ room's `posn` test covers the doorway.
 **Tests:** [opcodes.test.ts](../test/opcodes.test.ts); the SQ1 walkthrough crosses
 room 3.
 
-#### Wave-3 add.to.pic verdicts
-
-Static disassembly of the decoded KQ3 2.936 image and the KQ4 3.002.086 code
-body; the two builds are instruction-identical on these paths.
-
-- **F-VIEWS-03 (fact; engine diverges).** add.to.pic control box anchor (2.936
-  kq3): the AddToPic core (0x2D52) stores the script x/y into a scratch
-  animation entry, forces pri 15, calls FindPosn (0x593A — may relocate x/y),
-  then objinpic (0x57CF) feeds InsertObj and the control box from the SAME
-  entry fields ([bp+3]/[bp+5]). Box and cel are always co-anchored at the
-  possibly-FindPosn-relocated position; there is no blit-level placement
-  shift in this vintage.
-- **F-VIEWS-04 (fact; engine diverges).** add.to.pic packing (2.936 kq3
-  handler 0x2C7A, 3.002.086 kq4 0x2F3F): margin is `shl 4` ORed into the
-  priority byte (byte store — margin ≥ 16 truncates away); objinpic masks the
-  packed byte `and ah,0x0F` before use, and a zero nibble triggers the
-  y-priority lookup. Over-range priority operands are nibble-truncated by
-  construction.
-- **F-VIEWS-09 (fact; engine diverges).** add.to.pic box gate (2.936 kq3
-  objinpic 0x57FA, 3.002.086 kq4 0x5C15): the sole skip condition is
-  `cmp byte [entry+0x24],0x3F; ja` on the packed margin|priority byte —
-  margins 16..31 truncate through the byte store and still draw a
-  (truncated-color) box. No y-range guard exists; the box top is bounded by
-  the pri_tbl band scan and shadow-ram top only.
-- **F-VIEWS-12 (fact; deliberate engine divergence).** Narrow-cel control box
-  (2.936 kq3 0x5867, 3.002.086 kq4 0x5C82): the top-row loop is
-  `mov cl,al; sub cl,2; … loop` with no zero test — xdim 1 stamps 255 cells,
-  xdim 2 wraps LOOP to 65536 iterations marching across shadow ram. Not
-  modelled (deliberate).
-- **F-picture-06 (fact; engine matches).** add.to.pic control box (2.936 kq3
-  objinpic 0x57CF / 3.002.086 kq4 body 0x5BEA, instruction-identical): box
-  drawn only when the final pri byte ≤ 0x3F; height = min(cel ydim, rows
-  walked up through the priority table while the band value is unchanged),
-  walk bounded by row 0 (`or cl,cl; jz`); paint is `and es:[di],0xF /
-  or es:[di],boxpri<<4`; top-row count is `sub cl,2` in 8-bit CL — cel width
-  < 3 wraps to 255/254 iterations (overrun exists in the original, unmodelled
-  in the engine; see F-VIEWS-12).
-
 ### Text under later graphics
 
 Text and graphics share one bitmap: a cel drawn by add.to.pic, a sprite drawn or erased, and every
@@ -1885,14 +1744,6 @@ engine applies the formatting to every profile by inference.
 
 **Tests:** [opcodes.test.ts](../test/opcodes.test.ts).
 
-#### Wave-3 show.obj verdict
-
-- **F-VIEWS-10 (fact; engine diverges).** show.obj geometry (2.936 kq3 0x5F4E,
-  3.002.086 kq4 body 0x6387): left = (159 − width)/2 by signed idiv
-  (truncation toward zero — even-width cels sit one pixel left of a
-  (160 − w)>>1 centering); baseline y = 167; priority 15 fixed; on machine
-  type 2 the x is additionally rounded up to an even column.
-
 ### Original string slot addressing
 
 Static disassembly of two descrambled v2 images: LSL1 2.440
@@ -1977,56 +1828,6 @@ matching is observed behavior, not a recommendation for generated story code.
 ```bash
 python scripts/probe-interpreter-input.py games/gr1/AGI games/gr1/AGIDATA.OVL
 ```
-
-#### Wave-3 parser verdicts
-
-Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
-3.002.149; WORDS.TOK handling cross-checked against the shipped files.
-
-- **F-Parser-01 (fact; engine matches).** Dictionary matching (2.917 kq1 Match
-  0x1A6B / 3.002.086 kq4 0x1D24 / 3.002.149 gr1 0x1CF3): one linear
-  left-to-right scan of the initial-letter section; input pointer and match
-  depth never reset between entries; each entry's prefix-copy-count byte must
-  equal the current match depth to be compared (smaller → scan ends); every
-  complete match overwrites the result, so the LAST match in section order
-  wins — greedy-longest for sorted WORDS.TOK. Phrase spaces are matched
-  verbatim (0x20^0x7F); ignored words inside phrases are consumed as ordinary
-  characters; a failed longer phrase leaves the earlier shorter match in
-  effect.
-- **F-Parser-02 (fact; engine matches).** Unknown-word position (2.917 kq1
-  Parse 0x18AC / 3.002.086 kq4 0x1B65 / 3.002.149 gr1 0x1B34): on Match == -1
-  the parser stores i+1 (retained nonzero-id count + 1) to BOTH var[9] and
-  the parser count byte (gr1 DS:0xAB0), keeps the token text pointer in
-  wordPtr[i], sets f2 and stops. Ignored (group-0) words advance the line
-  pointer only — they never move v9. Clean parses leave v9 untouched; the
-  input phase zeroes v9/v19 before event polling (gr1 0x38D3), so v9==0 after
-  a fully-known line.
-- **F-Parser-04 (fact; engine diverges).** Ten-word retention (2.917 kq1 Parse
-  0x18F4 / 3.002.086 kq4 0x1BAD / 3.002.149 gr1 0x1B7C): the word loop tests
-  `i >= 10` BEFORE each Match call and exits silently — tokens past the tenth
-  retained word are never examined, so an unknown word at position 11+ is not
-  reported (v9 stays 0) and no eleventh text is kept; count byte = 10, f2
-  set. WORDS/WORDPTR are 10-slot arrays zeroed at Parse entry (FillMem 0x14
-  bytes each).
-- **F-Parser-05 (fact; engine diverges).** Input-line capacity (2.917 kq1
-  editor 0x3652 / 3.002.086 kq4 0x39EF / 3.002.149 gr1 0x3961): a character
-  is accepted only while editLen < min(var[24], 40 − strlen(s0) −
-  (promptByte≠0)) — v24 initialized to 41 (kq1 ResetAll 0x108C); excess keys
-  are silently rejected. A mode flag (kq1 DS:0xD07, actions 163/164; kq4
-  DS:0xD45) substitutes 36 for 40; gr1 3.002.149 lacks that branch. The edit
-  buffer INLINE and the accepted-line buffer PREVLINE are separate 42-byte
-  buffers: Enter copies INLINE→PREVLINE then Parses INLINE; echo.line copies
-  PREVLINE back into INLINE; cancel.line emits physical backspaces until
-  editLen==0.
-- **F-Parser-07 (fact; comment-only divergence).** Dictionary lookup (2.917
-  kq1 Match 0x1A6B / 3.002.086 kq4 0x1D24 / 3.002.149 gr1 0x1CF3): first char
-  (ASCII a-z after ASCII-only tolower, else unknown word) indexes a 26-entry
-  big-endian offset table; the section is scanned LINEARLY via NextToken and
-  every complete match overwrites the result, so duplicate entries resolve
-  last-in-file-order. Words under the wrong letter section are unreachable. A
-  lone 'a' or 'i' token defaults to group 0 before the scan (a real entry can
-  still override). The lookup is not a binary search; only a stale engine
-  comment said so.
 
 ### Original sound player audit
 
@@ -2186,32 +1987,6 @@ branch so a declined prompt completes the flag. SQ2 2.936's restart intercept
 list (in the [save and restart audit](#original-save-and-restart-audit)) contains
 the same 0x5234 helper, consistent with the shared 2.936 core.
 
-#### Wave-3 sound verdicts
-
-Static disassembly of KQ2 2.411, LSL1 2.440 and XMAS 2.272 (`a0c26b5d…`).
-
-- **F-SOUND-02 (fact; engine diverges on the +3 rule scope, matches the
-  rest).** Early sound attenuation (2.272 xmas 0x764D / 2.411 kq2 0x7D02 /
-  2.440 lsl1 0x7E2B): 2.272 adds var[23] to the whole control byte with a
-  signed `jng` clamp to 0x0F; 2.411/2.440 mask the nibble first then clamp
-  (`(c&0xF0)|min(15,n+v23)`). On machType==2 (Tandy) all three builds first
-  apply +3 to any attenuation latch byte ((b&0x90)==0x90) whose low nibble <
-  8 (ConvertTDVolume kq2 0x7D3C / lsl1 0x7E65 / xmas 0x7680) — not
-  channel-2-only. Terminator emits (saved&0xEF, 0x00, selector|0x0F) from the
-  read-only initial array `9F BF DF FF`.
-- **F-SOUND-03 (fact; engine diverges).** sound() ordering (2.411 kq2 0x4FD5,
-  2.440 lsl1 0x5007, 2.272 xmas 0x4943): StopSnd runs first (sets the OLD
-  done flag, silences the chip), then operands are read, the new done flag is
-  Reset, and FindSnd failure calls Error(9, n) — the previous sound is
-  already stopped when the fault fires.
-- **F-SOUND-05 (fact; engine matches).** PC-speaker path (2.411 kq2
-  0x7D19/0x7D59, 2.440 lsl1 0x7E42, 2.272 xmas 0x765D): divisor =
-  12×(((b2&0x3F)<<4)+(b1&0xF)) built as ×4+×8; rest is cl==0x9F → port 0x61
-  &= 0xFC; otherwise out 0x43,0xB6 then divisor low+high to 0x42 with no zero
-  guard, port 0x61 |= 3. On machType 0 the player iterates exactly one
-  channel ([bound]=2, word step). Booter 2.001 gates a zero divisor to
-  speaker-off (0x7607) instead.
-
 ### SN76489 attenuation latching and rest notes
 
 The audio backend accepts continuation data bytes for tone registers
@@ -2284,9 +2059,7 @@ SQ2 and 1,156 for GR1, so this is not a no-op read/write probe.
 
 Accepted restart was executed for RNG `[0,1,0xbeef,0xffff]` with f9 both clear
 and set. It preserves RNG and f9, clears both DS timing words 0x129 and 0x12b
-(initially 123 and 456), and sets f6. (See the correction in
-[Wave-3 persistence verdicts](#wave-3-persistence-verdicts): ResetAll also
-sets f5 on the accepted restart path.) Original variable/flag clears and object
+(initially 123 and 456), and sets f6. Original variable/flag clears and object
 reset execute. No reseed occurs in this measured reset path, including when
 RNG is zero. The two builds passed 24 combined save/restore and restart cases.
 
@@ -2446,55 +2219,6 @@ Across the two builds the probe checks 204 controlled vectors: preserved I/O
 and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
-
-#### Wave-3 persistence verdicts
-
-Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
-3.002.149; strings read from the hash-pinned data segments.
-
-- **F-persistence-01 (fact; engine matches).** Accepted restart state clears
-  (2.936 kq3 ResetAll 0x0FA5 / 3.002.107 mh1 0x11FA / 3.002.149 gr1 0x11B3):
-  FillMem(var,256,0) at DS+0x09, ClearFlags (rep stosw 32B DS+0x109),
-  ClearControl (50B), aniObj zero-fill. The fill starts at DS+0x09 — gameID
-  (DS+0x02), keyMap (DS+0x145) and userStr (DS+0x20D) survive restart; only
-  the boot-time data image initializes them.
-- **F-persistence-02 (fact; engine diverges).** Restart prompt cursor
-  (3.002.107 mh1 0x2741 / 3.002.149 gr1 0x26E0): CursorState saved to a stack
-  local before EraseCur; after the confirmation the accepted path calls
-  WriteCur unconditionally, the canceled path calls it only when the marker
-  was visible on entry. 2.936 (kq3 0x2472) brackets the prompt with
-  unconditional EraseCur/WriteCur — no visibility memory.
-- **F-persistence-03 (fact; engine diverges).** Restore tail (2.936 kq3
-  0x2647 / 3.002.107 mh1 0x2928 / 3.002.149 gr1 0x28C7): after the five block
-  reads the original closes the file, rewrites v20/v26 from the machine
-  probe, sets v22 = 1 (PC) or 3 (else, +f11), runs reconstruction,
-  ClearControl, Set(f12), CloseAllVols, returns 0. f2/f4/v(key) are not
-  touched — f2/f4 are cleared at every main-cycle top (kq3 0x161/0x16B).
-- **F-persistence-04 (fact; engine matches).** Timer across persistence
-  (2.936 kq3): sysTimer is a 32-bit dword at DS+0x129 incremented by
-  `add [0x129],1; adc [0x12b],0` in the tick routine (0x7F01); there is no
-  sub-tick remainder word. Accepted restart zeroes both words (0x24DB);
-  restore reloads the dword wholesale inside block 1 and leaves it untouched.
-- **F-persistence-05 (fact; engine diverges).** Restart/quit prompts (2.936
-  kq3, 3.002.107 mh1, 3.002.149 gr1 — identical strings): restart = "Press
-  ENTER to restart / the game. // Press ESC to continue / this game." (kq3
-  DS+0xADB); quit = "Press ENTER to quit. / Press ESC to keep playing." (kq3
-  DS+0x5E3). Both via WindowPrint with height/width 0 (auto-size); WaitAcAb
-  accepts only CR (→1) and ESC (→0); quit.game with logic arg 1 skips the
-  prompt.
-- **F-OPCORE-04-adjacent (fact; engine matches).** ResetAll tail (2.936 kq3
-  0x0FA5 / 3.002.107 mh1 0x11FA / 3.002.149 gr1 0x11B3): var[20]:=machType,
-  var[26]:=monType, var[24]:=41, Set(f5), userCtrl:=1, picNo:=0, blocking:=0,
-  var[22]:=1 (PC) else 3 + Set(f11). Reached from the accepted restart path,
-  so logic 0 sees f5=1 after restart. No var slot is set to 255.
-
-**Correction.** The audit narrative above reports the accepted restart path
-as setting f6 and lists f5 only among the startup writes; that reading
-stopped before the ResetAll tail. The wave-3 disassembly behind
-F-OPCORE-04-adjacent shows ResetAll executes `Set(f5)` on the accepted
-restart path in all three builds (kq3 2.936 0x0FA5, mh1 3.002.107 0x11FA, gr1
-3.002.149 0x11B3), so logic 0 observes f5=1 after restart as well as after
-startup. The engine, which sets f5 on restart, matches the original.
 
 ### Game signature across restore
 
@@ -2677,311 +2401,6 @@ Playback completes at payload exhaustion and silences the chip.
   pointing to 0x76d7, which calls 0x73c5 on every timer tick).
 
 **Tests:** [sound-playback.test.ts](../test/sound-playback.test.ts).
-
-#### Wave-3 booter sound verdict
-
-- **F-SOUND-01 (fact; engine diverges).** Booter f9 gate (2.001, ddp decoded
-  `424da51a…`, 0x75B3): flag 9 is tested inside the per-write chip routine
-  (0x75BB `call flagGetter` → `jz → ret`); the row cursor and countdown
-  advance regardless (0x74B0/0x7482), and the done flag is set only on
-  payload exhaustion (0x747C → 0x4B96 SetFlag [0xe80]). f9-clear silences the
-  chip but never completes the sound.
-
-### Original directory and resource loading
-
-Static disassembly of KQ1 2.917, SQ2 2.936 and the KQ4 3.002.086 code body
-(body offsets); shipped directory bytes cross-checked against the game files.
-
-- **F-LOAD-02 (fact; engine diverges).** Directory bounds (2.917 kq1 / 2.936
-  sq2, GetSeg 0x2E56; 3.002.086 kq4 body 0x311B): no offset-vs-volume-size
-  validation at directory load (InitDir 0x4305) or resource load; an
-  out-of-bounds entry lseeks past EOF, the short read enters DiskError
-  ("Press ENTER to try again." 0x401D) and MustGet (0x2E32) retries until the
-  user aborts to Quit. kq1 SNDDIR[34..37] and sq2 LOGDIR[141]/PICDIR[147]
-  ship such entries; shipped bytecode never loads them.
-- **F-LOAD-03 (fact; engine diverges).** Record header validation
-  (2.917/2.936 GetSeg 0x2F3A; 3.002.086 body 0x320E): bad 0x12 0x34 magic or
-  a volume-byte mismatch (v2 full-byte; v3 low nibble when metadata 0x80 set)
-  is not fatal — CloseAllVols, segErr=1, WrongVol ("That is the wrong disk."
-  / "Please insert disk %d") and retry via OpenAllVols; Quit only on abort.
-  Short/truncated reads go to DiskError's ENTER-to-retry prompt; a missing
-  VOL (open returns -1 silently) takes the insert-disk prompt.
-- **F-LOAD-08 (fact; engine matches).** Absent-resource load (2.917/2.936
-  filter 0x434E; 3.002.086 body 0x476C): directory absence is volume nibble
-  0xF (v2) or exact FF FF FF (v3), tested in the LogSeg/ViewSeg/PicSeg/SndSeg
-  helpers before any volume I/O; an absent load prints "%s %d not found" with
-  the kind name and Quits the interpreter — never the insert-disk prompt,
-  never a silent null.
-- **F-LOAD-06 (fact; engine diverges).** WORDS.TOK (2.917/2.936 load 0xF6F,
-  Match 0x1A6B; 3.002.086 load body 0x11AE, Match body 0x1D8F): the file is
-  LoadFile'd raw and section offsets are used as-is — no validation of
-  ordering or bounds; offset 0 means empty section (unknown word). The
-  per-word scan is linear and overwrites the result on every full match, so a
-  duplicated word resolves to its last entry in the section.
-
-### Original input, menu and modal handling
-
-Static disassembly of the decoded KQ3 2.936 image, DEMOPAC4 3.002.102, MH1
-3.002.107 and GR1 3.002.149; event-queue layout and hook tables read from the
-hash-pinned data segments.
-
-- **F-IN-01 (fact; engine matches).** Direction-event toggle (2.936 kq3
-  0x35FA / 3.002.102 demopac4 0x39AD / 3.002.107 mh1 0x39AD / 3.002.149 gr1
-  0x3911): the type-2 case compares the event value against the ego record's
-  direction byte [rec+0x21] — equal: v6:=0, else v6:=value — then, only when
-  userCtrl≠0, ego motion:=0. The compare operand is the record byte (not v6);
-  the record is synced from v6 by the post-logic mirror, so repeated
-  same-direction events within one input phase do not re-toggle.
-- **F-IN-02 (fact; engine diverges).** Input-phase v19 order (2.936 kq3
-  0x35AD / 3.002.102 demopac4 0x3960 / 3.002.149 gr1 0x38FB): the type-1 case
-  stores the event's low byte into v19 unconditionally and FIRST — before the
-  input-acceptance gate and before EditLine consumes
-  Enter/Backspace/printables. Editing keys therefore reach v19; the engine's
-  consume-first-then-store order inverts this.
-- **F-IN-03 (fact; engine matches).** have.key (3.002.102 demopac4 0x0C13 /
-  3.002.107 mh1 0x0C13 / 2.936 kq3 0x09BE): truth test and v19 store are on
-  the LOW byte (`test al,al`). Extended words (F1=0x3B00) have AL=0 → false,
-  v19 untouched. No blocking: the drain loop exits on queue-empty or
-  GetKey≠−1.
-- **F-IN-04 (fact; engine diverges).** Keypad-word normalization (3.002.102
-  demopac4): the event queue stores full 16-bit type+value words (PostEvent
-  0x48DD, 4-byte stride, 20 slots). ButtonToChar 0x4A78 (0x101/0x301→CR,
-  0x201/0x401→ESC, type-1 only) runs inside GetKey — so have.key,
-  get.string/get.num (WaitChar), and all ChkAcAb modals normalize — plus the
-  inventory, menu, and menu-status handlers directly. The input-phase
-  EditLine is the only key consumer that never normalizes.
-- **F-IN-05 (fact; engine diverges).** Menu-interaction gate (3.002.107 mh1 /
-  3.002.149 gr1): allow.menu (0xB1) stores its operand to a dedicated word
-  (mh1 DS+0x5E3, gr1 DS+0x403), shipped value 1, never re-initialized.
-  menu.input (0xA1) tests f14 only and sets the request word; the gate is
-  tested at the head of DoMenu (mh1 0x9895), and the gated exit leaves the
-  request word set — a gated request pends until allow.menu(1). No
-  gr1/mh1/demopac4 logic calls allow.menu.
-- **F-IN-07 (fact; engine diverges).** Tracked key release
-  (3.002.102/3.002.107/3.002.149): the int-9 hook (mh1 0x6487) windows scans
-  0x47-0x51, consults an 11-byte selected-key table (mh1 DS+0x159C = FF FF FF
-  00 FF 00 FF 00 FF FF FF — the 8 direction keys) and an 11-byte pressed
-  latch (DS+0x15A7). Make: latch set → swallowed repeat; else clear all
-  latches, latch this key. Break: latch clear → no event; else clear latch
-  and, iff the 0xAD/0xB5 gate byte (DS+0x5E5) ≠ 0, enqueue type-2 value 0.
-  hold.key sets the gate to 1; release.key clears it. Keypad-5 make (no
-  shifts) enqueues type-2 value 0 ungated.
-- **F-IN-08 (fact; engine diverges).** Modal acknowledgement keys (3.002.102
-  demopac4 / 2.936 kq3): all print/show.obj/show.pri/save/restore modals
-  funnel to WaitAcAb → ChkAcAb (demopac4 0x4A5C/0x4A34): CR → accept(1), ESC
-  → abort(0), after GetKey's 0x101/0x201/0x301/0x401 normalization; every
-  other key and all non-CHAR events are ignored. Space does NOT dismiss.
-  v21≠0 on the print path swaps the bare wait for a sysTimer deadline loop.
-- **F-IN-14 (fact; engine diverges).** Non-interactive inventory dismiss
-  (3.002.102 demopac4 0x3696 / 2.936 kq3 0x32E9): with f13 clear the list
-  ends with a single bare WaitEvent — any queued event (any key incl.
-  low-byte-0 words, navigation, controllers, joystick) dismisses it. Only the
-  f13-set interactive path normalizes keys and filters CR/ESC/DIR.
-- **F-IN-15 (fact; engine diverges).** Menu Home/End (2.936 kq3 DoMenu
-  0x9517): value 8 loads menuBase (root heading) and value 6 loads
-  menuBase->prev (rightmost) UNCONDITIONALLY — disabled edge headings are
-  selected and shown. The enabled-skip loop exists only in the left/right
-  cases (3/7: `cmp word [si+0xa],0; jz` at 0x94BC/0x9501); item up/down (1/5)
-  likewise do not skip disabled items.
-
-### Original window and status-line text
-
-Static disassembly of KQ1 2.917 and the decoded KQ3 2.936 image; format
-strings read byte-exact from the hash-pinned data segments.
-
-- **F-text-01 (fact; engine diverges).** Window word wrap (2.917 kq1 / 2.936
-  kq3, _Print 0x1F93): break on space only; when col ≥ width the last space
-  is overwritten with '\n' (space consumed, excluded from maxLength) and all
-  leading spaces of the continuation are stripped; no space on the line →
-  '\n' inserted at the width (hard split). Escape char is a global (DS:0xD0D,
-  default '\\'; show.obj sets '@'). Engine wrapLines keeps the break space as
-  a trailing space when runs of spaces straddle a wrap.
-- **F-text-02 (fact; engine diverges).** Status line (2.917 kq1 0x34BD /
-  2.936 kq3): ClearLine (statusRow, 0xFF); SetTextAtr(0,15); col 1
-  `printf("Score:%d of %d  ", v3, v7)` — no space after the colon, two
-  trailing spaces, v7 is genuinely the max; col 30 `printf("Sound:%s",
-  "on "/"off")` with "on " space-padded. Engine format strings add a space
-  after "Score:" and drop the padding.
-- **F-text-03 (fact; engine diverges).** Message window (2.917 kq1 0x1D96 /
-  2.936 kq3): interior SetTextAtr(0,15); OpenWndw(pos, dim, 0x040F) — fill =
-  low nibble 0x0F (white), border = high nibble 0x4 (red), drawn as a full
-  fill plus four solid 1-nibble pixel bars (no corner/edge glyphs exist).
-  Engine glyph codes 0x01-0x07 and corner asymmetry have no original
-  counterpart; colors match.
-- **F-text-04 (fact; engine diverges).** Window placement (2.917 kq1 0x1E69 /
-  2.936 kq3): top = picTop + 1 + (19 − numLines)>>1, left = (40 −
-  maxLength)>>1 (shr = floor; slack non-negative via the verbose gate);
-  engine centering matches exactly. print.at row/col overrides are stored
-  VERBATIM (picTop still added to row) with no clamping — off-screen
-  overrides corrupt pixels rather than shift to fit; the engine's
-  clamp-to-screen is unoriginal.
-- **F-text-08 (fact; engine matches).** Timed print (2.917 kq1 0x1CE8 / 2.936
-  kq3): timeOut = sysTimer + v21*10 (dword, 20 Hz → half-second units);
-  busy-wait `while (sysTimer < timeOut && ChkAcAb() == -1)` — tick-quantized
-  >= expiry, key closes early; var[21] = 0 after a timed close. The engine's
-  millisecond countdown/epsilon is a re-modeling valid only under exact 20 Hz
-  clock advancement.
-- **F-text-10 (fact; engine diverges).** Overlong messages (2.917 kq1 0x1E0C
-  / 2.936 kq3): if the formatted message exceeds winBot−1 (19) lines,
-  WindowNoWait truncates the source at 20 chars and substitutes the literal
-  `"Message too verbose:\n\n\"%s...\"\n\nPress ESC to continue."`, then
-  re-formats; _Print also aborts expansion past 19 lines. The engine's silent
-  clipping of overflow lines is unoriginal.
-
-### Original picture drawing and fill
-
-Static disassembly of the decoded KQ3 2.936 image and the KQ4 3.002.086 code
-body; brush tables read from the hash-pinned overlays.
-
-- **F-picture-01 (fact; engine matches).** PC show.pic (2.936 kq3 0x4B82 /
-  3.002.086 kq4 body 0x4FB0): `Reset(15)` (LEAVE_WIN), `CloseWindow(NULL)`,
-  `BackToScrn`, `picVisible=1`, in that order — the flag-15 clear and window
-  close exist on PC exactly as on Amiga/IIgs.
-- **F-picture-02 (fact; engine matches).** Seed fill (2.936 kq3 colorFill
-  0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose pending-line stack
-  is the CPU stack, seeded with 4×0xFFFF (`B8 FF FF 50 50 50 50` at 0x5377),
-  popped until start-Y == 0xFF; no SP bound — a pathological fill corrupts
-  the stack rather than aborting. Fill with visual 15 or priority 4 is
-  dropped before the seed test (`cmp byte [color],0xF / jz`,
-  `cmp byte [pri],0x40 / jz`); visual channel selected before priority
-  (`test bh,0xF` first); seed masked pixel must equal the background mask or
-  the fill is ignored; Y test is an 8-bit `cmp al,0xA7`.
-- **F-picture-04 (fact; engine diverges).** show.pri.screen (2.936 kq3 0x731B
-  / 3.002.086 kq4 body 0x775A): `showPri=1; BackToScrn; WaitAcAb; BackToScrn;
-  showPri=0` — no window close. ChkAcAb (kq3 0x45F0) accepts only 0x0D
-  (ENTER) and 0x1B (ESC); SPACE is ignored. The wait is a private blocking
-  loop (logic frozen).
-- **F-picture-09 (fact; engine matches).** PC picture core (2.936 kq3 /
-  3.002.086 kq4): brush row-word tables at ovl DS+0x1629 (kq3) / DS+0x1699
-  (kq4) via 8-pointer tables DS+0x1619/0x1689 — byte-exact ROW_WORDS_V2 incl.
-  the radius-5 0x1F00 tail; kq4 radius 1 = 4000/E000/4000 (v3 center row).
-  Line core kq3 0x66E1: half-error `shr` init, 8-bit add/cmp/sub error
-  registers, `loop` on the major delta, endpoints plotted by the caller. Plot
-  offset is y*160+x with no x clamp (kq3 0x52F9) — the X=160 right-edge wrap
-  is real on PC. Pattern plotter masks radius with `and si,7` and clamps the
-  origin to 320−2r.
-- **F-picture-10 (fact; engine diverges).** Picture stream termination (2.936
-  kq3 DrwPicNC 0x6475): the dispatch loop `lodsb; cmp al,0xFF; jz done; sub
-  al,0xF0; jc top; cmp al,0xA; ja top; call [bx+tbl]` carries no length
-  register — 0xFB..0xFE are skipped, and a stream without 0xFF reads past the
-  buffer into adjacent heap until an 0xFF byte. The engine's clean EOF stop
-  diverges for truncated resources.
-
-### Original cel handling and priority table
-
-Static disassembly of the decoded KQ3 2.936 image and the KQ4 3.002.086 code
-body (instruction-identical on MirrorCell).
-
-- **F-VIEWS-01 (fact; engine matches).** Cel mirroring (2.936 kq3 MirrorCell
-  0x587D / 3.002.086 kq4 0x5C98, instruction-identical): InsertObj tests
-  skipclr bit 0x80 at blit entry and calls MirrorCell when the stored loop
-  bits (skipclr 0x70, >>4) differ from the animation entry's loop;
-  MirrorCell rewrites those bits in place in the loaded resource, rebuilds
-  the mirrored cel in a 2048-byte stack buffer — leading skip = xdim − pixel
-  total emitted in ≤15-pixel chunks, fill bytes reversed per row via
-  std/lodsb/cld/stosb — and rep-movsb's it back over the original cel.
-  Orientation field is 0x70 (mod 8), not 0x30.
-- **F-VIEWS-05 (fact; engine diverges).** Cel placement adjustment (2.936
-  kq3): none exists in the blit — InsertObj computes top = y − ydim + 1 and
-  plots. SetCel (0x3CCB) persistently clamps the object instead: x+xsize >
-  160 → x := 160 − xsize; y−ysize < −1 → y := ysize−1 (then horizon+1 unless
-  IGNRHRZ); both set REPOS (0x0400). A negative top never shifts x left — the
-  spec's `left += top` rule is not corroborated.
-- **F-VIEWS-06 (fact; engine matches).** Priority table build (2.936 kq3
-  initpri 0x56A2 / set.pri.base 0x4D10; 3.002.086 kq4 0x5AB6 / 0x513E):
-  default is rep-stosb 48×4 then 12-row bands to 14. set.pri.base rebuilds
-  all 168 entries as y<base→4 else min(15, 5 + trunc((y−base)·168 /
-  trunc((168−base)·168/10))); the double truncation is numerically identical
-  to 5+floor((y−base)·10/(168−base)) for every base 0..168 (verified
-  exhaustively). kq4's initpri only runs when pri_tbl[0]==0xFF. No y>167
-  saturation — table reads are unguarded xlat.
-
-### Original script capacity and version handlers
-
-Static disassembly of the decoded KQ3 2.936 image, KQ1 2.917 and the GR1
-3.002.149 code body; shipped data-image words read from the hash-pinned
-overlays.
-
-- **F-timing-01 / F-OPCORE-15 / F-persistence-07 (fact; engine diverges).**
-  PC script default capacity (kq3 2.936 / kq1 2.917 / gr1 3.002.149,
-  AGIDATA.OVL): the interpreter data image ships SCRIPTSIZE = 0x0032 (50
-  pairs) at DS+0x141, between MAXDRAWN 0x000F (DS+0x13F) and SCRIPTENTRIES 0
-  (DS+0x143); the buffer is allocated lazily by InitScript at scriptSize*2
-  bytes. 200-pair images are game-side script.size calls, not the default.
-- **F-timing-02 / F-OPCORE-03 (fact; engine diverges).** script.size 0x8e
-  (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149 0x74E8):
-  stores the operand into SCRIPTSIZE DS+0x141, then calls RestoreAll,
-  InitScript (reallocates scriptSize×2 if unallocated; scriptTop := script;
-  SCRIPTENTRIES := 0), AllInBack — a recorded-pair reset plus update-list
-  refresh, not a bare capacity store.
-- **F-OPCORE-02 / F-PROFILES-01 (fact; engine matches for games/gr1).** Gold
-  Rush room alias (gr1 3.002.149, NewRoom body 0x1A0A): the room operand is
-  stored to var[0] unaliased (`mov [0x9],al` at 0x1A93) and passed raw to the
-  logic loader; the image contains no compare against 0x7D-0x81 and no 0x49
-  constant, and the overlay no alias table. games/gr1 does NOT carry the
-  0x7e-0x80→0x49 alias; the spec's observed build is a different Gold Rush
-  release (unidentified — identity unresolved).
-- **F-OPCORE-07 (fact; engine diverges).** version 0x8d (kq3 2.936 handler
-  0x733C / kq1 2.917 0x7275 / gr1 3.002.149 0x7670): pushes the CONST
-  versionMsg ("Adventure Game Interpreter. Version …", e.g. DS+0xAAB in kq3)
-  and calls WindowPrint (kq3 0x1CE8) — a modal window with key-poll/var[21]
-  timeout — then returns; string slot 0 is untouched.
-
-### Early PC family (2.089/2.230/2.272)
-
-Static disassembly of the decoded SQ1 2.089 image (`e31e5e86…`), XMAS 2.230
-(`875547de…`) and XMAS 2.272 (`a0c26b5d…`), runtime offsets; see
-[Verified inputs](#verified-inputs) for the images. The three builds are one
-lineage with per-version deltas.
-
-- **F-motion-01 / F-OPCORE-01 (fact; engine diverges).** Original position
-  handlers (2.089, sq1 `e31e5e86`, runtime 0x7141): x/y stored, then
-  `and cx,1` on the control word, `call Erase` (0x515C) if drawn, then
-  prevx/prevy snapshot — erase-then-store. The 2.230 (0x70FA) and 2.272
-  (0x7196) handlers are store-together with no DRAWN test; the erase variant
-  is 2.089-only. Engine profile field positionActionOrder must drive the
-  0x25/0x26 handlers.
-- **F-motion-15 (fact; engine matches).** Original distance (2.089 sq1
-  0x4061, 2.230 0x3FE5, 2.272 0x4043): center-X+baseline-Y Manhattan sum
-  computed in 16 bits, then a plain `mov [var],al` byte store — wraps mod
-  256, no clamp. Undrawn object → 0xFF. The 254 clamp arrived later (source
-  changelog 06/04/87).
-- **F-VIEWS-02 (fact; engine matches).** Original 2.230 packed loop header
-  (xmas `875547de`, _SetLoop 0x350D, LastCel 0x36E2): loop byte 0 =
-  celcnt&0x0F | orientation<<4 (0x30) | mirrorable 0x40 | mutable 0x80; cel
-  count masked with `and ax,0xf`. 2.089 (0x35C7) and 2.272 (0x35C4) use a
-  full-byte cel count with no in-header orientation — the packed form is
-  2.230-only.
-- **F-VIEWS-08 (fact; engine diverges).** 2.230 packed orientation truncation
-  (xmas 0x3545): writeback `and ax,0xffcf / or ax,(loop<<4) / mov [di],al`
-  stores only (loop mod 4) into bits 0x30, but the equal-test compares the
-  2-bit field against the full loop operand — a loop ≥ 4 re-mirrors on every
-  set.loop. In-place mutation of the loaded view resource.
-- **F-SOUND-02 (fact; engine matches).** Early sound player (2.089 sq1
-  0x7615, 2.230 0x7598, 2.272 0x7634): Tandy path emits both tone bytes then
-  the control byte; on machType==2 the control byte's low nibble is raised by
-  3 if its high nibble is 0x90 and nibble < 8. 2.272 additionally adds a
-  global adjustment byte (DS+0x20) to the whole control byte with a signed
-  `cmp al,0xf / jng / mov al,0xf` clamp. Sound end silences all four channels
-  with 9F BF DF FF (selector|0x0F) from StopSnd; PC-speaker path only honors
-  the 0x9F mute. (The later 2.411/2.440 form of the same rules is under
-  [Wave-3 sound verdicts](#wave-3-sound-verdicts).)
-- **F-Parser-03 (fact; engine matches).** said() tail terminator introduction
-  point (sq1 2.089 `e31e5e86` Said 0x965 vs xmas 2.230 0x851): 2.089 has no
-  0x270F immediate anywhere in the interpreter and gates the match on
-  `cmp cl,[numWords]` exact-count equality; 2.230/2.272 have
-  `cmp ax,0x270f → shl cx,1; add si,cx; xor cx,cx` succeed-with-
-  words-remaining. Terminator introduced between 2.089 and 2.230.
-- **F-PROFILES-03 (fact; engine diverges).** Restart/show.mem in the early
-  family (sq1 2.089 0x22AB, xmas 2.230 0x21ED, xmas 2.272 0x2289): no f16
-  test precedes the confirmation prompt — restart always prompts (the 2.936
-  f16 bypass does not yet exist). show.mem formats only "heapsize/now:…
-  max/max script" (ovl string, e.g. DS+0x70F in sq1); the "rm.0, etc." line
-  is absent through 2.272.
-- **F-PROFILES-04 (fact; engine matches).** set.key capacity in the early
-  family (sq1 2.089 0x4481, xmas 2.230 0x4409, xmas 2.272 0x4475): free-slot
-  scan `cmp di,0x27; jnl discard` — 39 entries, same as 2.411–3.002.102; full
-  table silently drops the mapping.
 
 ## Appendix B: Amiga evidence
 
