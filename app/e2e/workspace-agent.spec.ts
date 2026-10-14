@@ -63,13 +63,21 @@ async function documents(page: Page) {
   });
 }
 
-test("Auto-approve shows a rejected handover without admitting its edits @webkit-desktop", async ({
+test("Tests never block edits: Auto-approve commits a failing test and runs the committed document @webkit-desktop", async ({
   page,
 }) => {
   let requests = 0;
   const catalogNames: string[][] = [];
+  let testFailure: { success: boolean; error?: string } | undefined;
   await page.route("**/api/openai/v1/responses", async (route) => {
-    const body = route.request().postDataJSON() as { tools: { name: string }[] };
+    const body = route.request().postDataJSON() as {
+      tools: { name: string }[];
+      input?: { type?: string; call_id?: string; output?: { text?: string }[] }[];
+    };
+    const verdict = body.input
+      ?.find((item) => item.type === "function_call_output" && item.call_id === "run-tests")
+      ?.output?.find((block) => typeof block.text === "string")?.text;
+    if (verdict) testFailure = JSON.parse(verdict);
     catalogNames.push(body.tools.map((tool) => tool.name));
     requests++;
     await route.fulfill(
@@ -108,13 +116,25 @@ test("Auto-approve shows a rejected handover without admitting its edits @webkit
                   arguments: '{"notes":null}',
                 },
               ]
-            : [
-                {
-                  type: "message",
-                  role: "assistant",
-                  content: [{ type: "output_text", text: "Done." }],
-                },
-              ],
+            : requests === 2
+              ? [
+                  {
+                    type: "function_call",
+                    id: "run-tests",
+                    call_id: "run-tests",
+                    name: "run_game_tests",
+                    arguments: '{"names":["Impossible score"]}',
+                  },
+                ]
+              : [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [
+                      { type: "output_text", text: testFailure?.error ?? "Tests complete." },
+                    ],
+                  },
+                ],
       }),
     );
   });
@@ -123,16 +143,30 @@ test("Auto-approve shows a rejected handover without admitting its edits @webkit
   await page.getByRole("radio", { name: "Auto-approve", exact: true }).click();
   await page.getByTestId("agent-message").fill("Record and validate the score test");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("workspace-agent-panel").getByRole("alert")).toContainText(
-    "Handover rejected",
-  );
+  await expect(page.getByTestId("workspace-agent-panel")).toContainText("Applied automatically");
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("workspace-agent-panel").getByRole("alert")).toHaveCount(0);
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
-  expect(await documents(page)).toEqual(before);
-  expect(requests).toBe(2);
+  const committed = await documents(page);
+  const tests = JSON.parse(committed["tests"]!);
+  expect(tests.tests.some((entry: { name: string }) => entry.name === "Impossible score")).toBe(
+    true,
+  );
+  const { tests: _oldTests, ...gameBefore } = before;
+  const { tests: _newTests, ...gameAfter } = committed;
+  expect(gameAfter).toEqual(gameBefore);
+
+  await page.getByTestId("agent-message").fill("Run the committed Impossible score test");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => testFailure?.success).toBe(false);
+  expect(testFailure!.error).toContain('0 game tests pass, 1 fail: "Impossible score"');
+  expect(testFailure!.error).toContain("Expected score 99; observed 0.");
+  await expect(page.getByTestId("workspace-agent-panel")).toContainText(testFailure!.error!);
+  expect(await documents(page)).toEqual(committed);
   expect(catalogNames[0]).toContain("configure_launch");
   expect(catalogNames[1]).toEqual(catalogNames[0]);
   await page.screenshot({
-    path: test.info().outputPath("rejected-handover.png"),
+    path: test.info().outputPath("committed-test-verdict.png"),
     animations: "disabled",
   });
 });

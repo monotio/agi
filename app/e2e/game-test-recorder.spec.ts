@@ -41,8 +41,8 @@ function remixResponses(
       id: `${idPrefix}-calls`,
       output: calls.map(([name, args], i) => ({
         type: "function_call",
-        id: `item-${i}`,
-        call_id: `call-${i}`,
+        id: `${idPrefix}-item-${i}`,
+        call_id: `${idPrefix}-call-${i}`,
         name,
         arguments: JSON.stringify(args),
       })),
@@ -71,21 +71,36 @@ async function agentFeed(page: Page): Promise<string> {
   });
 }
 
-test("record a playthrough, break and repair it, and rerun it in a fresh browser", async ({
+test("Tests never block edits: record a playthrough, Apply a failing game edit, repair and rerun after import", async ({
   page,
   browser,
 }) => {
   let requests = 0;
+  let recordedFailure: { success: boolean; error?: string } | undefined;
   const modules: string[] = [];
   page.on("request", (request) => modules.push(request.url()));
   const respond = (body: unknown) => providerReply("openai", body);
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
+    const body = route.request().postDataJSON() as {
+      input?: { type?: string; call_id?: string; output?: { text?: string }[] }[];
+    };
+    const verdict = body.input
+      ?.find(
+        (item) => item.type === "function_call_output" && item.call_id === "broken-test-call-0",
+      )
+      ?.output?.find((block) => typeof block.text === "string")?.text;
+    if (verdict) recordedFailure = JSON.parse(verdict);
     const turns = [
       ...remixResponses(
         "break",
         [["write_logic", { room: 1, source: BROKEN_ROOM_ONE }]],
         "The mural lesson is remixed.",
+      ),
+      ...remixResponses(
+        "broken-test",
+        [["run_game_tests", { names: ["recorded mural repair"] }]],
+        recordedFailure?.error ?? "The recorded test was run.",
       ),
       ...remixResponses(
         "repair",
@@ -144,33 +159,41 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   // game into its writable remix project, exactly like a remix does.
   await expect(page.getByTestId("record-result")).toContainText("8 game tests stored");
 
-  // The agent cannot hand over a patch that breaks the recorded observation.
+  // Tests never block game edits: Apply the Agent's candidate even though its
+  // recorded observation will fail against the changed lesson text.
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await page.getByTestId("agent-message").fill("Change the mural lesson text");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("workspace-agent-panel")).toContainText(
-    "Handover rejected: 6 game tests pass, 2 fail",
-  );
-  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect.poll(() => agentFeed(page)).toContain("6 game tests pass, 2 fail");
+  await page.getByTestId("agent-approve").click();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
-  // A creator can deliberately break the game. Keep the recorder's repair
-  // contract while proving the rejected agent patch never reached the project.
-  await page.evaluate(
-    async ({ original, broken }) => {
-      const session = (
-        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-      ).__AGI_PROJECT__.getSession();
-      if (session.model.capture().read("logic:1")?.content !== original)
-        throw new Error("Rejected agent patch changed the project");
-      const result = await session.update([{ key: "logic:1", content: broken }], false);
-      if (result.status !== "committed") throw new Error(result.status);
-      await session.flush();
-    },
-    { original: ROOM_ONE, broken: BROKEN_ROOM_ONE },
-  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+          ).__AGI_PROJECT__
+            .getSession()
+            .model.capture()
+            .read("logic:1")?.content,
+      ),
+    )
+    .toBe(BROKEN_ROOM_ONE);
+
+  // Runs use committed tests: the recorded document now fails against the
+  // actual applied game, with the missing printed observation named plainly.
+  await page.getByTestId("agent-message").fill("Run the recorded mural repair test");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => recordedFailure?.success).toBe(false);
+  expect(recordedFailure!.error).toContain('0 game tests pass, 1 fail: "recorded mural repair"');
+  expect(recordedFailure!.error).toContain(MURAL_TEXT);
+  await expect(page.getByTestId("workspace-agent-panel")).toContainText(recordedFailure!.error!);
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
 
   // Repair: the same rerun reports the whole selection green again.
   await enterCreateMode(page);
