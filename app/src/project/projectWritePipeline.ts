@@ -51,7 +51,10 @@ export async function prepareAndAdmitProjectEdit(input: {
     );
   }
   let outcome: PreviewUpdateOutcome | undefined;
-  if (prepared.compiled !== undefined) {
+  // Tests are project metadata. Publishing them must not install source
+  // authority, record a native project image or disturb a live recording.
+  const testsOnly = changes.length > 0 && changes.every((change) => change.key === "tests");
+  if (prepared.compiled !== undefined && !testsOnly) {
     if (!valid()) throw new Error("Project edit was superseded.");
     outcome = await input.admit(prepared.compiled, documentVersions);
   }

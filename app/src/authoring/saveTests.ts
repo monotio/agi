@@ -3,6 +3,7 @@ import { editGameTests, type GameTestsEditOperation } from "../../../src/agent/g
 import { buildWordsTok } from "../../../src/logic/words.ts";
 import { readWordsDocument } from "../../../src/authoring/projectDocuments.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
+import { testsWriteBlockReason } from "./testWriteStatus.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 
 export interface SaveTestsOptions {
@@ -26,10 +27,8 @@ export async function saveTests(
 ): Promise<ReturnType<typeof editGameTests>> {
   if (!session) throw new Error("Open Create before saving a test.");
   const beforeCommit = () => {
-    const reason = options.writeBlockReason?.();
+    const reason = testsWriteBlockReason(session) ?? options.writeBlockReason?.();
     if (reason) throw new Error(reason);
-    if (session.chats().chats.some((chat) => chat.pendingReview))
-      throw new Error("Review the Agent's changes before editing tests.");
   };
   beforeCommit();
   const retry = retries.get(session);

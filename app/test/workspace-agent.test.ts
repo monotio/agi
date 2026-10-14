@@ -2779,3 +2779,102 @@ for (const provider of ["anthropic", "openai"] as const)
     assert.equal(agent.error, `${name} did not accept your API key. Check it in AI settings.`);
     session.dispose();
   });
+
+test("the shared test-write reason blocks a directly created Agent turn and its pending review", async () => {
+  const { testsWriteBlockReason } = await import("../src/authoring/testWriteStatus.ts");
+  const { saveTests } = await import("../src/authoring/saveTests.ts");
+  const { useTestRecorder } = await import("../src/authoring/useTestRecorder.ts");
+  const { session } = fixture();
+  const reached = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      appendToolResults() {},
+      async sendUserMessage() {
+        reached.resolve();
+        await release.promise;
+        return {
+          toolCalls: [
+            {
+              id: "notes",
+              name: "propose_changes",
+              input: { label: "Notes", changes: [{ key: "notes", content: "Remember the clue." }] },
+            },
+          ],
+        };
+      },
+      async complete() {
+        return { text: "Notes are ready.", toolCalls: [] };
+      },
+    }),
+  });
+  const recorderState = {
+    phase: "running",
+    recording: { active: false, starting: false, error: "" },
+    powerUp: { open: false, busy: false },
+    modal: null,
+    prompt: null,
+    waitingForKey: false,
+  };
+  const recorder = useTestRecorder({
+    state: recorderState,
+    getWorker: () => ({}) as Worker,
+    query: async () => assert.fail("a busy Agent blocks Record before asking the worker"),
+    logAgent: () => {},
+    getProjectSession: () => session,
+    getBootedGame: () => ({
+      installed: false,
+      title: "Test",
+      revision: session.model.capture().lastAdmissibleBuild!.identity.revision,
+      files: {},
+      words: [],
+    }),
+    flushAutosave: async () => {},
+  });
+  const op = {
+    kind: "merge",
+    tests: [{ name: "test", room: 1, steps: [], expect: null }],
+  } as const;
+  assert.equal(testsWriteBlockReason(session), null);
+  assert.equal(testsWriteBlockReason(null), null);
+  const turn = agent.send("Write a note");
+  try {
+    await reached.promise;
+    assert.equal(
+      testsWriteBlockReason(session),
+      "Wait for the Agent to finish before editing tests.",
+    );
+    await assert.rejects(saveTests(session, op), /Wait for the Agent/);
+    await recorder.startTestRecording();
+    assert.match(recorderState.recording.error, /Wait for the Agent/);
+    assert.equal(session.model.capture().read("tests"), undefined);
+    release.resolve();
+    await turn;
+    assert.ok(agent.pending());
+    assert.equal(
+      testsWriteBlockReason(session),
+      "Review the Agent's changes before editing tests.",
+    );
+    assert.equal(
+      testsWriteBlockReason({ chats: () => session.chats() }),
+      "Review the Agent's changes before editing tests.",
+      "a restored review blocks hand edits before its Agent loads",
+    );
+    await assert.rejects(saveTests(session, op), /Review the Agent/);
+    await recorder.startTestRecording();
+    assert.match(recorderState.recording.error, /Review the Agent/);
+    await agent.reject();
+    assert.equal(testsWriteBlockReason(session), null);
+    await saveTests(session, op);
+    assert.match(String(session.model.capture().read("tests")!.content), /"test"/);
+  } finally {
+    release.resolve();
+    await turn;
+    session.dispose();
+  }
+});

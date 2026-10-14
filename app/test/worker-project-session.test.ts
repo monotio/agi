@@ -368,3 +368,136 @@ test("acquiring project admission for a Play conversation preserves the interpre
   assert.equal(ctx.run.progress.mode, "play");
   ctx.fns.stopTimers();
 });
+
+test("saving tests leaves Play, the timeline and recording intact; the next resource edit admits the complete project", async (t) => {
+  const { saveTests } = await import("../src/authoring/saveTests.ts");
+  const documents = {
+    "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
+    "logic:1":
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } return;",
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const id = requireProjectId("tests-native-admission");
+  const first = await storage.commitProject({
+    projectId: id,
+    commitId: "initial",
+    workspaceId: "initial",
+    buildId: compiled.build.identity.buildId,
+    expected: null,
+    documents: [],
+    data: {
+      title: "Tests",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+  });
+  const messages: WorkerControl[] = [];
+  const sent: WorkerInbound[] = [];
+  let now = 0;
+  const ctx = createWorkerContext({
+    control: (message) => messages.push(message),
+    presentation: () => {},
+    now: () => now,
+    seedWord: () => 1,
+  });
+  ctx.host = createEngineHost(ctx);
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    profile: "2.936",
+    projectMode: "create",
+    progressMode: "play",
+    projectDocuments: writeProjectWorkspace(documents),
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  t.after(() => ctx.fns.stopTimers());
+  for (let i = 0; i < 4; i++) {
+    now += 100;
+    ctx.fns.hostTick();
+  }
+  const engine = ctx.run.engine!;
+  const boot = messages.find((message) => message.type === "booted");
+  assert.ok(boot?.type === "booted" && boot.projectAdmission);
+  let queryId = 0;
+  const query = (async (type, extra) => {
+    const id = ++queryId;
+    const request = { type, id, ...extra } as WorkerInbound;
+    sent.push(request);
+    onWorkerMessage(ctx, request);
+    const reply = messages.at(-1);
+    assert.ok(reply && "id" in reply && reply.id === id, `worker answered ${type}`);
+    return reply;
+  }) as WorkerQueryFn;
+  const admission = createMainProjectAdmission({
+    ...boot.projectAdmission,
+    query,
+    current: () => ctx.run.engine === engine,
+    acceptedImage: () => session.model.capture().lastAdmissibleBuild,
+  });
+  const session = openProjectSession({
+    data: (await storage.loadAuthoredGame(id))!,
+    lifetime: first.receipt.saved.lifetime,
+    admission,
+  });
+  t.after(() => session.dispose());
+  const start = await query("startRecording");
+  assert.equal(start.ok, true);
+  const recording = ctx.run.recording.recording;
+  assert.ok(recording);
+  const before = {
+    engineState: engine.captureReplayState(),
+    timeline: structuredClone(ctx.history),
+    lane: structuredClone({
+      documentId: ctx.run.projectAdmission!.documentId,
+      epoch: ctx.run.projectAdmission!.epoch,
+      serial: ctx.run.projectAdmission!.updateSerial,
+    }),
+    posted: messages.length,
+    sent: sent.length,
+    tape: structuredClone(recording.tape.operations),
+  };
+  const saved = await saveTests(session, {
+    kind: "merge",
+    tests: [{ name: "stay in room", room: 1, steps: [], expect: { room: 1 } }],
+  });
+  assert.equal(sent.length, before.sent, "tests-only saves send no native admission requests");
+  assert.equal(messages.length, before.posted, "tests-only saves emit no worker timeline events");
+  assert.equal(ctx.run.engine, engine);
+  assert.deepEqual(engine.captureReplayState(), before.engineState);
+  assert.deepEqual(ctx.history, before.timeline);
+  assert.equal(ctx.run.recording.recording, recording);
+  assert.equal(recording.tainted, null);
+  assert.deepEqual(recording.tape.operations, before.tape);
+  assert.deepEqual(
+    {
+      documentId: ctx.run.projectAdmission!.documentId,
+      epoch: ctx.run.projectAdmission!.epoch,
+      serial: ctx.run.projectAdmission!.updateSerial,
+    },
+    before.lane,
+  );
+  const tests = new TextDecoder().decode(saved.payload);
+  const outcome = await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Picture", [
+      { key: "picture:1", content: "vis 4\nfill 1,1\nend\n" },
+    ]),
+    label: "Picture",
+    origin: "picture",
+    author: "creator",
+  });
+  assert.equal(outcome.status, "committed");
+  assert.equal(engine.getPictureSurface().visual[161], 4);
+  assert.equal(readProjectWorkspace(ctx.boot.project!.documents)["tests"], tests);
+  assert.equal(ctx.run.projectAdmission!.documentId, session.model.capture().documentId);
+  const update = sent.find((message) => message.type === "previewUpdate");
+  assert.ok(update?.type === "previewUpdate");
+  assert.equal(readProjectWorkspace(update.candidate.documents!)["tests"], tests);
+});

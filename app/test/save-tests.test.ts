@@ -16,7 +16,10 @@ installWebLocksFixture();
 installIndexedDbFixture();
 const scenario = (name: string) => ({ name, room: 1, steps: [], expect: null });
 const op = { kind: "merge", tests: [scenario("recorded")] } as const;
-function fixture(source: "created" | "catalog" | "installed" = "created") {
+function fixture(
+  source: "created" | "catalog" | "installed" = "created",
+  admissionStatus: "committed" | "restartRequired" | "deferred" = "committed",
+) {
   const documents = { "logic:0": "return;", "logic:1": "return;" };
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
@@ -29,6 +32,9 @@ function fixture(source: "created" | "catalog" | "installed" = "created") {
   let forks = 0;
   let admitted = 0;
   let savedProject = original;
+  let nextAdmissionStatus = admissionStatus;
+  let admittedTests: string | Uint8Array | undefined;
+  const boundary = Promise.withResolvers<void>();
   const session = openProjectSession({
     data: {
       projectId: original,
@@ -51,11 +57,19 @@ function fixture(source: "created" | "catalog" | "installed" = "created") {
       : {}),
     admission: {
       runToken: `tests-${source}`,
-      admit: async () => {
+      admit: async (image) => {
         admitted++;
-        return { status: "committed", expected: null, current: null, patchGeneration: 1 };
+        admittedTests = image.documents()["tests"];
+        return {
+          status: nextAdmissionStatus,
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+          reason: "A loaded view needs a restart.",
+        };
       },
     },
+    ...(admissionStatus === "deferred" ? { boundary: () => boundary.promise } : {}),
     forked() {
       forks++;
     },
@@ -82,6 +96,13 @@ function fixture(source: "created" | "catalog" | "installed" = "created") {
   return {
     session,
     original,
+    releaseBoundary: () => boundary.resolve(),
+    get admittedTests() {
+      return admittedTests;
+    },
+    set admissionStatus(value: typeof admissionStatus) {
+      nextAdmissionStatus = value;
+    },
     get written() {
       return written;
     },
@@ -220,5 +241,62 @@ test("Retry after a rejected deletion saves the accepted edit once", async () =>
     assert.equal(f.session.history.capture().cursor, cursor, "Retry creates no second edit");
   } finally {
     f.session.dispose();
+  }
+});
+
+test("saving tests preserves a resource edit that still needs a restart", async () => {
+  const f = fixture("created", "restartRequired");
+  try {
+    const result = await f.session.submit({
+      proposal: f.session.model.propose(f.session.model.capture(), "Resource", [
+        { key: "logic:1", content: "assignn(v40,1);return;" },
+      ]),
+      label: "Resource",
+      origin: "logic",
+      author: "creator",
+    });
+    assert.equal(result.status, "restartRequired");
+    const restart = f.session.pendingRestart;
+    assert.ok(restart);
+    await saveTests(f.session, op);
+    assert.deepEqual(
+      f.session.pendingRestart,
+      restart,
+      "test metadata cannot dismiss a pending resource restart",
+    );
+  } finally {
+    f.session.dispose();
+  }
+});
+
+test("saving tests keeps deferred resource admission pending", async () => {
+  const f = fixture("created", "deferred");
+  try {
+    await f.session.submit({
+      proposal: f.session.model.propose(f.session.model.capture(), "Resource", [
+        { key: "logic:1", content: "assignn(v40,1);return;" },
+      ]),
+      label: "Resource",
+      origin: "logic",
+      author: "creator",
+    });
+    assert.equal(f.session.capture().pendingAdmission, true);
+    const saved = await saveTests(f.session, op);
+    assert.equal(f.session.capture().pendingAdmission, true);
+    f.admissionStatus = "committed";
+    f.releaseBoundary();
+    const { waitUntil } = await import("./async.ts");
+    await waitUntil(
+      () => !f.session.capture().pendingAdmission,
+      "the resource edit admits at the next boundary",
+    );
+    assert.equal(
+      f.admittedTests,
+      new TextDecoder().decode(saved.payload),
+      "deferred admission carries the latest tests too",
+    );
+  } finally {
+    f.session.dispose();
+    f.releaseBoundary();
   }
 });

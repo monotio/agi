@@ -1,3 +1,4 @@
+import { registerAgentTestWriteStatus } from "../authoring/testWriteStatus.ts";
 import { inspectedResourceKeys, resourceRenderingDependencies } from "./agentResults.ts";
 import { agentHandoffContext } from "./agentHandoff.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
@@ -397,6 +398,10 @@ export function createWorkspaceAgent(options: Options) {
   let chatSaveError = "";
   let busy = false;
   let applying = false;
+  registerAgentTestWriteStatus(session, {
+    busy: () => busy || applying,
+    pending: () => reviews.size > 0,
+  });
   let actionQueue: string[] | null = null;
   let actionChat: string | null = null;
   let appliedDuringRun:

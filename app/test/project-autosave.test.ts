@@ -49,7 +49,7 @@ test("autosave serializes captures, retries the exact failed request, and fences
   });
   saver.enqueue(1);
   await saver.flush();
-  assert.equal(saver.status().message, "Could not save. Retry");
+  assert.equal(saver.status().message, "Could not save: quota. Retry the save.");
   saver.enqueue(2);
   fail = false;
   const retry = saver.retry();
@@ -177,4 +177,38 @@ test("flush includes a capture queued as the active write finishes", async () =>
   assert.deepEqual(written, [1, 2]);
   assert.equal(saver.status().state, "saved");
   saver.dispose();
+});
+
+test("a failed save names the cause and Retry clears it after saving the exact capture", async () => {
+  const cause = new Error("Disk is full");
+  const first = { text: "recorded test" };
+  const second = { text: "next edit" };
+  const calls: object[] = [];
+  let failing = true;
+  const saver = createProjectAutosave({
+    current: () => true,
+    write: async (capture: object) => {
+      calls.push(capture);
+      if (failing) throw cause;
+      return capture;
+    },
+    saved: () => {},
+    conflict: () => false,
+  });
+  try {
+    saver.enqueue(first);
+    await saver.flush();
+    assert.equal(saver.status().cause, cause);
+    assert.equal(saver.status().message, "Could not save: Disk is full. Retry the save.");
+    saver.enqueue(second);
+    failing = false;
+    await saver.retry();
+    assert.deepEqual(calls, [first, first, second]);
+    assert.equal(calls[1], first);
+    assert.equal(saver.status().state, "saved");
+    assert.equal(saver.status().cause, undefined);
+    assert.equal(saver.status().message, "");
+  } finally {
+    saver.dispose();
+  }
 });

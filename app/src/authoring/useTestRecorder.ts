@@ -1,3 +1,4 @@
+import { testsWriteBlockReason } from "./testWriteStatus.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { saveTests } from "./saveTests.ts";
 import type { runTestsInWorker } from "../studio/testsRunner.ts";
@@ -59,7 +60,9 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
 
   function writeBlockReason(): string | null {
     if (state.powerUp.busy) return "Wait for the Agent to finish before editing tests.";
-    return options.writeBlockReason?.() ?? null;
+    return (
+      testsWriteBlockReason(options.getProjectSession()) ?? options.writeBlockReason?.() ?? null
+    );
   }
 
   function reset(): void {
