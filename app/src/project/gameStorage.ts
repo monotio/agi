@@ -374,7 +374,9 @@ export function authoringFingerprint(
       ? content
       : `["workspace",${content},${canonicalJson({
           ...workspace,
-          documents: [...workspace.documents].sort((a, b) => compareCodePoints(a.key, b.key)),
+          documents: workspace.documents
+            .filter((document) => document.key !== "tests")
+            .sort((a, b) => compareCodePoints(a.key, b.key)),
         })}]`;
   return sha256Hex(new TextEncoder().encode(canonical)) as AuthoringFingerprint;
 }

@@ -73,6 +73,8 @@ export interface AgentSessionState {
   objectPayload?: Uint8Array | undefined;
   /** Stored game tests (TESTS.JSON) written this session; see gameTests.ts. */
   testsPayload?: Uint8Array | undefined;
+  /** Project hosts supply the current committed document for every simulation. */
+  readCommittedTests?: (() => string | Uint8Array | undefined) | undefined;
   genesisComplete: boolean;
   /**
    * Full tool results evicted from the model-facing projection, retrievable by
