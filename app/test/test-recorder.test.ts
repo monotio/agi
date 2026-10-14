@@ -302,7 +302,7 @@ test("Tests are documents: a recorded test saves during an Agent turn without AI
   });
   assert.deepEqual(await recorder.saveRecordedTest(snapshot, "recorded", []), {
     ok: true,
-    message: "1 game test stored in TESTS.JSON.",
+    message: "1 game test saved",
   });
   assert.equal(saved, true);
 });

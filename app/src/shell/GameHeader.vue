@@ -323,6 +323,7 @@ watch(
 
 /** Game-test recording: the worker captures; this dialog names and saves. */
 const recordDialog = useTemplateRef("recordDialog");
+const recordNameField = useTemplateRef("recordNameField");
 const recordSnapshot = ref<RecordingSnapshot>();
 const labels = useProjectLabels();
 const recordSuggestions = ref<AssertionSuggestion[]>([]);
@@ -330,6 +331,30 @@ const recordName = ref("");
 const recordError = ref("");
 const recordResult = ref("");
 const recordSaving = ref(false);
+let recordSavedTests: string | Uint8Array | undefined;
+// A later test edit ends the earlier confirmation, including draft room cleanup.
+watch(
+  () => {
+    void state.phase;
+    void state.patchTick;
+    return engine.getProjectSession();
+  },
+  (session) => {
+    recordResult.value = "";
+    if (!session) return;
+    const changed = () => {
+      if (session.workingSnapshot().read("tests")?.content !== recordSavedTests)
+        recordResult.value = "";
+    };
+    const off = session.subscribe(changed);
+    const offDrafts = session.subscribeDrafts(changed);
+    onWatcherCleanup(() => {
+      off();
+      offDrafts();
+    });
+  },
+  { immediate: true },
+);
 
 async function onRecordStart(): Promise<void> {
   recordResult.value = "";
@@ -370,6 +395,7 @@ async function onRecordSave(): Promise<void> {
   if (!snapshot) return;
   if (!name) {
     recordError.value = "Name the test before saving it.";
+    recordNameField.value?.focus();
     return;
   }
   recordSaving.value = true;
@@ -385,6 +411,7 @@ async function onRecordSave(): Promise<void> {
       return;
     }
     recordDialog.value?.close();
+    recordSavedTests = engine.getProjectSession()?.workingSnapshot().read("tests")?.content;
     recordResult.value = result.message;
   } finally {
     recordSaving.value = false;
@@ -647,9 +674,15 @@ async function onRecordSave(): Promise<void> {
     <p v-if="state.recording.error" class="export-refusal" data-testid="record-error" role="alert">
       {{ state.recording.error }}
     </p>
-    <p v-if="recordResult" class="record-result" data-testid="record-result" role="status">
-      {{ recordResult }}
-    </p>
+    <UiToast
+      v-if="recordResult"
+      :key="recordResult"
+      timed
+      dismissible
+      data-testid="record-result"
+      @dismiss="recordResult = ''"
+      >{{ recordResult }}</UiToast
+    >
   </div>
   <SettingsSheet
     ref="settingsSheet"
@@ -721,6 +754,7 @@ async function onRecordSave(): Promise<void> {
       </header>
       <label for="record-name">Name</label>
       <input
+        ref="recordNameField"
         id="record-name"
         v-model="recordName"
         data-testid="record-name"
@@ -936,11 +970,6 @@ a.publisher:hover > span {
   50% {
     opacity: 0.25;
   }
-}
-.record-result {
-  margin: 0;
-  color: var(--ok);
-  font-size: var(--text-xs);
 }
 
 .record-dialog {

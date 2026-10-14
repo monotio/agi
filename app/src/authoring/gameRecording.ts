@@ -143,7 +143,7 @@ export function suggestAssertions(
     id: "room",
     kind: "room",
     room: end.room,
-    label: `${numberedLabel("room", end.room, context, "option")}${end.room === start.room ? " (unchanged)" : ""}`,
+    label: `${numberedLabel("room", end.room, context, "option")}${end.room === start.room ? " unchanged" : ""}`,
     selected: end.room !== start.room,
   });
   for (let id = 0; id < 256; id++) {
@@ -176,7 +176,8 @@ export function suggestAssertions(
         kind: "var",
         var: { id, value: after },
         label: `${numberedLabel("variable", id, context, "option")} = ${after}`,
-        selected: true,
+        // The interpreter advances its clock without a player action.
+        selected: id < 11 || id > 14,
       });
   }
   const carriedBefore = new Set(
