@@ -3,7 +3,7 @@ import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { MESSAGE_KEY } from "../logic/resource.ts";
 import { renumberTestSetup } from "./renumberTestSetup.ts";
-import { parseGameTests } from "../agent/gameTestFormat.ts";
+import { GAME_TESTS_MAX_BYTES, parseGameTests } from "../agent/gameTestFormat.ts";
 import type { GameTestSetup } from "../agent/gameTestSteps.ts";
 import { collectLogicResourceUses } from "../logic/resourceUses.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -246,14 +246,30 @@ export function prepareProjectRenumber(input: {
   const testsContent = documents["tests"];
   if (testsContent !== undefined)
     try {
+      const bytes =
+        typeof testsContent === "string" ? new TextEncoder().encode(testsContent) : testsContent;
+      if (bytes.length > GAME_TESTS_MAX_BYTES) throw new Error("Tests exceed the document limit.");
+      const tests = json<{ format: string; tests: StoredTest[] }>(documents, "tests")!;
       parseGameTests(
-        typeof testsContent === "string" ? new TextEncoder().encode(testsContent) : testsContent,
+        new TextEncoder().encode(
+          JSON.stringify({
+            ...tests,
+            tests: tests.tests.map((test) => {
+              const shape = { ...test };
+              delete shape.setup;
+              return shape;
+            }),
+          }),
+        ),
       );
-      const tests = json<{ tests: StoredTest[] }>(documents, "tests")!;
       let changed = false;
       for (const [index, original] of tests.tests.entries()) {
         const test = structuredClone(original);
         try {
+          parseGameTests(
+            new TextEncoder().encode(JSON.stringify({ format: tests.format, tests: [original] })),
+            input.profile,
+          );
           if (test.setup)
             test.setup = renumberTestSetup({
               setup: test.setup,
