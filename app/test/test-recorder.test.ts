@@ -248,7 +248,7 @@ test("saveRecordedTest rejects tainted recordings", async () => {
   assert.equal(result.message, "Game state was modified externally");
 });
 
-test("a recorded test saves without AI configuration or loading Agent tools", async () => {
+test("Tests are documents: a recorded test saves during an Agent turn without AI tools", async () => {
   const snapshot: RecordingSnapshot = {
     start: {
       image: "image",
@@ -266,7 +266,7 @@ test("a recorded test saves without AI configuration or loading Agent tools", as
   const project = {} as ProjectSession;
   let saved = false;
   const recorder = useTestRecorder({
-    state: createMockState(),
+    state: createMockState({ powerUp: { open: true, busy: true } }),
     getWorker: () => ({}) as Worker,
     query: async () => assert.fail("saving a test never queries the live engine"),
     logAgent: () => {},
@@ -305,31 +305,4 @@ test("a recorded test saves without AI configuration or loading Agent tools", as
     message: "1 game test stored in TESTS.JSON.",
   });
   assert.equal(saved, true);
-});
-
-test("an Agent turn blocks Record and Save before a worker query or a write starts", async () => {
-  const state = createMockState();
-  state.powerUp.busy = true;
-  const recorder = useTestRecorder({
-    state,
-    getWorker: () => ({}) as Worker,
-    query: async () => assert.fail("Record waits for the Agent"),
-    logAgent: () => {},
-    getBootedGame: () => ({
-      installed: false,
-      title: "Test",
-      revision: testRevision("test"),
-      files: {},
-      words: [],
-    }),
-    getProjectSession: () => null,
-    saveTests: async () => assert.fail("Save waits for the Agent"),
-    flushAutosave: async () => {},
-  });
-  await recorder.startTestRecording();
-  const snapshot = { tainted: null } as RecordingSnapshot;
-  const result = await recorder.saveRecordedTest(snapshot, "test", []);
-  assert.equal(result.ok, false);
-  assert.match(result.message, /Wait for the Agent/);
-  assert.match(state.recording.error, /Wait for the Agent/);
 });

@@ -1,14 +1,11 @@
 /** The recorder and Tests panel share one transactional project edit. */
 import { editGameTests, type GameTestsEditOperation } from "../../../src/agent/gameTestsEdit.ts";
-import { buildWordsTok } from "../../../src/logic/words.ts";
-import { readWordsDocument } from "../../../src/authoring/projectDocuments.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
-import { testsWriteBlockReason } from "./testWriteStatus.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 
 export interface SaveTestsOptions {
   /** Checked again immediately before the queued proposal commits. */
-  readonly writeBlockReason?: () => string | null;
+  readonly beforeCommit?: () => void;
 }
 
 const retries = new WeakMap<
@@ -26,10 +23,7 @@ export async function saveTests(
   options: SaveTestsOptions = {},
 ): Promise<ReturnType<typeof editGameTests>> {
   if (!session) throw new Error("Open Create before saving a test.");
-  const beforeCommit = () => {
-    const reason = testsWriteBlockReason(session) ?? options.writeBlockReason?.();
-    if (reason) throw new Error(reason);
-  };
+  const beforeCommit = () => options.beforeCommit?.();
   beforeCommit();
   async function flushTests() {
     try {
@@ -61,14 +55,12 @@ export async function saveTests(
   for (let attempt = 0; attempt < 2; attempt++) {
     beforeCommit();
     const snapshot = session.model.capture();
-    const image = snapshot.lastAdmissibleBuild;
-    if (!image) throw new Error("The game could not build. Fix the problems before saving tests.");
-    const words = snapshot.read("words")?.content;
+    const profileId = snapshot.lastAdmissibleBuild!.identity.profileId;
     const edited = editGameTests(
       {
         document: snapshot.read("tests")?.content,
-        profile: PROFILES[image.identity.profileId],
-        words: typeof words === "string" ? buildWordsTok(readWordsDocument(words)) : words,
+        profile: PROFILES[profileId],
+        words: undefined,
       },
       op,
     );
@@ -83,10 +75,10 @@ export async function saveTests(
         beforeCommit,
       });
       if (result.status === "refused") {
-        const reason = (result.reason ?? "The running game could not accept the test")
+        const reason = (result.reason ?? "The project could not save the test")
           .trim()
           .replace(/[.!?]+$/, "");
-        throw new Error(`${reason}. Reopen the game, then try saving the test again.`);
+        throw new Error(`${reason}. Try saving the test again.`);
       }
     } catch (error) {
       if (attempt === 0 && error instanceof Error && error.message === "Project proposal is stale.")

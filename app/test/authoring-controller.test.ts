@@ -13,7 +13,6 @@ import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createWorkspaceAgent } from "../src/agent/workspaceAgent.ts";
 import { createPauseHolds } from "../src/engine/pauseHolds.ts";
-import { testsWriteBlockReason } from "../src/authoring/testWriteStatus.ts";
 import { saveTests } from "../src/authoring/saveTests.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
@@ -968,7 +967,7 @@ test("handleRoomAuthoring moves the booted game to the revision it saved once th
 });
 
 for (const delivery of ["publish", "cancel", "replace", "failure"] as const) {
-  test(`an answered room keeps test writes blocked through answer delivery (${delivery})`, async (t) => {
+  test(`Tests are documents: saving tests during room answer delivery preserves cancellation (${delivery})`, async (t) => {
     installLocalStorageMock(t);
     const projectId = testProjectId(`owned-room-checkpoint-${delivery}`);
     const initial = openContainer(new Map(Object.entries(createTestFiles())));
@@ -991,9 +990,9 @@ for (const delivery of ["publish", "cancel", "replace", "failure"] as const) {
       words: [],
     };
     const data = (await loadAuthoredGame(projectId))!;
-    const reachedWrite = Promise.withResolvers<void>();
     const writeGate = Promise.withResolvers<void>();
     let holdWrite = false;
+    let reachedWriteDone = false;
     t.after(() => writeGate.resolve());
     const project = openProjectSession({
       data,
@@ -1010,7 +1009,7 @@ for (const delivery of ["publish", "cancel", "replace", "failure"] as const) {
       },
       async write(request) {
         if (holdWrite) {
-          reachedWrite.resolve();
+          reachedWriteDone = true;
           await writeGate.promise;
           if (delivery === "failure") throw new Error("Browser storage refused the room write.");
         }
@@ -1077,20 +1076,11 @@ for (const delivery of ["publish", "cancel", "replace", "failure"] as const) {
       kind: "merge",
       tests: [{ name: "between answer and save", room: 1, steps: [], expect: null }],
     } as const;
-    await assert.rejects(
-      saveTests(project, test),
-      /Wait for the Agent/,
-      "the returned room still owns its project until publication",
-    );
-    assert.equal(
-      controller.testsWriteBlockReason(),
-      "Wait for the Agent to finish before editing tests.",
-    );
+    await saveTests(project, test);
+    assert.match(String(project.model.capture().read("tests")!.content), /between answer and save/);
     if (delivery === "cancel" || delivery === "replace") {
       if (delivery === "cancel") controller.stopRoomGeneration();
       else controller.resetSession();
-      assert.equal(testsWriteBlockReason(project), null);
-      assert.equal(controller.testsWriteBlockReason(), null);
       controller.roomAnswered();
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.equal(checkpoints, 0);
@@ -1100,18 +1090,16 @@ for (const delivery of ["publish", "cancel", "replace", "failure"] as const) {
       running = Object.fromEntries(controller.getSession()!.state.getFiles());
       holdWrite = true;
       controller.roomAnswered();
-      await reachedWrite.promise;
-      await assert.rejects(
-        saveTests(project, test),
-        /Wait for the Agent/,
-        "hand writes remain blocked during the durable room write",
+      await waitUntil(
+        () => reachedWriteDone || errors.length > 0,
+        "room answer neither wrote nor reported a failure",
       );
+      assert.deepEqual(errors, []);
       writeGate.resolve();
       await waitUntil(
-        () => testsWriteBlockReason(project) === null,
-        "room publication did not release its hand-write hold",
+        () => (delivery === "failure" ? errors.length > 0 : checkpoints > 0 || errors.length > 0),
+        "room publication did not finish its write",
       );
-      assert.equal(controller.testsWriteBlockReason(), null);
       if (delivery === "failure") {
         assert.equal(project.saveStatus().state, "failed");
         assert.equal(checkpoints, 0);
@@ -3106,7 +3094,7 @@ for (const source of ["catalog", "zip"] as const) {
 }
 
 for (const turn of ["room", "map"] as const) {
-  test(`a ${turn} build blocks test writes through the shared session reason until it ends`, async (t) => {
+  test(`Tests are documents: a ${turn} build permits test saves while its loader waits`, async (t) => {
     installLocalStorageMock(t);
     const projectId = testProjectId(`test-write-${turn}`);
     const files = createTestFiles();
@@ -3171,22 +3159,11 @@ for (const turn of ["room", "map"] as const) {
     void pending.catch(() => {});
     try {
       await reached.promise;
-      const reason = "Wait for the Agent to finish before editing tests.";
-      assert.equal(controller.testsWriteBlockReason(), reason);
-      assert.equal(
-        testsWriteBlockReason(project),
-        reason,
-        "the Tests panel shares the room/map block",
-      );
-      const before = project.model.capture().documentId;
-      await assert.rejects(
-        saveTests(project, {
-          kind: "merge",
-          tests: [{ name: "during build", room: 1, steps: [], expect: null }],
-        }),
-        /Wait for the Agent/,
-      );
-      assert.equal(project.model.capture().documentId, before);
+      await saveTests(project, {
+        kind: "merge",
+        tests: [{ name: "during build", room: 1, steps: [], expect: null }],
+      });
+      assert.match(String(project.model.capture().read("tests")!.content), /during build/);
     } finally {
       controller.stopRoomGeneration();
       gate.reject(new Error("Build cancelled by the test."));
@@ -3195,6 +3172,5 @@ for (const turn of ["room", "map"] as const) {
       project.dispose();
       await clearCachedGame(projectId);
     }
-    assert.equal(testsWriteBlockReason(project), null, "the build releases its hand-write block");
   });
 }

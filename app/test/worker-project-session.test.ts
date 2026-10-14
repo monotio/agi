@@ -11,7 +11,7 @@ import { createMainProjectAdmission } from "../src/engine/mainProjectAdmission.t
 import { useTestRecorder } from "../src/authoring/useTestRecorder.ts";
 import { WorkerQueryTimeoutError } from "../src/engine/workerQueries.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
-import { createContainer, openContainer } from "../../src/container/container.ts";
+import { createContainer } from "../../src/container/container.ts";
 import {
   writeProjectWorkspace,
   readProjectWorkspace,
@@ -452,14 +452,20 @@ async function openNativeTestsProject(
     current: () => ctx.run.engine === engine,
     acceptedImage: () => session.model.capture().lastAdmissibleBuild,
   });
+  const persistence = { reject: false };
   const session = openProjectSession({
     data: (await storage.loadAuthoredGame(id))!,
+    async write(request) {
+      if (persistence.reject) throw new Error("Browser storage refused the test write.");
+      return (await storage.commitProject(request)).receipt;
+    },
     lifetime: first.receipt.saved.lifetime,
     admission,
   });
   t.after(() => session.dispose());
   return {
     saveTests,
+    persistence,
     session,
     ctx,
     engine,
@@ -550,91 +556,7 @@ test("saving tests leaves Play, the timeline and recording intact; the next reso
   assert.equal(readProjectWorkspace(update.candidate.documents!)["tests"], tests);
 });
 
-test("removing the test that blocked a room deletion admits the newly executable image", async (t) => {
-  const documents = {
-    "logic:0":
-      "if (v40 == 0) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); assignn(v40,1); } return;",
-    "logic:1": "return;",
-    "picture:1": "vis 1\nfill 1,1\nend\n",
-  };
-  const { saveTests, session, ctx, engine, sent } = await openNativeTestsProject(
-    t,
-    "tests-unblock-room-removal",
-    documents,
-  );
-  await saveTests(session, {
-    kind: "merge",
-    tests: [{ name: "room one", room: 1, steps: [], expect: { room: 1 } }],
-  });
-  const held = await session.submit({
-    proposal: session.model.propose(session.model.capture(), "Delete room", [
-      { key: "logic:1", content: null },
-    ]),
-    label: "Delete room",
-    origin: "logic",
-    author: "creator",
-  });
-  assert.equal(held.status, "diagnostics");
-  assert.equal(
-    session.model.capture().read("logic:1"),
-    undefined,
-    "the deletion stays in project documents",
-  );
-  assert.ok(engine.containerFiles.get("LOGDIR")!.length > 3);
-  assert.ok(
-    openContainer(ctx.run.engine!.containerFiles).getResource("logic", 1),
-    "the worker retains the held-back room",
-  );
-  const count = sent.filter((message) => message.type === "previewUpdate").length;
-  await saveTests(session, { kind: "remove", names: ["room one"] });
-  assert.ok(
-    sent.filter((message) => message.type === "previewUpdate").length > count,
-    "unblocking a resource deletion attempts native admission",
-  );
-  assert.ok(
-    !openContainer(ctx.run.engine!.containerFiles).getResource("logic", 1) ||
-      session.capture().pendingAdmission ||
-      session.pendingRestart,
-    "the room deletion reaches the worker or remains explicitly pending",
-  );
-  if (!session.capture().pendingAdmission && !session.pendingRestart) {
-    assert.equal(readProjectWorkspace(ctx.boot.project!.documents)["logic:1"], undefined);
-    assert.equal(ctx.run.projectAdmission!.documentId, session.model.capture().documentId);
-  }
-});
-
-test("a test save admits source authority that differs from the worker despite identical native bytes", async (t) => {
-  const documents = {
-    "logic:0":
-      "if (v40 == 0) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); assignn(v40,1); } return;",
-    "logic:1": "return;",
-    "picture:1": "vis 1\nfill 1,1\nend\n",
-  };
-  const claimed = { ...documents, "logic:0": `${documents["logic:0"]}\n// Current editor source` };
-  const { saveTests, session, ctx, engine, sent, grant } = await openNativeTestsProject(
-    t,
-    "tests-unconfirmed-source",
-    documents,
-    claimed,
-  );
-  const image = session.model.capture().lastAdmissibleBuild!;
-  assert.equal(image.identity.revision, grant.identity.revision);
-  assert.notEqual(image.identity.buildId, grant.identity.buildId);
-  const native = Object.fromEntries(engine.containerFiles);
-  await saveTests(session, {
-    kind: "merge",
-    tests: [{ name: "source test", room: 1, steps: [], expect: null }],
-  });
-  assert.ok(
-    sent.some((message) => message.type === "previewUpdate"),
-    "the worker's confirmed source authority decides admission",
-  );
-  assert.deepEqual(Object.fromEntries(engine.containerFiles), native);
-  assert.equal(ctx.run.projectAdmission!.sources["0"], claimed["logic:0"]);
-  assert.equal(ctx.run.projectAdmission!.buildId, image.identity.buildId);
-});
-
-test("a refused recorded-test admission keeps the recording for retry and stores no test", async (t) => {
+test("Failed saves retain causes and recordings: rejected storage keeps a recorded test available for Retry", async (t) => {
   const documents = {
     bindings: "{}",
     "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
@@ -644,14 +566,7 @@ test("a refused recorded-test admission keeps the recording for retry and stores
   };
   const claimed = { ...documents, "logic:0": `${documents["logic:0"]}\n// Current source` };
   const f = await openNativeTestsProject(t, "tests-refused-recording", documents, claimed);
-  const admit = f.admission.admit;
-  f.admission.admit = async () => ({
-    status: "refused",
-    expected: f.grant.identity,
-    current: f.grant.identity,
-    patchGeneration: 0,
-    reason: "The running game changed.",
-  });
+  f.persistence.reject = true;
   const projectId = requireProjectId("tests-refused-recording");
   const game = (await storage.loadAuthoredGame(projectId))!;
   const booted = { ...game, installed: false, revision: computeResourceRevision(game.files) };
@@ -681,17 +596,21 @@ test("a refused recorded-test admission keeps the recording for retry and stores
   const storedGeneration = game.generation;
   const result = await recorder.saveRecordedTest(snapshot, "recorded", []);
   assert.equal(result.ok, false);
-  assert.match(result.message, /running game changed.*Reopen/s);
+  assert.match(result.message, /Browser storage refused the test write/);
   assert.equal(flushed, 0, "refusal must not flush or report success");
-  assert.equal(f.session.model.capture().documentId, before);
+  assert.notEqual(
+    f.session.model.capture().documentId,
+    before,
+    "the accepted test remains available for Retry",
+  );
   const stored = (await storage.loadAuthoredGame(projectId))!;
   assert.equal(stored.generation, storedGeneration, "a refusal cannot persist another capture");
   assert.equal(readProjectWorkspace(stored.workspace!)["tests"], undefined);
-  f.admission.admit = admit;
+  f.persistence.reject = false;
   // The same stopped recording remains available for the player's next Save.
   const saved = await recorder.saveRecordedTest(snapshot, "recorded", []);
   assert.equal(saved.ok, true);
-  assert.equal(flushed, 1);
+  assert.equal(flushed, 0, "test persistence never flushes the live game");
   assert.equal(snapshot.tainted, null);
 });
 

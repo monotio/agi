@@ -35,14 +35,14 @@ function fixture(
   const original = requireProjectId(`save-tests-${source}`);
   let reject = false;
   let written = 0;
+  let savedFiles: Record<string, Uint8Array> = {};
   let forks = 0;
-  let admitted = 0;
   let savedProject = original;
   let nextAdmissionStatus = admissionStatus;
   let admittedTests: string | Uint8Array | undefined;
+  let restartCommit: (() => void) | undefined;
   const boundary = Promise.withResolvers<void>();
   async function admit(image: ProjectDocumentsCompile) {
-    admitted++;
     admittedTests = image.documents()["tests"];
     return {
       status: nextAdmissionStatus,
@@ -78,6 +78,10 @@ function fixture(
         ? async () => assert.fail("A prepared room must keep its adoption path.")
         : admit,
       ...(preparedRoom ? { admitPreparedRoom: admit } : {}),
+      restart: async (image) => {
+        restartCommit?.();
+        return admit(image);
+      },
     },
     ...(admissionStatus === "deferred" ? { boundary: () => boundary.promise } : {}),
     forked() {
@@ -85,6 +89,7 @@ function fixture(
     },
     async write(request) {
       written++;
+      savedFiles = request.data.files;
       savedProject = request.projectId;
       if (reject) throw new Error("Disk is full. Free space and try again.");
       return {
@@ -110,17 +115,20 @@ function fixture(
     get admittedTests() {
       return admittedTests;
     },
+    set onRestart(commit: () => void) {
+      restartCommit = commit;
+    },
     set admissionStatus(value: typeof admissionStatus) {
       nextAdmissionStatus = value;
+    },
+    get files() {
+      return savedFiles;
     },
     get written() {
       return written;
     },
     get forks() {
       return forks;
-    },
-    get admitted() {
-      return admitted;
     },
     get savedProject() {
       return savedProject;
@@ -144,11 +152,6 @@ for (const source of ["created", "catalog", "installed"] as const)
       );
       assert.equal(f.forks, source === "created" ? 0 : 1);
       assert.equal(f.savedProject === f.original, source === "created");
-      assert.equal(
-        f.admitted,
-        0,
-        "tests-only commits leave the live engine and recorder untouched",
-      );
       await f.session.undo();
       assert.equal(f.session.model.capture().read("tests"), undefined);
     } finally {
@@ -212,26 +215,50 @@ test("a stale test snapshot retries once and merges the other writer's test", as
   }
 });
 
-test("test writes wait for an Agent turn and its review, including queued commits", async () => {
+test("Tests are documents: a broken game never blocks saving, deleting or Undo", async () => {
   const f = fixture();
-  let reason: string | null = "Wait for the Agent to finish before editing tests.";
   try {
-    await assert.rejects(
-      saveTests(f.session, op, { writeBlockReason: () => reason }),
-      /Wait for the Agent/,
-    );
+    await f.session.submit({
+      proposal: f.session.model.propose(f.session.model.capture(), "Broken room", [
+        { key: "logic:1", content: "broken source" },
+      ]),
+      label: "Broken room",
+      origin: "logic",
+      author: "creator",
+    });
+    const diagnostics = f.session.capture().diagnostics;
+    assert.ok(diagnostics.some((entry) => entry.severity === "error"));
+    await saveTests(f.session, {
+      kind: "merge",
+      tests: [{ ...scenario("future room"), room: 99 }],
+    });
+    assert.match(String(f.session.model.capture().read("tests")!.content), /future room/);
+    assert.deepEqual(f.session.capture().diagnostics, diagnostics);
+    const undone = await f.session.undo();
+    assert.equal(undone?.status, "committed", "broken game diagnostics do not apply to test Undo");
     assert.equal(f.session.model.capture().read("tests"), undefined);
-    reason = null;
-    const submit = f.session.submit;
-    f.session.submit = (edit) => {
-      reason = "Review the Agent's changes before editing tests.";
-      return submit(edit);
-    };
-    await assert.rejects(
-      saveTests(f.session, op, { writeBlockReason: () => reason }),
-      /Review the Agent/,
-    );
-    assert.equal(f.session.model.capture().read("tests"), undefined);
+    assert.equal(f.session.model.capture().read("logic:1")!.content, "broken source");
+    await f.session.redo();
+    await saveTests(f.session, { kind: "remove", names: ["future room"] });
+    await f.session.undo();
+    assert.match(String(f.session.model.capture().read("tests")!.content), /future room/);
+  } finally {
+    f.session.dispose();
+  }
+});
+
+test("Committed tests are exported even when the game's build is older", async () => {
+  const f = fixture();
+  const data = f.session.model.capture().lastAdmissibleBuild!;
+  try {
+    const save = f.session.model.capture();
+    await saveTests(f.session, op);
+    assert.equal(f.session.model.capture().lastAdmissibleBuild, data);
+    assert.equal(save.read("tests"), undefined);
+    assert.match(new TextDecoder().decode(f.files["TESTS.JSON"]), /recorded/);
+    await f.session.undo();
+    await f.session.flush();
+    assert.equal(f.files["TESTS.JSON"], undefined);
   } finally {
     f.session.dispose();
   }
@@ -269,7 +296,6 @@ test("saving tests preserves a resource edit that still needs a restart", async 
     const restart = f.session.pendingRestart;
     assert.ok(restart);
     await saveTests(f.session, op);
-    assert.equal(f.admitted, 1, "test metadata cannot retry a pending restart");
     assert.deepEqual(
       f.session.pendingRestart,
       restart,
@@ -292,7 +318,7 @@ test("saving tests keeps deferred resource admission pending", async () => {
       author: "creator",
     });
     assert.equal(f.session.capture().pendingAdmission, true);
-    const saved = await saveTests(f.session, op);
+    await saveTests(f.session, op);
     assert.equal(f.session.capture().pendingAdmission, true);
     f.admissionStatus = "committed";
     f.releaseBoundary();
@@ -303,8 +329,8 @@ test("saving tests keeps deferred resource admission pending", async () => {
     );
     assert.equal(
       f.admittedTests,
-      new TextDecoder().decode(saved.payload),
-      "deferred admission carries the latest tests too",
+      undefined,
+      "a test document save never changes a queued game image",
     );
   } finally {
     f.session.dispose();
@@ -324,9 +350,8 @@ test("saving tests keeps a deferred prepared room on its adoption path", async (
       author: "agent",
     });
     assert.equal(f.session.capture().pendingAdmission, true);
-    const saved = await saveTests(f.session, op);
+    await saveTests(f.session, op);
     assert.equal(f.session.capture().pendingAdmission, true);
-    assert.equal(f.admitted, 1, "saving tests makes no new admission attempt");
     f.admissionStatus = "committed";
     f.releaseBoundary();
     const { waitUntil } = await import("./async.ts");
@@ -335,8 +360,7 @@ test("saving tests keeps a deferred prepared room on its adoption path", async (
       "the prepared room adopts at the next boundary",
     );
     assert.equal(f.session.pendingRestart, null);
-    assert.equal(f.admitted, 2);
-    assert.equal(f.admittedTests, new TextDecoder().decode(saved.payload));
+    assert.equal(f.admittedTests, undefined, "tests stay outside prepared-room adoption");
   } finally {
     f.session.dispose();
     f.releaseBoundary();
@@ -426,3 +450,103 @@ test("header Retry saves the exact recorded-test project capture after storage r
     f.session.dispose();
   }
 });
+
+test("Tests are documents: a test commit during restart cannot abort it or lose the tests", async () => {
+  const f = fixture("created", "restartRequired");
+  try {
+    await f.session.submit({
+      proposal: f.session.model.propose(f.session.model.capture(), "Room", [
+        { key: "logic:1", content: "assignn(v40,1);return;" },
+      ]),
+      label: "Room",
+      origin: "logic",
+      author: "creator",
+    });
+    f.admissionStatus = "committed";
+    f.onRestart = () => {
+      // The document publication races the physical restart's acknowledgement.
+      const proposed = f.session.model.propose(f.session.model.capture(), "Tests", [
+        {
+          key: "tests",
+          content: JSON.stringify({
+            format: "monotio.agi.tests.v2",
+            tests: [scenario("during restart")],
+          }),
+        },
+      ]);
+      f.session.model.apply(f.session.model.issueApplication(proposed));
+    };
+    const result = await f.session.restartWithChanges();
+    assert.equal(result?.status, "committed");
+    assert.equal(f.session.pendingRestart, null);
+    await f.session.flush();
+    assert.match(String(f.session.model.capture().read("tests")!.content), /during restart/);
+    assert.match(new TextDecoder().decode(f.files["TESTS.JSON"]), /during restart/);
+  } finally {
+    f.session.dispose();
+  }
+});
+
+test("Tests save when well formed: a mixed game edit cannot publish malformed tests", async () => {
+  const f = fixture();
+  try {
+    const before = f.session.model.capture();
+    await assert.rejects(
+      f.session.submit({
+        proposal: f.session.model.propose(before, "Game and tests", [
+          { key: "logic:1", content: "assignn(v40,1);return;" },
+          { key: "tests", content: "{broken tests" },
+        ]),
+        label: "Game and tests",
+        origin: "guided",
+        author: "creator",
+      }),
+      /JSON|test/i,
+    );
+    assert.equal(
+      f.session.model.capture().read("logic:1")!.content,
+      before.read("logic:1")!.content,
+    );
+    assert.equal(f.session.model.capture().read("tests"), undefined);
+    // Retained opaque imports never hold back an unrelated game edit.
+    const imported = f.session.model.propose(f.session.model.capture(), "Imported tests", [
+      { key: "tests", content: "{broken tests" },
+    ]);
+    f.session.model.apply(f.session.model.issueApplication(imported));
+    const edited = await f.session.update([{ key: "logic:1", content: "assignn(v40,1);return;" }]);
+    assert.equal(edited.status, "committed");
+    assert.equal(f.session.model.capture().read("tests")!.content, "{broken tests");
+  } finally {
+    f.session.dispose();
+  }
+});
+
+for (const path of ["update", "prepared room"] as const) {
+  test(`Tests are documents: tests-only ${path} writes preserve the game's build`, async () => {
+    const f = fixture("created", "committed", true);
+    try {
+      const build = f.session.model.capture().lastAdmissibleBuild;
+      const changes = [
+        {
+          key: "tests",
+          content: JSON.stringify({
+            format: "monotio.agi.tests.v2",
+            tests: [scenario("document")],
+          }),
+        },
+      ];
+      if (path === "update") await f.session.update(changes);
+      else
+        await f.session.submitPreparedRoom({
+          proposal: f.session.model.propose(f.session.model.capture(), "Tests", changes),
+          label: "Tests",
+          origin: "agent",
+          author: "agent",
+        });
+      assert.equal(f.session.model.capture().lastAdmissibleBuild, build);
+      assert.match(String(f.session.model.capture().read("tests")!.content), /document/);
+    } finally {
+      f.session.dispose();
+    }
+  });
+}

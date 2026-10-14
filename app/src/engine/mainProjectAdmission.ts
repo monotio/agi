@@ -138,9 +138,6 @@ export function createMainProjectAdmission(input: {
     return outcome;
   }
   return {
-    get identity() {
-      return { ...identity };
-    },
     get runToken() {
       return runToken;
     },

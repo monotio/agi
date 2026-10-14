@@ -1,4 +1,4 @@
-/** Host request retirement releases hand edits through the real worker link and controller. */
+/** Retired room requests cannot publish or answer after cancellation or replacement. */
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { useWorkerLink } from "../src/engine/useWorkerLink.ts";
@@ -6,7 +6,6 @@ import {
   useAuthoringController,
   type PowerUpUiState,
 } from "../src/authoring/useAuthoringController.ts";
-import { testsWriteBlockReason } from "../src/authoring/testWriteStatus.ts";
 import { saveTests } from "../src/authoring/saveTests.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { advanceAuthoring } from "../src/project/projectTransaction.ts";
@@ -268,16 +267,16 @@ const edit = {
   tests: [{ name: "after abandoned room", room: 1, steps: [], expect: null }],
 } as const;
 for (const retirement of ["cancel", "replace", "supersede"] as const) {
-  test(`a ${retirement} through the worker link retires the room hold after a late successful completion`, async (t) => {
+  test(`a ${retirement} through the worker link cannot publish a late successful room completion`, async (t) => {
     const f = await rig(t, `room-request-${retirement}`);
     f.deliver({ type: "hostRequest", generation: 1, id: 1, op: "room", context: { room: 2 } });
     await f.entered.promise;
-    assert.match(testsWriteBlockReason(f.project)!, /Wait for the Agent/);
+    await saveTests(f.project, edit);
     if (retirement === "cancel") {
       f.deliver({ type: "interactionCancelled", generation: 0, id: 1, op: "room" });
-      assert.match(
-        testsWriteBlockReason(f.project)!,
-        /Wait for the Agent/,
+      assert.equal(
+        f.state.roomGeneration?.room,
+        2,
         "an older cancellation cannot retire this request",
       );
       f.deliver({ type: "interactionCancelled", generation: 1, id: 1, op: "room" });
@@ -286,12 +285,6 @@ for (const retirement of ["cancel", "replace", "supersede"] as const) {
     f.finish.resolve();
     await f.calls[0];
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(
-      testsWriteBlockReason(f.project),
-      null,
-      "an abandoned completion releases the Tests panel's hand-write hold",
-    );
-    assert.equal(f.controller.testsWriteBlockReason(), null);
     assert.equal(f.project.model.capture().read("logic:2"), undefined);
     assert.equal(
       f.first.posted.some((message) => message.type === "hostAnswer" && message.generation === 1),
@@ -317,33 +310,26 @@ for (const retirement of ["cancel", "replace", "supersede"] as const) {
       ),
     );
     assert.ok(f.project.model.capture().read("logic:3"));
-    await waitUntil(
-      () => testsWriteBlockReason(f.project) === null,
-      "the next room publication did not release its hold",
-    );
-    assert.equal(testsWriteBlockReason(f.project), null);
+    assert.match(String(f.project.model.capture().read("tests")!.content), /after abandoned room/);
   });
 }
 
-test("a cancelled room setup cannot acquire a new hold when its loader finally answers", async (t) => {
+test("a cancelled room setup cannot publish when its loader finally answers", async (t) => {
   const f = await rig(t, "room-request-late-setup", { setup: true });
   f.deliver({ type: "hostRequest", generation: 1, id: 1, op: "room", context: { room: 2 } });
   await f.setupEntered.promise;
   f.deliver({ type: "interactionCancelled", generation: 1, id: 1, op: "room" });
-  assert.equal(testsWriteBlockReason(f.project), null);
   await saveTests(f.project, edit);
   f.setupFinish.resolve();
   await f.calls[0];
   assert.equal(f.handled, 0, "the cancelled setup never reaches the author");
-  assert.equal(testsWriteBlockReason(f.project), null, "late setup cannot reacquire the hold");
-  assert.equal(f.controller.testsWriteBlockReason(), null);
   assert.equal(
     f.first.posted.some((message) => message.type === "hostAnswer"),
     false,
   );
 });
 
-test("a superseded room completion cannot release the next room's hold or publish its old state", async (t) => {
+test("a superseded room completion cannot cancel the next room or publish its old state", async (t) => {
   const f = await rig(t, "room-request-overlap", { next: true });
   f.deliver({ type: "hostRequest", generation: 1, id: 1, op: "room", context: { room: 2 } });
   await f.entered.promise;
@@ -355,8 +341,8 @@ test("a superseded room completion cannot release the next room's hold or publis
   f.finish.resolve();
   await f.calls[0];
   await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.match(testsWriteBlockReason(f.project)!, /Wait for the Agent/);
-  assert.match(f.controller.testsWriteBlockReason()!, /Wait for the Agent/);
+  assert.equal(f.state.roomGeneration?.room, 3);
+  assert.equal(f.state.roomGeneration?.busy, true, "the next room keeps running");
   assert.equal(f.project.model.capture().read("logic:2"), undefined);
   assert.equal(
     f.first.posted.some((message) => message.type === "hostAnswer" && message.generation === 1),
@@ -367,10 +353,6 @@ test("a superseded room completion cannot release the next room's hold or publis
   await new Promise<void>((resolve) => setImmediate(resolve));
   await f.project.flush();
   assert.ok(f.project.model.capture().read("logic:3"));
-  await waitUntil(
-    () => testsWriteBlockReason(f.project) === null,
-    "the next room publication did not release its hold",
-  );
-  assert.equal(testsWriteBlockReason(f.project), null);
+
   await saveTests(f.project, edit);
 });

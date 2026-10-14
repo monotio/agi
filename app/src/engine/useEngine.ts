@@ -530,45 +530,48 @@ export function useEngine(
             : {}),
           admission,
           current,
-          async forked(data, lifetime) {
+          async forked(data, lifetime, documentOnly) {
             if (!current()) return;
             state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
-            game = {
-              ...game!,
+            const forked = {
+              ...game,
               installed: false,
-              revision: computeResourceRevision(data.files),
-              files: data.files,
+              revision: documentOnly ? game.revision : computeResourceRevision(data.files),
+              files: documentOnly ? game.files : data.files,
               projectId: data.projectId,
               title: data.title,
               authoredGame: data,
               historyLifetime: lifetime,
             };
+            game = documentOnly ? Object.assign(game, forked) : forked;
             lifecycle.setBootedGame(game);
             const target = bindProgressTarget(game);
             autosaveController.reset();
             hook.autosave = -1;
-            if (target) {
+            if (target && !documentOnly) {
               await progressOwnership.acquire(target);
               if (!current()) return;
               writeResumePointer(localStorage, target.locator);
             }
             state.patchTick++;
             state.worldTick++;
-            void autosaveController.flushAutosave();
+            if (!documentOnly) void autosaveController.flushAutosave();
           },
-          publish(snapshot, data, outcome, nativeInstalled) {
+          publish(snapshot, data, outcome, nativeInstalled, documentOnly) {
             if (!current()) return;
             if (
+              !documentOnly &&
               computeResourceRevision(game.authoredGame!.files) !==
-              snapshot.lastAdmissibleBuild!.identity.revision
+                snapshot.lastAdmissibleBuild!.identity.revision
             ) {
               hook.autosave = -1;
               link.publishHook();
             }
             const running =
-              nativeInstalled === true ||
-              outcome?.status === "committed" ||
-              outcome?.status === "unchanged";
+              !documentOnly &&
+              (nativeInstalled === true ||
+                outcome?.status === "committed" ||
+                outcome?.status === "unchanged");
             if (running) {
               game.files = structuredClone(data.files);
               if (!game.installed) {
@@ -597,11 +600,11 @@ export function useEngine(
               if (frame !== null) roomMap.value?.observeFrame(frame);
             }
           },
-          saved(data, _lifetime, generation) {
+          saved(data, _lifetime, generation, documentOnly) {
             if (current()) {
               advanceAuthoring(game, data.authoringState, data.workspace);
               if (game.authoredGame) game.authoredGame.generation = generation;
-              void autosaveController.flushAutosave();
+              if (!documentOnly) void autosaveController.flushAutosave();
             }
           },
           checkpointReady() {
@@ -856,10 +859,6 @@ export function useEngine(
     logAgent,
     getBootedGame: () => lifecycle.getBootedGame(),
     getProjectSession: () => projectSession,
-    writeBlockReason: () =>
-      projectSession?.closed
-        ? "Editing is paused. Reopen this game before editing tests."
-        : (authoringController?.testsWriteBlockReason() ?? null),
     flushAutosave: () => autosaveController.flushAutosave(),
   });
 

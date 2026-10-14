@@ -1,4 +1,3 @@
-import { testsWriteBlockReason } from "./testWriteStatus.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { saveTests } from "./saveTests.ts";
 import type { runTestsInWorker } from "../studio/testsRunner.ts";
@@ -28,7 +27,6 @@ export interface TestRecorderOptions {
   readonly logAgent: LogAgentFn;
   readonly getBootedGame: () => BootedGame | null;
   readonly getProjectSession: () => ProjectSession | null;
-  readonly writeBlockReason?: () => string | null;
   /** Tests inject the same save contract without loading the browser's storage. */
   readonly saveTests?: typeof saveTests;
   readonly flushAutosave: (waitMs?: number) => Promise<unknown>;
@@ -58,13 +56,6 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
   let generation = 0;
   let recordingStart: RecordingSnapshot["start"] | null = null;
 
-  function writeBlockReason(): string | null {
-    if (state.powerUp.busy) return "Wait for the Agent to finish before editing tests.";
-    return (
-      testsWriteBlockReason(options.getProjectSession()) ?? options.writeBlockReason?.() ?? null
-    );
-  }
-
   function reset(): void {
     generation++;
     recordingStart = null;
@@ -82,11 +73,6 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
    */
   async function startTestRecording(): Promise<void> {
     state.recording.error = "";
-    const reason = writeBlockReason();
-    if (reason) {
-      state.recording.error = reason;
-      return;
-    }
     const worker = getWorker();
     if (!worker || state.phase !== "running") return;
     // Parked windows and key waits record fine — the setup's continuation
@@ -168,8 +154,6 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     const game = options.getBootedGame();
     if (!game || !getWorker()) return { ok: false, message: "No game is running." };
     if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
-    const reason = writeBlockReason();
-    if (reason) return { ok: false, message: reason };
     try {
       const save = options.saveTests ?? (await import("./saveTests.ts")).saveTests;
       const op: GameTestsEditOperation = {
@@ -177,12 +161,11 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
         tests: [buildRecordedTest(name, snapshot, selected)],
       };
       const edited = await save(options.getProjectSession(), op, {
-        writeBlockReason: () =>
-          options.getBootedGame() !== game
-            ? "The game changed while saving the recording. Try again."
-            : writeBlockReason(),
+        beforeCommit() {
+          if (options.getBootedGame() !== game)
+            throw new Error("The game changed while saving the recording. Try again.");
+        },
       });
-      await options.flushAutosave(2000);
       const message = `${edited.tests.length} game test${edited.tests.length === 1 ? "" : "s"} stored in TESTS.JSON.`;
       logAgent("response", `[Record] ${message}`);
       return { ok: true, message };

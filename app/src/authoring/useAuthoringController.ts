@@ -1,5 +1,5 @@
+import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
-import { holdAgentTestWrites } from "./testWriteStatus.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
 import { appendAgentTasks, type AgentChats } from "../../../src/agent/chats.ts";
@@ -209,8 +209,6 @@ export interface AuthoringController {
     author: AgentSession,
     files: Record<string, Uint8Array>,
   ): Promise<void>;
-  /** Hand edits wait for an Agent turn and review without loading an AI session. */
-  testsWriteBlockReason(): string | null;
   createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession>;
   attachSessionRuntime(s: AgentSession, game: BootedGame, profile?: string): void;
   getOrCreateSession(game: BootedGame, config: LlmConfig): Promise<AgentSession>;
@@ -343,7 +341,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   let requestGeneration = 0;
   let openingGeneration = 0;
   let roomActive = false;
-  let mapBuildActive = false;
   let cancelRoomAuthoring: (() => void) | null = null;
   let recoverRoom: ((retry: boolean) => void) | null = null;
   let planSaveTail: Promise<void> = Promise.resolve();
@@ -351,7 +348,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   /** The room request whose saved room waits for the link to post its answer. */
   let roomDelivery: { resolve: () => void; reject: (error: Error) => void } | null = null;
   let publishAnsweredRoom: (() => Promise<void>) | null = null;
-  let answeredRoomTestWrites: ReturnType<typeof holdBuildTestWrites> | null = null;
+  let answeredRoomTurn: object | null = null;
 
   const commitResourceEdit = createResourceCommit({
     ...options,
@@ -386,7 +383,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const capture = prepared ?? project?.model.capture();
     if (game && capture) projectTurnBases.set(game, capture);
     return async () => {
-      if (capture && project?.model.capture().revision !== capture.revision)
+      if (
+        capture &&
+        project &&
+        !sameNonTestDocuments(capture.documents(), project.model.capture().documents())
+      )
         throw new Error(STALE_TURN_MESSAGE);
       if (getBootedGame() !== game)
         throw new ResourceCommitError("stale", STALE_TURN_MESSAGE, { behindStorage: true });
@@ -615,6 +616,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     game: BootedGame,
     profile = state.profile ?? "unknown",
   ): void {
+    s.state.readCommittedTests = () => {
+      const project = options.getProjectSession?.();
+      if (project) return project.model.capture().read("tests")?.content;
+      if (game.authoredGame?.workspace)
+        return readProjectWorkspace(game.authoredGame.workspace)["tests"];
+      return (game.authoredGame?.files ?? game.files)["TESTS.JSON"];
+    };
     s.setRuntime({
       frames: { read: readFrames },
       engine: engineSource,
@@ -1132,40 +1140,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     bindProgressTarget(owner);
   }
 
-  function testsWriteBlockReason(): string | null {
-    if (
-      roomActive ||
-      mapBuildActive ||
-      state.powerUp.busy ||
-      conversationAgent?.busy ||
-      activeAskAgent?.busy
-    )
-      return "Wait for the Agent to finish before editing tests.";
-    if (conversationAgent?.pending() || activeAskAgent?.pending())
-      return "Review the Agent's changes before editing tests.";
-    return null;
-  }
-
-  /** A project opened during setup joins the same room/map hand-write hold. */
-  function holdBuildTestWrites() {
-    const releases = new Map<ProjectSession, () => void>();
-    let released = false;
-    function attach() {
-      if (released) return;
-      const project = options.getProjectSession?.();
-      if (project && !releases.has(project)) releases.set(project, holdAgentTestWrites(project));
-    }
-    attach();
-    return {
-      attach,
-      release() {
-        released = true;
-        for (const release of releases.values()) release();
-        releases.clear();
-      },
-    };
-  }
-
   /** The running game an install of `owner`'s saved files goes to, as it stands now. */
   function runningGame(owner: BootedGame, author: AgentSession): RunningGame {
     const worker = getWorker();
@@ -1348,6 +1322,30 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       state.powerUp.reply = text;
       state.powerUp.messages.push({ role: "assistant", text });
       remixNeedsSave = true;
+      const ownedProject = options.getProjectSession?.();
+      let testsOnly =
+        patched.length === 0 && Object.keys(files ?? {}).every((name) => name === "TESTS.JSON");
+      if (ownedProject && !booted.installed) {
+        const { validateAgentState } = await import("../agent/projectTurn.ts");
+        const changes = validateAgentState(
+          projectTurnBases.get(booted)!,
+          session.state,
+          session.state.profile.id,
+          ownedProject.allowMissingRooms,
+        );
+        testsOnly = changes.every((change) => change.key === "tests");
+      }
+      if (testsOnly) {
+        const owner = await saveTurn(booted, session, Object.fromEntries(session.state.getFiles()));
+        if (!ownedProject && owner.authoredGame)
+          owner.authoredGame = {
+            ...owner.authoredGame,
+            files: Object.fromEntries(session.state.getFiles()),
+          };
+        state.powerUp.open = false;
+        resumeEngine("powerUp");
+        return;
+      }
       // Storage is the source of truth, and the remixed file set the patch
       // traffic will produce is computed with the same container code — so
       // the durable write runs first: a refused save installs nothing, and
@@ -1365,7 +1363,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const saved: SavedFiles = { files: Object.fromEntries(container.files) };
       const owner = await saveTurn(booted, session, saved.files);
       const running = runningGame(owner, session);
-      await installSaved(running, saved, { resources: patched, metadata: files }, "The remix");
+      const metadata =
+        files &&
+        Object.fromEntries(Object.entries(files).filter(([name]) => name !== "TESTS.JSON"));
+      await installSaved(running, saved, { resources: patched, metadata }, "The remix");
       bindProgressTarget(owner);
       // The tape checkpoint rides the same ordered queue: it lands after
       // the commit's patches, so a take between them restores the state
@@ -1434,12 +1435,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   function cancelAnsweredRoom(): void {
     publishAnsweredRoom = null;
-    const held = answeredRoomTestWrites;
-    answeredRoomTestWrites = null;
-    if (held) {
-      held.release();
-      roomActive = false;
-    }
+    if (answeredRoomTurn) roomActive = false;
+    answeredRoomTurn = null;
   }
 
   function retryRoomGeneration(): void {
@@ -1456,7 +1453,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (roomActive || state.powerUp.busy)
       throw new Error("Wait for the current agent task to finish.");
     roomActive = true;
-    const testWrites = holdBuildTestWrites();
+    const roomTurn = {};
     state.roomGeneration = {
       room: Number(req.context["room"]),
       busy: true,
@@ -1469,7 +1466,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     }
     function finish() {
       req.signal?.removeEventListener("abort", cancel);
-      testWrites.release();
       if (cancelRoomAuthoring === cancel) {
         cancelRoomAuthoring = null;
         roomActive = false;
@@ -1493,7 +1489,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         progress.error = "";
         try {
           const result = await attemptRoomAuthoring(req, agent, sendDirection, {
-            writes: testWrites,
+            token: roomTurn,
             current,
             finish,
           });
@@ -1514,7 +1510,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         }
       }
     } finally {
-      if (answeredRoomTestWrites !== testWrites) {
+      if (answeredRoomTurn !== roomTurn) {
         finish();
       }
     }
@@ -1525,7 +1521,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
     turn: {
-      readonly writes: ReturnType<typeof holdBuildTestWrites>;
+      readonly token: object;
       current(): boolean;
       finish(): void;
     },
@@ -1570,7 +1566,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         setSession(author);
       }
       if (!turn.current()) return "";
-      turn.writes.attach();
       // The stored-project gate remix and map-build turns commit through:
       // refuse before the turn spends, and again before its staged room
       // lands in the session. A refusal keeps the player in the departure
@@ -1601,12 +1596,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             );
             const owner = game;
             const completed = author;
-            const testWrites = turn.writes;
-            answeredRoomTestWrites = testWrites;
+            const roomTurn = turn.token;
+            answeredRoomTurn = roomTurn;
             publishAnsweredRoom = async () => {
               try {
                 if (
-                  answeredRoomTestWrites !== testWrites ||
+                  answeredRoomTurn !== roomTurn ||
                   getBootedGame() !== owner ||
                   session !== completed ||
                   options.getProjectSession?.() !== projectRoom
@@ -1624,8 +1619,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
                 if (getBootedGame() === owner) await flushAutosave();
               } finally {
                 turn.finish();
-                if (answeredRoomTestWrites === testWrites) {
-                  answeredRoomTestWrites = null;
+                if (answeredRoomTurn === roomTurn) {
+                  answeredRoomTurn = null;
                   roomActive = false;
                 }
               }
@@ -1696,15 +1691,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       throw new Error("Building from the map extends a game authored here.");
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     pauseEngine("mapBuild");
-    mapBuildActive = true;
-    const testWrites = holdBuildTestWrites();
     try {
       const config =
         configForGame && getLlmConfig ? configForGame(game.projectId, getLlmConfig()) : null;
       if (!config || (config.provider !== "stub" && !config.apiKey.trim()))
         throw new Error("Connect your AI provider to build a room from the map.");
       const author = await getOrCreateSession(game, config);
-      testWrites.attach();
       attachSessionRuntime(author, game);
       // The same stored-project gate a remix turn commits through: refuse
       // before the turn spends, and again before its staged room lands.
@@ -1756,7 +1748,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const metadataFiles = {
         "WORDS.TOK": wordsPayload,
         ...(compiled.objects ? { OBJECT: compiled.objects } : {}),
-        ...(compiled.tests ? { "TESTS.JSON": compiled.tests } : {}),
       };
       // Storage is the source of truth: the committed file set is computed
       // with the same container code the worker's patch handler runs, so the
@@ -1776,8 +1767,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       bindProgressTarget(owner);
       postSessionSnapshot(author);
     } finally {
-      mapBuildActive = false;
-      testWrites.release();
       resumeEngine("mapBuild");
     }
   }
@@ -1941,7 +1930,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (project && !game.installed) {
       files = { ...files };
       delete files["TESTS.JSON"];
-      const tests = project.model.capture().lastAdmissibleBuild!.documents()["tests"];
+      const tests = project.model.capture().read("tests")?.content;
       if (tests !== undefined)
         files["TESTS.JSON"] =
           typeof tests === "string" ? new TextEncoder().encode(tests) : tests.slice();
@@ -2212,7 +2201,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     },
     updateAiConfig,
     persistRemix,
-    testsWriteBlockReason,
     getAgentRuntime,
     createGameSession,
     attachSessionRuntime,
