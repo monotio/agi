@@ -457,6 +457,7 @@ async function openNativeTestsProject(
 
 test("saving tests leaves Play, the timeline and recording intact; the next resource edit admits the complete project", async (t) => {
   const documents = {
+    bindings: "{}",
     "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
     "logic:1":
       "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } return;",
