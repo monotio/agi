@@ -18,6 +18,7 @@ import {
   PLAY_START,
   AUTHORING_MODULES,
   DEBUGGER_MODULES,
+  TESTS_MODULES,
   ROOM_ANALYSIS_MODULES,
   isHomeDeferredModule,
   isStudioModule,
@@ -189,7 +190,7 @@ const GROUP_LABELS: Record<Group, string> = {
   workers: "startup workers",
 };
 
-const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
+const STUDIO_WORKERS = [/(^|\/)(route|tests)\.worker-[^/]*\.js$/];
 
 function main(): void {
   const dist = join(import.meta.dirname, "..", "app", "dist");
@@ -392,7 +393,7 @@ function main(): void {
         );
   for (const chunk of boot)
     for (const module of chunk.modules)
-      if (isStudioModule(module))
+      if (isStudioModule(module) || TESTS_MODULES.some((pattern) => pattern.test(module)))
         failures.push(
           `${module} is in the startup chunk ${chunk.file}; Studio code must load through a dynamic import.`,
         );
@@ -410,9 +411,7 @@ function main(): void {
         );
   for (const worker of workerEntries)
     if (STUDIO_WORKERS.some((pattern) => pattern.test(worker)))
-      failures.push(
-        `${worker} is started by a startup chunk; the Studio route worker must stay lazy.`,
-      );
+      failures.push(`${worker} is started by a startup chunk; Studio workers must stay lazy.`);
   for (const chunk of workerChunks)
     for (const module of chunk.modules)
       if (ROOM_ANALYSIS_MODULES.some((pattern) => pattern.test(module)))
