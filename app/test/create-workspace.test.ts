@@ -1,3 +1,4 @@
+import { ref } from "vue";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkspaceEditor } from "../src/shell/workspaceEditor.ts";
@@ -128,4 +129,36 @@ test("a chosen splitter width applies to VIEW and SOUND editors", () => {
   editor.selected.value = "sound:1";
   editor.resize(35);
   assert.equal(editor.effectiveSplit.value, 35);
+});
+
+test("Parts toggles temporarily beside the Agent and preserves the stored dock choice", () => {
+  const storage = memoryStorage();
+  const open = ref(false);
+  const focus = ref(true);
+  const temporary = ref(true);
+  const ws = createCreateWorkspace({
+    panelDock: () => undefined,
+    storage,
+    compactAgent: () => temporary.value,
+    parts: { open, focus, phone: () => false },
+  });
+  ws.toggleParts();
+  assert.equal(open.value, true);
+  assert.equal(focus.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), undefined);
+  ws.toggleParts();
+  assert.equal(open.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), undefined);
+  temporary.value = false;
+  ws.toggleParts();
+  assert.equal(ws.collapsed.left, true);
+  const folded = storage.data.get(DOCKS_STORAGE_KEY);
+  temporary.value = true;
+  ws.toggleParts();
+  assert.equal(open.value, true);
+  temporary.value = false;
+  ws.toggleParts();
+  assert.equal(open.value, false);
+  assert.equal(ws.collapsed.left, true);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
 });

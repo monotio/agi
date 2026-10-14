@@ -32,6 +32,9 @@ export interface CreateWorkspace {
   readonly sheetOpen: Ref<boolean>;
   /** A phone's Create: the panels show, nothing edits. */
   readonly viewOnly: ComputedRef<boolean>;
+  /** Compact desktop with the Agent open: Parts uses a temporary override. */
+  readonly compactAgent: ComputedRef<boolean>;
+  toggleParts(): void;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
   showPanel(id: string): void;
@@ -57,11 +60,18 @@ export function createCreateWorkspace(deps: {
   panelDock(id: string): DockSide | undefined;
   viewOnly?: () => boolean;
   storage?: StorageLike | undefined;
+  compactAgent?: () => boolean;
+  parts?: {
+    open: Ref<boolean>;
+    focus: Ref<boolean>;
+    phone: () => boolean;
+  };
 }): CreateWorkspace {
   const storage = deps.storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const active = reactive({ left: "world", right: "assistant", sheet: "world" });
   const collapsed = reactive(readCollapsed(storage));
   const sheetOpen = ref(false);
+  const compactAgent = computed(() => deps.compactAgent?.() ?? false);
 
   function persist(): void {
     try {
@@ -74,6 +84,22 @@ export function createCreateWorkspace(deps: {
   function toggleDock(side: DockSide): void {
     collapsed[side] = !collapsed[side];
     persist();
+  }
+
+  function toggleParts(): void {
+    const parts = deps.parts;
+    if (!parts) {
+      toggleDock("left");
+      return;
+    }
+    parts.focus.value = false;
+    if (compactAgent.value || parts.phone()) {
+      parts.open.value = !parts.open.value;
+      return;
+    }
+    const reopened = parts.open.value;
+    parts.open.value = false;
+    if (!reopened || !collapsed.left) toggleDock("left");
   }
 
   function showPanel(id: string): void {
@@ -90,6 +116,8 @@ export function createCreateWorkspace(deps: {
     collapsed,
     sheetOpen,
     viewOnly: computed(() => deps.viewOnly?.() ?? false),
+    compactAgent,
+    toggleParts,
     toggleDock,
     showPanel,
   };

@@ -194,7 +194,7 @@ test("opening games again and again keeps the picture drawn on one GPU context",
   }
 });
 
-test("a lost GPU context leaves the flat picture, and the next game gets the stage back", async ({
+test("a lost GPU context leaves the flat picture, and the next game gets the stage back @webkit-desktop", async ({
   page,
 }) => {
   await openSavedAdventure(page);
@@ -224,7 +224,9 @@ test("a lost GPU context leaves the flat picture, and the next game gets the sta
 
 // The browser's context-lost event can reach the renderer while it starts, before the stage
 // listens for it; the player still gets the flat picture.
-test("a GPU context lost while the stage starts leaves the flat picture", async ({ page }) => {
+test("a GPU context lost while the stage starts leaves the flat picture @webkit-desktop", async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     const listen = HTMLCanvasElement.prototype.addEventListener;
     HTMLCanvasElement.prototype.addEventListener = function (

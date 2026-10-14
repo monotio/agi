@@ -1004,7 +1004,7 @@ defineExpose({
 .screen.tube {
   box-shadow: none;
 }
-.screen.remixing {
+.screen.remixing:not(.tube) {
   box-shadow: 0 0 0 2px var(--warn-line);
 }
 

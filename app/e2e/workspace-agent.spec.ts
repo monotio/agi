@@ -854,3 +854,32 @@ test("an Agent edit to an imported game's LOGIC shows only the changed lines", a
   await expect.poll(() => diff.locator(".line-insert").count()).toBe(1);
   expect(await diff.locator(".line-delete").count()).toBe(0);
 });
+
+test("approving before the source diff finishes has no unhandled rejection @webkit-desktop", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await start(page);
+  await page.evaluate(async () => {
+    const path = "/e2e/fixtures/uxPolish.ts";
+    await (await import(path)).holdDiff();
+  });
+  await page.getByTestId("agent-message").fill("Add a welcome sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const path = "/e2e/fixtures/uxPolish.ts";
+        return (await import(path)).diffPending();
+      }),
+    )
+    .toBe(true);
+  await page.evaluate(async () => {
+    const path = "/e2e/fixtures/uxPolish.ts";
+    await (await import(path)).approveBeforeDiff();
+  });
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

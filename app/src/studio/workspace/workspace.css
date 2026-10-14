@@ -36,7 +36,7 @@
   min-width: 0;
   isolation: isolate;
 }
-.shell-body--workspace.shell-body--fold-left {
+.shell-body--workspace.shell-body--fold-left:not(:has(> .parts-list--open)) {
   --workspace-parts: 0px;
 }
 /* The Agent sits beside the game and the editor, never over them. */
@@ -554,7 +554,7 @@
   .shell-body--workspace:not(.shell-body--no-editor) {
     --workspace-parts: 180px;
   }
-  .shell-body--workspace.shell-body--fold-left {
+  .shell-body--workspace.shell-body--fold-left:not(:has(> .parts-list--open)) {
     --workspace-parts: 0px;
   }
 }
@@ -579,4 +579,20 @@
   font-size: var(--text-xs);
   border-top: 1px dashed var(--action);
   color: var(--ink-2);
+}
+
+/* Temporary compact folds leave the stored Parts preference alone. */
+.shell-body--workspace:has(> .parts-list--auto-fold) {
+  --workspace-parts: 0px;
+}
+@media (min-width: 601px) and (max-width: 1199px) {
+  .in-game:has(.shell-body--workspace.assistant-open) .play-bar__parts {
+    display: inline-flex;
+  }
+}
+.workspace-note {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }

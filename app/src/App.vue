@@ -177,6 +177,13 @@ provideWorkspaceEditor(workspaceEditor);
 const workspace = createCreateWorkspace({
   panelDock: (id) => workspaceEditor.panelDock(id),
   viewOnly: () => phone.value,
+  compactAgent: () =>
+    state.powerUp.open && viewport.value.width >= 601 && viewport.value.width < 1200,
+  parts: {
+    open: workspaceEditor.partsOpen,
+    focus: workspaceEditor.focus,
+    phone: () => workspacePhone.value,
+  },
 });
 provideCreateWorkspace(workspace);
 /** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */

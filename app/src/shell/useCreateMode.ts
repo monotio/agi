@@ -53,7 +53,10 @@ export function useCreateMode(deps: {
     if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return false;
     if (isTextEntry(ev.target, deps.gameInput())) return false;
     ev.preventDefault();
-    if (!phone.value) workspace.toggleDock(ev.key === "[" ? "left" : "right");
+    if (!phone.value) {
+      if (ev.key === "[") workspace.toggleParts();
+      else workspace.toggleDock("right");
+    }
     return true;
   }
 
