@@ -59,5 +59,5 @@ export async function prepareAndAdmitProjectEdit(input: {
     outcome = await input.admit(prepared.compiled, documentVersions);
   }
   if (!valid()) throw new Error("Project edit was superseded.");
-  return { prepared, outcome, changes };
+  return { prepared, outcome, changes, testsOnly };
 }

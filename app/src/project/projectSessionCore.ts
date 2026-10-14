@@ -608,7 +608,7 @@ function createSession(
       workerRunToken: input.admission.runToken,
       generation: expected.generation,
     };
-    const { prepared, outcome, changes } = await prepareAndAdmitProjectEdit({
+    const { prepared, outcome, changes, testsOnly } = await prepareAndAdmitProjectEdit({
       model,
       proposal,
       profileId: inspection.profileId,
@@ -697,10 +697,16 @@ function createSession(
         action: outcome.roomReentry === true ? "reenter" : "restart",
         reason: restartReason(outcome.reason ?? "This image needs a game restart."),
       };
-    else if (prepared.compiled !== undefined) pendingRestart = null;
+    else if (!testsOnly && prepared.compiled !== undefined) pendingRestart = null;
     if (prepared.compiled !== undefined) {
-      pendingImage = outcome?.status === "deferred" ? prepared.compiled : undefined;
-      pendingPreparedRoom = pendingImage !== undefined && preparedRoom;
+      if (testsOnly) {
+        // A pending native edit keeps its continuation and adopts the latest
+        // complete documents, including these tests, at its existing boundary.
+        if (pendingImage !== undefined) pendingImage = prepared.compiled;
+      } else {
+        pendingImage = outcome?.status === "deferred" ? prepared.compiled : undefined;
+        pendingPreparedRoom = pendingImage !== undefined && preparedRoom;
+      }
     }
     diagnostics = prepared.diagnostics;
     if (action === undefined && beforeNumberDocuments)

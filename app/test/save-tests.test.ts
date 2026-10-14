@@ -3,7 +3,10 @@ import { test } from "node:test";
 import { saveTests } from "../src/authoring/saveTests.ts";
 import { authoringFingerprint } from "../src/project/gameStorage.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
-import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import {
+  compileProjectDocuments,
+  type ProjectDocumentsCompile,
+} from "../../src/authoring/projectDocuments.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
@@ -19,6 +22,7 @@ const op = { kind: "merge", tests: [scenario("recorded")] } as const;
 function fixture(
   source: "created" | "catalog" | "installed" = "created",
   admissionStatus: "committed" | "restartRequired" | "deferred" = "committed",
+  preparedRoom = false,
 ) {
   const documents = { "logic:0": "return;", "logic:1": "return;" };
   const compiled = compileProjectDocuments({
@@ -35,6 +39,17 @@ function fixture(
   let nextAdmissionStatus = admissionStatus;
   let admittedTests: string | Uint8Array | undefined;
   const boundary = Promise.withResolvers<void>();
+  async function admit(image: ProjectDocumentsCompile) {
+    admitted++;
+    admittedTests = image.documents()["tests"];
+    return {
+      status: nextAdmissionStatus,
+      expected: null,
+      current: null,
+      patchGeneration: 1,
+      reason: "A loaded view needs a restart.",
+    };
+  }
   const session = openProjectSession({
     data: {
       projectId: original,
@@ -57,17 +72,10 @@ function fixture(
       : {}),
     admission: {
       runToken: `tests-${source}`,
-      admit: async (image) => {
-        admitted++;
-        admittedTests = image.documents()["tests"];
-        return {
-          status: nextAdmissionStatus,
-          expected: null,
-          current: null,
-          patchGeneration: 1,
-          reason: "A loaded view needs a restart.",
-        };
-      },
+      admit: preparedRoom
+        ? async () => assert.fail("A prepared room must keep its adoption path.")
+        : admit,
+      ...(preparedRoom ? { admitPreparedRoom: admit } : {}),
     },
     ...(admissionStatus === "deferred" ? { boundary: () => boundary.promise } : {}),
     forked() {
@@ -295,6 +303,37 @@ test("saving tests keeps deferred resource admission pending", async () => {
       new TextDecoder().decode(saved.payload),
       "deferred admission carries the latest tests too",
     );
+  } finally {
+    f.session.dispose();
+    f.releaseBoundary();
+  }
+});
+
+test("saving tests keeps a deferred prepared room on its adoption path", async () => {
+  const f = fixture("created", "deferred", true);
+  try {
+    await f.session.submitPreparedRoom({
+      proposal: f.session.model.propose(f.session.model.capture(), "Room", [
+        { key: "logic:1", content: "assignn(v40,1);return;" },
+      ]),
+      label: "Room",
+      origin: "agent",
+      author: "agent",
+    });
+    assert.equal(f.session.capture().pendingAdmission, true);
+    const saved = await saveTests(f.session, op);
+    assert.equal(f.session.capture().pendingAdmission, true);
+    assert.equal(f.admitted, 1, "saving tests makes no new admission attempt");
+    f.admissionStatus = "committed";
+    f.releaseBoundary();
+    const { waitUntil } = await import("./async.ts");
+    await waitUntil(
+      () => !f.session.capture().pendingAdmission,
+      "the prepared room adopts at the next boundary",
+    );
+    assert.equal(f.session.pendingRestart, null);
+    assert.equal(f.admitted, 2);
+    assert.equal(f.admittedTests, new TextDecoder().decode(saved.payload));
   } finally {
     f.session.dispose();
     f.releaseBoundary();
