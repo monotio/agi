@@ -38,7 +38,14 @@ const host = {
   takeKeys: () => [],
 };
 
-for (const scenario of ["chat", "notes", "rejected write", "second tab", "closed page"] as const) {
+for (const scenario of [
+  "chat",
+  "notes",
+  "rejected write",
+  "failed write",
+  "second tab",
+  "closed page",
+] as const) {
   test(`a checkpoint refused during a ${scenario} save preserves the player's progress`, async () => {
     const starter = createStarterProject("starter");
     const files = Object.fromEntries(starter.files());
@@ -66,7 +73,7 @@ for (const scenario of ["chat", "notes", "rejected write", "second tab", "closed
     let cycle = 1;
     let requests = 0;
     let pausedWrite = false;
-    let rejectWrite = scenario === "rejected write";
+    let rejectWrite = scenario === "rejected write" || scenario === "failed write";
     const entered = Promise.withResolvers<Parameters<typeof commitProject>[0]>();
     const release = Promise.withResolvers<void>();
     const retried = Promise.withResolvers<boolean>();
@@ -149,9 +156,11 @@ for (const scenario of ["chat", "notes", "rejected write", "second tab", "closed
       const request = await entered.promise;
       engine.vars[80] = 42;
       cycle = 2;
-      assert.equal((await controller.flushAutosaveDetailed()).status, "not_ready");
-      assert.equal((await controller.flushAutosaveDetailed()).status, "not_ready");
-      const refusedRequests = requests;
+      if (scenario !== "failed write") {
+        assert.equal((await controller.flushAutosaveDetailed()).status, "not_ready");
+        assert.equal((await controller.flushAutosaveDetailed()).status, "not_ready");
+      }
+      let refusedRequests = requests;
       assert.equal(readAutosave(locator)!.image, original);
       if (scenario === "second tab") {
         // A separate storage client wins while this page's write is held.
@@ -183,8 +192,13 @@ for (const scenario of ["chat", "notes", "rejected write", "second tab", "closed
         assert.equal(requests, refusedRequests);
         assert.equal(readAutosave(locator)!.image, original);
       } else {
-        if (scenario === "rejected write") {
+        if (scenario === "rejected write" || scenario === "failed write") {
           assert.ok(error instanceof Error);
+          // This request has no earlier pending-state refusal to keep it owed.
+          if (scenario === "failed write") {
+            assert.equal((await controller.flushAutosaveDetailed()).status, "storage_failure");
+            refusedRequests = requests;
+          }
           assert.equal(requests, refusedRequests);
           assert.equal(readAutosave(locator)!.image, original);
           rejectWrite = false;
@@ -208,11 +222,17 @@ for (const scenario of ["chat", "notes", "rejected write", "second tab", "closed
   });
 }
 
-for (const changedResources of [true, false]) {
+for (const [changedResources, refusedCheckpoint] of [
+  [true, true],
+  [false, true],
+  [true, false],
+] as const) {
   test(
-    changedResources
-      ? "a refused checkpoint waits for the required restart before requesting fresh progress"
-      : "a matching checkpoint retries after a document save while a restart is optional",
+    !refusedCheckpoint
+      ? "a restarted room requests progress even without an earlier refused checkpoint"
+      : changedResources
+        ? "a refused checkpoint waits for the required restart before requesting fresh progress"
+        : "a matching checkpoint retries after a document save while a restart is optional",
     async () => {
       const compiled = compileProjectDocuments({
         files: Object.fromEntries(createContainer().files),
@@ -220,7 +240,9 @@ for (const changedResources of [true, false]) {
         profileId: "2.936",
       });
       const files = Object.fromEntries(compiled.files());
-      const id = testProjectId(`checkpoint-required-restart-${changedResources}`);
+      const id = testProjectId(
+        `checkpoint-required-restart-${changedResources}-${refusedCheckpoint}`,
+      );
       await saveAuthoredGame(id, { title: "Restart", files, words: [] });
       const held = (await loadAuthoredGameWithHistoryLifetime(id))!;
       let captures = 0;
@@ -228,7 +250,7 @@ for (const changedResources of [true, false]) {
         data: held.data,
         lifetime: held.lifetime!,
         admission: {
-          runToken: `checkpoint-required-restart-${changedResources}`,
+          runToken: `checkpoint-required-restart-${changedResources}-${refusedCheckpoint}`,
           admit: async () => ({
             status: "restartRequired",
             expected: null,
@@ -264,7 +286,8 @@ for (const changedResources of [true, false]) {
           origin: "logic",
           author: "creator",
         });
-        assert.equal(await session.prepareCheckpoint(oldRevision), "not_ready");
+        if (refusedCheckpoint)
+          assert.equal(await session.prepareCheckpoint(oldRevision), "not_ready");
         await session.flush();
         assert.ok(session.pendingRestart);
         assert.equal(
@@ -272,11 +295,12 @@ for (const changedResources of [true, false]) {
           changedResources ? 0 : 1,
           "matching bytes can be checkpointed before an optional restart",
         );
-        for (let i = 0; i < 3; i++)
-          assert.equal(
-            await session.prepareCheckpoint(oldRevision),
-            changedResources ? "not_ready" : "ready",
-          );
+        if (refusedCheckpoint)
+          for (let i = 0; i < 3; i++)
+            assert.equal(
+              await session.prepareCheckpoint(oldRevision),
+              changedResources ? "not_ready" : "ready",
+            );
         await session.tag("Before restart");
         await session.flush();
         assert.equal(
@@ -288,7 +312,11 @@ for (const changedResources of [true, false]) {
         await session.flush();
         assert.equal(session.pendingRestart, null);
         assert.equal(await session.prepareCheckpoint(), "ready");
-        assert.equal(captures, 1, "the admitted restart releases one owed checkpoint");
+        assert.equal(
+          captures,
+          changedResources ? 1 : 2,
+          "successful activation requests one checkpoint for the restarted room",
+        );
       } finally {
         session.dispose();
       }

@@ -927,6 +927,8 @@ function createSession(
               policy: { allowMissingRooms: data.roomGeneration === true },
             }).application;
       captureSave(model.apply(application), outcome);
+      checkpointPending = true;
+      checkpointRevision = undefined;
     }
     if (outcome.status === "restartRequired") {
       pendingRestart = restartFor(outcome);
@@ -1275,7 +1277,6 @@ function createSession(
     },
     async prepareCheckpoint(revision?: string) {
       const status = session.saveStatus();
-      if (status.state === "failed") throw new Error(status.message);
       const ready =
         current() &&
         writeBlock === undefined &&
@@ -1293,6 +1294,7 @@ function createSession(
         if (checkpointRevision !== model.capture().lastAdmissibleBuild!.identity.revision)
           checkpointRevision = revision;
       }
+      if (status.state === "failed") throw new Error(status.message);
       // A mismatched revision with no readiness blocker needs a new build
       // admission, rather than repeatedly capturing the same running bytes.
       return ready ? ("ready" as const) : ("not_ready" as const);

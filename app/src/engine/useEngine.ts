@@ -549,11 +549,10 @@ export function useEngine(
               if (frame !== null) roomMap.value?.observeFrame(frame);
             },
           }),
-          saved(data, _lifetime, generation, documentOnly) {
+          saved(data, _lifetime, generation) {
             if (current()) {
               advanceAuthoring(game, data.authoringState, data.workspace);
               if (game.authoredGame) game.authoredGame.generation = generation;
-              if (!documentOnly) void autosaveController.flushAutosave();
             }
           },
           checkpointReady() {

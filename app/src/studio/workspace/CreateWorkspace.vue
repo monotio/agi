@@ -2260,13 +2260,23 @@ async function clearName(name: string): Promise<void> {
   });
 }
 async function deletePart(key: string, room?: number): Promise<void> {
-  if (!session || editingPaused.value || actionBusy.value) return;
+  const review = partRemovalReview.value;
+  if (!session || editingPaused.value || actionBusy.value) {
+    partRemovalReview.value = undefined;
+    return;
+  }
   const owner = session;
   try {
     await writes.flush();
-    if (session !== owner || editingPaused.value || actionBusy.value) return;
+    if (session !== owner || editingPaused.value || actionBusy.value) {
+      if (partRemovalReview.value === review) partRemovalReview.value = undefined;
+      return;
+    }
     const captured = owner.workingSnapshot();
-    if (!captured.read(key)) return;
+    if (!captured.read(key)) {
+      if (partRemovalReview.value === review) partRemovalReview.value = undefined;
+      return;
+    }
     const plan = preparePartDraftRemoval(captured, key, profile.value, room);
     if (room !== undefined || plan.problems.length) {
       deleteRoomTests.value = true;
@@ -2279,11 +2289,15 @@ async function deletePart(key: string, room?: number): Promise<void> {
       };
     } else applyPartRemoval(plan.changes);
   } catch (cause) {
+    if (partRemovalReview.value === review) partRemovalReview.value = undefined;
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
 function applyPartRemoval(changes: readonly ProjectChange[]): void {
-  if (!session || editingPaused.value || actionBusy.value) return;
+  if (!session || editingPaused.value || actionBusy.value) {
+    partRemovalReview.value = undefined;
+    return;
+  }
   session.drafts().stageTransaction(changes);
   partRemovalReview.value = undefined;
   editor.error.value = "";
@@ -2294,7 +2308,10 @@ function applyPartRemoval(changes: readonly ProjectChange[]): void {
 }
 async function confirmPartRemoval(): Promise<void> {
   const review = partRemovalReview.value;
-  if (!session || !review || session !== review.owner) return;
+  if (!session || !review || session !== review.owner || editingPaused.value || actionBusy.value) {
+    partRemovalReview.value = undefined;
+    return;
+  }
   if (
     diffProjectDocuments(review.snapshot.documents(), session.workingSnapshot().documents()).length
   ) {
