@@ -711,7 +711,9 @@ async function changeRoomTwo(page: Page, kind: "logic" | "picture" = "logic"): P
   });
   await start(page, "openai", false);
   if (!(await page.getByTestId("parts-list").isVisible())) {
-    await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
+    // Mid widths fold Parts while the Agent is open and offer Parts beside it; phones swap panels.
+    if (page.viewportSize()!.width <= 600)
+      await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
     await page.getByTestId("workspace-parts").click();
   }
   await addWorkspaceAction(page, "Add a room", { "Room name": "Grove" }, "world");

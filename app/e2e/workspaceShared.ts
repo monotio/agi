@@ -37,10 +37,12 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
   await enterCreateMode(page);
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
-  await page
-    .getByTestId(`part-room:${num}:logic`)
-    .or(page.getByTestId(`part-logic:${num}`))
-    .click();
+  const row = page.getByTestId(`part-room:${num}:logic`).or(page.getByTestId(`part-logic:${num}`));
+  // Mid widths fold Parts away while the Agent is open; Parts brings the list back.
+  const partsButton = page.getByTestId("workspace-parts");
+  if (!(await row.first().isVisible()) && (await partsButton.isVisible()))
+    await partsButton.click();
+  await row.click();
   if (await show.isVisible()) await show.click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
   await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({
