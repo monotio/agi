@@ -65,13 +65,8 @@ import {
   viewReference,
   type ReferenceSource,
 } from "./referenceTools.ts";
-import {
-  GAME_TEST_TOOLS,
-  executeGameTestTool,
-  rerunAffectedTests,
-  runGameTests,
-  type TouchedResource,
-} from "./gameTests.ts";
+import { GAME_TEST_TOOLS, executeGameTestTool } from "./gameTests.ts";
+import { runGameTests, rerunAffectedTests, type TouchedResource } from "./gameTestsRunner.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";

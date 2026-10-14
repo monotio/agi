@@ -10,7 +10,7 @@ import {
   serializeGameTests,
   type GameTest,
 } from "../src/agent/gameTestFormat.ts";
-import { testsForResource, verdictLine } from "../src/agent/gameTests.ts";
+import { testsForResource, verdictLine } from "../src/agent/gameTestsRunner.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../src/agent/gameTestSteps.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";
@@ -1192,3 +1192,31 @@ test("a malformed setup image is rejected at parse and at write_game_tests", () 
 // Keep the GameTest type referenced so the stored shape stays exported.
 const _typecheck: GameTest = takeKey;
 void _typecheck;
+
+test("a failing game test reports exact expected and observed values for the Tests panel", () => {
+  const result = playtestRoom(world(), {
+    room: 1,
+    steps: [],
+    expect: { room: 2, flags: [{ id: 30, value: true }], vars: [{ id: 40, value: 7 }] },
+  });
+  assert.equal(result.success, false);
+  assert.deepEqual(result.details?.["failures"], [
+    { kind: "room", id: null, expected: 2, observed: 1, stepIndex: null },
+    { kind: "flag", id: 30, expected: true, observed: false, stepIndex: null },
+    { kind: "var", id: 40, expected: 7, observed: 0, stepIndex: null },
+  ]);
+  const stepFailure = playtestRoom(world(), {
+    room: 1,
+    steps: [{ action: "wait", ticks: 1, until: { flag: { id: 30, value: true } } }],
+  });
+  assert.equal(stepFailure.details?.["failingStepIndex"], 0);
+  assert.deepEqual(stepFailure.details?.["failures"], [
+    {
+      kind: "until",
+      id: null,
+      expected: { room: null, flag: { id: 30, value: true }, var: null },
+      observed: { room: 1, flag: false, var: null },
+      stepIndex: 0,
+    },
+  ]);
+});

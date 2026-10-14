@@ -6,7 +6,7 @@ import {
   serializeGameTests,
   validateGameTest,
 } from "../src/agent/gameTestFormat.ts";
-import { testsForResource } from "../src/agent/gameTests.ts";
+import { testsForResource } from "../src/agent/gameTestsRunner.ts";
 import {
   buildObjectFile,
   createAgentSessionState,
