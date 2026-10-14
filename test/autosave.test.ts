@@ -346,7 +346,7 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   const authentic = engine.serialize();
   const saved = decodeSave(authentic, engine.profile);
   assert.equal(saved.replayActive, 0, "f7 kept the game's own sequence empty");
-  assert.equal(saved.replayCapacity, 50, "the default script buffer");
+  assert.equal(saved.replayCapacity, 200, "the default script buffer");
   const autosave = engine.autosaveImage();
   assert.ok(autosave);
   const { image, screen } = decodeHostImage(autosave);
@@ -375,7 +375,7 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   );
   const resumed = decodeSave(fresh.serialize(), fresh.profile);
   assert.equal(resumed.replayActive, 0, "save.game after the resume writes the game's sequence");
-  assert.equal(resumed.replayCapacity, 50, "...at the game's capacity");
+  assert.equal(resumed.replayCapacity, 200, "...at the game's capacity");
   // The next autosave still rebuilds the room: the sequence became the shadow.
   const again = decodeHostImage(fresh.autosaveImage()!);
   assert.deepEqual(again.screen, screen);

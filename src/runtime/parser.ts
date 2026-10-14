@@ -24,28 +24,20 @@ export function parseSentence(line: string, dictionary?: ReadonlyMap<string, num
       tokens.push({ text: input[index++]!, id: undefined, status: "unread" });
       continue;
     }
-    // The word loop tests i >= 10 BEFORE each Match call and exits silently:
-    // tokens past the tenth retained word are never examined, so an unknown
-    // word there is not reported and no eleventh text is kept (kq1 2.917
-    // Parse 0x18F4 / kq4 3.002.086 0x1BAD / gr1 3.002.149 0x1B7C).
-    if (words.length >= 10) {
-      tokens.push({ text: input[index++]!, id: undefined, status: "unread" });
-      continue;
-    }
     const { text, id, length } = matchDictionaryPhrase(input, index, dictionary);
     index += length;
     if (id === undefined) {
       // docs/fidelity.md, parser unknown-word audit: the unknown has a zero slot.
       texts.push(text);
       unknownPosition = words.length + 1;
-      words.push(0);
+      if (words.length < 10) words.push(0);
       tokens.push({ text, id, status: "new" });
     } else if (id === 0) tokens.push({ text, id, status: "skipped" });
-    else {
+    else if (words.length < 10) {
       words.push(id);
       texts.push(text);
       tokens.push({ text, id, status: "known" });
-    }
+    } else tokens.push({ text, id, status: "unread" });
   }
   return { words, texts, count: unknownPosition || words.length, unknownPosition, tokens };
 }

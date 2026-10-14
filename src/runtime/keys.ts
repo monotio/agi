@@ -62,15 +62,11 @@ export const NAV_KEY_CODES: Record<number, number> = Object.fromEntries(
 );
 
 /**
- * The keypad/joystick duplicates of the accept/cancel keys: 0x0101/0x0301 are
- * keypad Enter, 0x0201/0x0401 keypad Escape. The original's ButtonToChar runs
- * on every GetKey-consuming path — have.key, the get.string/get.num editors,
- * all modal windows, the inventory selector and the menus — so a keypad press
- * behaves exactly like its main-keyboard twin there; the input-phase line
- * editor is the one key consumer that never normalizes (demopac4 3.002.102
- * ButtonToChar 0x4A78, called inside GetKey 0x49D2).
+ * The keypad duplicates the modal accept/cancel keys: 0x0101/0x0301 are
+ * keypad Enter, 0x0201/0x0401 keypad Escape. Modal drains normalize them so a
+ * keypad press behaves exactly like its main-keyboard twin.
  */
-export function normalizeKeyWord(word: number): number {
+export function normalizeModalKey(word: number): number {
   if (word === 0x0101 || word === 0x0301) return AGI_KEY.ENTER;
   if (word === 0x0201 || word === 0x0401) return AGI_KEY.ESCAPE;
   return word;

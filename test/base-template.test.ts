@@ -983,7 +983,7 @@ describe("base template engine behaviour", () => {
     const { engine, host } = templateEngine();
     tick(engine, 4);
     assert.equal(engine.readState().room, 1);
-    assert.match(engine.textRow(0), /Score:0 of 0 {2}/);
+    assert.match(engine.textRow(0), /Score: 0 of 0/);
     assert.match(engine.textRow(0), /Sound:on/);
     host.keys.push(0x1b); // ESC
     tick(engine, 2);
@@ -1097,7 +1097,7 @@ describe("base template engine behaviour", () => {
     host.keys.push(0x0d); // ENTER -> quit confirmation prompt
     tick(engine);
     assert.equal(engine.modalKind, "print");
-    assert.match(surfaceRows(engine).join("\n"), /Press ENTER to quit\./);
+    assert.match(surfaceRows(engine).join("\n"), /Quit the game\?/);
   });
 
   test("declining the quit confirmation returns to the box still dead", () => {
@@ -1110,7 +1110,7 @@ describe("base template engine behaviour", () => {
     tick(engine, 2);
     host.keys.push(0x33); // '3' -> Quit directly
     tick(engine);
-    assert.match(surfaceRows(engine).join("\n"), /Press ENTER to quit\./);
+    assert.match(surfaceRows(engine).join("\n"), /Quit the game\?/);
     engine.deliverHostAnswer(27); // ESC declines
     tick(engine, 2);
     assert.equal(engine.readState().terminated, false);

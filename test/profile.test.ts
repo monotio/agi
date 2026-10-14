@@ -389,21 +389,19 @@ describe("engine selects behavior by profile field", () => {
   });
 
   test("0xa3/0xa4 fix the input width in 2.936 and do nothing in 3.002.149", () => {
-    // The keystroke cap is min(v24, 40 − strlen(s0) − promptByte) with v24
-    // shipped as 41 (kq1 2.917 editor 0x365A-0x368C; ResetAll 0x108C): with
-    // no prompt marker the edit buffer holds 40 characters, and
-    // open.dialogue caps the fixed width at 36.
+    // The input row is 40 columns; with no prompt marker the edit buffer holds
+    // 39 characters, and open.dialogue caps the fixed width at 36.
     const OPEN = "accept.input();\nopen.dialogue();\nreturn;\n";
     const wide = boot(OPEN, "3.002.149").engine;
     wide.setEditLine("x".repeat(50));
-    assert.equal(wide.inputEdit.length, 40);
+    assert.equal(wide.inputEdit.length, 39);
     const capped = boot(OPEN).engine;
     capped.setEditLine("x".repeat(50));
     assert.equal(capped.inputEdit.length, 36);
     // close.dialogue restores the derived width under 2.936 only.
     const closed = boot("accept.input();\nopen.dialogue();\nclose.dialogue();\nreturn;\n").engine;
     closed.setEditLine("x".repeat(50));
-    assert.equal(closed.inputEdit.length, 40);
+    assert.equal(closed.inputEdit.length, 39);
   });
 
   test("the script key map stops at the profile capacity", () => {

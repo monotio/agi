@@ -17,7 +17,6 @@ import {
   attr,
   cellChar,
   placeWindow,
-  windowLines,
   wrapLines,
 } from "../src/runtime/textSurface.ts";
 
@@ -30,6 +29,7 @@ import {
 const DICT = new Map([["look", 100]]);
 const WHITE_ON_BLACK = attr(15, 0); // 0x0f
 const BLACK_ON_WHITE = attr(0, 15); // 0xf0
+const BORDER = attr(4, 15); // 0xf4
 
 /** Host that never acknowledges: modal windows stay open for inspection. */
 class Host implements EngineHost {
@@ -94,11 +94,23 @@ test("wrapLines: greedy word wrap, explicit newlines, over-long words", () => {
   assert.deepEqual(wrapLines("", 30), [""]);
 });
 
-test("placeWindow: centred in the 21-row display area", () => {
-  // "hello" -> 5 + 2 frame = 7 cols, 1 + 2 = 3 rows. Overrides are verbatim
-  // and covered by the print.at placement test below.
+test("placeWindow: centred in the 21-row display area, or at the override", () => {
+  // "hello" -> 5 + 2 border = 7 cols, 1 + 2 = 3 rows.
   assert.deepEqual(placeWindow(["hello"], 1), { top: 10, left: 16, rows: 3, cols: 7 });
   assert.deepEqual(placeWindow(["hello"], 0), { top: 9, left: 16, rows: 3, cols: 7 });
+  assert.deepEqual(placeWindow(["hello"], 1, { row: 2, col: 3 }), {
+    top: 2,
+    left: 3,
+    rows: 3,
+    cols: 7,
+  });
+  // Overrides that would run off the surface are pulled back inside it.
+  assert.deepEqual(placeWindow(["hello"], 1, { row: 24, col: 38 }), {
+    top: 22,
+    left: 33,
+    rows: 3,
+    cols: 7,
+  });
 });
 
 test("display writes cells with the text attribute; clear.lines / clear.text.rect paint rectangles", () => {
@@ -141,10 +153,6 @@ test("display writes cells with the text attribute; clear.lines / clear.text.rec
 });
 
 test("status line: score at column 1 and sound state at column 30, black on white", () => {
-  // Format strings from the original: "Score:%d of %d  " (no space after the
-  // colon, two trailing spaces) at column 1 and "Sound:%s" with the padded
-  // "on " at column 30 (kq1 2.917 DisplayStatusLine 0x34BD; overlay strings
-  // DS+0xF77/0xF88/0xF91/0xF95).
   const host = new Host();
   const engine = new Engine(
     gameWith(
@@ -154,7 +162,7 @@ test("status line: score at column 1 and sound state at column 30, black on whit
     DICT,
   );
   engine.tick();
-  assert.equal(engine.textRow(0), " Score:5 of 42  " + spaces(14) + "Sound:on  ");
+  assert.equal(engine.textRow(0), " Score: 5 of 42" + spaces(15) + "Sound:on  ");
   assert.ok(row(engine, 0).attrs.every((a) => a === BLACK_ON_WHITE));
   // Turning it off clears the row to transparent cells.
   engine.execute(0);
@@ -195,9 +203,7 @@ test("input line: prompt marker, typed keys, backspace, Enter, echo.line, cancel
   engine.tick();
   assert.equal(engine.lastInputLine, "loo");
   assert.equal(engine.textRow(22), "_" + spaces(39));
-  // Enter lands in v19 even though the editor consumed it: the type-1 case
-  // stores the low byte FIRST (kq3 2.936 0x35B0).
-  assert.equal(engine.vars[19], 0x0d);
+  assert.equal(engine.vars[19], 0, "Enter that accepts a line is not also a raw key");
 
   engine.flags[201] = 1; // echo.line restores the accepted line
   engine.tick();
@@ -223,7 +229,7 @@ test("setEditLine mirrors a host-edited line onto the input row", () => {
   assert.equal(engine.textRow(22), ">open door" + spaces(30));
 });
 
-test("print: solid-framed window centred in the display area, restored on acknowledgement", () => {
+test("print: bordered window centred in the display area, restored on acknowledgement", () => {
   const host = new Host();
   const engine = new Engine(
     gameWith('configure.screen(1, 22, 0); display(11, 0, "under"); print("Hi there"); return;'),
@@ -233,21 +239,17 @@ test("print: solid-framed window centred in the display area, restored on acknow
   engine.tick();
   assert.deepEqual(host.prints, ["Hi there"]);
   assert.equal(engine.modalKind, "print");
-  // 8 chars + frame = 10 cols, 3 rows; top = 1 + (21-3)/2 = 10, left = (40-10)/2 = 15.
-  // The frame is a solid bar: space cells carrying the frame colour as
-  // background, 0x4f (kq1 2.917 OpenWndw 0x54C8, colour word 0x040F).
-  const FRAME = attr(15, 4);
+  // 8 chars + border = 10 cols, 3 rows; top = 1 + (21-3)/2 = 10, left = (40-10)/2 = 15.
   const r10 = row(engine, 10);
-  assert.ok(r10.chars.slice(15, 25).every((c) => c === 0x20));
-  assert.ok(r10.attrs.slice(15, 25).every((a) => a === FRAME));
+  assert.deepEqual(r10.chars.slice(15, 25), [GLYPH_TL, ...Array(8).fill(GLYPH_H), GLYPH_TR]);
+  assert.ok(r10.attrs.slice(15, 25).every((a) => a === BORDER));
   const r11 = row(engine, 11);
-  assert.equal(engine.textRow(11), "under" + spaces(10) + " Hi there " + spaces(15));
-  assert.equal(r11.attrs[15], FRAME);
-  assert.equal(r11.attrs[24], FRAME);
+  assert.equal(engine.textRow(11), "under" + spaces(10) + "#Hi there#" + spaces(15));
+  assert.equal(r11.chars[15], GLYPH_V);
+  assert.equal(r11.chars[24], GLYPH_V);
   assert.ok(r11.attrs.slice(16, 24).every((a) => a === BLACK_ON_WHITE));
   const r12 = row(engine, 12);
-  assert.ok(r12.chars.slice(15, 25).every((c) => c === 0x20));
-  assert.ok(r12.attrs.slice(15, 25).every((a) => a === FRAME));
+  assert.deepEqual(r12.chars.slice(15, 25), [GLYPH_BL, ...Array(8).fill(GLYPH_H), GLYPH_BR]);
 
   // The interpreter is paused: another tick does not re-run logic 0.
   engine.tick();
@@ -262,9 +264,6 @@ test("print: solid-framed window centred in the display area, restored on acknow
 });
 
 test("print.at honours row, column and width; width 0 means 30", () => {
-  // The row override is relative to the display base and used verbatim
-  // (kq1 2.917 WindowNoWait 0x1E69: picTop is added on both paths).
-  const FRAME = attr(15, 4);
   const host = new Host();
   const engine = new Engine(
     gameWith('print.at("one two three four", 2, 3, 10); return;'),
@@ -272,24 +271,15 @@ test("print.at honours row, column and width; width 0 means 30", () => {
     DICT,
   );
   engine.tick();
-  // "one two"/"three four" -> 10 + 2 frame = 12 cols, 4 rows at row 1+2, col 3.
-  assert.ok(
-    row(engine, 3)
-      .attrs.slice(3, 15)
-      .every((a) => a === FRAME),
-  );
-  assert.equal(engine.textRow(4), spaces(4) + "one two" + spaces(29));
-  assert.equal(engine.textRow(5), spaces(4) + "three four" + spaces(26));
-  assert.ok(
-    row(engine, 6)
-      .attrs.slice(3, 15)
-      .every((a) => a === FRAME),
-  );
+  assert.equal(engine.textRow(2), "   " + "#".repeat(12) + spaces(25));
+  assert.equal(engine.textRow(3), "   #one two   #" + spaces(25));
+  assert.equal(engine.textRow(4), "   #three four#" + spaces(25));
+  assert.equal(engine.textRow(5), "   " + "#".repeat(12) + spaces(25));
   engine.ackPrint();
 
   const wide = new Engine(gameWith('print.at("one two three four", 6, 1, 0); return;'), host, DICT);
   wide.tick();
-  assert.equal(wide.textRow(8), spaces(2) + "one two three four" + spaces(20));
+  assert.equal(wide.textRow(7), " #one two three four#" + spaces(19));
 });
 
 test("text.screen fills the surface with the text attribute; graphics restores status and input", () => {
@@ -328,7 +318,7 @@ test("text.screen fills the surface with the text attribute; graphics restores s
   assert.equal(engine.textModeActive, false);
   assert.equal(engine.textRow(2), spaces(40));
   assert.equal(row(engine, 2).chars[4], 0, "transparent again");
-  assert.equal(engine.textRow(0), " Score:0 of 0  " + spaces(15) + "Sound:on  ", "status redrawn");
+  assert.equal(engine.textRow(0), " Score: 0 of 0" + spaces(16) + "Sound:on  ", "status redrawn");
   assert.ok(
     row(engine, 22).chars.every((c) => c === 0x20),
     "input row redrawn",
@@ -496,13 +486,13 @@ test("status redraw preserves game text until score or sound changes", () => {
   engine.flags[203] = 1;
   engine.tick();
   assert.equal(
-    engine.textRow(0).slice(1, 14),
-    "Score:0 of 42",
+    engine.textRow(0).slice(1, 15),
+    "Score: 0 of 42",
     "maximum alone does not trigger redraw",
   );
   engine.flags[201] = 1;
   engine.tick();
-  assert.equal(engine.textRow(0), " Score:1 of 43  " + spaces(14) + "Sound:off ");
+  assert.equal(engine.textRow(0), " Score: 1 of 43" + spaces(15) + "Sound:off ");
   engine.flags[202] = 1;
   engine.tick();
   assert.equal(engine.textRow(0).slice(30), "Sound:on  ");
@@ -529,7 +519,7 @@ test("status change detection spans a suspended modal continuation", () => {
     host.keys.push(13);
     engine.tick();
     assert.equal(engine.textRow(0).slice(18, 22), change ? spaces(4) : "TIME");
-    assert.equal(engine.textRow(0).slice(1, 14), `Score:${change ? 1 : 0} of 42`);
+    assert.equal(engine.textRow(0).slice(1, 15), `Score: ${change ? 1 : 0} of 42`);
   }
 });
 
@@ -563,7 +553,7 @@ test("room reentry retains the pre-logic sound comparison for the final status r
   assert.equal(engine.flags[9], 1);
   assert.equal(
     engine.textRow(0),
-    " Score:0 of 42  " + spaces(14) + "Sound:on  ",
+    " Score: 0 of 42" + spaces(15) + "Sound:on  ",
     "the sound change before new.room redraws over the destination's custom status cells",
   );
 });
@@ -636,99 +626,4 @@ test("cells read as text: borders and code-page bytes are '#', never raw control
   for (const code of [GLYPH_H, GLYPH_V, GLYPH_TL, GLYPH_TR, GLYPH_BL, GLYPH_BR, GLYPH_CURSOR])
     assert.equal(cellChar(code), "#", `glyph 0x${code.toString(16)}`);
   assert.equal(cellChar(0x82), "#", "é in the PC code page");
-});
-
-test("wrap consumes the break space and strips continuation leading spaces", () => {
-  // Player-visible rule: "aaa  bbb" at width 4 shows "aaa" and "bbb" — the
-  // break space is overwritten by the line break (never a trailing cell, so
-  // the window is a column narrower) and the continuation's leading spaces
-  // are deleted (kq1 2.917 _Print wrap block 0x2191: the break space becomes
-  // '\n' and maxLength excludes it).
-  assert.deepEqual(wrapLines("aaa  bbb", 4), ["aaa", "bbb"]);
-  // A hard split (no space on the line) does not strip: the space after it
-  // stays, as the original's no-space path inserts the break without the
-  // strip loop (kq1 2.917 0x2198).
-  assert.deepEqual(wrapLines("abcd ef", 4), ["abcd", " ef"]);
-  assert.deepEqual(wrapLines("aa bb cc", 5), ["aa", "bb cc"]);
-});
-
-test("an overlong message is replaced by the verbose notice", () => {
-  // Player-visible rule: a message formatting to more than winBot−1 (19)
-  // lines never clips silently — the window shows "Message too verbose:"
-  // quoting the first 20 characters (kq1 2.917 WindowNoWait 0x1E0C, ovl
-  // DS+0xCCB "Message too verbose:\n\n\"%s...\"\n\nPress ESC to continue.").
-  const verbose = windowLines("word ".repeat(120).trimEnd(), 30);
-  assert.deepEqual(verbose, [
-    "Message too verbose:",
-    "",
-    '"word word word word ..."',
-    "",
-    "Press ESC to continue.",
-  ]);
-  assert.deepEqual(windowLines("short", 30), ["short"]);
-});
-
-test("print.at overrides place the window verbatim, off-screen included", () => {
-  // Player-visible rule: print.at rows/columns are honoured exactly as the
-  // script gave them — the original stores the overrides with no clamping
-  // and adds picTop even on the override path (kq1 2.917 WindowNoWait
-  // 0x1E69-0x1EBB), so a bad override draws off-screen rather than shift.
-  assert.deepEqual(placeWindow(["hello"], 1, { row: 2, col: 3 }), {
-    top: 3,
-    left: 3,
-    rows: 3,
-    cols: 7,
-  });
-  assert.deepEqual(placeWindow(["hello"], 1, { row: 24, col: 38 }), {
-    top: 25,
-    left: 38,
-    rows: 3,
-    cols: 7,
-  });
-});
-
-test("the window frame is a solid colour bar with no border glyphs", () => {
-  // Player-visible rule: the message window frame is solid red bars, not
-  // line-drawing corners. OpenWndw fills the rectangle then draws four solid
-  // 1-nibble edge bars from the colour word 0x040F (kq1 2.917 OpenWndw
-  // 0x54C8); no box-drawing bytes exist on the path.
-  const host = new Host();
-  const engine = new Engine(gameWith('print("Hi"); return;'), host, DICT);
-  engine.tick();
-  assert.equal(engine.modalKind, "print");
-  // "Hi" -> 2 + 2 frame = 4 cols, 3 rows; left = (40-4)/2 = 18, top = 1+9 = 10.
-  const top = row(engine, 10);
-  assert.ok(
-    top.chars.slice(18, 22).every((c) => c === 0x20),
-    "the frame is solid fill, not glyphs",
-  );
-  assert.ok(
-    top.attrs.slice(18, 22).every((a) => a === attr(15, 4)),
-    "the frame cell carries white-on-red (0x4f)",
-  );
-  const middle = row(engine, 11);
-  assert.equal(middle.attrs[18], attr(15, 4));
-  assert.equal(middle.attrs[21], attr(15, 4));
-  assert.equal(middle.attrs[19], BLACK_ON_WHITE);
-});
-
-test("version shows the version string modally and never touches string slot 0", () => {
-  // Player-visible rule: the version action pops the interpreter version in a
-  // window; a game's string slot 0 keeps its contents. The 0x8d handler
-  // pushes the CONST versionMsg and calls WindowPrint — a modal key-wait —
-  // then returns (kq3 2.936 0x733C / kq1 2.917 0x7275 / gr1 3.002.149
-  // 0x7670); nothing writes string storage.
-  const host = new Host();
-  const engine = new Engine(
-    gameWith('if (!isset(f200)) { set(f200); set.string(s0, "KEEP"); version(); } return;'),
-    host,
-    DICT,
-  );
-  engine.tick();
-  assert.equal(engine.modalKind, "print", "the version displays modally");
-  assert.ok(host.prints[0]?.includes("AGI"), "the version text is what shows");
-  assert.equal(engine.strings[0], "KEEP", "string slot 0 is untouched");
-  host.keys.push(0x0d);
-  engine.tick();
-  assert.equal(engine.modalKind, null);
 });

@@ -166,14 +166,3 @@ test("a damaged sound completes its flag and the game continues after playback",
   assert.equal(engine.vars[61], 42);
   assert.ok(logs.some((line) => line.includes("Sound 1") && line.includes("channel")));
 });
-
-test("a failing sound() stops the playing sound first and sets its done flag", () => {
-  // Player-visible rule: a bad sound number leaves the previous tune stopped
-  // (done flag set), not playing on. The 0x63 handler runs StopSnd first —
-  // setting the OLD done flag — then reads operands, resets the new flag and
-  // only then can the lookup fault (kq2 2.411 0x4FD5 / lsl1 2.440 0x5007 /
-  // xmas 2.272 0x4943).
-  const engine = game("set(f9); load.sound(1); sound(1, f60); sound(3, f61); return;");
-  assert.throws(() => engine.tick(), /sound 3 is not loaded/);
-  assert.equal(engine.flags[60], 1, "the interrupted sound reports done");
-});

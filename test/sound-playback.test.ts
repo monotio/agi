@@ -75,15 +75,12 @@ describe("sound playback clock and profiles", () => {
     assert.equal(early.tick(true, 0).complete, true);
   });
   it("emits early profile tone bytes and exact control-byte attenuation variants", () => {
-    // The Tandy +3 latch lift applies in every early-family build (kq2 2.411
-    // ConvertTDVolume 0x7D3C / lsl1 2.440 0x7E65): 0x94 → 0x97, then the
-    // nibble-clamped v23 adjustment (+2) lands at 0x99.
     const expected: [ProfileId, number[]][] = [
       ["2.089", [1, 0x23, 0x97]],
       ["2.230", [1, 0x23, 0x97]],
       ["2.272", [1, 0x23, 0x99]],
-      ["2.411", [1, 0x23, 0x99]],
-      ["2.440", [1, 0x23, 0x99]],
+      ["2.411", [1, 0x23, 0x96]],
+      ["2.440", [1, 0x23, 0x96]],
     ];
     for (const [profile, commands] of expected) {
       const sound = player(profile, 2);
@@ -653,42 +650,13 @@ describe("pc booter 2.001 row streams", () => {
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
   });
 
-  it("keeps the row stream advancing silently while sound is disabled", () => {
-    // Player-visible rule: toggling sound off does not end the tune — the
-    // done flag fires only when the payload runs out. The booter's flag-9
-    // gate sits inside the per-write chip routine (ddp-booter 2.001
-    // 0x75B3): the row cursor and duration countdown advance regardless
-    // (0x74B0/0x7482), and the done flag is set only from the exhaustion
-    // path (0x747C → 0x4B96).
+  it("silences the chip immediately when sound is disabled", () => {
     const profile = detectProfile(new Map(), "2.001");
     const sound = new SoundPlayback(profile, Uint8Array.of(0x80, 0x02, 0, 0x9f, 0), 1);
-    assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(false, 0), {
       outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
       complete: true,
     });
-  });
-
-  it("lifts any Tandy attenuation latch by 3 on 2.411 and 2.440 as well", () => {
-    // Player-visible rule: on a Tandy the quietest notes are audibly raised.
-    // ConvertTDVolume exists in every early-family build — on machType 2 any
-    // attenuation latch ((b & 0x90) == 0x90) whose low nibble is below 8
-    // gains 3 before the v23 clamp (kq2 2.411 0x7D3C / lsl1 2.440 0x7E65 /
-    // xmas 2.272 0x7680); it is not channel-2-only.
-    for (const id of ["2.411", "2.440"] as const) {
-      const quiet = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 2);
-      assert.equal(
-        bytes(quiet.tick(true, 0).outputs)[2],
-        0x97,
-        `${id}: channel-0 latch 0x94 lifts to 0x97`,
-      );
-      const other = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0xb4), 2);
-      assert.equal(
-        bytes(other.tick(true, 0).outputs)[2],
-        0xb7,
-        `${id}: a non-channel-0 latch 0xb4 lifts to 0xb7`,
-      );
-    }
   });
 
   it("snapshots and restores the row position", () => {

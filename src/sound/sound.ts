@@ -689,10 +689,7 @@ export class SoundPlayback {
 
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {
     if (!this.active) return { outputs: [], complete: true };
-    // The booter's flag-9 gate sits inside its per-write chip routine
-    // (ddp-booter 2.001 0x75B3): with f9 clear the row cursor and countdown
-    // still advance and the done flag fires only at payload exhaustion.
-    if (!enabled && this.rows === null) return { outputs: this.stop(), complete: true };
+    if (!enabled) return { outputs: this.stop(), complete: true };
     // The IIgs fade watchdog runs before the per-family stream work in the
     // original's heartbeat: pace zero completes the armed sound immediately;
     // each pace expiry checks the stepped budget before decrementing it, so
@@ -714,7 +711,7 @@ export class SoundPlayback {
       if (!channel.terminated) {
         const row = this.rows[channel.cursor++];
         if (row === undefined || channel.cursor >= this.rows.length) channel.terminated = true;
-        if (row !== undefined && row.length > 0 && enabled)
+        if (row !== undefined && row.length > 0)
           outputs.push({
             kind: "psg",
             bytes: row,
@@ -874,20 +871,13 @@ export class SoundPlayback {
         }
         if (this.profile.sound !== "common") {
           let control = note.control;
-          // ConvertTDVolume on machType 2 (Tandy): any attenuation latch —
-          // (b & 0x90) == 0x90 covers every channel's selector, not just
-          // channel 2 — whose low nibble is below 8 gains 3 before the v23
-          // clamp. Present in all four probed early builds (xmas 2.272
-          // 0x7680 / kq2 2.411 0x7D3C / lsl1 2.440 0x7E65 / sq1 2.089
-          // 0x7657).
-          if (this.device === 2 && (control & 0x90) === 0x90 && (control & 15) < 8)
-            control = (control & 0xf0) | ((control & 15) + 3);
-          if (this.profile.sound === "early-2.272") {
-            control = (control + adjustment) & 255;
-            if (control < 128 && control > 15) control = 15;
-          } else if (this.profile.sound === "early-2.411" || this.profile.sound === "early-2.440") {
-            control = (control & 0xf0) | Math.min(15, (control & 15) + adjustment);
-          }
+          if (this.profile.sound === "early-2.089" || this.profile.sound === "early-2.272") {
+            if (this.device === 2 && (control & 15) < 8) control += 3;
+            if (this.profile.sound === "early-2.272") {
+              control = (control + adjustment) & 255;
+              if (control < 128 && control > 15) control = 15;
+            }
+          } else control = (control & 0xf0) | Math.min(15, (control & 15) + adjustment);
           outputs.push({ kind: "psg", bytes: [control] });
           continue;
         }
