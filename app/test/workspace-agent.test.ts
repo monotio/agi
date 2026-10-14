@@ -3706,3 +3706,73 @@ test("Only the creator edits existing tests: Auto-approve reviews a changed orig
     session.dispose();
   }
 });
+
+for (const outcome of ["named red", "unnamed red", "green"] as const)
+  test(`Agent handover checks the base even with no edits: ${outcome}`, async () => {
+    const { session } = fixture();
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "logic:1", content: scoreRoom(0) },
+        { key: "view:0", content: DOT_EGO },
+        {
+          key: "tests",
+          content: JSON.stringify({
+            format: "monotio.agi.tests.v2",
+            tests: [
+              {
+                name: "Score test",
+                room: 1,
+                steps: [],
+                expect: { score: outcome === "green" ? 0 : 5 },
+              },
+            ],
+          }),
+        },
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const cursor = session.history.capture().cursor;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return {
+            text: outcome === "named red" ? "Score test needs the score implementation." : "Done",
+            toolCalls: [],
+          };
+        },
+        async complete() {
+          throw new Error("No provider follow-up needed");
+        },
+      }),
+    });
+    try {
+      await agent.send("Finish without edits");
+      assert.equal(session.history.capture().cursor, cursor);
+      assert.equal(agent.pending(), null);
+      if (outcome === "unnamed red") {
+        assert.match(agent.error ?? "", /Not finished: "Score test" fail/);
+        assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Score test" fail/);
+      } else {
+        assert.equal(agent.error ?? "", "");
+        assert.match(
+          agent.current().messages.at(-1)!.text,
+          outcome === "green" ? /^All 1 tests pass\./ : /^1 tests fail: Score test/,
+        );
+      }
+    } finally {
+      session.dispose();
+    }
+  });

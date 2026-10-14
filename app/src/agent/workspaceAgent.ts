@@ -1414,11 +1414,7 @@ export function createWorkspaceAgent(options: Options) {
           }
         }
         let handoverRejected = false;
-        if (
-          !readOnly &&
-          !handedOver &&
-          (driver.pending() || staged || prepared.size || notes !== undefined)
-        ) {
+        if (!readOnly && !handedOver) {
           let verdict: AgentToolResult;
           try {
             verdict = validateAgentHandover(handoverState(), turn.text ?? "");
