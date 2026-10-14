@@ -41,7 +41,7 @@ import { TraceWindow } from "./trace.ts";
 import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
 import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
-import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
+import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeKeyWord } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
 import {
@@ -94,7 +94,7 @@ import {
   attr,
   drawWindow,
   placeWindow,
-  wrapLines,
+  windowLines,
   type SavedRect,
 } from "./textSurface.ts";
 import type {
@@ -218,7 +218,7 @@ export interface EngineHost {
   restoreGame?(slot?: number): Uint8Array | null;
   /** log / show.mem: diagnostic text sink (LOGFILE semantics). */
   logText?(text: string): void;
-  /** version: interpreter name/version, stored into string slot 0. */
+  /** version: interpreter name/version, displayed modally. */
   versionString?(): string;
   /** Notification that a resource started; soundOutput owns its timed output. */
   playSound?(soundNum: number, payload: Uint8Array): void;
@@ -355,13 +355,14 @@ const CLOCK_WAIT_JUMPS = 1000;
  */
 const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
 /**
- * Replay-pair capacity of a game that never calls script.size. The
- * interpreters always hold a configured capacity (the save layout has no
- * unconfigured state) and the spec's 2.230 XMAS data carries 200 pairs; the
- * shipped default itself is undocumented, so 200 stands until the binaries
- * settle it. A game's own script.size replaces it.
+ * Replay-pair capacity of a game that never calls script.size. The shipped
+ * interpreter data image holds SCRIPTSIZE = 0x0032 (50 pairs) at DS+0x141 in
+ * every probed build (kq3 2.936 / kq1 2.917 / gr1 3.002.149 AGIDATA.OVL
+ * 0x141); the 200-pair image in the spec's 2.230 XMAS data is a game-side
+ * script.size call, not the interpreter default. A game's own script.size
+ * replaces it.
  */
-const DEFAULT_REPLAY_CAPACITY = 200;
+const DEFAULT_REPLAY_CAPACITY = 50;
 /** Pairs the host-only shadow record keeps for autosaves of a blocked script buffer. */
 const HOST_REPLAY_LIMIT = 4096;
 /** Hash basis for a frame whose logic resource is absent from the container. */
@@ -698,7 +699,11 @@ export class Engine {
   private menuFinalized = false;
   private menuHeading = 0;
   private menuRequested = false;
-  private menuInteractionGate = 0;
+  // The menu-interaction gate (action 0xb1) is a word that ships 1 in the
+  // data image and is never re-initialized — not even by restart, whose
+  // ResetAll clears only vars/flags/controllers/object records (mh1
+  // 3.002.107 ovl DS+0x5E3 = 01 00; gr1 3.002.149 ovl DS+0x403 = 01 00).
+  private menuInteractionGate = 1;
   private blockRect: { left: number; top: number; right: number; bottom: number } | null = null;
   private textMode = false;
   private inputPrompt = "";
@@ -2326,7 +2331,9 @@ export class Engine {
   private drainDialogKey(): number | undefined {
     for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) return event.value;
+      // The selector's wait runs GetKey too, so keypad Enter/Escape words
+      // normalize here (demopac4 3.002.102 call site 0x36A7).
+      if (event.type === 1) return normalizeKeyWord(event.value);
       if (event.type === 2 && event.value !== 0) {
         const navigationKey = NAV_KEY_CODES[event.value];
         if (navigationKey !== undefined) return navigationKey;
@@ -2571,7 +2578,13 @@ export class Engine {
   }
 
   private inputCapacity(): number {
-    return Math.min(this.inputWidthCap ?? TEXT_COLS - 1, TEXT_COLS - 1 - this.inputPrompt.length);
+    // A character is accepted only while editLen < min(var[24], 40 −
+    // strlen(s0) − (promptByte ≠ 0)); the open.dialogue mode substitutes 36
+    // for 40 (kq1 2.917 editor 0x365A-0x368C). Excess keys are silently
+    // rejected.
+    const base =
+      (this.inputWidthCap ?? TEXT_COLS) - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
+    return Math.max(0, Math.min(this.vars[24]!, base));
   }
 
   private textAttr(): number {
@@ -2594,10 +2607,11 @@ export class Engine {
     const a = attr(0, 15);
     this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
     this.text.write(this.statusRow, 1, this.statusText(), a);
+    // "Sound:%s" with the space-padded "on " (kq1 2.917 ovl DS+0xF88/0xF91).
     this.text.write(
       this.statusRow,
       30,
-      `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`,
+      `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`,
       a,
     );
     this.statusRefreshRequested = false;
@@ -2607,7 +2621,9 @@ export class Engine {
   private statusText(): string {
     // Supplemental variable contract: AGI specs §3.3 identifies v7 as maximum score.
     // https://www.agidev.com/articles/agispec/agispecs-3.html
-    return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
+    // Format "Score:%d of %d  " — no space after the colon, two trailing
+    // spaces (kq1 2.917 DisplayStatusLine 0x34BD, ovl DS+0xF77).
+    return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
   }
 
   /** Input row: prompt marker, then the edit buffer (spec "Text geometry"). */
@@ -2635,7 +2651,10 @@ export class Engine {
    */
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) return event.value;
+      // GetKey normalizes the keypad Enter/Escape words on every consumer of
+      // this path (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey
+      // 0x49D2, which have.key 0x0C13 drains).
+      if (event.type === 1) return normalizeKeyWord(event.value);
     }
     return undefined;
   }
@@ -2647,6 +2666,11 @@ export class Engine {
       return;
     }
     const byte = key & 0xff;
+    // v19 receives the low byte of every type-1 event FIRST — before the
+    // input-acceptance gate and before the line editor consumes Enter,
+    // Backspace or printable bytes (kq3 2.936 0x35B0; demopac4 3.002.102
+    // 0x3963; gr1 3.002.149 0x38FB).
+    this.vars[V_KEY] = byte;
     if (this.inputAccepted && !this.textMode) {
       if (byte === AGI_KEY.ENTER && this.editLine.length > 0) {
         this.acceptLine(this.editLine);
@@ -2663,7 +2687,6 @@ export class Engine {
         return;
       }
     }
-    this.vars[V_KEY] = byte;
   }
 
   // ---------- modal windows ----------
@@ -2677,7 +2700,7 @@ export class Engine {
     }
     const m = this.modal;
     if (!m) return;
-    key = normalizeModalKey(key);
+    key = normalizeKeyWord(key);
     const nav = NAV_KEYS[key];
     if (nav !== undefined) {
       this.modalNavigate(nav);
@@ -2688,12 +2711,17 @@ export class Engine {
       case "print":
       case "showObj":
       case "showPri":
-        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || byte === AGI_KEY.SPACE)
-          this.closeModal();
+        // ChkAcAb accepts CR (1) or ESC (0) only; every other key keeps
+        // waiting — Space is not an acknowledgement key (demopac4 3.002.102
+        // 0x4A34 / kq3 2.936 0x45F0).
+        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE) this.closeModal();
         return;
       case "inventory":
         if (!m.interactive) {
-          if (byte !== 0) this.closeModal();
+          // The acknowledgement-only list ends on a bare WaitEvent: ANY event
+          // dismisses it, including zero-low-byte extended words (demopac4
+          // 3.002.102 0x3696 / kq3 2.936 0x32E9).
+          this.closeModal();
           return;
         }
         if (byte === AGI_KEY.ENTER) {
@@ -2724,6 +2752,12 @@ export class Engine {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     const m = this.modal;
     if (!m) return;
+    // The non-interactive inventory's bare WaitEvent ends on ANY event,
+    // navigation included (demopac4 3.002.102 0x3696).
+    if (m.kind === "inventory" && !m.interactive) {
+      this.closeModal();
+      return;
+    }
     if (m.kind === "inventory" && m.interactive && m.items.length > 0) {
       const n = m.items.length;
       if (value === 1 || value === 7) m.selected = (m.selected - 1 + n) % n;
@@ -2763,7 +2797,10 @@ export class Engine {
   ): void {
     this.closeWindowOnTop();
     const width = place?.width ? place.width : 30;
-    const lines = wrapLines(text, width);
+    // windowLines applies the overlong-message recovery: more than 19
+    // formatted lines substitutes "Message too verbose:" quoting the first
+    // 20 characters (kq1 2.917 0x1E0C / kq3 2.936).
+    const lines = windowLines(text, width);
     const box = placeWindow(lines, this.displayBaseRow, place);
     const saved = this.text.save(
       box.top,
@@ -2808,8 +2845,8 @@ export class Engine {
     }
     // The description goes through the same message box as print, so %v, %s
     // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
-    const lines = wrapLines(this.expandMessage(view.description ?? ""), 30);
-    const box = placeWindow(lines, this.displayBaseRow, { row: this.displayBaseRow + 1 });
+    const lines = windowLines(this.expandMessage(view.description ?? ""), 30);
+    const box = placeWindow(lines, this.displayBaseRow, { row: 1 });
     const saved = this.text.save(
       box.top,
       box.left,
@@ -2834,7 +2871,12 @@ export class Engine {
    */
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
     this.emitPrint(
-      `${action === "restart" ? "Restart" : "Quit"} the game?\nENTER: yes   ESC: continue`,
+      action === "restart"
+        ? // Identical bytes in kq3 2.936 (ovl DS+0x0ADB), mh1 3.002.107 and
+          // gr1 3.002.149.
+          "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
+        : // kq3 2.936 ovl DS+0x5E3; same in mh1 and gr1.
+          "Press ENTER to quit.\nPress ESC to keep playing.",
       undefined,
       true,
     );
@@ -3770,9 +3812,12 @@ export class Engine {
     this.editLine = "";
     this.acceptedLine = "";
     this.controllers.fill(0);
-    this.vars[V_KEY] = 0;
-    this.flags[F_INPUT_READY] = 0;
-    this.flags[F_SAID_MATCHED] = 0;
+    // The restore tail clears controllers explicitly and rewrites the machine
+    // vars from the probe, then sets f12; f2/f4 die at the next cycle top and
+    // v19 is never written (kq3 2.936 0x2647-0x2693 / gr1 3.002.149 0x28C7 /
+    // mh1 3.002.107 0x2928).
+    this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+    this.vars[26] = 3;
 
     // 2. Reset transient caches and replay the saved sequence.
     this.replaySequence(s.logicResume, sequence, screen !== null);
@@ -4313,6 +4358,12 @@ export class Engine {
       while (this.modal) {
         const event = this.inputQueue.dequeue();
         if (!event) break;
+        if (this.modal.kind === "inventory" && !this.modal.interactive) {
+          // WaitEvent: any queued event dismisses the acknowledgement-only
+          // list, controllers included (demopac4 3.002.102 0x3696).
+          this.closeModal();
+          continue;
+        }
         if (event.type === 2) this.modalNavigate(event.value);
         else if (event.type === 1) this.modalKey(event.value);
       }
@@ -4379,8 +4430,16 @@ export class Engine {
       if (line !== null && this.inputAccepted) this.acceptLine(line);
       let menuOpened = false;
       if (this.menuRequested) {
-        this.menuRequested = false;
-        menuOpened = this.openMenu();
+        // The v3 gate is tested at the head of DoMenu, and the gated exit
+        // leaves the request word set: a gated request pends until allow.menu
+        // re-enables it (mh1 3.002.107 0x9895-0x989C; the request's only clear
+        // is the menu-close path 0x993F).
+        if (this.profile.menuInteractionGate && this.menuInteractionGate === 0) {
+          menuOpened = false;
+        } else {
+          this.menuRequested = false;
+          menuOpened = this.openMenu();
+        }
       }
       // An opened menu abandons the rest of this pass, so a stop here owes no
       // phase remainder — the modal wait keeps the pass parked, and the next
@@ -4391,6 +4450,11 @@ export class Engine {
     }
 
     if (stage === "pre-logic") {
+      // The ego↔v6 direction mirror runs before the autonomous-direction and
+      // block pass: under program control v6 := ego.dir, else ego.dir := v6
+      // (kq3 2.936 main cycle 0x17B-0x195, dispatcher call at 0x198).
+      if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
+      else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
       // Autonomous direction and rectangle transitions are visible to this
       // cycle's logic; they do not move the objects yet.
       for (const obj of this.objects) {
@@ -4411,8 +4475,6 @@ export class Engine {
           }
         }
       }
-      if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
-      else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
       this.cycleStatusScore = this.vars[V_SCORE]!;
       this.cycleStatusSound = this.flags[F_SOUND_ENABLED]!;
       if (this.observePhase("pre-logic", { phase: "logic" })) return;
@@ -6424,15 +6486,40 @@ export class Engine {
       }
       // position and position.v write the coordinates and their saved pair;
       // the originals leave the newly-positioned bit to the reposition family
-      // (docs/fidelity.md, "Original position handlers").
+      // (docs/fidelity.md, "Original position handlers"). 2.089 alone stores
+      // first, erases the drawn cel, and only then snapshots the saved pair
+      // (sq1 2.089 Position 0x7141; 2.230/2.272 are store-together, xmas
+      // 0x70FA/0x7196).
       case 0x25: {
         const o = obj(0);
+        if (this.profile.positionActionOrder === "erase-then-store") {
+          o.x = a(1);
+          o.y = a(2);
+          if (o.active) {
+            this.restoreBehind(o);
+            this.presentationDirty = true;
+          }
+          o.prevX = o.x;
+          o.prevY = o.y;
+          return next;
+        }
         o.x = o.prevX = a(1);
         o.y = o.prevY = a(2);
         return next;
       }
       case 0x26: {
         const o = obj(0);
+        if (this.profile.positionActionOrder === "erase-then-store") {
+          o.x = this.vars[a(1)]!;
+          o.y = this.vars[a(2)]!;
+          if (o.active) {
+            this.restoreBehind(o);
+            this.presentationDirty = true;
+          }
+          o.prevX = o.x;
+          o.prevY = o.y;
+          return next;
+        }
         o.x = o.prevX = this.vars[a(1)]!;
         o.y = o.prevY = this.vars[a(2)]!;
         return next;
@@ -6821,9 +6908,14 @@ export class Engine {
         return next;
       }
       case 0x63: {
+        // StopSnd runs FIRST — setting the interrupted sound's done flag —
+        // then the operands are read, the new done flag resets, and only then
+        // can the lookup fault (kq2 2.411 0x4FD5 / lsl1 2.440 0x5007 / xmas
+        // 2.272 0x4943).
+        this.stopSound();
+        this.flags[a(1)] = 0;
         const soundData = this.sounds.get(a(0));
         if (!soundData) throw new Error(`sound ${a(0)} is not loaded`);
-        this.stopSound();
         this.soundPlayback = new SoundPlayback(
           this.profile,
           soundData,
@@ -6832,7 +6924,6 @@ export class Engine {
         );
         this.playingSound = a(0);
         this.soundDoneFlag = a(1);
-        this.flags[a(1)] = 0;
         this.host.playSound?.(a(0), soundData);
         return next;
       }
@@ -6992,9 +7083,13 @@ export class Engine {
       case 0x8c:
         return next;
       case 0x8d: {
-        this.strings[0] = (this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0").slice(
-          0,
-          39,
+        // version: the handler pushes the CONST version string and calls
+        // WindowPrint — a modal window, never a write to string slot 0
+        // (kq3 2.936 0x733C / kq1 2.917 0x7275 / gr1 3.002.149 0x7670).
+        this.emitPrint(
+          this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0",
+          undefined,
+          true,
         );
         return next;
       }
@@ -7109,9 +7204,19 @@ export class Engine {
         }
         this.confirmSessionAction("quit", next);
         return next;
-      case 0x8e:
+      case 0x8e: {
+        // script.size stores the capacity, then resets the recorded pair
+        // sequence and refreshes the object update lists: RestoreAll +
+        // InitScript (scriptTop := script, SCRIPTENTRIES := 0) + AllInBack
+        // (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149
+        // 0x74E8).
         this.scriptCapacity = a(0);
+        this.replay.length = 0;
+        this.replayCheckpoint = 0;
+        for (const o of this.objects) if (o.active) this.restoreBehind(o);
+        for (const o of this.objects) if (o.active) this.stampDraw(o);
         return next;
+      }
 
       // menus
       // Menu construction exists only in the "full" profiles: 2.272 parses the
@@ -7142,11 +7247,14 @@ export class Engine {
         // menu.input: the v3 profiles add a separate menu-interaction gate set
         // by action 0xb1 (profile.menuInteractionGate); the v2 profiles gate on
         // f14 alone. On Amiga the slot is the stub routine (menuInputAction).
+        // The request itself tests f14 only; the gate is consulted at menu-open
+        // time with the request still pending (mh1 3.002.107 menu.input 0x9859
+        // tests IsSet(14) then sets the request word; the gate test sits at the
+        // DoMenu head 0x9895).
         if (
           this.profile.menuInputAction === "effect" &&
           this.profile.menuActions === "full" &&
-          this.flags[F_MENU_ENABLED] !== 0 &&
-          (!this.profile.menuInteractionGate || this.menuInteractionGate !== 0)
+          this.flags[F_MENU_ENABLED] !== 0
         ) {
           this.menuRequested = true;
         }
@@ -7578,7 +7686,6 @@ export class Engine {
     this.menuFinalized = false;
     this.menuHeading = 0;
     this.menuRequested = false;
-    this.menuInteractionGate = 0;
     this.pendingController = null;
     this.parsedWords = [];
     this.parsedWordTexts = [];
@@ -7593,7 +7700,10 @@ export class Engine {
     this.textMode = false;
     this.statusEnabled = false;
     this.statusRefreshRequested = false;
-    this.inputAccepted = false;
+    // Input acceptance survives: ResetAll clears only vars/flags/controllers/
+    // object records (kq3 2.936 0x0FA5), and the accepted prompt path redraws
+    // the marker unconditionally. The edit line itself was cancelled by the
+    // prompt (gr1 3.002.149 restart 0x26E0: CancelLine … WriteCur).
     this.editLine = "";
     this.acceptedLine = "";
     this.blockRect = null;

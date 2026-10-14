@@ -364,3 +364,91 @@ describe("have.key blocking wait", () => {
     assert.equal(engine.vars[100], 1);
   });
 });
+
+test("the parser stops examining the line after the tenth retained word", () => {
+  // Player-visible rule: an eleventh word is never looked at — an unknown
+  // token past the cap is not reported (v9 stays 0) and no eleventh word
+  // text exists. The word loop tests i >= 10 BEFORE each Match call and
+  // exits silently (kq1 2.917 Parse 0x18F4 / kq4 3.002.086 0x1BAD / gr1
+  // 3.002.149 0x1B7C); WORDS/WORDPTR are 10-slot arrays zeroed at entry.
+  const words = Array.from({ length: 11 }, (_, i) => [`w${i}`, i + 1] as [string, number]);
+  const dict = new Map<string, number>(words);
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: dict }).payload);
+  const host = new Host();
+  const engine = new Engine(container, host, dict);
+  engine.tick();
+  host.line = words.map(([w]) => w).join(" ") + " zzz";
+  engine.tick();
+  assert.equal(engine.vars[9], 0, "the twelfth token is never examined");
+  assert.equal(engine.parserCount, 10);
+  assert.equal(engine.flags[2], 1, "the capped line still counts as input");
+});
+
+test("the command line holds min(v24, 40 − strlen(s0) − prompt) characters", () => {
+  // Player-visible rule: keystrokes past the cap are silently rejected; the
+  // cap is min(var[24], 40 − strlen(string0) − (prompt ? 1 : 0)) with v24
+  // shipped as 41 — so 40 characters with no prompt, 39 with a one-character
+  // prompt (kq1 2.917 editor 0x365A-0x368C; ResetAll 0x108C sets v24 = 41).
+  const type = (engine: Engine, host: Host, n: number) => {
+    // Nineteen events fit a cycle's queue; the edit buffer persists.
+    for (let left = n; left > 0; left -= 19) {
+      host.keys.push(...Array<number>(Math.min(19, left)).fill(0x61));
+      engine.tick();
+    }
+  };
+  {
+    const host = new Host();
+    const engine = new Engine(
+      (() => {
+        const c = createContainer();
+        c.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: DICT }).payload);
+        return c;
+      })(),
+      host,
+      DICT,
+    );
+    engine.tick();
+    type(engine, host, 45);
+    assert.equal(engine.inputEdit.length, 40, "no prompt: 40 columns");
+  }
+  {
+    const host = new Host();
+    const engine = new Engine(
+      (() => {
+        const c = createContainer();
+        c.putResource(
+          "logic",
+          0,
+          assembleLogic('set.cursor.char(">"); accept.input(); return;', { dictionary: DICT })
+            .payload,
+        );
+        return c;
+      })(),
+      host,
+      DICT,
+    );
+    engine.tick();
+    type(engine, host, 45);
+    assert.equal(engine.inputEdit.length, 39, "a one-character prompt leaves 39");
+  }
+  {
+    const host = new Host();
+    const engine = new Engine(
+      (() => {
+        const c = createContainer();
+        c.putResource(
+          "logic",
+          0,
+          assembleLogic("assignn(v24, 10); accept.input(); return;", { dictionary: DICT }).payload,
+        );
+        return c;
+      })(),
+      host,
+      DICT,
+    );
+    engine.tick();
+    type(engine, host, 45);
+    assert.equal(engine.inputEdit.length, 10, "v24 lowers the cap");
+  }
+});

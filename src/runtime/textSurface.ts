@@ -201,36 +201,54 @@ export class TextSurface {
 }
 
 /**
- * Greedy word wrap for modal windows. Explicit newlines start a new line;
- * words longer than the width are split at the width.
+ * Greedy word wrap for modal windows, as the original's _Print does it (kq1
+ * 2.917 / kq3 2.936, wrap block 0x2191): explicit newlines start a new line;
+ * when a line is full the LAST space on it is consumed — overwritten by the
+ * break and excluded from the line's width — and every space that would lead
+ * the continuation line is dropped; a line with no space is hard-split at
+ * exactly the width.
  */
 export function wrapLines(text: string, width: number): string[] {
   const out: string[] = [];
   for (const paragraph of text.split("\n")) {
-    const words = paragraph.split(" ");
     let line = "";
-    for (const word of words) {
-      let w = word;
-      while (w.length > width) {
-        if (line.length > 0) {
-          out.push(line);
-          line = "";
+    let stripContinuationSpaces = false;
+    for (let i = 0; i < paragraph.length; i++) {
+      if (line.length >= width) {
+        const space = line.lastIndexOf(" ");
+        if (space >= 0) {
+          out.push(line.slice(0, space));
+          // The break space is consumed; the tail after it holds no spaces.
+          line = line.slice(space + 1);
+          stripContinuationSpaces = true;
+        } else {
+          out.push(line.slice(0, width));
+          line = line.slice(width);
+          stripContinuationSpaces = false;
         }
-        out.push(w.slice(0, width));
-        w = w.slice(width);
       }
-      if (line.length === 0) {
-        line = w;
-      } else if (line.length + 1 + w.length <= width) {
-        line += " " + w;
-      } else {
-        out.push(line);
-        line = w;
-      }
+      const ch = paragraph[i]!;
+      if (stripContinuationSpaces && line.length === 0 && ch === " ") continue;
+      line += ch;
     }
     out.push(line);
   }
   return out;
+}
+
+/**
+ * Window text with the original's overlong-content recovery (kq1 2.917
+ * 0x1E0C / kq3 2.936): a message formatting to more than winBot−1 (19) lines
+ * is REPLACED by the verbose notice quoting its first 20 characters, then
+ * re-formatted — the window never silently clips.
+ */
+export function windowLines(text: string, width: number): string[] {
+  const lines = wrapLines(text, width);
+  if (lines.length <= 19) return lines;
+  return wrapLines(
+    `Message too verbose:\n\n"${text.slice(0, 20)}..."\n\nPress ESC to continue.`,
+    width,
+  );
 }
 
 export interface WindowBox {
@@ -244,7 +262,10 @@ export interface WindowBox {
 /**
  * Place a bordered window around `lines`. Without overrides the window is
  * centred vertically in the 21-row display area starting at `displayBase`
- * and horizontally across the 40 columns (spec "Modal text").
+ * and horizontally across the 40 columns (spec "Modal text"). print.at
+ * overrides are used VERBATIM — the row relative to the display base — with
+ * no clamping into the screen (kq1 2.917 WindowNoWait 0x1E69: the override
+ * loads feed the window math unchecked, and picTop is added on both paths).
  */
 export function placeWindow(
   lines: readonly string[],
@@ -254,16 +275,19 @@ export function placeWindow(
   const textWidth = lines.reduce((m, l) => Math.max(m, l.length), 0);
   const cols = Math.min(TEXT_COLS, textWidth + 2);
   const rows = Math.min(TEXT_ROWS, lines.length + 2);
-  let top = override?.row ?? displayBase + Math.floor((21 - rows) / 2);
-  let left = override?.col ?? Math.floor((TEXT_COLS - cols) / 2);
-  if (top + rows > TEXT_ROWS) top = TEXT_ROWS - rows;
-  if (left + cols > TEXT_COLS) left = TEXT_COLS - cols;
-  if (top < 0) top = 0;
-  if (left < 0) left = 0;
+  const top = displayBase + (override?.row ?? Math.floor((21 - rows) / 2));
+  const left = override?.col ?? Math.floor((TEXT_COLS - cols) / 2);
   return { top, left, rows, cols };
 }
 
-/** Draw a bordered window with its text; returns nothing, caller saved the rect. */
+/**
+ * Draw a window with its text; returns nothing, caller saved the rect. The
+ * frame is a solid colour bar on each edge — the original's OpenWndw fill
+ * plus four 1-nibble edge bars, with no corner or edge glyphs (kq1 2.917
+ * 0x54C8: five DrawWndw calls on the 0x040F colour word — white fill, red
+ * frame). On a character-cell surface a solid bar is a space cell whose
+ * background carries the frame colour.
+ */
 export function drawWindow(
   surface: TextSurface,
   box: WindowBox,
@@ -273,19 +297,8 @@ export function drawWindow(
 ): void {
   const bottom = box.top + box.rows - 1;
   const right = box.left + box.cols - 1;
-  surface.fill(box.top, box.left, bottom, right, 0x20, textAttr);
-  for (let c = box.left + 1; c < right; c++) {
-    surface.put(box.top, c, GLYPH_H, borderAttr);
-    surface.put(bottom, c, GLYPH_H, borderAttr);
-  }
-  for (let r = box.top + 1; r < bottom; r++) {
-    surface.put(r, box.left, GLYPH_V, borderAttr);
-    surface.put(r, right, GLYPH_V, borderAttr);
-  }
-  surface.put(box.top, box.left, GLYPH_TL, borderAttr);
-  surface.put(box.top, right, GLYPH_TR, borderAttr);
-  surface.put(bottom, box.left, GLYPH_BL, borderAttr);
-  surface.put(bottom, right, GLYPH_BR, borderAttr);
+  surface.fill(box.top, box.left, bottom, right, 0x20, attr(0x0f, borderAttr & 0x0f));
+  surface.fill(box.top + 1, box.left + 1, bottom - 1, right - 1, 0x20, textAttr);
   for (let i = 0; i < lines.length && box.top + 1 + i < bottom; i++) {
     surface.write(box.top + 1 + i, box.left + 1, lines[i]!.slice(0, box.cols - 2), textAttr);
   }

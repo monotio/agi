@@ -1526,9 +1526,11 @@ describe("restart", () => {
 
 test("an unconfigured game saves the default replay capacity and keeps recording after restore", () => {
   // The interpreters always hold a configured capacity (the save layout has no
-  // unconfigured state); without script.size the engine's default applies and
+  // unconfigured state); without script.size the shipped default applies and
   // travels in the image, so a restore neither caps the game at the pairs it
-  // had recorded nor loses the limit.
+  // had recorded nor loses the limit. The default is 50 pairs: SCRIPTSIZE =
+  // 0x0032 at DS+0x141 in the kq3 2.936 / kq1 2.917 / gr1 3.002.149
+  // AGIDATA.OVL data images.
   const container = createContainer();
   container.putResource(
     "logic",
@@ -1557,7 +1559,7 @@ test("an unconfigured game saves the default replay capacity and keeps recording
   engine.tick();
   const image = engine.serialize();
   const saved = decodeSave(image, engine.profile);
-  assert.equal(saved.replayCapacity, 200, "the default capacity is written");
+  assert.equal(saved.replayCapacity, 50, "the default capacity is written");
   assert.equal(saved.replayActive, 2);
   const restored = new Engine(container, host);
   restored.restoreImage(image);
@@ -2057,4 +2059,217 @@ describe("native object flags and engine save round trips (fixture-gated)", () =
     ] as const)
       assert.equal(after[field], before[field], field);
   });
+});
+
+describe("original restart/restore audit", () => {
+  class AuditHost implements EngineHost {
+    prints: string[] = [];
+    inputQueue: (string | null)[] = [];
+    keys: number[] = [];
+    quits = 0;
+    engine?: Engine;
+    print(text: string): void {
+      this.prints.push(text);
+    }
+    displayAt(): void {}
+    statusLine(): void {}
+    quit(): void {
+      this.quits++;
+    }
+    takeInputLine(): string | null {
+      return this.inputQueue.shift() ?? null;
+    }
+    takeKeys(): number[] {
+      return this.keys.splice(0);
+    }
+  }
+
+  function auditGame(source: string): { engine: Engine; host: AuditHost } {
+    const container = createContainer();
+    container.putResource("logic", 0, assembleLogic(source, { dictionary: DICT }).payload);
+    const host = new AuditHost();
+    const engine = new Engine(container, host, DICT);
+    host.engine = engine;
+    return { engine, host };
+  }
+
+  const AUDIT_SOURCE = `
+    if (isset(f6)) { return; }
+    if (!isset(f200)) {
+      set(f200);
+      set.game.id("DEMO");
+      set.key(13, 0, 7);
+      set.string(s0, "KEEP");
+      accept.input();
+      set(f16);
+    }
+    if (isset(f201)) { reset(f201); restart.game(); }
+    return;
+  `;
+
+  test("restart keeps strings, the key map and the game signature", () => {
+    // Verified against the binaries: ResetAll clears vars/flags/controllers/
+    // aniObj only — gameID, keyMap and userStr sit outside the fill regions
+    // (kq3 2.936 ResetAll 0x0FA5 / gr1 3.002.149 0x11B3 / mh1 3.002.107
+    // 0x11FA). The engine already matched; this pins the rule.
+    const { engine, host } = auditGame(AUDIT_SOURCE);
+    engine.tick();
+    assert.equal(engine.gameSignature, "DEMO");
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.strings[0], "KEEP", "strings survive restart");
+    assert.equal(engine.gameSignature, "DEMO", "the signature survives restart");
+    host.keys.push(0x0d);
+    engine.tick();
+    assert.equal(engine.controllers[7], 1, "the key map survives restart");
+  });
+
+  test("an accepted restart keeps input acceptance and cancels the edit line", () => {
+    // Player-visible rule: restart does not silence the command line. The
+    // input-acceptance word sits outside ResetAll's fill regions; the
+    // accepted path runs CancelLine, then redraws the prompt marker
+    // unconditionally (gr1 3.002.149 restart 0x26E0; WriteCur at 0x277B).
+    const { engine, host } = auditGame(AUDIT_SOURCE);
+    engine.tick();
+    host.keys.push(0x61, 0x62);
+    engine.tick();
+    assert.equal(engine.inputEnabled, true);
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.inputEnabled, true, "input stays accepted across restart");
+    assert.equal(engine.textRow(22), " ".repeat(40), "the edit line was cancelled");
+  });
+
+  test("a declined restart leaves the input row as it was", () => {
+    // v3 saves the prompt marker's visibility before the confirmation and
+    // redraws it on cancel only when it was visible (gr1 3.002.149
+    // 0x274C-0x2752, tail 0x27D0-0x27DC); the engine's window save/restore
+    // preserves the row either way — pinned here.
+    const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""));
+    engine.tick();
+    host.keys.push(0x61, 0x62);
+    engine.tick();
+    assert.equal(engine.textRow(22), "ab" + " ".repeat(38));
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.flags[6], 0, "the restart was declined");
+    assert.equal(engine.textRow(22), "ab" + " ".repeat(38), "the row survived the prompt");
+  });
+
+  test("restore never clears the key variable v19", () => {
+    // Player-visible rule: a game that reads v19 right after restore.game
+    // sees the key the save carried. The restore tail clears controllers and
+    // rewrites v20/v22/v26, then sets f12 — it never stores to var[19]
+    // (kq3 2.936 0x2647-0x2693 / gr1 3.002.149 0x28C7 / mh1 3.002.107
+    // 0x2928).
+    const container = createContainer();
+    container.putResource("logic", 0, assembleLogic("return;", { dictionary: DICT }).payload);
+    const host = new AuditHost();
+    const engine = new Engine(container, host, DICT);
+    host.keys.push(0x61);
+    engine.tick();
+    assert.equal(engine.vars[19], 0x61);
+    const image = engine.serialize();
+    const fresh = new Engine(container, new AuditHost(), DICT);
+    fresh.restoreImage(image);
+    assert.equal(fresh.vars[19], 0x61, "v19 survives restore");
+  });
+
+  test("restart and quit prompts use the original wording; quit(1) skips the prompt", () => {
+    // Player-visible rule: the confirmations read "Press ENTER to restart\n
+    // the game.\n\nPress ESC to continue\nthis game." and "Press ENTER to
+    // quit.\nPress ESC to keep playing." — identical bytes in kq3 2.936
+    // (ovl DS+0x0ADB / DS+0x5E3), mh1 3.002.107 and gr1 3.002.149 — and
+    // quit(1) exits without asking (kq3 quit handler 0x027F).
+    {
+      const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""));
+      engine.tick();
+      engine.flags[201] = 1;
+      engine.tick();
+      assert.ok(
+        host.prints.includes(
+          "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game.",
+        ),
+        `restart wording, got ${JSON.stringify(host.prints)}`,
+      );
+    }
+    {
+      const { engine, host } = auditGame(
+        'accept.input(); if (said("mutate")) { quit(0); } if (said("save")) { quit(1); } return;',
+      );
+      engine.tick();
+      host.inputQueue.push("mutate");
+      engine.tick();
+      assert.ok(
+        host.prints.includes("Press ENTER to quit.\nPress ESC to keep playing."),
+        `quit wording, got ${JSON.stringify(host.prints)}`,
+      );
+      const printsBefore = host.prints.length;
+      host.inputQueue.push("save");
+      engine.tick();
+      assert.equal(host.quits, 1, "quit(1) terminated without asking");
+      assert.equal(host.prints.length, printsBefore, "no prompt window for quit(1)");
+    }
+  });
+});
+
+test("2.089/2.230/2.272 always show the restart confirmation, f16 or not", () => {
+  // Player-visible rule: in the early family restart.game always asks — the
+  // f16 bypass does not exist yet (sq1 2.089 0x22AB / xmas 2.230 0x21ED /
+  // xmas 2.272 0x2289: no IsSet(0x10) anywhere in the handler).
+  for (const profile of ["2.089", "2.230", "2.272"] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        "if (!isset(f200)) { set(f200); set(f16); assignn(v100, 42); } " +
+          "if (isset(f201)) { reset(f201); restart.game(); } return;",
+        { dictionary: DICT, profile: PROFILES[profile] },
+      ).payload,
+    );
+    const host = new RecordingHost();
+    // Keep the confirmation window open: the default print acknowledgement
+    // would close it before the assertion.
+    host.print = (text: string) => {
+      host.prints.push(text);
+    };
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.ok(
+      host.prints.some((t) => t.startsWith("Press ENTER to restart")),
+      `${profile}: the confirmation prompt shows`,
+    );
+    assert.equal(engine.vars[100], 42, `${profile}: declined prompt keeps state`);
+  }
+});
+
+test("2.089/2.230/2.272 show.mem prints no rm.0 line", () => {
+  // The early format string is "heapsize: %u\nnow: %u  max: %u\nmax script:
+  // %d" — no "rm.0, etc." text exists in any of the three executables (sq1
+  // 2.089 ovl DS+0x70F).
+  for (const profile of ["2.089", "2.230", "2.272"] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic("show.mem(); return;", { dictionary: DICT, profile: PROFILES[profile] })
+        .payload,
+    );
+    const logs: string[] = [];
+    const host: EngineHost = {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+      logText: (text) => logs.push(text),
+    };
+    new Engine(container, host, DICT, { profile }).tick();
+    assert.ok(logs.length > 0, `${profile}: show.mem logged`);
+    assert.ok(!logs.join("\n").includes("rm.0"), `${profile}: no rm.0 line`);
+  }
 });

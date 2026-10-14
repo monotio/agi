@@ -587,6 +587,11 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     wordSequenceTailTerminator: false,
     positionActionOrder: "erase-then-store",
     earlierPartitionOrder: "object-number",
+    // The restart confirmation is unconditional and show.mem has no "rm.0"
+    // line through 2.272 (sq1 2.089 restart 0x22AB — no f16 test anywhere;
+    // ovl DS+0x70F format string).
+    restartPromptBypassedByF16: false,
+    heapDiagnosticExtraLine: false,
     saveBlocks: 4,
   },
   // version_profiles.md "AGI 2.230 profile"; conformance matrix "2.230 variant selection".
@@ -594,6 +599,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_EARLY,
     id: "2.230",
     packedViewLoopHeader: true,
+    restartPromptBypassedByF16: false, // unconditional prompt, xmas 2.230 0x21ED
+    heapDiagnosticExtraLine: false,
   },
   // version_profiles.md "AGI 2.272 profile"; conformance matrix "2.272 variant selection".
   "2.272": {
@@ -604,6 +611,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitAlwaysImmediate: false,
     menuActions: "stub",
     movementClear: "later",
+    restartPromptBypassedByF16: false, // unconditional prompt, xmas 2.272 0x2289
+    heapDiagnosticExtraLine: false,
     sound: "early-2.272",
   },
   // version_profiles.md "AGI 2.411 profile"; conformance matrix "2.411 variant selection".
