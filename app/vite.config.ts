@@ -510,27 +510,40 @@ function testServerDependencies(): Plugin {
 /** A worker entry as Vite's dev server rewrites `new Worker(new URL(…, import.meta.url))`. */
 const DEV_WORKER_URL = /"([^"]+[?&]worker_file&type=\w+)"/g;
 
+/** The most walks one warm-up makes before it releases requests regardless. */
+const WARMUP_PASSES = 5;
+
 /**
- * Transforms the client's whole module graph once, from the page entry
- * through every static and dynamic import and every module worker. Each
- * module is visited once; one that fails to transform is left for its
- * first request to report.
+ * Transforms the client's whole module graph, from the page entry through
+ * every static and dynamic import and every module worker. A dependency
+ * found during a walk can make the optimizer bundle again and invalidate
+ * every cached transform, so the walk repeats until one pass transforms
+ * nothing new. A module that fails to transform is left for its first
+ * request to report.
  */
-async function transformModuleGraph(environment: DevEnvironment, entry: string): Promise<number> {
-  const seen = new Set<string>();
-  const visit = async (url: string): Promise<void> => {
-    if (seen.has(url)) return;
-    seen.add(url);
-    const result = await environment.transformRequest(url).catch(() => null);
-    if (result === null) return;
-    const imported = [
-      ...((await environment.moduleGraph.getModuleByUrl(url))?.importedModules ?? []),
-    ];
-    const workers = [...result.code.matchAll(DEV_WORKER_URL)].map((match) => match[1]!);
-    await Promise.all([...imported.map((module) => module.url), ...workers].map(visit));
-  };
-  await visit(entry);
-  return seen.size;
+async function transformModuleGraph(
+  environment: DevEnvironment,
+  entry: string,
+): Promise<{ modules: number; passes: number; settled: boolean }> {
+  for (let pass = 1; ; pass++) {
+    const seen = new Set<string>();
+    let transformed = 0;
+    const visit = async (url: string): Promise<void> => {
+      if (seen.has(url)) return;
+      seen.add(url);
+      const cached = (await environment.moduleGraph.getModuleByUrl(url))?.transformResult;
+      const result = await environment.transformRequest(url).catch(() => null);
+      if (result === null) return;
+      const module = await environment.moduleGraph.getModuleByUrl(url);
+      if (!cached && module?.transformResult) transformed++;
+      const workers = [...result.code.matchAll(DEV_WORKER_URL)].map((match) => match[1]!);
+      const imported = [...(module?.importedModules ?? [])].map((child) => child.url);
+      await Promise.all([...imported, ...workers].map(visit));
+    };
+    await visit(entry);
+    if (transformed === 0 || pass === WARMUP_PASSES)
+      return { modules: seen.size, passes: pass, settled: transformed === 0 };
+  }
 }
 
 /**
@@ -556,11 +569,14 @@ function testServerWarmup(): Plugin {
         httpServer.once("listening", () => {
           const started = performance.now();
           transformModuleGraph(server.environments.client, "/src/main.ts")
-            .then((modules) => {
+            .then(({ modules, passes, settled }) => {
               const seconds = ((performance.now() - started) / 1000).toFixed(1);
-              server.config.logger.info(`[warmup] ${modules} modules in ${seconds}s`, {
-                timestamp: true,
-              });
+              const summary = `[warmup] ${modules} modules in ${seconds}s, ${passes} passes`;
+              if (settled) server.config.logger.info(summary, { timestamp: true });
+              else
+                server.config.logger.warn(`${summary}; the last pass still transformed modules`, {
+                  timestamp: true,
+                });
             })
             .catch((error: unknown) => {
               server.config.logger.warn(`[warmup] stopped early: ${String(error)}`, {
