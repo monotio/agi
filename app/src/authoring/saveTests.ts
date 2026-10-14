@@ -31,17 +31,32 @@ export async function saveTests(
     if (reason) throw new Error(reason);
   };
   beforeCommit();
+  async function flushTests() {
+    try {
+      await session!.flush();
+    } catch (error) {
+      const status = session!.saveStatus();
+      if (status.state === "failed" && status.cause !== undefined) {
+        const cause = status.cause;
+        const reason = (cause instanceof Error ? cause.message : String(cause))
+          .trim()
+          .replace(/[.!?]+$/, "");
+        throw new Error(`Could not save the test: ${reason}. Retry the save.`, { cause: error });
+      }
+      throw error;
+    }
+  }
   const retry = retries.get(session);
   if (
     retry &&
     retry.operation === JSON.stringify(op) &&
     session.model.capture().read("tests")?.content === retry.content
   ) {
-    await session.flush();
+    await flushTests();
     retries.delete(session);
     return retry.edited;
   }
-  if (session.saveStatus().state === "failed") await session.flush();
+  if (session.saveStatus().state === "failed") await flushTests();
   retries.delete(session);
   for (let attempt = 0; attempt < 2; attempt++) {
     beforeCommit();
@@ -58,7 +73,7 @@ export async function saveTests(
       op,
     );
     try {
-      await session.submit({
+      const result = await session.submit({
         proposal: session.model.propose(snapshot, "Tests", [
           { key: "tests", content: new TextDecoder().decode(edited.payload) },
         ]),
@@ -67,13 +82,19 @@ export async function saveTests(
         author: "creator",
         beforeCommit,
       });
+      if (result.status === "refused") {
+        const reason = (result.reason ?? "The running game could not accept the test")
+          .trim()
+          .replace(/[.!?]+$/, "");
+        throw new Error(`${reason}. Reopen the game, then try saving the test again.`);
+      }
     } catch (error) {
       if (attempt === 0 && error instanceof Error && error.message === "Project proposal is stale.")
         continue;
       throw error;
     }
     try {
-      await session.flush();
+      await flushTests();
     } catch (error) {
       retries.set(session, {
         operation: JSON.stringify(op),

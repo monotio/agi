@@ -267,6 +267,7 @@ test("saving tests preserves a resource edit that still needs a restart", async 
     const restart = f.session.pendingRestart;
     assert.ok(restart);
     await saveTests(f.session, op);
+    assert.equal(f.admitted, 1, "test metadata cannot retry a pending restart");
     assert.deepEqual(
       f.session.pendingRestart,
       restart,

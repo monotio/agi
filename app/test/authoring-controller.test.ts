@@ -13,6 +13,8 @@ import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createWorkspaceAgent } from "../src/agent/workspaceAgent.ts";
 import { createPauseHolds } from "../src/engine/pauseHolds.ts";
+import { testsWriteBlockReason } from "../src/authoring/testWriteStatus.ts";
+import { saveTests } from "../src/authoring/saveTests.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import * as authoringStack from "../src/agent/authoringStack.ts";
@@ -3030,5 +3032,99 @@ for (const source of ["catalog", "zip"] as const) {
       await clearCachedGame(projectId);
       if (booted.projectId !== projectId) await clearCachedGame(booted.projectId!);
     }
+  });
+}
+
+for (const turn of ["room", "map"] as const) {
+  test(`a ${turn} build blocks test writes through the shared session reason until it ends`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId(`test-write-${turn}`);
+    const files = createTestFiles();
+    await saveAuthoredGame(projectId, { title: "Build", files, words: [], roomGeneration: true });
+    const data = (await loadAuthoredGame(projectId))!;
+    const project = openProjectSession({
+      data,
+      lifetime: (await readHistoryLifetime(projectId))!,
+      admission: {
+        runToken: `test-write-${turn}`,
+        admit: async () => assert.fail("test writes wait"),
+      },
+    });
+    const gate = Promise.withResolvers<typeof authoringStack>();
+    const reached = Promise.withResolvers<void>();
+    const game: BootedGame = {
+      installed: false,
+      projectId,
+      title: data.title,
+      files,
+      words: [],
+      revision: await gameRevision(files),
+    };
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp: createMockPowerUp(),
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getProjectSession: () => project,
+      getWorker: () => null,
+      query: async <T>() => null as T,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: () => {},
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      configForGame: (_p, config) => config,
+      getLlmConfig: () => mockConfig,
+      loadAuthoring: () => {
+        reached.resolve();
+        return gate.promise;
+      },
+    });
+    const pending =
+      turn === "room"
+        ? controller.handleRoomAuthoring(
+            { op: "room", context: { room: 2 } },
+            { handle: async () => "" },
+            () => {},
+          )
+        : controller.buildRoomFromMap(2, 1, []);
+    void pending.catch(() => {});
+    try {
+      await reached.promise;
+      const reason = "Wait for the Agent to finish before editing tests.";
+      assert.equal(controller.testsWriteBlockReason(), reason);
+      assert.equal(
+        testsWriteBlockReason(project),
+        reason,
+        "the Tests panel shares the room/map block",
+      );
+      const before = project.model.capture().documentId;
+      await assert.rejects(
+        saveTests(project, {
+          kind: "merge",
+          tests: [{ name: "during build", room: 1, steps: [], expect: null }],
+        }),
+        /Wait for the Agent/,
+      );
+      assert.equal(project.model.capture().documentId, before);
+    } finally {
+      controller.stopRoomGeneration();
+      gate.reject(new Error("Build cancelled by the test."));
+      await pending.catch(() => {});
+      controller.resetSession();
+      project.dispose();
+      await clearCachedGame(projectId);
+    }
+    assert.equal(testsWriteBlockReason(project), null, "the build releases its hand-write block");
   });
 }

@@ -1,4 +1,5 @@
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
+import { holdAgentTestWrites } from "./testWriteStatus.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
 import { appendAgentTasks, type AgentChats } from "../../../src/agent/chats.ts";
@@ -341,6 +342,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   let requestGeneration = 0;
   let openingGeneration = 0;
   let roomActive = false;
+  let mapBuildActive = false;
   let roomStopped = false;
   let recoverRoom: ((retry: boolean) => void) | null = null;
   let planSaveTail: Promise<void> = Promise.resolve();
@@ -1128,11 +1130,34 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   function testsWriteBlockReason(): string | null {
-    if (state.powerUp.busy || conversationAgent?.busy || activeAskAgent?.busy)
+    if (
+      roomActive ||
+      mapBuildActive ||
+      state.powerUp.busy ||
+      conversationAgent?.busy ||
+      activeAskAgent?.busy
+    )
       return "Wait for the Agent to finish before editing tests.";
     if (conversationAgent?.pending() || activeAskAgent?.pending())
       return "Review the Agent's changes before editing tests.";
     return null;
+  }
+
+  /** A project opened during setup joins the same room/map hand-write hold. */
+  function holdBuildTestWrites() {
+    const releases = new Map<ProjectSession, () => void>();
+    function attach() {
+      const project = options.getProjectSession?.();
+      if (project && !releases.has(project)) releases.set(project, holdAgentTestWrites(project));
+    }
+    attach();
+    return {
+      attach,
+      release() {
+        for (const release of releases.values()) release();
+        releases.clear();
+      },
+    };
   }
 
   /** The running game an install of `owner`'s saved files goes to, as it stands now. */
@@ -1413,6 +1438,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (roomActive || state.powerUp.busy)
       throw new Error("Wait for the current agent task to finish.");
     roomActive = true;
+    const testWrites = holdBuildTestWrites();
     roomStopped = false;
     state.roomGeneration = {
       room: Number(req.context["room"]),
@@ -1426,7 +1452,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         progress.busy = true;
         progress.error = "";
         try {
-          const result = await attemptRoomAuthoring(req, agent, sendDirection);
+          const result = await attemptRoomAuthoring(req, agent, sendDirection, testWrites.attach);
           if (roomStopped) return "";
           progress.busy = false;
           return result;
@@ -1445,6 +1471,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       }
     } finally {
       roomActive = false;
+      testWrites.release();
       recoverRoom = null;
       if (roomStopped) state.roomGeneration = null;
     }
@@ -1454,6 +1481,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     req: LlmRequest,
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
+    holdTestWrites: () => void,
   ): Promise<string> {
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     const game = getBootedGame();
@@ -1494,6 +1522,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         attachSessionRuntime(author, game!);
         setSession(author);
       }
+      holdTestWrites();
       // The stored-project gate remix and map-build turns commit through:
       // refuse before the turn spends, and again before its staged room
       // lands in the session. A refusal keeps the player in the departure
@@ -1595,12 +1624,15 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       throw new Error("Building from the map extends a game authored here.");
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     pauseEngine("mapBuild");
+    mapBuildActive = true;
+    const testWrites = holdBuildTestWrites();
     try {
       const config =
         configForGame && getLlmConfig ? configForGame(game.projectId, getLlmConfig()) : null;
       if (!config || (config.provider !== "stub" && !config.apiKey.trim()))
         throw new Error("Connect your AI provider to build a room from the map.");
       const author = await getOrCreateSession(game, config);
+      testWrites.attach();
       attachSessionRuntime(author, game);
       // The same stored-project gate a remix turn commits through: refuse
       // before the turn spends, and again before its staged room lands.
@@ -1672,6 +1704,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       bindProgressTarget(owner);
       postSessionSnapshot(author);
     } finally {
+      mapBuildActive = false;
+      testWrites.release();
       resumeEngine("mapBuild");
     }
   }

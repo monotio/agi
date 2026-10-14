@@ -71,6 +71,51 @@ test("the tests worker gives the Agent runner's verdicts on the same committed g
   assert.deepEqual(answer, { result: expected }, "every run starts with fresh evidence");
 });
 
+for (const document of ["{", JSON.stringify({ format: "monotio.agi.tests.v99", tests: [] })]) {
+  test(`the tests worker reports an invalid committed tests document: ${document}`, () => {
+    const data = input();
+    data.files["TESTS.JSON"] = new TextEncoder().encode(String(data.documents["tests"]));
+    const messages: TestsWorkerOutbound[] = [];
+    const port = {
+      onmessage: null as ((event: MessageEvent<TestsWorkerInbound>) => void) | null,
+      postMessage: (message: TestsWorkerOutbound) => {
+        messages.push(message);
+      },
+    };
+    installTestsWorker(port);
+    const request: TestsWorkerInbound = {
+      ...data,
+      documents: { ...data.documents, tests: document },
+    };
+    port.onmessage!({ data: request } as MessageEvent<TestsWorkerInbound>);
+    assert.equal(messages.length, 1);
+    assert.ok("error" in messages[0]!);
+    assert.match(
+      messages[0].error,
+      document === "{" ? /valid JSON.*Fix/ : /unsupported format.*Import/,
+    );
+  });
+}
+
+test("an absent committed tests document never runs an older file suite", () => {
+  const data = input();
+  data.files["TESTS.JSON"] = new TextEncoder().encode(String(data.documents["tests"]));
+  const documents = { ...data.documents };
+  delete documents["tests"];
+  let answer: TestsWorkerOutbound | undefined;
+  const port = {
+    onmessage: null as ((event: MessageEvent<TestsWorkerInbound>) => void) | null,
+    postMessage(message: TestsWorkerOutbound) {
+      answer = message;
+    },
+  };
+  installTestsWorker(port);
+  port.onmessage!({ data: { ...data, documents } } as MessageEvent<TestsWorkerInbound>);
+  assert.ok(answer && "result" in answer);
+  assert.equal(answer.result.success, true);
+  assert.match(answer.result.message ?? "", /No game tests/);
+});
+
 function fakeWorker() {
   let terminated = 0;
   let posted: TestsWorkerInbound | undefined;

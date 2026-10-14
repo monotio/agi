@@ -8,6 +8,7 @@ import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { createMainProjectAdmission } from "../src/engine/mainProjectAdmission.ts";
+import { useTestRecorder } from "../src/authoring/useTestRecorder.ts";
 import { WorkerQueryTimeoutError } from "../src/engine/workerQueries.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
@@ -17,6 +18,7 @@ import {
 } from "../../src/authoring/projectWorkspace.ts";
 import { readProjectHistory } from "../../src/authoring/projectHistoryCodec.ts";
 import { sha256Hex } from "../../src/crypto.ts";
+import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -427,6 +429,10 @@ async function openNativeTestsProject(
     now += 100;
     ctx.fns.hostTick();
   }
+  const tick = () => {
+    now += 100;
+    ctx.fns.hostTick();
+  };
   const engine = ctx.run.engine!;
   const boot = messages.find((message) => message.type === "booted");
   assert.ok(boot?.type === "booted" && boot.projectAdmission);
@@ -452,7 +458,18 @@ async function openNativeTestsProject(
     admission,
   });
   t.after(() => session.dispose());
-  return { saveTests, session, ctx, engine, sent, messages, query, grant: boot.projectAdmission };
+  return {
+    saveTests,
+    session,
+    ctx,
+    engine,
+    sent,
+    messages,
+    query,
+    admission,
+    tick,
+    grant: boot.projectAdmission,
+  };
 }
 
 test("saving tests leaves Play, the timeline and recording intact; the next resource edit admits the complete project", async (t) => {
@@ -616,3 +633,112 @@ test("a test save admits source authority that differs from the worker despite i
   assert.equal(ctx.run.projectAdmission!.sources["0"], claimed["logic:0"]);
   assert.equal(ctx.run.projectAdmission!.buildId, image.identity.buildId);
 });
+
+test("a refused recorded-test admission keeps the recording for retry and stores no test", async (t) => {
+  const documents = {
+    bindings: "{}",
+    "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
+    "logic:1":
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } return;",
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+  };
+  const claimed = { ...documents, "logic:0": `${documents["logic:0"]}\n// Current source` };
+  const f = await openNativeTestsProject(t, "tests-refused-recording", documents, claimed);
+  const admit = f.admission.admit;
+  f.admission.admit = async () => ({
+    status: "refused",
+    expected: f.grant.identity,
+    current: f.grant.identity,
+    patchGeneration: 0,
+    reason: "The running game changed.",
+  });
+  const projectId = requireProjectId("tests-refused-recording");
+  const game = (await storage.loadAuthoredGame(projectId))!;
+  const booted = { ...game, installed: false, revision: computeResourceRevision(game.files) };
+  let flushed = 0;
+  const recorder = useTestRecorder({
+    state: {
+      phase: "running",
+      recording: { active: false, starting: false, error: "" },
+      powerUp: { open: false, busy: false },
+      modal: null,
+      prompt: null,
+      waitingForKey: false,
+    },
+    getWorker: () => ({}) as Worker,
+    query: f.query,
+    logAgent: () => {},
+    getBootedGame: () => booted,
+    getProjectSession: () => f.session,
+    flushAutosave: async () => {
+      flushed++;
+    },
+  });
+  await recorder.startTestRecording();
+  const snapshot = await recorder.stopTestRecording();
+  assert.ok(snapshot && !("endedBy" in snapshot));
+  const before = f.session.model.capture().documentId;
+  const storedGeneration = game.generation;
+  const result = await recorder.saveRecordedTest(snapshot, "recorded", []);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /running game changed.*Reopen/s);
+  assert.equal(flushed, 0, "refusal must not flush or report success");
+  assert.equal(f.session.model.capture().documentId, before);
+  const stored = (await storage.loadAuthoredGame(projectId))!;
+  assert.equal(stored.generation, storedGeneration, "a refusal cannot persist another capture");
+  assert.equal(readProjectWorkspace(stored.workspace!)["tests"], undefined);
+  f.admission.admit = admit;
+  // The same stopped recording remains available for the player's next Save.
+  const saved = await recorder.saveRecordedTest(snapshot, "recorded", []);
+  assert.equal(saved.ok, true);
+  assert.equal(flushed, 1);
+  assert.equal(snapshot.tainted, null);
+});
+
+for (const next of ["deferred", "moved room"] as const) {
+  test(`a test save preserves a pending restart when the worker is ${next}`, async (t) => {
+    const documents = {
+      bindings: "{}",
+      "logic:0":
+        "if (isset(f5) && v0 == 0) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); new.room(1); } if (v0 != 0) { call.v(v0); } return;",
+      "logic:1": "return;",
+      "logic:2":
+        "if (isset(f5)) { assignn(v50,2); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+      "picture:1": "vis 1\nfill 1,1\nend\n",
+      "picture:2": "vis 2\nfill 1,1\nend\n",
+    };
+    const f = await openNativeTestsProject(
+      t,
+      `tests-pending-restart-${next.replaceAll(" ", "-")}`,
+      documents,
+    );
+    assert.equal(f.engine.vars[0], 1);
+    const outcome = await f.session.submit({
+      proposal: f.session.model.propose(f.session.model.capture(), "Picture", [
+        { key: "picture:1", content: "vis 4\nfill 1,1\nend\n" },
+      ]),
+      label: "Picture",
+      origin: "picture",
+      author: "creator",
+    });
+    assert.equal(outcome.status, "restartRequired");
+    const restart = f.session.pendingRestart;
+    assert.ok(restart);
+    f.engine.reenterRoom(next === "deferred" ? 1 : 2);
+    if (next === "moved room") f.tick();
+    const before = {
+      sent: f.sent.length,
+      timeline: structuredClone(f.ctx.history),
+      state: f.engine.serialize(),
+    };
+    await f.saveTests(f.session, {
+      kind: "merge",
+      tests: [{ name: "pending", room: 1, steps: [], expect: null }],
+    });
+    assert.equal(f.sent.length, before.sent, "test saves cannot retry a pending resource restart");
+    assert.equal(f.session.pendingRestart, restart);
+    assert.equal(f.session.capture().pendingAdmission, false);
+    assert.deepEqual(f.ctx.history, before.timeline);
+    assert.deepEqual(f.engine.serialize(), before.state);
+  });
+}

@@ -631,6 +631,7 @@ function createSession(
       allowMissingRooms: data.roomGeneration === true,
       admittedImage: confirmedAdmittedImage(),
       pendingImage,
+      pendingRestartImage: pendingRestart ? model.capture().lastAdmissibleBuild : undefined,
       forceAdmission: preparedRoom || updateMode !== undefined,
       reviewedComputedRoomJumps,
       reviewedRenumbering,

@@ -49,7 +49,7 @@ test("autosave serializes captures, retries the exact failed request, and fences
   });
   saver.enqueue(1);
   await saver.flush();
-  assert.equal(saver.status().message, "Could not save: quota. Retry the save.");
+  assert.equal(saver.status().message, "Could not save. Retry");
   saver.enqueue(2);
   fail = false;
   const retry = saver.retry();
@@ -179,7 +179,7 @@ test("flush includes a capture queued as the active write finishes", async () =>
   saver.dispose();
 });
 
-test("a failed save names the cause and Retry clears it after saving the exact capture", async () => {
+test("a failed save keeps the Retry label and its separate cause until the exact capture saves", async () => {
   const cause = new Error("Disk is full");
   const first = { text: "recorded test" };
   const second = { text: "next edit" };
@@ -199,7 +199,7 @@ test("a failed save names the cause and Retry clears it after saving the exact c
     saver.enqueue(first);
     await saver.flush();
     assert.equal(saver.status().cause, cause);
-    assert.equal(saver.status().message, "Could not save: Disk is full. Retry the save.");
+    assert.equal(saver.status().message, "Could not save. Retry");
     saver.enqueue(second);
     failing = false;
     await saver.retry();

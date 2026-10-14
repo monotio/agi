@@ -88,19 +88,12 @@ export function createProjectAutosave<Capture, Receipt>(input: {
     flush,
     retry: flush,
     status() {
-      const reason = (
-        cause instanceof Error ? cause.message : typeof cause === "string" ? cause : ""
-      )
-        .trim()
-        .replace(/[.!?]+$/, "");
       return {
         state,
         cause,
         message:
           state === "failed"
-            ? reason
-              ? `Could not save: ${reason}. Retry the save.`
-              : "Could not save. Retry the save."
+            ? "Could not save. Retry"
             : state === "conflict"
               ? "Changed in another tab. Reopen this game."
               : "",

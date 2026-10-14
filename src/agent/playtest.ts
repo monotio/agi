@@ -42,6 +42,7 @@ export interface PlaytestFailure {
     | "reachable"
     | "until"
     | "navigation"
+    | "setup"
     | "step"
     | "simulation";
   readonly id: number | null;
@@ -784,7 +785,19 @@ export function playtestRoom(
       restored: Boolean(setupImage),
     };
     if (problems.length)
-      return simulation.result(false, "spawn_blocked", problems.join(" "), spawn);
+      return simulation.result(false, "spawn_blocked", problems.join(" "), {
+        ...spawn,
+        failingStepIndex: null,
+        failures: [
+          {
+            kind: "setup",
+            id: 0,
+            expected: { room, x, y, clear: true },
+            observed: { room: engine.vars[0], x, y, clear: false, problems },
+            stepIndex: null,
+          } satisfies PlaytestFailure,
+        ],
+      });
     if (args["spawnX"] != null || args["spawnY"] != null) {
       ego.x = ego.prevX = x;
       ego.y = ego.prevY = y;

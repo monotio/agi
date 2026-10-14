@@ -37,6 +37,7 @@ export async function prepareAndAdmitProjectEdit(input: {
   readonly allowMissingRooms: boolean;
   readonly admittedImage: ProjectImage | undefined;
   readonly pendingImage?: ProjectDocumentsCompile | undefined;
+  readonly pendingRestartImage?: ProjectImage | undefined;
   /** Explicit room/restart actions keep their existing native protocol. */
   readonly forceAdmission?: boolean;
   readonly reviewedRenumbering?: ReviewedRenumbering | undefined;
@@ -82,17 +83,18 @@ export async function prepareAndAdmitProjectEdit(input: {
     metadataEdit &&
     prepared.compiled !== undefined &&
     sameAdmissionImage(prepared.compiled, input.admittedImage);
-  // Keep an already queued native admission at its existing boundary when
-  // this edit only refreshes its test document, including prepared-room adoption.
+  // A test save preserves an already chosen restart or queued native admission
+  // when it only refreshes that image's tests, including prepared-room adoption.
   const pending = input.pendingImage;
   const preservesPendingAdmission =
     metadataEdit &&
     prepared.compiled !== undefined &&
-    pending !== undefined &&
-    sameAdmissionImage(prepared.compiled, {
-      identity: pending.build.identity,
-      documents: () => pending.documents(),
-    });
+    (sameAdmissionImage(prepared.compiled, input.pendingRestartImage) ||
+      (pending !== undefined &&
+        sameAdmissionImage(prepared.compiled, {
+          identity: pending.build.identity,
+          documents: () => pending.documents(),
+        })));
   if (prepared.compiled !== undefined && !admissionUnchanged && !preservesPendingAdmission) {
     if (!valid()) throw new Error("Project edit was superseded.");
     outcome = await input.admit(prepared.compiled, documentVersions);
