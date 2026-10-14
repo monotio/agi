@@ -124,19 +124,7 @@ const offDefaults = registerDefaultCommands(props.registry, {
   stepOut: () => editor.debugCommand.value?.("out"),
   quickOpen: () => showChooser("parts"),
   palette: () => showChooser("palette"),
-  parts: () => {
-    // The compact Agent fold is temporary; reopening Parts keeps the saved dock choice.
-    if (
-      engine.state.powerUp.open &&
-      window.matchMedia("(min-width: 601px) and (max-width: 1199px)").matches
-    )
-      editor.partsOpen.value = !editor.partsOpen.value;
-    else {
-      const reopened = editor.partsOpen.value;
-      editor.partsOpen.value = false;
-      if (!reopened || !workspace.collapsed.left) workspace.toggleDock("left");
-    }
-  },
+  parts: workspace.toggleParts,
   panel: () => {
     if (editor.selected.value === "problems") editor.close("problems");
     else editor.open("problems");

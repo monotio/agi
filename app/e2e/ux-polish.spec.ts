@@ -1,3 +1,4 @@
+import { decodePng } from "../../scripts/png.ts";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import { isolateStorage, openWorkspaceAgent, playFromCreate, textHook } from "./engineProbe.ts";
@@ -22,7 +23,7 @@ test.describe("compact layout", () => {
     { width: 1440, height: 900 },
     { width: 390, height: 844 },
   ]) {
-    test(`Parts makes room for the Agent and restores the player layout ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
+    test(`Parts makes room for the Agent and restores the player layout ${size.width}${size.width === 390 ? " @phone" : size.width === 1063 ? " @webkit-desktop" : ""}`, async ({
       page,
     }) => {
       await page.setViewportSize(size);
@@ -42,12 +43,35 @@ test.describe("compact layout", () => {
         .getByRole("button", { name: "Close", exact: true })
         .click();
       await playFromCreate(page);
-      await expect(page.locator(".play-bar")).toHaveCSS("border-bottom-width", "0px");
-      await expect(page.locator(".play-strip")).toHaveCSS("border-top-width", "0px");
+      await expect(page.locator(".play-bar")).toHaveCSS("border-bottom-width", "1px");
+      await expect(page.locator(".play-strip")).toHaveCSS("border-top-width", "1px");
+      if (size.width > 600) {
+        await expect(page.getByLabel("Game command", { exact: true })).toBeEnabled();
+        await page.getByLabel("Game command", { exact: true }).focus();
+        await expect(
+          page.locator(".play-strip").getByText("Keys go to the game", { exact: true }),
+        ).toBeVisible();
+      }
+      await expect
+        .poll(async () => greenPicturePixels(await page.getByTestId("gpu-canvas").screenshot()))
+        .toBeGreaterThan(1000);
       await page.screenshot({
-        path: test.info().outputPath(`play-${size.width}.png`),
+        path: test.info().outputPath(`play-${size.width}-agent-closed.png`),
         animations: "disabled",
       });
+      if (size.width === 1063) {
+        const gpu = page.getByTestId("gpu-canvas");
+        await page.getByRole("radio", { name: "Play", exact: true }).focus();
+        await expect(
+          page.locator(".play-strip").getByText("Click the game to play", { exact: true }),
+        ).toBeVisible();
+        const unfocused = cyanEdgePixels(await gpu.screenshot());
+        await page.getByLabel("Game command", { exact: true }).focus();
+        await expect
+          .poll(async () => cyanEdgePixels(await gpu.screenshot()))
+          .toBeGreaterThan(unfocused);
+      }
+
       await openWorkspaceAgent(page);
       if (size.width === 1063) {
         await expect(page.getByTestId("parts-list")).toBeHidden();
@@ -109,13 +133,33 @@ test.describe("compact layout", () => {
           await page.getByTestId("parts-list").evaluate((el) => el.getBoundingClientRect().width),
         ).toBeGreaterThan(200);
       }
+      await openWorkspaceAgent(page);
+      if (size.width === 390)
+        await page
+          .getByTestId("workspace-agent-panel")
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
       await playFromCreate(page);
-      await expect(page.locator(".play-bar")).toHaveCSS("border-bottom-width", "0px");
-      await expect(page.locator(".play-strip")).toHaveCSS("border-top-width", "0px");
+      if (size.width === 390) await page.getByTestId("menu-assistant").click();
+      await expect(page.locator(".play-bar")).toHaveCSS("border-bottom-width", "1px");
+      await expect(page.locator(".play-strip")).toHaveCSS("border-top-width", "1px");
+      if (size.width > 600)
+        await expect
+          .poll(async () => greenPicturePixels(await page.getByTestId("gpu-canvas").screenshot()))
+          .toBeGreaterThan(1000);
       await page.screenshot({
-        path: test.info().outputPath(`play-${size.width}.png`),
+        path: test.info().outputPath(`play-${size.width}-agent-open.png`),
         animations: "disabled",
       });
+      const screen = page.locator(".screen");
+      await expect(screen).toHaveClass(/tube/);
+      if (size.width > 600) await expect(screen).toHaveClass(/remixing/);
+      await expect(screen).toHaveCSS("box-shadow", "none");
+      if (size.width === 390)
+        await page
+          .getByTestId("workspace-agent-panel")
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
       if (size.width !== 1063) {
         await openWorkspaceAgent(page);
         await page.setViewportSize({ width: 1063, height: 815 });
@@ -123,6 +167,59 @@ test.describe("compact layout", () => {
       }
     });
   }
+});
+
+/** The starter room's green scenery distinguishes a painted picture from a black first frame. */
+function greenPicturePixels(bytes: Uint8Array): number {
+  const { rgba } = decodePng(bytes);
+  let count = 0;
+  for (let at = 0; at < rgba.length; at += 4)
+    if (
+      rgba[at + 1]! > 60 &&
+      rgba[at + 1]! > rgba[at]! * 1.5 &&
+      rgba[at + 1]! > rgba[at + 2]! * 1.5
+    )
+      count++;
+  return count;
+}
+
+/** Count the GPU's cyan keyboard rim in the outer edge, away from the room centre. */
+function cyanEdgePixels(bytes: Uint8Array): number {
+  const { width, height, rgba } = decodePng(bytes);
+  let count = 0;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      if (x > width * 0.1 && x < width * 0.9 && y > height * 0.12 && y < height * 0.88) continue;
+      const at = (y * width + x) * 4;
+      if (
+        rgba[at + 1]! > 60 &&
+        rgba[at + 2]! > 60 &&
+        rgba[at + 1]! > rgba[at]! * 1.3 &&
+        rgba[at + 2]! > rgba[at]! * 1.3
+      )
+        count++;
+    }
+  return count;
+}
+
+test("the bracket shortcut reopens temporary Parts without saving a fold @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await starter(page);
+  const saved = await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"));
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+  const close = page
+    .getByTestId("workspace-agent-panel")
+    .getByRole("button", { name: "Close", exact: true });
+  await close.focus();
+  await page.keyboard.press("[");
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"))).toBe(saved);
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await close.click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"))).toBe(saved);
 });
 
 /** Mount the shipped notice with a keyed replacement, as stage notices are replaced. */

@@ -267,16 +267,9 @@ function phoneLayout(event: MediaQueryListEvent): void {
   phoneWidth.value = event.matches;
 }
 phoneQuery.addEventListener("change", phoneLayout);
-const compactQuery = window.matchMedia("(min-width: 601px) and (max-width: 1199px)");
-const compactWidth = ref(compactQuery.matches);
-function compactLayout(event: MediaQueryListEvent): void {
-  compactWidth.value = event.matches;
-}
-compactQuery.addEventListener("change", compactLayout);
 // A temporary fold never writes the saved dock setting. Opening Parts wins for this visit.
 const autoFoldParts = computed(
-  () =>
-    props.creating && compactWidth.value && engine.state.powerUp.open && !editor.partsOpen.value,
+  () => props.creating && workspace.compactAgent.value && !editor.partsOpen.value,
 );
 const partsVisible = computed(
   () =>
@@ -2499,7 +2492,6 @@ onBeforeUnmount(() => {
   editor.discardDrafts.value = undefined;
   editor.changeCount.value = 0;
   phoneQuery.removeEventListener("change", phoneLayout);
-  compactQuery.removeEventListener("change", compactLayout);
   endResize?.();
   retired = true;
   window.removeEventListener("beforeunload", warnBeforeUnload);

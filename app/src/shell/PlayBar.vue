@@ -14,6 +14,7 @@ import WorkspaceAction from "./WorkspaceAction.vue";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
+import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { useOptionalCommands } from "./commands/commandContext.ts";
@@ -46,10 +47,7 @@ const { identityTitle } = useGameLibrary();
 const shell = useShell();
 const commands = useOptionalCommands();
 const editor = useWorkspaceEditor();
-function toggleParts(): void {
-  editor.focus.value = false;
-  editor.partsOpen.value = !editor.partsOpen.value;
-}
+const workspace = useCreateWorkspace();
 
 function showMap(): void {
   roomMap.openMap({ experience: shell.mode.value });
@@ -113,7 +111,7 @@ const shortcutsBlocked = computed(
 </script>
 
 <template>
-  <header class="play-bar" :class="{ 'play-bar--play': mode === 'play' }" data-shell-keys>
+  <header class="play-bar" data-shell-keys>
     <nav class="play-bar__nav" aria-label="App options">
       <UiIconButton
         icon="chevron-left"
@@ -201,7 +199,7 @@ const shortcutsBlocked = computed(
             class="play-bar__parts"
             data-testid="workspace-parts"
             :aria-pressed="editor.partsOpen.value"
-            @click="toggleParts"
+            @click="workspace.toggleParts"
             >Parts</UiButton
           >
           <UiIconButton
@@ -354,9 +352,6 @@ const shortcutsBlocked = computed(
   padding: 0 var(--space-4);
   border-bottom: 1px solid var(--hairline);
   background: var(--surface-0);
-}
-.play-bar--play {
-  border-bottom: 0;
 }
 .play-bar__parts {
   display: none;

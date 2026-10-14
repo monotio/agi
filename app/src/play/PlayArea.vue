@@ -1004,7 +1004,7 @@ defineExpose({
 .screen.tube {
   box-shadow: none;
 }
-.screen.remixing {
+.screen.remixing:not(.tube) {
   box-shadow: 0 0 0 2px var(--warn-line);
 }
 
@@ -1098,10 +1098,6 @@ defineExpose({
   padding: var(--space-2) var(--space-6);
   border-top: 1px solid var(--hairline);
   background: var(--surface-0);
-}
-/* Play leaves an uninterrupted black stage between its bars. */
-:global(.shell-body:not(.shell-body--workspace) .play-strip) {
-  border-top: 0;
 }
 .play-hints {
   display: flex;
