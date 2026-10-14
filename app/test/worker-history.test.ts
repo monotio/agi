@@ -1425,15 +1425,25 @@ test("tracing a 1024-square attachment never copies its pixels into recording ba
     }
 });
 
-test("fallback session identities retain clock bits above 32 bits", (t) => {
-  t.mock.method(Date, "now", () => 2 ** 32 + 12345);
+test("fallback session identities retain the full clock and a distinct counter", (t) => {
+  const timestamp = 2 ** 40 - 1;
+  t.mock.method(Date, "now", () => timestamp);
   const real = globalThis.crypto;
   Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
   try {
-    const h = historyHarness(historyGame(), { rngSeed: 1 });
-    h.tick(2);
-    const session = h.ctx.history.session;
-    assert.ok(Number.parseInt(session.slice(1), 36) >= (2 ** 32 + 12345) * 0x10000);
+    const sessions = Array.from({ length: 16 }, () => {
+      const h = historyHarness(historyGame(), { rngSeed: 1 });
+      h.tick(2);
+      return h.ctx.history.session;
+    });
+    assert.ok(
+      sessions.every((session) => Number.parseInt(session.slice(1), 36) >= timestamp * 0x10000),
+    );
+    assert.equal(
+      new Set(sessions).size,
+      sessions.length,
+      "each worker has a distinct session in the same millisecond",
+    );
   } finally {
     Object.defineProperty(globalThis, "crypto", { value: real, configurable: true });
   }
