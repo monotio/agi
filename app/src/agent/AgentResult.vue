@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ref, watchEffect } from "vue";
-import { createRoomResourceUses, roomsUsingResources } from "../worker/roomChange.ts";
+import { computed } from "vue";
 import type { AgentResult } from "../../../src/agent/chats.ts";
 import { documentLabel, numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -16,26 +15,13 @@ defineEmits<{
 const labels = useProjectLabels();
 const engine = useEngineApi();
 /** Applied changes to rooms other than the one on screen show once the hero goes there. */
-const elsewhere = ref<number[]>([]);
-watchEffect(async (onCleanup) => {
-  elsewhere.value = [];
-  if (!showRooms || result.kind !== "changes" || result.status !== "applied") return;
-  const resources = result.resources;
-  const rooms = labels.value.rooms?.map((entry) => entry.room) ?? [];
-  const currentRoom = engine.currentRoom.value;
-  elsewhere.value = roomsUsingResources(resources, rooms, currentRoom, () => []);
-  if (!resources.some((key) => /^(picture|view):/.test(key))) return;
-  void engine.state.patchTick;
-  const scan = engine.roomMap.resources.value;
-  const profile = scan.profile;
-  let current = true;
-  onCleanup(() => {
-    current = false;
-  });
-  if (!profile) return;
-  const dependencies = await createRoomResourceUses(new Map(Object.entries(scan.files)), profile);
-  if (!current) return;
-  elsewhere.value = roomsUsingResources(resources, rooms, currentRoom, dependencies);
+const elsewhere = computed(() => {
+  if (!showRooms || result.kind !== "changes" || result.status !== "applied") return [];
+  const rooms = new Set(labels.value.rooms?.map((entry) => entry.room));
+  return result.resources
+    .map((key) => /^logic:(\d+)$/.exec(key))
+    .map((match) => (match ? Number(match[1]) : -1))
+    .filter((room) => rooms.has(room) && room !== engine.currentRoom.value);
 });
 </script>
 <template>

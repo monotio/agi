@@ -692,7 +692,11 @@ function createSession(
       outcome.status !== "deferred"
     )
       return { ...outcome, diagnostics: prepared.diagnostics };
-    if (outcome?.status === "restartRequired") pendingRestart = restartFor(outcome);
+    if (outcome?.status === "restartRequired")
+      pendingRestart = {
+        action: outcome.roomReentry === true ? "reenter" : "restart",
+        reason: restartReason(outcome.reason ?? "This image needs a game restart."),
+      };
     else if (prepared.compiled !== undefined) pendingRestart = null;
     if (prepared.compiled !== undefined) {
       pendingImage = outcome?.status === "deferred" ? prepared.compiled : undefined;
@@ -776,7 +780,11 @@ function createSession(
           if (!current() || writeBlock !== undefined || pendingImage !== image) return;
           if (outcome.status === "deferred") return;
           pendingImage = undefined;
-          if (outcome.status === "restartRequired") pendingRestart = restartFor(outcome);
+          if (outcome.status === "restartRequired")
+            pendingRestart = {
+              action: outcome.roomReentry === true ? "reenter" : "restart",
+              reason: restartReason(outcome.reason ?? "This image needs a game restart."),
+            };
           if (outcome.status === "committed" || outcome.status === "unchanged") {
             captureSave(before, outcome, false, false);
             input.checkpointReady?.();
@@ -794,12 +802,6 @@ function createSession(
         notify();
       }
     }
-  }
-  function restartFor(outcome: PreviewUpdateOutcome): PendingProjectRestart {
-    return {
-      action: outcome.roomReentry === true ? "reenter" : "restart",
-      reason: restartReason(outcome.reason ?? "This image needs a game restart."),
-    };
   }
   async function activate(mode: "restart" | "reenter") {
     if (!current() || autosave.status().state === "conflict")
@@ -832,7 +834,10 @@ function createSession(
       captureSave(model.apply(prepared.application), outcome);
     }
     if (outcome.status === "restartRequired") {
-      pendingRestart = restartFor(outcome);
+      pendingRestart = {
+        action: outcome.roomReentry === true ? "reenter" : "restart",
+        reason: restartReason(outcome.reason ?? "This image needs a game restart."),
+      };
       notify();
     }
     return outcome;

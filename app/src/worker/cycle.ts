@@ -151,8 +151,6 @@ export function createCycle(ctx: WorkerContext) {
     // ones outside spill into the event stream in arrival order instead.
     ctx.history.inPoll = true;
     try {
-      // context.ts: livePause belongs to the page across replacements;
-      // run.cycle.paused belongs to this live run or recorded replay.
       if (ctx.run.cycle.paused || !ctx.run.owner.active || ctx.fns.debugStoppedHeld()) {
         // An explicit debugger stop freezes like a pause: the clocks keep
         // their fractional carry and rebase wall time so a resume inherits
