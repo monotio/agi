@@ -196,6 +196,69 @@ test("Tests never block game numbers: a damaged recorded setup stays exact durin
   assert.equal(result.documents["tests"], tests);
 });
 
+test("Tests never block game edits: a damaged setup leaves its test exact while siblings follow a room move", async () => {
+  const { newSaveState, encodeSave, encodeHostImage, decodeHostImage, decodeSave } =
+    await import("../src/runtime/persistence.ts");
+  const state = newSaveState(profile);
+  state.vars[0] = 2;
+  state.vars[1] = 2;
+  state.logicResume = [{ logic: 2, offset: 0 }];
+  state.replayCapacity = 1;
+  state.replayActive = 1;
+  state.replay = [{ kind: 0, value: 2 }];
+  const plain = {
+    name: "Door",
+    room: 2,
+    steps: [{ action: "wait", ticks: 1, until: { room: 2 } }],
+    expect: { room: 2 },
+  };
+  const damaged = { ...plain, name: "Damaged recording", setup: { image: "AA==" } };
+  const recorded = {
+    ...plain,
+    name: "Recorded door",
+    setup: {
+      image: Buffer.from(
+        encodeHostImage(encodeSave(state, profile), [{ kind: 0, value: 2 }]),
+      ).toString("base64"),
+    },
+  };
+  const documents = {
+    "logic:2": "return;",
+    tests: JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [plain, damaged, recorded],
+    }),
+  };
+  const before = structuredClone(documents);
+  const result = prepareProjectRenumber({ documents, key: "logic:2", number: 7, profile });
+  assert.ok(result.ok);
+  assert.equal(result.documents["logic:2"], undefined);
+  assert.equal(result.documents["logic:7"], "return;");
+  const moved = JSON.parse(String(result.documents["tests"])).tests;
+  assert.deepEqual(moved[0], {
+    ...plain,
+    room: 7,
+    steps: [{ action: "wait", ticks: 1, until: { room: 7 } }],
+    expect: { room: 7 },
+  });
+  assert.equal(JSON.stringify(moved[1]), JSON.stringify(damaged));
+  assert.deepEqual(moved[2], {
+    ...recorded,
+    room: 7,
+    steps: [{ action: "wait", ticks: 1, until: { room: 7 } }],
+    expect: { room: 7 },
+    setup: moved[2].setup,
+  });
+  const host = decodeHostImage(new Uint8Array(Buffer.from(moved[2].setup.image, "base64")));
+  const saved = decodeSave(host.image, profile);
+  assert.equal(saved.vars[0], 7);
+  assert.equal(saved.vars[1], 7);
+  assert.deepEqual(saved.logicResume, [{ logic: 7, offset: 0 }]);
+  assert.deepEqual(saved.replay, [{ kind: 0, value: 7 }]);
+  assert.deepEqual(host.screen, [{ kind: 0, value: 7 }]);
+  assert.deepEqual(documents, before);
+});
+
 test("literal operands and proven variable feeds move; unrelated values and text stay", () => {
   const documents = {
     "picture:2": "end\n",

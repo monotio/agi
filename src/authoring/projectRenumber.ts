@@ -248,33 +248,42 @@ export function prepareProjectRenumber(input: {
     try {
       parseGameTests(
         typeof testsContent === "string" ? new TextEncoder().encode(testsContent) : testsContent,
-        input.profile,
       );
       const tests = json<{ tests: StoredTest[] }>(documents, "tests")!;
-      for (const test of tests.tests) {
-        if (test.setup)
-          test.setup = renumberTestSetup({
-            setup: test.setup,
-            kind,
-            from: old,
-            to: next,
-            profile: input.profile,
-            documents,
-          });
-        if (kind === "logic") {
-          test.room = replace(test.room);
-          if (test.expect?.room !== undefined) test.expect.room = replace(test.expect.room);
-        }
-        if (kind === "view" && test.expect?.object?.view !== undefined)
-          test.expect.object.view = replace(test.expect.object.view);
-        for (const step of test.steps ?? []) {
-          if (kind === "logic" && step.until?.room !== undefined)
-            step.until.room = replace(step.until.room);
-          if (kind === "view" && step.until?.object?.view !== undefined)
-            step.until.object.view = replace(step.until.object.view);
+      let changed = false;
+      for (const [index, original] of tests.tests.entries()) {
+        const test = structuredClone(original);
+        try {
+          if (test.setup)
+            test.setup = renumberTestSetup({
+              setup: test.setup,
+              kind,
+              from: old,
+              to: next,
+              profile: input.profile,
+              documents,
+            });
+          if (kind === "logic") {
+            test.room = replace(test.room);
+            if (test.expect?.room !== undefined) test.expect.room = replace(test.expect.room);
+          }
+          if (kind === "view" && test.expect?.object?.view !== undefined)
+            test.expect.object.view = replace(test.expect.object.view);
+          for (const step of test.steps ?? []) {
+            if (kind === "logic" && step.until?.room !== undefined)
+              step.until.room = replace(step.until.room);
+            if (kind === "view" && step.until?.object?.view !== undefined)
+              step.until.object.view = replace(step.until.object.view);
+          }
+          if (JSON.stringify(test) !== JSON.stringify(original)) {
+            tests.tests[index] = test;
+            changed = true;
+          }
+        } catch {
+          // An unreadable setup keeps this test exact while sibling tests follow the move.
         }
       }
-      documents["tests"] = JSON.stringify(tests);
+      if (changed) documents["tests"] = JSON.stringify(tests);
     } catch {
       // Tests are documents about the game. Damaged tests stay exact and cannot hold back this move.
     }
