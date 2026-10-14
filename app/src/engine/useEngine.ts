@@ -3,7 +3,6 @@ import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
 import type { PlayerSentence } from "../project/playerSentences.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
-import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
 import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
 import type { ProjectSession, PendingProjectRestart } from "../project/projectSession.ts";
@@ -43,7 +42,8 @@ import {
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
 import { clearCachedGame } from "../project/gameStorage.ts";
-import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
+import { createProjectPublication } from "./projectPublication.ts";
 import {
   advanceAuthoring,
   ResourceCommitError,
@@ -530,97 +530,25 @@ export function useEngine(
             : {}),
           admission,
           current,
-          async forked(data, lifetime, documentOnly) {
-            if (!current()) return;
-            state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
-            if (documentOnly)
-              game.retainedProgressTarget ??= {
-                target: resolveProgressTarget(game),
-                lifetime: game.historyLifetime,
-              };
-            const forked = {
-              ...game,
-              installed: false,
-              revision: documentOnly ? game.revision : computeResourceRevision(data.files),
-              files: documentOnly ? game.files : data.files,
-              projectId: data.projectId,
-              title: data.title,
-              authoredGame: data,
-              historyLifetime: lifetime,
-            };
-            game = documentOnly ? Object.assign(game, forked) : forked;
-            lifecycle.setBootedGame(game);
-            if (!documentOnly) {
-              const target = bindProgressTarget(game);
-              autosaveController.reset();
-              hook.autosave = -1;
-              if (target) {
-                await progressOwnership.acquire(target);
-                if (!current()) return;
-                writeResumePointer(localStorage, target.locator);
-              }
-              void autosaveController.flushAutosave();
-            }
-            state.patchTick++;
-            state.worldTick++;
-          },
-          publish(snapshot, data, outcome, nativeInstalled, documentOnly) {
-            if (!current()) return;
-            if (
-              !documentOnly &&
-              computeResourceRevision(game.authoredGame!.files) !==
-                snapshot.lastAdmissibleBuild!.identity.revision
-            ) {
-              hook.autosave = -1;
-              link.publishHook();
-            }
-            const running =
-              !documentOnly &&
-              (nativeInstalled === true ||
-                outcome?.status === "committed" ||
-                outcome?.status === "unchanged");
-            if (running) {
-              game.files = structuredClone(data.files);
-              if (!game.installed) {
-                game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-                const retained = game.retainedProgressTarget;
-                if (retained?.target === null) progressOwnership.close();
-                const target = bindProgressTarget(game);
-                if (retained && target)
-                  void progressOwnership
-                    .acquire(target)
-                    .then(() => {
-                      if (!current()) return;
-                      writeResumePointer(localStorage, target.locator);
-                      void autosaveController.flushAutosave();
-                    })
-                    .catch((error: unknown) => {
-                      if (current())
-                        state.status = error instanceof Error ? error.message : String(error);
-                    });
-              }
-              if (outcome?.replacementRunToken !== undefined)
-                state.profile = snapshot.lastAdmissibleBuild!.identity.profileId;
-            }
-            if (running)
-              game.words =
-                data.files["WORDS.TOK"] === undefined
-                  ? data.words
-                  : parseWordsTok(data.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
-            game.authoredGame = {
-              ...data,
-              projectId: game.projectId!,
-              authoredAt: game.authoredGame!.authoredAt,
-            };
-            if (running) audio?.useGameFiles(game.files);
-            state.patchTick++;
-            state.worldTick++;
-            if (outcome?.status === "committed") {
+          ...createProjectPublication({
+            getGame: () => game,
+            setGame(next) {
+              game = next;
+              lifecycle.setBootedGame(game);
+            },
+            state,
+            current,
+            progressOwnership,
+            autosaveController,
+            hook,
+            publishHook: link.publishHook,
+            useGameFiles: (files) => audio?.useGameFiles(files),
+            admitted(outcome) {
               roomMap.value?.projectImageAdmitted(outcome.patchGeneration);
               const frame = link.getLatestFrame();
               if (frame !== null) roomMap.value?.observeFrame(frame);
-            }
-          },
+            },
+          }),
           saved(data, _lifetime, generation, documentOnly) {
             if (current()) {
               advanceAuthoring(game, data.authoringState, data.workspace);
