@@ -282,7 +282,7 @@ test("native inventory locations move while carried and missing items keep their
   );
 });
 
-test("a reviewed move still refuses a recorded test whose saved resource stays behind", async () => {
+test("Tests never block game edits: a room move preserves the recorded setup", async () => {
   const { newSaveState, encodeSave } = await import("../src/runtime/persistence.ts");
   const { compileProjectDocuments } = await import("../src/authoring/projectDocuments.ts");
   const { createContainer } = await import("../src/container/container.ts");
@@ -316,8 +316,12 @@ test("a reviewed move still refuses a recorded test whose saved resource stays b
     profileId: "2.936",
     policy: { reviewedRenumbering: { key: "logic:2", number: 7 } },
   });
-  assert.equal(result.status, "diagnostics");
-  assert.ok(result.diagnostics.some((d) => d.document === "tests" && d.severity === "error"));
+  assert.equal(result.status, "ready");
+  assert.equal(
+    JSON.parse(String(proposal.changes().find((c) => c.key === "tests")!.content)).tests[0].setup
+      .image,
+    setup.image,
+  );
 });
 
 test("recoverable source drafts rewrite typed literal operands in unfinished calls", () => {

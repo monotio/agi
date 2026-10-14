@@ -826,6 +826,19 @@ A missing static path is not evidence of an interpreter defect.
 
 ## Recorded game tests
 
+A game test is a project document about the game. Saving, editing or deleting a
+test uses project history, Undo and autosave, and sends nothing to the running
+game's worker. Test writes leave game admission and pending updates unchanged.
+
+Write tests first: rooms, words and objects may be named before they exist.
+Saving checks the tests document's structure. Running checks game references and
+reports missing resources by name.
+
+Tests never block a game edit. Deleting a room offers **Also delete tests that
+use this room**, checked by default. Clear it to keep the tests; those tests
+will fail when run. A recorded setup's inventory item locations do not make its
+test use those rooms. The room and optional test deletions share one Undo.
+
 Recorded game tests store a host snapshot and a bounded operation tape in
 `TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
 against current resources. Divergent or unconsumed calls fail the replay.

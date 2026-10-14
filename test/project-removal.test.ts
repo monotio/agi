@@ -185,7 +185,7 @@ test("required LOGIC 0 can never be removed", () => {
   assert.match(findings[0]!.message, /logic:0/);
 });
 
-test("stored tests contribute room uses, expectations and opaque save images", () => {
+test("Tests never block game edits: room and expectation references allow deletion", () => {
   const tests = new TextDecoder().decode(
     serializeGameTests([
       {
@@ -215,11 +215,9 @@ test("stored tests contribute room uses, expectations and opaque save images", (
     ]),
   );
   const waiting = review({ removals: ["logic:42"], tests });
-  assert.equal(waiting.length, 1);
-  assert.match(waiting[0]!.message, /waits for logic:42/);
+  assert.deepEqual(waiting, []);
   const entered = review({ removals: ["logic:7"], tests });
-  assert.equal(entered.length, 1);
-  assert.match(entered[0]!.message, /enters logic:7/);
+  assert.deepEqual(entered, []);
   assert.deepEqual(
     review({ removals: ["logic:9"], tests }),
     [],
@@ -227,12 +225,11 @@ test("stored tests contribute room uses, expectations and opaque save images", (
   );
 });
 
-test("an unreadable tests document cannot prove removal safe", () => {
+test("Tests never block game edits: unreadable tests allow deletion", () => {
   const findings = review({ removals: ["sound:9"], tests: "not json" });
-  assert.equal(findings.length, 1);
-  assert.match(findings[0]!.message, /cannot be enumerated/);
+  assert.deepEqual(findings, []);
   const bytes = review({ removals: ["sound:9"], tests: Uint8Array.of(0xff, 0xfe) });
-  assert.equal(bytes.length, 1);
+  assert.deepEqual(bytes, []);
 });
 
 test("reference-art metadata blocks removal of its association and refuses unknown shapes", () => {

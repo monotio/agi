@@ -419,6 +419,7 @@ let draftKeys = "";
 let draftError = "";
 const draftMembership = shallowRef<readonly string[]>([]);
 const deletedParts = shallowRef<readonly string[]>([]);
+const deleteRoomTests = ref(true);
 const partRemovalReview = shallowRef<{
   owner: ProjectSession;
   snapshot: ProjectSnapshot;
@@ -2202,7 +2203,8 @@ async function deletePart(key: string, room?: number): Promise<void> {
     const captured = owner.workingSnapshot();
     if (!captured.read(key)) return;
     const plan = preparePartDraftRemoval(captured, key, profile.value, room);
-    if (plan.problems.length) {
+    if (room !== undefined || plan.problems.length) {
+      deleteRoomTests.value = true;
       partRemovalReview.value = {
         owner,
         snapshot: captured,
@@ -2235,7 +2237,14 @@ async function confirmPartRemoval(): Promise<void> {
     await deletePart(review.key, review.room);
     return;
   }
-  applyPartRemoval(review.plan.changes);
+  const plan = preparePartDraftRemoval(
+    review.snapshot,
+    review.key,
+    profile.value,
+    review.room,
+    deleteRoomTests.value,
+  );
+  applyPartRemoval(plan.changes);
 }
 async function add(group: string, option?: string): Promise<void> {
   if (editingPaused.value || actionBusy.value) return;
@@ -2485,8 +2494,19 @@ onBeforeUnmount(() => {
       }
     "
   >
+    <p v-if="partRemovalReview?.room !== undefined">Delete room {{ partRemovalReview.room }}.</p>
+    <label v-if="partRemovalReview?.room !== undefined">
+      <input v-model="deleteRoomTests" type="checkbox" />
+      Also delete tests that use this room
+    </label>
+    <p v-if="partRemovalReview?.room !== undefined && !deleteRoomTests">
+      Tests that use this room will fail when run.
+    </p>
+    <p v-if="partRemovalReview?.plan.testNotice">{{ partRemovalReview.plan.testNotice }}</p>
     <p v-for="message in partRemovalReview?.plan.messages" :key="message">{{ message }}</p>
-    <p>These will show as problems until you change them.</p>
+    <p v-if="partRemovalReview?.plan.problems.length">
+      These will show as problems until you change them.
+    </p>
     <p v-for="message in partRemovalReview?.plan.metadata" :key="message">{{ message }}</p>
     <template #footer>
       <UiButton variant="ghost" @click="partRemovalReview = undefined">Cancel</UiButton>
