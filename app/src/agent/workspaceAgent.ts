@@ -85,7 +85,6 @@ const HANDOFF =
   "Summarize this task for a different model using the compaction summary pattern: objective, decisions, completed changes, unresolved work, resource identifiers, and next steps. Return only the summary. Preserve user constraints. Omit thinking blocks, credentials and protocol records.";
 class CreatorTestReviewRequired extends Error {}
 export interface AgentReview {
-  readonly finishNotes?: string | undefined;
   readonly proposal: ProjectProposal;
   readonly chatId: string;
   readonly messageId: string;
@@ -383,7 +382,6 @@ export function createWorkspaceAgent(options: Options) {
       proposal,
       chatId: chat.id,
       messageId: pending.messageId,
-      finishNotes: pending.finishNotes,
       changes: () => proposal.changes(),
       stale: () =>
         invalidBase ||
@@ -706,7 +704,6 @@ export function createWorkspaceAgent(options: Options) {
       return workspace;
     }
     let notes: string | undefined;
-    let finishNotes: string | undefined;
     let finishStatus = "";
     const prepared = new Map<string, ProjectChange>();
     let scene: Awaited<ReturnType<typeof selectionScene>> = {};
@@ -758,7 +755,19 @@ export function createWorkspaceAgent(options: Options) {
         if (change.content === null) delete documents[change.key];
         else documents[change.key] = change.content;
       }
+      if (notes !== undefined) documents["notes"] = notes;
       return documents;
+    }
+    function hasHandoverDocuments() {
+      if (persisted.some((entry) => entry.commit !== null)) return true;
+      const current = session.model.capture();
+      const changes = mergeAgentTestChanges(
+        base.documents(),
+        current.documents(),
+        diffProjectDocuments(base.documents(), stagedDocuments()),
+        PROFILES[profileId]!,
+      );
+      return session.model.propose(current, "Handover", changes).changes().length > 0;
     }
     function handoverState() {
       const candidate = captureAgentWorkspace({
@@ -921,7 +930,6 @@ export function createWorkspaceAgent(options: Options) {
       });
       const capturedCommit = session.history.capture().cursor!;
       chat.pendingReview = {
-        ...(finishNotes !== undefined ? { finishNotes } : {}),
         label: proposal.label,
         messageId,
         baseRevision: base.revision,
@@ -932,7 +940,6 @@ export function createWorkspaceAgent(options: Options) {
         candidate: writeProjectWorkspace(proposal.documents()),
       };
       review = {
-        finishNotes,
         proposal,
         chatId: chat.id,
         messageId,
@@ -1261,12 +1268,15 @@ export function createWorkspaceAgent(options: Options) {
                   for (const change of call.input["changes"] as ProjectChange[])
                     touched.add(change.key);
               } else if (call.name === "finish" || call.name === "run_game_tests") {
-                result = await executeAgentToolAsync(handoverState(), call.name, call.input, {
-                  ...runtime,
-                  references,
-                  readOnly,
-                  allowedTools,
-                });
+                result =
+                  call.name === "finish" && !hasHandoverDocuments()
+                    ? { success: true, message: "Finished without document changes." }
+                    : await executeAgentToolAsync(handoverState(), call.name, call.input, {
+                        ...runtime,
+                        references,
+                        readOnly,
+                        allowedTools,
+                      });
               } else {
                 staged ??= editWorkspace().openToolState();
                 staged.state.readCommittedTests = () =>
@@ -1289,7 +1299,6 @@ export function createWorkspaceAgent(options: Options) {
               ) {
                 staged = undefined;
                 notes = undefined;
-                finishNotes = undefined;
                 finishStatus = "";
                 prepared.clear();
                 selection = undefined;
@@ -1340,7 +1349,6 @@ export function createWorkspaceAgent(options: Options) {
             }
             if (call.name === "finish" && result.success) {
               handedOver = true;
-              finishNotes = typeof call.input["notes"] === "string" ? call.input["notes"] : "";
               finishStatus = String(result.details?.["testsVerdict"] ?? "");
             }
             if (!result.success) {
@@ -1392,7 +1400,6 @@ export function createWorkspaceAgent(options: Options) {
           while (!followup && nextSteps.length) followup = await receiveNextSteps();
           if (followup) {
             handedOver = false;
-            finishNotes = undefined;
             finishStatus = "";
             turn = followup;
             continue;
@@ -1415,9 +1422,10 @@ export function createWorkspaceAgent(options: Options) {
         }
         let handoverRejected = false;
         if (!readOnly && !handedOver) {
-          let verdict: AgentToolResult;
+          let verdict: AgentToolResult | undefined;
           try {
-            verdict = validateAgentHandover(handoverState(), turn.text ?? "");
+            if (hasHandoverDocuments())
+              verdict = validateAgentHandover(handoverState(), turn.text ?? "");
           } catch (cause) {
             // Candidate construction can fail before the handover verdict. It is
             // still a visible authoring failure; provider and cancellation errors
@@ -1427,10 +1435,9 @@ export function createWorkspaceAgent(options: Options) {
               error: cause instanceof Error ? cause.message : String(cause),
             };
           }
-          if (verdict.success) {
-            finishNotes = turn.text ?? "";
+          if (verdict?.success) {
             finishStatus = String(verdict.details?.["testsVerdict"] ?? "");
-          } else {
+          } else if (verdict) {
             handoverRejected = true;
             error = verdict.error ?? "Handover rejected.";
             progress.push(error);

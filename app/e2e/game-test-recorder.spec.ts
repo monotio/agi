@@ -113,8 +113,7 @@ test("Tests never block edits: record a playthrough, Apply a failing game edit, 
       ...remixResponses(
         "broken-test",
         [["run_game_tests", { names: ["recorded mural repair"] }]],
-        `${recordedFailure?.error ?? "The recorded test was run."}
-paint the mural and recorded mural repair stay red because the lesson text changed; restore it to repair both.`,
+        recordedFailure?.error ?? "The recorded test was run.",
       ),
       ...remixResponses(
         "repair",

@@ -2974,7 +2974,7 @@ test("An Agent turn that commits nothing has no Undo message and cannot undo a c
         };
       },
       async complete() {
-        return { text: "Intro needs room 1. Echo unchanged.", toolCalls: [] };
+        return { text: "Echo", toolCalls: [] };
       },
     }),
   });
@@ -3136,6 +3136,14 @@ for (const stored of [true, false])
             text: "Model reply",
             toolCalls: [
               {
+                id: "proposal",
+                name: "propose_changes",
+                input: {
+                  label: "Recolor",
+                  changes: [{ key: "picture:1", content: "vis 2\nfill 0,0\nend\n" }],
+                },
+              },
+              {
                 id: "finish",
                 name: "finish",
                 input: { notes: stored ? "Future needs room 5." : null },
@@ -3148,12 +3156,16 @@ for (const stored of [true, false])
         },
       }),
     });
+    const before = session.history.capture().cursor;
+    agent.autoApprove = true;
     try {
       await agent.submit({
         instruction: "Finish",
         mode: "create",
         formatReply: () => ({ text: "Formatted reply", context: "Task details" }),
       });
+      assert.notEqual(session.history.capture().cursor, before);
+      assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
       assert.equal(
         agent.current().messages.at(-1)!.text,
         stored ? "1 tests fail: Future\nFormatted reply" : "Formatted reply",
@@ -3708,7 +3720,7 @@ test("Only the creator edits existing tests: Auto-approve reviews a changed orig
 });
 
 for (const outcome of ["named red", "unnamed red", "green", "formatted unnamed red"] as const)
-  test(`Agent handover checks the base even with no edits: ${outcome}`, async () => {
+  test(`Questions keep their answer without a handover: ${outcome}`, async () => {
     const { session } = fixture();
     const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
     await session.submit({
@@ -3768,17 +3780,93 @@ for (const outcome of ["named red", "unnamed red", "green", "formatted unnamed r
       else await agent.send("Finish without edits");
       assert.equal(session.history.capture().cursor, cursor);
       assert.equal(agent.pending(), null);
-      if (outcome === "unnamed red" || outcome === "formatted unnamed red") {
-        assert.match(agent.error ?? "", /Not finished: "Score test" fail/);
-        assert.match(agent.current().messages.at(-1)!.text, /^1 tests fail: Score test/);
-        assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Score test" fail/);
-      } else {
-        assert.equal(agent.error ?? "", "");
-        assert.match(
-          agent.current().messages.at(-1)!.text,
-          outcome === "green" ? /^All 1 tests pass\./ : /^1 tests fail: Score test/,
-        );
-      }
+      assert.equal(agent.error ?? "", "");
+      assert.equal(
+        agent.current().messages.at(-1)!.text,
+        outcome === "formatted unnamed red"
+          ? "Changes complete"
+          : outcome === "named red"
+            ? "Score test needs the score implementation."
+            : "Done",
+      );
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const path of ["answer", "untouched plan", "read tests", "echo tests", "finish"] as const)
+  test(`a question that changes nothing gets its answer: ${path}`, async () => {
+    const { session } = fixture();
+    const tests = JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [{ name: "Score test", room: 5, steps: [] }],
+    });
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        { key: "tests", content: tests },
+        { key: "logic:1", content: "return;" },
+        ...(path === "untouched plan"
+          ? [
+              {
+                key: "world",
+                content: JSON.stringify({
+                  rooms: { "1": { title: "Kitchen", description: "", exits: { north: 2 } } },
+                  facts: {},
+                  quests: {},
+                }),
+              },
+            ]
+          : []),
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const cursor = session.history.capture().cursor;
+    const documents = session.model.capture().documents();
+    const answer = "Room 1 is the kitchen...";
+    const calls =
+      path === "read tests"
+        ? [{ id: "read", name: "read_game_tests", input: { names: null, offset: null } }]
+        : path === "echo tests"
+          ? [
+              {
+                id: "echo",
+                name: "propose_changes",
+                input: {
+                  label: "Echo",
+                  changes: [{ key: "tests", content: JSON.stringify(JSON.parse(tests), null, 2) }],
+                },
+              },
+            ]
+          : path === "finish"
+            ? [{ id: "finish", name: "finish", input: { notes: null } }]
+            : [];
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults(entries) {
+          for (const entry of entries)
+            assert.equal(entry.result.success, true, JSON.stringify(entry));
+        },
+        async sendUserMessage() {
+          return { text: answer, toolCalls: calls };
+        },
+        async complete() {
+          return { text: answer, toolCalls: [] };
+        },
+      }),
+    });
+    try {
+      await agent.send("What is room 1?");
+      assert.equal(agent.current().messages.at(-1)!.text, answer);
+      assert.equal(agent.error, "");
+      assert.equal(session.history.capture().cursor, cursor);
+      assert.deepEqual(session.model.capture().documents(), documents);
     } finally {
       session.dispose();
     }
