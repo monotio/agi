@@ -1,3 +1,5 @@
+import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
+import { projectLabelContext } from "../shell/projectLabelContext.ts";
 import { requireProjectId } from "../../../src/gameIdentity.ts";
 import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
@@ -1240,7 +1242,21 @@ export function useEngine(
       state.returnNote =
         reply.restartedRoom === undefined
           ? ""
-          : `Room ${reply.restartedRoom} started fresh with your changes.`;
+          : `${numberedLabel(
+              "room",
+              reply.restartedRoom,
+              projectLabelContext(
+                projectSession?.workingSnapshot().documents() ?? {},
+                undefined,
+                roomMap.value?.graph.value.nodes.map((node) => ({
+                  room: node.room,
+                  title: node.title,
+                  pictures: roomMap.value?.resources.value.shared.has(node.room)
+                    ? []
+                    : (roomMap.value?.resources.value.scans.get(node.room)?.pictures ?? []),
+                })) ?? [],
+              ),
+            )} started fresh with your changes.`;
     }
     if (mode === "play") state.returnProblem = "";
     projectMode = mode;

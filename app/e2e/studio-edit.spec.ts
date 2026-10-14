@@ -482,7 +482,7 @@ test("the copy and fresh-room notices close by themselves", async ({ page }) => 
   await closeWorkspaceEditor(page);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   const returnNote = page.getByTestId("return-note");
-  await expect(returnNote).toHaveText("Room 1 started fresh with your changes.");
+  await expect(returnNote).toHaveText("Picture Gallery started fresh with your changes.");
   await returnNote.hover();
   await page.waitForTimeout(2_000);
   await expect(returnNote).toBeVisible();

@@ -182,6 +182,7 @@ export function preparePartDraftRemoval(
     }
   }
   let testNotice = "";
+  let testCount = 0;
   if (room !== undefined && documents["tests"] !== undefined) {
     try {
       const content = documents["tests"];
@@ -190,7 +191,8 @@ export function preparePartDraftRemoval(
         profile,
       );
       const kept = tests.tests.filter((test) => !gameTestUsesRoom(test, room, profile));
-      if (deleteTests && kept.length !== tests.tests.length) {
+      testCount = tests.tests.length - kept.length;
+      if (deleteTests && testCount > 0) {
         const content = new TextDecoder().decode(serializeGameTests(kept));
         documents["tests"] = content;
         changes.push({ key: "tests", content });
@@ -209,7 +211,7 @@ export function preparePartDraftRemoval(
       ),
     ),
   ];
-  return { changes, problems, messages, metadata, testNotice };
+  return { changes, problems, messages, metadata, testNotice, testCount };
 }
 
 type Journal = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">;

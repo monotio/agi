@@ -283,7 +283,7 @@ test("a room LOGIC changed after scan.start starts fresh when Play returns", asy
     "true",
   );
   const note = page.getByTestId("return-note");
-  await expect(note).toHaveText("Room 1 started fresh with your changes.");
+  await expect(note).toHaveText("Home started fresh with your changes.");
   await expect(page.getByTestId("return-notice")).toHaveCount(0);
   await expect.poll(() => screenText(page)).toContain("New start");
   expect((await textHook(page)).room).toBe(1);
