@@ -847,6 +847,17 @@ this contract, including project export/import. Successful authoring mutations
 rerun affected tests conservatively; the verdict reports any tests not run.
 Stored tests travel only in project archives.
 
+The Agent may finish while tests are red when its notes name every failing test
+and explain why each stays red. Finish checks all committed tests, including
+creator tests and failures from earlier turns, plus newly proposed tests. It
+starts its result and reply with `N tests fail: name, name` or `All N tests pass.`;
+with no tests it adds no test status. The Agent fixes the game or leaves a test
+red and explains why. Only the creator changes an expectation or deletes a test
+to make it pass. Test deletions and expectation changes have separate named
+lines in review. Existing-test edits require the creator's Apply even with
+Auto-approve on; new tests may be applied automatically. These checks never
+block the creator's own edits.
+
 `read_game_tests` lists compact summaries or pages of editable JSON definitions;
 opaque snapshots and replay tapes stay out of model responses. Merge edits
 retain existing recording setup when it is omitted or null. Full replacement

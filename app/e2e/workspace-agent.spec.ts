@@ -63,7 +63,7 @@ async function documents(page: Page) {
   });
 }
 
-test("Tests never block edits: Auto-approve commits a failing test and runs the committed document @webkit-desktop", async ({
+test("Agent finish names red tests: Auto-approve commits a failing test and runs the committed document @webkit-desktop", async ({
   page,
 }) => {
   let requests = 0;
@@ -113,7 +113,7 @@ test("Tests never block edits: Auto-approve commits a failing test and runs the 
                   id: "finish",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"notes":"Impossible score needs its score implementation."}',
                 },
               ]
             : requests === 2
@@ -240,7 +240,7 @@ for (const size of [{ width: 1440, height: 900 }]) {
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute(
       "title",
-      "Review asks before applying changes. Auto-approve applies them as they arrive.",
+      "Review asks before applying changes. Auto-approve applies game edits and new tests. Existing test edits need review.",
     );
     await page.evaluate(() => {
       const panel = document.querySelector("[data-testid=workspace-agent-panel]")!;
@@ -888,3 +888,116 @@ test("an Agent edit to an imported game's LOGIC shows only the changed lines", a
   await expect.poll(() => diff.locator(".line-insert").count()).toBe(1);
   expect(await diff.locator(".line-delete").count()).toBe(0);
 });
+
+for (const width of [1440, 390])
+  test(`Agent finish protects creator tests and review names deleted tests and changed expectations (${width}px)`, async ({
+    page,
+  }) => {
+    let requests = 0;
+    let refusal = "";
+    await page.setViewportSize({ width, height: 950 });
+    await page.route("**/api/openai/v1/responses", async (route) => {
+      requests++;
+      const body = route.request().postDataJSON() as {
+        input?: { type?: string; call_id?: string; output?: { text?: string }[] }[];
+      };
+      const raw = body.input
+        ?.find((entry) => entry.type === "function_call_output" && entry.call_id === "finish-red")
+        ?.output?.find((entry) => entry.text)?.text;
+      if (raw) refusal = JSON.parse(raw).error ?? "";
+      const calls =
+        requests === 1
+          ? [
+              {
+                id: "remove",
+                name: "write_game_tests",
+                input: { mode: "remove", names: ["Open door"], tests: null },
+              },
+              {
+                id: "weaken",
+                name: "write_game_tests",
+                input: {
+                  mode: "merge",
+                  names: null,
+                  tests: [{ name: "Treasure", room: 1, steps: [], expect: { score: 0 } }],
+                },
+              },
+              { id: "finish-red", name: "finish", input: { notes: null } },
+            ]
+          : [
+              {
+                id: "finish-notes",
+                name: "finish",
+                input: {
+                  notes:
+                    "Open door and Treasure stay red because their score has not been implemented.",
+                },
+              },
+            ];
+      await route.fulfill(
+        providerReply("openai", {
+          id: `red-review-${requests}`,
+          status: "completed",
+          output: calls.map((call) => ({
+            type: "function_call",
+            call_id: call.id,
+            id: call.id,
+            name: call.name,
+            arguments: JSON.stringify(call.input),
+          })),
+        }),
+      );
+    });
+    await start(page, "openai", false);
+    await page.getByRole("radio", { name: "Auto-approve", exact: true }).click();
+    await page.evaluate(async () => {
+      const session = (
+        window as unknown as {
+          __AGI_PROJECT__: {
+            getSession(): {
+              model: {
+                capture(): unknown;
+                propose(base: unknown, label: string, changes: unknown[]): unknown;
+              };
+              submit(input: unknown): Promise<unknown>;
+              flush(): Promise<unknown>;
+            };
+          };
+        }
+      ).__AGI_PROJECT__.getSession();
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator tests", [
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [
+                { name: "Open door", room: 1, steps: [], expect: { score: 99 } },
+                { name: "Treasure", room: 1, steps: [], expect: { score: 99 } },
+              ],
+            }),
+          },
+        ]),
+        label: "Creator tests",
+        origin: "guided",
+        author: "creator",
+      });
+      await session.flush();
+    });
+    const before = await documents(page);
+    await page.getByTestId("agent-message").fill("Propose the requested test edits for review");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    expect(refusal).toBe(
+      'Not finished: "Open door", "Treasure" fail. Fix them, or say in notes why each stays red.',
+    );
+    await expect(page.getByTestId("workspace-agent-panel")).toContainText(
+      "2 tests fail: Open door, Treasure",
+    );
+    await expect(page.getByTestId("agent-test-change")).toHaveText([
+      'Deleted test "Open door"',
+      'Changed expectation of "Treasure"',
+    ]);
+    expect(await documents(page)).toEqual(before);
+    await page.screenshot({ path: test.info().outputPath(`test-review-changes-${width}.png`) });
+  });

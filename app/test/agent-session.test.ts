@@ -1218,3 +1218,124 @@ for (const provider of ["openai", "anthropic"] as const) {
     assert.equal(orientation, 0);
   });
 }
+
+for (const mode of ["genesis", "room", "implicit remix"] as const)
+  test(`Agent finish status starts the ${mode} chat reply while creator tests stay red`, async (t) => {
+    let requests = 0;
+    const call = (name: string, input: unknown) => ({
+      type: "function_call",
+      call_id: `${name}-${requests}`,
+      name,
+      arguments: JSON.stringify(input),
+    });
+    t.mock.method(globalThis, "fetch", async () => {
+      requests++;
+      const output =
+        mode === "implicit remix" && requests === 2
+          ? [
+              {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "Future room needs room 5." }],
+              },
+            ]
+          : mode === "room" && requests === 1
+            ? [
+                call("write_logic", { room: 2, source: "return;" }),
+                call("write_picture", { room: 2, source: "vis 1\nfill 0,0\nend" }),
+              ]
+            : mode === "implicit remix"
+              ? [call("write_logic", { room: 1, source: "return;" })]
+              : [call("finish", { notes: "Future room needs room 5." })];
+      return new Response(providerSse("openai", { id: String(requests), output }), {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+    const state = createAgentSessionState();
+    state.readCommittedTests = () =>
+      JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: [{ name: "Future room", room: 5, steps: [] }],
+      });
+    state.finishTestsBase = null;
+    const session = new AgentSession(
+      { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
+      () => {},
+      state,
+    );
+    if (mode === "genesis") {
+      await session.startGenesis("A simple mystery.");
+      assert.match(session.getMessages().at(-1)?.text ?? "", /^1 tests fail: Future room/);
+    } else if (mode === "room") {
+      await session.handle({ op: "room", context: { room: 2, from: 1 } });
+      assert.match(
+        session.getBackgroundChats().at(-1)?.messages.at(-1)?.text ?? "",
+        /^1 tests fail: Future room/,
+      );
+    } else {
+      state.genesisComplete = true;
+      const result = await session.runPowerUp("Edit logic", 1);
+      assert.match(result.text, /^1 tests fail: Future room/);
+      assert.ok(
+        state.container.getResource("logic", 1),
+        "a failed affected-test rerun retains the edit for finish",
+      );
+    }
+  });
+
+for (const mode of ["power-up", "room", "genesis"] as const)
+  test(`Only the creator changes tests: the direct ${mode} driver refuses deleting a saved red test and keeps game edits`, async (t) => {
+    const { installBoilerplateSeed } = await import("../../src/agent/baseTemplate.ts");
+    const { readStoredTests } = await import("../../src/agent/gameTestsRunner.ts");
+    const state = createAgentSessionState();
+    if (mode === "genesis") installBoilerplateSeed(state);
+    else state.genesisComplete = true;
+    const document = JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [{ name: "Future room", room: 5, steps: [] }],
+    });
+    state.testsPayload = new TextEncoder().encode(document);
+    state.readCommittedTests = () => document;
+    state.finishTestsBase = document;
+    const bodies: string[] = [];
+    const call = (name: string, input: unknown) => ({
+      type: "function_call",
+      name,
+      call_id: `${name}-${bodies.length}`,
+      arguments: JSON.stringify(input),
+    });
+    t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+      bodies.push(String(init.body));
+      const output =
+        bodies.length === 1
+          ? [
+              ...(mode === "room"
+                ? [
+                    call("write_logic", { room: 2, source: "return;" }),
+                    call("write_picture", { room: 2, source: "vis 1\nfill 0,0\nend" }),
+                  ]
+                : mode === "power-up"
+                  ? [call("write_logic", { room: 1, source: "return;" })]
+                  : []),
+              call("write_game_tests", { mode: "remove", names: ["Future room"], tests: null }),
+            ]
+          : [call("finish", { notes: "Future room stays red because room 5 has not been built." })];
+      return new Response(providerSse("openai", { id: String(bodies.length), output }), {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+    const session = new AgentSession(
+      { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
+      () => {},
+      state,
+    );
+    if (mode === "genesis") await session.startGenesis("A simple mystery.");
+    else if (mode === "room") await session.handle({ op: "room", context: { room: 2, from: 1 } });
+    else await session.runPowerUp("Propose test removal", 1);
+    assert.deepEqual(
+      readStoredTests(state).map((test) => test.name),
+      ["Future room"],
+    );
+    assert.match(bodies[1]!, /creator review/i);
+    assert.ok(state.container.getResource("logic", mode === "room" ? 2 : 1));
+  });

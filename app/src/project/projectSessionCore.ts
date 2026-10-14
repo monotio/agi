@@ -1127,9 +1127,16 @@ function createSession(
         ),
       );
     },
-    submitPreparedRoom(edit: { proposal: ProjectProposal } & Omit<ProjectCommitMetadata, "time">) {
-      const { proposal, ...metadata } = edit;
-      return schedule(() => apply(proposal, { ...metadata, time: Date.now() }, undefined, true));
+    submitPreparedRoom(
+      edit: { proposal: ProjectProposal; beforeCommit?: () => void } & Omit<
+        ProjectCommitMetadata,
+        "time"
+      >,
+    ) {
+      const { proposal, beforeCommit, ...metadata } = edit;
+      return schedule(() =>
+        apply(proposal, { ...metadata, time: Date.now() }, undefined, true, beforeCommit),
+      );
     },
     undo(review?: ComputedRoomRemovalReview) {
       return schedule(async () => {

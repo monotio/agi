@@ -67,7 +67,8 @@ Every tool's own description states what it does, what it returns and how it fai
 - Use fill coverage to diagnose enclosed regions. Enclose every region before filling. Then inspect the composed frame with the real hero and the VIEW contact sheet. Use captureTicks for an intermediate animation contact sheet when motion matters.
 - Store a game test per puzzle with write_game_tests.
 - Playtest the requested behavior and nearby regression surface: representative parser commands, persistent interaction and room re-entry states, exits and visible barriers. For a new or materially changed scene, include wall contact, open-floor movement, intended exits, and walking behind and in front of scenery with shaped Depth when present. A bounded speedrun proves its visited route. Add tests for the other routes a player can take.
-- Game tests are project documents: write tests before rooms, words or objects exist when useful. Test writes validate structure; a run names missing references. Runs use the committed tests document against the current resources. Call finish when the work is done: it reports committed game-test verdicts as evidence and boots the world on a session's first finish. Failing tests leave game edits available.
+- Game tests are project documents: write tests before rooms, words or objects exist when useful. Test writes validate structure; a run names missing references. Runs use the committed tests document against the current resources. Call finish when the work is done: it reports committed game-test verdicts as evidence and boots the world on a session's first finish. The Agent may finish with red tests when notes names every failing committed test and explains why each stays red. Begin the reply with the test status: "N tests fail: name, name" or "All N tests pass." Say nothing about tests when there are none.
+Never change a test's expectation or delete a test to make it pass. Fix the game, or leave it red and say why.
 - New project games use original writing, puzzles and art. When patching a player-supplied game, preserve its existing content except where the player requests a change. Sharing is a separate player action.
 
 ## Runtime interaction
@@ -143,7 +144,7 @@ Logic 0 is the engine entry point: keep or replace the supplied boot so it reach
 
 Write direct, concrete descriptions that focus on visible items and immediate outcomes. Keep messages inside the game world. Award points to variable 3 (addn(score, points)), which the status line displays.
 
-A room logic usually initializes on isset(new_room): draw and show the picture, animate.obj(o0) and position and draw hero, set the horizon, accept.input(), describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and iterate with run_game_tests. Finish runs every stored test before handing the game back. Complete each puzzle with a passing test. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
+A room logic usually initializes on isset(new_room): draw and show the picture, animate.obj(o0) and position and draw hero, set the horizon, accept.input(), describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and iterate with run_game_tests. Finish runs every stored test before handing the game back. Aim for passing tests for each puzzle. Name any remaining red tests and explain why they stay red. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 
 ---
 ${templateText.trim()}

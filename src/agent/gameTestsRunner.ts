@@ -1,3 +1,4 @@
+import { sameGameTestDefinition } from "./gameTestComparison.ts";
 /** Stored tests run through the same detached interpreter as Agent playtests. */
 import { createContainer } from "../container/container.ts";
 import { assembleLogic } from "../logic/assembler.ts";
@@ -302,14 +303,37 @@ export function verdictLine(outcomes: readonly GameTestOutcome[]): string {
 }
 
 /** Run stored tests (all, or the named ones) and shape the verdict-first result. */
-export function runGameTests(
+function runTests(
   session: AgentSessionState,
   names: readonly string[] | null,
   limit = Infinity,
+  finish = false,
 ): AgentToolResult {
   let stored: readonly GameTest[];
+  let proposedTestsCause: string | undefined;
   try {
     stored = readRunTests(session);
+    if (finish && session.readCommittedTests) {
+      try {
+        const base =
+          session.finishTestsBase === undefined
+            ? stored
+            : parseGameTests(
+                typeof session.finishTestsBase === "string"
+                  ? new TextEncoder().encode(session.finishTestsBase)
+                  : (session.finishTestsBase ?? undefined),
+                session.profile,
+              ).tests;
+        const additions = readStoredTests(session).filter(
+          (test) =>
+            !stored.some((current) => current.name === test.name) &&
+            !base.some((old) => old.name === test.name && sameGameTestDefinition(old, test)),
+        );
+        stored = [...stored, ...additions];
+      } catch (error) {
+        proposedTestsCause = `Proposed tests could not be read: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
   } catch (error) {
     return { success: false, error: String(error instanceof Error ? error.message : error) };
   }
@@ -340,6 +364,7 @@ export function runGameTests(
       : { error: line }),
     details: {
       gameTests: outcomes,
+      ...(proposedTestsCause ? { proposedTestsCause } : {}),
       stored: stored.length,
       ran: outcomes.length,
       reused: outcomes.filter((outcome) => outcome.reused).length,
@@ -357,6 +382,20 @@ export function runGameTests(
     },
     ...(firstFailure?.images ? { images: firstFailure.images.slice(0, 1) } : {}),
   };
+}
+
+/** Runs read the committed document, independent of proposed Agent test edits. */
+export function runGameTests(
+  session: AgentSessionState,
+  names: readonly string[] | null,
+  limit = Infinity,
+): AgentToolResult {
+  return runTests(session, names, limit);
+}
+
+/** Finish protects all committed definitions and checks genuinely new proposed tests too. */
+export function runFinishGameTests(session: AgentSessionState): AgentToolResult {
+  return runTests(session, null, Infinity, true);
 }
 
 /** How a touched resource reads in the rerun report, e.g. "room 3" for its logic. */

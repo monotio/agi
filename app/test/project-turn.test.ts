@@ -1,3 +1,8 @@
+import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+installIndexedDbFixture();
+import { openProjectSession } from "../src/project/projectSession.ts";
+import { requireProjectId } from "../../src/gameIdentity.ts";
+import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ProjectModel, type ProjectProposal } from "../../src/authoring/projectModel.ts";
@@ -52,7 +57,7 @@ for (const retry of [false, true])
     executeAgentTool(f.state, "write_game_tests", {
       mode: "replace",
       names: null,
-      tests: [entry("Echo"), entry("Change", 2), entry("Added")],
+      tests: [entry("Echo"), entry("Change"), entry("Added")],
     });
     f.save([entry("Echo", 3), entry("Change", 4), entry("Creator")]);
     let attempts = 0;
@@ -77,14 +82,14 @@ for (const retry of [false, true])
       retry
         ? [
             ["Echo", 5],
-            ["Change", 2],
+            ["Change", 6],
             ["Creator", 1],
             ["During queue", 1],
             ["Added", 1],
           ]
         : [
             ["Echo", 3],
-            ["Change", 2],
+            ["Change", 4],
             ["Creator", 1],
             ["Added", 1],
           ],
@@ -114,3 +119,104 @@ test("Tests merge by name: game document changes still refuse a stale background
     /project changed/,
   );
 });
+
+for (const queued of [false, true])
+  test(`Only the creator changes existing tests: direct Agent additions refuse a creator's same-name collision (${queued ? "queued" : "before submit"})`, async () => {
+    const f = fixture();
+    executeAgentTool(f.state, "write_game_tests", {
+      mode: "merge",
+      names: null,
+      tests: [entry("New", 2)],
+    });
+    if (!queued) f.save([entry("Echo"), entry("Change"), entry("New", 3)]);
+    else
+      f.session.submit = async (edit) => {
+        f.save([entry("Echo"), entry("Change"), entry("New", 3)]);
+        edit.beforeCommit?.();
+        f.apply(edit.proposal);
+        return { status: "committed", diagnostics: [] };
+      };
+    await assert.rejects(
+      submitAgentState({
+        session: f.session,
+        base: f.base,
+        state: f.state,
+        profileId: "2.936",
+        label: "Tests",
+      }),
+      /creator review/i,
+    );
+    const tests = JSON.parse(String(f.model.capture().read("tests")!.content)).tests;
+    assert.equal(tests.find((test: { name: string; room: number }) => test.name === "New").room, 3);
+  });
+
+for (const preparedRoom of [false, true])
+  test(`Only the creator changes existing tests: the real ${preparedRoom ? "prepared room" : "normal"} queue refuses a late same-name collision`, async () => {
+    const f = fixture();
+    const session = openProjectSession({
+      data: {
+        projectId: requireProjectId(`real-collision-${preparedRoom}`),
+        title: "Tests",
+        authoredAt: "",
+        files: Object.fromEntries(f.base.lastAdmissibleBuild!.files()),
+        words: [],
+        workspace: writeProjectWorkspace(f.base.documents()),
+        roomGeneration: true,
+      },
+      lifetime: "test",
+      admission: {
+        runToken: "test",
+        admit: async () => ({
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 0,
+        }),
+      },
+      write: async (request) => ({
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      }),
+    });
+    try {
+      await session.ready;
+      const base = session.model.capture();
+      executeAgentTool(f.state, "write_game_tests", {
+        mode: "merge",
+        names: null,
+        tests: [entry("New", 2)],
+      });
+      const creator = session.submit({
+        proposal: session.model.propose(base, "Creator tests", [
+          { key: "tests", content: document([entry("Echo"), entry("Change"), entry("New", 3)]) },
+        ]),
+        label: "Creator tests",
+        author: "creator",
+        origin: "guided",
+      });
+      const attempted = submitAgentState({
+        session,
+        base,
+        state: f.state,
+        profileId: "2.936",
+        label: "Added tests",
+        preparedRoom,
+      });
+      await creator;
+      await assert.rejects(attempted, /creator review/i);
+      const tests = JSON.parse(String(session.model.capture().read("tests")!.content)).tests;
+      assert.equal(
+        tests.find((test: { name: string; room: number }) => test.name === "New").room,
+        3,
+      );
+    } finally {
+      session.dispose();
+    }
+  });

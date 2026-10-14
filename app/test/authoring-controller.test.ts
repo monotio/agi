@@ -7,7 +7,7 @@ import {
   type PowerUpUiState,
   type RoomGenerationUiState,
 } from "../src/authoring/useAuthoringController.ts";
-import { ResourceCommitError } from "../src/project/projectTransaction.ts";
+import { ResourceCommitError, advanceAuthoring } from "../src/project/projectTransaction.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
@@ -1342,6 +1342,7 @@ async function openReferenceProject(
   t: { after: (fn: () => void) => void },
   name: string,
   write?: Parameters<typeof openProjectSession>[0]["write"],
+  runtime?: ReturnType<typeof remixHarness>,
 ) {
   const projectId = testProjectId(name);
   // Registered before the storage mock, so cleanup runs while it is installed.
@@ -1363,6 +1364,7 @@ async function openReferenceProject(
     files,
     words: [],
     authoredGame: (await loadAuthoredGame(projectId))!,
+    historyLifetime: await readHistoryLifetime(projectId),
   };
   const project = openProjectSession({
     data: game.authoredGame!,
@@ -1376,23 +1378,28 @@ async function openReferenceProject(
         patchGeneration: 1,
       }),
     },
+    saved(data) {
+      game.authoredGame = { ...game.authoredGame!, ...data };
+      advanceAuthoring(game, data.authoringState, data.workspace);
+    },
     ...(write ? { write } : {}),
   });
   t.after(() => project.dispose());
   assert.equal(await project.ready, true);
+  const powerUp = createMockPowerUp();
   const controller = useAuthoringController({
     state: {
       phase: "running",
-      powerUp: createMockPowerUp(),
+      powerUp,
       agentTask: null,
       agentLog: [],
       profile: "2.936",
       worldTick: 0,
       planDurableRev: "",
     },
-    getWorker: () => null,
+    getWorker: () => runtime?.worker ?? null,
     getProjectSession: () => project,
-    query: async <T>() => null as T,
+    query: runtime?.query ?? (async <T>() => null as T),
     logAgent: () => {},
     readFrames: async () => [],
     pauseEngine: () => {},
@@ -1404,7 +1411,7 @@ async function openReferenceProject(
     clearAutosave: () => {},
     awaitPatched: ackPatch,
   });
-  return { projectId, project, controller };
+  return { projectId, project, controller, powerUp };
 }
 
 const referenceImage = {
@@ -3174,3 +3181,135 @@ for (const turn of ["room", "map"] as const) {
     }
   });
 }
+
+test("Every Agent path starts from committed tests: power-up preserves a creator's saved Intro", async (t) => {
+  const { project, controller, powerUp } = await openReferenceProject(
+    t,
+    "powerup-tests",
+    undefined,
+    remixHarness(createTestFiles()),
+  );
+  await controller.openPowerUp(mockConfig);
+  const author = controller.getSession()!;
+  author.runPowerUp = async () => {
+    const payload = assembleLogic("return;", { dictionary: new Map() }).payload;
+    author.state.container.putResource("logic", 1, payload);
+    return { text: "Added logic", patched: [{ kind: "logic", num: 1, payload }] };
+  };
+  await saveTests(project, {
+    kind: "merge",
+    tests: [{ name: "Intro", room: 1, steps: [], expect: null }],
+  });
+  await project.flush();
+  await controller.submitPowerUp("Add a sign");
+  assert.equal(powerUp.error, "", "power-up completes");
+  assert.match(String(project.model.capture().read("tests")?.content), /Intro/);
+  assert.ok(project.model.capture().read("logic:1"), "the power-up edits the game");
+  assert.match(new TextDecoder().decode(author.state.testsPayload), /Intro/);
+  controller.resetSession();
+});
+
+test("An Agent power-up that commits nothing has no Undo message for the creator's earlier tests", async (t) => {
+  const { project, controller, powerUp } = await openReferenceProject(
+    t,
+    "powerup-noop",
+    undefined,
+    remixHarness(createTestFiles()),
+  );
+  await controller.openPowerUp(mockConfig);
+  const author = controller.getSession()!;
+  await saveTests(project, {
+    kind: "merge",
+    tests: [{ name: "Intro", room: 1, steps: [], expect: null }],
+  });
+  await project.flush();
+  const task: ReturnType<AgentSession["getBackgroundChats"]>[number] = {
+    id: "noop-task",
+    title: "Echo tests",
+    provider: "stub",
+    model: "stub",
+    transcript: [],
+    messages: [],
+    background: true,
+  };
+  author.getBackgroundChats = () => [task];
+  author.runPowerUp = async () => {
+    const tests = JSON.parse(new TextDecoder().decode(author.state.testsPayload));
+    author.state.testsPayload = new TextEncoder().encode(JSON.stringify(tests, null, 2));
+    return { text: "Echo tests", patched: [] };
+  };
+  const before = project.history.capture().cursor;
+  await controller.submitPowerUp("Echo tests");
+  assert.equal(powerUp.error, "");
+  assert.equal(project.history.capture().cursor, before);
+  const message = project
+    .chats()
+    .chats.find((chat) => chat.id === task.id)!
+    .messages.at(-1)!;
+  assert.equal(message.beforeCommit, undefined);
+  assert.equal(message.commit, undefined);
+  controller.resetSession();
+});
+
+test("Undo message for a power-up belongs to its own commit when a creator test lands before its receipt", async (t) => {
+  const { project, controller, powerUp } = await openReferenceProject(
+    t,
+    "powerup-own-commit",
+    undefined,
+    remixHarness(createTestFiles()),
+  );
+  await controller.openPowerUp(mockConfig);
+  const author = controller.getSession()!;
+  await saveTests(project, {
+    kind: "merge",
+    tests: [{ name: "Intro", room: 1, steps: [], expect: null }],
+  });
+  await project.flush();
+  const task: ReturnType<AgentSession["getBackgroundChats"]>[number] = {
+    id: "own-task",
+    title: "Changed logic",
+    provider: "stub",
+    model: "stub",
+    transcript: [],
+    messages: [],
+    background: true,
+  };
+  author.getBackgroundChats = () => [task];
+  author.runPowerUp = async () => {
+    const payload = assembleLogic("return;", { dictionary: new Map() }).payload;
+    author.state.container.putResource("logic", 1, payload);
+    return { text: "Added logic", patched: [{ kind: "logic", num: 1, payload }] };
+  };
+  const submit = project.submit;
+  project.submit = async (edit) => {
+    const outcome = await submit(edit);
+    if (edit.author === "agent")
+      await submit({
+        proposal: project.model.propose(project.model.capture(), "Creator later tests", [
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [{ name: "Intro", room: 5, steps: [] }],
+            }),
+          },
+        ]),
+        label: "Creator later tests",
+        author: "creator",
+        origin: "guided",
+      });
+    return outcome;
+  };
+  await controller.submitPowerUp("Edit logic");
+  assert.equal(powerUp.error, "");
+  const message = project
+    .chats()
+    .chats.find((chat) => chat.id === task.id)!
+    .messages.at(-1)!;
+  const own = project.history.capture().commits.find((commit) => commit.messageId === message.id)!;
+  assert.equal(message.commit, own.id);
+  assert.equal(message.beforeCommit, own.parent);
+  assert.notEqual(message.commit, project.history.capture().cursor);
+  assert.match(String(project.model.capture().read("tests")?.content), /"room":5/);
+  controller.resetSession();
+});

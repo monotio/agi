@@ -35,6 +35,7 @@ function remixResponses(
   idPrefix: string,
   calls: [string, Record<string, unknown>][],
   text: string,
+  finishNotes?: string | null,
 ) {
   return [
     {
@@ -49,7 +50,18 @@ function remixResponses(
     },
     {
       id: `${idPrefix}-done`,
-      output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }],
+      output:
+        finishNotes !== undefined
+          ? [
+              {
+                type: "function_call",
+                id: `${idPrefix}-finish`,
+                call_id: `${idPrefix}-finish`,
+                name: "finish",
+                arguments: JSON.stringify({ notes: finishNotes }),
+              },
+            ]
+          : [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }],
     },
   ];
 }
@@ -96,6 +108,7 @@ test("Tests never block edits: record a playthrough, Apply a failing game edit, 
         "break",
         [["write_logic", { room: 1, source: BROKEN_ROOM_ONE }]],
         "The mural lesson is remixed.",
+        "paint the mural and recorded mural repair stay red because the lesson text changed; restore it to repair both.",
       ),
       ...remixResponses(
         "broken-test",
@@ -106,6 +119,7 @@ test("Tests never block edits: record a playthrough, Apply a failing game edit, 
         "repair",
         [["write_logic", { room: 1, source: ROOM_ONE }]],
         "The mural lesson is restored.",
+        null,
       ),
     ];
     await route.fulfill(respond(turns[Math.min(requests - 1, turns.length - 1)]));
@@ -169,6 +183,9 @@ test("Tests never block edits: record a playthrough, Apply a failing game edit, 
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-review")).toBeVisible();
   await expect.poll(() => agentFeed(page)).toContain("6 game tests pass, 2 fail");
+  await expect(page.getByTestId("workspace-agent-panel")).toContainText(
+    "2 tests fail: paint the mural, recorded mural repair",
+  );
   await page.getByTestId("agent-approve").click();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect

@@ -74,6 +74,9 @@ export interface AgentSessionState {
   /** Stored game tests (TESTS.JSON) written this session; see gameTests.ts. */
   testsPayload?: Uint8Array | undefined;
   /** Project hosts supply the current committed document for every simulation. */
+  /** Original turn tests; finish includes only genuinely added proposed names. */
+  finishTestsStatus?: string | undefined;
+  finishTestsBase?: string | Uint8Array | null | undefined;
   readCommittedTests?: (() => string | Uint8Array | undefined) | undefined;
   genesisComplete: boolean;
   /**
@@ -125,6 +128,7 @@ export function createAgentSessionState(
     wordsPayload,
     objectPayload,
     testsPayload: undefined,
+    finishTestsStatus: undefined,
     genesisComplete: false,
     diagnostics: new Map<string, AgentToolResult>(),
     testEvidence: new Map<string, { outcome: unknown; result: AgentToolResult }>(),

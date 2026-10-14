@@ -469,7 +469,7 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
     name: "finish",
     description: toolDescription(
       "finish",
-      "Finish authoring and resume the running game. Validates first: every stored game test runs against the current resources, and a session's first finish also boots the world in simulation (ego spawn, room display, modal handling). Failure returns the verdict for repair; only a passing finish resumes play. `notes` is optional free text.",
+      "Finish authoring and resume the running game. Validates first: every stored game test runs against the current resources, and a session's first finish also boots the world in simulation (ego spawn, room display, modal handling). The Agent may finish with red tests only when notes names every failing committed test and explains why each stays red. Finish starts with the test status. Never change a test's expectation or delete a test to make it pass. Fix the game, or leave it red and say why.",
     ),
     parameters: parameterDescriptions("finish", {
       type: "object",

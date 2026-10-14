@@ -989,7 +989,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const tasks = author.getBackgroundChats();
       const task = tasks.at(-1);
       const messageId = task ? `${task.id}-result` : undefined;
-      const before = project.history.capture().cursor!;
+      const existingCommits = new Set(project.history.capture().commits.map((commit) => commit.id));
       const outcome = await submitAgentState({
         session: project,
         base: projectTurnBases.get(game) ?? project.model.capture(),
@@ -1002,12 +1002,19 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       if (outcome && !["committed", "unchanged", "restartRequired"].includes(outcome.status))
         throw new Error("The agent change could not be applied. Retry the task.");
       if (task) {
+        const own = project.history
+          .capture()
+          .commits.find(
+            (commit) =>
+              !existingCommits.has(commit.id) &&
+              commit.chatId === task.id &&
+              commit.messageId === messageId,
+          );
         task.messages.push({
           id: messageId!,
           role: "assistant",
-          text: task.title,
-          beforeCommit: before,
-          commit: project.history.capture().cursor!,
+          text: [author.state.finishTestsStatus, task.title].filter(Boolean).join("\n"),
+          ...(own?.parent ? { beforeCommit: own.parent, commit: own.id } : {}),
         });
         await project.saveChats(appendAgentTasks({ chats: project.chats() }, tasks));
       }
@@ -1311,7 +1318,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // it when the staged result commits — the same gate a Keep applies.
       // A write already ahead fails fast, before the turn spends; the same
       // check inside the turn's commit gate catches one landing mid-turn.
-      const turnBase = turnBaseGuard(booted);
+      const turnBase = turnBaseGuard(booted, await refreshProjectTask(session));
       await turnBase();
       const { text, patched, files } = await session.runPowerUp(
         instruction,

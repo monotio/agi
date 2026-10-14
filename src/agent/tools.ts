@@ -66,7 +66,12 @@ import {
   type ReferenceSource,
 } from "./referenceTools.ts";
 import { GAME_TEST_TOOLS, executeGameTestTool } from "./gameTests.ts";
-import { runGameTests, rerunAffectedTests, type TouchedResource } from "./gameTestsRunner.ts";
+import {
+  runFinishGameTests,
+  rerunAffectedTests,
+  type TouchedResource,
+  type GameTestOutcome,
+} from "./gameTestsRunner.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -323,8 +328,15 @@ function withGameTestVerdict(
   if (!rerun) return result;
   return {
     ...result,
+    success: result.success && rerun.outcomes.every((test) => test.passed),
+    ...(!rerun.outcomes.every((test) => test.passed) ? { error: `Game tests: ${rerun.line}` } : {}),
     message: `Game tests: ${rerun.line}${result.message ? ` ${result.message}` : ""}`,
-    details: { ...result.details, gameTests: rerun.outcomes, gameTestsRerun: rerun.selection },
+    details: {
+      ...result.details,
+      gameTests: rerun.outcomes,
+      gameTestsRerun: rerun.selection,
+      gameTestsFailed: !rerun.outcomes.every((test) => test.passed),
+    },
   };
 }
 /**
@@ -1790,9 +1802,6 @@ export function validateAgentHandover(
   // Game tests report evidence without holding back edits. Every declared plan exit must
   // be backed by a reachable compiled transition, and the first finish
   // of a session also boots the world to a shown, interactive scene.
-  const testRun = runGameTests(session, null);
-  const gameTests = testRun.details?.["gameTests"];
-  const testsVerdict = testRun.message ?? testRun.error ?? "No game tests stored.";
   const connections = verifyPlanConnections(
     collectLogics(session.container),
     session.authoring.world.rooms,
@@ -1812,7 +1821,7 @@ export function validateAgentHandover(
         `to room ${first.to} but ${cause}. ` +
         `Implement the exit in room ${first.from}'s logic or revise the plan with update_plan.` +
         (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
-      details: { connections, genesisComplete: session.genesisComplete, gameTests, testsVerdict },
+      details: { connections, genesisComplete: session.genesisComplete },
     };
   }
   if (checkGenesis && !session.genesisComplete) {
@@ -1823,26 +1832,42 @@ export function validateAgentHandover(
         details: {
           ...result.details,
           genesisComplete: false,
-          gameTests,
-          testsVerdict,
           connections,
         },
       };
-    session.genesisComplete = true;
-    return {
-      ...result,
-      message: `${result.message ?? "Handover validated."} ${testsVerdict}`,
-      details: { ...result.details, genesisComplete: true, gameTests, testsVerdict, connections },
-    };
   }
+  // Tests run last, against the committed document and final candidate resources.
+  const testRun = runFinishGameTests(session);
+  const gameTests = testRun.details?.["gameTests"] as readonly GameTestOutcome[] | undefined;
+  const failed = gameTests?.filter((test) => !test.passed) ?? [];
+  const testsVerdict = failed.length
+    ? `${failed.length} tests fail: ${failed.map((test) => test.name).join(", ")}`
+    : gameTests?.length
+      ? `All ${gameTests.length} tests pass.`
+      : gameTests
+        ? ""
+        : (testRun.error ?? "");
+  if (failed.some((test) => typeof notes !== "string" || !notes.includes(test.name)))
+    return {
+      success: false,
+      error: `Not finished: ${failed.map((test) => JSON.stringify(test.name)).join(", ")} fail. Fix them, or say in notes why each stays red.`,
+      details: { gameTests, testsVerdict, connections },
+    };
+
+  session.genesisComplete = true;
+  session.finishTestsStatus = testsVerdict;
   return {
     success: true,
     message:
+      (testsVerdict ? `${testsVerdict}\n` : "") +
+      (testRun.details?.["proposedTestsCause"]
+        ? `${String(testRun.details["proposedTestsCause"])}\n`
+        : "") +
       "Handover validated" +
       (connections.verified.length
         ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
         : "") +
-      `. Resuming gameplay. ${testsVerdict}`,
+      `. Resuming gameplay.`,
     details: {
       genesisComplete: true,
       notes,

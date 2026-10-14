@@ -1,3 +1,5 @@
+import { gameTestReviewLines } from "../../src/agent/gameTestReview.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 /** Replay whole-project task failures through the real coordinated candidate pipeline. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -28,6 +30,7 @@ interface Case {
     expectedReply?: string;
     autoApprove?: boolean;
     expectedCommits?: number;
+    expectedReviewLines?: readonly string[];
     expectedDocuments?: Record<string, string | null>;
     readOnly?: boolean;
     submission?: { mode: "play" | "create"; readOnly?: boolean; context?: string };
@@ -165,6 +168,17 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
         content.expectedKeys,
       );
       assert.equal(session.history.capture().commits.length, content.expectedCommits ?? 1);
+      if (content.expectedReviewLines) {
+        const review = agent.pending()!;
+        assert.deepEqual(
+          gameTestReviewLines(
+            review.proposal.base.read("tests")?.content,
+            review.proposal.documents()["tests"],
+            PROFILES["2.936"]!,
+          ),
+          content.expectedReviewLines,
+        );
+      }
       if (content.approveAndExportSound !== undefined) {
         assert.ok(content.expectedSoundPayload);
         const key = `sound:${content.approveAndExportSound}`;

@@ -61,6 +61,7 @@ interface AgentChatMessage {
   readonly commit?: string;
 }
 export interface PendingAgentReview {
+  readonly finishNotes?: string;
   readonly label: string;
   readonly messageId: string;
   readonly baseRevision: number;
@@ -231,6 +232,7 @@ function validateReview(pending: PendingAgentReview, messageIds: Set<string>): v
     typeof pending.baseDocumentId !== "string" ||
     !/^[a-f0-9]{64}$/.test(pending.baseDocumentId) ||
     typeof pending.baseCommit !== "string" ||
+    (pending.finishNotes !== undefined && typeof pending.finishNotes !== "string") ||
     !onlyKeys(pending, [
       "label",
       "messageId",
@@ -240,6 +242,7 @@ function validateReview(pending: PendingAgentReview, messageIds: Set<string>): v
       "base",
       "baseImage",
       "candidate",
+      "finishNotes",
     ])
   )
     throw new Error("Invalid pending agent review.");

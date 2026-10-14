@@ -1,6 +1,6 @@
 {
   "name": "project-agent-failed-finish-tests",
-  "description": "Tests never block game edits: failing test expectations remain valid project documents.",
+  "description": "Agent finish refuses unnamed red tests; notes naming every failure permit handover.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -50,11 +50,23 @@
             }
           }
         ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "finish-with-notes",
+            "name": "finish",
+            "input": {
+              "notes": "Impossible score needs its score implementation."
+            }
+          }
+        ]
       }
     ],
     "expectedKeys": [],
     "expectedOutcomes": {
-      "finish": true
+      "finish": false,
+      "finish-with-notes": true
     },
     "autoApprove": true,
     "expectedDocuments": {
