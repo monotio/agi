@@ -55,121 +55,151 @@ export function roomsUsingResources(
 }
 
 /**
- * Read committed bytecode with definite constants at each use: all paths into
- * an instruction must agree. Calls carry values into and back from their code;
- * runtime writes, indirect writes and unknown/recursive calls lose certainty.
- * LOGIC 0 is outside the room association: it already runs where the player is.
+ * Resolve variables only in the room's own LOGIC, in one forward pass. Branch
+ * joins retain constants only when all incoming paths agree. Calls, scan-start
+ * changes and indirect writes clear bindings; backward jumps disable inference.
+ * Helpers contribute literal resource references without binding analysis.
+ * LOGIC 0 already runs where the player is and contributes no room association.
  */
 export async function createRoomResourceUses(
   files: ReadonlyMap<string, Uint8Array>,
   profile: AgiProfile,
+  work?: { instructions: number },
 ): Promise<(key: string) => readonly string[]> {
-  const [{ inspectLogicResource }, { resourceReferenceOperand }, { VAR_WRITES }] =
-    await Promise.all([
-      import("../../../src/logic/disassembler.ts"),
-      import("../../../src/logic/commandReference.ts"),
-      import("../../../src/agent/roomFlow.ts"),
-    ]);
+  const [{ decodeLogicInsns }, { resourceReferenceOperand }, { VAR_WRITES }] = await Promise.all([
+    import("../../../src/logic/disassembler.ts"),
+    import("../../../src/logic/commandReference.ts"),
+    import("../../../src/agent/roomFlow.ts"),
+  ]);
   const container = openContainer(files, { profile });
-  const instructions = new Map<number, ReturnType<typeof inspectLogicResource>["instructions"]>();
-  for (let num = 1; num <= 255; num++) {
+  const decoded = new Map<
+    number,
+    {
+      instructions: ReturnType<typeof decodeLogicInsns>;
+      uses: string[];
+      calls: number[];
+    } | null
+  >();
+  function readLogic(num: number) {
+    if (num === 0) return null;
+    if (decoded.has(num)) return decoded.get(num)!;
     try {
       const bytes = container.getResource("logic", num);
-      if (bytes) instructions.set(num, inspectLogicResource(bytes, { profile }).instructions);
+      if (bytes) {
+        const insns = decodeLogicInsns(bytes, { profile });
+        const uses = new Set<string>();
+        const calls = new Set<number>();
+        for (const instruction of insns) {
+          if (work) work.instructions++;
+          const name = instruction.name ?? "";
+          const args = instruction.args ?? [];
+          const role = resourceReferenceOperand(name, profile);
+          if (role && !role.variable && (role.kind === "picture" || role.kind === "view"))
+            uses.add(`${role.kind}:${args[role.operand]}`);
+          if (name === "call") calls.add(args[0]!);
+        }
+        const result = { instructions: insns, uses: [...uses], calls: [...calls] };
+        decoded.set(num, result);
+        return result;
+      }
     } catch {
-      // Unreadable callees cannot establish a constant.
+      // Unreadable LOGIC cannot establish a resource association.
     }
+    decoded.set(num, null);
+    return null;
   }
   type State = Map<number, number>;
-  function join(into: State, incoming: State): boolean {
-    let changed = false;
-    for (const [variable, value] of into) {
-      if (incoming.get(variable) === value) continue;
-      into.delete(variable);
-      changed = true;
+  function scanRoom(room: number): readonly string[] {
+    const insns = readLogic(room)?.instructions ?? [];
+    const incoming = new Map<number, State>();
+    if (insns[0]) incoming.set(insns[0].at, new Map([[0, room]]));
+    const uses = new Set<string>();
+    const variableUses = new Set<string>();
+    const calls = new Set<number>();
+    const variableCalls = new Set<number>();
+    let infer = true;
+    function forward(at: number, state: State): void {
+      const previous = incoming.get(at);
+      if (!previous) incoming.set(at, new Map(state));
+      else
+        for (const [variable, value] of previous)
+          if (state.get(variable) !== value) previous.delete(variable);
     }
-    return changed;
-  }
-  function scan(
-    logic: number,
-    input: State,
-    ancestors: ReadonlySet<number>,
-  ): { state: State | null; uses: string[] } {
-    const insns = instructions.get(logic);
-    if (logic === 0 || ancestors.has(logic) || !insns?.length)
-      return { state: new Map(), uses: [] };
-    const path = new Set([...ancestors, logic]);
-    const byOffset = new Map(insns.map((instruction) => [instruction.at, instruction]));
-    const states = new Map<number, State>();
-    const reads = new Map<number, string[]>();
-    const queue: number[] = [];
-    const pending = new Set<number>();
-    let output: State | null = null;
-    function enqueue(at: number, state: State): void {
-      const previous = states.get(at);
-      if (!previous) states.set(at, new Map(state));
-      else if (!join(previous, state)) return;
-      if (!pending.has(at)) {
-        pending.add(at);
-        queue.push(at);
+    // decodeLogicInsns returns byte-stream order. Each instruction is visited
+    // once; a loop never schedules a second visit or retains variable guesses.
+    for (const instruction of insns) {
+      if (work) work.instructions++;
+      if (
+        (instruction.kind === "if" || instruction.kind === "goto") &&
+        instruction.target <= instruction.at
+      ) {
+        infer = false;
+        variableUses.clear();
+        variableCalls.clear();
       }
-    }
-    enqueue(insns[0]!.at, input);
-    while (queue.length) {
-      const at = queue.shift()!;
-      pending.delete(at);
-      const state = new Map(states.get(at)!);
-      const instruction = byOffset.get(at);
-      if (!instruction || instruction.kind === "return") {
-        if (output === null) output = state;
-        else join(output, state);
+      const state = incoming.get(instruction.at);
+      if (!state || instruction.kind === "return") continue;
+      if (instruction.kind === "if" || instruction.kind === "goto") {
+        if (instruction.target > instruction.at) forward(instruction.target, state);
+        if (instruction.kind === "if") forward(instruction.end, state);
         continue;
       }
-      if (instruction.kind === "if") {
-        enqueue(instruction.target, state);
-        enqueue(instruction.end, state);
-        continue;
-      }
-      if (instruction.kind === "goto") {
-        enqueue(instruction.target, state);
-        continue;
-      }
-      const uses: string[] = [];
-      reads.set(at, uses);
       const name = instruction.name ?? "";
       const args = instruction.args ?? [];
       const role = resourceReferenceOperand(name, profile);
       if (role && (role.kind === "picture" || role.kind === "view")) {
-        const value = role.variable ? state.get(args[role.operand]!) : args[role.operand];
-        if (value !== undefined) uses.push(`${role.kind}:${value}`);
+        if (!role.variable) uses.add(`${role.kind}:${args[role.operand]}`);
+        else if (infer) {
+          const value = state.get(args[role.operand]!);
+          if (value !== undefined) variableUses.add(`${role.kind}:${value}`);
+        }
       }
       if (name === "new.room" || name === "new.room.v") continue;
-      if (name === "call" || name === "call.v") {
-        const target = name === "call" ? args[0] : state.get(args[0]!);
-        const called =
-          target === undefined ? { state: new Map(), uses: [] } : scan(target, state, path);
-        uses.push(...called.uses);
-        if (called.state !== null) enqueue(instruction.end, called.state);
-        continue;
+      if (name === "call") calls.add(args[0]!);
+      else if (name === "call.v" && infer) {
+        const target = state.get(args[0]!);
+        if (target !== undefined) variableCalls.add(target);
       }
-      if (name === "assignn") state.set(args[0]!, args[1]!);
+      if (
+        [
+          "call",
+          "call.v",
+          "set.scan.start",
+          "reset.scan.start",
+          "lindirectn",
+          "lindirectv",
+        ].includes(name) ||
+        instruction.kind === "data"
+      )
+        state.clear();
+      else if (name === "assignn") state.set(args[0]!, args[1]!);
       else if (name === "assignv") {
         const value = state.get(args[1]!);
         if (value === undefined) state.delete(args[0]!);
         else state.set(args[0]!, value);
-      } else if (instruction.kind === "data" || name === "lindirectn" || name === "lindirectv")
-        state.clear();
-      else for (const operand of VAR_WRITES[name] ?? []) state.delete(args[operand]!);
-      enqueue(instruction.end, state);
+      } else for (const operand of VAR_WRITES[name] ?? []) state.delete(args[operand]!);
+      forward(instruction.end, state);
     }
-    return { state: output, uses: [...new Set([...reads.values()].flat())] };
+    for (const use of variableUses) uses.add(use);
+    const visited = new Set([0, room]);
+    const pending = [...calls, ...variableCalls];
+    while (pending.length) {
+      const num = pending.pop()!;
+      if (visited.has(num)) continue;
+      visited.add(num);
+      const helper = readLogic(num);
+      if (!helper) continue;
+      for (const use of helper.uses) uses.add(use);
+      pending.push(...helper.calls);
+    }
+    return [...uses];
   }
   const cache = new Map<number, readonly string[]>();
   return (key) => {
     const room = Number(key.slice(6));
     let uses = cache.get(room);
     if (!uses) {
-      uses = scan(room, new Map([[0, room]]), new Set()).uses;
+      uses = scanRoom(room);
       cache.set(room, uses);
     }
     return uses;

@@ -70,20 +70,6 @@ test("Show Room finds a PICTURE when either branch selects the same constant", a
   assert.deepEqual(roomsUsingResources(["picture:7"], [1, 2], 1, dependencies), [2]);
 });
 
-test("a called LOGIC carries a definite resource value into and back to its room", async () => {
-  const compiled = compileProjectDocuments({
-    files: Object.fromEntries(createContainer().files),
-    documents: {
-      "logic:2": "v50 = 7; call(9); load.pic(v51); draw.pic(v51); return;",
-      "logic:9": "load.view.v(v50); v51 = v50; return;",
-    },
-    profileId: "2.936",
-  });
-  const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE);
-  assert.deepEqual(roomsUsingResources(["view:7"], [1, 2], 1, dependencies), [2]);
-  assert.deepEqual(roomsUsingResources(["picture:7"], [1, 2], 1, dependencies), [2]);
-});
-
 for (const source of [
   "if (isset(f80)) { v50 = 7; } load.view.v(v50); return;",
   "if (isset(f80)) { v50 = 7; } else { v50 = 8; } load.view.v(v50); return;",
@@ -99,5 +85,62 @@ for (const source of [
     });
     const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE);
     assert.deepEqual(roomsUsingResources(["view:7", "view:8"], [1, 2], 1, dependencies), []);
+  });
+}
+
+test("a repeated call with scan.start never offers a room for a guessed resumed value", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: {
+      "logic:2": "call(9); v50 = 8; call(9); load.view.v(v50); return;",
+      "logic:9": "v50 = 7; set.scan.start(); return;",
+    },
+    profileId: "2.936",
+  });
+  const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE);
+  assert.deepEqual(roomsUsingResources(["view:7"], [1, 2], 1, dependencies), []);
+});
+
+test("a deep shared call chain inspects each LOGIC in bounded work", async () => {
+  const documents: Record<string, string> = {};
+  const depth = 21;
+  for (let room = 2; room < 2 + depth - 1; room++)
+    documents[`logic:${room}`] =
+      `if (isset(f80)) { call(${room + 1}); } else { call(${room + 1}); } return;`;
+  documents[`logic:${2 + depth - 1}`] = "load.view(7); return;";
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const work = { instructions: 0 };
+  const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE, work);
+  assert.deepEqual(roomsUsingResources(["view:7"], [1, 2], 1, dependencies), [2]);
+  assert.ok(
+    work.instructions <= 3 * (depth * 5),
+    `instruction visits ${work.instructions} must stay linear in the call chain`,
+  );
+  const before = work.instructions;
+  assert.deepEqual(roomsUsingResources(["view:7"], [1, 2], 1, dependencies), [2]);
+  assert.equal(work.instructions, before, "a cached room does no further instruction analysis");
+});
+
+for (const barrier of [
+  "call(9)",
+  "v51 = 9; call.v(v51)",
+  "set.scan.start()",
+  "reset.scan.start()",
+]) {
+  test(`room-local constants become unknown at ${barrier}`, async () => {
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents: {
+        "logic:2": `v50 = 7; ${barrier}; load.view.v(v50); return;`,
+        "logic:9": "return;",
+      },
+      profileId: "2.936",
+    });
+    const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE);
+    assert.deepEqual(roomsUsingResources(["view:7"], [1, 2], 1, dependencies), []);
   });
 }
