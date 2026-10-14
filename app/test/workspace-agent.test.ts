@@ -3707,7 +3707,7 @@ test("Only the creator edits existing tests: Auto-approve reviews a changed orig
   }
 });
 
-for (const outcome of ["named red", "unnamed red", "green"] as const)
+for (const outcome of ["named red", "unnamed red", "green", "formatted unnamed red"] as const)
   test(`Agent handover checks the base even with no edits: ${outcome}`, async () => {
     const { session } = fixture();
     const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
@@ -3759,11 +3759,18 @@ for (const outcome of ["named red", "unnamed red", "green"] as const)
       }),
     });
     try {
-      await agent.send("Finish without edits");
+      if (outcome === "formatted unnamed red")
+        await agent.submit({
+          instruction: "Finish without edits",
+          mode: "create",
+          formatReply: () => ({ text: "Changes complete", context: "Formatted task" }),
+        });
+      else await agent.send("Finish without edits");
       assert.equal(session.history.capture().cursor, cursor);
       assert.equal(agent.pending(), null);
-      if (outcome === "unnamed red") {
+      if (outcome === "unnamed red" || outcome === "formatted unnamed red") {
         assert.match(agent.error ?? "", /Not finished: "Score test" fail/);
+        assert.match(agent.current().messages.at(-1)!.text, /^1 tests fail: Score test/);
         assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Score test" fail/);
       } else {
         assert.equal(agent.error ?? "", "");

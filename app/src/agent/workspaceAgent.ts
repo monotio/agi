@@ -1452,9 +1452,11 @@ export function createWorkspaceAgent(options: Options) {
             );
             notify();
           }
-          const reply = formatReply
-            ? formatReply(turn.text ?? "")
-            : { text: stopped ? STOPPED[readOnly ? "ask" : "edit"] : turn.text! };
+          const reply = handoverRejected
+            ? { text: turn.text! }
+            : formatReply
+              ? formatReply(turn.text ?? "")
+              : { text: stopped ? STOPPED[readOnly ? "ask" : "edit"] : turn.text! };
           chat.messages.push({
             id: id(),
             role: "assistant",
