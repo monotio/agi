@@ -25,3 +25,30 @@ export function roomResourcesChanged(
     }),
   );
 }
+
+/** Known rooms affected by an applied change; shared LOGIC dependencies may carry art uses. */
+export function roomsUsingResources(
+  resources: readonly string[],
+  rooms: readonly number[],
+  currentRoom: number,
+  dependencies: (key: string) => readonly string[],
+): number[] {
+  const art = new Set(resources.filter((key) => /^(picture|view):\d+$/.test(key)));
+  return [...new Set(rooms)].filter((room) => {
+    if (room === currentRoom) return false;
+    if (resources.includes(`logic:${room}`)) return true;
+    if (art.size === 0) return false;
+    const visited = new Set<string>();
+    const pending = [`logic:${room}`];
+    while (pending.length) {
+      const key = pending.pop()!;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      for (const use of dependencies(key)) {
+        if (art.has(use)) return true;
+        if (use.startsWith("logic:")) pending.push(use);
+      }
+    }
+    return false;
+  });
+}

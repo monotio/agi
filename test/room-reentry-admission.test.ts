@@ -176,3 +176,34 @@ test("room re-entry discards an armed message pass and keeps execution control f
   assert.equal(engine.flags[5], 0);
   assert.equal(engine.readState().egoX, 40);
 });
+
+test("a stamped VIEW edit shows while a message waits after a keep-playing edit", () => {
+  const engine = fixture();
+  engine.vars[90] = 1;
+  engine.tick();
+  assert.equal(engine.modalKind, "print");
+  const kept = openContainer(engine.containerFiles);
+  kept.putResource(
+    "logic",
+    1,
+    assembleLogic(ROOM.replace('print("Wait")', 'print("Edited wait")'), { dictionary }).payload,
+  );
+  assert.equal(
+    engine.commitPreviewUpdate(engine.preparePreviewUpdate({ files: kept.files }), {
+      messageWaiting: true,
+    }).status,
+    "committed",
+  );
+  assert.equal(engine.autosaveImage(), null, "the parked pass still owns the old message bytes");
+  const changed = openContainer(engine.containerFiles);
+  changed.putResource("view", 1, view(4));
+  assert.equal(
+    engine.commitRoomReentry(engine.prepareRoomReentry({ files: changed.files })).status,
+    "committed",
+  );
+  assert.equal(engine.modalKind, null);
+  engine.tick();
+  assert.equal(engine.getPictureSurface().visual[100 * 160 + 80], 4);
+  assert.equal(engine.vars[80], 77);
+  assert.equal(engine.itemLocation(0), 255);
+});

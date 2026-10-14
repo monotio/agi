@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { ref, watchEffect } from "vue";
+import { roomsUsingResources } from "../worker/roomChange.ts";
 import type { AgentResult } from "../../../src/agent/chats.ts";
 import { documentLabel, numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -15,13 +16,34 @@ defineEmits<{
 const labels = useProjectLabels();
 const engine = useEngineApi();
 /** Applied changes to rooms other than the one on screen show once the hero goes there. */
-const elsewhere = computed(() => {
-  if (!showRooms || result.kind !== "changes" || result.status !== "applied") return [];
-  const rooms = new Set(labels.value.rooms?.map((entry) => entry.room));
-  return result.resources
-    .map((key) => /^logic:(\d+)$/.exec(key))
-    .map((match) => (match ? Number(match[1]) : -1))
-    .filter((room) => rooms.has(room) && room !== engine.currentRoom.value);
+const elsewhere = ref<number[]>([]);
+watchEffect(async (onCleanup) => {
+  elsewhere.value = [];
+  if (!showRooms || result.kind !== "changes" || result.status !== "applied") return;
+  const resources = result.resources;
+  const rooms = labels.value.rooms?.map((entry) => entry.room) ?? [];
+  const currentRoom = engine.currentRoom.value;
+  void engine.state.patchTick;
+  const documents = engine.getProjectSession()?.model.capture().documents() ?? {};
+  const scan = engine.roomMap.resources.value;
+  const profile = scan.profile;
+  let current = true;
+  onCleanup(() => {
+    current = false;
+  });
+  // Art dependency reads belong to Create's lazy authoring tools.
+  const { createWorkspaceResourceUses } =
+    await import("../studio/workspace/workspaceResourceUses.ts");
+  if (!current) return;
+  const uses = createWorkspaceResourceUses();
+  const bindings = typeof documents["bindings"] === "string" ? documents["bindings"] : undefined;
+  elsewhere.value = roomsUsingResources(resources, rooms, currentRoom, (key) => [
+    ...(profile
+      ? uses(key, documents[key], bindings, profile).filter((use) => !use.startsWith("logic:"))
+      : []),
+    ...(scan.scans.get(Number(key.slice(6)))?.pictures ?? []).map((num) => `picture:${num}`),
+    ...(scan.scans.get(Number(key.slice(6)))?.calls ?? []).map((num) => `logic:${num}`),
+  ]);
 });
 </script>
 <template>
