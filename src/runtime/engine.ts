@@ -1147,6 +1147,17 @@ export class Engine {
     return this.preparePreviewUpdate(candidate);
   }
 
+  /** Whether this plan needs room entry instead of an in-place commit, without consuming it. */
+  previewNeedsRoomReentry(plan: PreviewUpdatePlan): boolean {
+    const issued = this.previewPlans.get(plan);
+    if (!issued || issued.consumed || issued.generation !== this.previewSerial || !issued.staged)
+      return false;
+    const block = this.previewDynamicBlock(issued.staged);
+    return (
+      block?.status === "restartRequired" && this.previewDynamicBlock(issued.staged, true) === null
+    );
+  }
+
   /** The host seals the previous timeline segment after validation, before the first write. */
   commitRoomReentry(plan: PreviewUpdatePlan, beforeEntry?: () => void): PreviewUpdateResult {
     return this.commitPreparedPreview(plan, undefined, true, beforeEntry);
@@ -1448,8 +1459,17 @@ export class Engine {
   /** Whether entering the room again on the staged files draws its whole picture. */
   private entryRedraws(staged: StagedPreviewUpdate): boolean {
     try {
-      const image = this.autosaveImage();
-      if (image === null) return false;
+      // Re-entry abandons the parked pass. Its old instructions and message
+      // bytes need no autosave continuation, even after a keep-playing edit
+      // made that continuation unsnapshotable. Keep the room's replay witness.
+      if (this.hostReplayOverflow) return false;
+      const image = encodeHostImage(
+        this.serialize(),
+        this.hostReplay,
+        undefined,
+        null,
+        this.amigaRegion,
+      );
       const trial = new Engine(
         this.container,
         {
@@ -1462,6 +1482,9 @@ export class Engine {
         this.dictionary,
         { profile: this.profile, amigaRegion: this.amigaRegion },
       );
+      // Never call the live prepareRoom hook from a speculative entry: it
+      // may start authoring or write resources. An entry that needs a missing
+      // room therefore fails this trial and asks for a restart.
       trial.entryTrial = true;
       trial.restoreImage(image);
       const entry = trial.prepareRoomReentry({ files: staged.container.files });
