@@ -15,7 +15,6 @@ import {
   provide,
   reactive,
   ref,
-  watch,
   type ComputedRef,
   type InjectionKey,
   type Ref,
@@ -73,19 +72,6 @@ export function createCreateWorkspace(deps: {
   const collapsed = reactive(readCollapsed(storage));
   const sheetOpen = ref(false);
   const compactAgent = computed(() => deps.compactAgent?.() ?? false);
-  watch(
-    [compactAgent, () => deps.parts?.phone() ?? false],
-    ([compact, phone], [wasCompact, wasPhone]) => {
-      if (
-        deps.parts &&
-        ((phone && !wasPhone) ||
-          (wasCompact && !compact && (typeof window === "undefined" || window.innerWidth < 1200)))
-      ) {
-        deps.parts.open.value = false;
-      }
-    },
-    { flush: "sync" },
-  );
 
   function persist(): void {
     try {
