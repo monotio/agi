@@ -24,6 +24,9 @@ to notes about working in Claude Code.
   - `opus` (Claude Opus 5.5): UI design, engine and worker changes, hard diagnosis.
   - `sonnet` (Claude Sonnet 5.5): well-specified fixes, tests and documentation.
   - `haiku` (Claude Haiku 5.5): exploration, sweeps, reading long logs, reports and transcripts.
+- Start lanes with `scripts/agent-lanes/new-lane.sh` and `run-lane.sh`, with `AGI_AGENT_CMD` set
+  to the lane's agent CLI. Private notes and memory hold briefs and reports, never a runner. A
+  Codex lane needs the owner's approval to run unsandboxed (docs/agent-lanes.md says why).
 - Use one session per phase: planning, each implementation wave, and the release. Before a phase
   ends, write a handoff note in `.local/` with the head, gate results, open items and the next
   step, and start the next phase from it instead of letting a long session compact.

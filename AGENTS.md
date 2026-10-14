@@ -222,7 +222,8 @@ in examples. Public attribution, historical release dates and synthetic test dat
   pushing. Its report opens with at most 150 words: verdict, commits, gates and open questions. The
   integrator reviews the diff, runs the full gate on the combined head and removes the worktree and
   branch. Any agent vendor or model may take a lane.
-  [docs/agent-lanes.md](docs/agent-lanes.md) has the full lane procedure.
+  Create and run lanes with `scripts/agent-lanes/new-lane.sh` and `run-lane.sh`, never a runner
+  of your own; [docs/agent-lanes.md](docs/agent-lanes.md) has the full lane procedure.
 - The orchestrator stays thin: it plans, writes briefs, reviews diffs, integrates and runs the
   final gate. Implementation, sweeping edits and long logs go to lanes and subagents, which return
   a short verdict.

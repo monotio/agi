@@ -28,7 +28,8 @@ scripts/agent-lanes/new-lane.sh parser-fix
 scripts/agent-lanes/new-lane.sh editor-fix <base-ref>
 ```
 
-`new-lane.sh <name> [base]` creates branch `lane/<name>` and installs the root
+`new-lane.sh <name> [base]` creates branch `lane/<name>`, links your local game
+fixtures (the entries git ignores in `games/`) into the lane, and installs the root
 package and app workspace with one `npm ci`. It prints the absolute
 worktree path after the installs succeed. The default base is the current
 branch; with a detached HEAD, supply a base explicitly. If installation fails,
@@ -87,9 +88,20 @@ screenshots inspected, failures and uncertainties.
 
 ## Run and wait
 
-Set `AGI_AGENT_CMD` to a trusted shell command that reads the brief on stdin.
-It executes through `sh -c` inside the lane's worktree. Configure permissions and
-any paid usage limits in your chosen tool before launching it.
+Use these scripts for every lane rather than a runner of your own; they hold the
+lane contract that the logs, PID files and checks rely on. Set `AGI_AGENT_CMD` to
+a trusted shell command that reads the brief on stdin. It executes through `sh -c`
+inside the lane's worktree. Configure permissions and any paid usage limits in
+your chosen tool before launching it.
+
+A lane must commit in its worktree and launch Playwright browsers. Codex's
+workspace sandbox blocks both (it keeps `.git` read-only, and Chromium cannot
+start inside it), so a Codex lane runs without that sandbox, which only the
+person who owns the machine can approve:
+
+```sh
+export AGI_AGENT_CMD='codex exec -m <model> -c model_reasoning_effort="high" --dangerously-bypass-approvals-and-sandbox -'
+```
 
 ```sh
 export AGI_AGENT_CMD='<your-agent-cli> exec -'

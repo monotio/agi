@@ -28,5 +28,11 @@ worktree=$lanes/$name
 [ ! -e "$worktree" ] && [ ! -L "$worktree" ] || fail "Lane directory already exists: $worktree"
 git worktree add -q -b "$branch" "$worktree" "$base"
 cd "$worktree"
+# Game fixtures stay out of git, so link the contributor's local ones into the lane.
+git -C "$root" ls-files --others --ignored --exclude-standard --directory -- games | while IFS= read -r entry; do
+  entry=${entry%/}
+  case $entry in games/.*) continue ;; esac
+  [ -e "$entry" ] || [ -L "$entry" ] || ln -s "$root/$entry" "$entry"
+done
 npm ci >&2
 printf '%s\n' "$worktree"
