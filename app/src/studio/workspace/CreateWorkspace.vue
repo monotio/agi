@@ -82,6 +82,7 @@ import UiChip from "../../ui/UiChip.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import PartsList from "./PartsList.vue";
+import EditorLoading from "./EditorLoading.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
 import { workspaceParts, workspaceOpenParts } from "../host/workspaceParts.ts";
 import { roomPictureUse } from "../../../../src/agent/roomPictures.ts";
@@ -175,8 +176,16 @@ async function applyNumber(
     actionBusy.value = false;
   }
 }
-const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
-const DocumentEditor = defineAsyncComponent(() => import("./DocumentEditor.vue"));
+const NotesEditor = defineAsyncComponent({
+  loader: () => import("./NotesEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const DocumentEditor = defineAsyncComponent({
+  loader: () => import("./DocumentEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const ImageReferencePanel = defineAsyncComponent(
   () => import("../creative/ImageReferencePanel.vue"),
 );
@@ -186,20 +195,60 @@ const traceUnderlays = shallowRef<
   Record<string, { pixels: Uint8Array; opacity: number; behindArt: boolean } | null>
 >({});
 let imageRefresh = 0;
-const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
+const SoundPanel = defineAsyncComponent({
+  loader: () => import("./SoundPanel.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"));
-const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
-const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
-const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));
-const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.vue"));
-const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
+const WordsEditor = defineAsyncComponent({
+  loader: () => import("./WordsEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const TableEditor = defineAsyncComponent({
+  loader: () => import("./TableEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const RoomStudio = defineAsyncComponent({
+  loader: () => import("../RoomStudio.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const SpriteStudio = defineAsyncComponent({
+  loader: () => import("../sprite/SpriteStudio.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const LogicEditor = defineAsyncComponent({
+  loader: () => import("./LogicEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
 const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControls.vue"));
 const StudioKeySheet = defineAsyncComponent(() => import("../StudioKeySheet.vue"));
-const ReferencesTab = defineAsyncComponent(() => import("./ReferencesTab.vue"));
-const GameStateTab = defineAsyncComponent(() => import("./GameStateTab.vue"));
-const MessagesTab = defineAsyncComponent(() => import("./MessagesTab.vue"));
-const LaunchEditor = defineAsyncComponent(() => import("./LaunchEditor.vue"));
+const ReferencesTab = defineAsyncComponent({
+  loader: () => import("./ReferencesTab.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const GameStateTab = defineAsyncComponent({
+  loader: () => import("./GameStateTab.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const MessagesTab = defineAsyncComponent({
+  loader: () => import("./MessagesTab.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const LaunchEditor = defineAsyncComponent({
+  loader: () => import("./LaunchEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const engine = useEngineApi();
 const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
@@ -218,6 +267,24 @@ function phoneLayout(event: MediaQueryListEvent): void {
   phoneWidth.value = event.matches;
 }
 phoneQuery.addEventListener("change", phoneLayout);
+const compactQuery = window.matchMedia("(min-width: 601px) and (max-width: 1199px)");
+const compactWidth = ref(compactQuery.matches);
+function compactLayout(event: MediaQueryListEvent): void {
+  compactWidth.value = event.matches;
+}
+compactQuery.addEventListener("change", compactLayout);
+// A temporary fold never writes the saved dock setting. Opening Parts wins for this visit.
+const autoFoldParts = computed(
+  () =>
+    props.creating && compactWidth.value && engine.state.powerUp.open && !editor.partsOpen.value,
+);
+const partsVisible = computed(
+  () =>
+    props.creating &&
+    !editor.focus.value &&
+    !autoFoldParts.value &&
+    (!workspace.collapsed.left || editor.partsOpen.value),
+);
 const stacked = computed(() => phoneWidth.value || editor.stackedLayout.value);
 const roomHint = shallowRef<{ key: string; room: number }>();
 function openPart(key: string, room?: number): void {
@@ -794,6 +861,7 @@ const tabRows = computed(() =>
       draftMembership.value.includes(key) ||
       (key.startsWith("launches:") && draftMembership.value.includes("world")),
     missing:
+      sessionOpen.value &&
       !key.startsWith("launches:") &&
       DATA_LABELS[key] === undefined &&
       !snapshot.value?.keys.includes(key) &&
@@ -2431,6 +2499,7 @@ onBeforeUnmount(() => {
   editor.discardDrafts.value = undefined;
   editor.changeCount.value = 0;
   phoneQuery.removeEventListener("change", phoneLayout);
+  compactQuery.removeEventListener("change", compactLayout);
   endResize?.();
   retired = true;
   window.removeEventListener("beforeunload", warnBeforeUnload);
@@ -2544,14 +2613,10 @@ onBeforeUnmount(() => {
   </aside>
   <PartsList
     :data-analysis="engine.roomMap.analysisStatus.value"
-    :active="
-      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
-    "
+    :active="partsVisible"
     :read-only="editingPaused || actionBusy"
-    :class="{ 'parts-list--open': editor.partsOpen.value }"
-    v-show="
-      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
-    "
+    :class="{ 'parts-list--open': editor.partsOpen.value, 'parts-list--auto-fold': autoFoldParts }"
+    v-show="partsVisible"
     :pending="draftMembership"
     :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : undefined"
     :groups="groups"
@@ -3013,7 +3078,7 @@ onBeforeUnmount(() => {
           @reveal="revealDebug"
           @problem="revealProblem"
         />
-        <template #fallback><p>Loading…</p></template>
+        <template #fallback><EditorLoading /></template>
       </Suspense>
       <LaunchEditor
         :read-only="editingPaused || actionBusy"
@@ -3042,7 +3107,8 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
         @typing-end="endTyping"
       />
-      <p v-else class="workspace-error">Open an authored part to edit it.</p>
+      <EditorLoading v-else-if="!sessionOpen" />
+      <p v-else class="workspace-note">Open an authored part to edit it.</p>
       <p
         v-for="(preview, object) in key === editor.selected.value && key.startsWith('picture:')
           ? visiblePlacementPreviews

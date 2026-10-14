@@ -1099,6 +1099,10 @@ defineExpose({
   border-top: 1px solid var(--hairline);
   background: var(--surface-0);
 }
+/* Play leaves an uninterrupted black stage between its bars. */
+:global(.shell-body:not(.shell-body--workspace) .play-strip) {
+  border-top: 0;
+}
 .play-hints {
   display: flex;
   flex: none;

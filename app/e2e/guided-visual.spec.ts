@@ -293,7 +293,9 @@ test("message preview draws a fallback when the renderer fails after WebGL2 star
 
 // A GPU reset, sleep and wake, or a driver update drops every GPU context on the page; the message
 // preview then draws on the flat canvas, the same way the play stage falls back.
-test("message preview keeps drawing after the GPU drops its context", async ({ page }) => {
+test("message preview keeps drawing after the GPU drops its context @webkit-desktop", async ({
+  page,
+}) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await start(page);
@@ -322,7 +324,7 @@ test("message preview keeps drawing after the GPU drops its context", async ({ p
 
 // The context can also be lost while the renderer starts, before the preview listens for it: the
 // browser's context-lost event reaches the renderer as soon as the renderer starts listening.
-test("message preview draws a picture when the GPU drops its context while starting", async ({
+test("message preview draws a picture when the GPU drops its context while starting @webkit-desktop", async ({
   page,
 }) => {
   const errors: string[] = [];

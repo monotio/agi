@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted, useTemplateRef } from "vue";
 import UiIconButton from "./UiIconButton.vue";
 
 /**
@@ -21,7 +21,8 @@ const {
 }>();
 const emit = defineEmits<{ dismiss: [] }>();
 
-const NOTICE_MS = 6000;
+const NOTICE_MS = 8000;
+const toast = useTemplateRef("toast");
 // Browser tests keep timed notices up unless a test sets their duration.
 const noticeMs = () => (import.meta.env.MODE === "test" ? window.__AGI_NOTICE_MS__ : NOTICE_MS);
 const holds = new Set<"pointer" | "focus">();
@@ -29,7 +30,12 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 function restart(): void {
   clearTimeout(timer);
   const ms = noticeMs();
-  if (timed && holds.size === 0 && ms !== undefined) timer = setTimeout(() => emit("dismiss"), ms);
+  if (timed && holds.size === 0 && ms !== undefined)
+    timer = setTimeout(() => {
+      // A replacement beneath a resting pointer can miss pointerenter in WebKit.
+      if (toast.value?.matches(":hover, :focus-within")) restart();
+      else emit("dismiss");
+    }, ms);
 }
 function hold(by: "pointer" | "focus", held: boolean): void {
   if (held) holds.add(by);
@@ -42,6 +48,7 @@ onBeforeUnmount(() => clearTimeout(timer));
 
 <template>
   <p
+    ref="toast"
     class="ui-toast"
     :class="[`ui-toast--${tone}`]"
     role="status"
