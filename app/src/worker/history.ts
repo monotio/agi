@@ -531,7 +531,8 @@ export function createHistory(ctx: WorkerContext) {
       return hex;
     }
     nonceCounter = (nonceCounter + 1) & 0xffff;
-    const mixed = (Date.now() & 0xffffffffff) * 0x10000 + nonceCounter;
+    // The 40-bit clock plus 16-bit counter exceeds Number's exact integer range.
+    const mixed = BigInt(Date.now() % 2 ** 40) * 0x10000n + BigInt(nonceCounter);
     return mixed.toString(36).padStart(12, "0").slice(-12);
   }
 
