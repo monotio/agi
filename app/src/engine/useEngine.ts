@@ -533,6 +533,11 @@ export function useEngine(
           async forked(data, lifetime, documentOnly) {
             if (!current()) return;
             state.copyCreated = { projectId: data.projectId, originalTitle: game.title };
+            if (documentOnly)
+              game.retainedProgressTarget ??= {
+                target: resolveProgressTarget(game),
+                lifetime: game.historyLifetime,
+              };
             const forked = {
               ...game,
               installed: false,
@@ -545,17 +550,19 @@ export function useEngine(
             };
             game = documentOnly ? Object.assign(game, forked) : forked;
             lifecycle.setBootedGame(game);
-            const target = bindProgressTarget(game);
-            autosaveController.reset();
-            hook.autosave = -1;
-            if (target && !documentOnly) {
-              await progressOwnership.acquire(target);
-              if (!current()) return;
-              writeResumePointer(localStorage, target.locator);
+            if (!documentOnly) {
+              const target = bindProgressTarget(game);
+              autosaveController.reset();
+              hook.autosave = -1;
+              if (target) {
+                await progressOwnership.acquire(target);
+                if (!current()) return;
+                writeResumePointer(localStorage, target.locator);
+              }
+              void autosaveController.flushAutosave();
             }
             state.patchTick++;
             state.worldTick++;
-            if (!documentOnly) void autosaveController.flushAutosave();
           },
           publish(snapshot, data, outcome, nativeInstalled, documentOnly) {
             if (!current()) return;
@@ -576,7 +583,21 @@ export function useEngine(
               game.files = structuredClone(data.files);
               if (!game.installed) {
                 game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-                bindProgressTarget(game);
+                const retained = game.retainedProgressTarget;
+                if (retained?.target === null) progressOwnership.close();
+                const target = bindProgressTarget(game);
+                if (retained && target)
+                  void progressOwnership
+                    .acquire(target)
+                    .then(() => {
+                      if (!current()) return;
+                      writeResumePointer(localStorage, target.locator);
+                      void autosaveController.flushAutosave();
+                    })
+                    .catch((error: unknown) => {
+                      if (current())
+                        state.status = error instanceof Error ? error.message : String(error);
+                    });
               }
               if (outcome?.replacementRunToken !== undefined)
                 state.profile = snapshot.lastAdmissibleBuild!.identity.profileId;

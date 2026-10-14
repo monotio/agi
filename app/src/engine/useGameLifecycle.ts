@@ -1341,6 +1341,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           folder: booted.folder,
           parent: booted.parent,
           progressTarget: booted.progressTarget,
+          ...(booted.retainedProgressTarget === undefined
+            ? {}
+            : { retainedProgressTarget: booted.retainedProgressTarget }),
         }
       : null;
   }

@@ -451,13 +451,17 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     lifetime: string | null | undefined;
     run: string | undefined;
   } | null = null;
+  function progressLifetime(game: BootedGame | null): string | null | undefined {
+    const retained = game?.retainedProgressTarget;
+    return retained === undefined ? game?.historyLifetime : retained.lifetime;
+  }
   function invalidateOldCheckpoint(): void {
     const game = ctx.getBootedGame();
     if (
       lastAutosave !== null &&
       (lastAutosaveScope?.game !== game ||
         lastAutosaveScope.worker !== ctx.getWorker() ||
-        lastAutosaveScope.lifetime !== game?.historyLifetime ||
+        lastAutosaveScope.lifetime !== progressLifetime(game) ||
         lastAutosaveScope.run !== ctx.getRunScope?.() ||
         lastAutosave.game.identity.revision !== game?.revision)
     ) {
@@ -648,20 +652,36 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
    * incarnation's progress belongs to the removed one. `expectedEpoch` is
    * the incarnation this write answers to: the boot's captured receipt, or
    * the bound target's when the boot carries the binding alone — a
-   * recreated body can never satisfy the old epoch. The first finding
-   * marks the game removed and tells the player; nothing is stored for it
-   * from then on. Unknown (storage unreadable) is not a removal, and a
+   * recreated body can never satisfy the old epoch. A retained source
+   * binding is retired while the copied document stays editable. Otherwise
+   * the finding marks the game removed and tells the player; nothing is
+   * stored for it from then on. Unknown (storage unreadable) is not a removal, and a
    * superseded game reports nothing — the mark belongs to the current
    * game's own checks.
    */
   async function projectRemoved(game: BootedGame, expectedEpoch?: string | null): Promise<boolean> {
-    if (game.installed || !game.projectId) return false;
+    const retained = game.retainedProgressTarget;
+    const target = resolveProgressTarget(game);
     if (game.removed) return true;
-    const expected = expectedEpoch !== undefined ? expectedEpoch : game.historyLifetime;
-    const live = await readHistoryLifetime(game.projectId).catch(() => undefined);
+    if (retained && target?.kind !== "project") return target === null;
+    if (!retained && (game.installed || !game.projectId)) return false;
+    const project = retained && target?.kind === "project" ? target.project : game.projectId!;
+    const expected =
+      retained && target?.kind === "project"
+        ? target.bodyEpoch
+        : expectedEpoch !== undefined
+          ? expectedEpoch
+          : game.historyLifetime;
+    const live = await readHistoryLifetime(project).catch(() => undefined);
+    if (retained && game.retainedProgressTarget !== retained) return true;
     if (live !== null && (expected === undefined || live === expected)) return false;
     if (live === undefined) return false;
     if (ctx.getBootedGame() !== game) return true;
+    if (retained) {
+      game.retainedProgressTarget = { target: null, lifetime: null };
+      game.progressTarget = undefined;
+      return true;
+    }
     if (markRemoved(game)) ctx.onRemoved?.();
     return true;
   }
@@ -745,10 +765,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         // offered once.
         const current = await gameRevision(msg.files);
         if (ctx.getBootedGame() !== game) return false;
+        const documentEpoch =
+          game.retainedProgressTarget === undefined ? expectedEpoch : game.historyLifetime;
         const outcome = await updateAuthoredGameFilesAt(game.projectId!, msg.files, {
           revision: game.revision,
           current,
-          ...(expectedEpoch !== undefined ? { lifetime: expectedEpoch } : {}),
+          ...(documentEpoch !== undefined ? { lifetime: documentEpoch } : {}),
         });
         if (outcome === "stale") {
           if (ctx.getBootedGame() === game && markBehindStorage(game)) ctx.onBehindStorage?.();
@@ -790,7 +812,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         room: Number(msg.room),
         savedAt: Date.now(),
         game: {
-          installed: game.installed,
+          installed: target.kind === "installed",
           identity: target.identity,
         },
       };
@@ -838,7 +860,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       lastAutosaveScope = {
         game,
         worker: captured.worker,
-        lifetime: game.historyLifetime,
+        lifetime: progressLifetime(game),
         run: captured.run,
       };
       return true;
@@ -951,7 +973,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       lastAutosave.game.identity.revision === target.identity.revision &&
       lastAutosaveScope?.game === game &&
       lastAutosaveScope.worker === ctx.getWorker() &&
-      lastAutosaveScope.lifetime === game?.historyLifetime &&
+      lastAutosaveScope.lifetime === progressLifetime(game) &&
       lastAutosaveScope.run === ctx.getRunScope?.();
 
     if (isCleanOpening || isUnchanged) {
