@@ -39,25 +39,14 @@ export function roomsUsingResources(
     if (room === currentRoom) return false;
     if (resources.includes(`logic:${room}`)) return true;
     if (art.size === 0) return false;
-    const visited = new Set<string>();
-    const pending = [`logic:${room}`];
-    while (pending.length) {
-      const key = pending.pop()!;
-      if (visited.has(key)) continue;
-      visited.add(key);
-      for (const use of dependencies(key)) {
-        if (art.has(use)) return true;
-        if (use.startsWith("logic:")) pending.push(use);
-      }
-    }
-    return false;
+    return dependencies(`logic:${room}`).some((use) => art.has(use));
   });
 }
 
 /**
  * Resolve variables only in the room's own LOGIC, in one forward pass. Branch
  * joins retain constants only when all incoming paths agree. Calls, scan-start
- * changes and indirect writes clear bindings; backward jumps disable inference.
+ * changes and indirect writes clear bindings; inference stops at the earliest loop target.
  * Helpers contribute literal resource references without binding analysis.
  * LOGIC 0 already runs where the player is and contributes no room association.
  */
@@ -94,7 +83,7 @@ export async function createRoomResourceUses(
           const name = instruction.name ?? "";
           const args = instruction.args ?? [];
           const role = resourceReferenceOperand(name, profile);
-          if (role && !role.variable && (role.kind === "picture" || role.kind === "view"))
+          if (role?.kind === "view" && !role.variable)
             uses.add(`${role.kind}:${args[role.operand]}`);
           if (name === "call") calls.add(args[0]!);
         }
@@ -114,10 +103,16 @@ export async function createRoomResourceUses(
     const incoming = new Map<number, State>();
     if (insns[0]) incoming.set(insns[0].at, new Map([[0, room]]));
     const uses = new Set<string>();
-    const variableUses = new Set<string>();
     const calls = new Set<number>();
-    const variableCalls = new Set<number>();
-    let infer = true;
+    let loopStart = Infinity;
+    for (const instruction of insns) {
+      if (work) work.instructions++;
+      if (
+        (instruction.kind === "if" || instruction.kind === "goto") &&
+        instruction.target <= instruction.at
+      )
+        loopStart = Math.min(loopStart, instruction.target);
+    }
     function forward(at: number, state: State): void {
       const previous = incoming.get(at);
       if (!previous) incoming.set(at, new Map(state));
@@ -129,14 +124,7 @@ export async function createRoomResourceUses(
     // once; a loop never schedules a second visit or retains variable guesses.
     for (const instruction of insns) {
       if (work) work.instructions++;
-      if (
-        (instruction.kind === "if" || instruction.kind === "goto") &&
-        instruction.target <= instruction.at
-      ) {
-        infer = false;
-        variableUses.clear();
-        variableCalls.clear();
-      }
+      const infer = instruction.at < loopStart;
       const state = incoming.get(instruction.at);
       if (!state || instruction.kind === "return") continue;
       if (instruction.kind === "if" || instruction.kind === "goto") {
@@ -148,17 +136,17 @@ export async function createRoomResourceUses(
       const args = instruction.args ?? [];
       const role = resourceReferenceOperand(name, profile);
       if (role && (role.kind === "picture" || role.kind === "view")) {
-        if (!role.variable) uses.add(`${role.kind}:${args[role.operand]}`);
+        if (role.kind === "view" && !role.variable) uses.add(`view:${args[role.operand]}`);
         else if (infer) {
           const value = state.get(args[role.operand]!);
-          if (value !== undefined) variableUses.add(`${role.kind}:${value}`);
+          if (value !== undefined) uses.add(`${role.kind}:${value}`);
         }
       }
       if (name === "new.room" || name === "new.room.v") continue;
       if (name === "call") calls.add(args[0]!);
       else if (name === "call.v" && infer) {
         const target = state.get(args[0]!);
-        if (target !== undefined) variableCalls.add(target);
+        if (target !== undefined) calls.add(target);
       }
       if (
         [
@@ -180,9 +168,8 @@ export async function createRoomResourceUses(
       } else for (const operand of VAR_WRITES[name] ?? []) state.delete(args[operand]!);
       forward(instruction.end, state);
     }
-    for (const use of variableUses) uses.add(use);
     const visited = new Set([0, room]);
-    const pending = [...calls, ...variableCalls];
+    const pending = [...calls];
     while (pending.length) {
       const num = pending.pop()!;
       if (visited.has(num)) continue;

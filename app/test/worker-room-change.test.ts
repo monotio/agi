@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRoomResourceUses, roomsUsingResources } from "../src/worker/roomChange.ts";
-import { createWorkspaceResourceUses } from "../src/studio/workspace/workspaceResourceUses.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { scanStaticExits } from "../../src/agent/roomMap.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createContainer } from "../../src/container/container.ts";
 
-test("applied picture and VIEW changes offer each other room that uses them once", () => {
+test("applied picture and VIEW changes offer each other room that uses them once", async () => {
   const documents = {
     "logic:1": "load.view(7); return;",
     "logic:2": "assignn(v50,3); draw.pic(v50); call(9); return;",
@@ -17,22 +15,12 @@ test("applied picture and VIEW changes offer each other room that uses them once
     "logic:10": "call(9); return;",
     "logic:4": "new.room(2); return;",
   };
-  const uses = createWorkspaceResourceUses();
-  const dependencies = (key: string) => {
-    const source = documents[key as keyof typeof documents];
-    const bytes =
-      typeof source === "string"
-        ? assembleLogic(source, { dictionary: new Map() }).payload
-        : source;
-    const scan = bytes ? scanStaticExits(bytes, DEFAULT_V2_PROFILE) : undefined;
-    return [
-      ...uses(key, source, undefined, DEFAULT_V2_PROFILE).filter(
-        (use) => !use.startsWith("logic:"),
-      ),
-      ...(scan?.pictures ?? []).map((num) => `picture:${num}`),
-      ...(scan?.calls ?? []).map((num) => `logic:${num}`),
-    ];
-  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE);
   assert.deepEqual(
     roomsUsingResources(["picture:3", "view:7"], [1, 2, 3, 4], 1, dependencies),
     [2, 3],
@@ -69,6 +57,26 @@ test("Show Room finds a PICTURE when either branch selects the same constant", a
   const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE);
   assert.deepEqual(roomsUsingResources(["picture:7"], [1, 2], 1, dependencies), [2]);
 });
+
+for (const tail of [
+  "Loop: if (isset(f99)) { v50 = 8; load.view.v(v50); goto Loop; } return;",
+  "return; Loop: goto Loop;",
+]) {
+  test(`Show Room offers art used before a loop without guessing inside it: ${tail}`, async () => {
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents: {
+        "logic:2": `if (isset(f5)) { load.pic(v0); draw.pic(v0); v50 = 7; load.view.v(v50); v51 = 9; call.v(v51); } ${tail}`,
+        "logic:9": "load.view(6); return;",
+      },
+      profileId: "2.936",
+    });
+    const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE);
+    for (const resource of ["picture:2", "view:7", "view:6"])
+      assert.deepEqual(roomsUsingResources([resource], [1, 2], 1, dependencies), [2], resource);
+    assert.deepEqual(roomsUsingResources(["view:8"], [1, 2], 1, dependencies), []);
+  });
+}
 
 for (const source of [
   "if (isset(f80)) { v50 = 7; } load.view.v(v50); return;",
