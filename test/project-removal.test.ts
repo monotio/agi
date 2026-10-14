@@ -14,6 +14,11 @@ import {
 } from "../src/authoring/projectRemoval.ts";
 import { serializeGameTests } from "../src/agent/gameTestFormat.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
+import { ProjectModel } from "../src/authoring/projectModel.ts";
+import { prepareProjectEdit } from "../src/authoring/projectEdit.ts";
+import { compileProjectDocuments } from "../src/authoring/projectDocuments.ts";
+import { createContainer } from "../src/container/container.ts";
+import { sha256Hex } from "../src/crypto.ts";
 
 const profile = PROFILES["2.936"];
 
@@ -50,13 +55,37 @@ function review(over: Partial<ProjectRemovalInput>) {
     removals: [],
     image: imageFor({}),
     authoring: authoring({}),
-    tests: undefined,
     references: undefined,
     drafts: [],
     keptBindings: {},
     profile,
     ...over,
   });
+}
+
+function deletePartWithTests(key: string, tests: string | Uint8Array) {
+  const documents = {
+    "logic:0": "return;",
+    "logic:7": "return;",
+    "logic:42": "return;",
+    "sound:9": new Uint8Array([8, 0, 8, 0, 8, 0, 8, 0, 255, 255]),
+    tests,
+  };
+  const build = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: profile.id,
+  });
+  const model = new ProjectModel({ documents, build, digest: sha256Hex });
+  const proposal = model.propose(model.capture(), "Delete part", [{ key, content: null }]);
+  const result = prepareProjectEdit({
+    model,
+    proposal,
+    profileId: profile.id,
+    policy: {},
+  });
+  assert.equal(result.status, "ready", JSON.stringify(result.diagnostics));
+  assert.deepEqual(proposal.documents()["tests"], tests);
 }
 
 function world(rooms: AuthoringState["world"]["rooms"]): AuthoringState["world"] {
@@ -214,22 +243,13 @@ test("Tests never block game edits: room and expectation references allow deleti
       },
     ]),
   );
-  const waiting = review({ removals: ["logic:42"], tests });
-  assert.deepEqual(waiting, []);
-  const entered = review({ removals: ["logic:7"], tests });
-  assert.deepEqual(entered, []);
-  assert.deepEqual(
-    review({ removals: ["logic:9"], tests }),
-    [],
-    "an unrelated test room does not block",
-  );
+  deletePartWithTests("logic:42", tests);
+  deletePartWithTests("logic:7", tests);
 });
 
 test("Tests never block game edits: unreadable tests allow deletion", () => {
-  const findings = review({ removals: ["sound:9"], tests: "not json" });
-  assert.deepEqual(findings, []);
-  const bytes = review({ removals: ["sound:9"], tests: Uint8Array.of(0xff, 0xfe) });
-  assert.deepEqual(bytes, []);
+  deletePartWithTests("sound:9", "not json");
+  deletePartWithTests("sound:9", Uint8Array.of(0xff, 0xfe));
 });
 
 test("reference-art metadata blocks removal of its association and refuses unknown shapes", () => {

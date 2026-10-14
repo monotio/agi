@@ -60,8 +60,6 @@ export interface ProjectRemovalInput {
   readonly image: ImageInspection;
   /** The candidate's validated authoring intent: bindings, world and music. */
   readonly authoring: AuthoringState;
-  /** The candidate's preserved stored-tests document, verbatim. */
-  readonly tests: DocumentContent | undefined;
   /** The candidate's preserved reference-art metadata document, verbatim. */
   readonly references: DocumentContent | undefined;
   /**

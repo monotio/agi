@@ -40,7 +40,6 @@ for (const [name, logic, variable, offset] of [
         image,
         profile,
         authoring: createAuthoringState(),
-        tests: undefined,
         references: undefined,
         drafts: [],
         keptBindings: {},

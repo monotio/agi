@@ -2,7 +2,8 @@
 import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { MESSAGE_KEY } from "../logic/resource.ts";
-import { renumberTestSetup, testSetupReferences } from "./renumberTestSetup.ts";
+import { renumberTestSetup } from "./renumberTestSetup.ts";
+import { parseGameTests } from "../agent/gameTestFormat.ts";
 import type { GameTestSetup } from "../agent/gameTestSteps.ts";
 import { collectLogicResourceUses } from "../logic/resourceUses.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -90,22 +91,6 @@ export function occupiedProjectNumbers(
         for (const number of Object.values(launch.items ?? {}))
           if (number > 0 && number < 255) used.add(number);
       }
-    }
-  }
-  for (const test of json<{ tests: StoredTest[] }>(documents, "tests")?.tests ?? []) {
-    if (test.setup)
-      for (const reference of testSetupReferences(test.setup, profile))
-        if (reference.kind === kind) used.add(reference.num);
-    if (kind === "logic") {
-      used.add(test.room);
-      if (test.expect?.room !== undefined) used.add(test.expect.room);
-    }
-    if (kind === "view" && test.expect?.object?.view !== undefined)
-      used.add(test.expect.object.view);
-    for (const step of test.steps) {
-      if (kind === "logic" && step.until?.room !== undefined) used.add(step.until.room);
-      if (kind === "view" && step.until?.object?.view !== undefined)
-        used.add(step.until.object.view);
     }
   }
   for (const entry of json<ArtReference[]>(documents, "references") ?? []) {
@@ -258,33 +243,41 @@ export function prepareProjectRenumber(input: {
   }
   documents[target] = documents[input.key]!;
   delete documents[input.key];
-  const tests = json<{ tests: StoredTest[] }>(documents, "tests");
-  if (tests) {
-    for (const test of tests.tests) {
-      if (test.setup)
-        test.setup = renumberTestSetup({
-          setup: test.setup,
-          kind,
-          from: old,
-          to: next,
-          profile: input.profile,
-          documents,
-        });
-      if (kind === "logic") {
-        test.room = replace(test.room);
-        if (test.expect?.room !== undefined) test.expect.room = replace(test.expect.room);
+  const testsContent = documents["tests"];
+  if (testsContent !== undefined)
+    try {
+      parseGameTests(
+        typeof testsContent === "string" ? new TextEncoder().encode(testsContent) : testsContent,
+        input.profile,
+      );
+      const tests = json<{ tests: StoredTest[] }>(documents, "tests")!;
+      for (const test of tests.tests) {
+        if (test.setup)
+          test.setup = renumberTestSetup({
+            setup: test.setup,
+            kind,
+            from: old,
+            to: next,
+            profile: input.profile,
+            documents,
+          });
+        if (kind === "logic") {
+          test.room = replace(test.room);
+          if (test.expect?.room !== undefined) test.expect.room = replace(test.expect.room);
+        }
+        if (kind === "view" && test.expect?.object?.view !== undefined)
+          test.expect.object.view = replace(test.expect.object.view);
+        for (const step of test.steps ?? []) {
+          if (kind === "logic" && step.until?.room !== undefined)
+            step.until.room = replace(step.until.room);
+          if (kind === "view" && step.until?.object?.view !== undefined)
+            step.until.object.view = replace(step.until.object.view);
+        }
       }
-      if (kind === "view" && test.expect?.object?.view !== undefined)
-        test.expect.object.view = replace(test.expect.object.view);
-      for (const step of test.steps) {
-        if (kind === "logic" && step.until?.room !== undefined)
-          step.until.room = replace(step.until.room);
-        if (kind === "view" && step.until?.object?.view !== undefined)
-          step.until.object.view = replace(step.until.object.view);
-      }
+      documents["tests"] = JSON.stringify(tests);
+    } catch {
+      // Tests are documents about the game. Damaged tests stay exact and cannot hold back this move.
     }
-    documents["tests"] = JSON.stringify(tests);
-  }
   const references = json<ArtReference[]>(documents, "references");
   if (references) {
     for (const entry of references) {

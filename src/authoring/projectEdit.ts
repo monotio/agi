@@ -321,7 +321,6 @@ export function prepareProjectEdit(input: {
         renumbering: reviewedMove ? renumbering?.key : undefined,
         image: references,
         authoring,
-        tests: documents["tests"],
         references: documents["references"],
         drafts: unselectedDrafts,
         keptBindings: readBindingsDocument(

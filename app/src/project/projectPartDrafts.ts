@@ -73,7 +73,6 @@ export function inspectPartDraftRemovals(
       removals,
       image,
       authoring,
-      tests: documents["tests"],
       references: documents["references"],
       drafts: [],
       keptBindings: bindings,
