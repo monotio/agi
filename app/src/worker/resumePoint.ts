@@ -118,7 +118,7 @@ export function adoptResumePoint(
       : new Map<string, number>()
     : new Map(boot.dictionary);
   const facade = detachedHost(ctx, boot.soundDevice);
-  const candidate = new Engine(
+  let candidate = new Engine(
     openContainer(files, profile ? { profile } : {}),
     facade.host,
     dictionary,
@@ -209,6 +209,17 @@ export function adoptResumePoint(
   if (roomReentry) {
     if (!roomResourcesChanged(candidate, recordedFiles, live))
       throw new Error("The room's own parts did not change.");
+    // Re-entry must validate the captured picture against the edited files.
+    // Restoring directly on live hides that diff behind an unchanged plan.
+    if (files !== recordedFiles) {
+      candidate = new Engine(
+        openContainer(recordedFiles, { profile: candidate.profile }),
+        facade.host,
+        dictionary,
+        { profile: candidate.profile, amigaRegion: boot.amigaRegion ?? "ntsc" },
+      );
+      restoreOnto(candidate);
+    }
     // The detached candidate takes the current files and owes its room entry
     // before anything is replaced: a refusal leaves Create as it was, and the
     // admission, boot files and debugger below all bind to the final image.
