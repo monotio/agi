@@ -26,6 +26,8 @@ interface Case {
     expectedKeys: string[];
     expectedOutcomes?: Record<string, boolean>;
     expectedError?: string;
+    /** Agent handover refusals are shown without aborting the conversation. */
+    expectedVisibleError?: string;
     /** The final assistant message, for turns that end without a change. */
     expectedReply?: string;
     autoApprove?: boolean;
@@ -147,7 +149,24 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
     });
     agent.autoApprove = content.autoApprove ?? false;
     try {
-      if (content.expectedError)
+      if (content.expectedVisibleError) {
+        // Agent handover refusal is visible; it never aborts the creator's conversation.
+        const before = session.model.capture();
+        const cursor = session.history.capture().cursor;
+        await agent.send(content.request);
+        assert.match(agent.error ?? "", new RegExp(content.expectedVisibleError));
+        assert.match(
+          agent.current().messages.at(-1)!.text,
+          new RegExp(content.expectedVisibleError),
+        );
+        assert.equal(agent.pending(), null);
+        assert.equal(session.model.capture().documentId, before.documentId);
+        assert.equal(session.history.capture().cursor, cursor);
+        assert.deepEqual(
+          Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
+          files,
+        );
+      } else if (content.expectedError)
         await assert.rejects(agent.send(content.request), new RegExp(content.expectedError));
       else if (content.readOnly) {
         const before = session.model.capture();
