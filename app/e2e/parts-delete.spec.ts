@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { test, expect, reviewShot } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, textHook, workspaceSaved } from "./engineProbe.ts";
 import { runningWorkspaceDocument } from "./workspaceShared.ts";
 
 async function start(page: Page): Promise<void> {
@@ -209,6 +209,75 @@ for (const [width, height] of [
       await page.getByTestId("workspace-undo").click();
       expect(await draftDocument(page, "tests")).toBe(tests);
       expect(await draftDocument(page, "logic:1")).toBe(before);
+    });
+    test(`a reopened review stays open after an earlier native close${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: width === 1063 ? 815 : height });
+      await start(page);
+      await remove(page, "part-room:1", true);
+      const dialog = page.getByRole("dialog", { name: "Delete room", exact: true });
+      await expect(dialog).toBeVisible();
+      // WebKit can deliver the earlier close after showModal reopens the dialog.
+      await dialog.evaluate((element) => element.dispatchEvent(new Event("close")));
+      await expect(dialog).toBeVisible();
+      await reviewShot(page, `reopened-delete-review-${width}`);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      expect(await draftDocument(page, "logic:1")).not.toBeNull();
+    });
+    test(`a deletion review closes when the room has already been removed${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+      page,
+    }) => {
+      await start(page);
+      await remove(page, "part-room:1", true);
+      const dialog = page.getByRole("dialog", { name: "Delete room", exact: true });
+      await expect(dialog).toBeVisible();
+      await page.evaluate(async () => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        await session.stage([{ key: "logic:1", content: null }]);
+      });
+      expect(await draftDocument(page, "logic:1")).toBeNull();
+      await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+      await expect(dialog).toBeHidden();
+    });
+    test(`a committed edit requests one progress checkpoint${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+      page,
+    }) => {
+      await start(page);
+      await workspaceSaved(page);
+      const count = await page.evaluate(async () => {
+        const project = (
+          window as unknown as {
+            __AGI_PROJECT__: { getSession(): ProjectSession; getWorker(): Worker };
+          }
+        ).__AGI_PROJECT__;
+        const session = project.getSession();
+        const worker = project.getWorker();
+        const post = worker.postMessage.bind(worker);
+        let checkpoints = 0;
+        worker.postMessage = (message: { type: string }) => {
+          if (message.type === "flush") checkpoints++;
+          post(message);
+        };
+        try {
+          await session.submit({
+            proposal: session.model.propose(session.model.capture(), "Room note", [
+              { key: "notes", content: "The player visited the garden." },
+            ]),
+            label: "Room note",
+            origin: "logic",
+            author: "creator",
+          });
+          await session.flush();
+          return checkpoints;
+        } finally {
+          worker.postMessage = post;
+        }
+      });
+      expect(count, "one durable edit requests one fresh progress checkpoint").toBe(1);
     });
     test(`Tests never block game edits: room deletion refreshes a stale tests preview${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,

@@ -65,6 +65,9 @@ function closeDialog(element: HTMLDialogElement): void {
 }
 
 function onClose(): void {
+  // A queued close from an earlier opening can arrive after showModal.
+  // It belongs to the closed dialog, not the one the app has reopened.
+  if (dialog.value?.open) return;
   open.value = false;
   if (restoreFocus) returnFocus?.focus({ preventScroll: true });
   returnFocus = null;

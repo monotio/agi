@@ -1,5 +1,6 @@
 import { test, expect } from "./test.ts";
 import {
+  FIRST_LOAD_BUDGET_MS,
   isolateStorage,
   configureAi,
   textHook,
@@ -29,13 +30,15 @@ for (const [width, order] of [
     await page.getByTestId("local-create-kind-starter").click();
     await page.getByRole("button", { name: "Start building", exact: true }).click();
     await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            (
-              window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession | null } }
-            ).__AGI_PROJECT__.getSession() !== null,
-        ),
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              (
+                window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession | null } }
+              ).__AGI_PROJECT__.getSession() !== null,
+          ),
+        { timeout: FIRST_LOAD_BUDGET_MS },
       )
       .toBe(true);
     await page.evaluate(async () => {
