@@ -2,7 +2,7 @@ import { installWebLocksFixture } from "./webLocksFixture.ts";
 import { replayHistorySegment } from "./worker-ctx.ts";
 import type { HistorySegment } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { createWorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
@@ -10,7 +10,7 @@ import { openProjectSession } from "../src/project/projectSession.ts";
 import { createMainProjectAdmission } from "../src/engine/mainProjectAdmission.ts";
 import { WorkerQueryTimeoutError } from "../src/engine/workerQueries.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
-import { createContainer } from "../../src/container/container.ts";
+import { createContainer, openContainer } from "../../src/container/container.ts";
 import {
   writeProjectWorkspace,
   readProjectWorkspace,
@@ -369,32 +369,36 @@ test("acquiring project admission for a Play conversation preserves the interpre
   ctx.fns.stopTimers();
 });
 
-test("saving tests leaves Play, the timeline and recording intact; the next resource edit admits the complete project", async (t) => {
+async function openNativeTestsProject(
+  t: TestContext,
+  name: string,
+  documents: Record<string, string>,
+  storedDocuments = documents,
+) {
   const { saveTests } = await import("../src/authoring/saveTests.ts");
-  const documents = {
-    "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
-    "logic:1":
-      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } return;",
-    "picture:1": "vis 1\nfill 1,1\nend\n",
-  };
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents,
     profileId: "2.936",
   });
-  const id = requireProjectId("tests-native-admission");
+  const storedImage = compileProjectDocuments({
+    files: Object.fromEntries(compiled.files()),
+    documents: storedDocuments,
+    profileId: "2.936",
+  });
+  const id = requireProjectId(name);
   const first = await storage.commitProject({
     projectId: id,
     commitId: "initial",
     workspaceId: "initial",
-    buildId: compiled.build.identity.buildId,
+    buildId: storedImage.build.identity.buildId,
     expected: null,
     documents: [],
     data: {
       title: "Tests",
       files: Object.fromEntries(compiled.files()),
       words: [],
-      workspace: writeProjectWorkspace(documents),
+      workspace: writeProjectWorkspace(storedDocuments),
     },
   });
   const messages: WorkerControl[] = [];
@@ -448,6 +452,21 @@ test("saving tests leaves Play, the timeline and recording intact; the next reso
     admission,
   });
   t.after(() => session.dispose());
+  return { saveTests, session, ctx, engine, sent, messages, query, grant: boot.projectAdmission };
+}
+
+test("saving tests leaves Play, the timeline and recording intact; the next resource edit admits the complete project", async (t) => {
+  const documents = {
+    "logic:0": "if (v0 == 0) { new.room(1); } call.v(v0); return;",
+    "logic:1":
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } return;",
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+  };
+  const { saveTests, session, ctx, engine, sent, messages, query } = await openNativeTestsProject(
+    t,
+    "tests-native-admission",
+    documents,
+  );
   const start = await query("startRecording");
   assert.equal(start.ok, true);
   const recording = ctx.run.recording.recording;
@@ -484,6 +503,17 @@ test("saving tests leaves Play, the timeline and recording intact; the next reso
     },
     before.lane,
   );
+  await saveTests(session, {
+    kind: "merge",
+    tests: [{ name: "stay in room", room: 1, steps: [], expect: { room: 1 } }],
+  });
+  assert.equal(sent.length, before.sent, "an identical test save sends no native request");
+  assert.deepEqual(
+    ctx.history,
+    before.timeline,
+    "an identical test save leaves the timeline intact",
+  );
+  assert.equal(session.saveStatus().state, "saved", "an identical save still flushes persistence");
   const tests = new TextDecoder().decode(saved.payload);
   const outcome = await session.submit({
     proposal: session.model.propose(session.model.capture(), "Picture", [
@@ -500,4 +530,88 @@ test("saving tests leaves Play, the timeline and recording intact; the next reso
   const update = sent.find((message) => message.type === "previewUpdate");
   assert.ok(update?.type === "previewUpdate");
   assert.equal(readProjectWorkspace(update.candidate.documents!)["tests"], tests);
+});
+
+test("removing the test that blocked a room deletion admits the newly executable image", async (t) => {
+  const documents = {
+    "logic:0":
+      "if (v40 == 0) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); assignn(v40,1); } return;",
+    "logic:1": "return;",
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+  };
+  const { saveTests, session, ctx, engine, sent } = await openNativeTestsProject(
+    t,
+    "tests-unblock-room-removal",
+    documents,
+  );
+  await saveTests(session, {
+    kind: "merge",
+    tests: [{ name: "room one", room: 1, steps: [], expect: { room: 1 } }],
+  });
+  const held = await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Delete room", [
+      { key: "logic:1", content: null },
+    ]),
+    label: "Delete room",
+    origin: "logic",
+    author: "creator",
+  });
+  assert.equal(held.status, "diagnostics");
+  assert.equal(
+    session.model.capture().read("logic:1"),
+    undefined,
+    "the deletion stays in project documents",
+  );
+  assert.ok(engine.containerFiles.get("LOGDIR")!.length > 3);
+  assert.ok(
+    openContainer(ctx.run.engine!.containerFiles).getResource("logic", 1),
+    "the worker retains the held-back room",
+  );
+  const count = sent.filter((message) => message.type === "previewUpdate").length;
+  await saveTests(session, { kind: "remove", names: ["room one"] });
+  assert.ok(
+    sent.filter((message) => message.type === "previewUpdate").length > count,
+    "unblocking a resource deletion attempts native admission",
+  );
+  assert.ok(
+    !openContainer(ctx.run.engine!.containerFiles).getResource("logic", 1) ||
+      session.capture().pendingAdmission ||
+      session.pendingRestart,
+    "the room deletion reaches the worker or remains explicitly pending",
+  );
+  if (!session.capture().pendingAdmission && !session.pendingRestart) {
+    assert.equal(readProjectWorkspace(ctx.boot.project!.documents)["logic:1"], undefined);
+    assert.equal(ctx.run.projectAdmission!.documentId, session.model.capture().documentId);
+  }
+});
+
+test("a test save admits source authority that differs from the worker despite identical native bytes", async (t) => {
+  const documents = {
+    "logic:0":
+      "if (v40 == 0) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); assignn(v40,1); } return;",
+    "logic:1": "return;",
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+  };
+  const claimed = { ...documents, "logic:0": `${documents["logic:0"]}\n// Current editor source` };
+  const { saveTests, session, ctx, engine, sent, grant } = await openNativeTestsProject(
+    t,
+    "tests-unconfirmed-source",
+    documents,
+    claimed,
+  );
+  const image = session.model.capture().lastAdmissibleBuild!;
+  assert.equal(image.identity.revision, grant.identity.revision);
+  assert.notEqual(image.identity.buildId, grant.identity.buildId);
+  const native = Object.fromEntries(engine.containerFiles);
+  await saveTests(session, {
+    kind: "merge",
+    tests: [{ name: "source test", room: 1, steps: [], expect: null }],
+  });
+  assert.ok(
+    sent.some((message) => message.type === "previewUpdate"),
+    "the worker's confirmed source authority decides admission",
+  );
+  assert.deepEqual(Object.fromEntries(engine.containerFiles), native);
+  assert.equal(ctx.run.projectAdmission!.sources["0"], claimed["logic:0"]);
+  assert.equal(ctx.run.projectAdmission!.buildId, image.identity.buildId);
 });

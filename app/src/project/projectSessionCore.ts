@@ -5,6 +5,7 @@ import {
   ProjectModel,
   type ProjectProposal,
   type ProjectSnapshot,
+  type ProjectImage,
 } from "../../../src/authoring/projectModel.ts";
 import {
   ProjectHistory,
@@ -58,7 +59,7 @@ import {
 import type { ProjectJournalOperation } from "./projectJournalReplay.ts";
 import { sameProjectContent, type ProjectChange } from "../../../src/authoring/projectContent.ts";
 import { openProjectDrafts } from "./projectPartDrafts.ts";
-import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
+import type { PreviewUpdateOutcome, PreviewLaneIdentity } from "../worker/workerProtocol.ts";
 
 interface SessionSave {
   readonly snapshot: ProjectSnapshot;
@@ -161,6 +162,8 @@ function createSession(
     readonly lifetime: string;
     readonly admission: {
       readonly runToken: string;
+      /** Last authority confirmed by the worker; fake admission ports may omit it. */
+      readonly identity?: PreviewLaneIdentity;
       admit(
         compiled: ProjectDocumentsCompile,
         versions: { key: string; version: number }[],
@@ -231,6 +234,18 @@ function createSession(
     ...(input.workingDocumentId === undefined ? {} : { documentId: input.workingDocumentId }),
   });
   const model = new ProjectModel({ documents, build, digest: sha256Hex });
+  let admittedImage: ProjectImage | undefined = model.capture().lastAdmissibleBuild;
+  function confirmedAdmittedImage(): ProjectImage | undefined {
+    const identity = input.admission.identity;
+    if (
+      identity &&
+      (identity.documentId !== admittedImage?.documentId ||
+        identity.buildId !== admittedImage?.identity.buildId ||
+        identity.revision !== admittedImage?.identity.revision)
+    )
+      return undefined;
+    return admittedImage;
+  }
   let sourceClaimsNeedCapture =
     storage.fingerprint(data.authoringState, data.workspace) !==
     storage.fingerprint(
@@ -519,6 +534,7 @@ function createSession(
     save = true,
   ) {
     const image = snapshot.lastAdmissibleBuild!;
+    if (outcome?.status === "committed" || outcome?.status === "unchanged") admittedImage = image;
     const authoringState = updateAcceptedSourceClaims(
       data.authoringState,
       sourceClaimBase,
@@ -608,11 +624,14 @@ function createSession(
       workerRunToken: input.admission.runToken,
       generation: expected.generation,
     };
-    const { prepared, outcome, changes, testsOnly } = await prepareAndAdmitProjectEdit({
+    const edit = await prepareAndAdmitProjectEdit({
       model,
       proposal,
       profileId: inspection.profileId,
       allowMissingRooms: data.roomGeneration === true,
+      admittedImage: confirmedAdmittedImage(),
+      pendingImage,
+      forceAdmission: preparedRoom || updateMode !== undefined,
       reviewedComputedRoomJumps,
       reviewedRenumbering,
       drafts: removalDrafts(),
@@ -667,6 +686,8 @@ function createSession(
           : input.admission.admit(compiled, documents);
       },
     });
+    const { prepared, outcome, changes } = edit;
+    const preservesAdmission = edit.admissionUnchanged || edit.preservesPendingAdmission;
     beforeCommit?.();
     if (
       prepared.compiled === undefined &&
@@ -697,9 +718,9 @@ function createSession(
         action: outcome.roomReentry === true ? "reenter" : "restart",
         reason: restartReason(outcome.reason ?? "This image needs a game restart."),
       };
-    else if (!testsOnly && prepared.compiled !== undefined) pendingRestart = null;
+    else if (!preservesAdmission && prepared.compiled !== undefined) pendingRestart = null;
     if (prepared.compiled !== undefined) {
-      if (testsOnly) {
+      if (preservesAdmission) {
         // A pending native edit keeps its continuation and adopts the latest
         // complete documents, including these tests, at its existing boundary.
         if (pendingImage !== undefined) pendingImage = prepared.compiled;

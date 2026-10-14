@@ -339,3 +339,37 @@ test("saving tests keeps a deferred prepared room on its adoption path", async (
     f.releaseBoundary();
   }
 });
+
+test("an unchanged test save flushes pending persistence and a closed session still refuses it", async () => {
+  const f = fixture();
+  try {
+    const { editGameTests } = await import("../../src/agent/gameTestsEdit.ts");
+    const edited = editGameTests(
+      { document: undefined, profile: PROFILES["2.936"], words: undefined },
+      op,
+    );
+    await f.session.submit({
+      proposal: f.session.model.propose(f.session.model.capture(), "Tests", [
+        { key: "tests", content: new TextDecoder().decode(edited.payload) },
+      ]),
+      label: "Tests",
+      origin: "guided",
+      author: "creator",
+    });
+    assert.equal(f.session.saveStatus().state, "pending");
+    f.reject = true;
+    await assert.rejects(
+      saveTests(f.session, op),
+      /Disk is full/,
+      "an empty proposal must still flush the accepted pending edit",
+    );
+    assert.equal(f.session.saveStatus().state, "failed");
+    f.reject = false;
+    await saveTests(f.session, op);
+    assert.equal(f.session.saveStatus().state, "saved");
+    f.session.stopWrites();
+    await assert.rejects(saveTests(f.session, op), /Editing is paused/);
+  } finally {
+    f.session.dispose();
+  }
+});
