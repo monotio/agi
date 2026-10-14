@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import vue from "@vitejs/plugin-vue";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type DevEnvironment, type Plugin } from "vite";
 import { scanFixtures, type DiscoveredFixture } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES } from "../src/games/knownGames.ts";
@@ -507,6 +507,76 @@ function testServerDependencies(): Plugin {
   };
 }
 
+/** A worker entry as Vite's dev server rewrites `new Worker(new URL(…, import.meta.url))`. */
+const DEV_WORKER_URL = /"([^"]+[?&]worker_file&type=\w+)"/g;
+
+/**
+ * Transforms the client's whole module graph once, from the page entry
+ * through every static and dynamic import and every module worker. Each
+ * module is visited once; one that fails to transform is left for its
+ * first request to report.
+ */
+async function transformModuleGraph(environment: DevEnvironment, entry: string): Promise<number> {
+  const seen = new Set<string>();
+  const visit = async (url: string): Promise<void> => {
+    if (seen.has(url)) return;
+    seen.add(url);
+    const result = await environment.transformRequest(url).catch(() => null);
+    if (result === null) return;
+    const imported = [
+      ...((await environment.moduleGraph.getModuleByUrl(url))?.importedModules ?? []),
+    ];
+    const workers = [...result.code.matchAll(DEV_WORKER_URL)].map((match) => match[1]!);
+    await Promise.all([...imported.map((module) => module.url), ...workers].map(visit));
+  };
+  await visit(entry);
+  return seen.size;
+}
+
+/**
+ * Browser-test servers (`--mode test`) transform the client before they
+ * answer any request. The dev server otherwise transforms each module on its
+ * first request, so the first tests of a run, started together on every
+ * worker while the rest of a gate loads the machine, wait several times
+ * longer for a page, a game boot or Create than every later test.
+ * Playwright waits for the first answer before it starts a worker.
+ */
+function testServerWarmup(): Plugin {
+  let enabled = false;
+  return {
+    name: "agi-test-server-warmup",
+    apply: "serve",
+    configResolved(config) {
+      enabled = config.mode === "test";
+    },
+    configureServer(server) {
+      const httpServer = server.httpServer;
+      if (!enabled || httpServer === null) return;
+      const warm = new Promise<void>((resolve) => {
+        httpServer.once("listening", () => {
+          const started = performance.now();
+          transformModuleGraph(server.environments.client, "/src/main.ts")
+            .then((modules) => {
+              const seconds = ((performance.now() - started) / 1000).toFixed(1);
+              server.config.logger.info(`[warmup] ${modules} modules in ${seconds}s`, {
+                timestamp: true,
+              });
+            })
+            .catch((error: unknown) => {
+              server.config.logger.warn(`[warmup] stopped early: ${String(error)}`, {
+                timestamp: true,
+              });
+            })
+            .finally(resolve);
+        });
+      });
+      server.middlewares.use((_request, _response, next) => {
+        void warm.then(() => next());
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -515,6 +585,7 @@ export default defineConfig({
     bundleGraph(),
     buildIdentity(),
     testServerDependencies(),
+    testServerWarmup(),
   ],
   // Discover the lazy editor's dependencies before a browser connects. Finding
   // them on first Studio open otherwise makes Vite reload the authoring page.

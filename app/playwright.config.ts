@@ -30,9 +30,11 @@ export default defineConfig({
     env: { AGI_E2E_NO_WATCH: "1" },
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
-    timeout: 30_000,
-    // Vite's own lines (ready, dependency re-bundling, restarts) go into the run's log, so a
-    // failure while the server re-bundles or restarts can be told apart from a test fault.
+    // The server transforms the whole client before its first answer (testServerWarmup in
+    // vite.config.ts): a few seconds alone, and several times that while a gate loads the machine.
+    timeout: 120_000,
+    // Vite's own lines (ready, warm-up, dependency re-bundling, restarts) go into the run's log,
+    // so a failure while the server re-bundles or restarts can be told apart from a test fault.
     stdout: "pipe",
   },
 });
