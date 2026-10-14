@@ -39,6 +39,7 @@ import {
   bindProgressTarget,
   bindSavedProgressTarget,
   resolveProgressTarget,
+  resolveProgressLifetime,
 } from "../project/progressBinding.ts";
 import {
   installedProgressTarget,
@@ -451,17 +452,13 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     lifetime: string | null | undefined;
     run: string | undefined;
   } | null = null;
-  function progressLifetime(game: BootedGame | null): string | null | undefined {
-    const retained = game?.retainedProgressTarget;
-    return retained === undefined ? game?.historyLifetime : retained.lifetime;
-  }
   function invalidateOldCheckpoint(): void {
     const game = ctx.getBootedGame();
     if (
       lastAutosave !== null &&
       (lastAutosaveScope?.game !== game ||
         lastAutosaveScope.worker !== ctx.getWorker() ||
-        lastAutosaveScope.lifetime !== progressLifetime(game) ||
+        lastAutosaveScope.lifetime !== resolveProgressLifetime(game) ||
         lastAutosaveScope.run !== ctx.getRunScope?.() ||
         lastAutosave.game.identity.revision !== game?.revision)
     ) {
@@ -860,7 +857,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       lastAutosaveScope = {
         game,
         worker: captured.worker,
-        lifetime: progressLifetime(game),
+        lifetime: resolveProgressLifetime(game),
         run: captured.run,
       };
       return true;
@@ -973,7 +970,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       lastAutosave.game.identity.revision === target.identity.revision &&
       lastAutosaveScope?.game === game &&
       lastAutosaveScope.worker === ctx.getWorker() &&
-      lastAutosaveScope.lifetime === progressLifetime(game) &&
+      lastAutosaveScope.lifetime === resolveProgressLifetime(game) &&
       lastAutosaveScope.run === ctx.getRunScope?.();
 
     if (isCleanOpening || isUnchanged) {

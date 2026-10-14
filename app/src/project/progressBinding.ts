@@ -81,6 +81,14 @@ export function resolveProgressTarget(game: ProgressBindingSource): ProgressTarg
   return projectProgressTarget(game.projectId, game.revision, epoch);
 }
 
+/** The captured runtime history lifetime stays with progress through document-only copies. */
+export function resolveProgressLifetime(
+  game: ProgressBindingSource | null | undefined,
+): string | null | undefined {
+  const retained = game?.retainedProgressTarget;
+  return retained === undefined ? game?.historyLifetime : retained.lifetime;
+}
+
 /**
  * Resolve and store the game's progress target on the object itself — the
  * ephemeral `progressTarget` field a boot or a card resolution fills. A

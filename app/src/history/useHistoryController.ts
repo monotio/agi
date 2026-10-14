@@ -12,9 +12,9 @@
  * listed until a resend commits them; a game switch clears the ledger (the
  * old worker's resends are gone with it).
  *
- * One key change is not a switch: a catalog game that becomes its remix
- * project mid-session keeps the SAME worker and tape under a new
- * progress target. A batch whose segment still belongs to the active
+ * A native remix adoption is not a switch: it keeps the SAME worker and
+ * tape under a new progress target. Document-only copies keep the target
+ * and lifetime of the running tape. A batch whose segment still belongs to the active
  * session nonce then moves the stored record to the new target first —
  * serialized behind pending old-tape commits — so the continuing stream
  * never lands on a record that never saw its boot.
@@ -41,7 +41,7 @@ import {
   HISTORY_WRITER_RENEW_MS,
 } from "./historyStorage.ts";
 import type { BootedGame } from "../project/gameTypes.ts";
-import { resolveProgressTarget } from "../project/progressBinding.ts";
+import { resolveProgressTarget, resolveProgressLifetime } from "../project/progressBinding.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
 import type { HistoryBatch } from "../../../src/agent/history.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
@@ -159,7 +159,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     )
       return Promise.resolve();
     const lease = `lease:${segment}`;
-    const run = renewHistoryWriter(target, segment, game.historyLifetime)
+    const run = renewHistoryWriter(target, segment, resolveProgressLifetime(game))
       .then((renewed) => {
         if (activeTarget?.locator !== target.locator || writerSegment !== segment) return;
         if (renewed) unsaved.delete(lease);
@@ -250,6 +250,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
       if (relocating !== null) await relocating;
       const game = ctx.getBootedGame();
       const target = game ? resolveProgressTarget(game) : null;
+      const lifetime = resolveProgressLifetime(game);
       if ((target?.locator ?? null) !== (activeTarget?.locator ?? null)) {
         if (
           activeTarget !== null &&
@@ -261,7 +262,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
           // pending commits, ahead of this one's) rather than let the
           // continuing stream refuse against a record that never booted.
           const from = activeTarget;
-          const run = moveHistoryRecord(from, target, game?.historyLifetime).finally(() => {
+          const run = moveHistoryRecord(from, target, lifetime).finally(() => {
             if (relocating === run) relocating = null;
           });
           relocating = run;
@@ -314,7 +315,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
           // The batch names the running profile; the booted one is the same
           // interpreter once the page has heard of it.
           msg.profile ?? knownProfile(ctx.getProfile()),
-          game.historyLifetime,
+          lifetime,
         );
         return committed ? "committed" : "refused";
       } catch (error) {
@@ -395,7 +396,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     const profile = knownProfile(ctx.getProfile());
     if (!game || target === null || blockedLocator !== target.locator || profile === undefined)
       return;
-    await storeNewTimeline(target, profile, game.historyLifetime);
+    await storeNewTimeline(target, profile, resolveProgressLifetime(game));
     // A game switch during the write owns its own banner: this call clears
     // the block only while the same incarnation still carries it.
     const live = ctx.getBootedGame();
