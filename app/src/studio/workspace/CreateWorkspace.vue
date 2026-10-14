@@ -2298,7 +2298,6 @@ async function confirmPartRemoval(): Promise<void> {
   if (
     diffProjectDocuments(review.snapshot.documents(), session.workingSnapshot().documents()).length
   ) {
-    partRemovalReview.value = undefined;
     await deletePart(review.key, review.room);
     return;
   }

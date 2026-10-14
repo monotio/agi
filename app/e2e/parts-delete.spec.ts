@@ -210,6 +210,22 @@ for (const [width, height] of [
       expect(await draftDocument(page, "tests")).toBe(tests);
       expect(await draftDocument(page, "logic:1")).toBe(before);
     });
+    test(`a reopened review stays open after an earlier native close${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: width === 1063 ? 815 : height });
+      await start(page);
+      await remove(page, "part-room:1", true);
+      const dialog = page.getByRole("dialog", { name: "Delete room", exact: true });
+      await expect(dialog).toBeVisible();
+      // WebKit can deliver the earlier close after showModal reopens the dialog.
+      await dialog.evaluate((element) => element.dispatchEvent(new Event("close")));
+      await expect(dialog).toBeVisible();
+      await reviewShot(page, `reopened-delete-review-${width}`);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      expect(await draftDocument(page, "logic:1")).not.toBeNull();
+    });
     test(`Tests never block game edits: room deletion refreshes a stale tests preview${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
