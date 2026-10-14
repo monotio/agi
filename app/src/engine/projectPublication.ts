@@ -52,7 +52,19 @@ export function createProjectPublication(
         files: game.files,
         projectId: data.projectId,
         title: data.title,
-        authoredGame: { ...game.authoredGame!, projectId: data.projectId, title: data.title },
+        authoredGame: {
+          ...game.authoredGame!,
+          projectId: data.projectId,
+          title: data.title,
+          imported: data.imported,
+          library:
+            data.library === undefined
+              ? undefined
+              : {
+                  ...data.library,
+                  revision: computeResourceRevision(game.authoredGame!.files),
+                },
+        },
         historyLifetime: lifetime,
       };
       game = retainRuntime ? Object.assign(game, forked) : forked;

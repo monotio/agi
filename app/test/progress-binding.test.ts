@@ -1273,6 +1273,13 @@ for (const source of ["catalog", "installed"] as const) {
       assert.equal(liveDocuments["logic:1"], "assignn(v40,1);return;");
       assert.equal(computeResourceRevision(committed.files), admittedRevision);
       assert.equal(computeResourceRevision(game.authoredGame!.files), admittedRevision);
+      assert.equal(
+        game.authoredGame!.library!.source,
+        "remix",
+        "the receipt transfers document ownership to the new copy",
+      );
+      assert.equal(game.authoredGame!.library!.revision, admittedRevision);
+      assert.equal(game.authoredGame!.imported, true);
       for (const name of coalesced ? ["Intro", "Door"] : ["Intro"]) {
         assert.match(String(committedDocuments["tests"]), new RegExp(name));
         assert.match(
