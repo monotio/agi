@@ -15,7 +15,8 @@ import {
 import { executeAgentTool } from "../src/agent/tools.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
-import { buildView } from "../src/view/view.ts";
+import { readInventoryObjects } from "../src/agent/inventory.ts";
+import { buildView, parseView } from "../src/view/view.ts";
 
 /**
  * Automatic test reruns after a write: selection follows the successful
@@ -187,7 +188,7 @@ test("a write to a transitively called logic reruns the starting room's tests", 
   );
 });
 
-test("write_view, write_music and edit_cels rerun the tests they can affect", () => {
+test("A failing affected-test rerun counts as a failure while view, music and cel writes still apply", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
   const verdict = /^Game tests: 0 game tests pass, 1 fail: "needs the key" Expected flag 30=true/;
@@ -207,28 +208,39 @@ test("write_view, write_music and edit_cels rerun the tests they can affect", ()
       "endview",
     ].join("\n"),
   });
-  assert.equal(actor.success, true, actor.error ?? "");
+  assert.equal(actor.success, false, "A failing affected-test rerun counts as a failure");
   assert.match(actor.message ?? "", verdict);
   assert.deepEqual(actor.details?.["gameTestsRerun"], coverage);
+  assert.deepEqual(
+    [...parseView(state.container.getResource("view", 1)!).loops[0]!.cels[0]!.pixels],
+    [1, 2, 0, 3, 4, 0],
+    "the view write still applies",
+  );
   const music = executeAgentTool(state, "write_music", {
     num: 5,
     tempo: 120,
     tracks: [{ channel: "melody", volume: 13, events: [{ note: "C4", beats: 1, repeat: 1 }] }],
   });
-  assert.equal(music.success, true, music.error ?? "");
+  assert.equal(music.success, false, "A failing affected-test rerun counts as a failure");
   assert.match(music.message ?? "", verdict);
   assert.deepEqual(music.details?.["gameTestsRerun"], coverage);
+  assert.ok(state.container.getResource("sound", 5), "the music write still applies");
   const patched = executeAgentTool(state, "edit_cels", {
     num: 1,
     expectedRevision: String(actor.details?.["revision"]),
     patches: [{ loop: 0, cel: 0, rows: ["999", "999"] }],
   });
-  assert.equal(patched.success, true, patched.error ?? "");
+  assert.equal(patched.success, false, "A failing affected-test rerun counts as a failure");
   assert.match(patched.message ?? "", verdict);
   assert.deepEqual(patched.details?.["gameTestsRerun"], coverage);
+  assert.deepEqual(
+    [...parseView(state.container.getResource("view", 1)!).loops[0]!.cels[0]!.pixels],
+    [9, 9, 9, 9, 9, 9],
+    "the cel edit still applies",
+  );
 });
 
-test("writers that delegate to another write tool rerun exactly once", () => {
+test("A failing affected-test rerun counts as a failure while delegated writes apply and report one verdict", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
   const upserted = executeAgentTool(state, "write_objects", {
@@ -236,24 +248,35 @@ test("writers that delegate to another write tool rerun exactly once", () => {
     objects: null,
     item: { id: null, name: "Letter", location: "room", room: 1 },
   });
-  assert.equal(upserted.success, true, upserted.error ?? "");
+  assert.equal(upserted.success, false, "A failing affected-test rerun counts as a failure");
   assert.match(upserted.message ?? "", /^Game tests: 0 game tests pass, 1 fail/);
   assert.deepEqual(upserted.details?.["gameTestsRerun"], { ran: 1, stored: 1, notRun: 0 });
   assert.equal(upserted.message?.split("Game tests:").length, 2, "one rerun, one verdict");
+  assert.equal(
+    readInventoryObjects(state.getFiles().get("OBJECT"), state.profile).at(-1)?.name,
+    "Letter",
+    "the item write still applies",
+  );
   const read = executeAgentTool(state, "read_logic", { num: 1, offset: null, limit: null });
   const line = String(read.details?.["source"] ?? "")
     .split("\n")
     .find((entry) => entry.includes("set(f30)"));
   assert.ok(line, "the disassembled source still sets flag 30");
+  const beforeLogic = state.container.getResource("logic", 1)!.slice();
   const edited = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
-    edits: [{ find: line, replace: line }],
+    edits: [{ find: line, replace: `${line}\nset(f31);` }],
     expectedRevision: String(read.details?.["revision"]),
   });
-  assert.equal(edited.success, true, edited.error ?? "");
+  assert.equal(edited.success, false, "A failing affected-test rerun counts as a failure");
   assert.match(edited.message ?? "", /^Game tests: 0 game tests pass, 1 fail/);
   assert.equal(edited.message?.split("Game tests:").length, 2, "one rerun, one verdict");
+  assert.notDeepEqual(
+    state.container.getResource("logic", 1),
+    beforeLogic,
+    "the source edit still applies",
+  );
 });
 
 test("a composite write's dictionary update reruns tests in rooms it did not write", () => {
@@ -318,7 +341,7 @@ test("unknown top-level test fields are rejected like the nested validators reje
   );
 });
 
-test("a global dynamic dispatcher conservatively reruns even another room's tests", () => {
+test("A failing affected-test rerun counts as a failure when global dynamic dispatch includes another room", () => {
   const state = world(ROOM_LOGIC.replace("return;", "call(4);\nreturn;"));
   putLogic(state, 4, "call(5);\nreturn;");
   putLogic(state, 5, "return;");
@@ -329,11 +352,17 @@ test("a global dynamic dispatcher conservatively reruns even another room's test
     names: null,
     tests: [takeKey, roomTwo],
   });
-  const written = executeAgentTool(state, "write_logic", { room: 5, source: "return;" });
-  assert.equal(written.success, true, written.error ?? "");
+  const beforeLogic = state.container.getResource("logic", 5)!.slice();
+  const written = executeAgentTool(state, "write_logic", { room: 5, source: "set(f31); return;" });
+  assert.equal(written.success, false, "A failing affected-test rerun counts as a failure");
   assert.match(
     written.message ?? "",
     /^Game tests: 1 game test pass, 1 fail: "room two" Room initialization/,
   );
   assert.deepEqual(written.details?.["gameTestsRerun"], { ran: 2, stored: 2, notRun: 0 });
+  assert.notDeepEqual(
+    state.container.getResource("logic", 5),
+    beforeLogic,
+    "the global helper write still applies",
+  );
 });
