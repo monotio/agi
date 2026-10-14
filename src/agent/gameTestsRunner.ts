@@ -1,4 +1,10 @@
 /** Stored tests run through the same detached interpreter as Agent playtests. */
+import { createContainer } from "../container/container.ts";
+import { assembleLogic } from "../logic/assembler.ts";
+import { parseWordsTok } from "../logic/words.ts";
+import { Engine, type EngineHost } from "../runtime/engine.ts";
+import { readInventoryObjects } from "./inventory.ts";
+import { testSetupReferences } from "../authoring/renumberTestSetup.ts";
 import { decodeRecordedReplay } from "./recordedReplay.ts";
 import { decodeBase64 } from "./gameTestSteps.ts";
 import { playtestRoom, type PlaytestFailure } from "./playtest.ts";
@@ -16,6 +22,78 @@ export interface TouchedResource {
 
 export function readStoredTests(session: AgentSessionState): readonly GameTest[] {
   return parseGameTests(session.getFiles().get(GAME_TESTS_FILE), session.profile).tests;
+}
+
+function readRunTests(session: AgentSessionState): readonly GameTest[] {
+  const content = session.readCommittedTests
+    ? session.readCommittedTests()
+    : session.getFiles().get(GAME_TESTS_FILE);
+  return parseGameTests(
+    typeof content === "string" ? new TextEncoder().encode(content) : content,
+    session.profile,
+  ).tests;
+}
+
+/** A standalone parser uses the engine's normalization and dictionary matching. */
+function createCommandProbe(session: AgentSessionState) {
+  const words = session.getFiles().get("WORDS.TOK");
+  const dictionary = new Map((words ? parseWordsTok(words) : []).map(({ word, id }) => [word, id]));
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("accept.input();", { dictionary, profile: session.profile }).payload,
+  );
+  let line: string | null = null;
+  const host: EngineHost = {
+    print: () => {},
+    displayAt: () => {},
+    statusLine: () => {},
+    takeKeys: () => [],
+    takeInputLine: () => {
+      const taken = line;
+      line = null;
+      return taken;
+    },
+  };
+  const engine = new Engine(container, host, dictionary, { profile: session.profile });
+  engine.tick();
+  return (command: string): string | null => {
+    line = command;
+    engine.tick();
+    return engine.vars[9] === 0 ? null : (engine.parsedWordTexts.at(-1) ?? command);
+  };
+}
+
+/** Tests can be written first; running them names every missing game reference. */
+function missingReference(session: AgentSessionState, test: GameTest): string | null {
+  const rooms = [
+    test.room,
+    test.expect?.["room"],
+    ...test.steps.map((step) => (step["until"] as Record<string, unknown> | undefined)?.["room"]),
+  ];
+  for (const room of rooms)
+    if (typeof room === "number" && !session.container.getResource("logic", room))
+      return `Room ${room} is missing. Add this room before running the test.`;
+  let probe: ReturnType<typeof createCommandProbe> | undefined;
+  for (const step of test.steps) {
+    if (step["action"] !== "command") continue;
+    probe ??= createCommandProbe(session);
+    const unknown = probe(String(step["command"]));
+    if (unknown !== null)
+      return `Word ${JSON.stringify(unknown)} is missing from the dictionary. Add this word before running the test.`;
+  }
+  const inventory = readInventoryObjects(session.getFiles().get("OBJECT"), session.profile);
+  for (const id of (test.expect?.["carriedItems"] as number[] | undefined) ?? [])
+    if (!inventory[id])
+      return `Object ${id} is missing from the inventory. Add this object before running the test.`;
+  if (test.setup)
+    for (const { kind, num } of testSetupReferences(test.setup, session.profile, {
+      activeOnly: true,
+    }))
+      if (!session.container.getResource(kind, num))
+        return `The recorded setup needs missing ${kind} ${num}. Add this resource before running the test.`;
+  return null;
 }
 
 /** The authored or disassembled source of a room's logic; null when it cannot be read. */
@@ -157,27 +235,42 @@ function runOne(
       outcome: { ...(cached.outcome as GameTestOutcome), reused: true },
       result: cached.result,
     };
-  const result = playtestRoom(
-    session,
-    {
-      room: test.room,
-      spawnX: test.spawnX,
-      spawnY: test.spawnY,
-      steps: test.steps,
-      expect: test.expect,
-      cycleBudget: test.cycleBudget,
-      instructionBudget: null,
-    },
-    // A recorded setup replays from the restored interpreter state; the image
-    // validated at read time, so this decode cannot fail.
-    test.setup
-      ? {
-          rngVersion: test.rngVersion ?? 2,
-          setupImage: decodeBase64(test.setup.image, "setup.image"),
-          ...(test.setup.replay ? { replay: decodeRecordedReplay(test.setup.replay) } : {}),
-        }
-      : { rngVersion: test.rngVersion ?? 2 },
-  );
+  let missing: string | null;
+  try {
+    missing = missingReference(session, test);
+  } catch (error) {
+    missing = `The test could not read its game references: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  let result: AgentToolResult = missing
+    ? { success: false, error: missing }
+    : playtestRoom(
+        session,
+        {
+          room: test.room,
+          spawnX: test.spawnX,
+          spawnY: test.spawnY,
+          steps: test.steps,
+          expect: test.expect,
+          cycleBudget: test.cycleBudget,
+          instructionBudget: null,
+        },
+        // A recorded setup replays from the restored interpreter state; the image
+        // validated at read time, so this decode cannot fail.
+        test.setup
+          ? {
+              rngVersion: test.rngVersion ?? 2,
+              setupImage: decodeBase64(test.setup.image, "setup.image"),
+              ...(test.setup.replay ? { replay: decodeRecordedReplay(test.setup.replay) } : {}),
+            }
+          : { rngVersion: test.rngVersion ?? 2 },
+      );
+  if (result.details?.["simulation"] === "reached_planned_room") {
+    result = {
+      ...result,
+      success: false,
+      error: `Room ${String(result.details["plannedRoom"])} is missing. Add this room before running the test.`,
+    };
+  }
   const details = result.details ?? {};
   const outcome: GameTestOutcome = {
     name: test.name,
@@ -216,7 +309,7 @@ export function runGameTests(
 ): AgentToolResult {
   let stored: readonly GameTest[];
   try {
-    stored = readStoredTests(session);
+    stored = readRunTests(session);
   } catch (error) {
     return { success: false, error: String(error instanceof Error ? error.message : error) };
   }
@@ -291,7 +384,7 @@ export function rerunAffectedTests(
   if (!touched.length) return null;
   let stored: readonly GameTest[];
   try {
-    stored = readStoredTests(session);
+    stored = readRunTests(session);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {

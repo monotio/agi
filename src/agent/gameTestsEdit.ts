@@ -1,8 +1,4 @@
-/** Test document edits need only the document, dictionary and interpreter profile. */
-import { createContainer } from "../container/container.ts";
-import { assembleLogic } from "../logic/assembler.ts";
-import { parseWordsTok } from "../logic/words.ts";
-import { Engine, type EngineHost } from "../runtime/engine.ts";
+/** Test documents validate structure; game references are checked only when run. */
 import type { AgiProfile } from "../runtime/profile.ts";
 import {
   parseGameTests,
@@ -20,55 +16,12 @@ export type GameTestsEditOperation =
   | { readonly kind: "text"; readonly text: string };
 
 export class GameTestsEditError extends Error {
-  readonly kind: "document" | "validation" | "unknown_word" | "missing" | "duplicate";
-  readonly testName?: string;
-  readonly stepIndex?: number;
-  readonly word?: string;
-  readonly candidates?: readonly string[];
-  constructor(
-    kind: GameTestsEditError["kind"],
-    message: string,
-    context: {
-      testName?: string;
-      stepIndex?: number;
-      word?: string;
-      candidates?: readonly string[];
-    } = {},
-  ) {
+  readonly kind: "document" | "validation" | "missing" | "duplicate";
+  constructor(kind: GameTestsEditError["kind"], message: string) {
     super(message);
     this.name = "GameTestsEditError";
     this.kind = kind;
-    Object.assign(this, context);
   }
-}
-
-/** Probe the engine's own normalization, filler and multi-word dictionary matching. */
-function createParserProbe(dictionary: ReadonlyMap<string, number>, profile: AgiProfile) {
-  const container = createContainer();
-  container.putResource(
-    "logic",
-    0,
-    assembleLogic("accept.input();", { dictionary, profile }).payload,
-  );
-  let line: string | null = null;
-  const host: EngineHost = {
-    print: () => {},
-    displayAt: () => {},
-    statusLine: () => {},
-    takeKeys: () => [],
-    takeInputLine: () => {
-      const taken = line;
-      line = null;
-      return taken;
-    },
-  };
-  const engine = new Engine(container, host, dictionary, { profile });
-  engine.tick();
-  return (command: string): string | null => {
-    line = command;
-    engine.tick();
-    return engine.vars[9] === 0 ? null : (engine.parsedWordTexts.at(-1) ?? null);
-  };
 }
 
 export function editGameTests(
@@ -157,28 +110,6 @@ export function editGameTests(
           };
         });
       }
-      const dictionary = new Map(
-        input.words ? parseWordsTok(input.words).map(({ word, id }) => [word, id]) : [],
-      );
-      let probe: ReturnType<typeof createParserProbe> | undefined;
-      for (const test of written)
-        for (const [stepIndex, step] of test.steps.entries()) {
-          if (step["action"] !== "command" || step["command"] == null) continue;
-          probe ??= createParserProbe(dictionary, input.profile);
-          const unknown = probe(String(step["command"]));
-          if (unknown !== null) {
-            const prefix = unknown.slice(0, Math.min(3, Math.max(1, unknown.length)));
-            const candidates = [...dictionary.keys()]
-              .filter((word) => word.startsWith(prefix))
-              .sort()
-              .slice(0, 5);
-            throw new GameTestsEditError(
-              "unknown_word",
-              `${JSON.stringify(test.name)}: the command ${JSON.stringify(step["command"])} uses a word the dictionary does not know: ${unknown}.${candidates.length ? ` Registered words like: ${candidates.join(", ")}.` : ""}`,
-              { testName: test.name, stepIndex, word: unknown, candidates },
-            );
-          }
-        }
       const seen = new Set<string>();
       for (const test of written) {
         if (seen.has(test.name))

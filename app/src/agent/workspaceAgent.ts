@@ -1,4 +1,7 @@
-import { registerAgentTestWriteStatus } from "../authoring/testWriteStatus.ts";
+import {
+  mergeAgentTestChanges,
+  sameNonTestDocuments,
+} from "../../../src/authoring/projectTestsMerge.ts";
 import { inspectedResourceKeys, resourceRenderingDependencies } from "./agentResults.ts";
 import { agentHandoffContext } from "./agentHandoff.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
@@ -380,8 +383,7 @@ export function createWorkspaceAgent(options: Options) {
       stale: () =>
         invalidBase ||
         base.documentId !== pending.baseDocumentId ||
-        session.model.capture().documentId !== pending.baseDocumentId ||
-        session.history.capture().cursor !== pending.baseCommit,
+        !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
     });
   }
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
@@ -398,10 +400,6 @@ export function createWorkspaceAgent(options: Options) {
   let chatSaveError = "";
   let busy = false;
   let applying = false;
-  registerAgentTestWriteStatus(session, {
-    busy: () => busy || applying,
-    pending: () => reviews.size > 0,
-  });
   let actionQueue: string[] | null = null;
   let actionChat: string | null = null;
   let appliedDuringRun:
@@ -507,45 +505,70 @@ export function createWorkspaceAgent(options: Options) {
         .changes()
         .filter((change) => keys === undefined || keys.includes(change.key));
       if (changes.length === 0) throw new Error("Select a change to approve.");
-      const proposal = session.model.propose(
-        session.model.capture(),
-        approving.proposal.label,
-        changes,
-      );
-      // Selection is revalidated as a complete project before entering MAIN.
-      const draft = new ProjectDraft(proposal.documents());
-      const ws = captureAgentWorkspace({
-        draft,
-        files: Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
-        profileId: options.profileId,
-        allowMissingRooms: session.allowMissingRooms,
-      });
-      ws.propose("Validate selection", []);
-      const validatedState = ws.openToolState().state;
-      const verdict = validateAgentHandover(validatedState);
-      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
-      const before = session.history.capture().cursor!;
-      const beforeRevision = proposal.base.lastAdmissibleBuild!.identity.revision;
-      const admittedRevision = computeResourceRevision(
-        Object.fromEntries(validatedState.getFiles()),
-      );
-      assertLive();
-      const result = await session.submit({
-        proposal,
-        beforeCommit: assertLive,
-        label: `AI: ${proposal.label}`,
-        origin: "agent",
-        author: "agent",
-        chatId: approving.chatId,
-        messageId: approving.messageId,
-      });
-      if (!["committed", "unchanged", "restartRequired"].includes(result.status))
-        throw new Error("The changes could not be applied. Check Problems and revise them.");
-      taskRuntime?.advanceRevision?.(
-        beforeRevision,
-        admittedRevision,
-        result.status !== "restartRequired",
-      );
+      let before = session.history.capture().cursor!;
+      let result: Awaited<ReturnType<ConversationSession["submit"]>> | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (approving.stale())
+          throw new Error(
+            "The project changed while the agent worked. Send a follow-up to revise these changes.",
+          );
+        const current = session.model.capture();
+        const merged = mergeAgentTestChanges(
+          approving.proposal.base.documents(),
+          current.documents(),
+          changes,
+          PROFILES[options.profileId],
+        );
+        const proposal = session.model.propose(current, approving.proposal.label, merged);
+        const gameChanged = merged.some((change) => change.key !== "tests");
+        let admittedRevision = current.lastAdmissibleBuild!.identity.revision;
+        if (gameChanged) {
+          // Validate the complete selected game; test failures remain document evidence.
+          const ws = captureAgentWorkspace({
+            draft: new ProjectDraft(proposal.documents()),
+            files: Object.fromEntries(current.lastAdmissibleBuild!.files()),
+            profileId: options.profileId,
+            allowMissingRooms: session.allowMissingRooms,
+          });
+          ws.propose("Validate selection", []);
+          const validatedState = ws.openToolState().state;
+          validatedState.readCommittedTests = () => session.model.capture().read("tests")?.content;
+          const verdict = validateAgentHandover(validatedState);
+          if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
+          admittedRevision = computeResourceRevision(Object.fromEntries(validatedState.getFiles()));
+        }
+        before = session.history.capture().cursor!;
+        assertLive();
+        try {
+          result = await session.submit({
+            proposal,
+            beforeCommit: assertLive,
+            label: `AI: ${proposal.label}`,
+            origin: "agent",
+            author: "agent",
+            chatId: approving.chatId,
+            messageId: approving.messageId,
+          });
+        } catch (error) {
+          if (
+            attempt === 0 &&
+            error instanceof Error &&
+            error.message === "Project proposal is stale."
+          )
+            continue;
+          throw error;
+        }
+        if (!["committed", "unchanged", "restartRequired"].includes(result.status))
+          throw new Error("The changes could not be applied. Check Problems and revise them.");
+        if (gameChanged)
+          taskRuntime?.advanceRevision?.(
+            current.lastAdmissibleBuild!.identity.revision,
+            admittedRevision,
+            result.status !== "restartRequired",
+          );
+        break;
+      }
+      if (!result) throw new Error("The project changed again. Retry approval.");
       const commit = session.history.capture().cursor!;
       const chat = store.chats.find((chat) => chat.id === approving.chatId)!;
       chat.messages = chat.messages.map((message) =>
@@ -774,15 +797,18 @@ export function createWorkspaceAgent(options: Options) {
       if (notes !== undefined) combined.set("notes", { key: "notes", content: notes });
       const changes = [...combined.values()];
       if (!changes.length) return false;
-      const candidate = captureAgentWorkspace({
-        draft: new ProjectDraft(stagedDocuments()),
-        files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
-        profileId,
-        allowMissingRooms: session.allowMissingRooms,
-      }).openToolState();
-      const verdict = validateAgentHandover(candidate.state);
-      if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
-      editWorkspace().propose(chatTitle(instruction), changes);
+      if (changes.some((change) => change.key !== "tests")) {
+        const candidate = captureAgentWorkspace({
+          draft: new ProjectDraft(stagedDocuments()),
+          files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+          profileId,
+          allowMissingRooms: session.allowMissingRooms,
+        }).openToolState();
+        candidate.state.readCommittedTests = () => session.model.capture().read("tests")?.content;
+        const verdict = validateAgentHandover(candidate.state);
+        if (!verdict.success) throw new Error(verdict.error ?? "Handover rejected.");
+        editWorkspace().propose(chatTitle(instruction), changes);
+      }
       const proposal = session.model.propose(
         base,
         offered?.label ?? chatTitle(instruction),
@@ -801,7 +827,6 @@ export function createWorkspaceAgent(options: Options) {
         },
         text: [text || proposal.label, selectionReview].filter(Boolean).join("\n\n"),
       });
-      const capturedDocumentId = base.documentId;
       const capturedCommit = session.history.capture().cursor!;
       chat.pendingReview = {
         label: proposal.label,
@@ -818,9 +843,7 @@ export function createWorkspaceAgent(options: Options) {
         chatId: chat.id,
         messageId,
         changes: () => proposal.changes(),
-        stale: () =>
-          session.model.capture().documentId !== capturedDocumentId ||
-          session.history.capture().cursor !== capturedCommit,
+        stale: () => !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
       };
       reviews.set(chat.id, review);
       notify();
@@ -881,6 +904,7 @@ export function createWorkspaceAgent(options: Options) {
           assertLive();
           inspection = createProjectInspection({
             files: nativeFiles ?? Object.fromEntries(base.lastAdmissibleBuild!.files()),
+            readCommittedTests: () => session.model.capture().read("tests")?.content,
             documents:
               !nativeFiles ||
               computeResourceRevision(nativeFiles) === base.lastAdmissibleBuild!.identity.revision
@@ -1033,6 +1057,8 @@ export function createWorkspaceAgent(options: Options) {
                   scene,
                 );
                 staged ??= editWorkspace().openToolState();
+                staged.state.readCommittedTests = () =>
+                  session.model.capture().read("tests")?.content;
                 result = await executeAgentToolAsync(staged.state, call.name, call.input, {
                   ...runtime,
                   references,
@@ -1138,6 +1164,8 @@ export function createWorkspaceAgent(options: Options) {
                     touched.add(change.key);
               } else {
                 staged ??= editWorkspace().openToolState();
+                staged.state.readCommittedTests = () =>
+                  session.model.capture().read("tests")?.content;
                 result = await executeAgentToolAsync(staged.state, call.name, call.input, {
                   ...runtime,
                   references,
@@ -1226,6 +1254,7 @@ export function createWorkspaceAgent(options: Options) {
                   : createProjectInspection({
                       files: Object.fromEntries(staged!.state.getFiles()),
                       documents: {},
+                      readCommittedTests: () => session.model.capture().read("tests")?.content,
                       profileId,
                     });
                 documents = native.documents(resourceKeys);

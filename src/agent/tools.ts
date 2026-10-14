@@ -1787,19 +1787,12 @@ export function validateAgentHandover(
   checkGenesis = true,
 ): AgentToolResult {
   // Handover is the validation gate, not the agent's word that it tested:
-  // every stored game test runs against the current resources (unchanged
-  // verdicts come from the evidence cache), every declared plan exit must
+  // Game tests report evidence without holding back edits. Every declared plan exit must
   // be backed by a reachable compiled transition, and the first finish
   // of a session also boots the world to a shown, interactive scene.
   const testRun = runGameTests(session, null);
   const gameTests = testRun.details?.["gameTests"];
-  if (!testRun.success)
-    return {
-      success: false,
-      error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
-      details: { ...testRun.details, genesisComplete: session.genesisComplete },
-      ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
-    };
+  const testsVerdict = testRun.message ?? testRun.error ?? "No game tests stored.";
   const connections = verifyPlanConnections(
     collectLogics(session.container),
     session.authoring.world.rooms,
@@ -1819,7 +1812,7 @@ export function validateAgentHandover(
         `to room ${first.to} but ${cause}. ` +
         `Implement the exit in room ${first.from}'s logic or revise the plan with update_plan.` +
         (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
-      details: { connections, genesisComplete: session.genesisComplete, gameTests },
+      details: { connections, genesisComplete: session.genesisComplete, gameTests, testsVerdict },
     };
   }
   if (checkGenesis && !session.genesisComplete) {
@@ -1827,26 +1820,34 @@ export function validateAgentHandover(
     if (!result.success)
       return {
         ...result,
-        details: { ...result.details, genesisComplete: false, gameTests, connections },
+        details: {
+          ...result.details,
+          genesisComplete: false,
+          gameTests,
+          testsVerdict,
+          connections,
+        },
       };
     session.genesisComplete = true;
     return {
       ...result,
-      details: { ...result.details, genesisComplete: true, gameTests, connections },
+      message: `${result.message ?? "Handover validated."} ${testsVerdict}`,
+      details: { ...result.details, genesisComplete: true, gameTests, testsVerdict, connections },
     };
   }
   return {
     success: true,
     message:
-      "Handover validated: stored game tests pass" +
+      "Handover validated" +
       (connections.verified.length
         ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
         : "") +
-      ". Resuming gameplay.",
+      `. Resuming gameplay. ${testsVerdict}`,
     details: {
       genesisComplete: true,
       notes,
       gameTests,
+      testsVerdict,
       connections,
     },
   };

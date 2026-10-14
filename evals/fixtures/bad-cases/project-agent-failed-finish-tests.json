@@ -1,6 +1,6 @@
 {
   "name": "project-agent-failed-finish-tests",
-  "description": "A rejected finish must never admit staged changes when a provider ends with text.",
+  "description": "Tests never block game edits: failing test expectations remain valid project documents.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -50,21 +50,16 @@
             }
           }
         ]
-      },
-      {
-        "text": "Done",
-        "toolCalls": []
       }
     ],
     "expectedKeys": [],
     "expectedOutcomes": {
-      "finish": false
+      "finish": true
     },
-    "expectedError": "Handover rejected",
     "autoApprove": true,
     "expectedDocuments": {
-      "world": null,
-      "tests": null
-    }
+      "world": null
+    },
+    "expectedCommits": 2
   }
 }

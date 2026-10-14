@@ -32,7 +32,7 @@ let seq = 0;
 
 for (const mode of ["review", "auto", "background"] as const) {
   for (const failure of ["exit", "tests"] as const) {
-    test(`${mode} rejects final admission after finish fails ${failure}`, async () => {
+    test(`${mode}: ${failure === "tests" ? "Tests never block game edits" : "Unimplemented exits block final admission"}`, async () => {
       const { session } = fixture();
       await session.submit({
         proposal: session.model.propose(session.model.capture(), "Room", [
@@ -110,15 +110,28 @@ for (const mode of ["review", "auto", "background"] as const) {
       });
       agent.autoApprove = mode === "auto";
       try {
-        await assert.rejects(
-          mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"),
-          /Handover rejected/,
-        );
-        assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, false);
-        assert.equal(session.model.capture().documentId, before);
-        assert.equal(session.history.capture().commits.length, commits);
-        assert.equal(agent.pending(), null);
-        assert.match(agent.error ?? "", /Handover rejected/);
+        if (failure === "tests") {
+          await (mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"));
+          assert.equal(
+            results.find((entry) => entry.toolCallId === "finish")?.result.success,
+            true,
+          );
+          if (mode === "review") await agent.approve();
+          assert.match(String(session.model.capture().read("tests")?.content), /Impossible score/);
+        } else {
+          await assert.rejects(
+            mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"),
+            /Handover rejected/,
+          );
+          assert.equal(
+            results.find((entry) => entry.toolCallId === "finish")?.result.success,
+            false,
+          );
+          assert.equal(session.model.capture().documentId, before);
+          assert.equal(session.history.capture().commits.length, commits);
+          assert.equal(agent.pending(), null);
+          assert.match(agent.error ?? "", /Handover rejected/);
+        }
       } finally {
         session.dispose();
       }
@@ -2780,101 +2793,130 @@ for (const provider of ["anthropic", "openai"] as const)
     session.dispose();
   });
 
-test("the shared test-write reason blocks a directly created Agent turn and its pending review", async () => {
-  const { testsWriteBlockReason } = await import("../src/authoring/testWriteStatus.ts");
-  const { saveTests } = await import("../src/authoring/saveTests.ts");
-  const { useTestRecorder } = await import("../src/authoring/useTestRecorder.ts");
-  const { session } = fixture();
-  const reached = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  const agent = createWorkspaceAgent({
-    session,
-    profileId: "2.936",
-    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
-    conversation: () => ({
-      setAvailableTools() {},
-      getTranscript: () => [],
-      appendToolResults() {},
-      async sendUserMessage() {
-        reached.resolve();
-        await release.promise;
-        return {
-          toolCalls: [
-            {
-              id: "notes",
-              name: "propose_changes",
-              input: { label: "Notes", changes: [{ key: "notes", content: "Remember the clue." }] },
-            },
-          ],
-        };
-      },
-      async complete() {
-        return { text: "Notes are ready.", toolCalls: [] };
-      },
-    }),
-  });
-  const recorderState = {
-    phase: "running",
-    recording: { active: false, starting: false, error: "" },
-    powerUp: { open: false, busy: false },
-    modal: null,
-    prompt: null,
-    waitingForKey: false,
-  };
-  const recorder = useTestRecorder({
-    state: recorderState,
-    getWorker: () => ({}) as Worker,
-    query: async () => assert.fail("a busy Agent blocks Record before asking the worker"),
-    logAgent: () => {},
-    getProjectSession: () => session,
-    getBootedGame: () => ({
-      installed: false,
-      title: "Test",
-      revision: session.model.capture().lastAdmissibleBuild!.identity.revision,
-      files: {},
-      words: [],
-    }),
-    flushAutosave: async () => {},
-  });
-  const op = {
-    kind: "merge",
-    tests: [{ name: "test", room: 1, steps: [], expect: null }],
-  } as const;
-  assert.equal(testsWriteBlockReason(session), null);
-  assert.equal(testsWriteBlockReason(null), null);
-  const turn = agent.send("Write a note");
-  try {
-    await reached.promise;
-    assert.equal(
-      testsWriteBlockReason(session),
-      "Wait for the Agent to finish before editing tests.",
-    );
-    await assert.rejects(saveTests(session, op), /Wait for the Agent/);
-    await recorder.startTestRecording();
-    assert.match(recorderState.recording.error, /Wait for the Agent/);
-    assert.equal(session.model.capture().read("tests"), undefined);
-    release.resolve();
-    await turn;
-    assert.ok(agent.pending());
-    assert.equal(
-      testsWriteBlockReason(session),
-      "Review the Agent's changes before editing tests.",
-    );
-    assert.equal(
-      testsWriteBlockReason({ chats: () => session.chats() }),
-      "Review the Agent's changes before editing tests.",
-      "a restored review blocks hand edits before its Agent loads",
-    );
-    await assert.rejects(saveTests(session, op), /Review the Agent/);
-    await recorder.startTestRecording();
-    assert.match(recorderState.recording.error, /Review the Agent/);
-    await agent.reject();
-    assert.equal(testsWriteBlockReason(session), null);
-    await saveTests(session, op);
-    assert.match(String(session.model.capture().read("tests")!.content), /"test"/);
-  } finally {
-    release.resolve();
-    await turn;
-    session.dispose();
-  }
-});
+for (const restore of [false, true]) {
+  for (const retry of [false, true])
+    test(`Tests merge by name: ${retry ? "queued retry" : "direct commit"}, ${restore ? "restored" : "live"} review keeps creator edits to echoed names and later changed names win`, async () => {
+      const { session } = fixture();
+      const document = (tests: readonly unknown[]) =>
+        JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+      const save = async (tests: readonly unknown[]) =>
+        session.submit({
+          proposal: session.model.propose(session.model.capture(), "Tests", [
+            { key: "tests", content: document(tests) },
+          ]),
+          label: "Tests",
+          origin: "guided",
+          author: "creator",
+        });
+      const base = [
+        { name: "Echo", room: 1, steps: [], expect: { score: 1 } },
+        { name: "Change", room: 1, steps: [] },
+        { name: "Remove", room: 1, steps: [] },
+      ];
+      await save(base);
+      let rounds = 0;
+      const options = {
+        session,
+        profileId: "2.936" as const,
+        config: () => ({ provider: "stub" as const, model: "stub", apiKey: "" }),
+        conversation: () => ({
+          setAvailableTools() {},
+          getTranscript: () => [],
+          appendToolResults() {},
+          async sendUserMessage() {
+            return {
+              toolCalls: [
+                {
+                  id: "tests",
+                  name: "propose_changes",
+                  input: {
+                    label: "Tests",
+                    changes: [
+                      {
+                        key: "tests",
+                        content: document([
+                          base[0],
+                          { ...base[1], expect: { score: 2 } },
+                          { name: "Renamed", room: 1, steps: [] },
+                        ]),
+                      },
+                    ],
+                  },
+                },
+              ],
+            };
+          },
+          async complete() {
+            rounds++;
+            return { text: "Tests ready", toolCalls: [] };
+          },
+        }),
+      };
+      const agent = createWorkspaceAgent(options);
+      try {
+        await agent.send("Write tests");
+        assert.ok(agent.pending());
+        await save([
+          { ...base[0], expect: { score: 9 } },
+          { ...base[1], expect: { score: 8 } },
+          { ...base[2], expect: { score: 7 } },
+          { name: "Creator", room: 1, steps: [] },
+        ]);
+        const reviewer = restore ? createWorkspaceAgent(options) : agent;
+        assert.equal(
+          reviewer.pending()!.stale(),
+          false,
+          "test document history never stales a review",
+        );
+        if (retry) {
+          const submit = session.submit;
+          let interrupted = false;
+          session.submit = async (edit) => {
+            if (!interrupted) {
+              interrupted = true;
+              await submit({
+                proposal: session.model.propose(session.model.capture(), "Queue tests", [
+                  {
+                    key: "tests",
+                    content: document([
+                      { ...base[0], expect: { score: 10 } },
+                      { ...base[1], expect: { score: 8 } },
+                      { ...base[2], expect: { score: 7 } },
+                      { name: "Creator", room: 1, steps: [] },
+                    ]),
+                  },
+                ]),
+                label: "Queue tests",
+                origin: "guided",
+                author: "creator",
+              });
+              throw new Error("Project proposal is stale.");
+            }
+            return submit(edit);
+          };
+        }
+        await reviewer.approve();
+        const current = JSON.parse(String(session.model.capture().read("tests")?.content)).tests;
+        assert.deepEqual(
+          current.map((test: { name: string }) => test.name),
+          ["Echo", "Change", "Creator", "Renamed"],
+        );
+        assert.equal(
+          current[0].expect.score,
+          retry ? 10 : 9,
+          "echoed base entries preserve concurrent edits",
+        );
+        assert.equal(current[1].expect.score, 2, "later changed name wins");
+        assert.equal(rounds, 1);
+        await session.undo();
+        const undone = JSON.parse(String(session.model.capture().read("tests")?.content)).tests;
+        assert.equal(
+          undone[1].expect.score,
+          8,
+          "Undo retains the creator's earlier same-name version",
+        );
+      } finally {
+        session.dispose();
+      }
+    });
+}

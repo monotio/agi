@@ -4,7 +4,7 @@ import { PLAYTEST_EXPECT_SCHEMA, PLAYTEST_STEPS_SCHEMA } from "./coreToolDefinit
 import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
 import type { ToolDefinition } from "./tools.ts";
 import { GAME_TESTS_FILE } from "./gameTestFormat.ts";
-import { editGameTests, GameTestsEditError } from "./gameTestsEdit.ts";
+import { editGameTests } from "./gameTestsEdit.ts";
 import { readStoredTests, runGameTests } from "./gameTestsRunner.ts";
 const MAX_GAME_TESTS = 64;
 const DEFINITION_PAGE_CHARS = 65536;
@@ -51,7 +51,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
     name: "write_game_tests",
     description: toolDescription(
       "write_game_tests",
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay}. the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8; with until it walks that way until the predicate holds, as in right until room 2), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words.",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay}. the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8; with until it walks that way until the predicate holds, as in right until room 2), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Tests may use rooms, words and objects before they exist; game references are checked when run.",
     ),
     parameters: parameterDescriptions("write_game_tests", {
       type: "object",
@@ -185,32 +185,20 @@ export function executeGameTestTool(
         : { kind: mode as "merge" | "replace", tests: args["tests"], order: "append" },
     );
     const next = edited.tests;
-    const written = edited.written;
     session.testsPayload = edited.payload;
-    let runResult: AgentToolResult | undefined;
-    if (mode !== "remove" && next.length > 0) {
-      const namesToRun = written.map((test) => test.name);
-      runResult = runGameTests(session, namesToRun);
-    }
-    const verdict = runResult ? ` Test verdict: ${runResult.message ?? runResult.error}` : "";
     return {
       success: true,
-      message: `${next.length} game test${next.length === 1 ? "" : "s"} stored in ${GAME_TESTS_FILE}.${verdict}`,
+      message: `${next.length} game test${next.length === 1 ? "" : "s"} stored in ${GAME_TESTS_FILE}.`,
       details: {
         stored: next.length,
         names: next.map((test) => test.name),
-        ...(runResult?.details ? { run: runResult.details } : {}),
       },
-      ...(runResult?.images ? { images: runResult.images } : {}),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
       success: false,
-      error:
-        error instanceof GameTestsEditError && error.kind === "unknown_word"
-          ? `${message} Register new words with write_words first.`
-          : message,
+      error: message,
     };
   }
 }

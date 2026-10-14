@@ -24,7 +24,7 @@ import {
   createAgentSessionState,
   type AgentSessionState,
 } from "../src/agent/agentState.ts";
-import { ASK_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
+import { ASK_TOOLS, executeAgentTool, validateAgentHandover } from "../src/agent/tools.ts";
 import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -287,7 +287,7 @@ test("testsForResource follows real dependencies and stays conservative when the
   );
 });
 
-test("write_game_tests stores, merges, replaces and removes; commands need registered words", () => {
+test("Write tests first: test documents accept rooms and commands before the game knows them", () => {
   const state = world();
   const written = executeAgentTool(state, "write_game_tests", {
     mode: null,
@@ -308,24 +308,25 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
       },
     ],
   });
-  assert.equal(unknown.success, false);
-  assert.match(unknown.error ?? "", /frobnicate/);
-  assert.match(unknown.error ?? "", /write_words/);
+  assert.equal(unknown.success, true, unknown.error ?? "");
   const close = executeAgentTool(state, "write_game_tests", {
     mode: "merge",
     names: null,
     tests: [{ ...takeKey, name: "typo", steps: [step("command", { command: "tak key" })] }],
   });
-  assert.equal(close.success, false);
-  assert.match(close.error ?? "", /\btak\b/);
-  assert.match(close.error ?? "", /\btake\b/, "the error names registered candidates");
+  assert.equal(close.success, true, close.error ?? "");
   const merged = executeAgentTool(state, "write_game_tests", {
     mode: "merge",
     names: null,
     tests: [{ ...takeKey, name: "look around", steps: [step("wait", { ticks: 3 })], expect: null }],
   });
   assert.equal(merged.success, true, merged.error ?? "");
-  assert.deepEqual(merged.details?.["names"], ["take the key", "look around"]);
+  assert.deepEqual(merged.details?.["names"], [
+    "take the key",
+    "frobnicate",
+    "typo",
+    "look around",
+  ]);
   const listed = executeAgentTool(state, "read_game_tests", { names: ["look around"] });
   assert.equal(listed.success, true);
   assert.equal((JSON.parse(listed.details?.["definition"] as string) as unknown[]).length, 1);
@@ -335,7 +336,7 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
     tests: null,
   });
   assert.equal(removed.success, true, removed.error ?? "");
-  assert.deepEqual(removed.details?.["names"], ["take the key"]);
+  assert.deepEqual(removed.details?.["names"], ["take the key", "frobnicate", "typo"]);
   const replaced = executeAgentTool(state, "write_game_tests", {
     mode: "replace",
     names: null,
@@ -393,7 +394,7 @@ function realParserAccepts(command: string): boolean {
   return engine.vars[9] === 0;
 }
 
-test("stored-command acceptance matches the real parser: normalization, punctuation, filler and phrases", () => {
+test("Write tests first: command words are checked when tests run, using the real parser", () => {
   // The dictionary knows keycard, dont, "ice cream" and the ignored filler "the".
   const cases: [command: string, accepted: boolean][] = [
     ["take key", true],
@@ -415,9 +416,12 @@ test("stored-command acceptance matches the real parser: normalization, punctuat
     });
     assert.equal(
       written.success,
-      accepted,
-      `write_game_tests must ${accepted ? "accept" : "reject"} ${JSON.stringify(command)} the way the real parser does${written.success ? "" : `: ${written.error}`}`,
+      true,
+      `well-formed command ${JSON.stringify(command)} saves before its vocabulary exists`,
     );
+    const run = executeAgentTool(state, "run_game_tests", { names: null });
+    assert.equal(run.success, accepted, `runtime parser: ${command}`);
+    if (!accepted) assert.match(run.error ?? "", /frobnicate/);
   }
 });
 
@@ -523,8 +527,9 @@ test("reruns report skipped coverage instead of looking like full coverage", () 
 test("verdicts are reused for the same tree and rerun when the tree moves", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
-  // write_game_tests already ran the test on this tree, so an immediate
-  // re-ask reuses that verdict instead of simulating again.
+  // Saving a document does not run it. A second run reuses the first verdict.
+  const initial = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(initial.details?.["reused"], 0);
   const first = executeAgentTool(state, "run_game_tests", { names: null });
   assert.equal(first.success, true, first.error ?? "");
   assert.equal(first.details?.["reused"], 1);
@@ -1219,4 +1224,85 @@ test("a failing game test reports exact expected and observed values for the Tes
       stepIndex: 0,
     },
   ]);
+});
+
+test("Write tests first: runs name missing rooms even when those rooms are planned", () => {
+  const state = world();
+  state.authoring.world.rooms["3"] = { title: "Future", description: "", exits: {} };
+  const write = executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ name: "Future room", room: 3, steps: [] }],
+  });
+  assert.equal(write.success, true);
+  const run = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(run.success, false);
+  assert.match(run.error ?? "", /Room 3 is missing/);
+});
+
+test("Write tests first: runs name inventory objects that do not exist yet", () => {
+  const state = world();
+  const write = executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ name: "Future key", room: 1, steps: [], expect: { carriedItems: [77] } }],
+  });
+  assert.equal(write.success, true);
+  const run = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(run.success, false);
+  assert.match(run.error ?? "", /Object 77 is missing/);
+});
+
+test("Runs use committed tests: an Agent's staged tests wait for commit and absent documents remove old file tests", () => {
+  const state = world();
+  let committed: Uint8Array | undefined = serializeGameTests(
+    parseGameTests(
+      new TextEncoder().encode(JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [takeKey] })),
+    ).tests,
+  );
+  state.readCommittedTests = () => committed;
+  executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ ...takeKey, name: "staged", expect: { score: 99 } }],
+  });
+  const run = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(run.success, true, run.error ?? "");
+  assert.deepEqual(
+    (run.details?.["gameTests"] as { name: string }[]).map((test) => test.name),
+    ["take the key"],
+  );
+  committed = undefined;
+  const absent = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(absent.details?.["ran"], 0);
+});
+
+test("Tests never block game edits: malformed tests remain visible in a successful handover verdict", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.testsPayload = new TextEncoder().encode("{");
+  const verdict = validateAgentHandover(state);
+  assert.equal(verdict.success, true, verdict.error ?? "");
+  assert.match(verdict.message ?? "", /TESTS.JSON.*valid JSON/);
+  assert.match(String(verdict.details?.["testsVerdict"]), /valid JSON/);
+});
+
+test("Write tests first: recorded setup names missing resources and ignores unrelated item locations", () => {
+  const state = world();
+  state.objectPayload = buildObjectFile([
+    { name: "key", startingRoom: 1 },
+    { name: "future item", startingRoom: 77 },
+  ]);
+  const image = recordSetupImage(state);
+  executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ name: "Recorded key", room: 1, steps: [], expect: { room: 1 }, setup: { image } }],
+  });
+  const present = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(present.success, true, present.error ?? "");
+  state.container.putResources([{ kind: "view", num: 0, payload: null }]);
+  const missing = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(missing.success, false);
+  assert.match(missing.error ?? "", /setup needs missing view 0/);
 });

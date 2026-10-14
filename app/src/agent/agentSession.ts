@@ -1467,7 +1467,6 @@ Answer the player's question using evidence from inspection when needed. For hin
         resources: changed,
         words: [...staged.sources.words],
         ...(staged.objectPayload ? { objects: Array.from(staged.objectPayload) } : {}),
-        ...(staged.testsPayload ? { tests: Array.from(staged.testsPayload) } : {}),
       });
       prepareRoomPatch(
         openContainer(this.state.getFiles(), { profile: this.state.profile }),

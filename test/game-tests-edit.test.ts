@@ -50,25 +50,18 @@ test("manual edits keep the test's position, and rename, reorder and delete use 
   );
 });
 
-test("dictionary refusal identifies the test and step without requiring Agent tools", () => {
-  assert.throws(
-    () =>
-      editGameTests(
-        { document, profile, words },
-        {
-          kind: "merge",
-          tests: [{ ...scenario("unknown"), steps: [{ action: "command", command: "xyzzy" }] }],
-        },
-      ),
-    (error) => {
-      assert.ok(error instanceof GameTestsEditError);
-      assert.equal(error.kind, "unknown_word");
-      assert.equal(error.testName, "unknown");
-      assert.equal(error.stepIndex, 0);
-      assert.equal(error.word, "xyzzy");
-      return true;
+test("Write tests first: a command can save before its words exist", () => {
+  const edited = editGameTests(
+    { document, profile, words },
+    {
+      kind: "merge",
+      tests: [{ ...scenario("unknown"), steps: [{ action: "command", command: "xyzzy" }] }],
     },
   );
+  const test = parseGameTests(edited.payload, profile).tests.find(
+    (test) => test.name === "unknown",
+  )!;
+  assert.equal(test.steps[0]!["command"], "xyzzy");
 });
 
 test("an unreadable imported tests file is refused and its bytes stay intact", () => {
