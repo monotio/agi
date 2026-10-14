@@ -1424,3 +1424,17 @@ test("tracing a 1024-square attachment never copies its pixels into recording ba
           );
     }
 });
+
+test("fallback session identities retain clock bits above 32 bits", (t) => {
+  t.mock.method(Date, "now", () => 2 ** 32 + 12345);
+  const real = globalThis.crypto;
+  Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+  try {
+    const h = historyHarness(historyGame(), { rngSeed: 1 });
+    h.tick(2);
+    const session = h.ctx.history.session;
+    assert.ok(Number.parseInt(session.slice(1), 36) >= (2 ** 32 + 12345) * 0x10000);
+  } finally {
+    Object.defineProperty(globalThis, "crypto", { value: real, configurable: true });
+  }
+});
