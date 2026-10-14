@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { saveTests } from "../src/authoring/saveTests.ts";
 import { authoringFingerprint } from "../src/project/gameStorage.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
@@ -370,6 +372,56 @@ test("an unchanged test save flushes pending persistence and a closed session st
     assert.equal(f.session.saveStatus().state, "saved");
     f.session.stopWrites();
     await assert.rejects(saveTests(f.session, op), /Editing is paused/);
+  } finally {
+    f.session.dispose();
+  }
+});
+
+test("header Retry saves the exact recorded-test project capture after storage recovers", async () => {
+  const f = fixture();
+  try {
+    f.reject = true;
+    await assert.rejects(saveTests(f.session, op), /Disk is full/);
+    const writes = f.written;
+    const cursor = f.session.history.capture().cursor;
+    const source = readFileSync(
+      new URL("../src/studio/workspace/CreateWorkspace.vue", import.meta.url),
+      "utf8",
+    );
+    const writesStart = source.indexOf("const writes = {");
+    const writesEnd = source.indexOf("const buildErrorLocation", writesStart);
+    const retryStart = source.indexOf("editor.retry.value = async () => {");
+    const retryEnd = source.indexOf("async function retrySave", retryStart);
+    assert.ok(
+      writesStart >= 0 && writesEnd > writesStart && retryStart >= 0 && retryEnd > retryStart,
+    );
+    const editor = {
+      retry: { value: undefined as (() => Promise<void>) | undefined },
+      error: { value: "" },
+      save: { value: "Could not save. Retry" },
+    };
+    const install = new Function(
+      "session",
+      "draftChanged",
+      "editor",
+      "refresh",
+      stripTypeScriptTypes(
+        source.slice(writesStart, writesEnd) + source.slice(retryStart, retryEnd),
+      ),
+    );
+    install(
+      f.session,
+      () => {},
+      editor,
+      () => {},
+    );
+    assert.ok(editor.retry.value);
+    f.reject = false;
+    await editor.retry.value();
+    assert.equal(f.written, writes + 1, "header Retry retries the failed project write");
+    assert.equal(f.session.saveStatus().state, "saved");
+    assert.equal(f.session.history.capture().cursor, cursor, "Retry creates no second test edit");
+    assert.ok(f.session.model.capture().read("tests"));
   } finally {
     f.session.dispose();
   }

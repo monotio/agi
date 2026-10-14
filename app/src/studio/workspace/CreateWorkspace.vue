@@ -1444,6 +1444,7 @@ const writes = {
   },
   retry: async () => {
     await session?.drafts().flush();
+    await session?.flush();
     draftChanged();
   },
   dispose: () => {},

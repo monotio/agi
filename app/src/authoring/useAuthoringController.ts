@@ -350,6 +350,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   /** The room request whose saved room waits for the link to post its answer. */
   let roomDelivery: { resolve: () => void; reject: (error: Error) => void } | null = null;
   let publishAnsweredRoom: (() => Promise<void>) | null = null;
+  let answeredRoomTestWrites: ReturnType<typeof holdBuildTestWrites> | null = null;
 
   const commitResourceEdit = createResourceCommit({
     ...options,
@@ -645,6 +646,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   function setSession(s: AgentSession | null): void {
+    if (session !== s) cancelAnsweredRoom();
     session = s;
   }
 
@@ -1419,10 +1421,21 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   function stopRoomGeneration(): void {
     roomStopped = true;
+    cancelAnsweredRoom();
     session?.task.cancel();
     recoverRoom?.(false);
     recoverRoom = null;
     state.roomGeneration = null;
+  }
+
+  function cancelAnsweredRoom(): void {
+    publishAnsweredRoom = null;
+    const held = answeredRoomTestWrites;
+    answeredRoomTestWrites = null;
+    if (held) {
+      held.release();
+      roomActive = false;
+    }
   }
 
   function retryRoomGeneration(): void {
@@ -1452,7 +1465,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         progress.busy = true;
         progress.error = "";
         try {
-          const result = await attemptRoomAuthoring(req, agent, sendDirection, testWrites.attach);
+          const result = await attemptRoomAuthoring(req, agent, sendDirection, testWrites);
           if (roomStopped) return "";
           progress.busy = false;
           return result;
@@ -1470,8 +1483,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         }
       }
     } finally {
-      roomActive = false;
-      testWrites.release();
+      if (answeredRoomTestWrites !== testWrites) {
+        roomActive = false;
+        testWrites.release();
+      }
       recoverRoom = null;
       if (roomStopped) state.roomGeneration = null;
     }
@@ -1481,7 +1496,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     req: LlmRequest,
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
-    holdTestWrites: () => void,
+    testWrites: ReturnType<typeof holdBuildTestWrites>,
   ): Promise<string> {
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     const game = getBootedGame();
@@ -1522,7 +1537,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         attachSessionRuntime(author, game!);
         setSession(author);
       }
-      holdTestWrites();
+      testWrites.attach();
       // The stored-project gate remix and map-build turns commit through:
       // refuse before the turn spends, and again before its staged room
       // lands in the session. A refusal keeps the player in the departure
@@ -1545,18 +1560,33 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             );
             const owner = game;
             const completed = author;
+            answeredRoomTestWrites = testWrites;
             publishAnsweredRoom = async () => {
-              if (getBootedGame() !== owner) return;
-              await saveTurn(
-                owner,
-                completed,
-                Object.fromEntries(completed.state.getFiles()),
-                true,
-              );
-              postSessionSnapshot(completed);
-              // A parked entry window may not advance another cycle. Capture
-              // again after publication so its image names the saved revision.
-              if (getBootedGame() === owner) await flushAutosave();
+              try {
+                if (
+                  answeredRoomTestWrites !== testWrites ||
+                  getBootedGame() !== owner ||
+                  session !== completed ||
+                  options.getProjectSession?.() !== projectRoom
+                )
+                  return;
+                await saveTurn(
+                  owner,
+                  completed,
+                  Object.fromEntries(completed.state.getFiles()),
+                  true,
+                );
+                postSessionSnapshot(completed);
+                // A parked entry window may not advance another cycle. Capture
+                // again after publication so its image names the saved revision.
+                if (getBootedGame() === owner) await flushAutosave();
+              } finally {
+                testWrites.release();
+                if (answeredRoomTestWrites === testWrites) {
+                  answeredRoomTestWrites = null;
+                  roomActive = false;
+                }
+              }
             };
             return result;
           }
