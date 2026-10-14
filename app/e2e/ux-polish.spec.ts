@@ -366,7 +366,7 @@ for (const part of ["logic:1", "words", "inventory"]) {
     const pending = new Promise<void>((resolve) => {
       release = resolve;
     });
-    await page.route("**/src/project/projectSession.ts", async (route) => {
+    await page.route(/\/src\/project\/projectSession\.ts(\?.*)?$/, async (route) => {
       await pending;
       await route.continue();
     });

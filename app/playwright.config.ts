@@ -26,6 +26,8 @@ export default defineConfig({
   // Each run owns its server; keep source files stable during verification.
   webServer: {
     command: `npx vite --mode test --port ${PORT}`,
+    // No file watching: a late watcher event under load reloads pages mid-test.
+    env: { AGI_E2E_NO_WATCH: "1" },
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
     timeout: 30_000,

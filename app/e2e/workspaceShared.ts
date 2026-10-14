@@ -37,6 +37,12 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
   await enterCreateMode(page);
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
+  // Room analysis inserts PICTURE rows above LOGIC when it finishes; click after the list settles.
+  await expect(page.getByTestId("parts-list")).toHaveAttribute(
+    "data-analysis",
+    /^(idle|resolved|failed)$/,
+    { timeout: FIRST_LOAD_BUDGET_MS },
+  );
   const row = page.getByTestId(`part-room:${num}:logic`).or(page.getByTestId(`part-logic:${num}`));
   // Mid widths fold Parts away while the Agent is open; Parts brings the list back.
   const partsButton = page.getByTestId("workspace-parts");

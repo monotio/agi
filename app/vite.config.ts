@@ -498,6 +498,10 @@ function testServerDependencies(): Plugin {
       return {
         cacheDir: `node_modules/.vite-test/${config.server?.port ?? "default"}`,
         optimizeDeps: { force: true },
+        // Playwright runs against a fixed checkout. A late watcher event under
+        // load otherwise hot-reloads pages mid-test with no file changed. The
+        // manual hot-reload check (e2e/manual/hmr-resume.mjs) keeps watching.
+        ...(process.env["AGI_E2E_NO_WATCH"] === "1" ? { server: { watch: null } } : {}),
       };
     },
   };
