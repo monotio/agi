@@ -446,21 +446,24 @@ export function openHistoryDrive(
         continue;
       }
       if (seqNow !== mark.seq || replay!.tick !== mark.tick) break;
-      const actual = computeSyncMark(engine!, mark.seq, mark.tick, mark.cycle);
       markIdx++;
-      // Version 1–2 marks carry only the combined digest, which the released
-      // build's text surface can never re-derive under today's text behavior —
-      // released tapes verify room, score, modal and patchGeneration only.
-      // Version 3 marks verify the state and text digests separately.
+      // Released v1–v2 combined-digest marks replay unverified: the released
+      // build's legitimately-different behavior (e.g. the version() modal)
+      // can move any field, so they can never set outcome.diverged. Only
+      // split-digest marks are verified — the state digest and the text
+      // digest separately, plus room, score, patchGeneration, modal and
+      // cycle.
+      if (mark.state === undefined) continue;
+      const actual = computeSyncMark(engine!, mark.seq, mark.tick, mark.cycle);
       const detail =
-        mark.state !== undefined && actual.state !== mark.state
+        actual.state !== mark.state
           ? "state digest"
-          : mark.state !== undefined && actual.text !== mark.text
+          : actual.text !== mark.text
             ? "text digest"
             : null;
       if (
         detail !== null ||
-        (mark.state !== undefined && ctx.run.cycle.cycleCount !== mark.cycle) ||
+        ctx.run.cycle.cycleCount !== mark.cycle ||
         actual.room !== mark.room ||
         actual.score !== mark.score ||
         actual.patchGeneration !== mark.patchGeneration ||

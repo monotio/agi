@@ -313,7 +313,7 @@ test("a recorded live session replays from its boot to the same observed state",
   );
 });
 
-test("version-1 sync marks verify room, score, modal and patchGeneration without the combined digest", () => {
+test("released combined-digest sync marks replay unverified, however their fields drift", () => {
   const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
   const { send, tick } = h;
   tick(4);
@@ -326,9 +326,10 @@ test("version-1 sync marks verify room, score, modal and patchGeneration without
     "current recordings write the split digests",
   );
 
-  // The released shape: a combined digest today's text surface can never
-  // re-derive. Replay verifies the diagnostic fields only, so released
-  // tapes keep replaying after legitimate text behavior changes.
+  // The released shape: a combined digest only. Released v1–v2 tapes replay
+  // without verification — the released build's legitimately-different
+  // behavior (e.g. the version() modal) can move any field, so a released
+  // tape can never set outcome.diverged.
   const legacy: HistorySegment = {
     ...segment,
     sync: segment.sync.map(({ seq, tick, cycle, room, score, patchGeneration, modal }) => ({
@@ -347,18 +348,108 @@ test("version-1 sync marks verify room, score, modal and patchGeneration without
   assert.equal(replayed.diverged, null, "a released tape never diverges on its combined digest");
   assert.equal(replayed.applied, segment.events.length);
 
-  // A mismatch on a verified field still diverges.
+  // The drift astra reproduced on a released 1.0 recording: every field the
+  // old replay policy compared has legitimately moved — replay still cannot
+  // diverge on a combined-digest mark.
   const drifted: HistorySegment = {
     ...legacy,
-    sync: legacy.sync.map((m, i) => (i === 0 ? { ...m, score: m.score + 1 } : m)),
+    sync: legacy.sync.map((m, i) =>
+      i === 0
+        ? {
+            ...m,
+            room: m.room + 1,
+            score: m.score + 1,
+            patchGeneration: m.patchGeneration + 1,
+            modal: m.modal === null ? "print" : null,
+          }
+        : m,
+    ),
   };
-  assert.ok(
-    replayHistorySegment(drifted).diverged !== null,
-    "a released tape still diverges when a verified field drifts",
+  const driftReplay = replayHistorySegment(drifted);
+  assert.equal(driftReplay.error, null);
+  assert.equal(
+    driftReplay.diverged,
+    null,
+    "drifted room, score, patchGeneration and modal cannot diverge a released mark",
   );
+  assert.equal(driftReplay.applied, segment.events.length);
 });
 
-test("version-3 sync marks verify the state and text digests separately", () => {
+test("a released tape of the version() logic does not diverge on the fixed modal behavior", () => {
+  // Astra's released-1.0 recording: logic
+  // `if (!isset(f200)) { set(f200); version(); } return;` reported
+  // "recording diverges here" at tick 20 — the released build recorded
+  // modal null where the version()-modal fix now legitimately shows "print".
+  // The same condition, staged so a current recording can carry it: the
+  // modal parks the cycle mid-pass, so version() must fire after the room
+  // entry anchored — a recorded debugWrite flips f200 once the anchor sits.
+  const h = historyHarness(
+    gameContainer(
+      [
+        `if (!isset(f201)) { set(f201); new.room(1); }
+         if (isset(f200)) { reset(f200); version(); }
+         if (v0 > 0) { call.v(v0); } return;`,
+        `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+      ],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+    { rngSeed: 0x5eed },
+  );
+  const { ctx, send, tick } = h;
+  tick(6);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(30);
+  // The modal parks every cycle from here on, so no anchor closes the open
+  // batch on its own — flush to collect the debugWrite with the segment.
+  ctx.fns.historyFlush("flush");
+  const segment = collectSegments(h.control)[0]!;
+  assert.equal(segment.events.length, 1, "the debugWrite made the tape");
+  assert.ok(segment.sync.length >= 1, "the session recorded sync marks");
+  assert.equal(ctx.run.engine?.modalKind, "print", "the version() modal is open live");
+  // The released build's marks — cycles still running, modal still null —
+  // have no current counterpart past the modal's tick: the modal pauses the
+  // interpreter, so a current recording never marks while it is open. Keep
+  // the pre-modal marks and place the tick-20 mark exactly as released
+  // wrote it; the released shape carries the combined digest only.
+  const releasedMark = (m: HistorySegment["sync"][number]) => ({
+    seq: m.seq,
+    tick: m.tick,
+    cycle: m.cycle,
+    digest: "00000000",
+    room: m.room,
+    score: m.score,
+    patchGeneration: m.patchGeneration,
+    modal: null,
+  });
+  const boot = segment.sync[0]!;
+  const released: HistorySegment = {
+    ...segment,
+    sync: [
+      ...segment.sync.filter((m) => m.modal === null).map(releasedMark),
+      {
+        seq: segment.events.length,
+        tick: 20,
+        cycle: 20,
+        digest: "00000000",
+        room: boot.room,
+        score: boot.score,
+        patchGeneration: boot.patchGeneration,
+        modal: null,
+      },
+    ],
+  };
+  const replayed = replayHistorySegment(released);
+  assert.equal(replayed.error, null);
+  assert.equal(
+    replayed.ctx.run.engine?.modalKind,
+    "print",
+    "replay still reaches the legitimately-different modal",
+  );
+  assert.equal(replayed.diverged, null, "the released tape replays unverified");
+  assert.equal(replayed.applied, segment.events.length);
+});
+
+test("split-digest sync marks verify the state and text digests separately", () => {
   const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
   const { send, tick } = h;
   tick(4);
