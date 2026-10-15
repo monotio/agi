@@ -691,13 +691,16 @@ test("wrap consumes the break space and strips continuation leading spaces", () 
   // break space is overwritten by the line break (never a trailing cell, so
   // the window is a column narrower) and the continuation's leading spaces
   // are deleted (kq1 2.917 _Print wrap block 0x2191: the break space becomes
-  // '\n' and maxLength excludes it).
-  assert.deepEqual(wrapLines("aaa  bbb", 4), ["aaa", "bbb"]);
+  // '\n' and maxLength excludes it). Probed on kq1 2.917 / kq3 2.936, so the
+  // callers select the original wrap explicitly.
+  assert.deepEqual(wrapLines("aaa  bbb", 4, true), ["aaa", "bbb"]);
   // A hard split (no space on the line) does not strip: the space after it
   // stays, as the original's no-space path inserts the break without the
   // strip loop (kq1 2.917 0x2198).
-  assert.deepEqual(wrapLines("abcd ef", 4), ["abcd", " ef"]);
-  assert.deepEqual(wrapLines("aa bb cc", 5), ["aa", "bb cc"]);
+  assert.deepEqual(wrapLines("abcd ef", 4, true), ["abcd", " ef"]);
+  assert.deepEqual(wrapLines("aa bb cc", 5, true), ["aa", "bb cc"]);
+  // Unprobed builds keep the previous wrap: the break space stays.
+  assert.deepEqual(wrapLines("aaa  bbb", 4), ["aaa ", "bbb"]);
 });
 
 test("an overlong message is replaced by the verbose notice", () => {
@@ -705,7 +708,8 @@ test("an overlong message is replaced by the verbose notice", () => {
   // lines never clips silently — the window shows "Message too verbose:"
   // quoting the first 20 characters (kq1 2.917 WindowNoWait 0x1E0C, ovl
   // DS+0xCCB "Message too verbose:\n\n\"%s...\"\n\nPress ESC to continue.").
-  const verbose = windowLines("word ".repeat(120).trimEnd(), 30);
+  // Probed on kq1 2.917 / kq3 2.936, so the callers select it explicitly.
+  const verbose = windowLines("word ".repeat(120).trimEnd(), 30, true);
   assert.deepEqual(verbose, [
     "Message too verbose:",
     "",
@@ -713,7 +717,9 @@ test("an overlong message is replaced by the verbose notice", () => {
     "",
     "Press ESC to continue.",
   ]);
-  assert.deepEqual(windowLines("short", 30), ["short"]);
+  assert.deepEqual(windowLines("short", 30, true), ["short"]);
+  // Unprobed builds keep the plain wrap — no substitution.
+  assert.ok(windowLines("word ".repeat(120).trimEnd(), 30).length > 19);
 });
 
 test("print.at overrides place the window verbatim, off-screen included", () => {
@@ -721,15 +727,23 @@ test("print.at overrides place the window verbatim, off-screen included", () => 
   // script gave them — the original stores the overrides with no clamping
   // and adds picTop even on the override path (kq1 2.917 WindowNoWait
   // 0x1E69-0x1EBB), so a bad override draws off-screen rather than shift.
-  assert.deepEqual(placeWindow(["hello"], 1, { row: 2, col: 3 }), {
+  // Probed on kq1 2.917 / kq3 2.936, so the callers select it explicitly.
+  assert.deepEqual(placeWindow(["hello"], 1, { row: 2, col: 3 }, true), {
     top: 3,
     left: 3,
     rows: 3,
     cols: 7,
   });
-  assert.deepEqual(placeWindow(["hello"], 1, { row: 24, col: 38 }), {
+  assert.deepEqual(placeWindow(["hello"], 1, { row: 24, col: 38 }, true), {
     top: 25,
     left: 38,
+    rows: 3,
+    cols: 7,
+  });
+  // Unprobed builds keep the previous placement: absolute row, clamped on-screen.
+  assert.deepEqual(placeWindow(["hello"], 1, { row: 24, col: 38 }), {
+    top: 22,
+    left: 33,
     rows: 3,
     cols: 7,
   });

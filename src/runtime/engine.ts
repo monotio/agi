@@ -2665,11 +2665,15 @@ export class Engine {
     const a = attr(0, 15);
     this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
     this.text.write(this.statusRow, 1, this.statusText(), a);
-    // "Sound:%s" with the space-padded "on " (kq1 2.917 ovl DS+0xF88/0xF91).
+    // "Sound:%s" with the space-padded "on " (kq1 2.917 ovl DS+0xF88/0xF91;
+    // probed on kq1 2.917 / kq3 2.936 — unprobed profiles keep the previous
+    // unpadded form).
     this.text.write(
       this.statusRow,
       30,
-      `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`,
+      this.profile.originalTextWindows
+        ? `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`
+        : `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`,
       a,
     );
     this.statusRefreshRequested = false;
@@ -2680,8 +2684,11 @@ export class Engine {
     // Supplemental variable contract: AGI specs §3.3 identifies v7 as maximum score.
     // https://www.agidev.com/articles/agispec/agispecs-3.html
     // Format "Score:%d of %d  " — no space after the colon, two trailing
-    // spaces (kq1 2.917 DisplayStatusLine 0x34BD, ovl DS+0xF77).
-    return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
+    // spaces (kq1 2.917 DisplayStatusLine 0x34BD, ovl DS+0xF77; probed on
+    // kq1 2.917 / kq3 2.936 — unprobed profiles keep the previous format).
+    if (this.profile.originalTextWindows)
+      return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
+    return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
   }
 
   /** Input row: prompt marker, then the edit buffer (spec "Text geometry"). */
@@ -2873,16 +2880,18 @@ export class Engine {
     const width = place?.width ? place.width : 30;
     // windowLines applies the overlong-message recovery: more than 19
     // formatted lines substitutes "Message too verbose:" quoting the first
-    // 20 characters (kq1 2.917 0x1E0C / kq3 2.936).
-    const lines = windowLines(text, width);
-    const box = placeWindow(lines, this.displayBaseRow, place);
+    // 20 characters (kq1 2.917 0x1E0C / kq3 2.936 — probed there; unprobed
+    // profiles wrap, place and frame the previous way).
+    const original = this.profile.originalTextWindows;
+    const lines = windowLines(text, width, original);
+    const box = placeWindow(lines, this.displayBaseRow, place, original);
     const saved = this.text.save(
       box.top,
       box.left,
       box.top + box.rows - 1,
       box.left + box.cols - 1,
     );
-    drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
+    drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15), original);
     if (!forceAcknowledgement && this.flags[15] !== 0) {
       // A print that opens a non-blocking window consumes f15 as it returns.
       // docs/fidelity.md: print-handler-output-modes
@@ -2922,8 +2931,16 @@ export class Engine {
     }
     // The description goes through the same message box as print, so %v, %s
     // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
-    const lines = windowLines(this.expandMessage(view.description ?? ""), 30);
-    const box = placeWindow(lines, this.displayBaseRow, { row: 1 });
+    const lines = windowLines(
+      this.expandMessage(view.description ?? ""),
+      30,
+      this.profile.originalTextWindows,
+    );
+    // The probed builds place the window one row below the display base;
+    // unprobed builds pass the absolute row as before.
+    const box = this.profile.originalTextWindows
+      ? placeWindow(lines, this.displayBaseRow, { row: 1 }, true)
+      : placeWindow(lines, this.displayBaseRow, { row: this.displayBaseRow + 1 });
     const saved = this.text.save(
       box.top,
       box.left,

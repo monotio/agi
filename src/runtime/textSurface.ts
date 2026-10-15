@@ -241,14 +241,43 @@ export class TextSurface {
 }
 
 /**
- * Greedy word wrap for modal windows, as the original's _Print does it (kq1
- * 2.917 / kq3 2.936, wrap block 0x2191): explicit newlines start a new line;
- * when a line is full the LAST space on it is consumed — overwritten by the
- * break and excluded from the line's width — and every space that would lead
- * the continuation line is dropped; a line with no space is hard-split at
- * exactly the width.
+ * Greedy word wrap for modal windows. With `original` (probed on kq1 2.917 /
+ * kq3 2.936, wrap block 0x2191): explicit newlines start a new line; when a
+ * line is full the LAST space on it is consumed — overwritten by the break
+ * and excluded from the line's width — and every space that would lead the
+ * continuation line is dropped; a line with no space is hard-split at
+ * exactly the width. Without it, unprobed builds keep the previous wrap:
+ * words join with single spaces and overlong words hard-split.
  */
-export function wrapLines(text: string, width: number): string[] {
+export function wrapLines(text: string, width: number, original = false): string[] {
+  if (!original) {
+    const out: string[] = [];
+    for (const paragraph of text.split("\n")) {
+      const words = paragraph.split(" ");
+      let line = "";
+      for (const word of words) {
+        let w = word;
+        while (w.length > width) {
+          if (line.length > 0) {
+            out.push(line);
+            line = "";
+          }
+          out.push(w.slice(0, width));
+          w = w.slice(width);
+        }
+        if (line.length === 0) {
+          line = w;
+        } else if (line.length + 1 + w.length <= width) {
+          line += " " + w;
+        } else {
+          out.push(line);
+          line = w;
+        }
+      }
+      out.push(line);
+    }
+    return out;
+  }
   const out: string[] = [];
   for (const paragraph of text.split("\n")) {
     let line = "";
@@ -277,17 +306,19 @@ export function wrapLines(text: string, width: number): string[] {
 }
 
 /**
- * Window text with the original's overlong-content recovery (kq1 2.917
- * 0x1E0C / kq3 2.936): a message formatting to more than winBot−1 (19) lines
- * is REPLACED by the verbose notice quoting its first 20 characters, then
- * re-formatted — the window never silently clips.
+ * Window text. With `original` (probed on kq1 2.917 0x1E0C / kq3 2.936) a
+ * message formatting to more than winBot−1 (19) lines is REPLACED by the
+ * verbose notice quoting its first 20 characters, then re-formatted — the
+ * window never silently clips; without it, unprobed builds keep the plain
+ * wrap.
  */
-export function windowLines(text: string, width: number): string[] {
-  const lines = wrapLines(text, width);
-  if (lines.length <= 19) return lines;
+export function windowLines(text: string, width: number, original = false): string[] {
+  const lines = wrapLines(text, width, original);
+  if (!original || lines.length <= 19) return lines;
   return wrapLines(
     `Message too verbose:\n\n"${text.slice(0, 20)}..."\n\nPress ESC to continue.`,
     width,
+    true,
   );
 }
 
@@ -302,21 +333,33 @@ export interface WindowBox {
 /**
  * Place a bordered window around `lines`. Without overrides the window is
  * centred vertically in the 21-row display area starting at `displayBase`
- * and horizontally across the 40 columns (spec "Modal text"). print.at
+ * and horizontally across the 40 columns (spec "Modal text"). With
+ * `original` (probed on kq1 2.917 WindowNoWait 0x1E69 / kq3 2.936) print.at
  * overrides are used VERBATIM — the row relative to the display base — with
- * no clamping into the screen (kq1 2.917 WindowNoWait 0x1E69: the override
- * loads feed the window math unchecked, and picTop is added on both paths).
+ * no clamping into the screen, picTop added on both paths. Without it,
+ * unprobed builds treat the override as an absolute row and clamp the box
+ * into the screen.
  */
 export function placeWindow(
   lines: readonly string[],
   displayBase: number,
   override?: { row?: number | undefined; col?: number | undefined },
+  original = false,
 ): WindowBox {
   const textWidth = lines.reduce((m, l) => Math.max(m, l.length), 0);
   const cols = Math.min(TEXT_COLS, textWidth + 2);
   const rows = Math.min(TEXT_ROWS, lines.length + 2);
-  const top = displayBase + (override?.row ?? Math.floor((21 - rows) / 2));
-  const left = override?.col ?? Math.floor((TEXT_COLS - cols) / 2);
+  if (original) {
+    const top = displayBase + (override?.row ?? Math.floor((21 - rows) / 2));
+    const left = override?.col ?? Math.floor((TEXT_COLS - cols) / 2);
+    return { top, left, rows, cols };
+  }
+  let top = override?.row ?? displayBase + Math.floor((21 - rows) / 2);
+  let left = override?.col ?? Math.floor((TEXT_COLS - cols) / 2);
+  if (top + rows > TEXT_ROWS) top = TEXT_ROWS - rows;
+  if (left + cols > TEXT_COLS) left = TEXT_COLS - cols;
+  if (top < 0) top = 0;
+  if (left < 0) left = 0;
   return { top, left, rows, cols };
 }
 
@@ -351,6 +394,8 @@ export function placeWindow(
  * the bottom bar on cell row 6, and the corner cells run the horizontal
  * bars only as far as the side-bar columns. Bars are the GLYPH_BAR_* /
  * GLYPH_CORNER_* codes, never the 1.x checkpoint codes 0x01..0x07.
+ * `originalFrame` selects this measured frame (probed on kq1 2.917 / kq3
+ * 2.936); without it the legacy thin-line 1.x frame is drawn.
  */
 export function drawWindow(
   surface: TextSurface,
@@ -358,22 +403,39 @@ export function drawWindow(
   lines: readonly string[],
   textAttr: number,
   borderAttr: number,
+  originalFrame = false,
 ): void {
   const bottom = box.top + box.rows - 1;
   const right = box.left + box.cols - 1;
   surface.fill(box.top, box.left, bottom, right, 0x20, textAttr);
-  for (let c = box.left + 1; c < right; c++) {
-    surface.put(box.top, c, GLYPH_BAR_TOP, borderAttr);
-    surface.put(bottom, c, GLYPH_BAR_BOTTOM, borderAttr);
+  if (!originalFrame) {
+    // Unprobed builds keep the previous frame: the 1.x thin-line glyphs.
+    for (let c = box.left + 1; c < right; c++) {
+      surface.put(box.top, c, GLYPH_H, borderAttr);
+      surface.put(bottom, c, GLYPH_H, borderAttr);
+    }
+    for (let r = box.top + 1; r < bottom; r++) {
+      surface.put(r, box.left, GLYPH_V, borderAttr);
+      surface.put(r, right, GLYPH_V, borderAttr);
+    }
+    surface.put(box.top, box.left, GLYPH_TL, borderAttr);
+    surface.put(box.top, right, GLYPH_TR, borderAttr);
+    surface.put(bottom, box.left, GLYPH_BL, borderAttr);
+    surface.put(bottom, right, GLYPH_BR, borderAttr);
+  } else {
+    for (let c = box.left + 1; c < right; c++) {
+      surface.put(box.top, c, GLYPH_BAR_TOP, borderAttr);
+      surface.put(bottom, c, GLYPH_BAR_BOTTOM, borderAttr);
+    }
+    for (let r = box.top + 1; r < bottom; r++) {
+      surface.put(r, box.left, GLYPH_BAR_LEFT, borderAttr);
+      surface.put(r, right, GLYPH_BAR_RIGHT, borderAttr);
+    }
+    surface.put(box.top, box.left, GLYPH_CORNER_TL, borderAttr);
+    surface.put(box.top, right, GLYPH_CORNER_TR, borderAttr);
+    surface.put(bottom, box.left, GLYPH_CORNER_BL, borderAttr);
+    surface.put(bottom, right, GLYPH_CORNER_BR, borderAttr);
   }
-  for (let r = box.top + 1; r < bottom; r++) {
-    surface.put(r, box.left, GLYPH_BAR_LEFT, borderAttr);
-    surface.put(r, right, GLYPH_BAR_RIGHT, borderAttr);
-  }
-  surface.put(box.top, box.left, GLYPH_CORNER_TL, borderAttr);
-  surface.put(box.top, right, GLYPH_CORNER_TR, borderAttr);
-  surface.put(bottom, box.left, GLYPH_CORNER_BL, borderAttr);
-  surface.put(bottom, right, GLYPH_CORNER_BR, borderAttr);
   for (let i = 0; i < lines.length && box.top + 1 + i < bottom; i++) {
     surface.write(box.top + 1 + i, box.left + 1, lines[i]!.slice(0, box.cols - 2), textAttr);
   }
