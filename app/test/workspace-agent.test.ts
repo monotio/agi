@@ -3061,7 +3061,9 @@ for (const restore of [false, true]) {
             return submit(edit);
           };
         }
-        await reviewer.approve();
+        // The creator edited names this review touches, so Apply shows them before it wins.
+        await assert.rejects(reviewer.approve(), /A test in this review changed/);
+        await reviewer.approve(undefined, { shownTests: reviewer.pending()!.tests()!.touched });
         const current = JSON.parse(String(session.model.capture().read("tests")?.content)).tests;
         assert.deepEqual(
           current.map((test: { name: string }) => test.name),
@@ -3656,11 +3658,177 @@ for (const timing of ["before approval", "inside queue"] as const)
       assert.ok(agent.pending(), "a late collision still needs creator Apply");
       assert.equal(session.model.capture().read("tests")!.content, document(9));
       assert.doesNotMatch(agent.current().messages.at(-1)!.text, /Applied automatically/);
-      await agent.approve();
+      // Apply without the comparison on screen refuses, however often it is chosen.
+      for (let click = 0; click < 2; click++)
+        await assert.rejects(agent.approve(), /A test in this review changed/);
+      assert.equal(session.model.capture().read("tests")!.content, document(9));
+      await agent.approve(undefined, { shownTests: agent.pending()!.tests()!.touched });
       assert.equal(
         JSON.parse(String(session.model.capture().read("tests")!.content)).tests[0].room,
         5,
       );
+    } finally {
+      session.dispose();
+    }
+  });
+
+/** An Agent turn that offers test changes for the creator's review (no Auto-approve). */
+async function reviewedTestChange(
+  session: ReturnType<typeof fixture>["session"],
+  input: Record<string, unknown>,
+  beforeApprove?: () => Promise<void>,
+) {
+  let rounds = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    ...(beforeApprove ? { beforeApprove } : {}),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      appendToolResults() {},
+      async sendUserMessage() {
+        return { toolCalls: [{ id: "test", name: "write_game_tests", input }] };
+      },
+      async complete() {
+        return rounds++ === 0
+          ? {
+              toolCalls: [
+                {
+                  id: "finish",
+                  name: "finish",
+                  input: { testReasons: [{ test: "Future", reason: "its room is not built." }] },
+                },
+              ],
+            }
+          : { text: "Future stays red because its room is not built.", toolCalls: [] };
+      },
+    }),
+  });
+  await agent.send("Write tests");
+  assert.ok(agent.pending(), "the test change waits for the creator's Apply");
+  return agent;
+}
+const testsDocument = (tests: readonly unknown[]) =>
+  JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+const creatorSavesTests = (
+  session: ReturnType<typeof fixture>["session"],
+  tests: readonly unknown[],
+) =>
+  session.submit({
+    proposal: session.model.propose(session.model.capture(), "Creator tests", [
+      { key: "tests", content: testsDocument(tests) },
+    ]),
+    label: "Creator tests",
+    origin: "guided",
+    author: "creator",
+  });
+const futureRoom5 = { mode: "merge", names: null, tests: [{ name: "Future", room: 5, steps: [] }] };
+const roomOf = (content: unknown, name: string) =>
+  JSON.parse(String(content)).tests.find((test: { name: string }) => test.name === name)?.room;
+
+test("Review shows what Apply does: a late same-name test is replaced, not added", async () => {
+  const { session } = fixture();
+  try {
+    const agent = await reviewedTestChange(session, futureRoom5);
+    await creatorSavesTests(session, [{ name: "Future", room: 9, steps: [] }]);
+    const shown = agent.pending()!.tests()!;
+    assert.equal(roomOf(shown.before, "Future"), 9);
+    assert.equal(roomOf(shown.after, "Future"), 5);
+    assert.deepEqual(gameTestReviewLines(shown.before, shown.after, PROFILES["2.936"]!), [
+      'Changed test "Future"',
+    ]);
+    await agent.approve(undefined, { shownTests: shown.touched });
+    assert.equal(session.model.capture().read("tests")!.content, shown.after);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("Apply commits the comparison the creator saw: a touched test changed since is shown again first", async () => {
+  const { session } = fixture();
+  try {
+    const agent = await reviewedTestChange(session, futureRoom5);
+    const seen = agent.pending()!.tests()!.touched;
+    await creatorSavesTests(session, [{ name: "Future", room: 9, steps: [] }]);
+    await assert.rejects(
+      agent.approve(undefined, { shownTests: seen }),
+      /A test in this review changed\. Check the Tests comparison again, then choose Apply\./,
+    );
+    // A second Apply without the comparison refuses too.
+    await assert.rejects(agent.approve(), /A test in this review changed/);
+    assert.equal(roomOf(session.model.capture().read("tests")!.content, "Future"), 9);
+    assert.ok(agent.pending(), "the proposal stays pending");
+    const refreshed = agent.pending()!.tests()!;
+    assert.equal(roomOf(refreshed.before, "Future"), 9);
+    await agent.approve(undefined, { shownTests: refreshed.touched });
+    assert.equal(session.model.capture().read("tests")!.content, refreshed.after);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("A touched test that changes while Apply is in flight is shown before it is overwritten", async () => {
+  const { session } = fixture();
+  try {
+    let collided = false;
+    const agent = await reviewedTestChange(session, futureRoom5, async () => {
+      if (collided) return;
+      collided = true;
+      await creatorSavesTests(session, [{ name: "Future", room: 9, steps: [] }]);
+    });
+    const seen = agent.pending()!.tests()!.touched;
+    await assert.rejects(
+      agent.approve(undefined, { shownTests: seen }),
+      /A test in this review changed/,
+    );
+    assert.equal(roomOf(session.model.capture().read("tests")!.content, "Future"), 9);
+    assert.ok(agent.pending(), "the proposal stays pending");
+    await agent.approve(undefined, { shownTests: agent.pending()!.tests()!.touched });
+    assert.equal(roomOf(session.model.capture().read("tests")!.content, "Future"), 5);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("An unrelated test the creator adds meanwhile survives Apply without a new review", async () => {
+  const { session } = fixture();
+  try {
+    const agent = await reviewedTestChange(session, futureRoom5);
+    const seen = agent.pending()!.tests()!.touched;
+    await creatorSavesTests(session, [{ name: "Lake", room: 2, steps: [] }]);
+    await agent.approve(undefined, { shownTests: seen });
+    const committed = session.model.capture().read("tests")!.content;
+    assert.equal(roomOf(committed, "Lake"), 2);
+    assert.equal(roomOf(committed, "Future"), 5);
+    assert.equal(agent.pending(), null);
+  } finally {
+    session.dispose();
+  }
+});
+
+for (const mode of ["merge", "remove"] as const)
+  test(`Review describes a touched test the creator deleted: ${mode === "merge" ? "the change re-adds it" : "nothing is left to delete"}`, async () => {
+    const { session } = fixture();
+    try {
+      const door = { name: "Future", room: 1, steps: [], expect: { score: 99 } };
+      await creatorSavesTests(session, [door]);
+      const agent = await reviewedTestChange(
+        session,
+        mode === "merge"
+          ? { mode, names: null, tests: [{ ...door, expect: { score: 0 } }] }
+          : { mode, names: ["Future"], tests: null },
+      );
+      await creatorSavesTests(session, []);
+      const shown = agent.pending()!.tests()!;
+      assert.deepEqual(
+        gameTestReviewLines(shown.before, shown.after, PROFILES["2.936"]!),
+        mode === "merge" ? ['Added test "Future"'] : [],
+      );
+      await agent.approve(undefined, { shownTests: shown.touched });
+      const committed = session.model.capture().read("tests")!.content;
+      assert.equal(roomOf(committed, "Future"), mode === "merge" ? 1 : undefined);
     } finally {
       session.dispose();
     }
@@ -3988,7 +4156,7 @@ test("Only the creator edits existing tests: Auto-approve reviews a changed orig
     await agent.send("Change Future");
     assert.ok(agent.pending());
     assert.equal(session.model.capture().read("tests")!.content, document([]));
-    await agent.approve();
+    await agent.approve(undefined, { shownTests: agent.pending()!.tests()!.touched });
     assert.equal(
       JSON.parse(String(session.model.capture().read("tests")!.content)).tests[0].room,
       5,
