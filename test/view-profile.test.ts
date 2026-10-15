@@ -213,10 +213,11 @@ function fiveSharedLoops(header: number, control = 0): Uint8Array {
 
 describe("2.230 packed orientation writeback", () => {
   it("re-mirrors a loop whose index exceeds the packed 2-bit orientation", () => {
-    // Player-visible rule: set.loop(o, 4) on a mutable shared loop mirrors
-    // the cels EVERY time — the writeback stores only (loop mod 4) while the
-    // equal-test compares the full index (xmas 2.230 _SetLoop 0x3545-0x357C:
-    // and 0xffcf / or (loop<<4) / byte store).
+    // Player-visible rule: set.loop(o, 4) on a mutable mirrorable shared loop
+    // mirrors the cels EVERY time — the writeback's orientation field holds
+    // only (loop<<4) & 0x30 while the equal-test compares the full index
+    // (xmas 2.230 _SetLoop 0x3545-0x357C: and 0xffcf / or (loop<<4) / byte
+    // store).
     const view = views.parseView(fiveSharedLoops(0xc2), PROFILES["2.230"]);
     assert.deepEqual(
       [...views.selectViewCel(view, 4, 0)!.pixels],
@@ -234,6 +235,30 @@ describe("2.230 packed orientation writeback", () => {
       [...views.selectViewCel(view, 1, 0)!.pixels],
       [0, 2, 1],
       "no re-mirror within range",
+    );
+  });
+
+  it("sets the mirrorable bit when an out-of-range index writes back, mirroring the NEXT selection", () => {
+    // Player-visible rule: set.loop(o, 4) on a mutable but initially
+    // non-mirrorable loop does NOT mirror — but the unmasked writeback
+    // (header & 0xCF) | (4<<4) sets bit 0x40 (0x82 → 0xC2), so the next
+    // selection mirrors (xmas 2.230 _SetLoop 0x356A-0x357C: mov ax,[bp+0xa];
+    // shl ax,4 — no mask — then and 0xffcf / or / byte store).
+    const view = views.parseView(fiveSharedLoops(0x82), PROFILES["2.230"]);
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [1, 2, 0],
+      "0x40 clear at test time: the first selection does not mirror",
+    );
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [0, 2, 1],
+      "the writeback armed 0x40: the repeat selection mirrors",
+    );
+    assert.deepEqual(
+      [...views.selectViewCel(view, 1, 0)!.pixels],
+      [1, 2, 0],
+      "an in-range change mirrors as well",
     );
   });
 });
