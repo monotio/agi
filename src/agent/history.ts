@@ -32,13 +32,15 @@ import { readRngPolicy, type RngPolicy } from "../runtime/rng.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
 /**
- * Current recording contract writes sync marks with the state and text
- * digests recorded separately. Version 2 added debugger boundaries and
- * complete project admission events; version 1 is the released contract.
+ * Current recording contract adds debugger boundaries and complete project
+ * admission events. Version-2 tapes may carry sync marks in either form —
+ * the released combined `digest` or the split `state` + `text` digests —
+ * and new writers emit the split digests (an optional-field extension at
+ * the same version); version 1 is the released contract.
  */
-export const HISTORY_FORMAT_VERSION = 3;
+export const HISTORY_FORMAT_VERSION = 2;
 /** Released recordings remain unchanged on read; the next append upgrades the header. */
-export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, 2, HISTORY_FORMAT_VERSION];
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -85,13 +87,11 @@ export type HistoryEndReason =
  * The end reasons each recording version may carry. Version 1 is the
  * released contract — a version-1 record never admits "debugger", so the
  * released reader could not have silently carried a reason it cannot name.
- * Version 2 admits every released reason plus "debugger"; version 3 carries
- * the same reasons with the split sync digests.
+ * Version 2 admits every released reason plus "debugger".
  */
 const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
   1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
   2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
-  3: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
 };
 
 export type HistoryEventCause =
@@ -194,21 +194,21 @@ export interface HistoryRoomMark {
  * A cheap checksum of interpreter state at a stream position plus diagnostic
  * fields. Marks detect divergence; they do not prove equivalence.
  *
- * Version 3 tapes record the state digest (vars, flags, object positions)
- * and the text digest (the 25 text rows) separately; version 1–2 tapes carry
- * the combined `digest` only, and replay verifies just their diagnostic
- * fields — the released build's text surface legitimately differs from
- * today's, so its combined digest can never re-derive.
+ * Version-2 tapes may carry either form: the released combined `digest`
+ * (FNV-1a over vars, flags, object positions and the 25 text rows) or the
+ * split `state` and `text` digests, never both. New writers emit the split
+ * digests; the split digests are optional fields at the same version, so
+ * older files express them by omission.
  */
 export interface HistorySyncMark {
   seq: number;
   tick: number;
   cycle: number;
-  /** Version 1–2 tapes: FNV-1a over vars, flags, object positions and the 25 text rows. */
+  /** Released form: FNV-1a over vars, flags, object positions and the 25 text rows. */
   digest?: string;
-  /** Version 3 tapes: FNV-1a over vars, flags and object positions. */
+  /** Current writer form: FNV-1a over vars, flags and object positions. */
   state?: string;
-  /** Version 3 tapes: FNV-1a over the 25 text rows. */
+  /** Current writer form: FNV-1a over the 25 text rows. */
   text?: string;
   room: number;
   score: number;
@@ -432,9 +432,10 @@ export function historyTextDigest(engine: HistorySyncSource): string {
 }
 
 /**
- * The version 1–2 combined digest: FNV-1a over vars, flags, object positions
- * and the 25 text rows. Released tapes carry only this value; it is kept to
- * verify a released tape's recorded final state, never for replay gating.
+ * The released combined digest: FNV-1a over vars, flags, object positions
+ * and the 25 text rows. Version-2 tapes written before the split digests
+ * carry only this value; it is kept to read those tapes, never for replay
+ * gating.
  */
 export function historySyncDigest(engine: HistorySyncSource): string {
   return digestOf((feed) => {
@@ -973,8 +974,8 @@ function syncMarks(value: unknown): HistorySyncMark[] {
   if (!Array.isArray(value) || value.length > 1_000_000) fail("sync marks must be a bounded list.");
   return value.map((m) => {
     if (!isObj(m)) fail("sync mark must be an object.");
-    // Tapes an append migrated forward keep their original marks: either the
-    // version 1–2 combined digest or the version 3 split digests, never both.
+    // Version-2 tapes keep their original marks: either the released
+    // combined digest or the split digests, never both.
     const combined = m["digest"] !== undefined;
     const split = m["state"] !== undefined && m["text"] !== undefined;
     if (combined === split)
