@@ -423,7 +423,6 @@ export function useEngine(
       if (files !== undefined && computeResourceRevision(files) !== revision) return "refused";
       return session === projectSession &&
         lifecycle.getBootedGame() === game &&
-        session.saveStatus().state === "saved" &&
         session.model.capture().lastAdmissibleBuild!.identity.revision === revision
         ? "owned"
         : "refused";

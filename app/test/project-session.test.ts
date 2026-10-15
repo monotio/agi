@@ -1,3 +1,4 @@
+import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { installWebLocksFixture } from "./webLocksFixture.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import type { PreviewUpdateOutcome } from "../src/worker/workerProtocol.ts";
@@ -1285,7 +1286,7 @@ test("a deferred admission publishes MAIN without queuing a second source save",
   }
 });
 
-test("checkpoint preparation returns not ready during an outstanding document write", async () => {
+test("checkpoint preparation is ready during an outstanding document write", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },
@@ -1349,7 +1350,7 @@ test("checkpoint preparation returns not ready during an outstanding document wr
       result = outcome;
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(result, "not_ready");
+    assert.equal(result, "ready");
     release();
     await saving;
     assert.equal(await session.prepareCheckpoint(), "ready");
@@ -1414,6 +1415,7 @@ test("checkpoint preparation returns not ready before a future admission boundar
         ...request.expected!,
         generation: request.expected!.generation + 1,
         buildId: request.buildId,
+        revision: computeResourceRevision(request.data.files),
       },
     }),
   });
