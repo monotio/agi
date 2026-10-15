@@ -146,6 +146,11 @@ Use `Record` for static string-keyed tables, and `Map` or `Set` only for dynamic
 A one-expression wrapper function needs a public contract to justify its name. Name editor features
 with vendor-neutral terms: code intelligence, completion, signature help, hover documentation.
 
+Pointer drags, moves, resizes and wheel gestures stay smooth. A handler records the latest pointer
+state and applies it at most once per animation frame. Expensive work waits until the gesture ends
+or runs throttled: image preparation, hashing, thumbnails, worker messages, live game previews and
+saves.
+
 ## UI copy
 
 The audience includes children building their first game, so copy is plain and calm.
