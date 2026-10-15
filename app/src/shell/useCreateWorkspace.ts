@@ -84,8 +84,15 @@ export function createCreateWorkspace(deps: {
   const agentOpen = deps.agentOpen;
   const parts = deps.parts;
   if (agentOpen && parts) {
-    watch([agentOpen, () => holds.value > 0], ([open, held]) => {
-      if (!open && !held) parts.open.value = false;
+    // Only the Agent closing restores the setting; a rename that ends with the Agent never open keeps Parts.
+    let restore = false;
+    watch([agentOpen, () => holds.value > 0], ([open, held], [wasOpen]) => {
+      if (open) restore = false;
+      else if (wasOpen) restore = true;
+      if (restore && !held) {
+        restore = false;
+        parts.open.value = false;
+      }
     });
   }
   function holdParts(active: () => boolean): void {
