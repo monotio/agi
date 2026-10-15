@@ -1,6 +1,7 @@
 import { sameGameTestDefinition } from "./gameTestComparison.ts";
 /** Test changes get their own review lines so creators can see weakened checks. */
 import { parseGameTests, type GameTest } from "./gameTestFormat.ts";
+import { decodeRecordedReplay, recordedPlayerInputs } from "./recordedReplay.ts";
 import type { ProjectContent } from "../authoring/projectContent.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 interface GameTestChange {
@@ -87,4 +88,10 @@ export function readGameTestReviewSide(
   } catch (error) {
     return { tests: [], cause: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** What the player does in a test: its authored steps plus a recording's inputs. */
+export function gameTestActionCount(test: GameTest): number {
+  const replay = test.setup?.replay;
+  return test.steps.length + (replay ? recordedPlayerInputs(decodeRecordedReplay(replay)) : 0);
 }

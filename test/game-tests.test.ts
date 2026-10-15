@@ -25,6 +25,7 @@ import {
   type AgentSessionState,
 } from "../src/agent/agentState.ts";
 import { ASK_TOOLS, executeAgentTool, validateAgentHandover } from "../src/agent/tools.ts";
+import { gameTestActionCount } from "../src/agent/gameTestReview.ts";
 import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -985,6 +986,56 @@ function recordSetupImage(state: AgentSessionState): string {
   engine.tick();
   return Buffer.from(engine.serialize()).toString("base64");
 }
+
+test("The tests table counts what the player did, including a recording that typed look", () => {
+  const state = world();
+  const engine = new Engine(
+    openContainer(state.getFiles()),
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    },
+    state.sources.words,
+    { profile: state.profile },
+  );
+  engine.tick();
+  const setup = {
+    image: Buffer.from(engine.recordingImage()!).toString("base64"),
+    replay: JSON.stringify({
+      state: engine.captureReplayState(),
+      operations: [
+        [
+          "tick",
+          [
+            ["line", "look"],
+            ["keys", []],
+            ["random", 4],
+          ],
+        ],
+        ["clock", 1],
+        [
+          "tick",
+          [
+            ["line", null],
+            ["keys", [13]],
+          ],
+        ],
+        ["release", [["keys", []]]],
+        ["navigate", 2],
+      ],
+    }),
+  };
+  const [recorded, authored] = parseGameTests(
+    serializeGameTests([{ ...takeKey, name: "look", steps: [], setup }, takeKey]),
+    state.profile,
+  ).tests;
+  // "look", the Enter that closed its message and one menu arrow.
+  assert.equal(gameTestActionCount(recorded!), 3);
+  assert.equal(gameTestActionCount(authored!), 2);
+});
 
 test("recorded test reads omit opaque setup and paginate complete editable definitions", () => {
   const state = world();

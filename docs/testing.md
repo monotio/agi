@@ -863,7 +863,9 @@ and its notes name each existing test it changed or deleted and say why. Test
 deletions and expectation changes have separate named lines in review.
 Existing-test edits require the creator's Apply even with Auto-approve on; Apply
 is the approval. New tests may be applied automatically. These checks never
-block the creator's own edits.
+block the creator's own edits. In review, a test's Actions count its authored
+steps plus a recording's player inputs: typed commands, keys, clicks and prompt
+answers.
 
 `read_game_tests` lists compact summaries or pages of editable JSON definitions;
 opaque snapshots and replay tapes stay out of model responses. Merge edits

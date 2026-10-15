@@ -14,7 +14,11 @@ import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.
 import { parseView, selectViewCel } from "../../../src/view/view.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
-import { gameTestReviewLines, readGameTestReviewSide } from "../../../src/agent/gameTestReview.ts";
+import {
+  gameTestActionCount,
+  gameTestReviewLines,
+  readGameTestReviewSide,
+} from "../../../src/agent/gameTestReview.ts";
 import { readInventoryObjects } from "../../../src/authoring/inventory.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { reviewText } from "./agentResultPreview.ts";
@@ -264,7 +268,7 @@ const removed = computed(() =>
           <tr v-for="test in side.tests" :key="test.name">
             <td>{{ test.name }}</td>
             <td>{{ test.room }}</td>
-            <td>{{ test.steps.length }}</td>
+            <td>{{ gameTestActionCount(test) }}</td>
           </tr>
         </tbody>
       </table>
