@@ -1,3 +1,4 @@
+import { ensureDebugController } from "../src/worker/debugLoader.ts";
 import { replayHistorySegment } from "./worker-ctx.ts";
 import type { HistorySegment } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
@@ -825,3 +826,35 @@ for (const withLaunch of [false, true, "other"] as const) {
     }
   });
 }
+
+test("Debug still stops at the first instruction when the active room is deleted", async () => {
+  const f = await fixture("deleted-room-debug", {
+    "logic:0": "if (equaln(v0,0)) { new.room(1); } return;",
+    "logic:1": "return;",
+    "logic:3": "return;",
+  });
+  try {
+    f.ctx.run.engine!.reenterRoom(3);
+    f.tick();
+    await ensureDebugController(f.ctx);
+    onWorkerMessage(f.ctx, { type: "debugAttach", id: 900 });
+    assert.ok(f.messages.some((m) => m.type === "debugAttached"));
+    const result = await f.session.update([{ key: "logic:3", content: null }], true, {
+      room: 3,
+      debug: true,
+      state: { seed: 1234 },
+      fromMyGame: true,
+    });
+    assert.equal(result.status, "committed");
+    f.ctx.fns.stopTimers();
+    assert.notEqual(
+      f.ctx.run.debugger.stopId,
+      null,
+      "Debug stops the replacement before its first instruction",
+    );
+    assert.equal(f.ctx.run.rng.word, 1234, "the launch keeps its explicit seed");
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});

@@ -183,7 +183,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     autosave.resetScreen();
     state.otherTab = false;
     state.returnProblem = "";
-    state.returnNote = "";
+    state.returnNote = null;
     state.entryProblem = "";
     state.staleTab = false;
     state.projectRemoved = false;

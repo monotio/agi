@@ -162,3 +162,20 @@ test("Parts toggles temporarily beside the Agent and preserves the stored dock c
   assert.equal(ws.collapsed.left, true);
   assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
 });
+
+test("the missing-room action starts once from the beginning without changing the room's launch preference", async () => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  editor.actionRoom.value = 3;
+  editor.selectedLaunch.value = "carry";
+  editor.selectLaunch.value = async () => {
+    assert.fail("a notice must not save a preference");
+  };
+  const calls: unknown[][] = [];
+  editor.update.value = async (...args) => {
+    calls.push(args);
+  };
+  await editor.startFromBeginning();
+  assert.deepEqual(calls, [[true, "beginning"]]);
+  assert.equal(editor.selectedLaunch.value, "carry");
+  assert.equal(editor.actionRoom.value, 3);
+});

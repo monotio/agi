@@ -981,7 +981,7 @@ watch(
     deletedParts,
   ],
   () => {
-    let room = selectedRoom.value ?? engine.roomMap.currentRoom.value ?? undefined;
+    const room = selectedRoom.value ?? engine.roomMap.currentRoom.value ?? undefined;
     const removed = [room, engine.roomMap.currentRoom.value].some(
       (target) =>
         target !== undefined &&
@@ -1019,16 +1019,8 @@ watch(
       editor.launchChoices.value.some((entry) => entry.id === selected)
         ? selected
         : "carry";
-    if (removed) editor.selectedLaunch.value = "beginning";
-    if (editor.selectedLaunch.value === "beginning") {
-      // The observed boot names the opening room, including games that choose it in LOGIC 0.
-      room =
-        engine.roomMap.journal.findLast((entry) => entry.cause === "boot")?.to ??
-        roomScan.value.scan.scans
-          .get(0)
-          ?.targets.find((target) => content(`logic:${target.to}`) !== undefined)?.to ??
-        0;
-    }
+    // The display describes a deleted active room's fallback; the worker owns its admission.
+    editor.actionBeginning.value = removed;
     editor.actionRoom.value = room;
     editor.actionRoomName.value =
       room === undefined
@@ -1545,10 +1537,6 @@ const buildErrorLocation = ref<{ problem: ProjectEditDiagnostic; message: string
 const missingRoomNotice = computed(() =>
   /needs a LOGIC to (enter|re-enter)/.test(editor.error.value),
 );
-async function startFromBeginning(): Promise<void> {
-  await editor.selectLaunch.value?.("beginning");
-  await updateGame();
-}
 const buildErrorNotice = computed(() => buildErrorLocation.value?.message === editor.error.value);
 function refuseBuild(problem: ProjectEditDiagnostic): void {
   const document = problem.document;
@@ -1561,7 +1549,7 @@ function goToBuildError(): void {
   if (!location) return;
   revealProblem(location.problem);
 }
-async function updateGame(restartRoom = true): Promise<void> {
+async function updateGame(restartRoom = true, launchOverride?: "beginning"): Promise<void> {
   if (!session || actionBusy.value || imageBusy.value || editingPaused.value) return;
   const firstError = diagnostics.value.find(
     (entry) => entry.severity === "error" && (restartRoom || entry.code !== "launch-input"),
@@ -1576,8 +1564,8 @@ async function updateGame(restartRoom = true): Promise<void> {
   const state = editor.launchChoices.value.find(
     (entry) => entry.id === editor.selectedLaunch.value,
   );
-  const beginning = editor.selectedLaunch.value === "beginning";
-  const fromMyGame = editor.selectedLaunch.value === "my-game";
+  const beginning = launchOverride === "beginning" || editor.selectedLaunch.value === "beginning";
+  const fromMyGame = launchOverride === undefined && editor.selectedLaunch.value === "my-game";
   const launch =
     room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning, fromMyGame };
   actionBusy.value = true;
@@ -2955,7 +2943,7 @@ onBeforeUnmount(() => {
       >
         {{ editor.error.value }}
         <UiButton v-if="buildErrorNotice" @click="goToBuildError">Go to error</UiButton>
-        <UiButton v-else-if="missingRoomNotice" @click="startFromBeginning"
+        <UiButton v-else-if="missingRoomNotice" @click="editor.startFromBeginning"
           >From the beginning</UiButton
         >
         <UiButton v-else-if="!writeConflict" @click="retrySave">Retry</UiButton>

@@ -6,6 +6,8 @@
 export interface LaunchActionInput {
   /** Changes wait to go into the game. */
   readonly pending: boolean;
+  /** Presentation of the worker fallback when the active room was removed. */
+  readonly beginning?: boolean;
   /** The selected Launch id: "carry", "my-game", "beginning" or the person's own. */
   readonly launch: string;
   readonly launchName: string;
@@ -24,6 +26,10 @@ export interface LaunchAction {
 }
 
 export function launchAction(input: LaunchActionInput): LaunchAction {
+  if (input.launch === "beginning" || input.beginning) {
+    const label = input.pending ? "Update and restart · From the beginning" : "From the beginning";
+    return { icon: input.pending ? "update" : "restart", room: label, launch: "", label };
+  }
   if (input.launch === "my-game")
     return {
       icon: input.pending ? "update" : "play",

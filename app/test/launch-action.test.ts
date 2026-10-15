@@ -26,7 +26,7 @@ test("the action names the room and, past Carry over, the selected Launch", () =
   assert.equal(
     launchAction({ ...base, here: true, launch: "beginning", launchName: "From the beginning" })
       .label,
-    "Restart Meadow with the launch From the beginning",
+    "From the beginning",
   );
 });
 
@@ -62,4 +62,20 @@ test("From my game returns to the player's own game", () => {
     launch: "",
     label: "Update and return to my game",
   });
+});
+
+test("From the beginning names the action without guessing an opening room", () => {
+  for (const room of ["Meadow", "Room 0", ""]) {
+    const action = launchAction({
+      ...base,
+      room,
+      here: false,
+      pending: true,
+      launch: "beginning",
+      launchName: "From the beginning",
+    });
+    assert.equal(action.room, "Update and restart · From the beginning");
+    assert.equal(action.launch, "");
+    assert.equal(action.label, "Update and restart · From the beginning");
+  }
 });

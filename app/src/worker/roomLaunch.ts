@@ -48,9 +48,9 @@ export function prepareRoomLaunch(
     openContainer(files, { profile }).getResource("logic", prior.vars[0]!) === null
   )
     request = {
+      ...request,
       room: prior.vars[0]!,
       beginning: true,
-      ...(request.debug === undefined ? {} : { debug: request.debug }),
     };
   if (!request.beginning && profile.id !== prior.profile.id)
     throw new Error("Choose From the beginning to change the interpreter profile");

@@ -104,8 +104,9 @@ for (const [width, height] of [
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();
     if (width !== 390) await expect(page.getByTestId("record-result")).toBeHidden();
     await shot(page, `restart-label-${width}`);
-    await expect(page.getByTestId("workspace-update")).toContainText("Meadow");
-    await expect(page.getByTestId("workspace-update")).toContainText("From the beginning");
+    await expect(page.getByTestId("workspace-update")).toHaveText(
+      "Update and restart · From the beginning",
+    );
     await page.getByTestId("workspace-update").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await expect(page.getByTestId("workspace-pending")).toBeHidden();
@@ -162,36 +163,41 @@ test("a fresh-room notice uses the room's name", async ({ page }) => {
   );
 });
 
-test("a missing-room notice offers a working start from the beginning", async ({ page }) => {
+test("a room's launch choice can switch back from beginning and survives reload", async ({
+  page,
+}) => {
   await starter(page);
-  await page.getByTestId("part-room:1:picture:1").click();
   await page.evaluate(async () => {
-    const project = (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } })
-      .__AGI_PROJECT__;
-    await project.getSession().stage([{ key: "picture:1", content: "vis 3\nfill 0,0\nend\n" }]);
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const world = JSON.parse(String(session.workingSnapshot().read("world")!.content));
+    world.rooms["3"] = { title: "Lake", description: "A lake.", exits: {} };
+    await session.stage([
+      { key: "logic:3", content: "return;" },
+      { key: "world", content: JSON.stringify(world) },
+    ]);
   });
-  // Exercise the error notice with a real worker refusal for an absent room.
-  await page.getByTestId("parts-list").evaluate(async (element) => {
-    const workspace = (
-      element as unknown as {
-        __vueParentComponent: {
-          parent: {
-            setupState: {
-              engine: { launchRoom(room: number): Promise<{ reason?: string }> };
-              editor: { error: { value: string } };
-            };
-          };
-        };
-      }
-    ).__vueParentComponent.parent.setupState;
-    const refusal = await workspace.engine.launchRoom(77);
-    workspace.editor.error.value = refusal.reason ?? "";
-  });
-  const notice = page.getByRole("alert").filter({ hasText: "needs a LOGIC to enter" });
-  await expect(notice).toBeVisible();
-  await expect(notice.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
-  await notice.getByRole("button", { name: "From the beginning", exact: true }).click();
+  await page.getByTestId("workspace-update").click();
   await expect(page.getByTestId("workspace-pending")).toBeHidden();
-  await expect(notice).toHaveCount(0);
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByTestId("part-room:3").click();
+  const choose = async (name: string) => {
+    await page.getByTestId("workspace-update-menu").click();
+    await page.getByRole("menuitem", { name, exact: true }).click();
+  };
+  await choose("From the beginning");
+  await expect.soft(page.getByTestId("workspace-update")).toHaveText("From the beginning");
+  await choose("Carry over");
+  await expect(page.getByTestId("workspace-update")).toContainText("Lake");
+  await choose("From the beginning");
+  await page.reload();
+  await expect(page.getByTestId("workspace-update")).toBeEnabled();
+  await page.getByTestId("part-room:3").click();
+  await expect(page.getByTestId("workspace-update")).toHaveText("From the beginning");
+  await choose("Carry over");
+  await expect(page.getByTestId("workspace-update")).toContainText("Lake");
+  await page.reload();
+  await expect(page.getByTestId("workspace-update")).toBeEnabled();
+  await page.getByTestId("part-room:3").click();
+  await expect(page.getByTestId("workspace-update")).toContainText("Lake");
 });

@@ -1,5 +1,3 @@
-import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
-import { projectLabelContext } from "../shell/projectLabelContext.ts";
 import { requireProjectId } from "../../../src/gameIdentity.ts";
 import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
@@ -179,7 +177,7 @@ export function useEngine(
     gameEnded: null,
     otherTab: false,
     returnProblem: "",
-    returnNote: "",
+    returnNote: null,
     entryProblem: "",
     conversationTransitioning: false,
     staleTab: false,
@@ -1230,7 +1228,7 @@ export function useEngine(
     const prior = projectMode;
     if (mode === "create") {
       state.entryProblem = "";
-      state.returnNote = "";
+      state.returnNote = null;
     }
     if (mode === "play" && state.phase === "running") {
       const reply = await link.query("projectPlay", restart ? { restart: true } : {});
@@ -1239,24 +1237,7 @@ export function useEngine(
         state.returnProblem = reply.reason ?? "Your game needs a restart.";
         return false;
       }
-      state.returnNote =
-        reply.restartedRoom === undefined
-          ? ""
-          : `${numberedLabel(
-              "room",
-              reply.restartedRoom,
-              projectLabelContext(
-                projectSession?.workingSnapshot().documents() ?? {},
-                undefined,
-                roomMap.value?.graph.value.nodes.map((node) => ({
-                  room: node.room,
-                  title: node.title,
-                  pictures: roomMap.value?.resources.value.shared.has(node.room)
-                    ? []
-                    : (roomMap.value?.resources.value.scans.get(node.room)?.pictures ?? []),
-                })) ?? [],
-              ),
-            )} started fresh with your changes.`;
+      state.returnNote = reply.restartedRoom ?? null;
     }
     if (mode === "play") state.returnProblem = "";
     projectMode = mode;

@@ -16,6 +16,7 @@ const selectedName = computed(() =>
 const action = computed(() =>
   launchAction({
     pending: editor.changeCount.value > 0,
+    beginning: editor.actionBeginning.value,
     launch: editor.selectedLaunch.value,
     launchName: selectedName.value,
     room: editor.actionRoomName.value,

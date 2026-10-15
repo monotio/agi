@@ -732,18 +732,7 @@ function createSession(
                 updateMode === "keep"
                   ? await input.admission.admit(compiled, documents, "keep")
                   : launch
-                    ? await input.admission.reenter!(
-                        compiled,
-                        documents,
-                        proposal
-                          .changes()
-                          .some(
-                            (change) =>
-                              change.key === `logic:${launch.room}` && change.content === null,
-                          )
-                          ? { room: launch.room, beginning: true }
-                          : launch,
-                      )
+                    ? await input.admission.reenter!(compiled, documents, launch)
                     : await admit(compiled, documents);
               if (outcome.status === "deferred")
                 await (input.boundary?.() ??

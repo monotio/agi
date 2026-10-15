@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { formatMeaningUses } from "../src/studio/workspace/wordsAnalysis.ts";
 import { suggestAssertions } from "../src/authoring/gameRecording.ts";
 import { buildObjectFile } from "../../src/authoring/inventory.ts";
@@ -186,4 +187,9 @@ test("recording names an unchanged room without doubled parentheses", () => {
     suggestAssertions(state, state, [], { rooms: [{ room: 1, title: "Meadow" }] })[0]?.label,
     "Meadow (Room 1) unchanged",
   );
+});
+
+test("the engine leaves room-name presentation to the shell", () => {
+  const source = readFileSync(new URL("../src/engine/useEngine.ts", import.meta.url), "utf8");
+  assert.deepEqual(source.match(/from ["']\.\.\/shell\/[^"']+/g) ?? [], []);
 });
