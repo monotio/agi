@@ -2615,7 +2615,13 @@ export class Engine {
   }
 
   private inputCapacity(): number {
-    return Math.min(this.inputWidthCap ?? TEXT_COLS - 1, TEXT_COLS - 1 - this.inputPrompt.length);
+    // A character is accepted only while editLen < min(var[24], 40 −
+    // strlen(s0) − (promptByte ≠ 0)); the open.dialogue mode substitutes 36
+    // for 40 (kq1 2.917 editor 0x365A-0x368C). Excess keys are silently
+    // rejected.
+    const base =
+      (this.inputWidthCap ?? TEXT_COLS) - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
+    return Math.max(0, Math.min(this.vars[24]!, base));
   }
 
   private textAttr(): number {
