@@ -57,6 +57,8 @@ interface AgentChatMessage {
     readonly incomplete: boolean;
   };
   readonly review?: PendingAgentReview;
+  /** Test status and the Agent's reason for each red or changed test, shown again in review. */
+  readonly testReport?: string;
   readonly beforeCommit?: string;
   readonly commit?: string;
 }
@@ -298,9 +300,11 @@ export function readAgentChats(value: unknown): AgentChats {
               "result",
               "spend",
               "review",
+              "testReport",
             ].includes(key),
         ) ||
         (message.context !== undefined && typeof message.context !== "string") ||
+        (message.testReport !== undefined && typeof message.testReport !== "string") ||
         (message.commit !== undefined &&
           (typeof message.commit !== "string" || typeof message.beforeCommit !== "string")) ||
         (message.beforeCommit !== undefined && message.commit === undefined)

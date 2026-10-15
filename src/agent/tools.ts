@@ -67,11 +67,15 @@ import {
 } from "./referenceTools.ts";
 import { GAME_TEST_TOOLS, executeGameTestTool } from "./gameTests.ts";
 import {
+  readStoredTests,
   runFinishGameTests,
   rerunAffectedTests,
   type TouchedResource,
   type GameTestOutcome,
 } from "./gameTestsRunner.ts";
+import { gameTestDefinitionChanges } from "./gameTestReview.ts";
+import { parseGameTests } from "./gameTestFormat.ts";
+import { finishReport, readFinishNotes } from "./finishNotes.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -1856,19 +1860,36 @@ export function validateAgentHandover(
       : gameTests
         ? ""
         : (testRun.error ?? "");
-  if (failed.some((test) => typeof notes !== "string" || !notes.includes(test.name)))
+  // Each red test and each existing test this turn changed needs its own reason.
+  const changed = agentChangedTests(session).filter(
+    (name) => !failed.some((test) => test.name === name),
+  );
+  const explained = readFinishNotes(notes, [...failed.map((test) => test.name), ...changed]);
+  const unexplainedFailure = failed.some((test) => explained.missing.includes(test.name));
+  const unexplainedChange = changed.filter((name) => explained.missing.includes(name));
+  if (unexplainedFailure || unexplainedChange.length)
     return {
       success: false,
-      error: `Not finished: ${failed.map((test) => JSON.stringify(test.name)).join(", ")} fail. Fix them, or say in notes why each stays red.`,
+      error: [
+        unexplainedFailure
+          ? `Not finished: ${failed.map((test) => JSON.stringify(test.name)).join(", ")} fail. Fix them, or say in notes why each stays red.`
+          : "Not finished:",
+        unexplainedChange.length
+          ? `${unexplainedFailure ? "Say" : "say"} in notes why you changed ${unexplainedChange.map((name) => JSON.stringify(name)).join(", ")}.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
       details: { gameTests, testsVerdict, connections },
     };
 
   session.genesisComplete = true;
   session.finishTestsStatus = testsVerdict;
+  session.finishTestsNotes = explained.lines;
   return {
     success: true,
     message:
-      (testsVerdict ? `${testsVerdict}\n` : "") +
+      (testsVerdict ? `${finishReport(testsVerdict, explained.lines)}\n` : "") +
       (testRun.details?.["proposedTestsCause"]
         ? `${String(testRun.details["proposedTestsCause"])}\n`
         : "") +
@@ -1882,7 +1903,28 @@ export function validateAgentHandover(
       notes,
       gameTests,
       testsVerdict,
+      testNotes: explained.lines,
+      testsReport: finishReport(testsVerdict, explained.lines),
       connections,
     },
   };
+}
+
+/** Existing tests this turn changed or deleted, measured from the turn's own base. */
+function agentChangedTests(session: AgentSessionState): readonly string[] {
+  if (session.finishTestsBase === undefined) return [];
+  try {
+    const base = parseGameTests(
+      typeof session.finishTestsBase === "string"
+        ? new TextEncoder().encode(session.finishTestsBase)
+        : (session.finishTestsBase ?? undefined),
+      session.profile,
+    ).tests;
+    return gameTestDefinitionChanges(base, readStoredTests(session))
+      .filter((change) => change.kind !== "added")
+      .map((change) => change.name);
+  } catch {
+    // The finish run already reports unreadable proposed tests.
+    return [];
+  }
 }

@@ -1,4 +1,5 @@
 import { gameTestsNeedCreatorReview } from "../../../src/agent/gameTestReview.ts";
+import { finishReport, withFinishReport } from "../../../src/agent/finishNotes.ts";
 import {
   mergeAgentTestChanges,
   sameNonTestDocuments,
@@ -705,6 +706,7 @@ export function createWorkspaceAgent(options: Options) {
     }
     let notes: string | undefined;
     let finishStatus = "";
+    let finishLines: readonly string[] = [];
     const prepared = new Map<string, ProjectChange>();
     let scene: Awaited<ReturnType<typeof selectionScene>> = {};
     let selection = readOnly
@@ -921,12 +923,12 @@ export function createWorkspaceAgent(options: Options) {
           status: "pending",
         },
         text: [
-          finishStatus && !text.startsWith(finishStatus) ? finishStatus : "",
-          text || proposal.label,
+          withFinishReport(finishStatus, finishLines, text || proposal.label, "\n\n"),
           selectionReview,
         ]
           .filter(Boolean)
           .join("\n\n"),
+        ...(finishStatus ? { testReport: finishReport(finishStatus, finishLines) } : {}),
       });
       const capturedCommit = session.history.capture().cursor!;
       chat.pendingReview = {
@@ -1041,7 +1043,7 @@ export function createWorkspaceAgent(options: Options) {
           review?.chatId === chat.id
             ? `\nPrevious changes for revision:\n${JSON.stringify(review.changes())}`
             : "";
-        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Answer questions directly; edit when the user requests a change. Attached context identifies the current focus and does not restrict the resources you may inspect or change. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains. Red committed tests require finish notes naming every failure and saying why it stays red. Never change a test's expectation or delete a test to make it pass. Fix the game, or leave it red and say why."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
+        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Answer questions directly; edit when the user requests a change. Attached context identifies the current focus and does not restrict the resources you may inspect or change. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains. Finish notes give each red test, and each existing test you changed or deleted, a sentence that names it and says why. Never weaken or delete a test on your own to make it pass: fix the game, or leave it red and say why. When the creator asks to change or delete a test, make that change; review shows it on its own line and the creator's Apply approves it."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
         let turn = await provider.sendUserMessage(
           prompt,
           sendReference ? [reference.image] : undefined,
@@ -1300,6 +1302,7 @@ export function createWorkspaceAgent(options: Options) {
                 staged = undefined;
                 notes = undefined;
                 finishStatus = "";
+                finishLines = [];
                 prepared.clear();
                 selection = undefined;
                 selectionReview = "";
@@ -1350,6 +1353,7 @@ export function createWorkspaceAgent(options: Options) {
             if (call.name === "finish" && result.success) {
               handedOver = true;
               finishStatus = String(result.details?.["testsVerdict"] ?? "");
+              finishLines = (result.details?.["testNotes"] as readonly string[] | undefined) ?? [];
             }
             if (!result.success) {
               if (!result.details?.["gameTestsFailed"]) failed.push(call.name);
@@ -1401,6 +1405,7 @@ export function createWorkspaceAgent(options: Options) {
           if (followup) {
             handedOver = false;
             finishStatus = "";
+            finishLines = [];
             turn = followup;
             continue;
           }
@@ -1437,6 +1442,7 @@ export function createWorkspaceAgent(options: Options) {
           }
           if (verdict?.success) {
             finishStatus = String(verdict.details?.["testsVerdict"] ?? "");
+            finishLines = (verdict.details?.["testNotes"] as readonly string[] | undefined) ?? [];
           } else if (verdict) {
             handoverRejected = true;
             error = verdict.error ?? "Handover rejected.";
@@ -1483,10 +1489,7 @@ export function createWorkspaceAgent(options: Options) {
                 }
               : {}),
             ...reply,
-            text:
-              finishStatus && !reply.text.startsWith(finishStatus)
-                ? `${finishStatus}\n${reply.text}`
-                : reply.text,
+            text: withFinishReport(finishStatus, finishLines, reply.text, "\n"),
           });
         }
       });

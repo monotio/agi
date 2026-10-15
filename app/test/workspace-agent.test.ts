@@ -24,6 +24,8 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
+import { gameTestReviewLines } from "../../src/agent/gameTestReview.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import { capturedResourceDocuments } from "../src/agent/agentResultPreview.ts";
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { wordsTaskReply } from "../src/studio/workspace/wordsPrompts.ts";
@@ -3062,7 +3064,7 @@ for (const alreadyEqual of [false, true])
           };
         },
         async complete() {
-          return { text: "Changed Intro", toolCalls: [] };
+          return { text: "Intro now expects score 1, as asked.", toolCalls: [] };
         },
       }),
     });
@@ -3168,7 +3170,9 @@ for (const stored of [true, false])
       assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
       assert.equal(
         agent.current().messages.at(-1)!.text,
-        stored ? "1 tests fail: Future\nFormatted reply" : "Formatted reply",
+        stored
+          ? "1 tests fail: Future\n- Future needs room 5.\nFormatted reply"
+          : "Formatted reply",
       );
     } finally {
       session.dispose();
@@ -3223,6 +3227,96 @@ for (const explained of [false, true])
         assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Future" fail/);
         assert.equal(agent.pending(), null);
         assert.equal(session.model.capture().read("tests"), undefined);
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const request of ["a red finish", "a test change the creator asked for"] as const)
+  test(`The player sees each red or changed test with the Agent's reason in the reply and in review: ${request}`, async () => {
+    const { session } = fixture();
+    const document = (tests: readonly unknown[]) =>
+      JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+    const openDoor = { name: "Open door", room: 1, steps: [], expect: { score: 99 } };
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator tests", [
+        { key: "logic:1", content: "return;" },
+        { key: "tests", content: document([openDoor, { name: "Lake start", room: 5, steps: [] }]) },
+      ]),
+      label: "Creator tests",
+      origin: "guided",
+      author: "creator",
+    });
+    const notes =
+      request === "a red finish"
+        ? "- Open door: the score handler is not written yet.\n- Lake start: room 5 was deleted, so it cannot start."
+        : "- Open door: it now expects score 0 as you asked, and passes once you apply it.\n- Lake start: room 5 was deleted, so it cannot start.";
+    const edit =
+      request === "a red finish"
+        ? {
+            id: "edit",
+            name: "propose_changes",
+            input: {
+              label: "Blue room",
+              changes: [{ key: "picture:1", content: "vis 1\nfill 1,1\nend\n" }],
+            },
+          }
+        : {
+            id: "edit",
+            name: "write_game_tests",
+            input: { mode: "merge", names: null, tests: [{ ...openDoor, expect: { score: 0 } }] },
+          };
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults(entries) {
+          for (const entry of entries)
+            assert.equal(entry.result.success, true, JSON.stringify(entry.result));
+        },
+        async sendUserMessage() {
+          return { toolCalls: [edit] };
+        },
+        async complete() {
+          assert.equal(round++, 0, "a successful finish ends the turn");
+          return { toolCalls: [{ id: "finish", name: "finish", input: { notes } }] };
+        },
+      }),
+    });
+    agent.autoApprove = request !== "a red finish";
+    try {
+      await agent.send(
+        request === "a red finish"
+          ? "Paint the room blue"
+          : 'Update "Open door" to expect score 0. I approve changing this expectation.',
+      );
+      const reasons =
+        request === "a red finish"
+          ? "- Open door: the score handler is not written yet.\n- Lake start: room 5 was deleted, so it cannot start."
+          : "- Open door: it now expects score 0 as you asked, and passes once you apply it.\n- Lake start: room 5 was deleted, so it cannot start.";
+      const status = "2 tests fail: Open door, Lake start";
+      const message = agent.current().messages.at(-1)!;
+      assert.ok(agent.pending(), "the change waits for the creator's Apply");
+      assert.equal(message.testReport, `${status}\n${reasons}`);
+      assert.ok(
+        message.text.startsWith(`${status}\n${reasons}\n\n`),
+        `reply shows the reasons under the status line: ${message.text}`,
+      );
+      if (request !== "a red finish") {
+        const review = agent.pending()!;
+        assert.deepEqual(
+          gameTestReviewLines(
+            review.proposal.base.read("tests")?.content,
+            review.proposal.documents()["tests"],
+            PROFILES["2.936"]!,
+          ),
+          ['Changed expectation of "Open door"'],
+        );
       }
     } finally {
       session.dispose();

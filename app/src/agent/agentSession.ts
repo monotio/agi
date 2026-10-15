@@ -32,6 +32,7 @@ import {
   type AgentRuntimeDeps,
   type AgentToolDeps,
 } from "../../../src/agent/tools.ts";
+import { withFinishReport } from "../../../src/agent/finishNotes.ts";
 import {
   createReferenceWatch,
   referenceManifest,
@@ -149,7 +150,7 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full committed suite; red tests require notes naming each failure and why it stays red. Never change a test's expectation or delete a test to make it pass. Fix the game, or leave it red and say why. Begin the reply with the test status; with no tests say nothing about tests. Playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full committed suite; notes give each red test a sentence that names it and says why it stays red. Never weaken or delete a test on your own to make it pass: fix the game, or leave it red and say why. Changes to existing tests are reviewed in Create. Begin the reply with the test status; with no tests say nothing about tests. Playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 /**
@@ -748,8 +749,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           "[Remix] A map edit landed mid-remix; the turn's plan change was superseded.",
         );
       const reply = turn.text || "Changes are ready.";
-      const text =
-        finishStatus && !reply.startsWith(finishStatus) ? `${finishStatus}\n${reply}` : reply;
+      const text = withFinishReport(finishStatus, staged.finishTestsNotes, reply, "\n");
       this.noteUnviewed("Remix", watch.unviewed(text));
       this.messages.push({ role: "assistant", text });
       this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, {
@@ -1258,7 +1258,12 @@ Answer the player's question using evidence from inspection when needed. For hin
 
     this.messages.push({
       role: "assistant",
-      text: [this.state.finishTestsStatus, turn.text || "Game ready."].filter(Boolean).join("\n"),
+      text: withFinishReport(
+        this.state.finishTestsStatus,
+        this.state.finishTestsNotes,
+        turn.text || "Game ready.",
+        "\n",
+      ),
     });
     this.onEvent("response", "Genesis authoring complete! Assembling boot files.");
 
@@ -1507,9 +1512,12 @@ Answer the player's question using evidence from inspection when needed. For hin
       if (!completed) throw new Error(`Room ${room} authoring did not finish.`);
       this.messages.push({
         role: "assistant",
-        text: [staged.finishTestsStatus, turn.text || `Built room ${room}.`]
-          .filter(Boolean)
-          .join("\n"),
+        text: withFinishReport(
+          staged.finishTestsStatus,
+          staged.finishTestsNotes,
+          turn.text || `Built room ${room}.`,
+          "\n",
+        ),
       });
       this.noteUnviewed("Room", watch.unviewed(turn.text ?? ""));
 

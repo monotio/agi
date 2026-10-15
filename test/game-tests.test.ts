@@ -1333,6 +1333,60 @@ test("Agent finish names every red committed test, including creator tests, befo
   assert.match(accepted.message!, /^2 tests fail: Open door, Treasure/);
 });
 
+test("The player sees each red test with the Agent's reason: naming a test is not a reason", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.readCommittedTests = () =>
+    JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: [
+        { ...takeKey, name: "Open door", expect: { score: 99 } },
+        { ...takeKey, name: "Treasure", room: 5 },
+      ],
+    });
+  for (const notes of [
+    "2 tests fail: Open door, Treasure",
+    "- Open door\n- Treasure",
+    "Open door stays red because its score is not written yet. Treasure fails.",
+  ])
+    assert.equal(validateAgentHandover(state, notes).success, false, notes);
+  const accepted = validateAgentHandover(
+    state,
+    "2 tests fail: Open door, Treasure\n- Open door: the score handler is not written yet.\n- Treasure: room 5 is not built yet.",
+  );
+  assert.equal(accepted.success, true, accepted.error ?? "");
+  assert.deepEqual(accepted.details?.["testNotes"], [
+    "Open door: the score handler is not written yet.",
+    "Treasure: room 5 is not built yet.",
+  ]);
+  const report =
+    "2 tests fail: Open door, Treasure\n- Open door: the score handler is not written yet.\n- Treasure: room 5 is not built yet.";
+  assert.equal(accepted.details?.["testsReport"], report);
+  assert.ok(accepted.message!.startsWith(`${report}\n`));
+  assert.deepEqual(state.finishTestsNotes, accepted.details?.["testNotes"]);
+});
+
+test("Test edits the creator asked for finish once the notes say why each changed", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.finishTestsBase = new TextDecoder().decode(serializeGameTests([takeKey]));
+  state.testsPayload = serializeGameTests([
+    { ...takeKey, expect: expectation({ printed: "take the key" }) },
+  ]);
+  const refused = validateAgentHandover(state, null);
+  assert.equal(refused.success, false);
+  assert.equal(refused.error, 'Not finished: say in notes why you changed "take the key".');
+  const accepted = validateAgentHandover(
+    state,
+    "Take the key now checks only the printed message, as you asked.",
+  );
+  assert.equal(accepted.success, true, accepted.error ?? "");
+  assert.equal(
+    accepted.details?.["testsReport"],
+    "All 1 tests pass.\n- Take the key now checks only the printed message, as you asked.",
+  );
+});
+
 test("Agent finish starts with passing-test status and stays silent when no tests exist", () => {
   const state = world();
   state.genesisComplete = true;

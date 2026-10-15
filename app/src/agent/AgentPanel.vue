@@ -1159,6 +1159,11 @@ onBeforeUnmount(() => {
       />
       <div class="agent-panel__result-content">
         <h3>{{ resultReview?.label ?? "Result" }}</h3>
+        <AgentReply
+          v-if="resultMessage.testReport"
+          :text="resultMessage.testReport"
+          data-testid="agent-review-tests"
+        />
         <p
           v-if="review?.messageId === resultMessage.id && review.stale()"
           role="alert"

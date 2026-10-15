@@ -17,8 +17,14 @@ export function gameTestChanges(
       typeof content === "string" ? new TextEncoder().encode(content) : (content ?? undefined),
       profile,
     ).tests;
-  const previous = read(before);
-  const next = read(after);
+  return gameTestDefinitionChanges(read(before), read(after));
+}
+
+/** Named changes between two parsed test lists, in the order review lists them. */
+export function gameTestDefinitionChanges(
+  previous: readonly GameTest[],
+  next: readonly GameTest[],
+): readonly GameTestChange[] {
   return [
     ...previous
       .filter((test) => !next.some((candidate) => candidate.name === test.name))

@@ -847,18 +847,22 @@ this contract, including project export/import. Successful authoring mutations
 rerun affected tests conservatively; the verdict reports any tests not run.
 Stored tests travel only in project archives.
 
-The Agent may finish while tests are red when its notes name every failing test
-and explain why each stays red. Finish checks all committed tests, including
+The Agent may finish while tests are red when its notes give every failing test
+a sentence that names it and says why it stays red; a test's name alone, or the
+status line, is not a reason. Finish checks all committed tests, including
 creator tests and failures from earlier turns, plus newly proposed tests, against
 all prepared edits and pending proposals. A turn that hands over no documents keeps its answer without a handover check or test status. This is the Agent's handover check;
 Apply, partial approval and creator test saves do not rerun it. Auto-approve
 commits proposals without treating their labels as finish notes. Finish
 starts its result and reply with `N tests fail: name, name` or `All N tests pass.`;
-with no tests it adds no test status. The Agent fixes the game or leaves a test
-red and explains why. Only the creator changes an expectation or deletes a test
-to make it pass. Test deletions and expectation changes have separate named
-lines in review. Existing-test edits require the creator's Apply even with
-Auto-approve on; new tests may be applied automatically. These checks never
+with no tests it adds no test status. Under the status line the player sees each
+reason as a list, in the reply and again in review. The Agent fixes the game or
+leaves a test red and explains why; it never weakens or deletes a test on its own
+to make it pass. When the creator asks for a test change, the Agent proposes it,
+and its notes name each existing test it changed or deleted and say why. Test
+deletions and expectation changes have separate named lines in review.
+Existing-test edits require the creator's Apply even with Auto-approve on; Apply
+is the approval. New tests may be applied automatically. These checks never
 block the creator's own edits.
 
 `read_game_tests` lists compact summaries or pages of editable JSON definitions;

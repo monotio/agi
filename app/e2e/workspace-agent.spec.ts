@@ -951,6 +951,145 @@ test("approving before the source diff finishes has no unhandled rejection @webk
   expect(errors).toEqual([]);
 });
 
+for (const size of [
+  { width: 1063, height: 815 },
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+])
+  test(`A red finish shows each failing test with the Agent's reason in the reply and in review, and a test change the creator asks for is reviewed (${size.width}px)`, async ({
+    page,
+  }) => {
+    const lakeStart = "Lake start: its room was deleted, so the test cannot start.";
+    const redReasons = ["Impossible score: the score handler is not written yet.", lakeStart];
+    const changeReasons = [
+      "Impossible score: it now expects score 0 as you asked, and passes once you apply it.",
+      lakeStart,
+    ];
+    let requests = 0;
+    await page.setViewportSize(size);
+    await page.route("**/api/openai/v1/responses", async (route) => {
+      requests++;
+      const calls =
+        requests === 1
+          ? [
+              {
+                id: "pond",
+                name: "propose_changes",
+                input: {
+                  label: "Blue meadow",
+                  changes: [{ key: "picture:1", content: "vis 1\nfill 0,0\nend\n" }],
+                },
+              },
+              { id: "finish", name: "finish", input: { notes: redReasons.join("\n") } },
+            ]
+          : [
+              {
+                id: "expectation",
+                name: "write_game_tests",
+                input: {
+                  mode: "merge",
+                  names: null,
+                  tests: [{ name: "Impossible score", room: 1, steps: [], expect: { score: 0 } }],
+                },
+              },
+              { id: "finish", name: "finish", input: { notes: changeReasons.join("\n") } },
+            ];
+      await route.fulfill(
+        providerReply("openai", {
+          id: `reasons-${requests}`,
+          status: "completed",
+          output: calls.map((call) => ({
+            type: "function_call",
+            call_id: call.id,
+            id: call.id,
+            name: call.name,
+            arguments: JSON.stringify(call.input),
+          })),
+        }),
+      );
+    });
+    await start(page, "openai", false);
+    await page.evaluate(async () => {
+      const session = (
+        window as unknown as {
+          __AGI_PROJECT__: {
+            getSession(): {
+              model: {
+                capture(): unknown;
+                propose(base: unknown, label: string, changes: unknown[]): unknown;
+              };
+              submit(input: unknown): Promise<unknown>;
+              flush(): Promise<unknown>;
+            };
+          };
+        }
+      ).__AGI_PROJECT__.getSession();
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator tests", [
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [
+                { name: "Impossible score", room: 1, steps: [], expect: { score: 99 } },
+                { name: "Lake start", room: 9, steps: [] },
+              ],
+            }),
+          },
+        ]),
+        label: "Creator tests",
+        origin: "guided",
+        author: "creator",
+      });
+      await session.flush();
+    });
+    const conversation = page.getByTestId("agent-conversation");
+    const review = page.getByTestId("agent-review-tests");
+    const openReview = async () => {
+      const button = conversation.getByRole("button", { name: "View changes", exact: true }).last();
+      if (!(await review.isVisible())) await button.click();
+      await expect(review).toBeVisible();
+    };
+
+    await page.getByTestId("agent-message").fill("Paint the meadow blue");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const reply = conversation.locator("article").last();
+    await expect(reply).toContainText("2 tests fail: Impossible score, Lake start");
+    await expect(reply.getByRole("listitem")).toHaveText(redReasons);
+    await openReview();
+    await expect(review).toContainText("2 tests fail: Impossible score, Lake start");
+    await expect(review.getByRole("listitem")).toHaveText(redReasons);
+    await expect(page.getByTestId("agent-art-review")).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`red-finish-review-${size.width}.png`) });
+    // A narrow layout shows the review in place of the chat; the reply is one step back.
+    await page.getByRole("button", { name: "Back to chat", exact: true }).click();
+    await expect(reply.getByRole("listitem").first()).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath(`red-finish-reply-${size.width}.png`) });
+    await openReview();
+    await page.getByTestId("agent-reject").click();
+    await expect(page.getByTestId("agent-review")).toHaveCount(0);
+
+    await page
+      .getByTestId("agent-message")
+      .fill('Update "Impossible score" to expect score 0. I approve changing this expectation.');
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(conversation.locator("article").last().getByRole("listitem")).toHaveText(
+      changeReasons,
+    );
+    await openReview();
+    await expect(page.getByTestId("agent-test-change")).toHaveText([
+      'Changed expectation of "Impossible score"',
+    ]);
+    await expect(review.getByRole("listitem")).toHaveText(changeReasons);
+    await page.screenshot({
+      path: test.info().outputPath(`test-change-review-${size.width}.png`),
+    });
+    await page.getByTestId("agent-approve").click();
+    await expect
+      .poll(async () => JSON.parse((await documents(page))["tests"]!).tests[0].expect.score)
+      .toBe(0);
+  });
+
 for (const width of [1440, 390])
   test(`Agent finish protects creator tests and review names deleted tests and changed expectations (${width}px)`, async ({
     page,

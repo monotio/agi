@@ -82,6 +82,27 @@ test("notes and checkpoints declare versions and readers reject unknown chat fie
   );
 });
 
+test("a reopened review keeps the Agent's test reasons", () => {
+  const chats = (testReport: unknown) => ({
+    format: "monotio.agi.chats",
+    version: 1,
+    active: "c",
+    chats: [
+      {
+        id: "c",
+        title: "Task",
+        provider: "stub",
+        model: "stub",
+        transcript: [],
+        messages: [{ id: "m", role: "assistant", text: "Done", testReport }],
+      },
+    ],
+  });
+  const report = "1 tests fail: Lake start\n- Lake start: room 5 was deleted.";
+  assert.equal(readAgentChats(chats(report)).chats[0]!.messages[0]!.testReport, report);
+  assert.throws(() => readAgentChats(chats(1)), /message/i);
+});
+
 for (const provider of ["openai", "anthropic"] as const) {
   test(`${provider} compaction survives legacy and task ZIP conversations and same-model continuation`, async () => {
     const transcript =
