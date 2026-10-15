@@ -1397,7 +1397,10 @@ test("The player sees each red test with the Agent's reason: naming a test is no
     });
   for (const notes of [
     "2 tests fail: Open door, Treasure",
+    "Status: 2 tests fail: Open door, Treasure",
+    '0 game tests pass, 2 fail: "Open door", "Treasure"',
     "- Open door\n- Treasure",
+    "Open door and Treasure stay red.",
     "Open door stays red because its score is not written yet. Treasure fails.",
   ])
     assert.equal(validateAgentHandover(state, notes).success, false, notes);

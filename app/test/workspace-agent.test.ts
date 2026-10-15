@@ -360,31 +360,56 @@ test("a passing finish with no change and no reply says the agent finished witho
   }
 });
 
-for (const cause of ["withdrawn after an error", "output limit", "refusal"] as const)
+for (const cause of [
+  "withdrawn after an error",
+  "a failed write after a red test run",
+  "output limit",
+  "refusal",
+] as const)
   test(`a turn that stops without a change names the cause: ${cause}`, async () => {
     const { session } = fixture();
+    const sparkle = {
+      id: "write",
+      name: "write_logic",
+      input: { room: 1, source: 'if (said("sparkle")) { print("Hi"); } return;' },
+    };
+    if (cause === "a failed write after a red test run")
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator test", [
+          { key: "logic:1", content: "return;" },
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [{ name: "Open door", room: 1, steps: [], expect: { score: 99 } }],
+            }),
+          },
+        ]),
+        label: "Creator test",
+        origin: "guided",
+        author: "creator",
+      });
     const turns: LlmTurnResult[] =
-      cause === "withdrawn after an error"
+      cause === "a failed write after a red test run"
         ? [
             {
-              toolCalls: [
-                {
-                  id: "write",
-                  name: "write_logic",
-                  input: { room: 1, source: 'if (said("sparkle")) { print("Hi"); } return;' },
-                },
-              ],
+              toolCalls: [{ id: "run", name: "run_game_tests", input: { names: null } }, sparkle],
             },
-            { toolCalls: [{ id: "withdraw", name: "withdraw_changes", input: {} }] },
             { text: "", toolCalls: [], stopReason: "end_turn" },
           ]
-        : [
-            {
-              text: "",
-              toolCalls: [],
-              stopReason: cause === "output limit" ? "max_tokens" : "refusal",
-            },
-          ];
+        : cause === "withdrawn after an error"
+          ? [
+              { toolCalls: [sparkle] },
+              { toolCalls: [{ id: "withdraw", name: "withdraw_changes", input: {} }] },
+              { text: "", toolCalls: [], stopReason: "end_turn" },
+            ]
+          : [
+              {
+                text: "",
+                toolCalls: [],
+                stopReason: cause === "output limit" ? "max_tokens" : "refusal",
+              },
+            ];
     let round = 0;
     const agent = createWorkspaceAgent({
       session,
@@ -405,7 +430,12 @@ for (const cause of ["withdrawn after an error", "output limit", "refusal"] as c
     try {
       await agent.send("Make LOOK sparkle");
       const text = agent.current().messages.at(-1)?.text ?? "";
-      if (cause === "withdrawn after an error")
+      if (cause === "a failed write after a red test run")
+        assert.match(
+          text,
+          /^The agent stopped after this error: .*sparkle.*\. Ask again, or describe the change differently\.$/,
+        );
+      else if (cause === "withdrawn after an error")
         assert.match(
           text,
           /^The agent withdrew its changes after this error: .*sparkle.*\. Ask again, or describe the change differently\.$/,

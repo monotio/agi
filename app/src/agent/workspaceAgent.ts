@@ -721,7 +721,8 @@ export function createWorkspaceAgent(options: Options) {
     let notes: string | undefined;
     let finishStatus = "";
     let finishLines: readonly string[] = [];
-    // Why a turn with no change and no reply stopped: the latest batch's first failure.
+    // Why a turn with no change and no reply stopped: the first tool failure of
+    // the latest batch that had one.
     let stopFailure: string | undefined;
     let withdrew = false;
     const prepared = new Map<string, ProjectChange>();
@@ -1088,6 +1089,7 @@ export function createWorkspaceAgent(options: Options) {
           }
           const results = unreported;
           const failed: string[] = [];
+          let batchFailed = false;
           for (const call of turn.toolCalls) {
             progress.push(
               VOCABULARY_ACTIONS[call.name as keyof typeof VOCABULARY_ACTIONS]?.label ?? call.name,
@@ -1374,7 +1376,11 @@ export function createWorkspaceAgent(options: Options) {
               finishLines = (result.details?.["testNotes"] as readonly string[] | undefined) ?? [];
             }
             if (!result.success) {
-              if (!failed.length) stopFailure = result.error;
+              // A red test run is evidence for the model, not why the turn stopped.
+              if (call.name !== "run_game_tests" && !result.details?.["gameTestsFailed"]) {
+                if (!batchFailed) stopFailure = result.error;
+                batchFailed = true;
+              }
               if (!result.details?.["gameTestsFailed"]) failed.push(call.name);
               progress.push(`${call.name} failed: ${result.error ?? "no details"}`);
               notify();

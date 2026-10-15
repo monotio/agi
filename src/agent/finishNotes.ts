@@ -4,10 +4,15 @@
  * test status line, in the reply and in review.
  */
 
-/** "2 tests fail: a, b" or "All 3 tests pass." — the status line, never a reason. */
-const STATUS = /^(?:\d+ tests? fails?:|all \d+ tests? pass)/i;
+/** Status and verdict lines ("2 tests fail: a, b", "0 game tests pass, 1 fail") are never reasons. */
+const STATUS = /\d+ tests? fails?:|all \d+ tests? pass|\d+ game tests? pass/i;
 const BULLET = /^\s*(?:[-*•+]|\d+[.)])\s+/;
 const WORD = /\p{L}{2,}/gu;
+/** Words that restate a failure without saying why: "Open door stays red." */
+const FILLER = new Set([
+  ...["test", "tests", "fail", "fails", "failed", "failing", "red", "stays", "stay", "still"],
+  ...["remains", "is", "are", "and", "the", "a", "an", "it", "its", "now", "also"],
+]);
 
 function sentences(notes: string): string[] {
   return notes
@@ -38,7 +43,8 @@ function withoutName(text: string, name: string): string | null {
 
 /**
  * Match every named test to the first notes sentence that names it and says
- * something more: after removing the test names, at least two words remain.
+ * why: after removing the test names, at least two words remain beyond
+ * restating that it fails.
  * Longer names match first, so "look" never claims "look describes clearing".
  */
 export function readFinishNotes(
@@ -57,7 +63,8 @@ export function readFinishNotes(
       named.push(name);
       rest = next;
     }
-    if ((rest.match(WORD) ?? []).length < 2) continue;
+    if ((rest.match(WORD) ?? []).filter((word) => !FILLER.has(word.toLowerCase())).length < 2)
+      continue;
     for (const name of named) if (!covered.has(name)) covered.set(name, sentence);
   }
   return {
