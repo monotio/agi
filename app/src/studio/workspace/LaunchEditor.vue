@@ -473,7 +473,13 @@ function heroPoint(event: PointerEvent) {
   };
 }
 function heroDown(event: PointerEvent): void {
-  if (props.readOnly || event.button !== 0 || !activeLaunch.value?.hero) return;
+  if (
+    props.readOnly ||
+    event.button !== 0 ||
+    heroPointer !== undefined ||
+    !activeLaunch.value?.hero
+  )
+    return;
   heroLaunch = activeLaunch.value.id;
   heroPointer = event.pointerId;
   heroCanvas.value!.setPointerCapture(event.pointerId);
@@ -497,13 +503,14 @@ function heroUp(event: PointerEvent): void {
   heroLaunch = undefined;
   heroCanvas.value?.releasePointerCapture(event.pointerId);
 }
-function heroCancel(): void {
+function heroCancel(event?: PointerEvent): void {
+  if (event && heroPointer !== event.pointerId) return;
   heroLaunch = undefined;
   heroFrame.cancel();
   heroPointer = undefined;
   heroDraft.value = undefined;
 }
-watch([() => activeLaunch.value?.id, () => props.readOnly], heroCancel);
+watch([() => activeLaunch.value?.id, () => props.readOnly], () => heroCancel());
 </script>
 
 <template>

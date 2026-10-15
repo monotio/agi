@@ -107,6 +107,35 @@ function blit(context: CanvasRenderingContext2D, source: SpriteCel, tint?: Onion
   context.drawImage(scratch, 0, top, source.width * unitX, source.height * unitY);
 }
 
+// Pixel edits leave geometry and backdrop unchanged. Paint this layer only when those change.
+const dimensions = computed(() => `${cel.width},${cel.height}`);
+const backdropLayer = computed(() => {
+  if (!canvas.value) return null;
+  const [w, h] = dimensions.value.split(",").map(Number) as [number, number];
+  const layer = document.createElement("canvas");
+  layer.width = Math.round(w * 2 * zoom * dpr);
+  layer.height = Math.round(h * zoom * dpr);
+  const context = layer.getContext("2d")!;
+  const style = getComputedStyle(canvas.value);
+  const token = (name: string) => style.getPropertyValue(name).trim();
+  const unitX = 2 * zoom * dpr;
+  const unitY = zoom * dpr;
+  // The backdrop behind transparent pixels: one square per cel pixel.
+  const lightTone = backdrop.kind === "checker" && backdrop.tone === "light";
+  const checker = lightTone
+    ? [token("--backdrop-light"), token("--backdrop-light-alt")]
+    : [token("--surface-2"), token("--surface-3")];
+  const cells = backdropCells(backdrop, w, h, room);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const value = cells[y * w + x]!;
+      const [r, g, b] = value >= 0 ? EGA_PALETTE[value]! : [0, 0, 0];
+      context.fillStyle = value >= 0 ? `rgb(${r} ${g} ${b})` : checker[value === -1 ? 0 : 1]!;
+      context.fillRect(x * unitX, y * unitY, unitX, unitY);
+    }
+  return layer;
+});
+
 watchEffect(
   () => {
     const target = canvas.value;
@@ -121,19 +150,7 @@ watchEffect(
     const token = (name: string) => style.getPropertyValue(name).trim();
     const unitX = 2 * zoom * dpr;
     const unitY = zoom * dpr;
-    // The backdrop behind transparent pixels: one square per cel pixel.
-    const lightTone = backdrop.kind === "checker" && backdrop.tone === "light";
-    const checker = lightTone
-      ? [token("--backdrop-light"), token("--backdrop-light-alt")]
-      : [token("--surface-2"), token("--surface-3")];
-    const cells = backdropCells(backdrop, cel.width, cel.height, room);
-    for (let y = 0; y < cel.height; y++)
-      for (let x = 0; x < cel.width; x++) {
-        const value = cells[y * cel.width + x]!;
-        const [r, g, b] = value >= 0 ? EGA_PALETTE[value]! : [0, 0, 0];
-        context.fillStyle = value >= 0 ? `rgb(${r} ${g} ${b})` : checker[value === -1 ? 0 : 1]!;
-        context.fillRect(x * unitX, y * unitY, unitX, unitY);
-      }
+    if (backdropLayer.value) context.drawImage(backdropLayer.value, 0, 0);
     for (const skin of [...onion].sort((a, b) => b.distance - a.distance))
       blit(context, skin.cel, skin);
     blit(context, cel);

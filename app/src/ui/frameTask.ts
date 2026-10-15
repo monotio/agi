@@ -46,5 +46,51 @@ export function throttleTask(delay: number) {
     if (remaining <= 0) flush();
     else timer ??= setTimeout(flush, remaining);
   }
-  return { schedule, flush, cancel };
+  function reset() {
+    cancel();
+    last = -Infinity;
+  }
+  return { schedule, flush, cancel, reset };
+}
+
+/** Own one captured pointer and its queued frame until release, capture loss or handle removal. */
+export function pointerFrame(
+  abandoned: () => void,
+  frame: (callback: FrameRequestCallback) => number = requestAnimationFrame,
+  cancelFrame: (id: number) => void = cancelAnimationFrame,
+) {
+  const task = frameTask(frame, cancelFrame);
+  let owner: { pointer: number; target: Element } | undefined;
+  function owns(event: PointerEvent) {
+    return owner?.pointer === event.pointerId;
+  }
+  function clear() {
+    const previous = owner;
+    owner = undefined;
+    if (previous?.target.hasPointerCapture(previous.pointer))
+      previous.target.releasePointerCapture(previous.pointer);
+  }
+  function begin(event: PointerEvent) {
+    if (owner) return false;
+    owner = { pointer: event.pointerId, target: event.currentTarget as Element };
+    owner.target.setPointerCapture(owner.pointer);
+    return true;
+  }
+  function schedule(event: PointerEvent, work: () => void) {
+    if (owns(event)) task.schedule(work);
+  }
+  function finish(event: PointerEvent) {
+    if (!owns(event)) return false;
+    task.flush();
+    clear();
+    return true;
+  }
+  function cancel(event?: PointerEvent) {
+    if (event && !owns(event)) return;
+    task.cancel();
+    if (!owner) return;
+    clear();
+    abandoned();
+  }
+  return { begin, owns, schedule, finish, cancel };
 }

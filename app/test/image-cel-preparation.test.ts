@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { prepareImageCels, type ImageFrame } from "../../src/creative/imageOperations.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 
@@ -30,8 +31,9 @@ test("moving a crop reuses the image hash and prepares the exact settled cel", (
     height: 1,
     loop: 0,
   });
-  prepareImageCels(image, [frame(0)], PROFILES["2.936"], null);
-  const settled = prepareImageCels(image, [frame(1)], PROFILES["2.936"], null);
+  const sourceId = sha256Hex(image.rgba);
+  prepareImageCels(image, [frame(0)], PROFILES["2.936"], null, true, sourceId);
+  const settled = prepareImageCels(image, [frame(1)], PROFILES["2.936"], null, true, sourceId);
   assert.equal(hashes, 1);
   assert.deepEqual([...settled.input.loops[0]!.cels![0]!.pixels], [2]);
   const fresh = prepareImageCels(

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sha256Hex } from "../../../../src/crypto.ts";
 import { frameTask } from "../../ui/frameTask.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import {
@@ -45,7 +46,9 @@ const props = defineProps<{
   background: readonly [number, number, number] | null;
   backgroundTransparent: boolean;
 }>();
+const emit = defineEmits<{ prepared: [value: ReturnType<typeof prepareImageCels> | null] }>();
 const frames = defineModel<ImageFrame[]>({ required: true });
+const sourceId = computed(() => sha256Hex(props.image.rgba));
 const boxes = ref<FrameBox[]>([]);
 const dragFrame = frameTask();
 let gesture: Gesture | undefined;
@@ -124,12 +127,14 @@ const preview = computed(() => {
           props.profile,
           props.background,
           props.backgroundTransparent,
+          sourceId.value,
         )
       : null;
   } catch {
     return null;
   }
 });
+watch(preview, (value) => emit("prepared", value), { immediate: true, flush: "post" });
 const previewCel = computed(() => {
   if (!preview.value) return undefined;
   const loops = [...new Set(settledBoxes.value.map((f) => f.loop))].sort((a, b) => a - b);
@@ -297,6 +302,7 @@ function paint(loop: number) {
     : `New frames use loop ${loop}.`;
 }
 function remove() {
+  cancel();
   const index = active.value ? boxes.value.indexOf(active.value) : 0;
   boxes.value = boxes.value.filter((f) => !selected.value.includes(f.id));
   const next = boxes.value[Math.min(index, boxes.value.length - 1)];
@@ -365,6 +371,7 @@ function orderStep(direction: number) {
 }
 interface Gesture {
   id: string;
+  pointer: number;
   mode: "draw" | "move" | FrameHandle;
   start: { x: number; y: number };
   clientStart: { x: number; y: number };
@@ -380,7 +387,7 @@ function point(event: PointerEvent) {
   };
 }
 function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || gesture) return;
   event.preventDefault();
   const start = point(event),
     original = [...boxes.value];
@@ -408,6 +415,7 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
   gesturing.value = true;
   gesture = {
     id: frame.id,
+    pointer: event.pointerId,
     mode: handle ?? (original.includes(frame) ? "move" : "draw"),
     start,
     clientStart: { x: event.clientX, y: event.clientY },
@@ -419,7 +427,7 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
   focusBox(frame.id);
 }
 function move(event: PointerEvent) {
-  if (gesture) dragFrame.schedule(() => applyMove(event));
+  if (gesture?.pointer === event.pointerId) dragFrame.schedule(() => applyMove(event));
 }
 function applyMove(event: PointerEvent, commit = false) {
   if (!gesture) return;
@@ -441,7 +449,7 @@ function applyMove(event: PointerEvent, commit = false) {
   } else outline.value = { id, region: next };
 }
 function end(event: PointerEvent) {
-  if (!gesture) return;
+  if (!gesture || gesture.pointer !== event.pointerId) return;
   dragFrame.cancel();
   applyMove(event, true);
   outline.value = undefined;
@@ -453,20 +461,21 @@ function end(event: PointerEvent) {
   gesturing.value = false;
   focusBox(id);
 }
-function cancel(event: PointerEvent) {
-  if (!gesture) return;
+function cancel(event?: PointerEvent) {
+  if (!gesture || (event && gesture.pointer !== event.pointerId)) return;
+  const pointer = gesture.pointer;
   dragFrame.cancel();
   outline.value = undefined;
   boxes.value = gesture.original;
   gesturing.value = false;
   gesture = undefined;
   selected.value = selected.value.filter((id) => boxes.value.some((f) => f.id === id));
-  if (surface.value?.hasPointerCapture(event.pointerId))
-    surface.value.releasePointerCapture(event.pointerId);
+  if (surface.value?.hasPointerCapture(pointer)) surface.value.releasePointerCapture(pointer);
 }
 function key(event: KeyboardEvent) {
   const target = event.target as HTMLElement;
   if (target.matches("input, select, summary") || event.metaKey || event.ctrlKey) return;
+  if (/^(Arrow|Delete|Backspace|[0-3]$)/.test(event.key)) cancel();
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
     remove();
@@ -638,6 +647,7 @@ const thumbnails = computed(() => {
             @pointermove="move"
             @pointerup="end"
             @pointercancel="cancel"
+            @lostpointercapture="cancel"
           >
             <canvas ref="canvas" aria-hidden="true" />
             <div

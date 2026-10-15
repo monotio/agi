@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { frameTask } from "../ui/frameTask.ts";
-import { onBeforeUnmount } from "vue";
+import { pointerFrame } from "../ui/frameTask.ts";
+import { onBeforeUnmount, watch } from "vue";
 import { computed, useId, useTemplateRef } from "vue";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import { toLogical, toScreen, type Viewport } from "../../../src/studio/viewport.ts";
@@ -28,13 +28,17 @@ const { probe, viewport } = defineProps<{ probe: GhostProbe; viewport: Viewport 
 
 const hatchId = `ghost-hatch-${useId()}`;
 const root = useTemplateRef("root");
+const handle = useTemplateRef("handle");
 const width = computed(() => SCREEN_WIDTH * viewport.pixelAspect * viewport.zoom);
 const height = computed(() => SCREEN_HEIGHT * viewport.zoom);
 
 // The probe object is fixed for the component's life; its refs are the state.
 const { result, pixels, cel, x, baselineY } = probe;
 
-const gestureFrame = frameTask();
+const gestureFrame = pointerFrame(() => {
+  grab = undefined;
+});
+watch(handle, () => gestureFrame.cancel(), { flush: "sync" });
 onBeforeUnmount(gestureFrame.cancel);
 
 function colourMasks(hidden: boolean): { color: number; d: string }[] {
@@ -83,21 +87,22 @@ function logicalAt(event: PointerEvent) {
   return toLogical(viewport, event.clientX - rect.left, event.clientY - rect.top, { clamp: true })!;
 }
 function onPointerDown(event: PointerEvent): void {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || !gestureFrame.begin(event)) return;
   const at = logicalAt(event);
   grab = { dx: at.x - x.value, dy: at.y - baselineY.value };
-  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   (event.currentTarget as HTMLElement).focus({ preventScroll: true });
   event.preventDefault();
 }
 function onPointerMove(event: PointerEvent): void {
-  if (!grab) return;
+  if (!grab || !gestureFrame.owns(event)) return;
   const at = logicalAt(event);
   const { dx, dy } = grab;
-  gestureFrame.schedule(() => probe.moveTo(at.x - dx, at.y - dy));
+  gestureFrame.schedule(event, () => probe.moveTo(at.x - dx, at.y - dy));
 }
-function onPointerUp(): void {
-  gestureFrame.flush();
+function onPointerUp(event: PointerEvent): void {
+  if (!gestureFrame.owns(event)) return;
+  onPointerMove(event);
+  gestureFrame.finish(event);
   grab = undefined;
 }
 
@@ -199,6 +204,7 @@ function onKeydown(event: KeyboardEvent): void {
 
     <div
       v-if="box"
+      ref="handle"
       class="ghost__handle"
       data-testid="ghost-probe-handle"
       data-role="drag-handle"
@@ -209,7 +215,8 @@ function onKeydown(event: KeyboardEvent): void {
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
-      @pointercancel="onPointerUp"
+      @pointercancel="gestureFrame.cancel"
+      @lostpointercapture="gestureFrame.cancel"
       @keydown="onKeydown"
     ></div>
   </div>

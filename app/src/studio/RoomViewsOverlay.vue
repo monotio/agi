@@ -126,7 +126,7 @@ function point(event: PointerEvent) {
   };
 }
 function down(event: PointerEvent, figure: RoomPlacement): void {
-  if (event.button !== 0 || readOnly) return;
+  if (event.button !== 0 || readOnly || dragging.value) return;
   const spot = drawn.value.find((row) => row.figure.object === figure.object);
   if (!spot) return;
   const at = point(event);
@@ -144,7 +144,7 @@ function down(event: PointerEvent, figure: RoomPlacement): void {
   event.preventDefault();
 }
 function move(event: PointerEvent): void {
-  if (dragging.value) gestureFrame.schedule(() => applyMove(event));
+  if (dragging.value?.pointer === event.pointerId) gestureFrame.schedule(() => applyMove(event));
 }
 function applyMove(event: PointerEvent): void {
   const grab = dragging.value;
@@ -168,7 +168,8 @@ function up(event: PointerEvent): void {
   if (grab.x === grab.startX && grab.y === grab.startY) return;
   settle(grab.figure, grab.x, grab.y);
 }
-function cancel(): void {
+function cancel(event?: PointerEvent): void {
+  if (event && dragging.value?.pointer !== event.pointerId) return;
   gestureFrame.cancel();
   dragging.value = undefined;
 }

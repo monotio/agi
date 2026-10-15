@@ -584,7 +584,7 @@ const status = computed(() => {
         <SpriteCanvas
           v-if="currentCel"
           class="sprite-studio__canvas"
-          :cel="currentCel"
+          :cel="tools.previewCel.value ?? currentCel"
           :onion
           :zoom
           :dpr

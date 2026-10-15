@@ -1,9 +1,13 @@
+import { installPointerFrameMeasurement, measurePointerFrames } from "./gesturePerf.ts";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 
-test("large image frame drags keep pointer work within a frame @perf", async ({ page }) => {
+test("large image frame drags keep pointer work within a frame @perf @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(installPointerFrameMeasurement);
   await isolateStorage(page);
   await page.addInitScript(() => {
     const posts: { at: number; bytes: number[] | null }[] = [];
@@ -51,6 +55,29 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
     .first()
     .evaluate(async (box) => {
       const rect = box.getBoundingClientRect();
+      const thumbnails = () =>
+        [
+          ...document.querySelectorAll<HTMLImageElement>('[data-testid="prepared-cel-thumbnail"]'),
+        ].map((image) => image.src);
+      const before = thumbnails();
+      const batches = Array.from({ length: 12 }, (_, i) => [
+        { x: rect.x + 11 + i, y: rect.y + 12 },
+      ]);
+      return { batches, before };
+    });
+  const samples = await page
+    .getByTestId("frame-sheet")
+    .evaluate(measurePointerFrames, result.batches);
+  expect(
+    await thumbnails.evaluateAll((images) =>
+      images.map((image) => (image as HTMLImageElement).src),
+    ),
+  ).toEqual(before);
+  const dx = await page
+    .getByTestId("image-frame")
+    .first()
+    .evaluate((box) => {
+      const rect = box.getBoundingClientRect();
       const sheet = box.closest('[data-testid="frame-sheet"]')!;
       const event = (type: string, x: number) =>
         new PointerEvent(type, {
@@ -60,34 +87,13 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
           clientX: rect.x + x,
           clientY: rect.y + 12,
         });
-      const thumbnails = () =>
-        [
-          ...document.querySelectorAll<HTMLImageElement>('[data-testid="prepared-cel-thumbnail"]'),
-        ].map((image) => image.src);
-      const before = thumbnails();
-      let thumbnailsHeld = true;
-      const samples: number[] = [];
-      for (let i = 0; i < 12; i++) {
-        const start = performance.now();
-        sheet.dispatchEvent(event("pointermove", 11 + i));
-        // Include Vue's effects triggered by this event, where preparation used to run.
-        await Promise.resolve();
-        samples.push(performance.now() - start);
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        thumbnailsHeld &&= JSON.stringify(thumbnails()) === JSON.stringify(before);
-      }
       sheet.dispatchEvent(event("pointerup", 22));
-      return {
-        samples,
-        thumbnailsHeld,
-        dx: Math.round(12 / (sheet.getBoundingClientRect().width / 1024)),
-      };
+      return Math.round(12 / (sheet.getBoundingClientRect().width / 1024));
     });
   await page.mouse.up();
-  console.log("frame pointer timings ms", JSON.stringify(result.samples));
-  // Five runs measured at most 0.1 ms; allow about three times that cost.
-  expect(Math.max(...result.samples)).toBeLessThan(0.35);
-  expect(result.thumbnailsHeld).toBe(true);
+  console.log("frame pointer timings ms", JSON.stringify(samples));
+  // Handler + frame effects peaked at 2 ms in Linux WebKit; allow three times that cost.
+  expect(Math.max(...samples)).toBeLessThan(6);
   await expect(thumbnails.first()).not.toHaveAttribute("src", before[0]!);
   const after = await thumbnails.evaluateAll((images) =>
     images.map((image) => (image as HTMLImageElement).src),
@@ -101,9 +107,11 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
     );
   await expect.poll(async () => (await posts()).length).toBe(2);
   const settledBytes = (await posts()).at(-1)!.bytes;
+  const postsBeforeNudges = (await posts()).length;
   await frame.focus();
-  for (let i = 0; i < result.dx; i++) await page.keyboard.press("ArrowLeft");
-  for (let i = 0; i < result.dx; i++) await page.keyboard.press("ArrowRight");
+  for (let i = 0; i < dx; i++) await page.keyboard.press("ArrowLeft");
+  for (let i = 0; i < dx; i++) await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await posts()).length).toBeGreaterThan(postsBeforeNudges);
   await expect.poll(async () => (await posts()).at(-1)!.bytes).toEqual(settledBytes);
   expect(
     await thumbnails.evaluateAll((images) =>

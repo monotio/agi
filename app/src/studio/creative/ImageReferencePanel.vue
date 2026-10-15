@@ -348,20 +348,7 @@ function changeTrace(label: string) {
       error.value = "The trace settings could not be saved. Move the slider again to retry.";
   });
 }
-const prepared = computed(() => {
-  if (!image.value || isPicture.value) return null;
-  try {
-    return prepareImageCels(
-      image.value,
-      frames.value,
-      props.profile,
-      background.value,
-      backgroundTransparent.value,
-    );
-  } catch {
-    return null;
-  }
-});
+const prepared = shallowRef<ReturnType<typeof prepareImageCels> | null>(null);
 async function addCels() {
   if (!image.value) return;
   busy.value = true;
@@ -389,7 +376,7 @@ async function addCels() {
 }
 const livePreview = throttleTask(150);
 function stopPreview() {
-  livePreview.cancel();
+  livePreview.reset();
   if (previewing.value) engine.previewImageCels(null);
   previewing.value = false;
 }
@@ -409,6 +396,7 @@ function preview() {
   }
 }
 watch(prepared, () => {
+  if (!prepared.value) return stopPreview();
   if (previewing.value) livePreview.schedule(postPreview);
 });
 watch(
@@ -559,6 +547,7 @@ onBeforeUnmount(() => {
       <ImageFrameSheet
         v-show="!generateOpen"
         v-model="frames"
+        @prepared="prepared = $event"
         :image="image"
         :profile="profile"
         :mirrors="mirrors"

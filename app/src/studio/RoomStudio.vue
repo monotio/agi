@@ -1193,6 +1193,7 @@ function flushTraceKeys(): void {
 }
 onBeforeUnmount(flushTraceKeys);
 function grabTrace(event: PointerEvent, kind: "move" | "scale") {
+  if (traceDrag || event.button !== 0) return;
   flushTraceKeys();
   const button = event.currentTarget as HTMLButtonElement;
   const bounds = button.parentElement!.getBoundingClientRect();
@@ -1210,7 +1211,7 @@ function grabTrace(event: PointerEvent, kind: "move" | "scale") {
 const traceFrame = frameTask();
 onBeforeUnmount(traceFrame.cancel);
 function moveTrace(event: PointerEvent) {
-  if (traceDrag) traceFrame.schedule(() => applyTrace(event));
+  if (traceDrag?.pointer === event.pointerId) traceFrame.schedule(() => applyTrace(event));
 }
 function applyTrace(event: PointerEvent) {
   if (!traceDrag || traceDrag.pointer !== event.pointerId) return;

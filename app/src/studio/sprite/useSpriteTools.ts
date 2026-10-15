@@ -1,8 +1,8 @@
 /**
  * Sprite Studio's tool rail at work on one cel. Pencil and eraser strokes,
  * lines, rects and selection moves are each one gesture whose preview is
- * the kernel's own candidate (useSpriteDraft `moveGesture`), so what the
- * canvas shows is what Keep writes; fill, flip and the selection's delete
+ * pixel kernel's preview, drawn once per frame and encoded when released,
+ * so what the canvas shows is what Keep writes; fill, flip and the selection's delete
  * and flip are single edits. The eraser writes transparency; no tool paints
  * the transparent colour.
  *
@@ -20,7 +20,9 @@
  * changes (`recolorFrom`).
  */
 
-import { computed, shallowRef, watch, type Ref } from "vue";
+import { computed, onScopeDispose, shallowRef, watch, type Ref } from "vue";
+import { frameTask } from "../../ui/frameTask.ts";
+import { setPixels } from "../../../../src/studio/sprite/spriteCels.ts";
 import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
@@ -100,6 +102,12 @@ interface Move {
 export function useSpriteTools(options: SpriteToolsOptions) {
   const { draft, loop, cel, color } = options;
   const tool = shallowRef<SpriteTool>("pencil");
+  // A visual cel uses the same pixel edit as the kernel; encoding and validation wait for release.
+  const previewCel = shallowRef<SpriteCel>();
+  const previewFrame = frameTask();
+  onScopeDispose(() => {
+    previewFrame.cancel();
+  }, true);
   /** The tool the recolour tool was opened from, to return to when it is put away. */
   let beforeRecolor: SpriteTool = "pencil";
   /** The colour the recolour tool changes; null until one is picked. */
@@ -165,11 +173,22 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   }
 
   function preview(to: CelPoint): void {
-    const op = gestureOp(to);
-    if (op && draft.gesturing.value) options.report(draft.moveGesture(change(op)));
+    previewFrame.schedule(() => {
+      const op = gestureOp(to);
+      const base = current.value;
+      if (base && op?.type === "setPixels" && draft.gesturing.value) {
+        try {
+          previewCel.value = setPixels(base, op.changes);
+        } catch {
+          previewCel.value = undefined;
+        } // Release reports the kernel's refusal.
+      }
+    });
   }
 
   function finishGesture(to: CelPoint): void {
+    previewFrame.cancel();
+    previewCel.value = undefined;
     const op = gestureOp(to);
     const outcome = draft.endGesture(op && change(op), LABELS[tool.value]);
     if (op) options.report(outcome);
@@ -289,6 +308,7 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   /** The pointer's button came up at `point`. */
   function release(point: CelPoint): void {
     if (stroke.value) {
+      dragTo(point);
       finishGesture(point);
       stroke.value = null;
       return;
@@ -315,6 +335,8 @@ export function useSpriteTools(options: SpriteToolsOptions) {
 
   /** Esc: abandon what is being drawn, then the selection. Returns whether anything was. */
   function cancel(): boolean {
+    previewFrame.cancel();
+    previewCel.value = undefined;
     if (busy.value) {
       if (draft.gesturing.value) draft.cancelGesture();
       stroke.value = null;
@@ -449,6 +471,7 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   });
 
   return {
+    previewCel,
     tool,
     setTool,
     closeRecolor,

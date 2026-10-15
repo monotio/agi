@@ -173,23 +173,38 @@ function onGraphWheel(ev: WheelEvent): void {
   wheelFrame.schedule(() => setZoom(wheelZoom!, ev.clientX, ev.clientY));
 }
 
-let panning: { x: number; y: number; left: number; top: number; moved: number } | null = null;
+let panning: {
+  pointer: number;
+  x: number;
+  y: number;
+  left: number;
+  top: number;
+  moved: number;
+} | null = null;
 const panningActive = ref(false);
 
 function onBgPointerDown(ev: PointerEvent): void {
+  if (panning || ev.button !== 0) return;
   followLive = false;
   if (ev.pointerType === "touch") return; // native touch scrolling already pans
   if ((ev.target as Element).closest(".map-node")) return;
   const el = graphScroll.value;
   if (!el) return;
-  panning = { x: ev.clientX, y: ev.clientY, left: el.scrollLeft, top: el.scrollTop, moved: 0 };
+  panning = {
+    pointer: ev.pointerId,
+    x: ev.clientX,
+    y: ev.clientY,
+    left: el.scrollLeft,
+    top: el.scrollTop,
+    moved: 0,
+  };
   panningActive.value = true;
   (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
 }
 
 function onBgPointerMove(ev: PointerEvent): void {
   const el = graphScroll.value;
-  if (!panning || !el) return;
+  if (!panning || !el || panning.pointer !== ev.pointerId) return;
   if ((ev.buttons & 1) === 0) {
     // Released outside the window: the captured pointerup never arrived.
     panning = null;
@@ -203,9 +218,10 @@ function onBgPointerMove(ev: PointerEvent): void {
   el.scrollTop = panning.top - dy;
 }
 
-function onBgPointerUp(): void {
+function onBgPointerUp(ev: PointerEvent): void {
+  if (!panning || panning.pointer !== ev.pointerId) return;
   // A press that never moved is a click on empty space: dismiss the detail.
-  if (panning && panning.moved < 5) map.select(undefined);
+  if (ev.type === "pointerup" && panning.moved < 5) map.select(undefined);
   panning = null;
   panningActive.value = false;
 }
@@ -280,7 +296,13 @@ const roomsInView = computed(
     ),
 );
 
-const { onNodePointerDown, onNodePointerMove, onNodePointerUp, onNodeKeydown } = useNodeDrag({
+const {
+  onNodePointerDown,
+  onNodePointerMove,
+  onNodePointerUp,
+  onNodePointerCancel,
+  onNodeKeydown,
+} = useNodeDrag({
   map: {
     previewNode(room, x, y) {
       nodeFrame.schedule(() => map.previewNode(room, x, y));
@@ -289,6 +311,10 @@ const { onNodePointerDown, onNodePointerMove, onNodePointerUp, onNodeKeydown } =
       nodeFrame.cancel();
       map.moveNode(room, x, y);
     },
+  },
+  cancelPreview(room, x, y) {
+    nodeFrame.cancel();
+    map.previewNode(room, x, y);
   },
   positionOf: (room) => positioned.value.get(room),
   takeViewport: () => {
@@ -382,6 +408,7 @@ defineExpose({ selectRoom });
         @pointermove="onBgPointerMove"
         @pointerup="onBgPointerUp"
         @pointercancel="onBgPointerUp"
+        @lostpointercapture="onBgPointerUp"
       >
         <defs>
           <!-- Marker children do not inherit the referencing path's stroke,
@@ -452,6 +479,8 @@ defineExpose({ selectRoom });
           @pointerdown="onNodePointerDown($event, node.room)"
           @pointermove="onNodePointerMove"
           @pointerup="onNodePointerUp($event, node.room)"
+          @pointercancel="onNodePointerCancel"
+          @lostpointercapture="onNodePointerCancel"
         >
           <rect class="node-box" :width="NODE_W" :height="NODE_H" rx="7" />
           <image

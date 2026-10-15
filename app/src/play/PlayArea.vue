@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { frameTask } from "../ui/frameTask.ts";
+import { pointerFrame } from "../ui/frameTask.ts";
 import {
   computed,
   defineAsyncComponent,
@@ -655,27 +655,32 @@ function submit(): void {
 
 /** Split-mode wipe handle: a thin drag strip tracking the composited divider. */
 let splitDragEl: HTMLElement | null = null;
-const splitFrame = frameTask();
+const splitFrame = pointerFrame(() => {
+  splitDragEl = null;
+});
+watch([debugViewMode, debugOpen], () => splitFrame.cancel(), { flush: "sync" });
 onBeforeUnmount(splitFrame.cancel);
 
 function onSplitDown(ev: PointerEvent): void {
+  if (ev.button !== 0 || !splitFrame.begin(ev)) return;
   splitDragEl = ev.currentTarget as HTMLElement;
-  splitDragEl.setPointerCapture(ev.pointerId);
   ev.preventDefault();
 }
 
 function onSplitMove(ev: PointerEvent): void {
-  if (!splitDragEl) return;
+  if (!splitDragEl || !splitFrame.owns(ev)) return;
   const rect = splitDragEl.parentElement?.getBoundingClientRect();
   if (!rect || rect.width <= 0) return;
   const next = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
-  splitFrame.schedule(() => {
+  splitFrame.schedule(ev, () => {
     splitAt.value = next;
   });
 }
 
-function onSplitUp(): void {
-  splitFrame.flush();
+function onSplitUp(ev: PointerEvent): void {
+  if (!splitFrame.owns(ev)) return;
+  onSplitMove(ev);
+  splitFrame.finish(ev);
   splitDragEl = null;
 }
 
@@ -809,7 +814,8 @@ defineExpose({
           @pointerdown.stop="onSplitDown"
           @pointermove="onSplitMove"
           @pointerup="onSplitUp"
-          @pointercancel="onSplitUp"
+          @pointercancel="splitFrame.cancel"
+          @lostpointercapture="splitFrame.cancel"
           @click.stop
         >
           <span class="split-grip">◂▸</span>

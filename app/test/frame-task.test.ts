@@ -54,3 +54,56 @@ test("live previews publish at most every 150 ms and include the settled value",
   t.mock.timers.tick(150);
   assert.deepEqual(posts, [1, 3]);
 });
+
+test("a stopped preview restarts immediately", async (t) => {
+  const { throttleTask } = await import("../src/ui/frameTask.ts");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.mock.method(performance, "now", () => 0);
+  const task = throttleTask(150);
+  let posts = 0;
+  task.schedule(() => posts++);
+  task.reset();
+  task.schedule(() => posts++);
+  assert.equal(posts, 2);
+});
+
+test("captured gestures ignore other pointers and discard queued work when the handle disappears", async () => {
+  const { pointerFrame } = await import("../src/ui/frameTask.ts");
+  let callback: FrameRequestCallback | undefined;
+  let cancelled = 0;
+  const task = pointerFrame(
+    () => cancelled++,
+    (next) => {
+      callback = next;
+      return 1;
+    },
+    () => {
+      callback = undefined;
+    },
+  );
+  const captures = new Set<number>();
+  const target = {
+    setPointerCapture: (id: number) => captures.add(id),
+    hasPointerCapture: (id: number) => captures.has(id),
+    releasePointerCapture: (id: number) => captures.delete(id),
+  };
+  const event = (pointerId: number) =>
+    ({ pointerId, currentTarget: target }) as unknown as PointerEvent;
+  let position = 0;
+  assert.equal(task.begin(event(1)), true);
+  assert.equal(task.begin(event(2)), false);
+  task.schedule(event(1), () => (position = 1));
+  task.schedule(event(2), () => (position = 2));
+  task.cancel(event(2));
+  callback!(0);
+  assert.equal(position, 1);
+  task.schedule(event(1), () => (position = 3));
+  task.cancel();
+  assert.equal(cancelled, 1);
+  assert.equal(callback, undefined);
+  assert.equal(captures.size, 0);
+  assert.equal(task.begin(event(2)), true);
+  task.schedule(event(2), () => (position = 4));
+  task.finish(event(2));
+  assert.equal(position, 4);
+});

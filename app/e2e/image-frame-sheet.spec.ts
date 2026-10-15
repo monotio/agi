@@ -400,3 +400,100 @@ test("white sheet finds tight linked figures and adds exact prepared cels @webki
   await expect(page.getByRole("button", { name: "Trace an image", exact: true })).toBeVisible();
   await expect(page.locator("html")).not.toHaveAttribute("data-resize-error");
 });
+
+test("frame drags survive lost capture and keyboard edits own their result @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByTestId("part-view:0").click();
+  await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
+  const rgba = new Uint8Array(32 * 16 * 4);
+  for (let y = 2; y < 10; y++)
+    for (let x = 2; x < 8; x++) rgba.set([170, 0, 0, 255], (y * 32 + x) * 4);
+  await page.getByTestId("image-file").setInputFiles({
+    name: "one.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encodePngRgba(32, 16, rgba)),
+  });
+  const frame = page.getByRole("button", { name: "Frame 1", exact: true });
+  const sheet = page.getByTestId("frame-sheet");
+  const start = async () => {
+    const box = (await frame.boundingBox())!;
+    await page.mouse.move(box.x + 10, box.y + 10);
+    await page.mouse.down();
+  };
+  await start();
+  await sheet.dispatchEvent("pointerup", { pointerId: 9 });
+  await sheet.dispatchEvent("lostpointercapture", { pointerId: 1 });
+  await page.mouse.up();
+  await frame.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("frame-summary")).toContainText("at 3, 2");
+  // Preparation and parent emission must resume after capture loss.
+  await expect(page.getByTestId("prepared-cel-thumbnail")).toHaveCount(1);
+  await start();
+  await page.keyboard.press("ArrowRight");
+  await page.mouse.up();
+  await expect(page.getByTestId("frame-summary")).toContainText("at 4, 2");
+  await start();
+  await page.keyboard.press("Delete");
+  await page.mouse.up();
+  await expect(page.getByTestId("image-frame")).toHaveCount(0);
+  await expect(page.getByTestId("prepared-cel-thumbnail")).toHaveCount(0);
+});
+
+test("image preview starts immediately on restart and stops as soon as frames disappear @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.addInitScript(() => {
+    const posts: boolean[] = [];
+    Object.assign(window, { __imagePreviewPosts: posts });
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (
+      message: { type?: string; bytes?: Uint8Array | null },
+      options?: StructuredSerializeOptions | Transferable[],
+    ) {
+      if (message.type === "imageHeroPreview") posts.push(!!message.bytes);
+      post.call(this, message, Array.isArray(options) ? { transfer: options } : options);
+    };
+  });
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByTestId("part-view:0").click();
+  await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
+  const rgba = new Uint8Array(8 * 8 * 4).fill(255);
+  for (let y = 2; y < 6; y++)
+    for (let x = 2; x < 6; x++) rgba.set([170, 0, 0, 255], (y * 8 + x) * 4);
+  await page.getByTestId("image-file").setInputFiles({
+    name: "one.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encodePngRgba(8, 8, rgba)),
+  });
+  await expect(page.getByTestId("image-preview-hero")).toBeEnabled();
+  const posts = await page.getByTestId("image-preview-hero").evaluate(async (element) => {
+    const button = element as HTMLButtonElement;
+    button.click();
+    button.click();
+    button.click();
+    const posts = (window as unknown as { __imagePreviewPosts: boolean[] }).__imagePreviewPosts;
+    const restarted = [...posts];
+    document
+      .querySelector('[data-testid="image-frame"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    return { restarted, stopped: [...posts] };
+  });
+  expect(posts.restarted).toEqual([true, false, true]);
+  expect(posts.stopped).toEqual([true, false, true, false]);
+  await expect(page.getByTestId("image-preview-hero")).toHaveText("Preview on hero");
+  await expect(page.getByTestId("image-preview-hero")).toBeDisabled();
+});

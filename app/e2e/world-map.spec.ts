@@ -576,11 +576,15 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses @webkit-
   await page.mouse.move(box.x + 100, box.y + 100, { steps: 2 });
   await expect(scroll).toHaveClass(/panning/);
   await page.evaluate(() => {
-    document
-      .querySelector("[data-testid=map-graph]")!
-      .dispatchEvent(
-        new PointerEvent("pointermove", { bubbles: true, buttons: 0, clientX: 500, clientY: 500 }),
-      );
+    document.querySelector("[data-testid=map-graph]")!.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        pointerId: 1,
+        buttons: 0,
+        clientX: 500,
+        clientY: 500,
+      }),
+    );
   });
   await expect(scroll).not.toHaveClass(/panning/);
   await page.mouse.up();
@@ -632,6 +636,20 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses @webkit-
   expect(await sidecarLayout()).not.toHaveProperty("4");
   // The click opened the detail pane, which reshaped the viewport — re-measure.
   await node.scrollIntoViewIfNeeded();
+  const originalTransform = await node.getAttribute("transform");
+  const cancelBox = (await node.boundingBox())!;
+  await page.mouse.move(cancelBox.x + cancelBox.width / 2, cancelBox.y + cancelBox.height / 2);
+  await page.mouse.down();
+  await node.dispatchEvent("pointermove", {
+    pointerId: 1,
+    buttons: 1,
+    clientX: cancelBox.x + 100,
+    clientY: cancelBox.y + 60,
+  });
+  await node.dispatchEvent("pointercancel", { pointerId: 1 });
+  await page.mouse.up();
+  await expect(node).toHaveAttribute("transform", originalTransform!);
+  expect(await sidecarLayout()).not.toHaveProperty("4");
   const nb2 = (await node.boundingBox())!;
   await page.mouse.move(nb2.x + nb2.width / 2, nb2.y + nb2.height / 2);
   await page.mouse.down();

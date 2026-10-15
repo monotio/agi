@@ -242,22 +242,15 @@ export function suggestImageFrames(
     loop: 0,
   }));
 }
-// Decoded image rasters stay fixed; replacing pixels supplies a new buffer.
-const imageHashes = new WeakMap<Uint8Array, string>();
-
 export function prepareImageCels(
   image: ProjectImageInput,
   frames: readonly ImageFrame[],
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
+  sourceId = sha256Hex(image.rgba),
 ) {
-  let hash = imageHashes.get(image.rgba);
-  if (hash === undefined) {
-    hash = sha256Hex(image.rgba);
-    imageHashes.set(image.rgba, hash);
-  }
-  const identity = { id: hash, incarnation: "image", revision: 0 };
+  const identity = { id: sourceId, incarnation: "image", revision: 0 };
   const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
     id: `frame-${i}`,
     source: identity,

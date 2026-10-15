@@ -71,6 +71,7 @@ const cursorTick = ref<number>();
 const live = ref("");
 let drag:
   | {
+      pointer: number;
       start: number;
       row: number;
       lane: number;
@@ -235,7 +236,7 @@ function pointerCell(
   };
 }
 function down(event: PointerEvent): void {
-  if (event.button !== 0 && event.button !== 2) return;
+  if (drag || (event.button !== 0 && event.button !== 2)) return;
   const cell = pointerCell(event);
   if (!cell) return;
   if (cell.row < pitchRows.value && props.voice === 3) return;
@@ -265,6 +266,7 @@ function down(event: PointerEvent): void {
   emit("voice", lane);
   emit("select", hit?.event.id);
   drag = {
+    pointer: event.pointerId,
     start: hit?.start ?? gridTick(cell.step, props.tempo, props.division),
     end: hit?.end ?? gridTick(cell.step + 1, props.tempo, props.division),
     row: cell.row,
@@ -277,7 +279,7 @@ function down(event: PointerEvent): void {
   describe(hit);
 }
 function move(event: PointerEvent): void {
-  if (!drag) return;
+  if (!drag || drag.pointer !== event.pointerId) return;
   const cell = pointerCell(event);
   if (!cell) return;
   if (Math.abs(cell.x - drag.originX) > 3) drag.moving = true;
@@ -287,6 +289,14 @@ function move(event: PointerEvent): void {
       drag.end = Math.max(drag.start + 1, gridTick(cell.step + 1, props.tempo, props.division));
     draw();
   });
+}
+function cancelDrag(event: PointerEvent): void {
+  if (!drag || drag.pointer !== event.pointerId) return;
+  gestureFrame.cancel();
+  drag = undefined;
+  const target = event.currentTarget as Element;
+  if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+  draw();
 }
 function data(row: number, lane: number): SoundEventDataInput {
   return lane === 3
@@ -298,6 +308,7 @@ function data(row: number, lane: number): SoundEventDataInput {
     : { kind: "tone", note: rowLabel(row), attenuation: 15 - props.volume };
 }
 function finish(event: PointerEvent): void {
+  if (!drag || drag.pointer !== event.pointerId) return;
   move(event);
   gestureFrame.flush();
   try {
@@ -492,11 +503,8 @@ onMounted(() => {
         @pointerdown="down"
         @pointermove="move"
         @pointerup="finish"
-        @pointercancel="
-          gestureFrame.cancel();
-          drag = undefined;
-          draw();
-        "
+        @pointercancel="cancelDrag"
+        @lostpointercapture="cancelDrag"
         @contextmenu.prevent
         @keydown="key"
       />
@@ -511,11 +519,8 @@ onMounted(() => {
       @pointerdown="down"
       @pointermove="move"
       @pointerup="finish"
-      @pointercancel="
-        gestureFrame.cancel();
-        drag = undefined;
-        draw();
-      "
+      @pointercancel="cancelDrag"
+      @lostpointercapture="cancelDrag"
       @contextmenu.prevent
       @keydown="key"
     />
