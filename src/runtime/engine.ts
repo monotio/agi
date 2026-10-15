@@ -7150,9 +7150,19 @@ export class Engine {
         }
         this.confirmSessionAction("quit", next);
         return next;
-      case 0x8e:
+      case 0x8e: {
+        // script.size stores the capacity, then resets the recorded pair
+        // sequence and refreshes the object update lists: RestoreAll +
+        // InitScript (scriptTop := script, SCRIPTENTRIES := 0) + AllInBack
+        // (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149
+        // 0x74E8).
         this.scriptCapacity = a(0);
+        this.replay.length = 0;
+        this.replayCheckpoint = 0;
+        for (const o of this.objects) if (o.active) this.restoreBehind(o);
+        for (const o of this.objects) if (o.active) this.stampDraw(o);
         return next;
+      }
 
       // menus
       // Menu construction exists only in the "full" profiles: 2.272 parses the
