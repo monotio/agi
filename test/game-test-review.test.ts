@@ -65,6 +65,62 @@ test("A changed test shows its old and new steps and checks in review, so a weak
   ]);
 });
 
+test("Every changed field of a test shows in review with its old and new value, so Apply is an informed approval", () => {
+  const route = (waypoints: readonly (readonly [number, number])[]) => [
+    { action: "walkWaypoints", waypoints },
+    { action: "wait", ticks: 20, captureTicks: [5, 10] },
+  ];
+  const before = document([
+    {
+      name: "Walk home",
+      room: 1,
+      spawnX: 10,
+      spawnY: 100,
+      steps: route([
+        [10, 100],
+        [20, 120],
+      ]),
+      expect: { score: 5 },
+      cycleBudget: 500,
+    },
+  ]);
+  const after = document([
+    {
+      name: "Walk home",
+      room: 1,
+      steps: [
+        {
+          action: "walkWaypoints",
+          waypoints: [
+            [80, 100],
+            [90, 120],
+          ],
+        },
+        { action: "wait", ticks: 20, captureTicks: [5] },
+      ],
+      expect: { score: 5 },
+      cycleBudget: 9000,
+      rngVersion: 1,
+    },
+  ]);
+  assert.deepEqual(gameTestReviewChanges(before, after, PROFILES["2.936"]!), [
+    {
+      line: 'Changed test "Walk home"',
+      rows: [
+        { label: "Start position", before: "x 10, y 100", after: "Game default" },
+        {
+          label: "Steps",
+          before: "walk through (10, 100), (20, 120); wait for 20 ticks, frames at ticks 5, 10",
+          after: "walk through (80, 100), (90, 120); wait for 20 ticks, frames at ticks 5",
+        },
+        { label: "Checks", before: "score 5", after: "score 5" },
+        { label: "Cycle budget", before: "500 cycles", after: "9000 cycles" },
+        { label: "Random numbers", before: "Version 2", after: "Version 1" },
+      ],
+    },
+  ]);
+});
+
 test("Malformed or unsupported tests stay visible during creator review instead of losing the review card", async () => {
   const { readGameTestReviewSide } = await import("../src/agent/gameTestReview.ts");
   const malformed = readGameTestReviewSide("{", PROFILES["2.936"]!);

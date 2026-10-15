@@ -25,7 +25,7 @@ import {
   type AgentSessionState,
 } from "../src/agent/agentState.ts";
 import { ASK_TOOLS, executeAgentTool, validateAgentHandover } from "../src/agent/tools.ts";
-import { gameTestActionCount } from "../src/agent/gameTestReview.ts";
+import { gameTestActionCount, gameTestReviewChanges } from "../src/agent/gameTestReview.ts";
 import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -987,6 +987,41 @@ function recordSetupImage(state: AgentSessionState): string {
   return Buffer.from(engine.serialize()).toString("base64");
 }
 
+test("Review shows a changed start state, even when only the saved game behind it changed", () => {
+  const state = world();
+  const booted = new Engine(
+    openContainer(state.getFiles()),
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    },
+    state.sources.words,
+    { profile: state.profile },
+  );
+  booted.tick();
+  const first = Buffer.from(booted.serialize()).toString("base64");
+  const second = recordSetupImage(state);
+  const document = (setup?: { image: string }) =>
+    serializeGameTests([{ ...takeKey, ...(setup ? { setup } : {}) }]);
+  const startRow = (before: Uint8Array, after: Uint8Array) =>
+    gameTestReviewChanges(before, after, state.profile)[0]?.rows.find(
+      (row) => row.label === "Start state",
+    );
+  assert.deepEqual(startRow(document(), document({ image: first })), {
+    label: "Start state",
+    before: "Fresh start",
+    after: "Saved game",
+  });
+  assert.deepEqual(startRow(document({ image: first }), document({ image: second })), {
+    label: "Start state",
+    before: "Saved game",
+    after: "Different saved game",
+  });
+});
+
 test("The tests table counts what the player did, including a recording that typed look", () => {
   const state = world();
   const engine = new Engine(
@@ -1484,6 +1519,23 @@ test("The player sees each red test with the Agent's reason as written: an empty
   assert.equal(accepted.details?.["testsReport"], report);
   assert.ok(accepted.message!.startsWith(`${report}\n`));
   assert.deepEqual(state.finishTestsNotes, lines);
+});
+
+test("A red test's reason matches its stored name exactly, so a name with spaces can still finish", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.readCommittedTests = () =>
+    JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: [{ ...takeKey, name: "Open door ", room: 5 }],
+    });
+  const trimmed = validateAgentHandover(state, [{ test: "Open door", reason: "room 5 is next." }]);
+  assert.match(trimmed.error!, /^Not finished: give testReasons for "Open door "\./);
+  const accepted = validateAgentHandover(state, [
+    { test: "Open door ", reason: "room 5 is next." },
+  ]);
+  assert.equal(accepted.success, true, accepted.error ?? "");
+  assert.deepEqual(state.finishTestsNotes, ["Open door : room 5 is next."]);
 });
 
 test("Test edits the creator asked for finish once testReasons say why each changed", () => {

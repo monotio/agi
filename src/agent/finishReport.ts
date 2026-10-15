@@ -10,9 +10,10 @@ function reasonFor(entries: readonly unknown[], name: string): string | undefine
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
     const { test, reason } = entry as Record<string, unknown>;
-    if (typeof test !== "string" || test.trim() !== name || typeof reason !== "string") continue;
+    if (test !== name || typeof reason !== "string") continue;
     const text = reason.trim();
-    if (text && text.replace(/[.!?:;,]+$/u, "").toLowerCase() !== name.toLowerCase()) return text;
+    if (text && text.replace(/[.!?:;,]+$/u, "").toLowerCase() !== name.trim().toLowerCase())
+      return text;
   }
   return undefined;
 }

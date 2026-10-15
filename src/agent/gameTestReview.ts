@@ -77,7 +77,8 @@ function stepObject(step: Readonly<Record<string, unknown>>): string {
   if (action === "move" || action === "direction")
     return typeof direction === "number" ? (DIRECTION_NAMES[direction] ?? "") : String(direction);
   if (action === "walkTo") return `${words(x)}, ${words(y)}`;
-  if (action === "walkWaypoints") return `${(waypoints as readonly unknown[]).length} points`;
+  if (action === "walkWaypoints")
+    return (waypoints as readonly (readonly number[])[]).map(([x, y]) => `(${x}, ${y})`).join(", ");
   const value = step[String(action)] ?? step["target"];
   return value == null ? "" : words(value);
 }
@@ -91,15 +92,19 @@ function gameTestStepsText(test: GameTest): string {
     return `Recorded play, ${inputs} ${inputs === 1 ? "input" : "inputs"}`;
   }
   return test.steps
-    .map((step) =>
-      [
-        STEP_VERBS[String(step["action"])] ?? String(step["action"]),
-        stepObject(step),
-        step["until"] ? `until ${words(step["until"])}` : "",
-        step["ticks"] != null ? `for ${words(step["ticks"])} ticks` : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
+    .map(
+      (step) =>
+        [
+          STEP_VERBS[String(step["action"])] ?? String(step["action"]),
+          stepObject(step),
+          step["until"] ? `until ${words(step["until"])}` : "",
+          step["ticks"] != null ? `for ${words(step["ticks"])} ticks` : "",
+        ]
+          .filter(Boolean)
+          .join(" ") +
+        (Array.isArray(step["captureTicks"]) && step["captureTicks"].length
+          ? `, frames at ticks ${words(step["captureTicks"])}`
+          : ""),
     )
     .join("; ");
 }
@@ -107,6 +112,12 @@ function gameTestStepsText(test: GameTest): string {
 /** What a test checks, in plain words; an empty expectation checks nothing. */
 function gameTestExpectText(test: GameTest): string {
   return words(test.expect ?? {}) || "Nothing checked";
+}
+
+/** Where a recorded test starts: a fresh boot, or the saved game it restores. */
+function gameTestStartText(test: GameTest): string {
+  if (!test.setup) return "Fresh start";
+  return test.setup.replay ? "Saved game and recorded play" : "Saved game";
 }
 
 /** One named review line per test change, with the old and new definition of a changed test. */
@@ -141,11 +152,31 @@ export function gameTestReviewChanges(
     const old = previous.find((test) => test.name === change.name);
     const now = next.find((test) => test.name === change.name);
     if (!old || !now) return { line, rows: [] };
+    const spawn = (test: GameTest) =>
+      test.spawnX == null && test.spawnY == null
+        ? "Game default"
+        : `x ${test.spawnX ?? "default"}, y ${test.spawnY ?? "default"}`;
+    const budget = (test: GameTest) =>
+      test.cycleBudget == null ? "Default" : `${test.cycleBudget} cycles`;
+    const random = (test: GameTest) => `Version ${test.rngVersion ?? 2}`;
+    const start = gameTestStartText(now);
     const rows = [
       { label: "Room", before: String(old.room), after: String(now.room) },
+      { label: "Start position", before: spawn(old), after: spawn(now) },
+      {
+        label: "Start state",
+        before: gameTestStartText(old),
+        // The same words for another saved game still name the change.
+        after:
+          start === gameTestStartText(old) && !sameGameTestDefinition(old.setup, now.setup)
+            ? `Different ${start.toLowerCase()}`
+            : start,
+      },
       { label: "Steps", before: gameTestStepsText(old), after: gameTestStepsText(now) },
       { label: "Checks", before: gameTestExpectText(old), after: gameTestExpectText(now) },
-    ].filter((row) => row.label !== "Room" || row.before !== row.after);
+      { label: "Cycle budget", before: budget(old), after: budget(now) },
+      { label: "Random numbers", before: random(old), after: random(now) },
+    ].filter((row) => row.label === "Steps" || row.label === "Checks" || row.before !== row.after);
     return { line, rows };
   });
 }

@@ -628,12 +628,14 @@ Answer the player's question using evidence from inspection when needed. For hin
       // progress note while the staged candidate still needs repair.
       let stagedChanges = false;
       let finishStatus = "";
+      let finishNotes: readonly string[] = [];
       for (;;) {
         if (turn.toolCalls.length === 0) {
           if (!stagedChanges) break;
           const verdict = remixVerdict(staged);
           if (verdict === null) {
             finishStatus = staged.finishTestsStatus ?? "";
+            finishNotes = staged.finishTestsNotes ?? [];
             break;
           }
           this.task.recordTool(
@@ -691,6 +693,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             if (tc.name === "finish") {
               handedOver = true;
               finishStatus = String(res.details?.["testsVerdict"] ?? "");
+              finishNotes = staged.finishTestsNotes ?? [];
             } else if (
               res.details?.["writtenResources"] ||
               res.details?.["updatedFiles"] ||
@@ -749,7 +752,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           "[Remix] A map edit landed mid-remix; the turn's plan change was superseded.",
         );
       const reply = turn.text || "Changes are ready.";
-      const text = withFinishReport(finishStatus, staged.finishTestsNotes, reply, "\n");
+      const text = withFinishReport(finishStatus, finishNotes, reply, "\n");
       this.noteUnviewed("Remix", watch.unviewed(text));
       this.messages.push({ role: "assistant", text });
       this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, {

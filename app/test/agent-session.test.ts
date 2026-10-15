@@ -1299,6 +1299,61 @@ for (const mode of ["genesis", "room", "implicit remix"] as const)
     }
   });
 
+test("Play shows test reasons only for the turn that gave them", async (t) => {
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    requests++;
+    const output =
+      requests === 1
+        ? [
+            {
+              type: "function_call",
+              call_id: "write",
+              name: "write_logic",
+              arguments: JSON.stringify({ room: 1, source: "return;" }),
+            },
+          ]
+        : requests === 2
+          ? [
+              {
+                type: "function_call",
+                call_id: "finish",
+                name: "finish",
+                arguments: JSON.stringify({
+                  testReasons: [{ test: "Future room", reason: "room 5 is next." }],
+                }),
+              },
+            ]
+          : [
+              {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "The door is on the left." }],
+              },
+            ];
+    return new Response(providerSse("openai", { id: String(requests), output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const state = createAgentSessionState();
+  state.genesisComplete = true;
+  state.readCommittedTests = () =>
+    JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [{ name: "Future room", room: 5, steps: [] }],
+    });
+  state.finishTestsBase = null;
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
+    () => {},
+    state,
+  );
+  const first = await session.runPowerUp("Edit logic", 1);
+  assert.match(first.text, /- Future room: room 5 is next\./);
+  const second = await session.runPowerUp("Where is the door?", 1);
+  assert.equal(second.text, "The door is on the left.");
+});
+
 for (const mode of ["power-up", "room", "genesis"] as const)
   test(`Only the creator changes tests: the direct ${mode} driver refuses deleting a saved red test and keeps game edits`, async (t) => {
     const { installBoilerplateSeed } = await import("../../src/agent/baseTemplate.ts");
