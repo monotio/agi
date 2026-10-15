@@ -440,10 +440,9 @@ test("show.obj dismisses on Escape but not Space", () => {
   container.putResource(
     "logic",
     0,
-    assembleLogic(
-      `if (!isset(f200)) { set(f200); load.view(1); show.obj(1); } return;`,
-      { dictionary: new Map() },
-    ).payload,
+    assembleLogic(`if (!isset(f200)) { set(f200); load.view(1); show.obj(1); } return;`, {
+      dictionary: new Map(),
+    }).payload,
   );
   container.putResource(
     "view",

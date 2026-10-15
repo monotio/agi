@@ -2751,8 +2751,7 @@ export class Engine {
         // ChkAcAb accepts CR (1) or ESC (0) only; every other key keeps
         // waiting — Space is not an acknowledgement key (demopac4 3.002.102
         // 0x4A34 / kq3 2.936 0x45F0).
-        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE)
-          this.closeModal();
+        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE) this.closeModal();
         return;
       case "inventory":
         if (!m.interactive) {

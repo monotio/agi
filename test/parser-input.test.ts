@@ -440,8 +440,7 @@ test("the command line holds min(v24, 40 − strlen(s0) − prompt) characters",
         c.putResource(
           "logic",
           0,
-          assembleLogic("assignn(v24, 10); accept.input(); return;", { dictionary: DICT })
-            .payload,
+          assembleLogic("assignn(v24, 10); accept.input(); return;", { dictionary: DICT }).payload,
         );
         return c;
       })(),

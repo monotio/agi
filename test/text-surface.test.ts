@@ -273,10 +273,18 @@ test("print.at honours row, column and width; width 0 means 30", () => {
   );
   engine.tick();
   // "one two"/"three four" -> 10 + 2 frame = 12 cols, 4 rows at row 1+2, col 3.
-  assert.ok(row(engine, 3).attrs.slice(3, 15).every((a) => a === FRAME));
+  assert.ok(
+    row(engine, 3)
+      .attrs.slice(3, 15)
+      .every((a) => a === FRAME),
+  );
   assert.equal(engine.textRow(4), spaces(4) + "one two" + spaces(29));
   assert.equal(engine.textRow(5), spaces(4) + "three four" + spaces(26));
-  assert.ok(row(engine, 6).attrs.slice(3, 15).every((a) => a === FRAME));
+  assert.ok(
+    row(engine, 6)
+      .attrs.slice(3, 15)
+      .every((a) => a === FRAME),
+  );
   engine.ackPrint();
 
   const wide = new Engine(gameWith('print.at("one two three four", 6, 1, 0); return;'), host, DICT);
