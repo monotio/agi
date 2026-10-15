@@ -56,9 +56,16 @@ export function enterCreateRun(ctx: WorkerContext, cold = false): void {
     (engine.hostInteractionPending && !engine.awaitingKey)
   )
     throw new Error("Finish the game's question, then open Create.");
+  // Before the first LOGIC pass the game is at its start, in no room yet. That moment keeps no
+  // image, as a Create boot does, so a visit offers Restart rather than Back to Room 0.
+  const unstarted =
+    cold ||
+    (!ctx.run.cycle.initialLogicStarted &&
+      ctx.run.cycle.cycleCount === 0 &&
+      engine.completedCycleSerial === 0);
   const returnPoint = ctx.fns.historySnapshot(
     cold || (!ctx.run.cycle.initialLogicStarted && ctx.run.cycle.cycleCount === 0),
-    true,
+    !unstarted,
   );
   if (!returnPoint) throw new Error("Continue the game, then open Create.");
   if (!cold) ctx.fns.autosave(true);

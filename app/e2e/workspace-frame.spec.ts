@@ -1,6 +1,6 @@
 import { clickContextAction } from "./workspaceShared.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook, workspaceSaved } from "./engineProbe.ts";
+import { isolateStorage, textHook, waitForGameInput, workspaceSaved } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 
 async function starter(page: Page): Promise<void> {
@@ -195,8 +195,11 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
-  // Capture a running Play moment for the visit and Back assertion.
+  // Capture a running Play moment for the visit and Back assertion. Play resumes the start of
+  // the game, and the game takes the keyboard once its first LOGIC pass has entered Meadow; the
+  // room hook alone still reads Room 1 from before Play.
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await waitForGameInput(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("radio", { name: "Create", exact: true }).click();
   const bar = page.getByTestId("workspace-game-bar");
