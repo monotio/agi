@@ -31,10 +31,14 @@ import { PROFILES, type ProfileId } from "../runtime/profile.ts";
 import { readRngPolicy, type RngPolicy } from "../runtime/rng.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
-/** Current recording contract adds debugger boundaries and complete project admission events. */
-export const HISTORY_FORMAT_VERSION = 2;
+/**
+ * Current recording contract writes sync marks with the state and text
+ * digests recorded separately. Version 2 added debugger boundaries and
+ * complete project admission events; version 1 is the released contract.
+ */
+export const HISTORY_FORMAT_VERSION = 3;
 /** Released recordings remain unchanged on read; the next append upgrades the header. */
-export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, 2, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -81,11 +85,13 @@ export type HistoryEndReason =
  * The end reasons each recording version may carry. Version 1 is the
  * released contract — a version-1 record never admits "debugger", so the
  * released reader could not have silently carried a reason it cannot name.
- * Version 2 admits every released reason plus "debugger".
+ * Version 2 admits every released reason plus "debugger"; version 3 carries
+ * the same reasons with the split sync digests.
  */
 const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
   1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
   2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
+  3: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
 };
 
 export type HistoryEventCause =
@@ -185,16 +191,25 @@ export interface HistoryRoomMark {
 }
 
 /**
- * A cheap checksum of interpreter state at a stream position: vars, flags,
- * screen-object positions and the text surface, plus diagnostic fields.
- * Marks detect divergence; they do not prove equivalence.
+ * A cheap checksum of interpreter state at a stream position plus diagnostic
+ * fields. Marks detect divergence; they do not prove equivalence.
+ *
+ * Version 3 tapes record the state digest (vars, flags, object positions)
+ * and the text digest (the 25 text rows) separately; version 1–2 tapes carry
+ * the combined `digest` only, and replay verifies just their diagnostic
+ * fields — the released build's text surface legitimately differs from
+ * today's, so its combined digest can never re-derive.
  */
 export interface HistorySyncMark {
   seq: number;
   tick: number;
   cycle: number;
-  /** FNV-1a over vars, flags, object positions and the 25 text rows. */
-  digest: string;
+  /** Version 1–2 tapes: FNV-1a over vars, flags, object positions and the 25 text rows. */
+  digest?: string;
+  /** Version 3 tapes: FNV-1a over vars, flags and object positions. */
+  state?: string;
+  /** Version 3 tapes: FNV-1a over the 25 text rows. */
+  text?: string;
   room: number;
   score: number;
   patchGeneration: number;
@@ -379,12 +394,16 @@ export interface HistorySyncSource {
   modalKind: string | null;
 }
 
-export function historySyncDigest(engine: HistorySyncSource): string {
+function digestOf(feedAll: (feed: (v: number) => void) => void): string {
   let hash = 0x811c9dc5;
-  const feed = (v: number): void => {
+  feedAll((v: number): void => {
     hash = Math.imul(hash ^ (v & 0xffff), 0x01000193) >>> 0;
     hash = Math.imul(hash ^ (v >>> 16), 0x01000193) >>> 0;
-  };
+  });
+  return hash.toString(16).padStart(8, "0");
+}
+
+function feedState(engine: HistorySyncSource, feed: (v: number) => void): void {
   for (let i = 0; i < engine.vars.length; i++) feed(engine.vars[i]!);
   for (let i = 0; i < engine.flags.length; i++) feed(engine.flags[i]!);
   for (const o of engine.readObjects()) {
@@ -392,12 +411,36 @@ export function historySyncDigest(engine: HistorySyncSource): string {
     feed(o.x);
     feed(o.y);
   }
+}
+
+function feedText(engine: HistorySyncSource, feed: (v: number) => void): void {
   for (let row = 0; row < 25; row++) {
     const text = engine.textRow(row);
     for (let i = 0; i < text.length; i++) feed(text.charCodeAt(i));
     feed(0x10000);
   }
-  return hash.toString(16).padStart(8, "0");
+}
+
+/** FNV-1a over vars, flags and object positions. */
+export function historyStateDigest(engine: HistorySyncSource): string {
+  return digestOf((feed) => feedState(engine, feed));
+}
+
+/** FNV-1a over the 25 text rows. */
+export function historyTextDigest(engine: HistorySyncSource): string {
+  return digestOf((feed) => feedText(engine, feed));
+}
+
+/**
+ * The version 1–2 combined digest: FNV-1a over vars, flags, object positions
+ * and the 25 text rows. Released tapes carry only this value; it is kept to
+ * verify a released tape's recorded final state, never for replay gating.
+ */
+export function historySyncDigest(engine: HistorySyncSource): string {
+  return digestOf((feed) => {
+    feedState(engine, feed);
+    feedText(engine, feed);
+  });
 }
 
 export function computeSyncMark(
@@ -410,7 +453,8 @@ export function computeSyncMark(
     seq,
     tick,
     cycle,
-    digest: historySyncDigest(engine),
+    state: historyStateDigest(engine),
+    text: historyTextDigest(engine),
     room: engine.vars[V_ROOM] ?? 0,
     score: engine.vars[V_SCORE] ?? 0,
     patchGeneration: engine.patchGeneration,
@@ -929,16 +973,29 @@ function syncMarks(value: unknown): HistorySyncMark[] {
   if (!Array.isArray(value) || value.length > 1_000_000) fail("sync marks must be a bounded list.");
   return value.map((m) => {
     if (!isObj(m)) fail("sync mark must be an object.");
-    return {
+    // Tapes an append migrated forward keep their original marks: either the
+    // version 1–2 combined digest or the version 3 split digests, never both.
+    const combined = m["digest"] !== undefined;
+    const split = m["state"] !== undefined && m["text"] !== undefined;
+    if (combined === split)
+      fail("sync mark carries either the combined digest or the state and text digests.");
+    // Key order preserves the released bytes on re-export.
+    const out: HistorySyncMark = {
       seq: int(m["seq"], "sync seq"),
       tick: int(m["tick"], "sync tick"),
       cycle: int(m["cycle"], "sync cycle"),
-      digest: text(m["digest"], "sync digest", 64),
+      ...(combined
+        ? { digest: text(m["digest"], "sync digest", 64) }
+        : {
+            state: text(m["state"], "sync state digest", 64),
+            text: text(m["text"], "sync text digest", 64),
+          }),
       room: int(m["room"], "sync room", 255),
       score: int(m["score"], "sync score", 0xffff),
       patchGeneration: int(m["patchGeneration"], "sync patchGeneration"),
       modal: m["modal"] === null ? null : text(m["modal"], "sync modal", 64),
     };
+    return out;
   });
 }
 

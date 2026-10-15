@@ -594,6 +594,7 @@ import { Simulation } from "../src/agent/playtest.ts";
 import type { RecordedOperation } from "../src/agent/recordedReplay.ts";
 import {
   HISTORY_FORMAT_VERSION,
+  computeSyncMark,
   validateHistoryRecording,
   stampBoot,
 } from "../src/agent/history.ts";
@@ -925,4 +926,77 @@ test("script.size redraws every drawn object over text written since its draw", 
   });
   engine.tick();
   assert.notEqual(engine.textRow(13).charAt(2), "X");
+});
+
+test("sync marks carry either the released combined digest or the split state and text digests", () => {
+  const recording = (sync: unknown[]) => ({
+    version: HISTORY_FORMAT_VERSION,
+    identity: {
+      project: requireProjectId("sync-history"),
+      revision: requireResourceRevision("0".repeat(64)),
+    },
+    profile: "amiga-2.316",
+    resourceSet: "rev-1",
+    startedAt: 0,
+    segments: [
+      {
+        id: "s.1",
+        boot: stampBoot({
+          files: { "VOL.0": "eA==" },
+          dictionary: [],
+          authorRooms: false,
+          rng: 1,
+          soundDevice: 1,
+          resourceSet: "rev-1",
+          requestSerial: 0,
+        }),
+        anchors: [],
+        events: [],
+        marks: [],
+        sync,
+      },
+    ],
+  });
+  const base = { seq: 0, tick: 0, cycle: 0, room: 1, score: 0, patchGeneration: 0, modal: null };
+  // The released version-1 shape round-trips with its combined digest kept.
+  assert.deepEqual(validateHistoryRecording(recording([{ ...base, digest: "c2c5e065" }]))
+    .segments[0]!.sync[0], { ...base, digest: "c2c5e065" });
+  // The current shape records state and text separately.
+  assert.deepEqual(
+    validateHistoryRecording(recording([{ ...base, state: "aaaaaaaa", text: "bbbbbbbb" }]))
+      .segments[0]!.sync[0],
+    { ...base, state: "aaaaaaaa", text: "bbbbbbbb" },
+  );
+  // Neither shape incomplete nor both at once.
+  assert.throws(
+    () => validateHistoryRecording(recording([base])),
+    /combined digest or the state and text digests/,
+  );
+  assert.throws(
+    () => validateHistoryRecording(recording([{ ...base, state: "aaaaaaaa" }])),
+    /combined digest or the state and text digests/,
+  );
+  assert.throws(
+    () =>
+      validateHistoryRecording(
+        recording([{ ...base, digest: "c2c5e065", state: "aaaaaaaa", text: "bbbbbbbb" }]),
+      ),
+    /combined digest or the state and text digests/,
+  );
+});
+
+test("the sync mark records the state and text digests separately", () => {
+  const source = (text: string) => ({
+    vars: [1, 2, 3],
+    flags: [0, 1],
+    readObjects: () => [{ num: 0, x: 10, y: 20 }],
+    textRow: (row: number) => (row === 0 ? text : ""),
+    patchGeneration: 0,
+    modalKind: null,
+  });
+  const a = computeSyncMark(source("hello"), 0, 0, 0);
+  const b = computeSyncMark(source("world"), 0, 0, 0);
+  assert.equal(a.state, b.state, "a text-only change leaves the state digest");
+  assert.notEqual(a.text, b.text, "a text change moves the text digest");
+  assert.equal(a.digest, undefined, "current recordings carry no combined digest");
 });

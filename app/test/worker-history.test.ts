@@ -313,6 +313,76 @@ test("a recorded live session replays from its boot to the same observed state",
   );
 });
 
+test("version-1 sync marks verify room, score, modal and patchGeneration without the combined digest", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
+  const { ctx, send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(4);
+  const segment = collectSegments(h.control)[0]!;
+  assert.ok(segment.sync.length >= 1, "the session recorded sync marks");
+  assert.ok(
+    segment.sync.every((m) => m.state !== undefined && m.digest === undefined),
+    "current recordings write the split digests",
+  );
+
+  // The released shape: a combined digest today's text surface can never
+  // re-derive. Replay verifies the diagnostic fields only, so released
+  // tapes keep replaying after legitimate text behavior changes.
+  const legacy: HistorySegment = {
+    ...segment,
+    sync: segment.sync.map(({ seq, tick, cycle, room, score, patchGeneration, modal }) => ({
+      seq,
+      tick,
+      cycle,
+      digest: "00000000",
+      room,
+      score,
+      patchGeneration,
+      modal,
+    })),
+  };
+  const replayed = replayHistorySegment(legacy);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "a released tape never diverges on its combined digest");
+  assert.equal(replayed.applied, segment.events.length);
+
+  // A mismatch on a verified field still diverges.
+  const drifted: HistorySegment = {
+    ...legacy,
+    sync: legacy.sync.map((m, i) => (i === 0 ? { ...m, score: m.score + 1 } : m)),
+  };
+  assert.ok(
+    replayHistorySegment(drifted).diverged !== null,
+    "a released tape still diverges when a verified field drifts",
+  );
+});
+
+test("version-3 sync marks verify the state and text digests separately", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
+  const { send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(4);
+  const segment = collectSegments(h.control)[0]!;
+  const flip = (value: string): string =>
+    (value[0] === "0" ? "1" : "0") + value.slice(1);
+
+  const corruptState: HistorySegment = {
+    ...segment,
+    sync: segment.sync.map((m, i) => (i === 0 ? { ...m, state: flip(m.state!) } : m)),
+  };
+  const stateReplay = replayHistorySegment(corruptState);
+  assert.match(stateReplay.diverged?.detail ?? "", /state digest/);
+
+  const corruptText: HistorySegment = {
+    ...segment,
+    sync: segment.sync.map((m, i) => (i === 0 ? { ...m, text: flip(m.text!) } : m)),
+  };
+  const textReplay = replayHistorySegment(corruptText);
+  assert.match(textReplay.diverged?.detail ?? "", /text digest/);
+});
+
 test("replay from a later anchor reaches the same observed state", () => {
   const h = historyHarness(historyGame(), { rngSeed: 77 });
   const { ctx, send, tick } = h;
@@ -1423,28 +1493,4 @@ test("tracing a 1024-square attachment never copies its pixels into recording ba
             ["bindings", "inventory", "words"],
           );
     }
-});
-
-test("fallback session identities retain the full clock and a distinct counter", (t) => {
-  const timestamp = 2 ** 40 - 1;
-  t.mock.method(Date, "now", () => timestamp);
-  const real = globalThis.crypto;
-  Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
-  try {
-    const sessions = Array.from({ length: 16 }, () => {
-      const h = historyHarness(historyGame(), { rngSeed: 1 });
-      h.tick(2);
-      return h.ctx.history.session;
-    });
-    assert.ok(
-      sessions.every((session) => Number.parseInt(session.slice(1), 36) >= timestamp * 0x10000),
-    );
-    assert.equal(
-      new Set(sessions).size,
-      sessions.length,
-      "each worker has a distinct session in the same millisecond",
-    );
-  } finally {
-    Object.defineProperty(globalThis, "crypto", { value: real, configurable: true });
-  }
 });

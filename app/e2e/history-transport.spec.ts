@@ -136,8 +136,8 @@ for (const viewport of [
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  const tag = viewport.width === 390 ? " @phone" : " @webkit-desktop";
-  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}${tag}`, async ({
+  const phone = viewport.width === 390 ? " @phone" : " @webkit-desktop";
+  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}${phone}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -170,7 +170,7 @@ for (const viewport of [
     await page.mouse.up();
   });
 
-  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}${tag}`, async ({
+  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}${phone}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -496,7 +496,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
       req.onerror = () => reject(req.error);
     });
     interface StoredBatch {
-      sync: { digest: string }[];
+      sync: { state: string }[];
     }
     const manifest = await new Promise<{ segments: { id: string }[] }>((resolve, reject) => {
       const req = db
@@ -531,7 +531,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
           const batch = req.result as StoredBatch | undefined;
           if (batch === undefined) return;
           for (const mark of batch.sync) {
-            mark.digest = (mark.digest[0] === "0" ? "1" : "0") + mark.digest.slice(1);
+            mark.state = (mark.state[0] === "0" ? "1" : "0") + mark.state.slice(1);
             flipped++;
           }
           store.put(batch);

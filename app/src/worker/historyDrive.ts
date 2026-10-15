@@ -448,19 +448,29 @@ export function openHistoryDrive(
       if (seqNow !== mark.seq || replay!.tick !== mark.tick) break;
       const actual = computeSyncMark(engine!, mark.seq, mark.tick, mark.cycle);
       markIdx++;
+      // Version 1–2 marks carry only the combined digest, which the released
+      // build's text surface can never re-derive under today's text behavior —
+      // released tapes verify room, score, modal and patchGeneration only.
+      // Version 3 marks verify the state and text digests separately.
+      const detail =
+        mark.state !== undefined && actual.state !== mark.state
+          ? "state digest"
+          : mark.state !== undefined && actual.text !== mark.text
+            ? "text digest"
+            : null;
       if (
-        actual.digest !== mark.digest ||
+        detail !== null ||
+        (mark.state !== undefined && ctx.run.cycle.cycleCount !== mark.cycle) ||
         actual.room !== mark.room ||
         actual.score !== mark.score ||
         actual.patchGeneration !== mark.patchGeneration ||
-        actual.modal !== mark.modal ||
-        ctx.run.cycle.cycleCount !== mark.cycle
+        actual.modal !== mark.modal
       ) {
         outcome.diverged = {
           at: { seq: mark.seq, tick: mark.tick, cycle: mark.cycle },
-          detail: `sync mark mismatch at room ${mark.room} cycle ${ctx.run.cycle.cycleCount}/${mark.cycle}`,
-          expected: mark.digest,
-          actual: actual.digest,
+          detail: `sync mark mismatch at room ${mark.room} cycle ${ctx.run.cycle.cycleCount}/${mark.cycle}${detail !== null ? `: ${detail}` : ""}`,
+          expected: detail === "text digest" ? mark.text : mark.state,
+          actual: detail === "text digest" ? actual.text : actual.state,
         };
       }
       if (outcome.diverged !== null) return;
