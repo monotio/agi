@@ -841,26 +841,38 @@ gr1          12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41
 ```
 
 Wave-3 static-disassembly inputs (disassembled, not RNG-executed; shipped
-files hashed in full, decoded images identified by their recorded 16-hex
-prefixes):
+files hashed in full, decoded images identified by their recorded SHA-256
+or 16-hex prefixes; Amiga and IIgs executable hashes are in their own
+sections below):
 
 ```text
+ddp-booter disk1.img         254c1406aeb25868fd5a188a534faa2855f468c5e02e76f4b628df8fbd8560c2
+ddp-booter decoded (2.001)   424da51a6c166039cf4611805a21d083aa3db5e48d291191d9308d47b96b4d2f
 sq1-dos-2.089 AGI shipped    4a1cca1097544dc4da97ba6ecfd2b3dfe935fbcb892e0dd1460e3e572478dc5e
-sq1-dos-2.089 AGI decoded    e31e5e8611c8…
+sq1-dos-2.089 AGI decoded    e31e5e8611c8be640dc123c09d6e4c1b7ca7ae4c6de12606760d817096cf8d6f
 sq1-dos-2.089 AGIDATA.OVL    47b34a71bf394302f2826f5e43788b8b5ac0c3eaa1b853ef6bfb4713d0b48bde
 xmas-dos-2.230 AGI.EXE       875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de1332245df9f60ff4570
 xmas-dos-2.230 AGIDATA.OVL   33a327736deb611df48d0d3232c1958b00af1b1cae5fba45ed3aadf88871af8a
 xmas-dos-2.272 AGI.EXE       a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a
 xmas-dos-2.272 AGIDATA.OVL   2e2a695a4da7d545c52ea0c01556d198b6d0c3f7eba19e6cbc2b65642616ec40
-ddp-booter disk1.img         254c1406aeb25868fd5a188a534faa2855f468c5e02e76f4b628df8fbd8560c2
-ddp-booter decoded           424da51a6c16…
-pq1 start.exe (MZ, 2.903)    db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7
+kq2-dos-2.411 AGIDATA.OVL    44ff0a357fa1c764e1b187aa3abcc25433b982e12ba8f735bf510fd5bb7991aa
+lsl1-dos-2.440 AGI decoded   c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676
+lsl1-dos-2.440 AGIDATA.OVL   b9999fd6f49e8a7f5cb6fd5f8ca8948853cd2565134e699b6a839524c64fb093
+pq1 AGI (MZ, 2.903, 37664B)  db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7
+pq1 START.EXE (6160B stub)   6105828191e90d111a14a44149a3a8a359ef9eb4a8fdbe11f0fb4446f435d05a
 pq1 AGIDATA.OVL              df46a3f13c360045b2d355e97bfad6cb6e1df77ee614fed7b4b1f89778425db3
+kq1-dos-2.917 AGIDATA.OVL    f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383
+kq3-dos-2.936 AGIDATA.OVL    b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9
+kq4-dos-3.002.086 AGIDATA    0bc3db5c56c8e0f18757007ce7b703d3ef97b4bc2f5fa82a5967f17226d615c0
+demopac4-3.002.102 AGIDATA   f05c83c5be50793b2ef8c6b21a35c867121e9d0ba566f9cb3601980d012071a8
+mh1-dos-3.002.107 AGIDATA    bb22a87cd215ed52154d49754493e0eb2f6be5688411d8f3b7ac17c417ddae1f
+gr1-dos-3.002.149 AGIDATA    914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804
 ```
 
 With the carry-correct loader decoding, the KQ1, KQ2, KQ3 and BC images all
-execute correctly, including their wander routines. Verification remains
-specific to these builds; it does not establish every interpreter profile.
+execute correctly, including their wander routines. Every Wave-3 behavior
+change below is verified across all twenty shipped interpreter profiles from
+their own binaries.
 
 #### RNG behavior established by executing the original routine
 
@@ -1348,16 +1360,27 @@ offsets) and the KQ4 3.002.086 code body (`f05abff4…`, body offsets); quoted
 data-table bytes come from the hash-pinned overlays. Facts below are read
 directly off the machine code; each entry names the finding it settles.
 
-- **F-motion-02 (fact; engine diverges).** Pre-logic order (2.936, kq3
-  `4b50c681`, main cycle 0x150): the ego↔v6 direction mirror runs before the
-  autonomous-direction/block dispatcher — under program control v6 := ego.dir
-  (0x186-0x189), else ego.dir := v6 (0x18E-0x195) — then dispatcher 0x644
-  runs; a second post-logic ego.dir := v6 store sits at 0x1EA. Verified in
-  2.936 only. The engine's mirror placement now matches on the probed 2.936
-  profile (field `preLogicDirectionMirror`; unprobed builds keep the previous
-  post-dispatcher mirror), but its object motion pass runs post-logic (after
-  the cycle-tail store), so logic there sees the previous cycle's motion
-  results where 2.936 logic sees this cycle's.
+- **F-motion-02 (fact; engine diverges on post-logic motion phase).** Pre-logic
+  order (PC main cycle: 2.001 0x013c..0x0159, 2.089 0x00e6..0x0103, 2.230
+  0x00e6..0x0103, 2.272 0x00e6..0x0103, 2.411/2.440 0x0181..0x019e,
+  2.903/2.917/2.936/3.002.086 0x0150..0x0198, 3.002.102/3.002.107
+  0x0167..0x01af, 3.002.149 0x0160..0x01a8; Amiga main cycle: 2.082
+  h5+0x01f0..0x022e, 2.176/2.202 h6+0x0206..0x024c, 2.310/2.316/2.333
+  h6+0x0246..0x02a0; IIgs 1.014 main+0x0386..0x03c4): on PC 2.001..2.272 and
+  `amiga-2.082`, the autonomous-direction/block dispatcher (`GetObjDirs`: PC
+  2.001 0x598e, 2.089 0x57ad, 2.230 0x5731, 2.272 0x57cd; Amiga 2.082 h16+0x0)
+  runs BEFORE `PollInput` and the ego↔v6 direction mirror
+  (`preLogicDirectionMirror: false`). From PC 2.411..3.002.149, Amiga
+  2.176..2.333, and IIgs 1.014, the ego↔v6 direction mirror — under program
+  control `v6 := ego.dir` (e.g. kq3 0x186-0x189), else `ego.dir := v6`
+  (0x18E-0x195) — runs BEFORE `GetObjDirs` (`preLogicDirectionMirror: true`,
+  PC 2.411/2.440 0x0611, 2.903..3.002.086 0x0644, 3.002.102/3.002.107 0x065b,
+  3.002.149 0x0654; Amiga 2.176+ h22+0x0; IIgs animateseg+0x0); a second
+  post-logic `ego.dir := v6` store sits after logic 0 (e.g. kq3 0x1EA). The
+  engine's pre-logic vs post-block mirror order matches all twenty profiles
+  (field `preLogicDirectionMirror`), while its object motion pass runs
+  post-logic (after the cycle-tail store), so logic there sees the previous
+  cycle's motion results where the originals' logic sees this cycle's.
 - **F-motion-03 (fact; engine matches).** Zero-step reposition pass (2.936 kq3
   0x150A / 3.002.086 kq4 body 0x1751): the REPOS test (0x0400) skips only the
   direction-delta computation; border clamps+reporting, Collide, CanBHere and
@@ -1389,7 +1412,7 @@ directly off the machine code; each entry names the finding it settles.
   and GoodPos.
 - **F-motion-10 (fact; engine diverges).** new.room object loop (2.936 kq3
   core 0x1792, loop body 0x17B6, record stride 0x2B): `and word
-  [si+0x25],0xffbe / or word [si+0x25],0x10` — drawn (0x01) and animated
+[si+0x25],0xffbe / or word [si+0x25],0x10` — drawn (0x01) and animated
   membership (0x40) clear, the update-partition bit (0x10) is set on every
   record, and EVERY OTHER control bit survives, including pending-reposition
   (0x0400) and the initial animation delay (0x1000) (contrast unanimate.all
@@ -1736,8 +1759,8 @@ body; the two builds are instruction-identical on these paths.
   and walks up from row y−1 while pri_tbl[row] == pri_tbl[y], stopping at
   row 0 (`or cl,cl; jz` at 0x5808) — the walk, and therefore the box top,
   is bounded by y+1 rows; box height = min(cel ydim, walked rows) (`cmp
-  ah,dh / jna` at 0x582D). Paint per cell: `and es:[di],0x0F / or
-  es:[di],packed&0xF0` — the truncated margin nibble into the shadow byte's
+ah,dh / jna` at 0x582D). Paint per cell: `and es:[di],0x0F / or
+es:[di],packed&0xF0` — the truncated margin nibble into the shadow byte's
   high nibble, low nibble preserved. Geometry: the bottom row paints all
   width cells at (x,y); each of the height−1 rows above paints only the two
   edge columns; the top row then paints its width−2 interior cells; a
@@ -1927,11 +1950,24 @@ engine applies the formatting to every profile by inference.
 
 #### Wave-3 show.obj verdict
 
-- **F-VIEWS-10 (fact; engine diverges).** show.obj geometry (2.936 kq3 0x5F4E,
-  3.002.086 kq4 body 0x6387): left = (159 − width)/2 by signed idiv
-  (truncation toward zero — even-width cels sit one pixel left of a
-  (160 − w)>>1 centering); baseline y = 167; priority 15 fixed; on machine
-  type 2 the x is additionally rounded up to an even column.
+- **F-VIEWS-10 (fact; engine matches).** show.obj geometry and draw order (PC
+  ShowObj core: 2.001 0x542c, 2.089 0x57aa, 2.230 0x56f7, 2.272 0x5793, 2.411
+  0x5cf7, 2.440 0x5df2, 2.903 0x5e13, 2.917 0x5e14, 2.936 0x5edb, 3.002.086
+  0x630d, 3.002.102/3.002.107 0x6323, 3.002.149 0x6127; Amiga: 2.082
+  h103+0x7c, 2.176/2.202/2.310/2.316/2.333 h138+0x7c; IIgs 1.014
+  seg2+0x3e62): every binary sets loop 0 / cel 0 (`SetCel`), computes
+  `left = (159 − width) / 2` by signed integer division toward zero (`idiv` on
+  PC, `divs.w #2` on Amiga, `(159 − width) >> 1` on IIgs — even-width cels sit
+  one pixel left of `(160 − w) >> 1`), sets baseline `y = 167` and fixed
+  priority `15` (on PC `machType == 2` only, `left` is rounded up to an even
+  column), then calls `InsertObj` and `DrawObj` BEFORE `WindowPrint` opens the
+  description window, and calls `EraseObj` after `WindowPrint` closes. Thus an
+  oversized cel and the description window overlap with the window painted on
+  top of the cel, and dismissal restores the window area before `EraseObj`
+  restores the cel background. Engine: `showObject` uses `Math.trunc((159 -
+cel.width) / 2)` at baseline 167 with priority 15 and blits the cel onto the
+  picture surface before opening the modal description window, restoring the
+  saved picture region when the modal is dismissed.
 
 ### Original string slot addressing
 
@@ -2041,37 +2077,47 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
   pointer only — they never move v9. Clean parses leave v9 untouched; the
   input phase zeroes v9/v19 before event polling (gr1 0x38D3), so v9==0 after
   a fully-known line.
-- **F-Parser-04 (fact; engine matches).** Ten-word retention (2.917 kq1 Parse
-  0x18F4 / 3.002.086 kq4 0x1BAD / 3.002.149 gr1 0x1B7C): the word loop tests
+- **F-Parser-04 (fact; engine matches).** Ten-word retention (PC Parse cap check:
+  2.001 0x18e0, 2.089 0x1706, 2.230 0x15d1, 2.272 0x166d, 2.411 0x185c, 2.440
+  0x186b, 2.903 0x18a7, 2.917 0x18ac / 0x18F4, 2.936 0x18a8, 3.002.086 0x1b65 /
+  0x1BAD, 3.002.102/3.002.107 0x1b7b, 3.002.149 0x1b34 / 0x1B7C; Amiga: 2.082
+  h19+0x7c, 2.176/2.202 h25+0x7c, 2.310/2.316 h25+0x7e, 2.333 h25+0x80; IIgs
+  1.014 main+0x1f0a `cmp #$000a`): in every binary, the word loop tests
   `i >= 10` BEFORE each Match call and exits silently — tokens past the tenth
   retained word are never examined, so an unknown word at position 11+ is not
-  reported and no eleventh text is kept. The cap path (kq1 0x1940) stores
-  count := 10, then falls through 0x1948 → 0x194C, which sets f2; Gold
-  Rush's cap path agrees. v9 is written only on the unknown-word path
-  (kq1 0x1901: wordPtr[i] := text pointer, v9 := i+1, count := i+1,
-  SetFlag(2)), so an over-long line of known words leaves v9 clear but still
-  sets f2. WORDS/WORDPTR are 10-slot arrays zeroed at Parse entry
-  (FillMem 0x14 bytes each). Engine: the parser stops at ten retained words
-  the same way and sets f2 whenever the retained count is nonzero, so the
-  capped line sets f2 with v9 clear, matching the original. Gated to the
-  probed kq1 2.917 / kq4 3.002.086 / gr1 3.002.149 profiles (field
-  `parserStopsAtTenthWord`); unprobed builds keep the previous unbounded
-  retention.
-- **F-Parser-05 (fact; engine matches).** Input-line capacity (2.917 kq1
-  editor 0x3652 / 3.002.086 kq4 0x39EF / 3.002.149 gr1 0x3961): a character
-  is accepted only while editLen < min(var[24], 40 − strlen(s0) −
-  (promptByte≠0)) — v24 initialized to 41 (kq1 ResetAll 0x108C); excess keys
-  are silently rejected. A mode flag (kq1 DS:0xD07, actions 163/164; kq4
-  DS:0xD45) substitutes 36 for 40; gr1 3.002.149 lacks that branch. The edit
-  buffer INLINE and the accepted-line buffer PREVLINE are separate 42-byte
-  buffers: Enter copies INLINE→PREVLINE then Parses INLINE; echo.line copies
-  PREVLINE back into INLINE; cancel.line emits physical backspaces until
-  editLen==0. Engine: the editor applies the same min(var[24], base −
-  strlen(s0) − prompt) capacity with the 36-column mode substitution on the
-  profiles that carry the mode flag, silently rejecting excess keys. Gated
-  to the probed kq1 2.917 / kq4 3.002.086 / gr1 3.002.149 profiles (field
-  `originalInputCapacity`); unprobed builds keep the previous capacity
-  formula.
+  reported and no eleventh text is kept. The cap path (e.g. kq1 0x1940) stores
+  count := 10, then falls through to the `count > 0` check (0x194C), which sets
+  f2; v9 is written only on the unknown-word path (kq1 0x1901: wordPtr[i] :=
+  text pointer, v9 := i+1, count := i+1, SetFlag(2)), so an over-long line of
+  known words leaves v9 clear but still sets f2. WORDS/WORDPTR are 10-slot
+  arrays zeroed at Parse entry (FillMem 0x14 bytes each). Engine: the parser
+  stops at ten retained words and sets f2 whenever the retained count is
+  nonzero across all twenty profiles (field `parserStopsAtTenthWord`).
+- **F-Parser-05 (fact; engine matches).** Input-line capacity (PC EditLine:
+  2.001 0x3376, 2.089 0x3340, 2.230 0x329f, 2.272 0x332d, 2.411 0x353b, 2.440
+  0x3549, 2.903 0x364b, 2.917/2.936 0x3652, 3.002.086 0x39ef, 3.002.102/3.002.107
+  0x3a05, 3.002.149 0x3961; Amiga: 2.082 h63+0x136, 2.176..2.333 h85+0x13c; IIgs
+  1.014 seg3+0x0f75 `sec; lda #$0027; sbc`): in every binary, a character is
+  accepted only while `editLen < maxLen`, where `var[24]` is initialized to 41
+  (e.g. kq1 ResetAll 0x108C) and excess keys are silently rejected. Four
+  `inputLineEditCap` formulas exist across the twenty shipped binaries:
+  - `"early-35"` on PC 2.001, 2.089, and 2.230 (`min(var[24], 35)` — fixed
+    literal `0x23`, independent of `strlen(s0)` and the cursor byte).
+  - `"dialogue-36"` on PC 2.411..3.002.107 (`min(var[24], (dialogueOpen ? 36 : 40) − strlen(s0) − (promptByte≠0))`,
+    where actions 163/164 set/clear the dialogue flag at `DS:0x0ce9` in
+    2.411/2.440, `DS:0x0d07` in 2.903..2.936, `DS:0x0d45` in 3.002.086,
+    `DS:0x0d57` in 3.002.102/3.002.107; `inputWidthActions: "effect"`).
+  - `"prompt-40"` on PC 2.272 and 3.002.149 and all six Amiga builds
+    (`min(var[24], 40 − strlen(s0) − (promptByte≠0))`, with actions 163/164
+    either above the dispatch bound or pure no-op stubs).
+  - `"iigs-39"` on IIgs 1.014 (`min(var[24], 39 − strlen(s0))` at
+    `seg3+0x0f75`, without subtracting the cursor byte).
+    The edit buffer INLINE and the accepted-line buffer PREVLINE are separate
+    42-byte buffers: Enter copies INLINE→PREVLINE then Parses INLINE; echo.line
+    copies PREVLINE back into INLINE; cancel.line emits physical backspaces until
+    editLen==0. Engine: the editor applies each profile's exact capacity formula
+    across all twenty profiles (fields `originalInputCapacity`, `inputLineEditCap`,
+    and `inputWidthActions`).
 - **F-Parser-07 (fact; comment-only divergence).** Dictionary lookup (2.917
   kq1 Match 0x1A6B / 3.002.086 kq4 0x1D24 / 3.002.149 gr1 0x1CF3): first char
   (ASCII a-z after ASCII-only tolower, else unknown word) indexes a 26-entry
@@ -2266,15 +2312,17 @@ Static disassembly of KQ2 2.411, LSL1 2.440 and XMAS 2.272 (`a0c26b5d…`).
   the probed early sound families (2.089, 2.230, 2.272, 2.411, 2.440); the
   2.411/2.440 nibble-masked clamp is still an unsigned min, flattening the
   wrapped sums the original's signed `jng` keeps.
-- **F-SOUND-03 (fact; engine matches).** sound() ordering (2.411 kq2 0x4FD5,
-  2.440 lsl1 0x5007, 2.272 xmas 0x4943): StopSnd runs first (sets the OLD
-  done flag, silences the chip), then operands are read, the new done flag is
-  Reset, and FindSnd failure calls Error(9, n) — the previous sound is
-  already stopped when the fault fires. Engine: the sound() handler stops the
+- **F-SOUND-03 (fact; engine matches).** sound() ordering (PC Sound handler:
+  2.001 0x4b42, 2.089 0x48eb, 2.230 0x48a7, 2.272 0x4943, 2.411 0x4FD5, 2.440
+  0x5007, 2.903/2.917 0x510b, 2.936 0x51d3, 3.002.086 0x55d9,
+  3.002.102/3.002.107 0x55ef, 3.002.149 0x5406; Amiga: 2.082 h97+0x3e,
+  2.176..2.333 h135+0x54; IIgs 1.014 seg3+0x1b60): in every shipped binary,
+  StopSnd runs first (sets the OLD done flag, silences the chip), then
+  operands are read, the new done flag is Reset, and FindSnd failure calls
+  Error(9, n) — the previous sound is already stopped and the new done flag is
+  already cleared when the fault fires. Engine: the sound() handler stops the
   interrupted sound and clears the new done flag before the resource lookup
-  can fault, in the original's order. Gated to the probed xmas 2.272 / kq2
-  2.411 / lsl1 2.440 profiles (field `soundStopsBeforeFault`); unprobed
-  builds keep the previous fault-first order.
+  can fault across all twenty profiles (field `soundStopsBeforeFault`).
 - **F-SOUND-05 (fact; engine matches).** PC-speaker path (2.411 kq2
   0x7D19/0x7D59, 2.440 lsl1 0x7E42, 2.272 xmas 0x765D): divisor =
   12×(((b2&0x3F)<<4)+(b1&0xF)) built as ×4+×8; rest is cl==0x9F → port 0x61
@@ -2529,46 +2577,53 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   ClearControl (50B), aniObj zero-fill. The fill starts at DS+0x09 — gameID
   (DS+0x02), keyMap (DS+0x145) and userStr (DS+0x20D) survive restart; only
   the boot-time data image initializes them.
-- **F-persistence-02 (fact; engine matches).** Restart prompt cursor
-  (3.002.107 mh1 0x2741 / 3.002.149 gr1 0x26E0): CursorState saved to a stack
-  local before EraseCur; after the confirmation the accepted path calls
-  WriteCur unconditionally, the canceled path calls it only when the marker
-  was visible on entry. 2.936 (kq3 0x2472) brackets the prompt with
-  unconditional EraseCur/WriteCur — no visibility memory. Engine: the
-  accepted prompt path redraws the marker unconditionally and the prompt
-  cancels the edit line first (gr1 0x26E0 CancelLine … WriteCur), matching
-  the probed builds. Gated to the probed kq3 2.936 / 3.002.102 / gr1
-  3.002.149 profiles (field `originalRestartRestore`); unprobed builds keep
-  the previous cursor handling.
-- **F-persistence-03 (fact; engine matches).** Restore tail (2.936 kq3
-  0x2647 / 3.002.107 mh1 0x2928 / 3.002.149 gr1 0x28C7): after the five block
-  reads the original closes the file, rewrites v20/v26 from the machine
-  probe, sets v22 = 1 (PC) or 3 (else, +f11), runs reconstruction,
-  ClearControl, Set(f12), CloseAllVols, returns 0. f2/f4/v(key) are not
-  touched — f2/f4 are cleared at every main-cycle top (kq3 0x161/0x16B).
-  Engine: the authentic restore tail clears controllers, rewrites the machine
-  vars from the probe and sets f12, leaving f2/f4 to the next cycle top and
-  never writing v19; host-image restores (history, autosave) instead keep the
-  recorded machine vars exactly, since the v22/v26 rewrites are
-  authentic-restore-only. Gated to the probed kq3 2.936 / 3.002.102 / gr1
-  3.002.149 profiles (field `originalRestartRestore`); unprobed builds keep
-  the previous restore tail.
+- **F-persistence-02 (fact; engine matches).** Restart prompt cursor (PC
+  RestartGame: 2.001 0x2358, 2.089 0x22ab, 2.230 0x21ed, 2.272 0x2289, 2.411
+  0x2366, 2.440 0x2374, 2.903 0x246d, 2.917/2.936 0x2472, 3.002.086 0x272b,
+  3.002.102/3.002.107 0x2741, 3.002.149 0x26e0; Amiga: 2.082 h45+0x0,
+  2.176..2.333 h63+0x0; IIgs 1.014 seg2+0x01e8): on PC 3.002.086..3.002.149,
+  CursorState is saved to `[bp-2]` before EraseCur, then after the confirmation
+  the accepted path calls WriteCur unconditionally and the canceled path calls
+  it only when the marker was visible on entry (`restartCursorMemory: true`).
+  PC 2.001..2.936, Amiga 2.082..2.333, and IIgs 1.014 instead bracket the
+  prompt with unconditional EraseCur/WriteCur (`restartCursorMemory: false`).
+  Engine: the prompt cancels the edit line first, redraws the marker
+  unconditionally on accept, and on cancel either restores the saved visibility
+  (`restartCursorMemory: true`) or redraws unconditionally
+  (`restartCursorMemory: false`) per profile (fields `originalRestartRestore`
+  and `restartCursorMemory`).
+- **F-persistence-03 (fact; engine matches).** Restore tail (PC RestoreGame
+  tail: 2.001 0x252d, 2.089 0x2480, 2.230 0x23c6, 2.272 0x2462, 2.411 0x253f,
+  2.440 0x254d, 2.903 0x2642, 2.917/2.936 0x2647, 3.002.086 0x2912,
+  3.002.102/3.002.107 0x2928, 3.002.149 0x28c7; Amiga: 2.082 h47+0x0,
+  2.176..2.333 h65+0x0; IIgs 1.014 savegameseg+0x036e): after reading the save
+  blocks the original closes the file, rewrites v20/v26 from the machine probe,
+  sets v22 = 1 (PC) or 3 (else, +f11), runs reconstruction, ClearControl,
+  Set(f12), CloseAllVols, returns 0. f2/f4/v(key) are not touched — f2/f4 are
+  cleared at every main-cycle top (e.g. kq3 0x161/0x16B). Engine: the authentic
+  restore tail clears controllers, rewrites the machine vars from the probe and
+  sets f12 across all twenty profiles (field `originalRestartRestore`), leaving
+  f2/f4 to the next cycle top and never writing v19; host-image restores
+  (history, autosave) instead keep the recorded machine vars exactly, since the
+  v22/v26 rewrites are authentic-restore-only.
 - **F-persistence-04 (fact; engine matches).** Timer across persistence
   (2.936 kq3): sysTimer is a 32-bit dword at DS+0x129 incremented by
   `add [0x129],1; adc [0x12b],0` in the tick routine (0x7F01); there is no
   sub-tick remainder word. Accepted restart zeroes both words (0x24DB);
   restore reloads the dword wholesale inside block 1 and leaves it untouched.
-- **F-persistence-05 (fact; engine matches).** Restart/quit prompts (2.936
-  kq3, 3.002.107 mh1, 3.002.149 gr1 — identical strings): restart = "Press
-  ENTER to restart / the game. // Press ESC to continue / this game." (kq3
-  DS+0xADB); quit = "Press ENTER to quit. / Press ESC to keep playing." (kq3
-  DS+0x5E3). Both via WindowPrint with height/width 0 (auto-size); WaitAcAb
-  accepts only CR (→1) and ESC (→0); quit.game with logic arg 1 skips the
-  prompt. Engine: the restart and quit prompts use the same strings,
-  auto-sized modal and CR/ESC-only acknowledgement, and quit.game(1) skips
-  the prompt. Gated to the probed kq3 2.936 / 3.002.102 / gr1 3.002.149
-  profiles (field `originalRestartRestore`); unprobed builds keep the
-  previous prompts.
+- **F-persistence-05 (fact; engine matches).** Restart/quit prompts (PC
+  2.001..3.002.149, Amiga 2.082..2.333, IIgs 1.014): restart = `"Press ENTER to
+restart\nthe game.\n\nPress ESC to continue\nthis game."` (e.g. kq3 DS+0xADB),
+  and quit = `"Press ENTER to quit.\nPress ESC to keep playing."` (e.g. kq3
+  DS+0x5E3; Amiga 2.082..2.333 prepend `"Do you want to quit?\n\n"` in the
+  hunk data segment; PC 2.001..2.230 `0x0265` exit immediately with no operand
+  via `exitAlwaysImmediate: true`; IIgs 1.014 `main+0x02d0` → `seg2+0x2239`
+  uses `WindowPrint` and `WaitAcAb` on the same two-option confirmation). Both
+  text prompts use WindowPrint with height/width 0 (auto-size) and WaitAcAb,
+  and `quit(1)` skips the prompt on every build with an operand. Engine: the
+  restart and quit prompts use the auto-sized modal and Enter/Escape
+  acknowledgement keys across all profiles (fields `originalRestartRestore` and
+  `exitAlwaysImmediate`).
 - **F-OPCORE-04-adjacent (fact; engine matches).** ResetAll tail (2.936 kq3
   0x0FA5 / 3.002.107 mh1 0x11FA / 3.002.149 gr1 0x11B3): var[20]:=machType,
   var[26]:=monType, var[24]:=41, Set(f5), userCtrl:=1, picNo:=0, blocking:=0,
@@ -2661,10 +2716,24 @@ differences and otherwise inherits the earliest documented contracts:
 - Evidence-backed: v2-split container with five-byte record headers (every extracted resource
   validated against the records); plain OBJECT storage with a two-byte header (below);
   zero-terminated SN76489 row sounds (below); action 0x8f as `max.drawn.objects` (below);
-  the game's logic bytecode decodes completely within the earliest operand grammar.
-- Inherited unverified: every other profile field takes the earliest documented (2.089-family)
-  value, including exit operand count, string slots, key-map capacity, save block layout and block
-  count. No 2.001 save image has been observed; the save format is unverified.
+  `positionActionOrder: "place-when-drawn"` (`0x511c`); `statusLineFormat: "booter-2.001"`
+  (`0x2e2e`, `DS+0x0aa9`: `"Score:%d  "` at col 1, omitting `of %d`, and `"Sound:%s"` with
+  `"on "` / `"off"` at col 30); `windowFrameGeometry: "pc-2.001"` (`OpenWndw` `0x4de6` and `EGA_GRAF.OVL` `DrawWndw`
+  `0x0107..0x017f`, with `winBot = 19` at `DS+0x0c31` compared against `0x12 = 18` lines at
+  `0x1b87`/`0x1be8`, inclusive fill `x in [8*col - 10, 8*(col + cols) + 9]`,
+  `y in [8*row - 5, 8*(row + rows) + 4]`, and 2×1 red bars inset `(2, 1)` px);
+  `preLogicDirectionMirror: false` (`0x013c..0x0159`); `defaultScriptBufferPairs: 50` and
+  `scriptSizeResetsSequence: true` (`0x685c`); `keyByteStoredBeforeEdit: true` (`0x31f9`);
+  `keypadWordsNormalized: true` (`0x33cc`); `modalDismissalKeys: "enter-escape"` (`0x41ec`);
+  `inventoryListEndsOnAnyEvent: true` (`0x30b4`); `originalTextWindows: true` (`0x1ee9`);
+  `parserStopsAtTenthWord: true` (`0x0767`); `originalInputCapacity: true` and
+  `inputLineEditCap: "early-35"` (`0x3376`, fixed cap `0x23 = 35`);
+  `originalRestartRestore: true` and `restartCursorMemory: false` (`0x2358`, `0x252d`); and
+  `soundStopsBeforeFault: true` (`0x4943`); the game's logic bytecode decodes completely within
+  the earliest operand grammar.
+- Earlier 2.089-family baseline: pre-existing profile fields not re-probed in Wave 3 (exit operand
+  count, string slots, key-map capacity, save block layout and block count) retain the earliest
+  documented (2.089-family) value.
 
 **Evidence:** the authorized booter disk image; all 204 indexed resources extract byte-identically to
 an independent probe of the same image.
@@ -2838,45 +2907,43 @@ hash-pinned data segments.
   userCtrl≠0, ego motion:=0. The compare operand is the record byte (not v6);
   the record is synced from v6 by the post-logic mirror, so repeated
   same-direction events within one input phase do not re-toggle.
-- **F-IN-02 (fact; engine matches).** Input-phase v19 order (2.936 kq3
-  0x35AD / 3.002.102 demopac4 0x3960 / 3.002.149 gr1 0x38FB): the type-1 case
-  stores the event's low byte into v19 unconditionally and FIRST — before the
-  input-acceptance gate and before EditLine consumes
-  Enter/Backspace/printables. Editing keys therefore reach v19. PQ1's own
-  interpreter confirms the order on a third family: PQ1 2.903 start.exe
-  (`db97accc…`, shipped MZ, load-module offsets) input phase 0x35A6-0x35C9 —
-  `8B 44 02 mov ax,[si+2]`; `A2 1C 00 mov [0x1c],al` (v19 := al, 0x35A9);
-  `83 3E D3 05 00 cmp word [0x5d3],0` (inputAccepted gate, 0x35AC);
-  `74 DB jz`; …; `FF 74 02 push word [si+2]`; `E8 85 00 call 0x364b`
-  (EditLine, 0x35C3) — instruction-shape identical to kq3 2.936
-  0x37AD-0x37D0, which stores to the same DS:0x1C v19 byte. Engine: the key
-  byte lands in v19 before the acceptance gate and before the line editor
-  consumes it, so editing keys reach v19 as in the originals. Gated to the
-  probed 2.936 profile (field `keyByteStoredBeforeEdit`; PQ1 2.903 falls
-  back to 2.936); unprobed builds keep the previous consume-first order.
+- **F-IN-02 (fact; engine matches).** Input-phase v19 order (PC input phase:
+  2.001 0x32de, 2.089 0x32a8, 2.230 0x3207, 2.272 0x3295, 2.411 0x34ac, 2.440
+  0x34ba, 2.903 0x35a6, 2.917/2.936 0x35ad, 3.002.086 0x394a,
+  3.002.102/3.002.107 0x3960, 3.002.149 0x38fb; Amiga: 2.082 h63+0x8c,
+  2.176..2.333 h85+0x92; IIgs 1.014 seg3+0x0eb5): in every shipped binary, the
+  type-1 case stores the event's low byte into v19 unconditionally and FIRST —
+  before the input-acceptance gate and before EditLine consumes
+  Enter/Backspace/printables (e.g. PQ1 2.903 `AGI` `db97accc…` — `START.EXE` is
+  the 6,160-byte launcher stub — input phase 0x35A6-0x35C9: `8B 44 02 mov
+ax,[si+2]`; `A2 1C 00 mov [0x1c],al`; `83 3E D3 05 00 cmp word [0x5d3],0`;
+  `74 DB jz`; `FF 74 02 push word [si+2]`; `E8 85 00 call 0x364b`; Amiga:
+  `move.w 2(a0),d0; move.b d0,(v19)` before `tst.l (inputAccepted)`; IIgs:
+  `lda $02,s; sep #$20; sta $0302f1` before `lda $0131; beq`). Editing keys
+  therefore reach v19 on every profile. Engine: the key byte lands in v19
+  before the acceptance gate and before the line editor consumes it across all
+  twenty profiles (field `keyByteStoredBeforeEdit`).
 - **F-IN-03 (fact; engine matches).** have.key (3.002.102 demopac4 0x0C13 /
   3.002.107 mh1 0x0C13 / 2.936 kq3 0x09BE): truth test and v19 store are on
   the LOW byte (`test al,al`). Extended words (F1=0x3B00) have AL=0 → false,
   v19 untouched. No blocking: the drain loop exits on queue-empty or
   GetKey≠−1.
-- **F-IN-04 (fact; engine matches).** Keypad-word normalization (3.002.102
-  demopac4): the event queue stores full 16-bit type+value words (PostEvent
-  0x48DD, 4-byte stride, 20 slots). ButtonToChar 0x4A78 (0x101/0x301→CR,
-  0x201/0x401→ESC, type-1 only) runs inside GetKey — so have.key,
-  get.string/get.num (WaitChar), and all ChkAcAb modals normalize — plus the
-  inventory, menu, and menu-status handlers directly. The input-phase
-  EditLine is the only key consumer that never normalizes. kq3 2.936 carries
-  the same mapping (0x4634: 0x101/0x301→0x0D, 0x201/0x401→0x1B, type-1
-  events only), called inside its key-read helper (0x459E, at 0x45B7) and
-  from the inventory (0x32F4) and menu (0x941D) paths; the full consumer
-  sweep above is verified in 3.002.102 only. PQ1 2.903 carries the same
-  ButtonToChar (0x4633: type-1 only, 0x101/0x301→0x0D, 0x201/0x401→0x1B),
-  called inside its key-read helper 0x459D at 0x45B6. Engine: the event queue
-  keeps the full keypad words and every GetKey-consuming path normalizes
-  0x101/0x201/0x301/0x401 to CR/ESC, while the line editor reads raw keys.
-  Gated to the probed kq3 2.936 / demopac4 3.002.102 / gr1 3.002.149
-  profiles (field `keypadWordsNormalized`); unprobed builds keep the
-  previous truncated queue words.
+- **F-IN-04 (fact; engine matches).** Keypad-word normalization (PC
+  ButtonToChar: 2.001 0x4230, 2.089 0x44fb, 2.230 0x4483, 2.272 0x44ef, 2.411
+  0x450e, 2.440 0x4540, 2.903 0x4633, 2.917/2.936 0x4634, 3.002.086 0x4a62,
+  3.002.102/3.002.107 0x4a78, 3.002.149 0x488f; absent on Amiga 2.082..2.333
+  and IIgs 1.014): on all thirteen PC builds, the event queue stores full
+  16-bit type+value words (e.g. demopac4 PostEvent 0x48DD, 4-byte stride, 20
+  slots). ButtonToChar (0x101/0x301→CR, 0x201/0x401→ESC, type-1 only) runs
+  inside GetKey — so have.key, get.string/get.num (WaitChar), and all ChkAcAb
+  modals normalize — plus the inventory, menu, and menu-status handlers
+  directly; the input-phase EditLine is the only key consumer that never
+  normalizes. Amiga and IIgs receive events from Intuition or the IIgs Event
+  Manager and carry no ButtonToChar helper (`keypadWordsNormalized: false`).
+  Engine: the event queue and history/speedrun replay lanes preserve full
+  16-bit key words, and on all thirteen PC profiles (`keypadWordsNormalized:
+true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
+  CR/ESC while the line editor reads raw keys.
 - **F-IN-05 (fact; engine matches).** Menu-interaction gate (3.002.107 mh1 /
   3.002.149 gr1): allow.menu (0xB1) stores its operand to a dedicated word
   (mh1 DS+0x5E3, gr1 DS+0x403), shipped value 1, never re-initialized.
@@ -2894,35 +2961,35 @@ hash-pinned data segments.
   and, iff the 0xAD/0xB5 gate byte (DS+0x5E5) ≠ 0, enqueue type-2 value 0.
   hold.key sets the gate to 1; release.key clears it. Keypad-5 make (no
   shifts) enqueues type-2 value 0 ungated.
-- **F-IN-08 (fact; engine matches).** Modal acknowledgement keys (3.002.102
-  demopac4 / 2.936 kq3): all print/show.obj/show.pri/save/restore modals
-  funnel to WaitAcAb → ChkAcAb (demopac4 0x4A5C/0x4A34): CR → accept(1), ESC
-  → abort(0), after GetKey's 0x101/0x201/0x301/0x401 normalization; every
-  other key and all non-CHAR events are ignored. Space does NOT dismiss.
-  v21≠0 on the print path swaps the bare wait for a sysTimer deadline loop.
-  PQ1 2.903 (start.exe `db97accc…`) confirms the key set on the 2.9xx family:
-  ChkAcAb 0x45EF — `3D 0D 00 cmp ax,0xd` → return 1 (0x45FD),
-  `83 FE 1B cmp si,0x1b` → return 0 (0x4607), otherwise 0xFFFF (0x4610) —
-  with WaitAcAb 0x4617 looping until the result is not −1, and the
-  sysTimer-deadline wait (0x6062) gating its key loop on the same two
-  compares (`3D 0D 00` at 0x60AC, `3D 1B 00` at 0x60B1, every other value
-  looping). Keypad normalization (ButtonToChar 0x4633) runs inside the
-  key-read helper 0x459D, so keypad Enter/Escape also acknowledge. Space and
-  any other key do NOT dismiss. Engine: print/show.obj/show.pri/save/restore
-  modals dismiss on Enter/Escape only, after the same keypad normalization,
-  with the v21 deadline on the print path. Gated to the probed kq1 2.917 /
-  kq3 2.936 profiles (field `modalDismissalKeys`; PQ1 2.903 evidence falls
-  under the 2.936 fallback); unprobed builds keep the previous Space
-  dismissal.
-- **F-IN-14 (fact; engine matches).** Non-interactive inventory dismiss
-  (3.002.102 demopac4 0x3696 / 2.936 kq3 0x32E9): with f13 clear the list
-  ends with a single bare WaitEvent — any queued event (any key incl.
-  low-byte-0 words, navigation, controllers, joystick) dismisses it. Only the
-  f13-set interactive path normalizes keys and filters CR/ESC/DIR. Engine:
-  the acknowledgement-only list closes on any queued event, while the
-  interactive path keeps the CR/ESC/DIR filter. Gated to the probed kq3
-  2.936 / demopac4 3.002.102 profiles (field `inventoryListEndsOnAnyEvent`);
-  unprobed builds keep the previous dismissal filter.
+- **F-IN-08 (fact; engine matches).** Modal acknowledgement keys (PC ChkAcAb:
+  2.001 0x41ec, 2.089 0x44b7, 2.230 0x443f, 2.272 0x44ab, 2.411 0x44ca, 2.440
+  0x44fc, 2.903 0x45ef, 2.917/2.936 0x45f0, 3.002.086 0x4a1e,
+  3.002.102/3.002.107 0x4a34, 3.002.149 0x484b; Amiga ChkAcAb: 2.082 h77+0x84,
+  2.176..2.333 h105+0x84; IIgs 1.014 seg2+0x0b79..0x0bbf): across all twenty
+  shipped binaries (thirteen PC, six Amiga, and IIgs 1.014), all
+  print/show.obj/show.pri/save/restore modals funnel to WaitAcAb → ChkAcAb: CR
+  (`0x0d`) → accept(1), ESC (`0x1b`) → abort(0) (on PC, after GetKey's
+  0x101/0x201/0x301/0x401 normalization); every other key and all non-CHAR
+  events return `-1` and are ignored — Space does NOT dismiss
+  (`modalDismissalKeys: "enter-escape"`). v21≠0 on the print path swaps the bare
+  wait for a sysTimer deadline loop (e.g. PQ1 2.903 `AGI` `db97accc…` ChkAcAb
+  0x45EF / WaitAcAb 0x4617 / timed wait 0x6062; IIgs 1.014 `seg2+0x2be6` calls
+  `WaitAcAb` at `seg2+0x0bc0`). Engine: modals dismiss on Enter/Escape only
+  across all twenty profiles (`modalDismissalKeys: "enter-escape"`), with the
+  v21 deadline on the print path.
+- **F-IN-14 (fact; engine matches).** Non-interactive inventory dismiss (PC
+  Status: 2.001 0x30b4, 2.089 0x3070, 2.230 0x2fd3, 2.272 0x3061, 2.411 0x3293,
+  2.440 0x32a1, 2.903 0x32e2, 2.917/2.936 0x32e9, 3.002.086 0x3680,
+  3.002.102/3.002.107 0x3696, 3.002.149 0x3635; Amiga: 2.082 h59+0x154,
+  2.176..2.333 h82+0x192; IIgs 1.014 statusseg+0x0206): on every shipped
+  binary, the non-interactive inventory screen (always on 2.001, 2.089 and
+  amiga-2.082 where `inventorySelector` is false, and when f13 is clear on the
+  later builds) ends with a single bare WaitEvent — any queued event (any key
+  incl. low-byte-0 words, navigation, controllers, joystick) dismisses it. Only
+  the f13-set interactive path normalizes keys and filters CR/ESC/DIR. Engine:
+  the acknowledgement-only list closes on any queued event across all twenty
+  profiles (`inventoryListEndsOnAnyEvent: true`), while the interactive path
+  keeps the CR/ESC/DIR filter.
 - **F-IN-15 (fact; engine diverges).** Menu Home/End (2.936 kq3 DoMenu
   0x9517): value 8 loads menuBase (root heading) and value 6 loads
   menuBase->prev (rightmost) UNCONDITIONALLY — disabled edge headings are
@@ -2932,72 +2999,116 @@ hash-pinned data segments.
 
 ### Original window and status-line text
 
-Static disassembly of KQ1 2.917 and the decoded KQ3 2.936 image; format
-strings read byte-exact from the hash-pinned data segments.
+Static disassembly across all twenty shipped interpreter binaries (PC
+2.001..3.002.149, Amiga 2.082..2.333, and Apple IIgs 1.014); format strings
+read byte-exact from the hash-pinned data segments.
 
-- **F-text-01 (fact; engine matches).** Window word wrap (2.917 kq1 / 2.936
-  kq3, _Print 0x1F93): break on space only; when col ≥ width the last space
-  is overwritten with '\n' (space consumed, excluded from maxLength) and all
-  leading spaces of the continuation are stripped; no space on the line →
-  '\n' inserted at the width (hard split). Escape char is a global (DS:0xD0D,
-  default '\\'; show.obj sets '@'). Engine: wrapLines consumes the break
-  space the same way, including runs of spaces straddling a wrap. Gated to
-  the probed kq1 2.917 / kq3 2.936 profiles (field `originalTextWindows`);
-  unprobed builds keep the previous trailing-space wrap.
-- **F-text-02 (fact; engine matches).** Status line (2.917 kq1 0x34BD /
-  2.936 kq3): ClearLine (statusRow, 0xFF); SetTextAtr(0,15); col 1
-  `printf("Score:%d of %d  ", v3, v7)` — no space after the colon, two
-  trailing spaces, v7 is genuinely the max; col 30 `printf("Sound:%s",
-  "on "/"off")` with "on " space-padded. Engine: the status formats match the
-  originals — no space after "Score:", two trailing spaces, padded "on ".
-  Gated to the probed kq1 2.917 / kq3 2.936 profiles (field
-  `originalTextWindows`); unprobed builds keep the previous formats.
-- **F-text-03 (fact; engine matches).** Message window (2.917 kq1 0x1D96 /
-  2.936 kq3): interior SetTextAtr(0,15); OpenWndw(pos, dim, 0x040F) — fill =
-  low nibble 0x0F (white), border = high nibble 0x4 (red), drawn as a full
-  fill plus four solid 1-nibble pixel bars (no corner/edge glyphs exist).
-  The box is (8·rows+10) scanlines by (4·cols+10) nibbles (WindowNoWait
-  0x1E4B: `shl di,1 / shl di,1 / add di,0xa`; executed under Unicorn on the
-  descrambled kq1 `bf53a4f9…`: print("Hi") with winRows=1, winCols=2 yields
-  winDim 0x1212 = 18×18). OpenWndw (0x54C8) paints the fill, then four bars
-  via DrawWndw: the side bars are one nibble wide at x+1 and x+w−2, spanning
-  y−2 .. y−h+3 (h−4 scanlines); the top bar sits at y−h+2; the bottom bar
-  sits at y−1 (`inc ah / dec al` at 0x54EA/0x54EC) — every bar is inset ONE
-  pixel, correcting the earlier reading that put the bottom bar at y−2.
-  Engine: the frame is drawn as the decoded inset 1-pixel bars in the border
-  color over the fill (the character-cell model approximates the
-  18-nibble/scanline geometry; the masks carry the decoded inset structure,
-  pixel-asserted in the composite tests). The behavior is gated to the probed
-  kq1 2.917 / kq3 2.936 profiles (field `originalTextWindows`); unprobed
-  builds keep the previous full-cell frame.
-- **F-text-04 (fact; engine diverges).** Window placement (2.917 kq1 0x1E69 /
-  2.936 kq3): top = picTop + 1 + (19 − numLines)>>1, left = (40 −
-  maxLength)>>1 (shr = floor; slack non-negative via the verbose gate);
-  engine centering matches exactly. print.at row/col overrides are stored
-  VERBATIM (picTop still added to row) with no clamping — off-screen
-  overrides write outside the window bounds (unverified how far the
-  corruption reaches) rather than shifting to fit. Engine: print.at overrides
-  are now stored verbatim with picTop added, matching the original; a fully
-  off-screen override's saved rectangle is canonicalized so checkpoints
-  validate and dismissal restores nothing — the original's out-of-bounds
-  writes themselves are not reproduced. The verbatim storage is gated to the
-  probed kq1 2.917 / kq3 2.936 profiles (field `originalTextWindows`);
-  unprobed builds keep the previous clamping.
+- **F-text-01 (fact; engine matches).** Window word wrap (PC `_Print`: 2.001
+  0x1ee9, 2.089 0x1d4d, 2.230 0x1c65, 2.272 0x1d01, 2.411 0x1ea3, 2.440 0x1eb1,
+  2.903 0x1f8e, 2.917/2.936 0x1f93, 3.002.086 0x224b, 3.002.102/3.002.107
+  0x2260, 3.002.149 0x220c; Amiga: 2.082 h40+0x336, 2.176..2.333 h57+0x466;
+  IIgs 1.014 seg2+0x2467): in every binary, word wrap breaks on space only;
+  when col ≥ width the last space is overwritten with '\n' (space consumed,
+  excluded from maxLength) and all leading spaces of the continuation are
+  stripped; no space on the line → '\n' inserted at the width (hard split).
+  Escape char is a global (e.g. kq3 DS:0xD0D, default '\\'; show.obj sets '@').
+  Engine: wrapLines consumes the break space and strips continuation spaces the
+  same way across all twenty profiles (field `originalTextWindows`).
+- **F-text-02 (fact; engine matches).** Status line (PC WriteStatus: 2.001
+  0x2e2e, 2.089 0x2dee, 2.230 0x3169, 2.272 0x31f7, 2.411 0x33dd, 2.440 0x33eb,
+  2.903 0x34b6, 2.917/2.936 0x34bd, 3.002.086 0x385a, 3.002.102/3.002.107
+  0x3870, 3.002.149 0x380b; Amiga: 2.082 h62+0x36, 2.176..2.333 h84+0x36; IIgs
+  1.014 statusseg+0x0000): `ClearLine(statusRow, 0xFF)` and `SetTextAtr(0, 15)`,
+  followed by one of three profile-selected string layouts (`statusLineFormat`):
+  - `"booter-2.001"` on PC 2.001 (`0x2e2e`, `DS+0x0aa9`): col 1
+    `printf("Score:%d  ", v3)` (two trailing spaces, omitting `of %d`) and col 30
+    `printf("Sound:%s", "on "/"off")`.
+  - `"early-2.089"` on PC 2.089 (`0x2dee`, `DS+0x0b59`): col 1
+    `printf("Score:%d of %d", v3, v7)` (no trailing spaces) and col 30
+    `printf("Sound:%s", "on"/"off")` (unpadded `"on"`).
+  - `"common"` on PC 2.230..3.002.149, Amiga 2.082..2.333, and IIgs 1.014:
+    col 1 `printf("Score:%d of %d  ", v3, v7)` (no space after the colon, two
+    trailing spaces) and col 30 `printf("Sound:%s", "on "/"off")` with `"on "`
+    space-padded.
+    Engine: the text-surface status line renders each profile's exact format
+    (fields `originalTextWindows` and `statusLineFormat`).
+- **F-text-03 (fact; engine matches).** Message window (`WindowNoWait` and
+  `OpenWndw` across all twenty binaries): interior `SetTextAtr(0, 15)`; the box
+  spans `H = 8·rows+10` scanlines (`200`-space) by `W = 4·cols+10` logical X
+  units (`160`-space, `2·W = 8·cols+20` pixels at `320×200`), with
+  `pos_x = 4·leftCol − 5` (`8·leftCol − 10` screen px) and `bottom_y_rel =
+(topRow − picTop + rows)·8 + 4` on PC and Amiga (`+ 5` on IIgs 1.014 at
+  `seg2+0x2be2`) (e.g. kq1 2.917 / kq3 2.936 WindowNoWait 0x1E4B: `shl di,1 /
+shl di,1 / add di,0xa`; executed under Unicorn on descrambled kq1 `bf53a4f9…`:
+  `print("Hi")` with `winRows=1, winCols=2` yields `winDim 0x1212` = 18×18;
+  action `0xa9` `close.window` calls `CloseWndw` directly, while `WindowNoWait`'s
+  modal path runs `WaitAcAb(); CloseWndw();`). No character-cell border glyphs
+  exist in any binary; `OpenWndw` draws a white (`15`) fill plus four solid red
+  (`4`) sub-cell bars in one of four profile families (`windowFrameGeometry`):
+  - **PC `2.001`** (`OpenWndw` 0x4de6, `EGA_GRAF.OVL` `DrawWndw` 0x0107..0x017f,
+    `"pc-2.001"`): `winBot = 19` (`DS+0x0c31` compared against `0x12 = 18` lines
+    at 0x1b87/0x1be8); inclusive fill `x in [8·leftCol − 10, 8·(leftCol+cols) + 9]`
+    (`w = 8·cols + 20`), `y in [8·topRow − 5, 8·(topRow+rows) + 4]`
+    (`h = 8·rows + 10`); 1-scanline top/bottom bars inset 1 scanline (`y0 + 1`
+    and `y1 − 1`) and 1-nibble (`2`-px at `320×200`) side bars inset 1 nibble
+    (`x0 + 2..x0 + 3` and `x1 − 3..x1 − 2`), spanning `y0 + 1 .. y1 − 1`.
+  - **PC `2.089..3.002.149`** (`OpenWndw` at 2.089 0x50eb, 2.230 0x506f, 2.272
+    0x510b, 2.411 0x53a7, 2.440 0x53d1, 2.903/2.917 0x5400, 2.936 0x54c8,
+    3.002.086 0x58e2, 3.002.102/3.002.107 0x58f1, 3.002.149 0x56f4, `"pc"`):
+    `winBot = 20` (19 max lines); identical inclusive fill and 2×1 red bars
+    inset `(2, 1)` px (`inc ah / dec al` at kq3 0x54EA/0x54EC).
+  - **Amiga `2.082..2.333`** (`OpenWndw` at 2.082 h71+0x0000, 2.176..2.333
+    h97+0x0000, `"amiga"`): `winBot = 20`; `graphics.library/RectFill(rp, x0, y0, x1, y1)`
+    is inclusive on both endpoints (confirmed by `CloseWndw` at h71+0x0222..0x022c
+    passing `width = x1 − x0 + 1 = 8·cols + 21` and `height = y1 − y0 + 1 = 8·rows + 11`),
+    yielding inclusive fill `x in [8·leftCol − 10, 8·(leftCol+cols) + 10]` and
+    `y in [8·topRow − 6, 8·(topRow+rows) + 4]`, plus `Move`/`Draw` 1-px red
+    bars inset `(2, 2)` screen px (`x0 + 2`, `x1 − 2`, `y0 + 2`, `y1 − 2`).
+  - **IIgs `1.014`** (`OpenWndw` seg2+0x4a62..0x4b84, `"iigs"`): `winBot = 20`;
+    QuickDraw II `_PaintRect` (`#0x5404`, half-open `[left, right) × [top, bottom)`
+    with `bottom = 8·(topRow+rows) + 5` and `top = bottom − H = 8·topRow − 5`)
+    yields inclusive fill `x in [8·leftCol − 10, 8·(leftCol+cols) + 9]` and
+    `y in [8·topRow − 5, 8·(topRow+rows) + 4]`, and `_FrameRect` (`#0x5304`) with
+    `_SetPenSize(1, 1)` (`#0x2c04`) after insetting the `Rect` by 2 on all four
+    sides (`+0x4b15..+0x4b41`) paints 1-px red bars inset `(2, 2)` screen px
+    (`x0 + 2`, `x1 − 2`, `y0 + 2`, `y1 − 2`).
+    Engine: `TextSurface` records the active `WindowOverlay` with its write-order
+    stamp, and `compositeFrame` renders the exact sub-cell fill and border bars
+    for each profile's `windowFrameGeometry` (including `show.obj`), with text
+    starting at `(topRow, leftCol)` matching `SetCurPos`.
+- **F-text-04 (fact; engine diverges on out-of-bounds corruption).** Window
+  placement (PC WindowNoWait: 2.001 0x1da2, 2.089 0x1c06, 2.230 0x1b1e, 2.272
+  0x1bba, 2.411 0x1d5c, 2.440 0x1d6a, 2.903 0x1e47, 2.917/2.936 0x1E69,
+  3.002.086 0x2121, 3.002.102/3.002.107 0x2136, 3.002.149 0x20e2; Amiga: 2.082
+  h40+0x204, 2.176..2.333 h57+0x246; IIgs 1.014 seg2+0x2b50): `top = picTop + 1
+  - ((winBot − 1 − numLines) >> 1)` (`winBot = 19`on PC 2.001,`20`on all
+other nineteen builds),`left = (40 − maxLength) >> 1` (`shr`= floor; slack
+non-negative via the verbose gate); engine centering matches.`print.at`
+row/col overrides are stored VERBATIM (`picTop`still added to row) with no
+clamping — off-screen overrides write outside the window bounds rather than
+shifting to fit. Engine:`print.at`overrides are stored verbatim with`picTop`added across all twenty profiles (field`originalTextWindows`); a
+    fully off-screen override's saved rectangle is canonicalized so checkpoints
+    validate and dismissal restores nothing — the original's out-of-bounds memory
+    writes themselves are not reproduced.
 - **F-text-08 (fact; engine matches).** Timed print (2.917 kq1 0x1CE8 / 2.936
   kq3): timeOut = sysTimer + v21*10 (dword, 20 Hz → half-second units);
   busy-wait `while (sysTimer < timeOut && ChkAcAb() == -1)` — tick-quantized
-  >= expiry, key closes early; var[21] = 0 after a timed close. The engine's
-  millisecond countdown/epsilon is a re-modeling valid only under exact 20 Hz
-  clock advancement.
-- **F-text-10 (fact; engine matches).** Overlong messages (2.917 kq1 0x1E0C
-  / 2.936 kq3): if the formatted message exceeds winBot−1 (19) lines,
-  WindowNoWait truncates the source at 20 chars and substitutes the literal
+  > = expiry, key closes early; var[21] = 0 after a timed close. The engine's
+  > millisecond countdown/epsilon is a re-modeling valid only under exact 20 Hz
+  > clock advancement.
+- **F-text-10 (fact; engine matches).** Overlong messages (PC WindowNoWait
+  verbose gate: 2.001 0x1b87/0x1be8, 2.089 0x1ba9, 2.230 0x1ac1, 2.272 0x1b5d,
+  2.411 0x1cff, 2.440 0x1d0d, 2.903 0x1dea, 2.917/2.936 0x1E0C, 3.002.086
+  0x20c4, 3.002.102/3.002.107 0x20d9, 3.002.149 0x2085; Amiga: 2.082 h40+0x114,
+  2.176..2.333 h57+0x150; IIgs 1.014 seg2+0x2af7): if the formatted message
+  exceeds `winBot − 1` lines (`18` lines on PC 2.001 where `winBot = 19` at
+  `DS+0x0c31`; `19` lines on PC 2.089..3.002.149, Amiga 2.082..2.333, and IIgs
+  1.014 where `winBot = 20`, `cmp #$0013` at `seg2+0x2af7`), WindowNoWait
+  truncates the source at 20 chars and substitutes the literal
   `"Message too verbose:\n\n\"%s...\"\n\nPress ESC to continue."`, then
-  re-formats; _Print also aborts expansion past 19 lines. Engine: overflow
-  triggers the same 20-char verbose substitution and reformat instead of
-  silently clipping lines. Gated to the probed kq1 2.917 / kq3 2.936
-  profiles (field `originalTextWindows`); unprobed builds keep the silent
-  clipping.
+  re-formats; `_Print` also aborts expansion past the line cap. Engine:
+  overflow triggers the same 20-char verbose substitution and reformat across
+  all twenty profiles (fields `originalTextWindows` and `windowFrameGeometry`).
 
 ### Original picture drawing and fill
 
@@ -3011,7 +3122,7 @@ body; brush tables read from the hash-pinned overlays.
 - **F-picture-02 (fact; engine matches the modeled fill).** Seed fill (2.936
   kq3 colorFill 0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose
   pending-line stack is the CPU stack, seeded with 4×0xFFFF (`B8 FF FF 50 50
-  50 50` at 0x5377), popped until start-Y == 0xFF; no SP bound — a
+50 50` at 0x5377), popped until start-Y == 0xFF; no SP bound — a
   pathological fill corrupts the stack rather than aborting (the overrun is
   real in the original and deliberately unmodelled in the engine, as with
   F-VIEWS-12). Fill with visual 15 or priority 4 is
@@ -3021,7 +3132,7 @@ body; brush tables read from the hash-pinned overlays.
   the fill is ignored; Y test is an 8-bit `cmp al,0xA7`.
 - **F-picture-04 (fact; engine diverges).** show.pri.screen (2.936 kq3 0x731B
   / 3.002.086 kq4 body 0x775A): `showPri=1; BackToScrn; WaitAcAb; BackToScrn;
-  showPri=0` — no window close. ChkAcAb (kq3 0x45F0) accepts only 0x0D
+showPri=0` — no window close. ChkAcAb (kq3 0x45F0) accepts only 0x0D
   (ENTER) and 0x1B (ESC); SPACE is ignored. The wait is a private blocking
   loop (logic frozen).
 - **F-picture-09 (fact; engine matches).** PC picture core (2.936 kq3 /
@@ -3035,7 +3146,7 @@ body; brush tables read from the hash-pinned overlays.
   origin to 320−2r.
 - **F-picture-10 (fact; engine diverges).** Picture stream termination (2.936
   kq3 DrwPicNC 0x6475): the dispatch loop `lodsb; cmp al,0xFF; jz done; sub
-  al,0xF0; jc top; cmp al,0xA; ja top; call [bx+tbl]` carries no length
+al,0xF0; jc top; cmp al,0xA; ja top; call [bx+tbl]` carries no length
   register — 0xFB..0xFE are skipped, and a stream without 0xFF reads past the
   buffer into adjacent heap until an 0xFF byte. The engine's clean EOF stop
   diverges for truncated resources.
@@ -3071,32 +3182,34 @@ body (instruction-identical on MirrorCell).
 
 ### Original script capacity and version handlers
 
-Static disassembly of the decoded KQ3 2.936 image, KQ1 2.917 and the GR1
-3.002.149 code body; shipped data-image words read from the hash-pinned
-overlays.
+Static disassembly across all twenty shipped interpreter binaries; shipped
+data-image words read from the hash-pinned PC overlays, Amiga state hunks and
+IIgs `~globals`.
 
 - **F-timing-01 / F-OPCORE-15 / F-persistence-07 (fact; engine matches).**
-  PC script default capacity (kq3 2.936 / kq1 2.917 / gr1 3.002.149,
-  AGIDATA.OVL): the interpreter data image ships SCRIPTSIZE = 0x0032 (50
-  pairs) at DS+0x141, between MAXDRAWN 0x000F (DS+0x13F) and SCRIPTENTRIES 0
-  (DS+0x143); the buffer is allocated lazily by InitScript at scriptSize*2
-  bytes. Where the 200-pair configurations observed elsewhere come from is
-  inference: the three shipped images carry 50, and any larger runtime
-  capacity arrives through game-side script.size calls
+  Script default capacity (PC AGIDATA.OVL SCRIPTSIZE = 0x0032: 2.089 DS+0x0143,
+  2.230 DS+0x013f, 2.272..3.002.149 DS+0x0141; Amiga state hunk init = 0x0032:
+  2.082 h146+0x28, 2.176..2.333 h206+0x26; IIgs 1.014 `~globals+$0127` =
+  0x0032; PC 2.001 has no `script.size` action and uses the same 50-pair
+  default): every shipped data image initializes the script buffer capacity to
+  50 pairs (allocated at `scriptSize * 2` bytes by `InitScript`), and any
+  larger runtime capacity arrives through game-side `script.size` calls
   (F-timing-02 / F-OPCORE-03), not the default. Engine: the default script
-  buffer holds the shipped 50 pairs on the probed kq1 2.917 / kq3 2.936 /
-  gr1 3.002.149 profiles (field `defaultScriptBufferPairs`); unprobed builds
-  keep the previous 200-pair default.
-- **F-timing-02 / F-OPCORE-03 (fact; engine matches).** script.size 0x8e
-  (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149 0x74E8):
-  stores the operand into SCRIPTSIZE DS+0x141, then calls RestoreAll,
-  InitScript (reallocates scriptSize×2 if unallocated; scriptTop := script;
-  SCRIPTENTRIES := 0), AllInBack — a recorded-pair reset plus update-list
-  refresh, not a bare capacity store. Engine: script.size stores the
-  capacity, then resets the recorded pair sequence and restores/re-stamps the
-  update lists in the original's order. Gated to the probed kq1 2.917 / kq3
-  2.936 / gr1 3.002.149 profiles (field `scriptSizeResetsSequence`);
-  unprobed builds keep the previous bare capacity store.
+  buffer holds the shipped 50 pairs across all twenty profiles (field
+  `defaultScriptBufferPairs: 50`).
+- **F-timing-02 / F-OPCORE-03 (fact; engine matches).** script.size 0x8e (PC
+  handler: 2.089 0x6b2f, 2.230 0x6adc, 2.272 0x6b78, 2.411 0x6da8, 2.440
+  0x6ea3, 2.903 0x7094, 2.917 0x70A3, 2.936 0x716A, 3.002.086 0x75a9,
+  3.002.102/3.002.107 0x75c1, 3.002.149 0x74E8; Amiga: 2.082 h116+0x0,
+  2.176..2.333 h160+0x0; IIgs 1.014 seg2+0x3c1e; absent on PC 2.001 whose max
+  action is 0x8c): in every binary that implements 0x8e, the handler stores the
+  operand into SCRIPTSIZE, then calls RestoreAll, InitScript (reallocates
+  `scriptSize * 2` if unallocated; `scriptTop := script`; `SCRIPTENTRIES := 0`),
+  AllInBack — a recorded-pair reset plus update-list refresh, not a bare
+  capacity store. Engine: `script.size` stores the capacity, resets the
+  recorded pair sequence and restores/re-stamps the update lists in the
+  original's order across all profiles (field `scriptSizeResetsSequence:
+true`).
 - **F-OPCORE-02 / F-PROFILES-01 (fact; engine matches for games/gr1).** Gold
   Rush room alias (gr1 3.002.149, NewRoom body 0x1A0A): the room operand is
   stored to var[0] unaliased (`mov [0x9],al` at 0x1A93) and passed raw to the
@@ -3120,30 +3233,31 @@ Static disassembly of the decoded SQ1 2.089 image (`e31e5e86…`), XMAS 2.230
 lineage with per-version deltas.
 
 - **F-motion-01 / F-OPCORE-01 (fact; engine matches).** Original position
-  handlers (2.089, sq1 `e31e5e86`; position 0x7141, position.v 0x7199): the
-  operands are stored to x (+0x03) and y (+0x05); then, only when the
-  control word's drawn bit (0x01) is set (`and cx,1 / cmp ax,1` at 0x7172),
-  the placement fixup at 0x515C runs; prevx/prevy (+0x16/+0x18) are
-  snapshotted LAST, from the possibly adjusted coordinates. The fixup is not
-  an erase: it first raises y to horizon+1 when y ≤ the horizon word
-  (DS:0x12F) and the record's ignore-horizon bit (0x08) is clear
-  (0x5167-0x517B), then tests the position with three predicates —
+  handlers (2.001 ddp `424da51a`: position 0x6b92, position.v 0x6bea; 2.089 sq1
+  `e31e5e86`: position 0x7141, position.v 0x7199): on both 2.001 and 2.089, the
+  operands are stored to x (+0x03) and y (+0x05); then, only when the control
+  word's drawn bit (0x01) is set (`and cx,1 / cmp ax,1` at 2.089 0x7172, 2.001
+  0x6bc3), the placement fixup (2.089 0x515C, 2.001 0x4ea3) runs; prevx/prevy
+  (+0x16/+0x18) are snapshotted LAST, from the possibly adjusted coordinates.
+  The fixup is not an erase: it first raises y to horizon+1 when y ≤ the
+  horizon word (DS:0x12F) and the record's ignore-horizon bit (0x08) is clear
+  (2.089 0x5167-0x517B), then tests the position with three predicates —
   bounds+horizon (0x5236), object collision (0x3F8B, skipped under
-  ignore-objects 0x0200) and the control-screen footprint test (0x4E25,
-  which first recomputes the priority band unless fixed-priority 0x04) —
-  and, while any of them fails, spiral-searches a legal placement with legs
-  x−−/y++/x++/y−−, the leg length incremented after the down and up legs
-  (the spiral 2.936's FindPosn keeps, F-motion-12), with no iteration cap.
-  The fixup routine survives in 2.230 (0x515D) with other callers, but the
-  2.230 (0x70FA) and 2.272 (0x7196) position handlers dropped the call:
-  they store x into +0x16/+0x03 and y into +0x18/+0x05 together, with no
-  drawn test and no placement fixup — store-together. Engine: under the 2.089
-  profile, position/position.v on a drawn object run the same horizon raise
-  and spiral placement search, then snapshot prevx/prevy from the adjusted
-  coordinates; the 2.230/2.272 profiles store the coordinates and the
-  snapshot together, matching those builds. The place-when-drawn order is
-  scoped to the 2.089 profile (field `positionActionOrder`); builds without
-  the probe keep the store-together order.
+  ignore-objects 0x0200) and the control-screen footprint test (0x4E25, which
+  first recomputes the priority band unless fixed-priority 0x04) — and, while
+  any of them fails, spiral-searches a legal placement with legs
+  x−−/y++/x++/y−−, the leg length incremented after the down and up legs (the
+  spiral 2.936's FindPosn keeps, F-motion-12), with no iteration cap. The fixup
+  routine survives in 2.230 (0x515D) with other callers, but 2.230 (0x70FA),
+  2.272 (0x7196), every later PC build (`2.411..3.002.149`), all six Amiga
+  builds (`2.082` h125+0x0, `2.176..2.333` h171+0x0) and IIgs `1.014`
+  (`seg2+0x6280`) dropped the call: they store x into prevx/x and y into
+  prevy/y together, with no drawn test and no placement fixup — store-together.
+  Engine: under the 2.001 and 2.089 profiles (`positionActionOrder:
+"place-when-drawn"`), position/position.v on a drawn object run the same
+  horizon raise and spiral placement search, then snapshot prevx/prevy from the
+  adjusted coordinates; the remaining eighteen profiles use `"store-together"`,
+  matching their binaries.
 - **F-motion-15 (fact; engine matches).** Original distance (2.089 sq1
   0x4061, 2.230 0x3FE5, 2.272 0x4043): center-X+baseline-Y Manhattan sum
   computed in 16 bits, then a plain `mov [var],al` byte store — wraps mod
@@ -3172,14 +3286,13 @@ lineage with per-version deltas.
   set the mutable bit 0x80 and 12-15 set both. So a mutable, non-mirrorable
   header 0x82 becomes 0xC2 on the first set.loop(4) — no mirror yet, 0x40
   was clear on entry — and every later set.loop with a loop ≥ 4 mirrors the
-  loop again, the truncated field never matching the full operand. The
-  engine's packed path now models the whole writeback: the skip test compares
-  the stored 2-bit orientation against the full loop operand, and the
-  unmasked `loop<<4` byte store sets the mirrorable bit 0x40 for loops 4-7
-  (and 0x80 for 8-11), so a repeated set.loop(≥4) re-mirrors exactly as the
-  original does. The writeback is scoped to the 2.230 profile (field
-  `packedViewLoopHeader`); unprobed builds keep the previous truncated,
-  non-mutating selection.
+  loop again, the truncated field never matching the full operand. All other
+  nineteen shipped binaries (`2.001`, `2.089`, `2.272..3.002.149`, Amiga
+  `2.082..2.333` and IIgs `1.014`) use unpacked loop headers (`packedViewLoopHeader:
+false`). Engine: on the 2.230 profile (`packedViewLoopHeader: true`), the
+  packed path models the whole writeback — comparing the stored 2-bit
+  orientation against the full loop operand and storing the unmasked `loop<<4`
+  byte — so a repeated set.loop(≥4) re-mirrors exactly as the original does.
 - **F-SOUND-02 (fact; engine matches).** Early sound player (2.089 sq1
   0x7615, 2.230 0x7598, 2.272 0x7634): the PSG path emits both tone bytes,
   then the control byte. On machType==2 (Tandy) the control byte first
@@ -3202,12 +3315,17 @@ lineage with per-version deltas.
   `cmp cl,[numWords]` exact-count equality; 2.230/2.272 have
   `cmp ax,0x270f → shl cx,1; add si,cx; xor cx,cx` succeed-with-
   words-remaining. Terminator introduced between 2.089 and 2.230.
-- **F-PROFILES-03 (fact; engine diverges).** Restart/show.mem in the early
-  family (sq1 2.089 0x22AB, xmas 2.230 0x21ED, xmas 2.272 0x2289): no f16
-  test precedes the confirmation prompt — restart always prompts (the 2.936
-  f16 bypass does not yet exist). show.mem formats only "heapsize/now:…
-  max/max script" (ovl string, e.g. DS+0x70F in sq1); the "rm.0, etc." line
-  is absent through 2.272.
+- **F-PROFILES-03 (fact; engine matches via profile flags).** Restart/show.mem
+  in the early family (2.001 0x2358, sq1 2.089 0x22AB, xmas 2.230 0x21ED, xmas
+  2.272 0x2289, kq2 2.411 0x2366, lsl1 2.440 0x2374): no f16 test precedes the
+  confirmation prompt through 2.411 (or on `amiga-2.082`) — restart always
+  prompts (`restartPromptBypassedByF16: false`); the f16 bypass is introduced
+  in 2.440 (`0x2374`) and present on 2.440..3.002.149, `amiga-2.176..2.333`, and
+  `iigs-1.014` (`restartPromptBypassedByF16: true`). `show.mem` formats only
+  `"heapsize/now:… max/max script"` (ovl string, e.g. DS+0x70F in sq1) through
+  2.440 (`heapDiagnosticExtraLine: false`); the `"rm.0, etc."` line is present
+  on PC 2.903..3.002.149 (`heapDiagnosticExtraLine: true`) and absent on Amiga
+  and IIgs.
 - **F-PROFILES-04 (fact; engine matches).** set.key capacity in the early
   family (sq1 2.089 0x4481, xmas 2.230 0x4409, xmas 2.272 0x4475): free-slot
   scan `cmp di,0x27; jnl discard` — 39 entries, same as 2.411–3.002.102; full
@@ -3501,15 +3619,19 @@ Each remaining profile field was classified against the executables' own
 handlers (static disassembly, the dispatch tables above). Values that change
 behavior were confirmed independently at the addresses given (**fact**):
 
-| Build(s)            | Field                        | Value                        | Evidence                                                                                                       |
-| ------------------- | ---------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 2.082               | `restartPromptBypassedByF16` | false                        | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)             |
-| 2.082, 2.176+       | `timedPrintClearsV21`        | true                         | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)    |
-| all                 | `heapDiagnosticExtraLine`    | false                        | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable      |
-| 2.176               | `targetMotionDeferred`       | false                        | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not       |
-| 2.176               | `inventorySelector`          | true                         | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25 |
-| 2.176               | `pictureMaxCommand`          | 0xfa                         | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8     |
-| 2.176, 2.202, 2.31x | `patternProfile`             | `short-r1`, `center-row-320` | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                            |
+| Build(s)            | Field                        | Value                        | Evidence                                                                                                              |
+| ------------------- | ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 2.082               | `restartPromptBypassedByF16` | false                        | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)                    |
+| 2.082, 2.176+       | `timedPrintClearsV21`        | true                         | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)           |
+| all                 | `heapDiagnosticExtraLine`    | false                        | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable             |
+| 2.176               | `targetMotionDeferred`       | false                        | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not              |
+| 2.176               | `inventorySelector`          | true                         | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25        |
+| 2.176               | `pictureMaxCommand`          | 0xfa                         | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8            |
+| 2.176, 2.202, 2.31x | `patternProfile`             | `short-r1`, `center-row-320` | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                   |
+| all                 | `windowFrameGeometry`        | `amiga`                      | `OpenWndw` (Sierra h71+0x0, 2.176+ h97+0x0) draws inclusive `RectFill` (`8·cols+21` × `8·rows+11`) and 1-px red frame |
+| all                 | `keypadWordsNormalized`      | false                        | Intuition input events have no PC `ButtonToChar` 0x101..0x401 helper                                                  |
+| all                 | `modalDismissalKeys`         | `enter-escape`               | `ChkAcAb` (Sierra h77+0x84, 2.176+ h105+0x84) accepts only `0x0d` and `0x1b`                                          |
+| all                 | `inputLineEditCap`           | `prompt-40`                  | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`              |
 
 Fields whose slot is above a build's dispatch bound (see the table above)
 never run there: `menuInteractionGate`, `releaseGateAction`,
@@ -3517,13 +3639,23 @@ never run there: `menuInteractionGate`, `releaseGateAction`,
 `inputWidthActions` on 2.082. `closeWindowClearsInputWidth` has no input-width
 state to clear on any Amiga build (0xa3/0xa4 are stubs or absent).
 
-The same scan found the other fields matching the contract each profile
-inherits, and these were spot-checked rather than re-derived: `roomAliases`
+The same scan verified all other fields on the six Amiga executables: `roomAliases`
 null (no 0x7e..0x80 compare in `new.room`), `wordSequenceTailTerminator` true
 (`cmpi.w #$270f`, h17+0x55c / h23+0x268), `positionActionOrder`
-store-together, `earlierPartitionOrder` drawing-key, `packedViewLoopHeader`
+store-together (h125+0x0 / h171+0x0), `earlierPartitionOrder` drawing-key, `packedViewLoopHeader`
 false (a u16be loop-offset table), `clampExactZeroLeftBoundary` false (a
-strict negative test, h127+0x168), 2.082's `targetMotionDeferred` true,
+strict negative test, h127+0x168), `preLogicDirectionMirror` false on 2.082
+(h5+0x01f0..0x022e runs `GetObjDirs` before the ego↔`v6` mirror) and true on
+2.176..2.333 (h6+0x0206 / h6+0x0246 runs the mirror before `GetObjDirs`),
+`keyByteStoredBeforeEdit` true (h63+0x8c / h85+0x92),
+`inventoryListEndsOnAnyEvent` true (h59+0x154 / h82+0x192),
+`originalTextWindows` true and `statusLineFormat` `common` (h40 / h57, h62 /
+h84), `defaultScriptBufferPairs` 50 and `scriptSizeResetsSequence` true (h116 /
+h160), `parserStopsAtTenthWord` true (h19+0x7c / h25+0x7c..0x80),
+`originalInputCapacity` true (h63+0x136 / h85+0x13c),
+`soundStopsBeforeFault` true (h97+0x3e / h135+0x54),
+`originalRestartRestore` true and `restartCursorMemory` false (h45/h47 and
+h63/h65), 2.082's `targetMotionDeferred` true,
 `inventorySelector` false, `pictureMaxCommand` 0xf8 and `patternProfile`
 none, and on 2.31x `menuInputAction`, `releaseGateAction`,
 `inputWidthActions` and `priorityBaseAction` as the stub slots and
@@ -4744,6 +4876,9 @@ Values that change behavior, confirmed at the addresses given (**fact**):
 | `objectDistanceCap`       | 255              | `collide+0x313`: `sbc #$00ff` and a signed test store 255 for any sum of 255 or more, the value an undrawn object also reads |
 | `heapDiagnosticExtraLine` | false            | `show.mem` (memmgrseg+0xc1) prints heapsize, now/max, max script and "Sys RAM"; no "rm.0" line                               |
 | `patternProfile`          | `center-row-320` | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                          |
+| `windowFrameGeometry`     | `iigs`           | `OpenWndw` (`seg2+0x4a62..0x4b84`): `_PaintRect` white fill (`8·cols+20` × `8·rows+10`) plus 1-px red `_FrameRect` inset 2   |
+| `inputLineEditCap`        | `iigs-39`        | `EditLine` (`seg3+0x0f75` `sec; lda #$0027; sbc`): `min(var[24], 39 - strlen(s0))` without subtracting the cursor byte       |
+| `keypadWordsNormalized`   | false            | `GetLine` (`seg2+0x1333`): line editor reads character bytes without PC scan-code word substitution                          |
 
 `timedPrintClearsV21` stays true: the timed wait (`seg2+0x22a8`, v21 at
 `$0302f3`) zeroes v21 as it closes (`seg2+0x2340`). `menuInteractionGate`
@@ -4760,8 +4895,18 @@ store-together, `earlierPartitionOrder` drawing-key, `packedViewLoopHeader`
 false, `targetMotionDeferred` false, `inventorySelector` true,
 `showPictureClearsF15` and `printConsumesF15` true (flagseg calls with 15),
 `clampExactZeroLeftBoundary` false, `pictureMaxCommand` 0xfa,
-`restartPromptBypassedByF16` true (flag 16 tested before the prompt) and
-`saveBlock3Xor` false (the save writer never calls `encryptseg`).
+`restartPromptBypassedByF16` true (flag 16 tested before the prompt),
+`saveBlock3Xor` false (the save writer never calls `encryptseg`),
+`preLogicDirectionMirror` true (`main+0x0386..0x03c4`),
+`defaultScriptBufferPairs` 50 and `scriptSizeResetsSequence` true
+(`seg2+0x3d36`), `keyByteStoredBeforeEdit` true (`seg2+0x1113`),
+`modalDismissalKeys` `enter-escape` (`ChkAcAb` `seg2+0x0b79..0x0bbf`),
+`inventoryListEndsOnAnyEvent` true (`statusseg+0x0206`),
+`originalTextWindows` true and `statusLineFormat` `common` (`seg2+0x2af7`),
+`parserStopsAtTenthWord` true (`main+0x1f35`), `originalInputCapacity` true
+(`seg3+0x0f75`), `originalRestartRestore` true and `restartCursorMemory` false
+(`seg2+0x01e8`, `savegameseg+0x036e`), and `soundStopsBeforeFault` true
+(`soundseg+0x004a`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.
 
 ### Tandy PSG clock
