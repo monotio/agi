@@ -45,7 +45,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   the flat picture instead of black.
 - AI settings and Connect AI work while the Agent opens.
 - Notes you type while a catalog game opens are kept.
-- The rename box takes focus, so typed keys rename the room.
+- The rename box takes focus, so typed keys rename the symbol.
 
 ## [1.2.3] - 2026-10-12
 
