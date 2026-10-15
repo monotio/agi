@@ -598,6 +598,31 @@ test("a retain failure before adoption releases the authoring hold", async () =>
   assert.equal(sessionState.hold, null);
 });
 
+// Player rule: Resume from here on a game that has not drawn its first room says it is still
+// starting and to play a moment, rather than blaming a prompt.
+test("a retain refused while the game is starting names that cause and the next action", async () => {
+  await importGameHistory(await bindViewGame(), { recording: RECORDING });
+  const { state, view, takes, waitHeld, release, sessionState } = makeHarness({
+    defer: ["historyRetain"],
+  });
+  await view.openHistory({ segment: 0, tick: 8 });
+  const taking = view.resumeFromHere();
+  await waitHeld("historyRetain");
+  release("historyRetain", {
+    type: "historyRetained",
+    id: 0,
+    boot: null,
+    from: null,
+    reason: "starting",
+  });
+  await taking;
+  const v = state.historyView;
+  assert.equal(v.error, "The game is still starting. Play a moment, then rewind.");
+  assert.deepEqual(takes, [], "no adoption was requested");
+  assert.equal(sessionState.hold, null, "the adoption hold released");
+  assert.equal(v.active, true, "the view stays open");
+});
+
 test("a failed stage write releases the hold and asks the worker nothing", async () => {
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });

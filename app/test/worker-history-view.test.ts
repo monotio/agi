@@ -442,6 +442,38 @@ test("a game paused before its first cycle is kept for Undo rewind", async () =>
   ctx.fns.stopTimers();
 });
 
+// Player rule: a game paused after it started but before it drew its first room cannot be kept
+// yet; the refusal says the game is still starting, and a moment of play makes it keepable.
+test("a game paused before its first room draws is refused as still starting", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        "increment(v41); if (v41 > 3) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+      ],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+  );
+  const { ctx, send, tick } = h;
+  tick(1);
+  send({ type: "pause", paused: true });
+  assert.ok(ctx.run.cycle.initialLogicStarted, "the game has started");
+  assert.equal(ctx.run.engine!.readLeanState().pictureShown, false, "no room is drawn yet");
+  send({ type: "historyRetain", id: 1 });
+  const refused = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(refused?.type === "historyRetained");
+  assert.equal(refused.boot, null);
+  assert.equal(refused.reason, "starting");
+
+  send({ type: "pause", paused: false });
+  tick(6);
+  send({ type: "pause", paused: true });
+  send({ type: "historyRetain", id: 2 });
+  const kept = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(kept?.type === "historyRetained" && kept.boot, "after a moment of play it is kept");
+  assert.equal(kept.reason, undefined);
+  ctx.fns.stopTimers();
+});
+
 /** The terminal report for a request id (progress posts share it). */
 function finalView(control: WorkerControl[], id: number) {
   const reports = control.filter(

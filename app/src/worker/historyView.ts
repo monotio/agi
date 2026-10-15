@@ -337,14 +337,26 @@ export function createHistoryView(
    */
   function onHistoryRetain(msg: Inbound<"historyRetain">): void {
     const h = ctx.history;
+    const boot = ctx.fns.historySnapshot(liveGameUnstarted(ctx));
+    // A started game that has not drawn its first room yet has no moment a
+    // history boot can verify; the refusal says so instead of naming a prompt.
+    let starting = false;
+    if (boot === null && ctx.run.engine && !ctx.fns.debugCaptureBlocked()) {
+      try {
+        starting = ctx.run.engine.recordingImage(true) !== null;
+      } catch {
+        starting = false;
+      }
+    }
     ctx.ports.control({
       type: "historyRetained",
       id: msg.id,
-      boot: ctx.fns.historySnapshot(liveGameUnstarted(ctx)),
+      boot,
       from:
         h.segment === null
           ? null
           : { segment: h.segment, seq: h.seq, tick: ctx.run.cycle.tickCount - h.tickBase },
+      ...(starting ? { reason: "starting" as const } : {}),
     });
   }
 

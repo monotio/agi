@@ -1081,7 +1081,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
       }
       if (departing.boot === null) {
         session?.releaseAdoption();
-        v.error = "The paused session can't be kept while a game prompt is open.";
+        v.error =
+          departing.reason === "starting"
+            ? "The game is still starting. Play a moment, then rewind."
+            : "The paused session can't be kept while a game prompt is open.";
         return false;
       }
       const candidate = {
