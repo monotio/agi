@@ -971,10 +971,25 @@ const selectedRoom = computed(() => {
 });
 const rememberedLaunches = ref<Record<string, string>>({});
 watch(
-  [selectedRoom, engine.roomMap.currentRoom, snapshot, groupMetadata, groups],
+  [
+    selectedRoom,
+    engine.roomMap.currentRoom,
+    snapshot,
+    groupMetadata,
+    groups,
+    rememberedLaunches,
+    deletedParts,
+  ],
   () => {
     const room = selectedRoom.value ?? engine.roomMap.currentRoom.value ?? undefined;
-    editor.actionRoom.value = room;
+    const removed = [room, engine.roomMap.currentRoom.value].some(
+      (target) =>
+        target !== undefined &&
+        target !== null &&
+        (deletedParts.value.includes(`logic:${target}`) ||
+          (snapshot.value?.read(`logic:${target}`) === undefined &&
+            snapshot.value?.lastAdmissibleBuild?.documents()[`logic:${target}`] !== undefined)),
+    );
     let world: {
       rooms?: Record<string, { title?: string }>;
       launches?: Record<string, { selected?: string; entries: Launch[] }>;
@@ -986,14 +1001,6 @@ watch(
     } catch {
       /* Room identities stay available. */
     }
-    editor.actionRoomName.value =
-      room === undefined
-        ? ""
-        : world.rooms?.[room]?.title ||
-          groups.value
-            .flatMap((group) => group.entries)
-            .find((entry) => entry.id === `room:${room}`)?.title ||
-          numberedLabel("room", room);
     const launches = launchRecovery.value.launches;
     const choices = room === undefined ? undefined : launches[room];
     editor.launchChoices.value = choices?.entries ?? [];
@@ -1012,6 +1019,17 @@ watch(
       editor.launchChoices.value.some((entry) => entry.id === selected)
         ? selected
         : "carry";
+    // The display describes a deleted active room's fallback; the worker owns its admission.
+    editor.actionBeginning.value = removed;
+    editor.actionRoom.value = room;
+    editor.actionRoomName.value =
+      room === undefined
+        ? ""
+        : world.rooms?.[room]?.title ||
+          groups.value
+            .flatMap((group) => group.entries)
+            .find((entry) => entry.id === `room:${room}`)?.title ||
+          numberedLabel("room", room);
   },
   { immediate: true },
 );
@@ -1516,6 +1534,9 @@ const writes = {
   dispose: () => {},
 };
 const buildErrorLocation = ref<{ problem: ProjectEditDiagnostic; message: string }>();
+const missingRoomNotice = computed(() =>
+  /needs a LOGIC to (enter|re-enter)/.test(editor.error.value),
+);
 const buildErrorNotice = computed(() => buildErrorLocation.value?.message === editor.error.value);
 function refuseBuild(problem: ProjectEditDiagnostic): void {
   const document = problem.document;
@@ -1528,7 +1549,7 @@ function goToBuildError(): void {
   if (!location) return;
   revealProblem(location.problem);
 }
-async function updateGame(restartRoom = true): Promise<void> {
+async function updateGame(restartRoom = true, launchOverride?: "beginning"): Promise<void> {
   if (!session || actionBusy.value || imageBusy.value || editingPaused.value) return;
   const firstError = diagnostics.value.find(
     (entry) => entry.severity === "error" && (restartRoom || entry.code !== "launch-input"),
@@ -1543,8 +1564,11 @@ async function updateGame(restartRoom = true): Promise<void> {
   const state = editor.launchChoices.value.find(
     (entry) => entry.id === editor.selectedLaunch.value,
   );
-  const beginning = editor.selectedLaunch.value === "beginning";
-  const fromMyGame = editor.selectedLaunch.value === "my-game";
+  const beginning =
+    editor.actionBeginning.value ||
+    launchOverride === "beginning" ||
+    editor.selectedLaunch.value === "beginning";
+  const fromMyGame = !beginning && editor.selectedLaunch.value === "my-game";
   const launch =
     room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning, fromMyGame };
   actionBusy.value = true;
@@ -2575,10 +2599,15 @@ onBeforeUnmount(() => {
       }
     "
   >
-    <p v-if="partRemovalReview?.room !== undefined">Delete room {{ partRemovalReview.room }}.</p>
+    <p v-if="partRemovalReview?.room !== undefined">
+      Delete {{ numberedLabel("room", partRemovalReview.room, { rooms: allRooms }) }}?
+    </p>
     <label v-if="partRemovalReview?.room !== undefined">
       <input v-model="deleteRoomTests" type="checkbox" />
-      Also delete tests that use this room
+      Also delete tests that use this room<span v-if="partRemovalReview.plan.testCount">
+        ({{ partRemovalReview.plan.testCount }}
+        {{ partRemovalReview.plan.testCount === 1 ? "test" : "tests" }})</span
+      >
     </label>
     <p v-if="partRemovalReview?.room !== undefined && !deleteRoomTests">
       Tests that use this room will fail when run.
@@ -2917,6 +2946,9 @@ onBeforeUnmount(() => {
       >
         {{ editor.error.value }}
         <UiButton v-if="buildErrorNotice" @click="goToBuildError">Go to error</UiButton>
+        <UiButton v-else-if="missingRoomNotice" @click="editor.startFromBeginning"
+          >From the beginning</UiButton
+        >
         <UiButton v-else-if="!writeConflict" @click="retrySave">Retry</UiButton>
       </p>
     </Teleport>

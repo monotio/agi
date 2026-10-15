@@ -40,6 +40,18 @@ export function prepareRoomLaunch(
   for (const option of [request.beginning, request.debug])
     if (option !== undefined && typeof option !== "boolean")
       throw new Error("Launch options must be true or false");
+  if (
+    openContainer(prior.containerFiles, { profile: prior.profile }).getResource(
+      "logic",
+      prior.vars[0]!,
+    ) !== null &&
+    openContainer(files, { profile }).getResource("logic", prior.vars[0]!) === null
+  )
+    request = {
+      ...request,
+      room: prior.vars[0]!,
+      beginning: true,
+    };
   if (!request.beginning && profile.id !== prior.profile.id)
     throw new Error("Choose From the beginning to change the interpreter profile");
   if (request.debug && !ctx.run.debugger.epoch)

@@ -1,3 +1,4 @@
+import { ensureDebugController } from "../src/worker/debugLoader.ts";
 import { replayHistorySegment } from "./worker-ctx.ts";
 import type { HistorySegment } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
@@ -89,6 +90,7 @@ async function fixture(name: string, overrides: Record<string, string> = {}, opa
     if (tamper && request.type === "previewUpdate") request.candidate.buildId = "forged";
     onWorkerMessage(ctx, request);
     const reply = messages.findLast((m) => "id" in m && m.id === queryId);
+    assert.ok(reply, JSON.stringify(messages.filter((m) => m.type === "error")));
     if (loseAck && type === "previewUpdate") {
       loseAck = false;
       throw new WorkerQueryTimeoutError(queryId, type);
@@ -783,6 +785,74 @@ test("a stamped VIEW edit after Keep playing dismisses the message and shows the
     assert.equal(engine.modalKind, null);
     f.tick();
     assert.equal(engine.getPresentation().visual[100 * 160 + 40], 5);
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+for (const withLaunch of [false, true, "other"] as const) {
+  test(`deleting the current room restarts from the beginning${withLaunch === "other" ? " when another room is selected" : withLaunch ? " with a room launch" : " on reentry"}`, async () => {
+    const f = await fixture(`deleted-room-${withLaunch}`, {
+      "logic:0": "if (equaln(v0,0)) { new.room(1); } if (equaln(v0,1)) { call(1); } return;",
+      "logic:1": "return;",
+      "logic:2": "return;",
+      "logic:3": "return;",
+    });
+    try {
+      f.ctx.run.engine!.vars[80] = 77;
+      f.ctx.run.engine!.reenterRoom(3);
+      f.tick();
+      assert.equal(f.ctx.run.engine!.vars[0], 3);
+      const result = await f.session.update(
+        [{ key: "logic:3", content: null }],
+        true,
+        withLaunch ? { room: withLaunch === "other" ? 2 : 3 } : undefined,
+      );
+      assert.equal(result.status, "committed");
+      f.ctx.fns.stopTimers();
+      f.tick();
+      f.tick();
+      assert.equal(f.ctx.run.engine!.vars[0], 1);
+      assert.equal(
+        f.ctx.run.engine!.vars[80],
+        0,
+        "the beginning clears the earlier run's game state",
+      );
+      assert.equal(openContainer(f.ctx.run.engine!.containerFiles).getResource("logic", 3), null);
+    } finally {
+      f.session.dispose();
+      f.ctx.fns.stopTimers();
+    }
+  });
+}
+
+test("Debug still stops at the first instruction when the active room is deleted", async () => {
+  const f = await fixture("deleted-room-debug", {
+    "logic:0": "if (equaln(v0,0)) { new.room(1); } return;",
+    "logic:1": "return;",
+    "logic:3": "return;",
+  });
+  try {
+    f.ctx.run.engine!.reenterRoom(3);
+    f.tick();
+    await ensureDebugController(f.ctx);
+    onWorkerMessage(f.ctx, { type: "debugAttach", id: 900 });
+    assert.ok(f.messages.some((m) => m.type === "debugAttached"));
+    const result = await f.session.update([{ key: "logic:3", content: null }], true, {
+      room: 3,
+      debug: true,
+      state: { seed: 1234 },
+      fromMyGame: true,
+    });
+    assert.equal(result.status, "committed");
+    f.ctx.fns.stopTimers();
+    assert.notEqual(
+      f.ctx.run.debugger.stopId,
+      null,
+      "Debug stops the replacement before its first instruction",
+    );
+    assert.equal(f.ctx.run.rng.word, 1234, "the launch keeps its explicit seed");
   } finally {
     f.session.dispose();
     f.ctx.fns.stopTimers();

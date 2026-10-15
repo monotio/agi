@@ -178,10 +178,9 @@ for (const [width, height] of [
       const before = await draftDocument(page, "logic:1");
       await remove(page, "part-room:1", true);
       const dialog = page.getByRole("dialog", { name: "Delete room", exact: true });
-      await expect(dialog).toContainText("Delete room 1.");
+      await expect(dialog).toContainText("Delete Room 1?");
       const cleanup = dialog.getByRole("checkbox", {
-        name: "Also delete tests that use this room",
-        exact: true,
+        name: /Also delete tests that use this room/,
       });
       await expect(cleanup).toBeChecked();
       await cleanup.uncheck();
@@ -300,7 +299,7 @@ for (const [width, height] of [
       expect(await draftDocument(page, "logic:1")).not.toBeNull();
       expect(await draftDocument(page, "tests")).toBe(tests);
       await dialog
-        .getByRole("checkbox", { name: "Also delete tests that use this room", exact: true })
+        .getByRole("checkbox", { name: /Also delete tests that use this room/ })
         .uncheck();
       await dialog.getByRole("button", { name: "Delete", exact: true }).click();
       await expect(dialog).toBeHidden();

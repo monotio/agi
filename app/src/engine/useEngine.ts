@@ -177,7 +177,7 @@ export function useEngine(
     gameEnded: null,
     otherTab: false,
     returnProblem: "",
-    returnNote: "",
+    returnNote: null,
     entryProblem: "",
     conversationTransitioning: false,
     staleTab: false,
@@ -1228,7 +1228,7 @@ export function useEngine(
     const prior = projectMode;
     if (mode === "create") {
       state.entryProblem = "";
-      state.returnNote = "";
+      state.returnNote = null;
     }
     if (mode === "play" && state.phase === "running") {
       const reply = await link.query("projectPlay", restart ? { restart: true } : {});
@@ -1237,10 +1237,7 @@ export function useEngine(
         state.returnProblem = reply.reason ?? "Your game needs a restart.";
         return false;
       }
-      state.returnNote =
-        reply.restartedRoom === undefined
-          ? ""
-          : `Room ${reply.restartedRoom} started fresh with your changes.`;
+      state.returnNote = reply.restartedRoom ?? null;
     }
     if (mode === "play") state.returnProblem = "";
     projectMode = mode;

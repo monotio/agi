@@ -169,3 +169,21 @@ test("word usage links resolve their named LOGIC with the shared row format", ()
     "first_room · LOGIC 1 line",
   );
 });
+
+test("recording leaves clock checks unchecked", () => {
+  const start = { room: 1, vars: Array(256).fill(0), flags: [], inventory: [] };
+  const end = { ...start, vars: [...start.vars] };
+  for (const id of [11, 12, 13, 14, 40]) end.vars[id] = 1;
+  const suggestions = suggestAssertions(start, end, [], { rooms: [{ room: 1, title: "Meadow" }] });
+  for (const id of [11, 12, 13, 14])
+    assert.equal(suggestions.find((s) => s.id === `var-${id}`)?.selected, false);
+  assert.equal(suggestions.find((s) => s.id === "var-40")?.selected, true);
+});
+
+test("recording names an unchanged room without doubled parentheses", () => {
+  const state = { room: 1, vars: [], flags: [], inventory: [] };
+  assert.equal(
+    suggestAssertions(state, state, [], { rooms: [{ room: 1, title: "Meadow" }] })[0]?.label,
+    "Meadow (Room 1) unchanged",
+  );
+});

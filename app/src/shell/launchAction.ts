@@ -6,6 +6,8 @@
 export interface LaunchActionInput {
   /** Changes wait to go into the game. */
   readonly pending: boolean;
+  /** Presentation of the worker fallback when the active room was removed. */
+  readonly beginning?: boolean;
   /** The selected Launch id: "carry", "my-game", "beginning" or the person's own. */
   readonly launch: string;
   readonly launchName: string;
@@ -16,7 +18,8 @@ export interface LaunchActionInput {
 
 export interface LaunchAction {
   readonly icon: "update" | "restart" | "play";
-  readonly room: string;
+  /** The primary visible action text. */
+  readonly text: string;
   /** The Launch name shown after the room; empty for Carry over and From my game. */
   readonly launch: string;
   /** The full action, for the accessible name and the tooltip. */
@@ -24,10 +27,14 @@ export interface LaunchAction {
 }
 
 export function launchAction(input: LaunchActionInput): LaunchAction {
+  if (input.launch === "beginning" || input.beginning) {
+    const label = input.pending ? "Update and restart · From the beginning" : "From the beginning";
+    return { icon: input.pending ? "update" : "restart", text: label, launch: "", label };
+  }
   if (input.launch === "my-game")
     return {
       icon: input.pending ? "update" : "play",
-      room: "My game",
+      text: "My game",
       launch: "",
       label: input.pending ? "Update and return to my game" : "Play from my game",
     };
@@ -36,7 +43,7 @@ export function launchAction(input: LaunchActionInput): LaunchAction {
   const verb = input.pending ? "Update and restart" : restart ? "Restart" : "Play";
   return {
     icon: input.pending ? "update" : restart ? "restart" : "play",
-    room: input.room,
+    text: input.room,
     launch,
     label: `${verb} ${input.room}${launch ? ` with the launch ${launch}` : ""}`,
   };

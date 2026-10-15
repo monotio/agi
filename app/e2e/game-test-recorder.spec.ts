@@ -158,8 +158,7 @@ test("Tests never block edits: record a playthrough, Apply a failing game edit, 
   await page.getByTestId("record-stop").click();
   const dialog = page.getByTestId("record-dialog");
   await expect(dialog).toBeVisible();
-  // Keep every preselected assertion, including logic-0 position mirrors,
-  // cycle counters and the clock: exact replay must reproduce them too.
+  // Keep the suggested game checks; interpreter clocks remain unchecked.
   await expect(page.getByTestId("record-check-flag-30")).toBeChecked();
   await expect(page.getByTestId("record-check-score")).toBeChecked();
   await expect(page.getByTestId("record-check-printed-0")).toBeChecked();
@@ -171,7 +170,7 @@ test("Tests never block edits: record a playthrough, Apply a failing game edit, 
   expect(modules.some((url) => url.includes("/src/agent/authoringStack.ts"))).toBe(false);
   // The seven tutorial tests plus the recording; saving converted the catalog
   // game into its writable remix project, exactly like a remix does.
-  await expect(page.getByTestId("record-result")).toContainText("8 game tests stored");
+  await expect(page.getByTestId("record-result")).toContainText("8 game tests saved");
 
   // Tests never block game edits: Apply the Agent's candidate even though its
   // recorded observation will fail against the changed lesson text.

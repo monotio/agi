@@ -218,7 +218,7 @@ export interface EngineState {
   otherTab: boolean;
   returnProblem: string;
   /** Play's note that its room started fresh to show changes made in Create. */
-  returnNote: string;
+  returnNote: number | null;
   entryProblem: string;
   /** Installed conversation ownership is moving into its editable project. */
   conversationTransitioning: boolean;

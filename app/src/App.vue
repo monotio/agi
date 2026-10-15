@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "./shell/useProjectLabels.ts";
 import { VOCABULARY } from "../../src/vocabulary.ts";
 import GameHeader from "./shell/GameHeader.vue";
 import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
@@ -110,6 +112,7 @@ const engine = useEngine(
   },
 );
 provideEngine(engine);
+const labels = useProjectLabels(engine);
 provideInspector(createInspector(engine, presentation));
 
 // The map's graph code loads only when the player opens it — never on boot.
@@ -800,14 +803,14 @@ watch(
               <UiButton size="sm" @click="engine.takePlayBack()">Take back</UiButton>
             </UiToast>
             <UiToast
-              v-if="state.returnNote && !creating"
+              v-if="state.returnNote !== null && !creating"
               :key="state.returnNote"
               dismissible
               timed
               data-testid="return-note"
-              @dismiss="state.returnNote = ''"
+              @dismiss="state.returnNote = null"
             >
-              {{ state.returnNote }}
+              {{ numberedLabel("room", state.returnNote, labels) }} started fresh with your changes.
             </UiToast>
             <UiToast v-if="state.returnProblem" tone="warn" data-testid="return-notice">
               <span>{{ state.returnProblem }}</span>

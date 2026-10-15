@@ -166,7 +166,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
             throw new Error("The game changed while saving the recording. Try again.");
         },
       });
-      const message = `${edited.tests.length} game test${edited.tests.length === 1 ? "" : "s"} stored in TESTS.JSON.`;
+      const message = `${edited.tests.length} game test${edited.tests.length === 1 ? "" : "s"} saved`;
       logAgent("response", `[Record] ${message}`);
       return { ok: true, message };
     } catch (error) {

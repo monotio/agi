@@ -698,7 +698,7 @@ test("an approved change shows at once in Create and again when Play resumes", a
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   // Play resumes the walked-away moment, then re-enters Room 1 for the change.
   await expect(page.getByTestId("return-note")).toHaveText(
-    "Room 1 started fresh with your changes.",
+    "Meadow started fresh with your changes.",
   );
   // The Agent is still open, so Play waits paused; closing it plays on.
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);

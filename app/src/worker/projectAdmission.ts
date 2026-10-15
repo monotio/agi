@@ -1,3 +1,4 @@
+import { openContainer } from "../../../src/container/container.ts";
 /** Complete project admission with explicit run authority, independent of debugger loading. */
 import { compileWorkingProjectImage } from "../project/projectWorkingImage.ts";
 import {
@@ -685,17 +686,30 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       settleRefused("Update and launch needs room-entry admission.");
       return;
     }
-    if (msg.mode === "restart" || msg.launch) {
+    const removedCurrentRoom =
+      msg.mode === "reenter" &&
+      openContainer(engine.containerFiles, { profile: engine.profile }).getResource(
+        "logic",
+        engine.vars[0]!,
+      ) !== null &&
+      openContainer(candidate.files, { profile }).getResource("logic", engine.vars[0]!) === null;
+    if (msg.mode === "restart" || msg.launch || removedCurrentRoom) {
       let replacement;
       let launch: PreparedRoomLaunch | undefined;
       const facade = detachedHost(ctx);
       try {
-        if (msg.launch) {
-          launch = prepareRoomLaunch(ctx, msg.launch, candidate.files, profile, {
-            sources: candidate.sources,
-            sourceBindings: candidate.sourceBindings,
-            bindings: candidate.bindings,
-          });
+        if (msg.launch || removedCurrentRoom) {
+          launch = prepareRoomLaunch(
+            ctx,
+            msg.launch ?? { room: engine.vars[0]!, beginning: true },
+            candidate.files,
+            profile,
+            {
+              sources: candidate.sources,
+              sourceBindings: candidate.sourceBindings,
+              bindings: candidate.bindings,
+            },
+          );
           replacement = launch.engine;
         } else
           replacement = prepareProjectRestart(
