@@ -2019,6 +2019,9 @@ function becomeWhitey(run: Speedrun): void {
   run.command("bleach hair");
   assert.equal(e.vars[224], 2, "bleach worked in");
   run.command("rinse hair");
+  // The m36 mirror message is a modal window; dismissing it with ENTER is
+  // authentic: 2.903's ChkAcAb accepts CR/ESC only (start.exe 0x45EF), and
+  // ENTER's v19 byte (13) also clears logic 0's input-pending f110.
   run.wait(
     () => e.vars[35] === 8 && e.movementControlEnabled,
     "a blond stranger in the mirror",
