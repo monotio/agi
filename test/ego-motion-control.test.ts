@@ -149,3 +149,27 @@ test("player.control stops object 0's targeted motion and keeps its direction", 
   engine.tick();
   assert.equal(ego.x, x, "no further steps toward the abandoned target");
 });
+
+test("a fresh player direction meets the block check in the same cycle", () => {
+  // Player-visible rule: the ego↔v6 direction mirror runs BEFORE the
+  // autonomous-direction/block pass, so a direction pressed this cycle is
+  // stopped at a block boundary immediately instead of stepping inside.
+  // kq3 2.936 main cycle 0x150: v6 := ego.dir / ego.dir := v6 at 0x17B-0x195
+  // precedes the GetObjDirs dispatcher call at 0x198 (routine 0x644).
+  const { engine, host } = game(`
+    if (!isset(f200)) {
+      set(f200);
+      load.view(1); animate.obj(o0); set.view(o0, 1);
+      position(o0, 94, 60); draw(o0);
+      block(50, 50, 95, 90);
+      assignn(v60, 1); step.size(o0, v60); step.time(o0, v60);
+    }
+    return;
+  `);
+  engine.tick();
+  host.keys.push(AGI_KEY.RIGHT);
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(engine.vars[6], 0, "the blocked direction is cancelled");
+  assert.equal(ego.x, 94, "ego never steps inside the block");
+});
