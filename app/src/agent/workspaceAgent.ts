@@ -1,7 +1,10 @@
 import { gameTestsNeedCreatorReview } from "../../../src/agent/gameTestReview.ts";
+import { sameGameTestDefinition } from "../../../src/agent/gameTestComparison.ts";
 import { finishReport, withFinishReport } from "../../../src/agent/finishReport.ts";
 import {
+  agentTestReview,
   mergeAgentTestChanges,
+  type AgentTestReview,
   sameNonTestDocuments,
 } from "../../../src/authoring/projectTestsMerge.ts";
 import { inspectedResourceKeys, resourceRenderingDependencies } from "./agentResults.ts";
@@ -105,6 +108,12 @@ export interface AgentReview {
   readonly messageId: string;
   changes(): ReturnType<ProjectProposal["changes"]>;
   stale(): boolean;
+  /** The tests comparison Apply commits now. Apply refuses once a touched test differs from the last one shown. */
+  tests(): AgentTestReview | undefined;
+}
+/** A review remembers the touched definitions it last showed, so Apply commits only what the creator saw. */
+interface OwnedReview extends AgentReview {
+  shownTests: AgentTestReview["touched"] | null;
 }
 export type ReplyFormatter = (reply: string) => {
   text: string;
@@ -359,8 +368,34 @@ export function borrowWorkspaceAgent(options: Options) {
 export function createWorkspaceAgent(options: Options) {
   const session = options.session;
   const store = session.chats();
-  let review: AgentReview | null = null;
-  const reviews = new Map<string, AgentReview>();
+  let review: OwnedReview | null = null;
+  const reviews = new Map<string, OwnedReview>();
+  function ownReview(
+    proposal: ProjectProposal,
+    chatId: string,
+    messageId: string,
+    stale: () => boolean,
+  ): OwnedReview {
+    const owned: OwnedReview = {
+      proposal,
+      chatId,
+      messageId,
+      changes: () => proposal.changes(),
+      stale,
+      shownTests: null,
+      tests() {
+        const shown = agentTestReview(
+          proposal.base.documents(),
+          session.model.capture().documents(),
+          proposal.changes(),
+          PROFILES[options.profileId],
+        );
+        owned.shownTests = shown?.touched ?? null;
+        return shown;
+      },
+    };
+    return owned;
+  }
   for (const chat of store.chats) {
     const pending = chat.pendingReview;
     if (!pending) continue;
@@ -393,16 +428,18 @@ export function createWorkspaceAgent(options: Options) {
       pending.label,
       diffProjectDocuments(base.documents(), readProjectWorkspace(pending.candidate)),
     );
-    reviews.set(chat.id, {
-      proposal,
-      chatId: chat.id,
-      messageId: pending.messageId,
-      changes: () => proposal.changes(),
-      stale: () =>
-        invalidBase ||
-        base.documentId !== pending.baseDocumentId ||
-        !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
-    });
+    reviews.set(
+      chat.id,
+      ownReview(
+        proposal,
+        chat.id,
+        pending.messageId,
+        () =>
+          invalidBase ||
+          base.documentId !== pending.baseDocumentId ||
+          !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
+      ),
+    );
   }
   review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
@@ -551,6 +588,23 @@ export function createWorkspaceAgent(options: Options) {
             "Existing test edits need creator review. Review the Tests changes, then choose Apply.",
           );
       };
+      // Apply commits the comparison the creator saw; a touched test that changed since gets shown again.
+      const requireShownTests = () => {
+        const shown = approving.shownTests;
+        if (shown === null || !changes.some((change) => change.key === "tests")) return;
+        const touched =
+          agentTestReview(
+            approving.proposal.base.documents(),
+            session.model.capture().documents(),
+            changes,
+            PROFILES[options.profileId],
+          )?.touched ?? {};
+        if (sameGameTestDefinition(shown, touched)) return;
+        approving.shownTests = null;
+        throw new Error(
+          "A test in this review changed. Check the Tests comparison again, then choose Apply.",
+        );
+      };
       let ownedCommit: string | undefined;
       let ownedParent: string | undefined;
       let result: Awaited<ReturnType<ConversationSession["submit"]>> | undefined;
@@ -561,6 +615,7 @@ export function createWorkspaceAgent(options: Options) {
           );
         try {
           requireAutomaticTestReview();
+          requireShownTests();
         } catch (cause) {
           if (cause instanceof CreatorTestReviewRequired) return;
           throw cause;
@@ -609,6 +664,7 @@ export function createWorkspaceAgent(options: Options) {
             beforeCommit: () => {
               assertLive();
               requireAutomaticTestReview();
+              requireShownTests();
             },
             label: `AI: ${proposal.label}`,
             origin: "agent",
@@ -962,13 +1018,12 @@ export function createWorkspaceAgent(options: Options) {
         baseImage: writeProjectWorkspace(base.lastAdmissibleBuild!.documents()),
         candidate: writeProjectWorkspace(proposal.documents()),
       };
-      review = {
+      review = ownReview(
         proposal,
-        chatId: chat.id,
+        chat.id,
         messageId,
-        changes: () => proposal.changes(),
-        stale: () => !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
-      };
+        () => !sameNonTestDocuments(base.documents(), session.model.capture().documents()),
+      );
       reviews.set(chat.id, review);
       notify();
       assertLive();
@@ -1761,7 +1816,7 @@ export function createWorkspaceAgent(options: Options) {
     },
     newChat,
     chats: () => readAgentChats(store).chats,
-    pending: () => review,
+    pending: (): AgentReview | null => review,
     get autoApprove() {
       return autoApprove;
     },

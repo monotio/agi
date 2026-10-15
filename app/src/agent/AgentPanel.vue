@@ -34,7 +34,7 @@ import { compileProjectDocuments } from "../../../src/authoring/projectDocuments
 import { openContainer } from "../../../src/container/container.ts";
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
-import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
+import { sameProjectContent, type ProjectContent } from "../../../src/authoring/projectContent.ts";
 import { compileCapturedResource, capturedResourceDocuments } from "./agentResultPreview.ts";
 import { resourceRenderingDependencies } from "./agentResults.ts";
 import { formatSpent } from "./reportedSpend.ts";
@@ -170,13 +170,33 @@ function openResult(message: AgentChat["messages"][number], resource?: string): 
   resultMessageId.value = message.id;
   resultResource.value = resource;
 }
+/** A pending review compares the tests as Apply would commit them now, against the creator's current ones. */
+const liveTests = computed(() => {
+  void tick.value;
+  const live = review.value;
+  if (!live || live.messageId !== resultMessageId.value) return undefined;
+  try {
+    return live.tests();
+  } catch {
+    return undefined;
+  }
+});
 const resultDocuments = computed(() => {
   const stored = resultReview.value;
   const inspected = inspection.value;
+  const live = liveTests.value;
+  const withTests = (
+    documents: Readonly<Record<string, ProjectContent>>,
+    tests: ProjectContent | null | undefined,
+  ): Readonly<Record<string, ProjectContent>> => {
+    if (live === undefined) return documents;
+    const { tests: _stored, ...rest } = documents;
+    return tests === null || tests === undefined ? rest : { ...rest, tests };
+  };
   return {
-    before: stored ? readProjectWorkspace(stored.base) : {},
+    before: stored ? withTests(readProjectWorkspace(stored.base), live?.before) : {},
     after: stored
-      ? readProjectWorkspace(stored.candidate)
+      ? withTests(readProjectWorkspace(stored.candidate), live?.after)
       : inspected?.snapshot
         ? readProjectWorkspace(inspected.snapshot)
         : Object.fromEntries(
@@ -253,11 +273,15 @@ const resultImages = computed(() => {
 });
 const resultChanges = computed(() => {
   const stored = resultReview.value;
-  if (stored)
+  if (stored) {
+    const live = liveTests.value;
     return diffProjectDocuments(
       readProjectWorkspace(stored.base),
       readProjectWorkspace(stored.candidate),
+    ).map((change) =>
+      change.key === "tests" && live ? { key: "tests", content: live.after } : change,
     );
+  }
   const inspected = inspection.value;
   if (!inspected) return [];
   return inspected.resources.map((key) => ({

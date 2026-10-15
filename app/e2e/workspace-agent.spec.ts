@@ -63,6 +63,35 @@ async function documents(page: Page) {
   });
 }
 
+/** The creator saves the tests document from the Tests panel's own session path. */
+async function creatorSavesTests(page: Page, tests: readonly unknown[]) {
+  await page.evaluate(async (saved) => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: {
+          getSession(): {
+            model: {
+              capture(): unknown;
+              propose(base: unknown, label: string, changes: unknown[]): unknown;
+            };
+            submit(input: unknown): Promise<unknown>;
+            flush(): Promise<unknown>;
+          };
+        };
+      }
+    ).__AGI_PROJECT__.getSession();
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator tests", [
+        { key: "tests", content: JSON.stringify({ format: "monotio.agi.tests.v2", tests: saved }) },
+      ]),
+      label: "Creator tests",
+      origin: "guided",
+      author: "creator",
+    });
+    await session.flush();
+  }, tests);
+}
+
 test("Agent finish names red tests: Auto-approve commits a failing test and runs the committed document @webkit-desktop", async ({
   page,
 }) => {
@@ -1020,40 +1049,10 @@ for (const size of [
       );
     });
     await start(page, "openai", false);
-    await page.evaluate(async () => {
-      const session = (
-        window as unknown as {
-          __AGI_PROJECT__: {
-            getSession(): {
-              model: {
-                capture(): unknown;
-                propose(base: unknown, label: string, changes: unknown[]): unknown;
-              };
-              submit(input: unknown): Promise<unknown>;
-              flush(): Promise<unknown>;
-            };
-          };
-        }
-      ).__AGI_PROJECT__.getSession();
-      await session.submit({
-        proposal: session.model.propose(session.model.capture(), "Creator tests", [
-          {
-            key: "tests",
-            content: JSON.stringify({
-              format: "monotio.agi.tests.v2",
-              tests: [
-                { name: "Impossible score", room: 1, steps: [], expect: { score: 99 } },
-                { name: "Lake start", room: 9, steps: [] },
-              ],
-            }),
-          },
-        ]),
-        label: "Creator tests",
-        origin: "guided",
-        author: "creator",
-      });
-      await session.flush();
-    });
+    await creatorSavesTests(page, [
+      { name: "Impossible score", room: 1, steps: [], expect: { score: 99 } },
+      { name: "Lake start", room: 9, steps: [] },
+    ]);
     const conversation = page.getByTestId("agent-conversation");
     const review = page.getByTestId("agent-review-tests");
     const openReview = async () => {
@@ -1106,6 +1105,58 @@ for (const size of [
       .poll(async () => JSON.parse((await documents(page))["tests"]!).tests[0].expect.score)
       .toBe(0);
   });
+
+test("Review shows the test Apply replaces: a late same-name creator test is Before, and Apply commits the reviewed After", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    const calls = [
+      {
+        id: "future",
+        name: "write_game_tests",
+        input: { mode: "merge", names: null, tests: [{ name: "Future", room: 5, steps: [] }] },
+      },
+      {
+        id: "finish",
+        name: "finish",
+        input: { testReasons: [{ test: "Future", reason: "its room is not built yet." }] },
+      },
+    ];
+    await route.fulfill(
+      providerReply("openai", {
+        id: "late-collision",
+        status: "completed",
+        output: calls.map((call) => ({
+          type: "function_call",
+          call_id: call.id,
+          id: call.id,
+          name: call.name,
+          arguments: JSON.stringify(call.input),
+        })),
+      }),
+    );
+  });
+  await start(page, "openai", false);
+  await page.getByTestId("agent-message").fill("Write a test for the future room");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-test-change")).toHaveText(['Added test "Future"']);
+  // The creator saves a test with the same name while the review is open.
+  await creatorSavesTests(page, [{ name: "Future", room: 9, steps: [] }]);
+  await expect(page.getByTestId("agent-test-change")).toHaveText(['Changed test "Future"']);
+  await expect(page.getByTestId("agent-test-change-detail").getByRole("row")).toHaveText([
+    /Before\s*After/,
+    /Room\s*9\s*5/,
+    /Steps\s*None\s*None/,
+    /Checks\s*Nothing checked\s*Nothing checked/,
+  ]);
+  await page.screenshot({ path: test.info().outputPath("late-collision-review-1063.png") });
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  const tests = JSON.parse((await documents(page))["tests"]!).tests as { room: number }[];
+  expect(tests.map((entry) => entry.room)).toEqual([5]);
+});
 
 for (const width of [1440, 390])
   test(`Agent finish asks why each creator test it deleted or changed, and review shows the old and new expectation (${width}px)`, async ({
@@ -1170,40 +1221,10 @@ for (const width of [1440, 390])
     });
     await start(page, "openai", false);
     await page.getByRole("radio", { name: "Auto-approve", exact: true }).click();
-    await page.evaluate(async () => {
-      const session = (
-        window as unknown as {
-          __AGI_PROJECT__: {
-            getSession(): {
-              model: {
-                capture(): unknown;
-                propose(base: unknown, label: string, changes: unknown[]): unknown;
-              };
-              submit(input: unknown): Promise<unknown>;
-              flush(): Promise<unknown>;
-            };
-          };
-        }
-      ).__AGI_PROJECT__.getSession();
-      await session.submit({
-        proposal: session.model.propose(session.model.capture(), "Creator tests", [
-          {
-            key: "tests",
-            content: JSON.stringify({
-              format: "monotio.agi.tests.v2",
-              tests: [
-                { name: "Open door", room: 1, steps: [], expect: { score: 99 } },
-                { name: "Treasure", room: 1, steps: [], expect: { score: 99 } },
-              ],
-            }),
-          },
-        ]),
-        label: "Creator tests",
-        origin: "guided",
-        author: "creator",
-      });
-      await session.flush();
-    });
+    await creatorSavesTests(page, [
+      { name: "Open door", room: 1, steps: [], expect: { score: 99 } },
+      { name: "Treasure", room: 1, steps: [], expect: { score: 99 } },
+    ]);
     const before = await documents(page);
     await page.getByTestId("agent-message").fill("Propose the requested test edits for review");
     await page.getByRole("button", { name: "Send", exact: true }).click();
