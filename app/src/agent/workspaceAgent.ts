@@ -595,12 +595,17 @@ export function createWorkspaceAgent(options: Options) {
       const profile = PROFILES[options.profileId];
       const expectedTests =
         approval.shownTests ?? agentTestReview(base, base, changes, profile)?.touched ?? {};
+      // A touched name that already holds what Apply leaves is not overwritten, so it passes unseen.
       const requireShownTests = () => {
         if (automatic || !changes.some((change) => change.key === "tests")) return;
-        const touched =
-          agentTestReview(base, session.model.capture().documents(), changes, profile)?.touched ??
-          {};
-        if (!sameGameTestDefinition(expectedTests, touched)) throw new AgentTestReviewChanged();
+        const now = agentTestReview(base, session.model.capture().documents(), changes, profile);
+        const touched = now?.touched ?? {};
+        for (const name of new Set([...Object.keys(expectedTests), ...Object.keys(touched)]))
+          if (
+            !sameGameTestDefinition(expectedTests[name] ?? null, touched[name] ?? null) &&
+            !sameGameTestDefinition(touched[name] ?? null, now?.committed[name] ?? null)
+          )
+            throw new AgentTestReviewChanged();
       };
       let ownedCommit: string | undefined;
       let ownedParent: string | undefined;

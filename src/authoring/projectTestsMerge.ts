@@ -59,6 +59,8 @@ export function mergeAgentTestChanges(
 export interface AgentTestReview {
   /** The current definition of each name the Agent's offer touches; null once the creator deleted it. */
   readonly touched: Readonly<Record<string, GameTest | null>>;
+  /** The definition Apply leaves for each touched name; null when it deletes or leaves it absent. */
+  readonly committed: Readonly<Record<string, GameTest | null>>;
   /** The creator's current tests. */
   readonly before: ProjectContent | undefined;
   /** The tests Apply commits now; the current tests when nothing is left to change. */
@@ -90,10 +92,14 @@ export function agentTestReview(
   const merged = mergeAgentTestChanges(base, current, [offered], profile).find(
     (change) => change.key === "tests",
   );
+  const left = merged ? parseTests(merged.content, profile) : latest;
+  const byName = (tests: readonly GameTest[]) =>
+    Object.fromEntries(
+      names.map(({ name }) => [name, tests.find((test) => test.name === name) ?? null]),
+    );
   return {
-    touched: Object.fromEntries(
-      names.map(({ name }) => [name, latest.find((test) => test.name === name) ?? null]),
-    ),
+    touched: byName(latest),
+    committed: byName(left),
     before: current["tests"],
     after: merged ? merged.content : (current["tests"] ?? null),
   };

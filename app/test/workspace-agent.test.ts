@@ -3248,7 +3248,7 @@ for (const alreadyEqual of [false, true])
         });
         return result;
       };
-      await agent.approve(undefined, { shownTests: agent.pending()!.tests()!.touched });
+      await agent.approve();
       const message = session
         .chats()
         .chats.flatMap((chat) => chat.messages)
