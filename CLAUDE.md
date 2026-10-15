@@ -34,3 +34,7 @@ to notes about working in Claude Code.
   the first time it appears, and let a subagent read long reports and return a short verdict.
 - Evidence screenshots come from headless Playwright. Use the browser extension for interactive QA
   only, and not while the owner is typing on the same machine: a headed browser takes focus.
+- QA with paid keys runs on a dev server started with `AGI_DEV_KEYS=1` from a login shell
+  (`zsh -ic '... npm run dev'`), so the owner's keys are in its environment. Before handing QA to
+  an agent, confirm AI settings show a key. A QA run that finds no key reports a setup fault to
+  fix, not blocked items.

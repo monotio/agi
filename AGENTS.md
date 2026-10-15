@@ -30,6 +30,7 @@ share one install. `evals/` has its own optional install for live model comparis
 ```bash
 npm ci                                        # install root and app workspace
 npm run dev                                   # dev server on http://localhost:5199
+AGI_DEV_KEYS=1 npm run dev                    # same, AI settings filled from OPENAI_API_KEY / ANTHROPIC_API_KEY (paid QA)
 npm run check                                 # the gate: types, lint, structure, engine + app tests, eval replay
 node --test --experimental-strip-types test/<file>.test.ts   # one engine test file
 npm run test:app                              # app unit tests
