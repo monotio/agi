@@ -13,23 +13,46 @@
  * only in codes. A game's own text bytes are stored as they are, 0x80..0xff
  * included: a translated game prints code-page letters there (0x82 is é on
  * the PC). The box and cursor glyphs this engine's windows use are private
- * control codes 0x01..0x09, which no catalogued message prints
- * (docs/fidelity.md "Text beyond ASCII"); a font must supply them.
+ * control codes which no catalogued message prints (docs/fidelity.md "Text
+ * beyond ASCII"); a font must supply them.
+ *
+ * The code assignments are a persisted contract: host-image checkpoints
+ * (format version 1) store these bytes verbatim and restore them unchanged,
+ * so a code once shipped keeps its meaning forever. 0x01..0x07 are the 1.x
+ * assignments below; 0x08/0x09 were never assigned (a 1.x checkpoint cannot
+ * contain them); the window-frame glyphs added later live at 0x0A upward.
  */
 
 export const TEXT_COLS = 40;
 export const TEXT_ROWS = 25;
 
-/** Box-drawing and cursor glyph codes (engine-private code points). */
-export const GLYPH_TOP = 0x01;
-export const GLYPH_BOTTOM = 0x02;
-export const GLYPH_LEFT = 0x03;
-export const GLYPH_RIGHT = 0x04;
-export const GLYPH_TL = 0x05;
-export const GLYPH_TR = 0x06;
-export const GLYPH_BL = 0x07;
-export const GLYPH_BR = 0x08;
-export const GLYPH_CURSOR = 0x09;
+/**
+ * Box-drawing and cursor glyph codes exactly as 1.x checkpoints store them
+ * (thin single lines through cell row 3 / column 3; the cursor is the
+ * bottom two cell rows solid — see app/src/render/font8x8.ts).
+ */
+export const GLYPH_H = 0x01;
+export const GLYPH_V = 0x02;
+export const GLYPH_TL = 0x03;
+export const GLYPH_TR = 0x04;
+export const GLYPH_BL = 0x05;
+export const GLYPH_BR = 0x06;
+export const GLYPH_CURSOR = 0x07;
+
+/**
+ * Window-frame glyphs written by drawWindow: each edge cell's font mask
+ * carries the original's solid 1-pixel bar INSET one logical pixel from the
+ * fill edge (kq1 2.917 OpenWndw 0x54C8). Fresh IDs, never the 1.x codes:
+ * an old checkpoint holding 0x07 must still render a cursor, not a corner.
+ */
+export const GLYPH_BAR_TOP = 0x0a;
+export const GLYPH_BAR_BOTTOM = 0x0b;
+export const GLYPH_BAR_LEFT = 0x0c;
+export const GLYPH_BAR_RIGHT = 0x0d;
+export const GLYPH_CORNER_TL = 0x0e;
+export const GLYPH_CORNER_TR = 0x0f;
+export const GLYPH_CORNER_BL = 0x10;
+export const GLYPH_CORNER_BR = 0x11;
 
 /**
  * A cell as readable text: a transparent cell is a space, printable ASCII
@@ -298,16 +321,36 @@ export function placeWindow(
 }
 
 /**
- * Draw a window with its text; returns nothing, caller saved the rect. The
- * original's OpenWndw paints a full-rect fill in the low nibble of the
- * colour word, then four SOLID edge bars one nibble (one logical pixel)
- * wide in the high nibble, inset one pixel from the fill's edge; no corner
- * or edge glyphs exist (kq1 2.917 OpenWndw 0x54C8: five DrawWndw calls on
- * the 0x040F colour word — `mov dl,dh` selects red for the four 1-wide
- * edge rects). On the character-cell surface each edge is a glyph cell whose
- * font mask carries the measured 1-pixel bar: the compositor renders the
- * bar in the frame colour over the fill colour, inset one pixel inside the
- * window edge — never a full character-cell band.
+ * Draw a window with its text; returns nothing, caller saved the rect.
+ *
+ * The original's geometry (kq1 2.917 descrambled AGI, SHA-256
+ * bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04):
+ * WindowNoWait 0x1E4B..0x1E66 sets winDim h = 8*rows + 10 scanlines and
+ * w = 4*cols + 10 nibbles with rows/cols the TEXT extents (executing the
+ * original formatter for print("Hi") gives winRows=1, winCols=2 and
+ * winDim 0x1212 — an 18x18 window), and 0x1ECC..0x1EED sets winPos
+ * x = 4*winLeft - 5 nibbles, y = 8*(winBot+1-picTop) + 4 scanlines.
+ * OpenWndw 0x54C8..0x553D then issues five DrawWndw calls on the colour
+ * word 0x040F (captured under Unicorn): the fill (x, y, h, w) in the low
+ * nibble (white), and four 1-wide bars in the high nibble (red, `mov
+ * dl,dh`): top (x+1, y-h+2, w-2, 1), bottom (x+1, y-1, w-2, 1), left
+ * (x+1, y-2, 1, h-4), right (x+w-2, y-2, 1, h-4). DrawWndw anchors at its
+ * bottom line and paints upward (covers y-h+1..y) — the only reading under
+ * which the h-4 verticals (y-h+3..y-2) meet both horizontal bars with no
+ * gap. Net: 5 nibbles/scanlines of fill on every side of the text, and
+ * each bar sits ONE nibble/scanline inside the fill edge (1 of fill
+ * outside it, 3 between it and the text).
+ *
+ * The character-cell model cannot express that fill exactly — 18 nibbles
+ * are 4.5 cells and 18 scanlines are 2.25 cells, and a cell's background
+ * always paints the whole 8x8 — so the box stays text+2 columns by lines+2
+ * rows of whole cells (2 nibbles narrower and 6 scanlines taller than the
+ * original for a one-line message) and the masks carry the decoded inset
+ * structure instead (app/src/render/font8x8.ts): the side bars sit at the
+ * second logical column of each edge cell, the top bar on cell row 1 and
+ * the bottom bar on cell row 6, and the corner cells run the horizontal
+ * bars only as far as the side-bar columns. Bars are the GLYPH_BAR_* /
+ * GLYPH_CORNER_* codes, never the 1.x checkpoint codes 0x01..0x07.
  */
 export function drawWindow(
   surface: TextSurface,
@@ -320,17 +363,17 @@ export function drawWindow(
   const right = box.left + box.cols - 1;
   surface.fill(box.top, box.left, bottom, right, 0x20, textAttr);
   for (let c = box.left + 1; c < right; c++) {
-    surface.put(box.top, c, GLYPH_TOP, borderAttr);
-    surface.put(bottom, c, GLYPH_BOTTOM, borderAttr);
+    surface.put(box.top, c, GLYPH_BAR_TOP, borderAttr);
+    surface.put(bottom, c, GLYPH_BAR_BOTTOM, borderAttr);
   }
   for (let r = box.top + 1; r < bottom; r++) {
-    surface.put(r, box.left, GLYPH_LEFT, borderAttr);
-    surface.put(r, right, GLYPH_RIGHT, borderAttr);
+    surface.put(r, box.left, GLYPH_BAR_LEFT, borderAttr);
+    surface.put(r, right, GLYPH_BAR_RIGHT, borderAttr);
   }
-  surface.put(box.top, box.left, GLYPH_TL, borderAttr);
-  surface.put(box.top, right, GLYPH_TR, borderAttr);
-  surface.put(bottom, box.left, GLYPH_BL, borderAttr);
-  surface.put(bottom, right, GLYPH_BR, borderAttr);
+  surface.put(box.top, box.left, GLYPH_CORNER_TL, borderAttr);
+  surface.put(box.top, right, GLYPH_CORNER_TR, borderAttr);
+  surface.put(bottom, box.left, GLYPH_CORNER_BL, borderAttr);
+  surface.put(bottom, right, GLYPH_CORNER_BR, borderAttr);
   for (let i = 0; i < lines.length && box.top + 1 + i < bottom; i++) {
     surface.write(box.top + 1 + i, box.left + 1, lines[i]!.slice(0, box.cols - 2), textAttr);
   }

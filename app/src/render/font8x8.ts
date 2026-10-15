@@ -4,24 +4,31 @@
  * 0..6 with column 7 as inter-character spacing, caps on rows 0..6, and a
  * one-row descender (row 7) for g j p q y and the comma/semicolon.
  *
- * Covers ASCII 0x20..0x7e, the engine's box-drawing and cursor glyph codes
- * from src/runtime/textSurface.ts, and the code-page characters the
- * catalogued games print. Every other code renders blank, and HAS_GLYPH lets
- * the compositor say so.
+ * Covers ASCII 0x20..0x7e, the engine's box-drawing, cursor and
+ * window-frame glyph codes from src/runtime/textSurface.ts (the 1.x
+ * checkpoint codes 0x01..0x07 plus the frame codes 0x0A..0x11), and the
+ * code-page characters the catalogued games print. Every other code renders
+ * blank, and HAS_GLYPH lets the compositor say so.
  *
  * Each glyph is 8 rows of 8 characters: '#' lit, '.' dark. FONT holds the
  * packed rows (MSB = leftmost pixel), 8 bytes per code.
  */
 import {
+  GLYPH_BAR_BOTTOM,
+  GLYPH_BAR_LEFT,
+  GLYPH_BAR_RIGHT,
+  GLYPH_BAR_TOP,
   GLYPH_BL,
-  GLYPH_BOTTOM,
   GLYPH_BR,
+  GLYPH_CORNER_BL,
+  GLYPH_CORNER_BR,
+  GLYPH_CORNER_TL,
+  GLYPH_CORNER_TR,
   GLYPH_CURSOR,
-  GLYPH_LEFT,
-  GLYPH_RIGHT,
+  GLYPH_H,
   GLYPH_TL,
-  GLYPH_TOP,
   GLYPH_TR,
+  GLYPH_V,
 } from "../../../src/runtime/textSurface.ts";
 
 const GLYPHS: [number | string, string][] = [
@@ -120,23 +127,36 @@ const GLYPHS: [number | string, string][] = [
   ["|", "...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ........"],
   ["}", "..##.... ....#... ....#... .....#.. ....#... ....#... ..##.... ........"],
   ["~", "........ ........ ..#..#.. .#.#.#.. .#..#... ........ ........ ........"],
-  // Engine window-frame and cursor glyphs. The frame masks are the measured
-  // OpenWndw geometry mapped onto the 4x8-pixel cell: the original's frame is
-  // a solid bar one nibble (one logical pixel — two rendered columns) wide,
-  // inset one pixel inside the window's white fill (kq1 2.917 OpenWndw
-  // 0x54C8: fill plus four 1-wide edge rects; src/runtime/textSurface.ts
-  // drawWindow). TOP's bar sits on row 4 (fill top is five rows above the
-  // text, one inset), BOTTOM's on row 3 (fill ends four rows below the text),
-  // LEFT/RIGHT carry it in the outermost logical pixel.
-  [GLYPH_TOP, "........ ........ ........ ........ ######## ........ ........ ........"],
-  [GLYPH_BOTTOM, "........ ........ ........ ######## ........ ........ ........ ........"],
-  [GLYPH_LEFT, "##...... ##...... ##...... ##...... ##...... ##...... ##...... ##......"],
-  [GLYPH_RIGHT, "......## ......## ......## ......## ......## ......## ......## ......##"],
-  [GLYPH_TL, "........ ........ ........ ........ ######## ##...... ##...... ##......"],
-  [GLYPH_TR, "........ ........ ........ ........ ######## ......## ......## ......##"],
-  [GLYPH_BL, "##...... ##...... ##...... ######## ........ ........ ........ ........"],
-  [GLYPH_BR, "......## ......## ......## ######## ........ ........ ........ ........"],
+  // Engine box-drawing and cursor glyphs at the 1.x checkpoint codes
+  // 0x01..0x07: host-image checkpoints (format version 1) store these bytes
+  // verbatim, so the masks stay the pre-9f506052 thin single lines through
+  // cell row 3 / column 3 and the solid two-row cursor forever.
+  [GLYPH_H, "........ ........ ........ ######## ........ ........ ........ ........"],
+  [GLYPH_V, "...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#...."],
+  [GLYPH_TL, "........ ........ ........ ...##### ...#.... ...#.... ...#.... ...#...."],
+  [GLYPH_TR, "........ ........ ........ ####.... ...#.... ...#.... ...#.... ...#...."],
+  [GLYPH_BL, "...#.... ...#.... ...#.... ...##### ........ ........ ........ ........"],
+  [GLYPH_BR, "...#.... ...#.... ...#.... ####.... ........ ........ ........ ........"],
   [GLYPH_CURSOR, "........ ........ ........ ........ ........ ........ ######## ########"],
+  // Engine window-frame glyphs at the post-1.x codes 0x0A..0x11
+  // (src/runtime/textSurface.ts drawWindow). The masks carry the decoded
+  // OpenWndw bar structure on the 4x8-logical-pixel cell (kq1 2.917 OpenWndw
+  // 0x54C8, rects captured under Unicorn from the descrambled AGI, SHA-256
+  // bf53a4f9…5aef04): each bar is one nibble (one logical pixel = two
+  // rendered columns) wide, inset ONE pixel from the fill edge — 1 pixel of
+  // fill outside it, 3 between it and the text — and the horizontal bars
+  // stop at the side-bar columns while the vertical bars run between the
+  // horizontal ones. So: side bars in the edge cell's second (left) / third
+  // (right) logical column, the top bar on cell row 1, the bottom bar on
+  // cell row 6, and the corners joining them.
+  [GLYPH_BAR_TOP, "........ ######## ........ ........ ........ ........ ........ ........"],
+  [GLYPH_BAR_BOTTOM, "........ ........ ........ ........ ........ ........ ######## ........"],
+  [GLYPH_BAR_LEFT, "..##.... ..##.... ..##.... ..##.... ..##.... ..##.... ..##.... ..##...."],
+  [GLYPH_BAR_RIGHT, "....##.. ....##.. ....##.. ....##.. ....##.. ....##.. ....##.. ....##.."],
+  [GLYPH_CORNER_TL, "........ ..###### ..##.... ..##.... ..##.... ..##.... ..##.... ..##...."],
+  [GLYPH_CORNER_TR, "........ ######.. ....##.. ....##.. ....##.. ....##.. ....##.. ....##.."],
+  [GLYPH_CORNER_BL, "..##.... ..##.... ..##.... ..##.... ..##.... ..##.... ..###### ........"],
+  [GLYPH_CORNER_BR, "....##.. ....##.. ....##.. ....##.. ....##.. ....##.. ######.. ........"],
   // The PC code page's box drawing that Gold Rush! prints in its messages
   // (docs/fidelity.md "Text beyond ASCII"), in the same line style: single
   // lines through row 3 / column 3, double verticals in columns 2 and 4.

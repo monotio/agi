@@ -6,15 +6,15 @@ import { MESSAGE_KEY, buildLogicResource } from "../src/logic/resource.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { validateEngineReplayState } from "../src/runtime/replayState.ts";
 import {
-  GLYPH_BL,
-  GLYPH_BOTTOM,
-  GLYPH_BR,
+  GLYPH_BAR_BOTTOM,
+  GLYPH_BAR_LEFT,
+  GLYPH_BAR_RIGHT,
+  GLYPH_BAR_TOP,
+  GLYPH_CORNER_BL,
+  GLYPH_CORNER_BR,
+  GLYPH_CORNER_TL,
+  GLYPH_CORNER_TR,
   GLYPH_CURSOR,
-  GLYPH_LEFT,
-  GLYPH_RIGHT,
-  GLYPH_TL,
-  GLYPH_TOP,
-  GLYPH_TR,
   TEXT_COLS,
   TextSurface,
   attr,
@@ -237,23 +237,32 @@ test("print: solid-framed window centred in the display area, restored on acknow
   assert.deepEqual(host.prints, ["Hi there"]);
   assert.equal(engine.modalKind, "print");
   // 8 chars + frame = 10 cols, 3 rows; top = 1 + (21-3)/2 = 10, left = (40-10)/2 = 15.
-  // The frame is the measured OpenWndw geometry: a white fill plus four
-  // 1-pixel edge bars (kq1 2.917 OpenWndw 0x54C8, colour word 0x040F), drawn
-  // as edge glyph cells whose font masks carry the bar (app/src/render/
-  // font8x8.ts) — never full character-cell bands.
+  // The frame is the decoded OpenWndw geometry: a white fill plus four
+  // 1-pixel bars inset one pixel from the fill edge (kq1 2.917 OpenWndw
+  // 0x54C8, colour word 0x040F), drawn as edge glyph cells whose font masks
+  // carry the inset bar (app/src/render/font8x8.ts) — never full
+  // character-cell bands.
   const FRAME = attr(4, 15);
   const r10 = row(engine, 10);
-  assert.deepEqual(r10.chars.slice(15, 25), [GLYPH_TL, ...Array(8).fill(GLYPH_TOP), GLYPH_TR]);
+  assert.deepEqual(r10.chars.slice(15, 25), [
+    GLYPH_CORNER_TL,
+    ...Array(8).fill(GLYPH_BAR_TOP),
+    GLYPH_CORNER_TR,
+  ]);
   assert.ok(r10.attrs.slice(15, 25).every((a) => a === FRAME));
   const r11 = row(engine, 11);
   assert.equal(engine.textRow(11), "under" + spaces(10) + "#Hi there#" + spaces(15));
-  assert.equal(r11.chars[15], GLYPH_LEFT);
-  assert.equal(r11.chars[24], GLYPH_RIGHT);
+  assert.equal(r11.chars[15], GLYPH_BAR_LEFT);
+  assert.equal(r11.chars[24], GLYPH_BAR_RIGHT);
   assert.equal(r11.attrs[15], FRAME);
   assert.equal(r11.attrs[24], FRAME);
   assert.ok(r11.attrs.slice(16, 24).every((a) => a === BLACK_ON_WHITE));
   const r12 = row(engine, 12);
-  assert.deepEqual(r12.chars.slice(15, 25), [GLYPH_BL, ...Array(8).fill(GLYPH_BOTTOM), GLYPH_BR]);
+  assert.deepEqual(r12.chars.slice(15, 25), [
+    GLYPH_CORNER_BL,
+    ...Array(8).fill(GLYPH_BAR_BOTTOM),
+    GLYPH_CORNER_BR,
+  ]);
   assert.ok(r12.attrs.slice(15, 25).every((a) => a === FRAME));
 
   // The interpreter is paused: another tick does not re-run logic 0.
@@ -637,18 +646,40 @@ test("display breaks lines on newlines and wraps after column 39, both at column
   assert.equal(engine.textRow(24).trimEnd(), "two");
 });
 
+test("glyph IDs: 0x01..0x07 keep pre-9f506052 meanings; the window frame uses 0x0A+", () => {
+  // Host-image checkpoints stay at format version 1 and copy text cells
+  // unchanged (engine.ts captureRestore), so the codes a 1.x checkpoint can
+  // hold — 0x01 H, 0x02 V, 0x03 TL, 0x04 TR, 0x05 BL, 0x06 BR, 0x07 cursor
+  // — must keep those meanings forever; the window frame 9f506052 added
+  // moves to fresh IDs instead of repurposing them.
+  assert.equal(GLYPH_CURSOR, 0x07, "the cursor code a 1.x checkpoint stores");
+  for (const code of [
+    GLYPH_BAR_TOP,
+    GLYPH_BAR_BOTTOM,
+    GLYPH_BAR_LEFT,
+    GLYPH_BAR_RIGHT,
+    GLYPH_CORNER_TL,
+    GLYPH_CORNER_TR,
+    GLYPH_CORNER_BL,
+    GLYPH_CORNER_BR,
+  ]) {
+    assert.ok(code >= 0x0a, `frame glyph 0x${code.toString(16)} must not reuse 0x01..0x09`);
+    assert.equal(cellChar(code), "#");
+  }
+});
+
 test("cells read as text: borders and code-page bytes are '#', never raw control characters", () => {
   assert.equal(cellChar(0), " ");
   assert.equal(cellChar(0x41), "A");
   for (const code of [
-    GLYPH_TOP,
-    GLYPH_BOTTOM,
-    GLYPH_LEFT,
-    GLYPH_RIGHT,
-    GLYPH_TL,
-    GLYPH_TR,
-    GLYPH_BL,
-    GLYPH_BR,
+    GLYPH_BAR_TOP,
+    GLYPH_BAR_BOTTOM,
+    GLYPH_BAR_LEFT,
+    GLYPH_BAR_RIGHT,
+    GLYPH_CORNER_TL,
+    GLYPH_CORNER_TR,
+    GLYPH_CORNER_BL,
+    GLYPH_CORNER_BR,
     GLYPH_CURSOR,
   ])
     assert.equal(cellChar(code), "#", `glyph 0x${code.toString(16)}`);
@@ -704,19 +735,20 @@ test("print.at overrides place the window verbatim, off-screen included", () => 
   });
 });
 
-test("the window frame is the measured OpenWndw geometry: fill plus four 1-pixel edge bars", () => {
+test("the window frame is the decoded OpenWndw geometry: fill plus four inset 1-pixel bars", () => {
   // Player-visible rule: the message window is a white fill framed by solid
-  // red bars one nibble (one logical pixel) wide, inset one pixel from the
-  // fill's edge — not full character-cell bands and no line-drawing corners.
-  // OpenWndw issues five DrawWndw calls on the colour word 0x040F: one
-  // bottom-anchored fill (dl = 0x0F white), then four edge rects with
+  // red bars one nibble (one logical pixel) wide, inset one nibble/scanline
+  // from the fill's edge — not full character-cell bands and no line-drawing
+  // corners. OpenWndw issues five DrawWndw calls on the colour word 0x040F:
+  // one bottom-anchored fill (dl = 0x0F white), then four edge rects with
   // `mov dl,dh` (red) and 1-wide adjustments — top (x+1, y-h+2, w-2, 1),
   // bottom (x+1, y-1, w-2, 1), left (x+1, y-2, 1, h-4), right
-  // (x+w-2, y-2, 1, h-4) (kq1 2.917 OpenWndw 0x54C8; fill geometry
-  // width = chars*4+10, height = lines*8+10 at WindowNoWait 0x1E4B/0x1ECC).
-  // On the cell surface each edge is a glyph cell whose font mask carries
-  // exactly that bar (app/src/render/font8x8.ts, pixel-verified in
-  // app/test/composite.test.ts).
+  // (x+w-2, y-2, 1, h-4) (kq1 2.917 OpenWndw 0x54C8, rects captured by
+  // executing it under Unicorn; fill geometry w = 4*cols+10 nibbles,
+  // h = 8*rows+10 scanlines at WindowNoWait 0x1E4B/0x1ECC — 18x18 for
+  // print("Hi")). On the cell surface each edge is a glyph cell whose font
+  // mask carries exactly that inset bar (app/src/render/font8x8.ts,
+  // pixel-verified in app/test/composite.test.ts).
   const host = new Host();
   const engine = new Engine(gameWith('print("Hi"); return;'), host, DICT);
   engine.tick();
@@ -724,20 +756,30 @@ test("the window frame is the measured OpenWndw geometry: fill plus four 1-pixel
   // "Hi" -> 2 + 2 frame = 4 cols, 3 rows; left = (40-4)/2 = 18, top = 1+9 = 10.
   const FRAME = attr(4, 15); // red bar pixels over the white fill
   const top = row(engine, 10);
-  assert.deepEqual(top.chars.slice(18, 22), [GLYPH_TL, GLYPH_TOP, GLYPH_TOP, GLYPH_TR]);
+  assert.deepEqual(top.chars.slice(18, 22), [
+    GLYPH_CORNER_TL,
+    GLYPH_BAR_TOP,
+    GLYPH_BAR_TOP,
+    GLYPH_CORNER_TR,
+  ]);
   assert.ok(
     top.attrs.slice(18, 22).every((a) => a === FRAME),
     "the edge cells carry the frame colour over the fill",
   );
   const middle = row(engine, 11);
-  assert.equal(middle.chars[18], GLYPH_LEFT);
-  assert.equal(middle.chars[21], GLYPH_RIGHT);
+  assert.equal(middle.chars[18], GLYPH_BAR_LEFT);
+  assert.equal(middle.chars[21], GLYPH_BAR_RIGHT);
   assert.equal(middle.attrs[18], FRAME);
   assert.equal(middle.attrs[21], FRAME);
   assert.equal(middle.chars[19], 0x48, "the interior carries the message, not a band");
   assert.equal(middle.attrs[19], BLACK_ON_WHITE);
   const bottom = row(engine, 12);
-  assert.deepEqual(bottom.chars.slice(18, 22), [GLYPH_BL, GLYPH_BOTTOM, GLYPH_BOTTOM, GLYPH_BR]);
+  assert.deepEqual(bottom.chars.slice(18, 22), [
+    GLYPH_CORNER_BL,
+    GLYPH_BAR_BOTTOM,
+    GLYPH_BAR_BOTTOM,
+    GLYPH_CORNER_BR,
+  ]);
 });
 
 test("version shows the version string modally and never touches string slot 0", () => {
