@@ -35,7 +35,7 @@ import {
   type HistoryBookmark,
 } from "./historyStorage.ts";
 import type { BootedGame } from "../project/gameTypes.ts";
-import { resolveProgressTarget } from "../project/progressBinding.ts";
+import { resolveProgressTarget, resolveProgressLifetime } from "../project/progressBinding.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
 import type {
   HistoryBatch,
@@ -286,6 +286,7 @@ interface SessionOwner {
 interface SwapOwner extends SessionOwner {
   readonly game: BootedGame;
   readonly target: ProgressTarget;
+  readonly lifetime: string | null | undefined;
 }
 
 export function useHistoryView(deps: HistoryViewDeps) {
@@ -671,6 +672,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (!game) throw new Error("no game is running");
       const worker = deps.getWorker();
       const target = resolveProgressTarget(game);
+      const lifetime = resolveProgressLifetime(game);
       const loaded = target === null ? null : await loadGameHistory(target.locator);
       if (mine !== openSerial || deps.getBootedGame() !== game) return;
       recording = loaded;
@@ -681,12 +683,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // The batch stream's newest segment is the worker's live tail, which
       // settles candidates the tape alone cannot judge.
       if (target !== null) {
-        await resolveStagedSwap(
-          target,
-          recording,
-          outline.at(-1)?.id ?? null,
-          game.historyLifetime,
-        );
+        await resolveStagedSwap(target, recording, outline.at(-1)?.id ?? null, lifetime);
         await refreshMeta(target.locator);
         const kept = await loadHistoryBookmarks(target.locator);
         // The open's results publish only while the session that asked
@@ -1048,7 +1045,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
   ): Promise<boolean> {
     if (deps.state.powerUp.busy && !reservationOwned)
       throw new Error("Wait for the current authoring operation before changing sessions.");
-    const { game, target } = owner;
+    const { game, target, lifetime } = owner;
     // The swap answers only to the session that asked: its captured game,
     // worker and session generation. A replacement mid-flight — even a
     // reboot at the same tape address — fences the operation before each
@@ -1107,7 +1104,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         ...(session ? { session: session.snapshotAuthoring() } : {}),
       };
       try {
-        await stageRetainedOriginal(target, candidate, game.historyLifetime);
+        await stageRetainedOriginal(target, candidate, lifetime);
       } catch (error) {
         session?.releaseAdoption();
         throw error;
@@ -1144,7 +1141,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (!reply.ok) {
         session?.releaseAdoption();
         try {
-          await clearStagedOriginal(target, candidate.id, game.historyLifetime);
+          await clearStagedOriginal(target, candidate.id, lifetime);
         } catch {
           await refreshMeta(target.locator);
         }
@@ -1184,9 +1181,8 @@ export function useHistoryView(deps: HistoryViewDeps) {
         return true;
       }
       try {
-        if (keepDeparting)
-          await commitStagedOriginal(target, candidate.id, dropBranch, game.historyLifetime);
-        else await clearStagedOriginal(target, candidate.id, game.historyLifetime);
+        if (keepDeparting) await commitStagedOriginal(target, candidate.id, dropBranch, lifetime);
+        else await clearStagedOriginal(target, candidate.id, lifetime);
       } catch (error) {
         if (stillOwned(owner)) {
           closeHistory();
@@ -1239,6 +1235,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const owner: SwapOwner = {
       game,
       target,
+      lifetime: resolveProgressLifetime(game),
       worker: deps.getWorker(),
       session: sessionSerial,
     };
@@ -1292,7 +1289,13 @@ export function useHistoryView(deps: HistoryViewDeps) {
     // game object and its worker. A replacement while the branches load —
     // another project, or a reboot at the same tape address — must not have
     // the branch it reads restored, adopted or staged under itself.
-    const owner: SwapOwner = { game, target, worker: deps.getWorker(), session: sessionSerial };
+    const owner: SwapOwner = {
+      game,
+      target,
+      lifetime: resolveProgressLifetime(game),
+      worker: deps.getWorker(),
+      session: sessionSerial,
+    };
     if (deps.state.powerUp.busy) return;
     const powerUp = deps.state.powerUp;
     powerUp.busy = true;
@@ -1424,6 +1427,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const seg = recording?.segments[v.segment];
     if (!v.active || !game || !seg) return;
     const target = resolveProgressTarget(game);
+    const lifetime = resolveProgressLifetime(game);
     // The mark names the loaded tape's segment: it persists only while the
     // live game still owns that recording's physical address.
     if (target === null || target.locator !== tapeLocator) return;
@@ -1437,7 +1441,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     bookmarks = [...bookmarks, bookmark];
     v.marks = buildMarks(recording!, bookmarks, startedOver);
     recordingAxis = [];
-    await saveHistoryBookmark(target, bookmark, game.historyLifetime);
+    await saveHistoryBookmark(target, bookmark, lifetime);
   }
 
   /**

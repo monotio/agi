@@ -1036,3 +1036,24 @@ for (const completion of ["answer", "failure"] as const) {
     });
   }
 }
+
+// Leaving an authoring request must stop its work, including any pending provider call.
+for (const retirement of ["cancel", "replace", "terminate"] as const) {
+  test(`an abandoned host request aborts its authoring work on ${retirement}`, () => {
+    const { link } = makeLink();
+    const w = fakeWorker();
+    link.wireWorker(w as unknown as Worker);
+    let signal: AbortSignal | undefined;
+    link.deps.handleRoomAuthoring = (req) => {
+      signal = (req as { readonly signal?: AbortSignal }).signal;
+      return new Promise<string>(() => {});
+    };
+    deliver(w, { type: "hostRequest", generation: 1, id: 1, op: "room", context: { room: 3 } });
+    assert.ok(signal, "authoring receives the request's cancellation signal");
+    assert.equal(signal.aborted, false);
+    if (retirement === "replace") link.wireWorker(fakeWorker() as unknown as Worker);
+    else if (retirement === "terminate") link.terminateWorker();
+    else deliver(w, { type: "interactionCancelled", generation: 1, id: 1, op: "room" });
+    assert.equal(signal.aborted, true, "leaving the request stops its authoring work");
+  });
+}
