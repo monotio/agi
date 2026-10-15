@@ -319,8 +319,8 @@ for (const readOnly of [false, true]) {
     try {
       const reply = readOnly ? await agent.ask("What is here?") : await agent.send("Add a tree");
       const expected = readOnly
-        ? "The agent stopped without answering. Ask again."
-        : "The agent stopped before changing anything. Ask again, or describe the change differently.";
+        ? "The agent ended its turn without an answer. Ask again."
+        : "The agent ended its turn without a reply or a change. Ask again, or describe the change differently.";
       assert.equal(agent.current().messages.at(-1)?.text, expected);
       if (readOnly) assert.equal(reply, expected);
       assert.equal(agent.pending(), null);
@@ -331,7 +331,7 @@ for (const readOnly of [false, true]) {
   });
 }
 
-test("a passing finish with no change and no reply still says the agent stopped", async () => {
+test("a passing finish with no change and no reply says the agent finished without a change", async () => {
   const { session } = fixture();
   const agent = createWorkspaceAgent({
     session,
@@ -353,12 +353,75 @@ test("a passing finish with no change and no reply still says the agent stopped"
     await agent.send("Add a tree");
     assert.equal(
       agent.current().messages.at(-1)?.text,
-      "The agent stopped before changing anything. Ask again, or describe the change differently.",
+      "The agent finished without changing anything. Ask again, or describe the change differently.",
     );
   } finally {
     session.dispose();
   }
 });
+
+for (const cause of ["withdrawn after an error", "output limit", "refusal"] as const)
+  test(`a turn that stops without a change names the cause: ${cause}`, async () => {
+    const { session } = fixture();
+    const turns: LlmTurnResult[] =
+      cause === "withdrawn after an error"
+        ? [
+            {
+              toolCalls: [
+                {
+                  id: "write",
+                  name: "write_logic",
+                  input: { room: 1, source: 'if (said("sparkle")) { print("Hi"); } return;' },
+                },
+              ],
+            },
+            { toolCalls: [{ id: "withdraw", name: "withdraw_changes", input: {} }] },
+            { text: "", toolCalls: [], stopReason: "end_turn" },
+          ]
+        : [
+            {
+              text: "",
+              toolCalls: [],
+              stopReason: cause === "output limit" ? "max_tokens" : "refusal",
+            },
+          ];
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return turns[round++]!;
+        },
+        async complete() {
+          return turns[round++]!;
+        },
+      }),
+    });
+    try {
+      await agent.send("Make LOOK sparkle");
+      const text = agent.current().messages.at(-1)?.text ?? "";
+      if (cause === "withdrawn after an error")
+        assert.match(
+          text,
+          /^The agent withdrew its changes after this error: .*sparkle.*\. Ask again, or describe the change differently\.$/,
+        );
+      else
+        assert.equal(
+          text,
+          cause === "output limit"
+            ? "The agent reached its reply length limit before it finished. Ask for a smaller change."
+            : "The model declined this request. Describe it differently.",
+        );
+      assert.equal(agent.pending(), null);
+    } finally {
+      session.dispose();
+    }
+  });
 
 test("partial approval validates the selected candidate's handover", async () => {
   const { session } = fixture();

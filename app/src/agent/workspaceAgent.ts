@@ -77,11 +77,25 @@ import { createSelectionStub } from "./selectionStub.ts";
 import { SELECTION_TOOL_NAMES } from "../../../src/agent/selectionTools.ts";
 import { proposeNames } from "../../../src/agent/namingTools.ts";
 
-/** A turn that ends without a change and without a reply says so in place of an empty reply. */
-const STOPPED = {
-  edit: "The agent stopped before changing anything. Ask again, or describe the change differently.",
-  ask: "The agent stopped without answering. Ask again.",
-};
+/** A turn that ends without a change and without a reply names why in place of an empty reply. */
+function stoppedNotice(
+  readOnly: boolean,
+  cause: { stopReason?: string; failure?: string; withdrew: boolean; finished: boolean },
+): string {
+  const next = readOnly ? "Ask again." : "Ask again, or describe the change differently.";
+  const failure = cause.failure
+    ? `${cause.failure.length > 240 ? `${cause.failure.slice(0, 239)}…` : cause.failure.replace(/[^.!?…]$/, "$&.")}`
+    : "";
+  if (cause.stopReason === "max_tokens")
+    return "The agent reached its reply length limit before it finished. Ask for a smaller change.";
+  if (cause.stopReason === "refusal")
+    return "The model declined this request. Describe it differently.";
+  if (cause.withdrew)
+    return `The agent withdrew its changes${failure ? ` after this error: ${failure}` : "."} ${next}`;
+  if (failure) return `The agent stopped after this error: ${failure} ${next}`;
+  if (cause.finished && !readOnly) return `The agent finished without changing anything. ${next}`;
+  return `The agent ended its turn without ${readOnly ? "an answer" : "a reply or a change"}. ${next}`;
+}
 const HANDOFF =
   "Summarize this task for a different model using the compaction summary pattern: objective, decisions, completed changes, unresolved work, resource identifiers, and next steps. Return only the summary. Preserve user constraints. Omit thinking blocks, credentials and protocol records.";
 class CreatorTestReviewRequired extends Error {}
@@ -707,6 +721,9 @@ export function createWorkspaceAgent(options: Options) {
     let notes: string | undefined;
     let finishStatus = "";
     let finishLines: readonly string[] = [];
+    // Why a turn with no change and no reply stopped: the latest batch's first failure.
+    let stopFailure: string | undefined;
+    let withdrew = false;
     const prepared = new Map<string, ProjectChange>();
     let scene: Awaited<ReturnType<typeof selectionScene>> = {};
     let selection = readOnly
@@ -1303,6 +1320,7 @@ export function createWorkspaceAgent(options: Options) {
                 notes = undefined;
                 finishStatus = "";
                 finishLines = [];
+                withdrew = true;
                 prepared.clear();
                 selection = undefined;
                 selectionReview = "";
@@ -1356,6 +1374,7 @@ export function createWorkspaceAgent(options: Options) {
               finishLines = (result.details?.["testNotes"] as readonly string[] | undefined) ?? [];
             }
             if (!result.success) {
+              if (!failed.length) stopFailure = result.error;
               if (!result.details?.["gameTestsFailed"]) failed.push(call.name);
               progress.push(`${call.name} failed: ${result.error ?? "no details"}`);
               notify();
@@ -1469,7 +1488,16 @@ export function createWorkspaceAgent(options: Options) {
             ? { text: turn.text! }
             : formatReply
               ? formatReply(turn.text ?? "")
-              : { text: stopped ? STOPPED[readOnly ? "ask" : "edit"] : turn.text! };
+              : {
+                  text: stopped
+                    ? stoppedNotice(readOnly, {
+                        ...(turn.stopReason ? { stopReason: turn.stopReason } : {}),
+                        ...(stopFailure ? { failure: stopFailure } : {}),
+                        withdrew,
+                        finished: handedOver,
+                      })
+                    : turn.text!,
+                };
           chat.messages.push({
             id: id(),
             role: "assistant",

@@ -450,8 +450,9 @@ test("a turn that stops without a change or a reply says so plainly", async ({ p
   await page.getByTestId("agent-message").fill("Make LOOK sparkle");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   const reply = page.getByTestId("agent-conversation").locator("article").last();
+  // The notice names the failed write that stopped the turn, then the next step.
   await expect(reply).toContainText(
-    "The agent stopped before changing anything. Ask again, or describe the change differently.",
+    /The agent stopped after this error: .*sparkle.* Ask again, or describe the change differently\./,
   );
   // The failed write reached the model with the refused finish before the turn ended.
   expect(bodies).toHaveLength(2);
