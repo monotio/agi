@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "sq2",
     "revision": "90b7a965bf889351bb79340ca710ce4abf1eae1777c8e10de409d40263df7cbb"
@@ -25,9 +25,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 15252,
-  "virtualTicks": 143943,
-  "cycles": 18801,
+  "elapsedMs": 10433,
+  "virtualTicks": 144183,
+  "cycles": 18802,
   "actions": [
     {
       "kind": "advance",
@@ -10635,47 +10635,15 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
+      "ticks": 235
     },
     {
       "kind": "key",
-      "code": 8
+      "code": 13
     },
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 8
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 8
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 8
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 8
-    },
-    {
-      "kind": "advance",
-      "ticks": 2
     },
     {
       "kind": "key",
@@ -10739,7 +10707,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 5
+      "ticks": 4
     },
     {
       "kind": "key",
@@ -11483,7 +11451,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 234
+      "ticks": 246
     },
     {
       "kind": "key",
@@ -18261,8 +18229,8 @@
       255,
       0,
       2,
-      59,
-      39,
+      3,
+      40,
       0,
       0,
       3,
@@ -18323,7 +18291,7 @@
       153,
       97,
       0,
-      59,
+      3,
       0,
       84,
       90,
@@ -18358,7 +18326,7 @@
       166,
       0,
       3,
-      39,
+      40,
       0,
       113,
       4,
