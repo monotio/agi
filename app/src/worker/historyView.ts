@@ -14,7 +14,7 @@
  * session's segment ends with reason "resume" — the tape is never
  * rewritten, only continued.
  */
-import { adoptResumePoint, liveGameUnstarted } from "./resumePoint.ts";
+import { adoptResumePoint, runUnstarted } from "./resumePoint.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import {
   stampBoot,
@@ -332,18 +332,23 @@ export function createHistoryView(
 
   /**
    * The parked live session's resume point for the retained-original slot. A
-   * game paused before its first cycle (Pause pressed as Play starts it) is
-   * kept as a cold boot: its start is the moment Undo rewind returns to.
+   * game paused before its first cycle after a cold boot (Pause pressed as
+   * Play starts it) is kept as a cold boot: its start is the moment Undo
+   * rewind returns to. Such a game has no open segment, so `from` is null and
+   * a close before the swap's promotion commits leaves the staged copy
+   * unsettled (kept, not promoted): no segment can prove the adoption.
    */
   function onHistoryRetain(msg: Inbound<"historyRetain">): void {
     const h = ctx.history;
-    const boot = ctx.fns.historySnapshot(liveGameUnstarted(ctx));
-    // A started game that has not drawn its first room yet has no moment a
-    // history boot can verify; the refusal says so instead of naming a prompt.
+    const engine = ctx.run.engine;
+    const boot = ctx.fns.historySnapshot(runUnstarted(ctx));
+    // A room still starting (a re-entry owed, or a started game that has not
+    // drawn its first room) has no moment a history boot can verify; the
+    // refusal says so instead of naming a prompt.
     let starting = false;
-    if (boot === null && ctx.run.engine && !ctx.fns.debugCaptureBlocked()) {
+    if (boot === null && engine && !ctx.fns.debugCaptureBlocked()) {
       try {
-        starting = ctx.run.engine.recordingImage(true) !== null;
+        starting = engine.roomEntryPending || engine.recordingImage(true) !== null;
       } catch {
         starting = false;
       }

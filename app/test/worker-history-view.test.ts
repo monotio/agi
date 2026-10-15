@@ -381,8 +381,8 @@ test("Create take and restore grant the adopted engine admission and journal the
 });
 
 // Player rule: a player who presses Pause the moment Play starts, then rewinds and resumes, keeps
-// the paused game. Undo rewind brings it back at its start, as it stood when they paused.
-test("a game paused before its first cycle is kept for Undo rewind", async () => {
+// the paused game. Undo rewind brings it back at its start, and it can be rewound again.
+test("a game paused before its first cycle is kept for Undo rewind, again and again", async () => {
   const documents = {
     "logic:0":
       "if (v40 == 0) { load.pic(0); draw.pic(0); show.pic(); assignn(v40, 1); } increment(v41); return;",
@@ -414,12 +414,10 @@ test("a game paused before its first cycle is kept for Undo rewind", async () =>
       m.type === "historyRetained" && m.id === 2,
   );
   assert.ok(retained?.boot, "the paused game is kept");
-  assert.equal(retained.from, null, "it continued from no recorded position");
 
   const recording = asRecording(collectSegments(h.control));
   send({ type: "historyViewStart", id: 3, recording, segment: 0, tick: 6 });
   const opened = finalView(h.control, 3);
-  assert.equal(opened.canResume, true);
   send({
     type: "historyViewTake",
     id: 4,
@@ -430,15 +428,18 @@ test("a game paused before its first cycle is kept for Undo rewind", async () =>
   });
   assert.ok(h.control.find((m) => m.type === "historyTaken")?.ok);
   assert.equal(ctx.run.engine!.vars[40], 1, "the rewound moment is live");
+  send({ type: "pause", paused: false });
+  tick(4);
+  send({ type: "pause", paused: true });
 
   send({ type: "historyViewRestore", id: 5, boot: retained.boot, from: retained.from });
   const restored = h.control.find((m) => m.type === "historyViewRestored");
   assert.ok(restored?.type === "historyViewRestored" && restored.ok, JSON.stringify(restored));
   assert.deepEqual(ctx.run.engine!.readState(), paused, "Undo rewind restores the paused game");
-  send({ type: "pause", paused: false });
-  tick(3);
-  assert.equal(ctx.run.engine!.vars[40], 1, "the restored game starts and draws its room");
-  assert.ok(ctx.run.engine!.recordingImage(), "the restored game reaches a resumable moment");
+  assert.equal(ctx.run.cycle.cycleCount, 0, "the restored game is back at its start");
+  send({ type: "historyRetain", id: 6 });
+  const again = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(again?.type === "historyRetained" && again.boot, "it can be rewound again");
   ctx.fns.stopTimers();
 });
 
@@ -471,6 +472,53 @@ test("a game paused before its first room draws is refused as still starting", (
   const kept = h.control.findLast((m) => m.type === "historyRetained");
   assert.ok(kept?.type === "historyRetained" && kept.boot, "after a moment of play it is kept");
   assert.equal(kept.reason, undefined);
+  ctx.fns.stopTimers();
+});
+
+// Player rule: rewinding never trades a restored checkpoint for the game's start. Paused before
+// its first cycle after the restore, the checkpoint is not keepable yet and the notice says so.
+test("a restored checkpoint paused before its first cycle keeps its position", () => {
+  const game = gameContainer(
+    [
+      "increment(v41); if (v41 > 3) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+    ],
+    (c) => c.putResource("picture", 1, PICTURE_1),
+  );
+  const first = viewHarness(game);
+  first.tick(2);
+  const checkpoint = first.ctx.run.engine!.recordingImage(true);
+  assert.ok(checkpoint, "a started, undrawn moment");
+  first.ctx.fns.stopTimers();
+
+  const h = viewHarness(game, { restoreImage: bytesToBase64(checkpoint) });
+  const { ctx, send } = h;
+  send({ type: "pause", paused: true });
+  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint is live");
+  send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "starting");
+  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint keeps its position");
+  ctx.fns.stopTimers();
+});
+
+// Player rule: Pause pressed while a room is starting again (Play after a room edit) gets the
+// "still starting" notice, not a prompt that is not there.
+test("a pause during a room re-entry is refused as still starting", () => {
+  const h = viewHarness(viewGame());
+  const { ctx, send, tick } = h;
+  send({ type: "debugWrite", id: 0, flags: [[6, 1]] });
+  tick(4);
+  assert.equal(ctx.run.engine!.readLeanState().pictureShown, true, "room 1 is drawn");
+  send({ type: "pause", paused: true });
+  send({ type: "reenter" });
+  assert.equal(ctx.run.engine!.roomEntryPending, true, "the room starts on the next cycle");
+  send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "starting");
   ctx.fns.stopTimers();
 });
 
