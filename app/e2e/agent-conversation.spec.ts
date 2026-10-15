@@ -5,6 +5,7 @@ import {
   textHook,
   openWorkspaceAgent,
   waitForGameInput,
+  waitForRoom,
   workspaceSaved,
 } from "./engineProbe.ts";
 import {
@@ -22,7 +23,7 @@ async function starter(page: Page) {
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await openWorkspaceAgent(page);
 }
 
@@ -36,7 +37,7 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await openWorkspaceAgent(page);
   const panel = page.getByTestId("workspace-agent-panel");
   const composer = panel.getByTestId("agent-message");
@@ -445,7 +446,7 @@ test("first Agent save failure keeps its owner, draft and retry available @webki
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await workspaceSaved(page);
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
