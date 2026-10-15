@@ -4,6 +4,7 @@ import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { MESSAGE_KEY, buildLogicResource } from "../src/logic/resource.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { validateEngineReplayState } from "../src/runtime/replayState.ts";
 import {
   GLYPH_BL,
   GLYPH_BR,
@@ -731,4 +732,54 @@ test("version shows the version string modally and never touches string slot 0",
   host.keys.push(0x0d);
   engine.tick();
   assert.equal(engine.modalKind, null);
+});
+
+test("an off-screen print.at saves a canonical empty rect that captures and restores cleanly", () => {
+  // Player-visible rule: a fully off-screen print.at keeps the requested
+  // placement verbatim — nothing is covered and nothing drawn — so the saved
+  // rectangle canonicalizes to an empty in-range rect: the checkpoint the
+  // parked window rides on validates, and dismissal restores without
+  // inventing cells (kq1 2.917 WindowNoWait 0x1E69: the overrides feed the
+  // window math unchecked; the SAVE path cannot emit row 25 of 25).
+  const host = new Host();
+  const container = gameWith(
+    'load.pic(0); draw.pic(0); show.pic(); print.at("hello", 24, 38, 30); return;',
+  );
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  assert.equal(engine.modalKind, "print", "the window parked the pass");
+  const state = validateEngineReplayState(engine.captureReplayState());
+  const modal = state.continuation?.modals[0];
+  assert.ok(modal?.kind === "print", "the parked window serialized");
+  assert.deepEqual(
+    { ...modal.saved, cells: modal.saved.cells.length, written: modal.saved.written.length },
+    { top: 0, left: 1, bottom: 0, right: 0, cells: 0, written: 0 },
+    "the canonical empty rect",
+  );
+  const before = Array.from(engine.textCells);
+  engine.ackPrint();
+  assert.equal(engine.modalKind, null);
+  assert.deepEqual(Array.from(engine.textCells), before, "dismissal restores nothing");
+});
+
+test("TextSurface: a fully off-screen save canonicalizes to an empty in-range rect", () => {
+  const s = new TextSurface();
+  s.write(3, 3, "abc", 0x1f);
+  const saved = s.save(25, 38, 27, 44);
+  assert.deepEqual(
+    { top: saved.top, left: saved.left, bottom: saved.bottom, right: saved.right },
+    { top: 0, left: 1, bottom: 0, right: 0 },
+  );
+  assert.equal(saved.cells.length, 0);
+  const dirtyBefore = s.dirty;
+  s.restore(saved);
+  assert.equal(s.dirty, dirtyBefore, "restoring nothing changes nothing");
+  assert.equal(s.rowText(3), "   abc" + spaces(34));
+  // A partially off-screen rect still clips to the visible overlap.
+  const partial = s.save(24, 38, 27, 44);
+  assert.deepEqual(
+    { top: partial.top, left: partial.left, bottom: partial.bottom, right: partial.right },
+    { top: 24, left: 38, bottom: 24, right: 39 },
+  );
 });

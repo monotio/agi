@@ -162,8 +162,21 @@ export class TextSurface {
     const l = Math.max(0, left);
     const b = Math.min(TEXT_ROWS - 1, bottom);
     const r = Math.min(TEXT_COLS - 1, right);
-    const w = Math.max(0, r - l + 1);
-    const h = Math.max(0, b - t + 1);
+    if (b < t || r < l) {
+      // A verbatim print.at override can place the window fully off-screen:
+      // nothing was covered, so the canonical empty rect — in range for the
+      // serialized replay contract — restores as a no-op.
+      return {
+        top: 0,
+        left: 1,
+        bottom: 0,
+        right: 0,
+        cells: new Uint8Array(0),
+        written: new Uint32Array(0),
+      };
+    }
+    const w = r - l + 1;
+    const h = b - t + 1;
     const cells = new Uint8Array(w * h * 2);
     const written = new Uint32Array(w * h);
     for (let y = 0; y < h; y++) {
@@ -179,6 +192,8 @@ export class TextSurface {
 
   restore(saved: SavedRect): void {
     const w = saved.right - saved.left + 1;
+    // The canonical empty rect: an off-screen window covered nothing.
+    if (w <= 0 || saved.bottom < saved.top) return;
     // The restored text keeps its age: what a sprite hid before the window
     // stays hidden after it, and what lay on top stays on top.
     for (let y = 0; y <= saved.bottom - saved.top; y++) {
