@@ -11,6 +11,12 @@ const LAZY_AUTHORING_MODULES =
 export default {
   forbidden: [
     {
+      name: "engine-not-to-shell",
+      severity: "error",
+      from: { path: "^app/src/engine/" },
+      to: { path: "^app/src/shell/" },
+    },
+    {
       // AGENTS.md, Architecture rules: no runtime import cycles in src/ or
       // app/src/. Only cycles where every edge is a runtime import are errors:
       // a cycle closed by an `import type` edge is erased at compile time and

@@ -51,10 +51,12 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`deleting the current room restarts at the named beginning ${width}`, async ({ page }) => {
+  test(`deleting the current room reports a beginning and leaves removed progress behind ${width}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height });
     await starter(page);
-    await page.evaluate(async () => {
+    const roomOneSource = await page.evaluate(async (width) => {
       const session = (
         window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
       ).__AGI_PROJECT__.getSession();
@@ -66,11 +68,16 @@ for (const [width, height] of [
         exits: {},
       };
       world.rooms["3"] = { title: "Lake", description: "A lake.", exits: {} };
+      const source = String(session.workingSnapshot().read("logic:1")!.content);
       await session.stage([
+        ...(width === 1440
+          ? [{ key: "logic:1", content: 'if (said("look")) { new.room(3); }\n' + source }]
+          : []),
         { key: "logic:3", content: "return;" },
         { key: "world", content: JSON.stringify(world) },
       ]);
-    });
+      return source;
+    }, width);
     await page.getByTestId("workspace-update").click();
     await expect(page.getByTestId("workspace-pending")).toBeHidden();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -80,6 +87,14 @@ for (const [width, height] of [
     await expect(page.getByTestId("workspace-update")).toContainText("Lake");
     await page.getByTestId("workspace-update").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(3);
+    if (width === 1440) {
+      // Capture a genuine Play return point inside Lake before opening Create.
+      await playFromCreate(page);
+      await page.getByTestId("input-line").fill("look");
+      await page.getByTestId("input-line").press("Enter");
+      await expect.poll(async () => (await textHook(page)).room).toBe(3);
+      await enterCreateMode(page);
+    }
     await record(page);
     await stop(page);
     await page.getByTestId("record-name").fill("Lake visit");
@@ -92,6 +107,13 @@ for (const [width, height] of [
       await page.getByTestId("part-room:1:picture:1").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(3);
     }
+    await page.getByTestId("workspace-update-menu").click();
+    await page
+      .getByRole("menuitem", {
+        name: width === 1440 ? "From my game" : "Carry over",
+        exact: true,
+      })
+      .click();
     await deleteRoom(page);
     const dialog = page.getByRole("dialog", { name: "Delete room", exact: true });
     await expect(dialog).toBeVisible();
@@ -102,6 +124,15 @@ for (const [width, height] of [
       .toHaveAccessibleName("Also delete tests that use this room (1 test)");
     if (width === 390) await dialog.getByRole("checkbox", { name: /Also delete tests/ }).uncheck();
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    if (width === 1440) {
+      // Remove the doorway too, so only the deleted return point is at issue.
+      await page.evaluate(async (source) => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        await session.stage([{ key: "logic:1", content: source }]);
+      }, roomOneSource);
+    }
     if (width !== 390) await expect(page.getByTestId("record-result")).toBeHidden();
     await shot(page, `restart-label-${width}`);
     await expect(page.getByTestId("workspace-update")).toHaveText(
@@ -110,7 +141,12 @@ for (const [width, height] of [
     await page.getByTestId("workspace-update").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await expect(page.getByTestId("workspace-pending")).toBeHidden();
-    await expect(page.getByRole("alert").filter({ hasText: "needs a LOGIC" })).toHaveCount(0);
+    await expect
+      .soft(page.getByTestId("workspace-updated"))
+      .toContainText("Updated · started from beginning");
+    await expect(
+      page.getByRole("alert").filter({ hasText: /needs a LOGIC|Choose Restart/ }),
+    ).toHaveCount(0);
   });
 }
 

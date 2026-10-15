@@ -1564,8 +1564,11 @@ async function updateGame(restartRoom = true, launchOverride?: "beginning"): Pro
   const state = editor.launchChoices.value.find(
     (entry) => entry.id === editor.selectedLaunch.value,
   );
-  const beginning = launchOverride === "beginning" || editor.selectedLaunch.value === "beginning";
-  const fromMyGame = launchOverride === undefined && editor.selectedLaunch.value === "my-game";
+  const beginning =
+    editor.actionBeginning.value ||
+    launchOverride === "beginning" ||
+    editor.selectedLaunch.value === "beginning";
+  const fromMyGame = !beginning && editor.selectedLaunch.value === "my-game";
   const launch =
     room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning, fromMyGame };
   actionBusy.value = true;

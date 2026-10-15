@@ -47,7 +47,7 @@ async function discardChanges(): Promise<void> {
       ><span class="workspace-action__label"
         ><UiIcon :name="action.icon" :size="14" :stroke-width="2.5" /><span
           class="workspace-action__room"
-          >{{ action.room
+          >{{ action.text
           }}<span v-if="action.launch" class="workspace-action__launch">
             · {{ action.launch }}</span
           ></span
