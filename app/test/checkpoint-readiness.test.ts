@@ -13,6 +13,8 @@ import {
 } from "../src/project/gameStorage.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
+import { claimProgressWriter } from "../src/saves/progressWriter.ts";
+import { writeAutosave } from "../src/saves/gameProgress.ts";
 import { resolveProgressTarget } from "../src/project/progressBinding.ts";
 import { readAutosave, useAutosaveController } from "../src/saves/useAutosaveController.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -43,10 +45,12 @@ for (const scenario of [
   "notes",
   "rejected write",
   "failed write",
-  "second tab",
+  "second tab writer",
+  "second tab revision",
+  "stale write block",
   "closed page",
 ] as const) {
-  test(`a checkpoint refused during a ${scenario} save preserves the player's progress`, async () => {
+  test(`a checkpoint during a ${scenario} document save preserves the player's progress`, async () => {
     const starter = createStarterProject("starter");
     const files = Object.fromEntries(starter.files());
     const id = testProjectId(`checkpoint-ready-${scenario.replaceAll(" ", "-")}`);
@@ -76,7 +80,8 @@ for (const scenario of [
     let rejectWrite = scenario === "rejected write" || scenario === "failed write";
     const entered = Promise.withResolvers<Parameters<typeof commitProject>[0]>();
     const release = Promise.withResolvers<void>();
-    const retried = Promise.withResolvers<boolean>();
+    let retries = 0;
+    let writerGeneration: number | undefined;
     const worker = {
       postMessage(message: { type: string; id: number }) {
         assert.equal(message.type, "flush");
@@ -113,7 +118,8 @@ for (const scenario of [
         return (await commitProject(request)).receipt;
       },
       checkpointReady() {
-        void controller.flushAutosave().then(retried.resolve);
+        retries++;
+        void controller.flushAutosave();
       },
     });
     const controller = useAutosaveController({
@@ -121,6 +127,7 @@ for (const scenario of [
       getBootedGame: () => game,
       getWorker: () => worker,
       getRunScope: () => session.runToken,
+      getWriterGeneration: () => writerGeneration,
       async prepareCheckpoint(_game, _files, revision) {
         return (await session.prepareCheckpoint(revision)) === "ready" ? "owned" : "not_ready";
       },
@@ -133,6 +140,8 @@ for (const scenario of [
     });
     try {
       await session.flush();
+      const target = resolveProgressTarget(game)!;
+      writerGeneration = claimProgressWriter(localStorage, target, "this-page").generation;
       assert.equal((await controller.flushAutosaveDetailed()).status, "saved");
       const locator = resolveProgressTarget(game)!.locator;
       const original = readAutosave(locator)!.image;
@@ -156,63 +165,80 @@ for (const scenario of [
       const request = await entered.promise;
       engine.vars[80] = 42;
       cycle = 2;
+      if (scenario === "stale write block") session.stopWrites();
       if (scenario !== "failed write") {
-        assert.equal((await controller.flushAutosaveDetailed()).status, "not_ready");
-        assert.equal((await controller.flushAutosaveDetailed()).status, "not_ready");
+        assert.equal(
+          (await controller.flushAutosaveDetailed()).status,
+          scenario === "stale write block" ? "not_ready" : "saved",
+        );
       }
-      let refusedRequests = requests;
-      assert.equal(readAutosave(locator)!.image, original);
-      if (scenario === "second tab") {
-        // A separate storage client wins while this page's write is held.
+      const saved = readAutosave(locator)!;
+      if (scenario === "stale write block" || scenario === "failed write")
+        assert.equal(saved.image, original);
+      else {
+        assert.notEqual(saved.image, original, "progress is stored before the document commits");
+        engine.restoreImage(base64ToBytes(saved.image));
+        assert.equal(engine.vars[80], 42);
+        assert.equal(saved.cycle, 2);
+      }
+      if (scenario === "second tab writer" || scenario === "second tab revision") {
+        // The other page wins the document transaction and publishes progress.
         await commitProject({
           ...request,
-          commitId: testProjectId("other-tab-commit"),
-          workspaceId: testProjectId("other-tab-workspace"),
+          commitId: testProjectId(`other-tab-commit-${scenario.replaceAll(" ", "-")}`),
+          workspaceId: testProjectId(`other-tab-workspace-${scenario.replaceAll(" ", "-")}`),
         });
-        // The blocked session cannot publish; a second page writes its own checkpoint.
-        const { writeAutosave } = await import("../src/saves/gameProgress.ts");
-        const record = readAutosave(locator)!;
+        const otherWriter =
+          scenario === "second tab writer"
+            ? claimProgressWriter(localStorage, target, "other-page").generation
+            : writerGeneration;
+        if (scenario === "second tab revision") {
+          const newer = compileProjectDocuments({
+            files,
+            documents: { "logic:99": "return;" },
+            profileId: starter.profileId,
+          });
+          await saveAuthoredGame(id, { ...request.data, files: Object.fromEntries(newer.files()) });
+        }
         assert.ok(
-          writeAutosave(localStorage, resolveProgressTarget(game)!, {
-            ...record,
+          writeAutosave(localStorage, target, {
+            ...saved,
+            writerGeneration: otherWriter,
             image: "other-tab-progress",
             cycle: 3,
           }),
         );
+        assert.equal((await controller.flushAutosaveDetailed()).status, "storage_failure");
+        assert.equal(readAutosave(locator)!.image, "other-tab-progress");
       }
       if (scenario === "closed page") session.dispose();
+      const checkpointRequests = requests;
       release.resolve();
       const error = await settled;
-      if (scenario === "second tab") {
+      if (scenario === "second tab writer" || scenario === "second tab revision") {
         assert.ok(error instanceof Error);
         assert.equal(session.saveStatus().state, "conflict", String(session.saveStatus().cause));
-        assert.equal(requests, refusedRequests);
         assert.equal(readAutosave(locator)!.image, "other-tab-progress");
+      } else if (scenario === "rejected write" || scenario === "failed write") {
+        assert.ok(error instanceof Error);
+        assert.equal(
+          session.saveStatus().state,
+          "failed",
+          "Create still shows the document failure",
+        );
+        if (scenario === "failed write") {
+          assert.equal((await controller.flushAutosaveDetailed()).status, "saved");
+          engine.restoreImage(base64ToBytes(readAutosave(locator)!.image));
+          assert.equal(engine.vars[80], 42, "a failed document save still permits progress");
+        }
+        rejectWrite = false;
+        await session.retry();
       } else if (scenario === "closed page") {
-        assert.equal(requests, refusedRequests);
-        assert.equal(readAutosave(locator)!.image, original);
-      } else {
-        if (scenario === "rejected write" || scenario === "failed write") {
-          assert.ok(error instanceof Error);
-          // This request has no earlier pending-state refusal to keep it owed.
-          if (scenario === "failed write") {
-            assert.equal((await controller.flushAutosaveDetailed()).status, "storage_failure");
-            refusedRequests = requests;
-          }
-          assert.equal(requests, refusedRequests);
-          assert.equal(readAutosave(locator)!.image, original);
-          rejectWrite = false;
-          await session.retry();
-        } else assert.equal(error, null);
-        assert.equal(requests, refusedRequests + 1, "readiness takes one fresh checkpoint");
-        assert.equal(await retried.promise, true);
-        const saved = readAutosave(locator)!;
-        engine.restoreImage(base64ToBytes(saved.image));
-        assert.equal(engine.vars[80], 42, "Resume keeps the progress made during the save");
-        assert.equal(saved.cycle, 2);
-        await session.flush();
-        assert.equal(requests, refusedRequests + 1, "an already saved document needs no retry");
-      }
+        assert.ok(error instanceof Error);
+        assert.equal(readAutosave(locator)!.image, saved.image);
+      } else if (scenario !== "stale write block") assert.equal(error, null);
+      assert.equal(retries, 0, "document saves never owe a checkpoint retry");
+      assert.equal(requests, checkpointRequests + (scenario === "failed write" ? 1 : 0));
     } finally {
       release.resolve();
       session.dispose();
@@ -232,7 +258,7 @@ for (const [changedResources, refusedCheckpoint] of [
       ? "a restarted room requests progress even without an earlier refused checkpoint"
       : changedResources
         ? "a refused checkpoint waits for the required restart before requesting fresh progress"
-        : "a matching checkpoint retries after a document save while a restart is optional",
+        : "a matching checkpoint stores immediately while a restart is optional",
     async () => {
       const compiled = compileProjectDocuments({
         files: Object.fromEntries(createContainer().files),
@@ -287,14 +313,13 @@ for (const [changedResources, refusedCheckpoint] of [
           author: "creator",
         });
         if (refusedCheckpoint)
-          assert.equal(await session.prepareCheckpoint(oldRevision), "not_ready");
+          assert.equal(
+            await session.prepareCheckpoint(oldRevision),
+            changedResources ? "not_ready" : "ready",
+          );
         await session.flush();
         assert.ok(session.pendingRestart);
-        assert.equal(
-          captures,
-          changedResources ? 0 : 1,
-          "matching bytes can be checkpointed before an optional restart",
-        );
+        assert.equal(captures, 0, "matching bytes can be checkpointed before an optional restart");
         if (refusedCheckpoint)
           for (let i = 0; i < 3; i++)
             assert.equal(
@@ -303,18 +328,14 @@ for (const [changedResources, refusedCheckpoint] of [
             );
         await session.tag("Before restart");
         await session.flush();
-        assert.equal(
-          captures,
-          changedResources ? 0 : 1,
-          "document notifications cannot loop captures of the old build",
-        );
+        assert.equal(captures, 0, "document notifications cannot loop captures of the old build");
         await session.restartWithChanges();
         await session.flush();
         assert.equal(session.pendingRestart, null);
         assert.equal(await session.prepareCheckpoint(), "ready");
         assert.equal(
           captures,
-          changedResources ? 1 : 2,
+          1,
           "successful activation requests one checkpoint for the restarted room",
         );
       } finally {
@@ -322,4 +343,144 @@ for (const [changedResources, refusedCheckpoint] of [
       }
     },
   );
+}
+
+for (const failed of [false, true]) {
+  test(`a ${failed ? "failed" : "pending"} resource write refuses checkpoints until its revision commits`, async () => {
+    const starter = createStarterProject("starter");
+    const files = Object.fromEntries(starter.files());
+    const id = testProjectId(`resource-checkpoint-${failed}`);
+    await saveAuthoredGame(id, {
+      title: "Resources",
+      files,
+      words: [...starter.sources.words],
+    });
+    const held = (await loadAuthoredGameWithHistoryLifetime(id))!;
+    let pause = false;
+    let reject = failed;
+    let captures = 0;
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const retried = Promise.withResolvers<boolean>();
+    const game: BootedGame = {
+      installed: false,
+      projectId: id,
+      title: "Resources",
+      files,
+      words: [...starter.sources.words],
+      revision: await gameRevision(files),
+      historyLifetime: held.lifetime!,
+    };
+    let engine: Engine;
+    const worker = {
+      postMessage(message: { type: string; id: number }) {
+        assert.equal(message.type, "flush");
+        const image = engine.autosaveImage();
+        assert.ok(image);
+        controller.handleAutosave({
+          image: bytesToBase64(image),
+          revision: game.revision,
+          cycle: 2,
+          room: engine.vars[0]!,
+        });
+        controller.handleFlushed({ id: message.id, taken: true, cycle: 2 });
+      },
+    } as unknown as Worker;
+    const session = openProjectSession({
+      data: held.data,
+      lifetime: held.lifetime!,
+      admission: {
+        runToken: `resource-checkpoint-${failed}`,
+        admit: async () => ({
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        }),
+      },
+      async write(request) {
+        if (pause) {
+          entered.resolve();
+          await release.promise;
+          if (reject) throw new Error("Resource write rejected");
+        }
+        return (await commitProject(request)).receipt;
+      },
+      checkpointReady() {
+        captures++;
+        void controller.flushAutosave().then(retried.resolve);
+      },
+    });
+    const controller = useAutosaveController({
+      state: { resumed: false },
+      getBootedGame: () => game,
+      getWorker: () => worker,
+      getRunScope: () => session.runToken,
+      async prepareCheckpoint(_game, _files, revision) {
+        return (await session.prepareCheckpoint(revision)) === "ready" ? "owned" : "not_ready";
+      },
+      logAgent() {},
+      isInstalledGame: () => false,
+      bootGame: async () => {},
+      bootAuthoredGame: async () => {},
+      configForGame: (_project, config) => config,
+      retireFailedRecovery() {},
+    });
+    try {
+      await session.flush();
+      pause = true;
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Room", [
+          { key: "logic:99", content: "return;" },
+        ]),
+        label: "Room",
+        origin: "logic",
+        author: "creator",
+      });
+      const build = session.model.capture().lastAdmissibleBuild!;
+      const revision = build.identity.revision;
+      game.files = Object.fromEntries(build.files());
+      game.revision = revision;
+      engine = new Engine(
+        openContainer(new Map(Object.entries(game.files)), { profile: starter.profileId }),
+        host,
+        new Map(starter.sources.words),
+        { profile: starter.profileId },
+      );
+      for (let i = 0; i < 8 && !engine.autosaveImage(); i++) engine.tick();
+      engine.vars[80] = 42;
+      const locator = resolveProgressTarget(game)!.locator;
+      const saving = session.flush().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await entered.promise;
+      assert.equal(await session.prepareCheckpoint(revision), "not_ready");
+      assert.equal(await session.prepareCheckpoint(), "not_ready");
+      assert.equal((await controller.flushAutosaveDetailed()).status, "not_ready");
+      assert.equal(readAutosave(locator), null, "uncommitted resources cannot publish progress");
+      assert.equal(captures, 0);
+      release.resolve();
+      const error = await saving;
+      if (failed) {
+        assert.ok(error instanceof Error);
+        await assert.rejects(session.prepareCheckpoint(revision), /Could not save/);
+        assert.equal(captures, 0);
+        reject = false;
+        await session.retry();
+      } else assert.equal(error, null);
+      assert.equal(await retried.promise, true);
+      const saved = readAutosave(locator)!;
+      assert.ok(saved, "the owed retry stores progress after the resources commit");
+      engine.restoreImage(base64ToBytes(saved.image));
+      assert.equal(engine.vars[80], 42);
+      assert.equal(captures, 1, "the committed resource revision requests one fresh checkpoint");
+      assert.equal(await session.prepareCheckpoint(revision), "ready");
+    } finally {
+      release.resolve();
+      session.dispose();
+      controller.drainFlushWaiters();
+      await controller.getAutosaveWrite();
+    }
+  });
 }

@@ -304,14 +304,13 @@ function createSession(
         /* A presentation observer cannot cancel the owned save. */
       }
     }
-    // Any refused checkpoint stays owed through document writes and queued
-    // edits. Admission and storage must both be ready, even for chat saves.
+    // Retry owed checkpoints once storage holds the admitted resources.
+    // Document writes do not move that revision.
     if (
       checkpointPending &&
       current() &&
       writeBlock === undefined &&
-      queued === 0 &&
-      autosave.status().state === "saved" &&
+      expected.revision === model.capture().lastAdmissibleBuild!.identity.revision &&
       pendingImage === undefined &&
       (pendingRestart === null ||
         (checkpointRevision !== undefined &&
@@ -802,7 +801,11 @@ function createSession(
     });
     captureSave(snapshot, outcome, preparedRoom);
     if (pendingImage !== undefined) void retryAdmission();
-    else if (outcome?.status === "committed" || outcome?.status === "unchanged") {
+    else if (
+      (outcome?.status === "committed" || outcome?.status === "unchanged") &&
+      before.lastAdmissibleBuild!.identity.revision !==
+        snapshot.lastAdmissibleBuild!.identity.revision
+    ) {
       checkpointPending = true;
       checkpointRevision = undefined;
     }
@@ -860,9 +863,9 @@ function createSession(
           pendingImage = undefined;
           if (outcome.status === "restartRequired") pendingRestart = restartFor(outcome);
           if (outcome.status === "committed" || outcome.status === "unchanged") {
-            captureSave(before, outcome, false, false);
             checkpointPending = true;
             checkpointRevision = undefined;
+            captureSave(before, outcome, false, false);
           }
           notify();
         }, false);
@@ -926,9 +929,9 @@ function createSession(
               profileId: inspection.profileId,
               policy: { allowMissingRooms: data.roomGeneration === true },
             }).application;
-      captureSave(model.apply(application), outcome);
       checkpointPending = true;
       checkpointRevision = undefined;
+      captureSave(model.apply(application), outcome);
     }
     if (outcome.status === "restartRequired") {
       pendingRestart = restartFor(outcome);
@@ -1280,7 +1283,7 @@ function createSession(
       const ready =
         current() &&
         writeBlock === undefined &&
-        status.state === "saved" &&
+        expected.revision === model.capture().lastAdmissibleBuild!.identity.revision &&
         (revision === undefined
           ? pendingImage === undefined
           : revision === model.capture().lastAdmissibleBuild!.identity.revision);
@@ -1288,13 +1291,14 @@ function createSession(
         !ready &&
         current() &&
         writeBlock === undefined &&
-        (status.state !== "saved" || pendingImage !== undefined)
+        (expected.revision !== model.capture().lastAdmissibleBuild!.identity.revision ||
+          pendingImage !== undefined)
       ) {
         checkpointPending = true;
         if (checkpointRevision !== model.capture().lastAdmissibleBuild!.identity.revision)
           checkpointRevision = revision;
       }
-      if (status.state === "failed") throw new Error(status.message);
+      if (!ready && status.state === "failed") throw new Error(status.message);
       // A mismatched revision with no readiness blocker needs a new build
       // admission, rather than repeatedly capturing the same running bytes.
       return ready ? ("ready" as const) : ("not_ready" as const);
