@@ -268,9 +268,6 @@ function phoneLayout(event: MediaQueryListEvent): void {
   if (event.matches) editor.partsOpen.value = false;
 }
 phoneQuery.addEventListener("change", phoneLayout);
-watch(workspace.compactAgent, (compact, was) => {
-  if (was && !compact && !engine.state.powerUp.open) editor.partsOpen.value = false;
-});
 // A temporary fold never writes the saved dock setting. Opening Parts beside the Agent lasts only while the Agent is open.
 const autoFoldParts = computed(
   () => props.creating && workspace.compactAgent.value && !editor.partsOpen.value,
@@ -766,6 +763,15 @@ const groups = computed(() => {
     debugging: editor.debugging.value || (debug.value?.state.breakpoints.length ?? 0) > 0,
   });
 });
+// Parts is held only while the rename form can show: the room must still be listed (Undo can remove it).
+const renameActive = computed(
+  () =>
+    renamingRoom.value !== undefined &&
+    groups.value.some((group) =>
+      group.entries.some((entry) => entry.id === `room:${renamingRoom.value}`),
+    ),
+);
+workspace.holdParts(() => renameActive.value);
 const roomThumbs = useNodeThumbs(engine.roomMap, () => engine.roomMap.graph.value.nodes);
 const thumbnails = computed<Readonly<Record<string, string>>>(() => {
   void engine.roomMap.thumbVersion.value;

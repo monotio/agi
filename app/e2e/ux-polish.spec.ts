@@ -262,6 +262,49 @@ test("the bracket shortcut reopens temporary Parts without saving a fold @webkit
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"))).toBe(saved);
 });
 
+test("Parts opened beside the Agent folds again when the Agent closes at another width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await starter(page);
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+  await openWorkspaceAgent(page);
+  await page.getByTestId("workspace-parts").click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page
+    .getByTestId("workspace-agent-panel")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+});
+
+test("Undo before naming a new room releases Parts when the Agent closes", async ({ page }) => {
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await starter(page);
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+  const saved = await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"));
+  await openWorkspaceAgent(page);
+  await page.getByTestId("workspace-parts").click();
+  await page.getByRole("button", { name: "Add a room", exact: true }).click();
+  await expect(page.getByTestId("room-rename-input")).toBeVisible();
+  await page.getByTestId("workspace-undo").click();
+  await expect(page.getByTestId("room-rename-input")).toBeHidden();
+  await page
+    .getByTestId("workspace-agent-panel")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("parts-list")).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.createDocks"))).toBe(saved);
+});
+
 /** Mount the shipped notice with a keyed replacement, as stage notices are replaced. */
 async function notices(page: Page): Promise<void> {
   await page.goto("/");

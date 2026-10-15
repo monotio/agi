@@ -18,6 +18,8 @@ import {
   type ComputedRef,
   type InjectionKey,
   type Ref,
+  onScopeDispose,
+  watch,
 } from "vue";
 import type { DockSide } from "./workspaceEditor.ts";
 
@@ -34,6 +36,8 @@ export interface CreateWorkspace {
   readonly viewOnly: ComputedRef<boolean>;
   /** Compact desktop with the Agent open: Parts uses a temporary override. */
   readonly compactAgent: ComputedRef<boolean>;
+  /** Keep Parts open past the Agent closing while `active()` is true; the hold ends with the caller's scope. */
+  holdParts(active: () => boolean): void;
   toggleParts(): void;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
@@ -61,6 +65,8 @@ export function createCreateWorkspace(deps: {
   viewOnly?: () => boolean;
   storage?: StorageLike | undefined;
   compactAgent?: () => boolean;
+  /** Whether the Agent is open at any width; closing it ends a temporary Parts override. */
+  agentOpen?: () => boolean;
   parts?: {
     open: Ref<boolean>;
     focus: Ref<boolean>;
@@ -72,6 +78,33 @@ export function createCreateWorkspace(deps: {
   const collapsed = reactive(readCollapsed(storage));
   const sheetOpen = ref(false);
   const compactAgent = computed(() => deps.compactAgent?.() ?? false);
+
+  // Opening Parts beside the Agent lasts only while the Agent is open, whatever the width did meanwhile.
+  const holds = ref(0);
+  const agentOpen = deps.agentOpen;
+  const parts = deps.parts;
+  if (agentOpen && parts) {
+    watch([agentOpen, () => holds.value > 0], ([open, held]) => {
+      if (!open && !held) parts.open.value = false;
+    });
+  }
+  function holdParts(active: () => boolean): void {
+    let held = false;
+    const release = (): void => {
+      if (held) holds.value -= 1;
+      held = false;
+    };
+    watch(
+      active,
+      (now) => {
+        if (now === held) return;
+        held = now;
+        holds.value += now ? 1 : -1;
+      },
+      { immediate: true },
+    );
+    onScopeDispose(release);
+  }
 
   function persist(): void {
     try {
@@ -117,6 +150,7 @@ export function createCreateWorkspace(deps: {
     sheetOpen,
     viewOnly: computed(() => deps.viewOnly?.() ?? false),
     compactAgent,
+    holdParts,
     toggleParts,
     toggleDock,
     showPanel,
