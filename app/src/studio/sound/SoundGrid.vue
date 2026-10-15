@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { frameTask } from "../../ui/frameTask.ts";
+import { onBeforeUnmount } from "vue";
 import UiIcon from "../../ui/UiIcon.vue";
 import { computed, onMounted, useTemplateRef, watch } from "vue";
 import type { SoundDocument, SoundEventDataInput } from "../../../../src/sound/document.ts";
@@ -78,6 +80,9 @@ let drag:
       moving: boolean;
     }
   | undefined;
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
+
 function midi(note: TimedSoundEvent): number {
   return note.event.data.kind === "tone"
     ? Math.round(69 + 12 * Math.log2(PSG_BASE_FREQ / note.event.data.divisor / 440))
@@ -276,9 +281,12 @@ function move(event: PointerEvent): void {
   const cell = pointerCell(event);
   if (!cell) return;
   if (Math.abs(cell.x - drag.originX) > 3) drag.moving = true;
-  if (drag.moving)
-    drag.end = Math.max(drag.start + 1, gridTick(cell.step + 1, props.tempo, props.division));
-  draw();
+  gestureFrame.schedule(() => {
+    if (!drag) return;
+    if (drag.moving)
+      drag.end = Math.max(drag.start + 1, gridTick(cell.step + 1, props.tempo, props.division));
+    draw();
+  });
 }
 function data(row: number, lane: number): SoundEventDataInput {
   return lane === 3
@@ -290,6 +298,8 @@ function data(row: number, lane: number): SoundEventDataInput {
     : { kind: "tone", note: rowLabel(row), attenuation: 15 - props.volume };
 }
 function finish(event: PointerEvent): void {
+  move(event);
+  gestureFrame.flush();
   try {
     finishEdit(event);
   } catch (cause) {
@@ -483,6 +493,7 @@ onMounted(() => {
         @pointermove="move"
         @pointerup="finish"
         @pointercancel="
+          gestureFrame.cancel();
           drag = undefined;
           draw();
         "
@@ -501,6 +512,7 @@ onMounted(() => {
       @pointermove="move"
       @pointerup="finish"
       @pointercancel="
+        gestureFrame.cancel();
         drag = undefined;
         draw();
       "

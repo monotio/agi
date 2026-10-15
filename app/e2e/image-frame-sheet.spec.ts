@@ -19,7 +19,9 @@ async function projectView(page: Page) {
     };
   });
 }
-test("mark, resize and paint frames before one exact VIEW commit", async ({ page }) => {
+test("mark, resize and paint frames before one exact VIEW commit @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -201,7 +203,9 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
   expect((await projectView(page)).commits).toBe(after.commits);
 });
 
-test("white sheet finds tight linked figures and adds exact prepared cels", async ({ page }) => {
+test("white sheet finds tight linked figures and adds exact prepared cels @webkit-desktop", async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     window.addEventListener("error", (event) => {
       if (event.message.includes("ResizeObserver"))

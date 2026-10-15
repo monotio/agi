@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
+import { onBeforeUnmount } from "vue";
 import { computed, ref, useTemplateRef } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { DrawStop } from "./useStudioReadout.ts";
@@ -26,6 +28,9 @@ const playhead = defineModel<number>({ required: true });
 const places = computed(() => [...stops.map((stop) => stop.index), total]);
 const track = useTemplateRef("track");
 const dragging = ref(false);
+
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
 
 function clamp(k: number): number {
   return Math.min(total, Math.max(0, Math.round(k)));
@@ -66,11 +71,16 @@ function onPointerDown(event: PointerEvent): void {
   fromPointer(event);
 }
 function onPointerMove(event: PointerEvent): void {
-  if (dragging.value) fromPointer(event);
+  if (dragging.value) gestureFrame.schedule(() => fromPointer(event));
 }
 function onPointerUp(event: PointerEvent): void {
+  if (event.type === "pointerup") {
+    gestureFrame.cancel();
+    if (dragging.value) fromPointer(event);
+  } else gestureFrame.flush();
   dragging.value = false;
-  (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  const target = event.currentTarget as HTMLElement;
+  if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
 }
 const KEYS: Record<string, number> = {
   ArrowLeft: -1,

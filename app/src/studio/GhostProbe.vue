@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
+import { onBeforeUnmount } from "vue";
 import { computed, useId, useTemplateRef } from "vue";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import { toLogical, toScreen, type Viewport } from "../../../src/studio/viewport.ts";
@@ -31,6 +33,9 @@ const height = computed(() => SCREEN_HEIGHT * viewport.zoom);
 
 // The probe object is fixed for the component's life; its refs are the state.
 const { result, pixels, cel, x, baselineY } = probe;
+
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
 
 function colourMasks(hidden: boolean): { color: number; d: string }[] {
   const masks = new Map<number, Uint8Array>();
@@ -88,9 +93,11 @@ function onPointerDown(event: PointerEvent): void {
 function onPointerMove(event: PointerEvent): void {
   if (!grab) return;
   const at = logicalAt(event);
-  probe.moveTo(at.x - grab.dx, at.y - grab.dy);
+  const { dx, dy } = grab;
+  gestureFrame.schedule(() => probe.moveTo(at.x - dx, at.y - dy));
 }
 function onPointerUp(): void {
+  gestureFrame.flush();
   grab = undefined;
 }
 

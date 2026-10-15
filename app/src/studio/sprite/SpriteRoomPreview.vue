@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { frameTask } from "../../ui/frameTask.ts";
+import { onBeforeUnmount } from "vue";
 import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 
 import { computed, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
@@ -77,6 +79,9 @@ const viewCel = computed<ViewCel>(() => ({
   mirrored: false,
 }));
 
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
+
 function clamp(): void {
   x.value = Math.min(Math.max(x.value, 0), Math.max(0, SCREEN_WIDTH - cel.width));
   baselineY.value = Math.min(Math.max(baselineY.value, cel.height - 1), SCREEN_HEIGHT - 1);
@@ -151,14 +156,21 @@ watchEffect(
 );
 
 /** Stand the cel with its feet at the pressed cell. */
-function place(event: PointerEvent): void {
+function place(event: PointerEvent, deferred = false): void {
   const target = event.currentTarget as HTMLElement;
   const rect = target.getBoundingClientRect();
   const cx = Math.floor(((event.clientX - rect.left) / rect.width) * SCREEN_WIDTH);
   const cy = Math.floor(((event.clientY - rect.top) / rect.height) * SCREEN_HEIGHT);
-  x.value = cx - Math.floor(cel.width / 2);
-  baselineY.value = cy;
-  clamp();
+  const apply = () => {
+    x.value = cx - Math.floor(cel.width / 2);
+    baselineY.value = cy;
+    clamp();
+  };
+  if (deferred) gestureFrame.schedule(apply);
+  else {
+    gestureFrame.cancel();
+    apply();
+  }
 }
 function onDown(event: PointerEvent): void {
   if (event.button !== 0) return;
@@ -166,7 +178,13 @@ function onDown(event: PointerEvent): void {
   place(event);
 }
 function onMove(event: PointerEvent): void {
-  if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) place(event);
+  if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) place(event, true);
+}
+function onUp(event: PointerEvent): void {
+  if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) {
+    place(event);
+    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  }
 }
 /** Arrows move the cel 1 px (Shift: 8): the keyboard way to place it. */
 function onKey(event: KeyboardEvent): void {
@@ -226,6 +244,9 @@ function onKey(event: KeyboardEvent): void {
         data-testid="sprite-room-canvas"
         @pointerdown="onDown"
         @pointermove="onMove"
+        @pointerup="onUp"
+        @pointercancel="gestureFrame.cancel()"
+        @lostpointercapture="gestureFrame.cancel()"
         @keydown="onKey"
       ></canvas>
       <p class="room-preview__verdict" data-testid="sprite-room-verdict">

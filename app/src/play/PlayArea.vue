@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
 import {
   computed,
   defineAsyncComponent,
@@ -654,6 +655,8 @@ function submit(): void {
 
 /** Split-mode wipe handle: a thin drag strip tracking the composited divider. */
 let splitDragEl: HTMLElement | null = null;
+const splitFrame = frameTask();
+onBeforeUnmount(splitFrame.cancel);
 
 function onSplitDown(ev: PointerEvent): void {
   splitDragEl = ev.currentTarget as HTMLElement;
@@ -665,10 +668,14 @@ function onSplitMove(ev: PointerEvent): void {
   if (!splitDragEl) return;
   const rect = splitDragEl.parentElement?.getBoundingClientRect();
   if (!rect || rect.width <= 0) return;
-  splitAt.value = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
+  const next = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
+  splitFrame.schedule(() => {
+    splitAt.value = next;
+  });
 }
 
 function onSplitUp(): void {
+  splitFrame.flush();
   splitDragEl = null;
 }
 

@@ -521,7 +521,9 @@ test("reduced motion renders the same map without animation", async ({ page }) =
   await page.screenshot({ path: test.info().outputPath("world-map-reduced-motion.png") });
 });
 
-test("the graph pans in both axes, zooms, and the detail pane dismisses", async ({ page }) => {
+test("the graph pans in both axes, zooms, and the detail pane dismisses @webkit-desktop", async ({
+  page,
+}) => {
   // The 18-room dense plan spreads wide enough to scroll on both axes.
   const game = mapGame();
   await page.goto("/");

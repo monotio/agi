@@ -1,6 +1,16 @@
 <script setup lang="ts">
+import { frameTask } from "../../ui/frameTask.ts";
 import UiIcon from "../../ui/UiIcon.vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+} from "vue";
 import {
   suggestImageFrames,
   prepareImageCels,
@@ -37,6 +47,11 @@ const props = defineProps<{
 }>();
 const frames = defineModel<ImageFrame[]>({ required: true });
 const boxes = ref<FrameBox[]>([]);
+const dragFrame = frameTask();
+let gesture: Gesture | undefined;
+const gesturing = ref(false);
+const outline = shallowRef<{ id: string; region: Rect }>();
+const settledBoxes = shallowRef<FrameBox[]>([]);
 const selected = ref<string[]>([]);
 const chosenLoop = ref(0);
 const celHeight = ref(props.loopHeights[0] ?? 24);
@@ -102,10 +117,10 @@ const linkLabel = computed(() =>
 );
 const preview = computed(() => {
   try {
-    return boxes.value.length
+    return settledBoxes.value.length
       ? prepareImageCels(
           props.image,
-          boxes.value.map((f) => ({ ...f, ...scaleImageFrame(f.region, celHeight.value) })),
+          settledBoxes.value.map((f) => ({ ...f, ...scaleImageFrame(f.region, celHeight.value) })),
           props.profile,
           props.background,
           props.backgroundTransparent,
@@ -117,7 +132,7 @@ const preview = computed(() => {
 });
 const previewCel = computed(() => {
   if (!preview.value) return undefined;
-  const loops = [...new Set(boxes.value.map((f) => f.loop))].sort((a, b) => a - b);
+  const loops = [...new Set(settledBoxes.value.map((f) => f.loop))].sort((a, b) => a - b);
   const cels = preview.value.input.loops[loops.indexOf(chosenLoop.value)]?.cels;
   return cels?.[tick.value % cels.length];
 });
@@ -142,6 +157,10 @@ function suggestions() {
 watch(
   () => props.image,
   () => {
+    dragFrame.cancel();
+    gesture = undefined;
+    outline.value = undefined;
+    gesturing.value = false;
     boxes.value = suggestions();
     selected.value = boxes.value[0] ? [boxes.value[0].id] : [];
     manualOrder.value = false;
@@ -151,8 +170,10 @@ watch(
   { immediate: true },
 );
 watch(
-  [boxes, celHeight],
+  [boxes, celHeight, gesturing],
   () => {
+    if (gesturing.value) return;
+    settledBoxes.value = boxes.value;
     celHeight.value = Math.max(1, Math.min(maximumHeight.value, celHeight.value || 1));
     frames.value = boxes.value.map(({ region, loop }) => ({
       region,
@@ -221,10 +242,11 @@ onMounted(() => {
   if (animationPanel.value) observer.observe(animationPanel.value);
   fit();
   timer = setInterval(() => {
-    if (animated.value) tick.value++;
+    if (animated.value && !gesturing.value) tick.value++;
   }, 180);
 });
 onBeforeUnmount(() => {
+  dragFrame.cancel();
   observer?.disconnect();
   if (fitRaf !== undefined) cancelAnimationFrame(fitRaf);
   if (timer) clearInterval(timer);
@@ -350,7 +372,6 @@ interface Gesture {
   region: Rect;
   original: FrameBox[];
 }
-let gesture: Gesture | undefined;
 function point(event: PointerEvent) {
   const rect = surface.value!.getBoundingClientRect();
   return {
@@ -370,6 +391,7 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
     }
     if (!selected.value.includes(frame.id)) select(frame.id);
   } else {
+    gesturing.value = true;
     const region = drawFrameRegion(start, start, props.image, []);
     frame = {
       id: `frame-${serial++}`,
@@ -383,6 +405,7 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
     boxes.value = [...boxes.value, frame];
     select(frame.id);
   }
+  gesturing.value = true;
   gesture = {
     id: frame.id,
     mode: handle ?? (original.includes(frame) ? "move" : "draw"),
@@ -396,29 +419,46 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
   focusBox(frame.id);
 }
 function move(event: PointerEvent) {
+  if (gesture) dragFrame.schedule(() => applyMove(event));
+}
+function applyMove(event: PointerEvent, commit = false) {
   if (!gesture) return;
   const { start, region, mode, id, original, clientStart, scale: gestureScale } = gesture;
   const dx = (event.clientX - clientStart.x) / gestureScale;
   const dy = (event.clientY - clientStart.y) / gestureScale;
   const end = { x: start.x + dx, y: start.y + dy };
   const peers = original.filter((f) => f.id !== id);
-  if (mode === "move") updateRegion(id, moveFrameRegion(region, dx, dy, props.image));
-  else if (mode === "draw") updateRegion(id, drawFrameRegion(start, end, props.image, peers));
-  else boxes.value = resizeLinkedFrameBoxes(original, id, mode, dx, dy, props.image);
+  let next: Rect;
+  if (mode === "move") next = moveFrameRegion(region, dx, dy, props.image);
+  else if (mode === "draw") next = drawFrameRegion(start, end, props.image, peers);
+  else {
+    const resized = resizeLinkedFrameBoxes(original, id, mode, dx, dy, props.image);
+    next = resized.find((f) => f.id === id)!.region;
+    if (commit) boxes.value = resized;
+  }
+  if (commit) {
+    if (mode === "move" || mode === "draw") updateRegion(id, next);
+  } else outline.value = { id, region: next };
 }
 function end(event: PointerEvent) {
   if (!gesture) return;
-  move(event);
+  dragFrame.cancel();
+  applyMove(event, true);
+  outline.value = undefined;
   const id = gesture.id;
   gesture = undefined;
   if (surface.value?.hasPointerCapture(event.pointerId))
     surface.value.releasePointerCapture(event.pointerId);
   sort();
+  gesturing.value = false;
   focusBox(id);
 }
 function cancel(event: PointerEvent) {
   if (!gesture) return;
+  dragFrame.cancel();
+  outline.value = undefined;
   boxes.value = gesture.original;
+  gesturing.value = false;
   gesture = undefined;
   selected.value = selected.value.filter((id) => boxes.value.some((f) => f.id === id));
   if (surface.value?.hasPointerCapture(event.pointerId))
@@ -491,23 +531,33 @@ function detail(event: Event, field: keyof Rect) {
     );
 }
 function regionStyle(frame: FrameBox) {
+  const region = outline.value?.id === frame.id ? outline.value.region : frame.region;
   return {
-    left: `${frame.region.x * scale.value}px`,
-    top: `${frame.region.y * scale.value}px`,
-    width: `${frame.region.width * scale.value}px`,
-    height: `${frame.region.height * scale.value}px`,
+    left: `${region.x * scale.value}px`,
+    top: `${region.y * scale.value}px`,
+    width: `${region.width * scale.value}px`,
+    height: `${region.height * scale.value}px`,
     "--loop-colour": colours[frame.loop],
   };
 }
+let thumbnailCache: Record<string, { key: string; url: string }> = {};
 const thumbnails = computed(() => {
   const prepared = preview.value;
   if (!prepared) return [];
-  const loops = [...new Set(boxes.value.map((f) => f.loop))].sort((a, b) => a - b);
+  const loops = [...new Set(settledBoxes.value.map((f) => f.loop))].sort((a, b) => a - b);
   const counts: Record<string, number> = {};
-  return boxes.value.map((frame) => {
+  const previous = thumbnailCache;
+  thumbnailCache = {};
+  return settledBoxes.value.map((frame) => {
     const index = counts[frame.loop] ?? 0;
     counts[frame.loop] = index + 1;
     const cel = prepared.input.loops[loops.indexOf(frame.loop)]!.cels![index]!;
+    const key = `${cel.width}:${cel.height}:${cel.transparentColor}:${[...cel.pixels].join(",")}`;
+    const cached = previous[frame.id];
+    if (cached?.key === key) {
+      thumbnailCache[frame.id] = cached;
+      return cached.url;
+    }
     const target = document.createElement("canvas");
     target.width = cel.width;
     target.height = cel.height;
@@ -517,7 +567,9 @@ const thumbnails = computed(() => {
       pixels.data.set([...EGA_PALETTE[colour]!, colour === cel.transparentColor ? 0 : 255], i * 4);
     }
     target.getContext("2d")!.putImageData(pixels, 0, 0);
-    return target.toDataURL();
+    const url = target.toDataURL();
+    thumbnailCache[frame.id] = { key, url };
+    return url;
   });
 });
 </script>

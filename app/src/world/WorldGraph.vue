@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
+import { onBeforeUnmount } from "vue";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
 /**
@@ -129,7 +131,16 @@ function fitGraph(): void {
   setZoom(fitZoom());
 }
 
+const wheelFrame = frameTask();
+const nodeFrame = frameTask();
+let wheelZoom: number | undefined;
+onBeforeUnmount(() => {
+  wheelFrame.cancel();
+  nodeFrame.cancel();
+});
 function setZoom(next: number, clientX?: number, clientY?: number): void {
+  wheelFrame.cancel();
+  wheelZoom = undefined;
   followLive = false;
   const el = graphScroll.value;
   const z = Math.min(3, Math.max(0.15, next));
@@ -155,7 +166,11 @@ function onGraphWheel(ev: WheelEvent): void {
   followLive = false; // any wheel is the user taking the viewport
   if (!ev.ctrlKey && !ev.metaKey) return;
   ev.preventDefault();
-  setZoom(zoom.value * (ev.deltaY < 0 ? 1.2 : 1 / 1.2), ev.clientX, ev.clientY);
+  wheelZoom = Math.min(
+    3,
+    Math.max(0.15, (wheelZoom ?? zoom.value) * (ev.deltaY < 0 ? 1.2 : 1 / 1.2)),
+  );
+  wheelFrame.schedule(() => setZoom(wheelZoom!, ev.clientX, ev.clientY));
 }
 
 let panning: { x: number; y: number; left: number; top: number; moved: number } | null = null;
@@ -266,7 +281,15 @@ const roomsInView = computed(
 );
 
 const { onNodePointerDown, onNodePointerMove, onNodePointerUp, onNodeKeydown } = useNodeDrag({
-  map,
+  map: {
+    previewNode(room, x, y) {
+      nodeFrame.schedule(() => map.previewNode(room, x, y));
+    },
+    moveNode(room, x, y) {
+      nodeFrame.cancel();
+      map.moveNode(room, x, y);
+    },
+  },
   positionOf: (room) => positioned.value.get(room),
   takeViewport: () => {
     followLive = false;

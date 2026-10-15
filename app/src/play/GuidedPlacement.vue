@@ -2,7 +2,7 @@
 import { computed, ref, useTemplateRef, onMounted } from "vue";
 import { guidedPlacement, dockPicturePoint } from "./guidedPlacement.ts";
 import { celRgba } from "../render/palette.ts";
-import { watchEffect } from "vue";
+import { watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 const { picRow } = defineProps<{ picRow: number }>();
 const root = useTemplateRef("root");
@@ -34,7 +34,8 @@ const boxStyle = computed(() => {
       }
     : {};
 });
-watchEffect(
+watch(
+  [ghost, () => guidedPlacement.value?.cel],
   () => {
     const canvas = ghost.value;
     const cel = guidedPlacement.value?.cel;
@@ -45,7 +46,7 @@ watchEffect(
     celRgba(cel, image.data);
     canvas.getContext("2d")?.putImageData(image, 0, 0);
   },
-  { flush: "post" },
+  { flush: "post", immediate: true },
 );
 function move(event: PointerEvent): void {
   const value = guidedPlacement.value;

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { frameTask } from "../../ui/frameTask.ts";
+import { onBeforeUnmount, shallowRef } from "vue";
 import { computed, ref, useTemplateRef, watch, watchEffect, nextTick } from "vue";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
@@ -403,6 +405,11 @@ function setHeroY(event: Event): void {
 // ---- Canvas rendering for hero position ----------------------------------
 
 const heroCanvas = useTemplateRef("heroCanvas");
+const heroDraft = shallowRef<{ x: number; y: number }>();
+const heroFrame = frameTask();
+let heroPointer: number | undefined;
+let heroLaunch: string | undefined;
+onBeforeUnmount(heroFrame.cancel);
 
 function renderHeroStage(): void {
   const canvasEl = heroCanvas.value;
@@ -432,7 +439,7 @@ function renderHeroStage(): void {
   }
 
   // Draw hero crosshair marker
-  const hero = activeLaunch.value?.hero;
+  const hero = heroDraft.value ?? activeLaunch.value?.hero;
   if (hero) {
     const hx = Math.max(0, Math.min(159, hero.x));
     const hy = Math.max(0, Math.min(167, hero.y));
@@ -458,20 +465,45 @@ watchEffect(() => {
   }
 });
 
-function handleCanvasDrag(event: MouseEvent): void {
-  if (event.buttons !== 1 && event.type !== "click") return;
-  const canvasEl = heroCanvas.value;
-  if (!canvasEl || !activeLaunch.value?.hero) return;
-  const rect = canvasEl.getBoundingClientRect();
-  const rawX = Math.round(((event.clientX - rect.left) / rect.width) * 160);
-  const rawY = Math.round(((event.clientY - rect.top) / rect.height) * 168);
-  const x = Math.max(0, Math.min(159, rawX));
-  const y = Math.max(0, Math.min(167, rawY));
-  commitLaunch({
-    ...activeLaunch.value,
-    hero: { x, y },
+function heroPoint(event: PointerEvent) {
+  const rect = heroCanvas.value!.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(159, Math.round(((event.clientX - rect.left) / rect.width) * 160))),
+    y: Math.max(0, Math.min(167, Math.round(((event.clientY - rect.top) / rect.height) * 168))),
+  };
+}
+function heroDown(event: PointerEvent): void {
+  if (props.readOnly || event.button !== 0 || !activeLaunch.value?.hero) return;
+  heroLaunch = activeLaunch.value.id;
+  heroPointer = event.pointerId;
+  heroCanvas.value!.setPointerCapture(event.pointerId);
+  heroDraft.value = heroPoint(event);
+}
+function heroMove(event: PointerEvent): void {
+  if (heroPointer !== event.pointerId) return;
+  const point = heroPoint(event);
+  heroFrame.schedule(() => {
+    heroDraft.value = point;
   });
 }
+function heroUp(event: PointerEvent): void {
+  if (heroPointer !== event.pointerId) return;
+  heroFrame.cancel();
+  const hero = heroPoint(event);
+  heroPointer = undefined;
+  heroDraft.value = undefined;
+  if (!props.readOnly && activeLaunch.value && activeLaunch.value.id === heroLaunch)
+    commitLaunch({ ...activeLaunch.value, hero });
+  heroLaunch = undefined;
+  heroCanvas.value?.releasePointerCapture(event.pointerId);
+}
+function heroCancel(): void {
+  heroLaunch = undefined;
+  heroFrame.cancel();
+  heroPointer = undefined;
+  heroDraft.value = undefined;
+}
+watch([() => activeLaunch.value?.id, () => props.readOnly], heroCancel);
 </script>
 
 <template>
@@ -852,7 +884,7 @@ function handleCanvasDrag(event: MouseEvent): void {
                   max="159"
                   class="launch-coord-input"
                   aria-label="Hero X position"
-                  :value="activeLaunch.hero.x"
+                  :value="heroDraft?.x ?? activeLaunch.hero.x"
                   :disabled="readOnly"
                   @change="setHeroX"
                 />
@@ -865,7 +897,7 @@ function handleCanvasDrag(event: MouseEvent): void {
                   max="167"
                   class="launch-coord-input"
                   aria-label="Hero Y position"
-                  :value="activeLaunch.hero.y"
+                  :value="heroDraft?.y ?? activeLaunch.hero.y"
                   :disabled="readOnly"
                   @change="setHeroY"
                 />
@@ -878,9 +910,11 @@ function handleCanvasDrag(event: MouseEvent): void {
                 height="168"
                 class="launch-canvas"
                 aria-label="Room picture hero position"
-                @mousedown="handleCanvasDrag"
-                @mousemove="handleCanvasDrag"
-                @click="handleCanvasDrag"
+                @pointerdown="heroDown"
+                @pointermove="heroMove"
+                @pointerup="heroUp"
+                @pointercancel="heroCancel"
+                @lostpointercapture="heroCancel"
               ></canvas>
             </div>
           </div>
@@ -1220,6 +1254,7 @@ function handleCanvasDrag(event: MouseEvent): void {
 }
 
 .launch-canvas {
+  touch-action: none;
   display: block;
   width: 320px;
   height: 336px;

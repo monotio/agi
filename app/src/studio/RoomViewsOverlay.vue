@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
+import { onBeforeUnmount } from "vue";
 import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { computed, ref, useTemplateRef } from "vue";
@@ -63,6 +65,9 @@ const fixed = (figure: RoomPlacement): boolean =>
   figure.reason === null && figure.x !== null && figure.y !== null;
 /** Where a figure with no known spot starts: centred, standing low on the picture. */
 const START_Y = 130;
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
+
 function startSpot(width: number): { x: number; y: number } {
   return { x: Math.max(0, Math.round((160 - width) / 2)), y: START_Y };
 }
@@ -139,6 +144,9 @@ function down(event: PointerEvent, figure: RoomPlacement): void {
   event.preventDefault();
 }
 function move(event: PointerEvent): void {
+  if (dragging.value) gestureFrame.schedule(() => applyMove(event));
+}
+function applyMove(event: PointerEvent): void {
   const grab = dragging.value;
   if (!grab || event.pointerId !== grab.pointer) return;
   const at = point(event);
@@ -154,12 +162,14 @@ function settle(figure: RoomPlacement, x: number, y: number): void {
 function up(event: PointerEvent): void {
   const grab = dragging.value;
   if (!grab || event.pointerId !== grab.pointer) return;
-  move(event);
+  gestureFrame.cancel();
+  applyMove(event);
   dragging.value = undefined;
   if (grab.x === grab.startX && grab.y === grab.startY) return;
   settle(grab.figure, grab.x, grab.y);
 }
 function cancel(): void {
+  gestureFrame.cancel();
   dragging.value = undefined;
 }
 function nudge(event: KeyboardEvent, figure: RoomPlacement): void {

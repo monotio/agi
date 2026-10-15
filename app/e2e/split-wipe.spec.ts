@@ -5,9 +5,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 
-test.use({ headless: process.platform !== "darwin" });
-
-test("split handle drag", async ({ page }) => {
+test("split handle drag @webkit-desktop", async ({ page }) => {
   const game = createContainer();
   game.putResource(
     "picture",

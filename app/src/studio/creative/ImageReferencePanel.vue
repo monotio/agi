@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { throttleTask } from "../../ui/frameTask.ts";
 import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import {
@@ -386,29 +387,29 @@ async function addCels() {
     busy.value = false;
   }
 }
+const livePreview = throttleTask(150);
 function stopPreview() {
+  livePreview.cancel();
   if (previewing.value) engine.previewImageCels(null);
   previewing.value = false;
+}
+function postPreview() {
+  if (!previewing.value) return;
+  if (!prepared.value) return stopPreview();
+  engine.previewImageCels(
+    prepared.value.payload,
+    [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
+  );
 }
 function preview() {
   if (previewing.value) stopPreview();
   else if (prepared.value) {
-    engine.previewImageCels(
-      prepared.value.payload,
-      [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
-    );
     previewing.value = true;
+    livePreview.schedule(postPreview);
   }
 }
 watch(prepared, () => {
-  if (previewing.value) {
-    if (prepared.value)
-      engine.previewImageCels(
-        prepared.value.payload,
-        [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
-      );
-    else stopPreview();
-  }
+  if (previewing.value) livePreview.schedule(postPreview);
 });
 watch(
   () => props.active,
