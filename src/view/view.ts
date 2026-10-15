@@ -413,7 +413,11 @@ export function selectViewCel(
       if (loop.mirrorable) {
         for (const cel of loop.cels) mirrorPixels(cel.cel);
       }
-      loop.orientation = loopIndex;
+      // The writeback is a byte store through a 0xFFCF mask: only (loop mod
+      // 4) reaches the 0x30 bits, while the equal-test above compares the
+      // FULL index — a loop ≥ 4 re-mirrors on every set.loop (xmas 2.230
+      // _SetLoop 0x3545-0x357C).
+      loop.orientation = loopIndex & 3;
     }
   } else if (state.mirrorable && state.orientation !== (loopIndex & 7)) {
     mirrorPixels(state.cel);

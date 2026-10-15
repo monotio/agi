@@ -6527,15 +6527,40 @@ export class Engine {
       }
       // position and position.v write the coordinates and their saved pair;
       // the originals leave the newly-positioned bit to the reposition family
-      // (docs/fidelity.md, "Original position handlers").
+      // (docs/fidelity.md, "Original position handlers"). 2.089 alone stores
+      // first, erases the drawn cel, and only then snapshots the saved pair
+      // (sq1 2.089 Position 0x7141; 2.230/2.272 are store-together, xmas
+      // 0x70FA/0x7196).
       case 0x25: {
         const o = obj(0);
+        if (this.profile.positionActionOrder === "erase-then-store") {
+          o.x = a(1);
+          o.y = a(2);
+          if (o.active) {
+            this.restoreBehind(o);
+            this.presentationDirty = true;
+          }
+          o.prevX = o.x;
+          o.prevY = o.y;
+          return next;
+        }
         o.x = o.prevX = a(1);
         o.y = o.prevY = a(2);
         return next;
       }
       case 0x26: {
         const o = obj(0);
+        if (this.profile.positionActionOrder === "erase-then-store") {
+          o.x = this.vars[a(1)]!;
+          o.y = this.vars[a(2)]!;
+          if (o.active) {
+            this.restoreBehind(o);
+            this.presentationDirty = true;
+          }
+          o.prevX = o.x;
+          o.prevY = o.y;
+          return next;
+        }
         o.x = o.prevX = this.vars[a(1)]!;
         o.y = o.prevY = this.vars[a(2)]!;
         return next;
