@@ -154,7 +154,7 @@ describe("profile table", () => {
     assert.equal(p.wordSequenceTailTerminator, false);
     assert.equal(p.pictureMaxCommand, 0xf8);
     assert.equal(p.patternProfile, "none");
-    assert.equal(p.positionActionOrder, "erase-then-store");
+    assert.equal(p.positionActionOrder, "place-when-drawn");
     assert.equal(p.earlierPartitionOrder, "object-number");
     assert.equal(p.directionLoops, "exact-four");
     assert.equal(p.directionLoopTiming, "every-pass");

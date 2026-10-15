@@ -174,20 +174,23 @@ test("a fresh player direction meets the block check in the same cycle", () => {
   assert.equal(ego.x, 94, "ego never steps inside the block");
 });
 
-test("2.089 position erases a drawn cel's cover before storing coordinates", () => {
-  // Player-visible rule: on 2.089, position() on a drawn object restores
-  // what the cel covered — text printed over it disappears; 2.230+ moves the
-  // object without touching the backdrop (sq1 2.089 Position 0x7141: store
-  // x/y, test DRAWN, call Erase 0x515C, then snapshot prev; contrast xmas
-  // 2.230 0x70FA store-together).
-  const run = (profile: "2.089" | "2.936") => {
+test("2.089 position on a drawn object raises it above the horizon before storing the snapshot", () => {
+  // Player-visible rule: on 2.089, position() on a DRAWN object runs the
+  // horizon/placement routine, so an object positioned onto or above the
+  // horizon is raised to horizon+1 first; an undrawn object is stored
+  // verbatim. 2.230+ store the coordinates untouched (sq1 2.089 Position
+  // 0x7141: store x/y, test the DRAWN flag (flags&1), call 0x515C — the
+  // horizon raise, then the placement spiral — and only then snapshot prev
+  // from the adjusted coordinates; contrast xmas 2.230 0x70FA
+  // store-together, no call).
+  const run = (profile: "2.089" | "2.936", setup: string) => {
     const container = createContainer();
     container.putResource(
       "logic",
       0,
       assembleLogic(
-        `load.view(1); animate.obj(o1); set.view(o1, 1); position(o1, 8, 96); draw(o1);
-         stop.update(o1); display(13, 2, "X"); position(o1, 20, 100); return;`,
+        `load.view(1); animate.obj(o1); set.view(o1, 1); position(o1, 8, 96);
+         ${setup} position(o1, 20, 10); return;`,
         { dictionary: new Map(), profile: PROFILES[profile] },
       ).payload,
     );
@@ -198,8 +201,14 @@ test("2.089 position erases a drawn cel's cover before storing coordinates", () 
     );
     const engine = new Engine(container, new Host(), undefined, { profile });
     engine.tick();
-    return engine.textRow(13).charAt(2);
+    return engine.screenObjects[1]!.y;
   };
-  assert.equal(run("2.089"), " ", "the erase restores what the cel covered");
-  assert.equal(run("2.936"), "X", "store-together profiles move silently");
+  assert.equal(run("2.089", "draw(o1); stop.update(o1);"), 37, "drawn: raised above horizon 36");
+  assert.equal(
+    run("2.089", "draw(o1); stop.update(o1); ignore.horizon(o1);"),
+    10,
+    "drawn with ignore.horizon: stored verbatim",
+  );
+  assert.equal(run("2.089", ""), 10, "undrawn: stored verbatim");
+  assert.equal(run("2.936", "draw(o1); stop.update(o1);"), 10, "store-together profiles never place");
 });

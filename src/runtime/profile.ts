@@ -130,7 +130,7 @@ type DirectionLoopRule = "exact-four" | "four-or-more" | "four-or-more-f20";
 type DirectionLoopTiming = "every-pass" | "cadence-due";
 
 /** Position actions 0x25/0x26 ordering (conformance matrix, "Position and composition"). */
-type PositionActionOrder = "erase-then-store" | "store-together";
+type PositionActionOrder = "place-when-drawn" | "store-together";
 
 /** Ordering within the earlier-drawn partition (object_behavior "Drawing order and refresh"). */
 type PartitionOrder = "object-number" | "drawing-key";
@@ -349,7 +349,7 @@ export interface AgiProfile {
   readonly directionLoops: DirectionLoopRule;
   /** Selection runs on every eligible pass (2.089/2.230/2.272) or only when the cadence countdown is 1. */
   readonly directionLoopTiming: DirectionLoopTiming;
-  /** Position actions erase drawn state before storing the snapshot (2.089 only). */
+  /** Position actions run the horizon/placement routine on a drawn object before storing the snapshot (2.089 only). */
   readonly positionActionOrder: PositionActionOrder;
   /** Earlier-drawn partition ordering; 2.089 uses object number, everything else the drawing key. */
   readonly earlierPartitionOrder: PartitionOrder;
@@ -585,7 +585,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_EARLY,
     id: "2.089",
     wordSequenceTailTerminator: false,
-    positionActionOrder: "erase-then-store",
+    positionActionOrder: "place-when-drawn",
     earlierPartitionOrder: "object-number",
     // The restart confirmation is unconditional and show.mem has no "rm.0"
     // line through 2.272 (sq1 2.089 restart 0x22AB — no f16 test anywhere;
