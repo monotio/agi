@@ -510,7 +510,7 @@ function testServerDependencies(): Plugin {
 /** A worker entry as Vite's dev server rewrites `new Worker(new URL(…, import.meta.url))`. */
 const DEV_WORKER_URL = /"([^"]+[?&]worker_file&type=\w+)"/g;
 
-/** The most walks one warm-up makes before it releases requests regardless. */
+/** The most walks one warm-up makes; a graph still changing after them stops the server. */
 const WARMUP_PASSES = 5;
 
 /**
@@ -519,15 +519,16 @@ const WARMUP_PASSES = 5;
  * found during a walk can make the optimizer bundle again and invalidate
  * every cached transform, so the walk repeats until one pass transforms
  * nothing new. A module that fails to transform is left for its first
- * request to report.
+ * request to report. Returns the modules the last pass found uncached,
+ * which is none once a pass settles.
  */
 async function transformModuleGraph(
   environment: DevEnvironment,
   entry: string,
-): Promise<{ modules: number; passes: number; settled: boolean }> {
+): Promise<{ modules: number; passes: number; uncached: string[] }> {
   for (let pass = 1; ; pass++) {
     const seen = new Set<string>();
-    let transformed = 0;
+    const uncached: string[] = [];
     const visit = async (url: string): Promise<void> => {
       if (seen.has(url)) return;
       seen.add(url);
@@ -535,14 +536,14 @@ async function transformModuleGraph(
       const result = await environment.transformRequest(url).catch(() => null);
       if (result === null) return;
       const module = await environment.moduleGraph.getModuleByUrl(url);
-      if (!cached && module?.transformResult) transformed++;
+      if (!cached && module?.transformResult) uncached.push(url);
       const workers = [...result.code.matchAll(DEV_WORKER_URL)].map((match) => match[1]!);
       const imported = [...(module?.importedModules ?? [])].map((child) => child.url);
       await Promise.all([...imported, ...workers].map(visit));
     };
     await visit(entry);
-    if (transformed === 0 || pass === WARMUP_PASSES)
-      return { modules: seen.size, passes: pass, settled: transformed === 0 };
+    if (uncached.length === 0 || pass === WARMUP_PASSES)
+      return { modules: seen.size, passes: pass, uncached };
   }
 }
 
@@ -569,21 +570,31 @@ function testServerWarmup(): Plugin {
         httpServer.once("listening", () => {
           const started = performance.now();
           transformModuleGraph(server.environments.client, "/src/main.ts")
-            .then(({ modules, passes, settled }) => {
+            .then(({ modules, passes, uncached }) => {
               const seconds = ((performance.now() - started) / 1000).toFixed(1);
-              const summary = `[warmup] ${modules} modules in ${seconds}s, ${passes} passes`;
-              if (settled) server.config.logger.info(summary, { timestamp: true });
-              else
-                server.config.logger.warn(`${summary}; the last pass still transformed modules`, {
-                  timestamp: true,
-                });
+              if (uncached.length === 0) {
+                server.config.logger.info(
+                  `[warmup] ${modules} modules in ${seconds}s, ${passes} passes`,
+                  { timestamp: true },
+                );
+                resolve();
+                return;
+              }
+              // Requests stay held: a server released with an invalidated graph
+              // is the cold start this warm-up exists to prevent.
+              server.config.logger.error(
+                `[warmup] the module graph still changed after ${passes} passes (${seconds}s); ` +
+                  `${uncached.length} modules were uncached in the last pass:\n  ${uncached.join("\n  ")}`,
+                { timestamp: true },
+              );
+              process.exit(1);
             })
             .catch((error: unknown) => {
               server.config.logger.warn(`[warmup] stopped early: ${String(error)}`, {
                 timestamp: true,
               });
-            })
-            .finally(resolve);
+              resolve();
+            });
         });
       });
       server.middlewares.use((_request, _response, next) => {
