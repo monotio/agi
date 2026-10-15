@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compositeFrame, FRAME_HEIGHT, FRAME_WIDTH } from "../src/render/composite.ts";
 import { EGA_PALETTE } from "../src/render/palette.ts";
+import { TextSurface, attr, drawWindow } from "../../src/runtime/textSurface.ts";
 
 function fixture(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array; picRow: number } {
   const visual = new Uint8Array(160 * 168).fill(15);
@@ -74,4 +75,49 @@ test("a character the font does not draw is reported once, not left silently bla
   assert.deepEqual(warnings, [
     "Game text uses character 0x82, which the 8×8 font does not draw; it shows as a blank cell.",
   ]);
+});
+
+test("the window frame renders the measured 1-pixel edge bars, inset one pixel", () => {
+  // Measured on kq1 2.917 OpenWndw 0x54C8: a full-rect white fill, then four
+  // solid red bars one nibble (one logical pixel) wide, inset one pixel from
+  // the fill's edge. On the 4x8-pixel text cell the bars land as: top bar on
+  // cell row 4, bottom bar on cell row 3, left bar in the cell's leftmost
+  // logical pixel (two rendered columns), right bar in its rightmost.
+  const surface = new TextSurface();
+  drawWindow(surface, { top: 10, left: 18, rows: 3, cols: 4 }, ["Hi"], attr(0, 15), attr(4, 15));
+  const input = { ...fixture(), text: surface.cells };
+  const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+  compositeFrame(input, out, "visual", 0.5, "only");
+  const RED = EGA_PALETTE[4];
+  const WHITE = EGA_PALETTE[15];
+
+  // Left edge cell (row 11, col 18 → pixels x 144..151, y 88..95).
+  assert.deepEqual(pixelAt(out, 144, 90), RED, "left bar, first logical pixel");
+  assert.deepEqual(pixelAt(out, 145, 90), RED, "the nibble is two rendered columns");
+  assert.deepEqual(pixelAt(out, 146, 90), WHITE, "bar is one logical pixel, not a cell band");
+  assert.deepEqual(pixelAt(out, 151, 90), WHITE);
+  // Right edge cell (row 11, col 21 → x 168..175).
+  assert.deepEqual(pixelAt(out, 173, 90), WHITE, "inset one pixel from the fill edge");
+  assert.deepEqual(pixelAt(out, 174, 90), RED, "right bar, last logical pixel");
+  assert.deepEqual(pixelAt(out, 175, 90), RED);
+  // Top edge cell (row 10, col 19 → y 80..87): the bar on cell row 4.
+  assert.deepEqual(pixelAt(out, 154, 83), WHITE, "above the inset");
+  assert.deepEqual(pixelAt(out, 154, 84), RED, "top bar, one pixel tall");
+  assert.deepEqual(pixelAt(out, 154, 85), WHITE, "below the bar is fill");
+  // Bottom edge cell (row 12, col 19 → y 96..103): the bar on cell row 3.
+  assert.deepEqual(pixelAt(out, 154, 98), WHITE);
+  assert.deepEqual(pixelAt(out, 154, 99), RED, "bottom bar, one pixel tall");
+  assert.deepEqual(pixelAt(out, 154, 100), WHITE);
+  // Top-left corner (row 10, col 18): bar row across, then the left bar below.
+  assert.deepEqual(pixelAt(out, 144, 84), RED, "corner: top bar reaches the corner cell");
+  assert.deepEqual(pixelAt(out, 151, 84), RED);
+  assert.deepEqual(pixelAt(out, 144, 85), RED, "corner: left bar continues");
+  assert.deepEqual(pixelAt(out, 146, 85), WHITE);
+  assert.deepEqual(pixelAt(out, 144, 83), WHITE, "no pixel above the top bar");
+  // Bottom-right corner (row 12, col 21).
+  assert.deepEqual(pixelAt(out, 174, 96), RED, "corner: right bar above the bottom bar");
+  assert.deepEqual(pixelAt(out, 168, 99), RED, "corner: bottom bar reaches the corner cell");
+  assert.deepEqual(pixelAt(out, 174, 100), WHITE, "no pixel below the bottom bar");
+  // Interior carries the message black on white.
+  assert.deepEqual(pixelAt(out, 154, 90), WHITE, "interior fill beside the glyph");
 });

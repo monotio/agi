@@ -13,7 +13,7 @@
  * only in codes. A game's own text bytes are stored as they are, 0x80..0xff
  * included: a translated game prints code-page letters there (0x82 is é on
  * the PC). The box and cursor glyphs this engine's windows use are private
- * control codes 0x01..0x07, which no catalogued message prints
+ * control codes 0x01..0x09, which no catalogued message prints
  * (docs/fidelity.md "Text beyond ASCII"); a font must supply them.
  */
 
@@ -21,13 +21,15 @@ export const TEXT_COLS = 40;
 export const TEXT_ROWS = 25;
 
 /** Box-drawing and cursor glyph codes (engine-private code points). */
-export const GLYPH_H = 0x01;
-export const GLYPH_V = 0x02;
-export const GLYPH_TL = 0x03;
-export const GLYPH_TR = 0x04;
-export const GLYPH_BL = 0x05;
-export const GLYPH_BR = 0x06;
-export const GLYPH_CURSOR = 0x07;
+export const GLYPH_TOP = 0x01;
+export const GLYPH_BOTTOM = 0x02;
+export const GLYPH_LEFT = 0x03;
+export const GLYPH_RIGHT = 0x04;
+export const GLYPH_TL = 0x05;
+export const GLYPH_TR = 0x06;
+export const GLYPH_BL = 0x07;
+export const GLYPH_BR = 0x08;
+export const GLYPH_CURSOR = 0x09;
 
 /**
  * A cell as readable text: a transparent cell is a space, printable ASCII
@@ -297,11 +299,15 @@ export function placeWindow(
 
 /**
  * Draw a window with its text; returns nothing, caller saved the rect. The
- * frame is a solid colour bar on each edge — the original's OpenWndw fill
- * plus four 1-nibble edge bars, with no corner or edge glyphs (kq1 2.917
- * 0x54C8: five DrawWndw calls on the 0x040F colour word — white fill, red
- * frame). On a character-cell surface a solid bar is a space cell whose
- * background carries the frame colour.
+ * original's OpenWndw paints a full-rect fill in the low nibble of the
+ * colour word, then four SOLID edge bars one nibble (one logical pixel)
+ * wide in the high nibble, inset one pixel from the fill's edge; no corner
+ * or edge glyphs exist (kq1 2.917 OpenWndw 0x54C8: five DrawWndw calls on
+ * the 0x040F colour word — `mov dl,dh` selects red for the four 1-wide
+ * edge rects). On the character-cell surface each edge is a glyph cell whose
+ * font mask carries the measured 1-pixel bar: the compositor renders the
+ * bar in the frame colour over the fill colour, inset one pixel inside the
+ * window edge — never a full character-cell band.
  */
 export function drawWindow(
   surface: TextSurface,
@@ -312,8 +318,19 @@ export function drawWindow(
 ): void {
   const bottom = box.top + box.rows - 1;
   const right = box.left + box.cols - 1;
-  surface.fill(box.top, box.left, bottom, right, 0x20, attr(0x0f, borderAttr & 0x0f));
-  surface.fill(box.top + 1, box.left + 1, bottom - 1, right - 1, 0x20, textAttr);
+  surface.fill(box.top, box.left, bottom, right, 0x20, textAttr);
+  for (let c = box.left + 1; c < right; c++) {
+    surface.put(box.top, c, GLYPH_TOP, borderAttr);
+    surface.put(bottom, c, GLYPH_BOTTOM, borderAttr);
+  }
+  for (let r = box.top + 1; r < bottom; r++) {
+    surface.put(r, box.left, GLYPH_LEFT, borderAttr);
+    surface.put(r, right, GLYPH_RIGHT, borderAttr);
+  }
+  surface.put(box.top, box.left, GLYPH_TL, borderAttr);
+  surface.put(box.top, right, GLYPH_TR, borderAttr);
+  surface.put(bottom, box.left, GLYPH_BL, borderAttr);
+  surface.put(bottom, right, GLYPH_BR, borderAttr);
   for (let i = 0; i < lines.length && box.top + 1 + i < bottom; i++) {
     surface.write(box.top + 1 + i, box.left + 1, lines[i]!.slice(0, box.cols - 2), textAttr);
   }

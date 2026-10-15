@@ -7,12 +7,14 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { validateEngineReplayState } from "../src/runtime/replayState.ts";
 import {
   GLYPH_BL,
+  GLYPH_BOTTOM,
   GLYPH_BR,
   GLYPH_CURSOR,
-  GLYPH_H,
+  GLYPH_LEFT,
+  GLYPH_RIGHT,
   GLYPH_TL,
+  GLYPH_TOP,
   GLYPH_TR,
-  GLYPH_V,
   TEXT_COLS,
   TextSurface,
   attr,
@@ -235,19 +237,31 @@ test("print: solid-framed window centred in the display area, restored on acknow
   assert.deepEqual(host.prints, ["Hi there"]);
   assert.equal(engine.modalKind, "print");
   // 8 chars + frame = 10 cols, 3 rows; top = 1 + (21-3)/2 = 10, left = (40-10)/2 = 15.
-  // The frame is a solid bar: space cells carrying the frame colour as
-  // background, 0x4f (kq1 2.917 OpenWndw 0x54C8, colour word 0x040F).
-  const FRAME = attr(15, 4);
+  // The frame is the measured OpenWndw geometry: a white fill plus four
+  // 1-pixel edge bars (kq1 2.917 OpenWndw 0x54C8, colour word 0x040F), drawn
+  // as edge glyph cells whose font masks carry the bar (app/src/render/
+  // font8x8.ts) — never full character-cell bands.
+  const FRAME = attr(4, 15);
   const r10 = row(engine, 10);
-  assert.ok(r10.chars.slice(15, 25).every((c) => c === 0x20));
+  assert.deepEqual(r10.chars.slice(15, 25), [
+    GLYPH_TL,
+    ...Array(8).fill(GLYPH_TOP),
+    GLYPH_TR,
+  ]);
   assert.ok(r10.attrs.slice(15, 25).every((a) => a === FRAME));
   const r11 = row(engine, 11);
-  assert.equal(engine.textRow(11), "under" + spaces(10) + " Hi there " + spaces(15));
+  assert.equal(engine.textRow(11), "under" + spaces(10) + "#Hi there#" + spaces(15));
+  assert.equal(r11.chars[15], GLYPH_LEFT);
+  assert.equal(r11.chars[24], GLYPH_RIGHT);
   assert.equal(r11.attrs[15], FRAME);
   assert.equal(r11.attrs[24], FRAME);
   assert.ok(r11.attrs.slice(16, 24).every((a) => a === BLACK_ON_WHITE));
   const r12 = row(engine, 12);
-  assert.ok(r12.chars.slice(15, 25).every((c) => c === 0x20));
+  assert.deepEqual(r12.chars.slice(15, 25), [
+    GLYPH_BL,
+    ...Array(8).fill(GLYPH_BOTTOM),
+    GLYPH_BR,
+  ]);
   assert.ok(r12.attrs.slice(15, 25).every((a) => a === FRAME));
 
   // The interpreter is paused: another tick does not re-run logic 0.
@@ -265,7 +279,7 @@ test("print: solid-framed window centred in the display area, restored on acknow
 test("print.at honours row, column and width; width 0 means 30", () => {
   // The row override is relative to the display base and used verbatim
   // (kq1 2.917 WindowNoWait 0x1E69: picTop is added on both paths).
-  const FRAME = attr(15, 4);
+  const FRAME = attr(4, 15);
   const host = new Host();
   const engine = new Engine(
     gameWith('print.at("one two three four", 2, 3, 10); return;'),
@@ -279,8 +293,8 @@ test("print.at honours row, column and width; width 0 means 30", () => {
       .attrs.slice(3, 15)
       .every((a) => a === FRAME),
   );
-  assert.equal(engine.textRow(4), spaces(4) + "one two" + spaces(29));
-  assert.equal(engine.textRow(5), spaces(4) + "three four" + spaces(26));
+  assert.equal(engine.textRow(4), spaces(3) + "#one two   #" + spaces(25));
+  assert.equal(engine.textRow(5), spaces(3) + "#three four#" + spaces(25));
   assert.ok(
     row(engine, 6)
       .attrs.slice(3, 15)
@@ -290,7 +304,7 @@ test("print.at honours row, column and width; width 0 means 30", () => {
 
   const wide = new Engine(gameWith('print.at("one two three four", 6, 1, 0); return;'), host, DICT);
   wide.tick();
-  assert.equal(wide.textRow(8), spaces(2) + "one two three four" + spaces(20));
+  assert.equal(wide.textRow(8), " #" + "one two three four" + "#" + spaces(19));
 });
 
 test("text.screen fills the surface with the text attribute; graphics restores status and input", () => {
@@ -634,7 +648,17 @@ test("display breaks lines on newlines and wraps after column 39, both at column
 test("cells read as text: borders and code-page bytes are '#', never raw control characters", () => {
   assert.equal(cellChar(0), " ");
   assert.equal(cellChar(0x41), "A");
-  for (const code of [GLYPH_H, GLYPH_V, GLYPH_TL, GLYPH_TR, GLYPH_BL, GLYPH_BR, GLYPH_CURSOR])
+  for (const code of [
+    GLYPH_TOP,
+    GLYPH_BOTTOM,
+    GLYPH_LEFT,
+    GLYPH_RIGHT,
+    GLYPH_TL,
+    GLYPH_TR,
+    GLYPH_BL,
+    GLYPH_BR,
+    GLYPH_CURSOR,
+  ])
     assert.equal(cellChar(code), "#", `glyph 0x${code.toString(16)}`);
   assert.equal(cellChar(0x82), "#", "é in the PC code page");
 });
@@ -688,29 +712,40 @@ test("print.at overrides place the window verbatim, off-screen included", () => 
   });
 });
 
-test("the window frame is a solid colour bar with no border glyphs", () => {
-  // Player-visible rule: the message window frame is solid red bars, not
-  // line-drawing corners. OpenWndw fills the rectangle then draws four solid
-  // 1-nibble edge bars from the colour word 0x040F (kq1 2.917 OpenWndw
-  // 0x54C8); no box-drawing bytes exist on the path.
+test("the window frame is the measured OpenWndw geometry: fill plus four 1-pixel edge bars", () => {
+  // Player-visible rule: the message window is a white fill framed by solid
+  // red bars one nibble (one logical pixel) wide, inset one pixel from the
+  // fill's edge — not full character-cell bands and no line-drawing corners.
+  // OpenWndw issues five DrawWndw calls on the colour word 0x040F: one
+  // bottom-anchored fill (dl = 0x0F white), then four edge rects with
+  // `mov dl,dh` (red) and 1-wide adjustments — top (x+1, y-h+2, w-2, 1),
+  // bottom (x+1, y-1, w-2, 1), left (x+1, y-2, 1, h-4), right
+  // (x+w-2, y-2, 1, h-4) (kq1 2.917 OpenWndw 0x54C8; fill geometry
+  // width = chars*4+10, height = lines*8+10 at WindowNoWait 0x1E4B/0x1ECC).
+  // On the cell surface each edge is a glyph cell whose font mask carries
+  // exactly that bar (app/src/render/font8x8.ts, pixel-verified in
+  // app/test/composite.test.ts).
   const host = new Host();
   const engine = new Engine(gameWith('print("Hi"); return;'), host, DICT);
   engine.tick();
   assert.equal(engine.modalKind, "print");
   // "Hi" -> 2 + 2 frame = 4 cols, 3 rows; left = (40-4)/2 = 18, top = 1+9 = 10.
+  const FRAME = attr(4, 15); // red bar pixels over the white fill
   const top = row(engine, 10);
+  assert.deepEqual(top.chars.slice(18, 22), [GLYPH_TL, GLYPH_TOP, GLYPH_TOP, GLYPH_TR]);
   assert.ok(
-    top.chars.slice(18, 22).every((c) => c === 0x20),
-    "the frame is solid fill, not glyphs",
-  );
-  assert.ok(
-    top.attrs.slice(18, 22).every((a) => a === attr(15, 4)),
-    "the frame cell carries white-on-red (0x4f)",
+    top.attrs.slice(18, 22).every((a) => a === FRAME),
+    "the edge cells carry the frame colour over the fill",
   );
   const middle = row(engine, 11);
-  assert.equal(middle.attrs[18], attr(15, 4));
-  assert.equal(middle.attrs[21], attr(15, 4));
+  assert.equal(middle.chars[18], GLYPH_LEFT);
+  assert.equal(middle.chars[21], GLYPH_RIGHT);
+  assert.equal(middle.attrs[18], FRAME);
+  assert.equal(middle.attrs[21], FRAME);
+  assert.equal(middle.chars[19], 0x48, "the interior carries the message, not a band");
   assert.equal(middle.attrs[19], BLACK_ON_WHITE);
+  const bottom = row(engine, 12);
+  assert.deepEqual(bottom.chars.slice(18, 22), [GLYPH_BL, GLYPH_BOTTOM, GLYPH_BOTTOM, GLYPH_BR]);
 });
 
 test("version shows the version string modally and never touches string slot 0", () => {

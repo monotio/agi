@@ -111,19 +111,21 @@ test("menu.input opens the bar and the root heading's pulldown at the next input
   assert.equal(engine.textRow(0), " File Empty Game" + spaces(24));
   assert.deepEqual(attrs(engine, 0, 1, 5), Array(4).fill(SELECTED), "root heading highlighted");
   assert.deepEqual(attrs(engine, 0, 6, 11), Array(5).fill(BAR));
-  // Pulldown: box from column 0, width 4 + a solid black frame bar (the
-  // original's OpenWndw draws solid edge bars, no border glyphs — kq1 2.917
-  // 0x54C8). Frame cells are spaces carrying the frame colour.
-  const FRAME = attr(15, 0);
+  // Pulldown: box from column 0, width 4 + the frame (the original's
+  // OpenWndw draws a fill plus four 1-pixel edge bars, no corner glyphs —
+  // kq1 2.917 0x54C8). Frame cells are edge glyphs whose masks carry the
+  // measured 1-pixel bar in the foreground over the fill colour.
+  const FRAME = attr(0, 15);
   assert.ok(
     attrs(engine, 1, 0, 6).every((a) => a === FRAME),
-    "solid top bar",
+    "top edge cells",
   );
-  assert.equal(engine.textRow(2), " Save " + spaces(34));
-  assert.equal(engine.textRow(3), " Quit " + spaces(34));
+  assert.equal(engine.textRow(1), "######" + spaces(34));
+  assert.equal(engine.textRow(2), "#Save#" + spaces(34));
+  assert.equal(engine.textRow(3), "#Quit#" + spaces(34));
   assert.ok(
     attrs(engine, 4, 0, 6).every((a) => a === FRAME),
-    "solid bottom bar",
+    "bottom edge cells",
   );
   assert.equal(attrs(engine, 2, 0, 1)[0], FRAME);
   assert.equal(attrs(engine, 2, 5, 6)[0], FRAME);
@@ -144,7 +146,7 @@ test("item and heading navigation: circular items, disabled headings skipped, it
   engine.modalNavigate(3); // next enabled heading skips "Empty" -> Game
   assert.deepEqual(attrs(engine, 0, 12, 16), Array(4).fill(SELECTED));
   assert.deepEqual(attrs(engine, 0, 1, 5), Array(4).fill(BAR));
-  assert.equal(engine.textRow(2), spaces(12) + "Look" + spaces(24));
+  assert.equal(engine.textRow(2), spaces(11) + "#Look#" + spaces(23));
 
   engine.modalNavigate(7); // previous enabled heading -> File, Quit still current
   assert.deepEqual(attrs(engine, 3, 1, 5), Array(4).fill(SELECTED));

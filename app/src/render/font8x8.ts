@@ -14,12 +14,14 @@
  */
 import {
   GLYPH_BL,
+  GLYPH_BOTTOM,
   GLYPH_BR,
   GLYPH_CURSOR,
-  GLYPH_H,
+  GLYPH_LEFT,
+  GLYPH_RIGHT,
   GLYPH_TL,
+  GLYPH_TOP,
   GLYPH_TR,
-  GLYPH_V,
 } from "../../../src/runtime/textSurface.ts";
 
 const GLYPHS: [number | string, string][] = [
@@ -118,13 +120,22 @@ const GLYPHS: [number | string, string][] = [
   ["|", "...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ........"],
   ["}", "..##.... ....#... ....#... .....#.. ....#... ....#... ..##.... ........"],
   ["~", "........ ........ ..#..#.. .#.#.#.. .#..#... ........ ........ ........"],
-  // Engine box-drawing and cursor glyphs (thin single lines through row 3 / column 3).
-  [GLYPH_H, "........ ........ ........ ######## ........ ........ ........ ........"],
-  [GLYPH_V, "...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#...."],
-  [GLYPH_TL, "........ ........ ........ ...##### ...#.... ...#.... ...#.... ...#...."],
-  [GLYPH_TR, "........ ........ ........ ####.... ...#.... ...#.... ...#.... ...#...."],
-  [GLYPH_BL, "...#.... ...#.... ...#.... ...##### ........ ........ ........ ........"],
-  [GLYPH_BR, "...#.... ...#.... ...#.... ####.... ........ ........ ........ ........"],
+  // Engine window-frame and cursor glyphs. The frame masks are the measured
+  // OpenWndw geometry mapped onto the 4x8-pixel cell: the original's frame is
+  // a solid bar one nibble (one logical pixel — two rendered columns) wide,
+  // inset one pixel inside the window's white fill (kq1 2.917 OpenWndw
+  // 0x54C8: fill plus four 1-wide edge rects; src/runtime/textSurface.ts
+  // drawWindow). TOP's bar sits on row 4 (fill top is five rows above the
+  // text, one inset), BOTTOM's on row 3 (fill ends four rows below the text),
+  // LEFT/RIGHT carry it in the outermost logical pixel.
+  [GLYPH_TOP, "........ ........ ........ ........ ######## ........ ........ ........"],
+  [GLYPH_BOTTOM, "........ ........ ........ ######## ........ ........ ........ ........"],
+  [GLYPH_LEFT, "##...... ##...... ##...... ##...... ##...... ##...... ##...... ##......"],
+  [GLYPH_RIGHT, "......## ......## ......## ......## ......## ......## ......## ......##"],
+  [GLYPH_TL, "........ ........ ........ ........ ######## ##...... ##...... ##......"],
+  [GLYPH_TR, "........ ........ ........ ........ ######## ......## ......## ......##"],
+  [GLYPH_BL, "##...... ##...... ##...... ######## ........ ........ ........ ........"],
+  [GLYPH_BR, "......## ......## ......## ######## ........ ........ ........ ........"],
   [GLYPH_CURSOR, "........ ........ ........ ........ ........ ........ ######## ########"],
   // The PC code page's box drawing that Gold Rush! prints in its messages
   // (docs/fidelity.md "Text beyond ASCII"), in the same line style: single
