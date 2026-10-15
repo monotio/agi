@@ -32,7 +32,7 @@ import {
   type AgentRuntimeDeps,
   type AgentToolDeps,
 } from "../../../src/agent/tools.ts";
-import { withFinishReport } from "../../../src/agent/finishNotes.ts";
+import { withFinishReport } from "../../../src/agent/finishReport.ts";
 import {
   createReferenceWatch,
   referenceManifest,
@@ -150,7 +150,7 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full committed suite; notes give each red test a sentence that names it and says why it stays red. Never weaken or delete a test on your own to make it pass: fix the game, or leave it red and say why. Changes to existing tests are reviewed in Create. Begin the reply with the test status; with no tests say nothing about tests. Playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full test suite; its testReasons give each red test a reason it stays red. Never weaken or delete a test on your own to make it pass: fix the game, or leave it red and say why. Changes to existing tests are reviewed in Create. Begin the reply with the test status; with no tests say nothing about tests. Playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 /**
@@ -161,8 +161,8 @@ Look before you write: read_room carries the room's live state, object table and
  * it boots, and an imported game has no genesis to re-litigate. Returns the
  * rejection text, or null when the candidate may commit.
  */
-function remixVerdict(staged: AgentSessionState, notes: string): string | null {
-  const verdict = validateAgentHandover(staged, notes, false);
+function remixVerdict(staged: AgentSessionState): string | null {
+  const verdict = validateAgentHandover(staged, null, false);
   return verdict.success ? null : (verdict.error ?? "Handover rejected.");
 }
 
@@ -631,7 +631,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       for (;;) {
         if (turn.toolCalls.length === 0) {
           if (!stagedChanges) break;
-          const verdict = remixVerdict(staged, turn.text ?? "");
+          const verdict = remixVerdict(staged);
           if (verdict === null) {
             finishStatus = staged.finishTestsStatus ?? "";
             break;

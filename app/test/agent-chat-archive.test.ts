@@ -98,7 +98,7 @@ test("a reopened review keeps the Agent's test reasons", () => {
       },
     ],
   });
-  const report = "1 tests fail: Lake start\n- Lake start: room 5 was deleted.";
+  const report = "1 test fails: Lake start\n- Lake start: room 5 was deleted.";
   assert.equal(readAgentChats(chats(report)).chats[0]!.messages[0]!.testReport, report);
   assert.throws(() => readAgentChats(chats(1)), /message/i);
 });

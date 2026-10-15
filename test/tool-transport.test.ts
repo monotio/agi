@@ -443,7 +443,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { id: "d0", fields: null, offset: null, limit: null },
       bad: { id: "d0", fields: null, offset: -1, limit: null },
     },
-    finish: { notes: "Booted synthetic room." },
+    finish: { testReasons: null },
     write_room: {
       good: () => ({
         room: 1,

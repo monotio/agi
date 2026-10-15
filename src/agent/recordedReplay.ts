@@ -202,13 +202,14 @@ export function decodeRecordedReplay(text: string): RecordedReplay {
 
 /**
  * Player inputs on a recorded tape: typed command lines, key presses
- * (direction holds and dismissals included), pointer clicks, key-wait answers
- * and prompt answers. Releases end a hold and are not inputs of their own.
+ * (direction holds and dismissals included), pointer clicks, clicks that close
+ * a message, key-wait answers and prompt answers. Releases end a hold and are
+ * not inputs of their own.
  */
 export function recordedPlayerInputs(replay: RecordedReplay): number {
   let inputs = 0;
   for (const operation of replay.operations) {
-    if (operation[0] === "navigate") inputs++;
+    if (operation[0] === "navigate" || operation[0] === "ack") inputs++;
     if (operation[0] !== "tick" && operation[0] !== "release") continue;
     for (const call of operation[1]) {
       if (call[0] === "line") inputs += call[1] === null ? 0 : 1;

@@ -41,7 +41,7 @@
             "id": "finish",
             "name": "finish",
             "input": {
-              "notes": null
+              "testReasons": null
             }
           }
         ]

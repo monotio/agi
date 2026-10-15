@@ -35,7 +35,7 @@ function remixResponses(
   idPrefix: string,
   calls: [string, Record<string, unknown>][],
   text: string,
-  finishNotes?: string | null,
+  testReasons?: { test: string; reason: string }[] | null,
 ) {
   return [
     {
@@ -51,14 +51,14 @@ function remixResponses(
     {
       id: `${idPrefix}-done`,
       output:
-        finishNotes !== undefined
+        testReasons !== undefined
           ? [
               {
                 type: "function_call",
                 id: `${idPrefix}-finish`,
                 call_id: `${idPrefix}-finish`,
                 name: "finish",
-                arguments: JSON.stringify({ notes: finishNotes }),
+                arguments: JSON.stringify({ testReasons }),
               },
             ]
           : [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }],
@@ -108,7 +108,10 @@ test("Tests never block edits: record a playthrough, Apply a failing game edit, 
         "break",
         [["write_logic", { room: 1, source: BROKEN_ROOM_ONE }]],
         "The mural lesson is remixed.",
-        "paint the mural and recorded mural repair stay red because the lesson text changed; restore it to repair both.",
+        ["paint the mural", "recorded mural repair"].map((test) => ({
+          test,
+          reason: "the lesson text changed; restoring it repairs this test.",
+        })),
       ),
       ...remixResponses(
         "broken-test",

@@ -1,6 +1,6 @@
 {
   "name": "project-agent-test-weakening",
-  "description": "Agent test deletion remains an explicit named change in review.",
+  "description": "Agent test deletion remains an explicit named change in review, with its reason.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -30,7 +30,7 @@
             "id": "finish",
             "name": "finish",
             "input": {
-              "notes": "Open door needs an interactive opening; keep it red for now."
+              "testReasons": [{ "test": "Open door", "reason": "you asked to remove it." }]
             }
           }
         ]

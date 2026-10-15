@@ -75,7 +75,7 @@ import {
 } from "./gameTestsRunner.ts";
 import { gameTestDefinitionChanges } from "./gameTestReview.ts";
 import { parseGameTests } from "./gameTestFormat.ts";
-import { finishReport, readFinishNotes } from "./finishNotes.ts";
+import { finishReport, readTestReasons } from "./finishReport.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -1155,7 +1155,7 @@ function executeLegacyTool(
     }
 
     case "finish":
-      return validateAgentHandover(session, args["notes"] ?? null);
+      return validateAgentHandover(session, args["testReasons"] ?? null);
 
     case "write_objects": {
       let mergedItem: { id: number; name: string } | undefined;
@@ -1843,53 +1843,43 @@ export function validateAgentGameHandover(
 /** The Agent's final handover check; creator admission validates the game separately. */
 export function validateAgentHandover(
   session: AgentSessionState,
-  notes: unknown = null,
+  testReasons: unknown = null,
   checkGenesis = true,
 ): AgentToolResult {
   const game = validateAgentGameHandover(session, checkGenesis);
   if (!game.success) return game;
   const connections = game.details!["connections"] as ReturnType<typeof verifyPlanConnections>;
-  // Tests run last, against the committed document and final candidate resources.
+  // Tests run last, as Apply would leave them, against the final candidate resources.
   const testRun = runFinishGameTests(session);
   const gameTests = testRun.details?.["gameTests"] as readonly GameTestOutcome[] | undefined;
   const failed = gameTests?.filter((test) => !test.passed) ?? [];
   const testsVerdict = failed.length
-    ? `${failed.length} tests fail: ${failed.map((test) => test.name).join(", ")}`
+    ? `${failed.length} ${failed.length === 1 ? "test fails" : "tests fail"}: ${failed.map((test) => test.name).join(", ")}`
     : gameTests?.length
-      ? `All ${gameTests.length} tests pass.`
+      ? gameTests.length === 1
+        ? "1 test passes."
+        : `All ${gameTests.length} tests pass.`
       : gameTests
         ? ""
         : (testRun.error ?? "");
   // Each red test and each existing test this turn changed needs its own reason.
-  const changed = agentChangedTests(session).filter(
-    (name) => !failed.some((test) => test.name === name),
-  );
-  const explained = readFinishNotes(notes, [...failed.map((test) => test.name), ...changed]);
-  const unexplainedFailure = failed.some((test) => explained.missing.includes(test.name));
-  const unexplainedChange = changed.filter((name) => explained.missing.includes(name));
-  if (unexplainedFailure || unexplainedChange.length)
+  const changed = agentChangedTests(session);
+  const reasons = readTestReasons(testReasons, [...failed.map((test) => test.name), ...changed]);
+  if (reasons.missing.length)
     return {
       success: false,
-      error: [
-        unexplainedFailure
-          ? `Not finished: ${failed.map((test) => JSON.stringify(test.name)).join(", ")} fail. Fix them, or say in notes why each stays red.`
-          : "Not finished:",
-        unexplainedChange.length
-          ? `${unexplainedFailure ? "Say" : "say"} in notes why you changed ${unexplainedChange.map((name) => JSON.stringify(name)).join(", ")}.`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
+      error: `Not finished: give testReasons for ${reasons.missing.map((name) => JSON.stringify(name)).join(", ")}. Each red test needs a reason it stays red, and each existing test you changed or deleted needs a reason for the change.`,
       details: { gameTests, testsVerdict, connections },
     };
 
   session.genesisComplete = true;
   session.finishTestsStatus = testsVerdict;
-  session.finishTestsNotes = explained.lines;
+  session.finishTestsNotes = reasons.lines;
+  const report = finishReport(testsVerdict, reasons.lines);
   return {
     success: true,
     message:
-      (testsVerdict ? `${finishReport(testsVerdict, explained.lines)}\n` : "") +
+      (report ? `${report}\n` : "") +
       (testRun.details?.["proposedTestsCause"]
         ? `${String(testRun.details["proposedTestsCause"])}\n`
         : "") +
@@ -1900,11 +1890,10 @@ export function validateAgentHandover(
       `. Resuming gameplay.`,
     details: {
       genesisComplete: true,
-      notes,
       gameTests,
       testsVerdict,
-      testNotes: explained.lines,
-      testsReport: finishReport(testsVerdict, explained.lines),
+      testNotes: reasons.lines,
+      testsReport: report,
       connections,
     },
   };

@@ -10,7 +10,7 @@ import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 type RoomAuthoringRequest = LlmRequest & { readonly signal?: AbortSignal };
 import type { AgentRunState } from "../agent/agentRun.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
-import { withFinishReport } from "../../../src/agent/finishNotes.ts";
+import { withFinishReport } from "../../../src/agent/finishReport.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../../src/agent/frames.ts";
 import { continuationTranscript } from "../archive/projectConversation.ts";

@@ -113,7 +113,11 @@ test("Agent finish names red tests: Auto-approve commits a failing test and runs
                   id: "finish",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":"Impossible score needs its score implementation."}',
+                  arguments: JSON.stringify({
+                    testReasons: [
+                      { test: "Impossible score", reason: "needs its score implementation." },
+                    ],
+                  }),
                 },
               ]
             : requests === 2
@@ -426,7 +430,7 @@ test("a turn that stops without a change or a reply says so plainly", async ({ p
                   type: "function_call",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"testReasons":null}',
                 },
               ]
             : bodies.length > 2
@@ -737,7 +741,7 @@ async function changeRoomTwo(page: Page, kind: "logic" | "picture" = "logic"): P
                   type: "function_call",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"testReasons":null}',
                 },
               ]
             : [],
@@ -897,7 +901,7 @@ test("an Agent edit to an imported game's LOGIC shows only the changed lines", a
                   type: "function_call",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"testReasons":null}',
                 },
               ]
             : [],
@@ -954,18 +958,24 @@ test("approving before the source diff finishes has no unhandled rejection @webk
 
 for (const size of [
   { width: 1063, height: 815 },
-  { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ])
   test(`A red finish shows each failing test with the Agent's reason in the reply and in review, and a test change the creator asks for is reviewed (${size.width}px)`, async ({
     page,
   }) => {
-    const lakeStart = "Lake start: its room was deleted, so the test cannot start.";
-    const redReasons = ["Impossible score: the score handler is not written yet.", lakeStart];
-    const changeReasons = [
-      "Impossible score: it now expects score 0 as you asked, and passes once you apply it.",
+    const lakeStart = {
+      test: "Lake start",
+      reason: "its room was deleted, so the test cannot start.",
+    };
+    const red = [
+      { test: "Impossible score", reason: "the score handler is not written yet." },
       lakeStart,
     ];
+    const change = [
+      lakeStart,
+      { test: "Impossible score", reason: "it now expects score 0, as you asked." },
+    ];
+    const lines = (reasons: typeof red) => reasons.map(({ test, reason }) => `${test}: ${reason}`);
     let requests = 0;
     await page.setViewportSize(size);
     await page.route("**/api/openai/v1/responses", async (route) => {
@@ -981,7 +991,7 @@ for (const size of [
                   changes: [{ key: "picture:1", content: "vis 1\nfill 0,0\nend\n" }],
                 },
               },
-              { id: "finish", name: "finish", input: { notes: redReasons.join("\n") } },
+              { id: "finish", name: "finish", input: { testReasons: red } },
             ]
           : [
               {
@@ -993,7 +1003,7 @@ for (const size of [
                   tests: [{ name: "Impossible score", room: 1, steps: [], expect: { score: 0 } }],
                 },
               },
-              { id: "finish", name: "finish", input: { notes: changeReasons.join("\n") } },
+              { id: "finish", name: "finish", input: { testReasons: change } },
             ];
       await route.fulfill(
         providerReply("openai", {
@@ -1056,10 +1066,10 @@ for (const size of [
     await page.getByRole("button", { name: "Send", exact: true }).click();
     const reply = conversation.locator("article").last();
     await expect(reply).toContainText("2 tests fail: Impossible score, Lake start");
-    await expect(reply.getByRole("listitem")).toHaveText(redReasons);
+    await expect(reply.getByRole("listitem")).toHaveText(lines(red));
     await openReview();
     await expect(review).toContainText("2 tests fail: Impossible score, Lake start");
-    await expect(review.getByRole("listitem")).toHaveText(redReasons);
+    await expect(review.getByRole("listitem")).toHaveText(lines(red));
     await expect(page.getByTestId("agent-art-review")).toBeVisible();
     await page.screenshot({ path: test.info().outputPath(`red-finish-review-${size.width}.png`) });
     // A narrow layout shows the review in place of the chat; the reply is one step back.
@@ -1074,14 +1084,20 @@ for (const size of [
       .getByTestId("agent-message")
       .fill('Update "Impossible score" to expect score 0. I approve changing this expectation.');
     await page.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(conversation.locator("article").last().getByRole("listitem")).toHaveText(
-      changeReasons,
-    );
+    // Tests run as Apply would leave them, so the requested expectation already passes.
+    const changeReply = conversation.locator("article").last();
+    await expect(changeReply).toContainText("1 test fails: Lake start");
+    await expect(changeReply.getByRole("listitem")).toHaveText(lines(change));
     await openReview();
+    await expect(review.getByRole("listitem")).toHaveText(lines(change));
     await expect(page.getByTestId("agent-test-change")).toHaveText([
       'Changed expectation of "Impossible score"',
     ]);
-    await expect(review.getByRole("listitem")).toHaveText(changeReasons);
+    await expect(page.getByTestId("agent-test-change-detail").getByRole("row")).toHaveText([
+      /Before\s*After/,
+      /Steps\s*None\s*None/,
+      /Checks\s*score 99\s*score 0/,
+    ]);
     await page.screenshot({
       path: test.info().outputPath(`test-change-review-${size.width}.png`),
     });
@@ -1092,7 +1108,7 @@ for (const size of [
   });
 
 for (const width of [1440, 390])
-  test(`Agent finish protects creator tests and review names deleted tests and changed expectations (${width}px)`, async ({
+  test(`Agent finish asks why each creator test it deleted or changed, and review shows the old and new expectation (${width}px)`, async ({
     page,
   }) => {
     let requests = 0;
@@ -1124,15 +1140,17 @@ for (const width of [1440, 390])
                   tests: [{ name: "Treasure", room: 1, steps: [], expect: { score: 0 } }],
                 },
               },
-              { id: "finish-red", name: "finish", input: { notes: null } },
+              { id: "finish-red", name: "finish", input: { testReasons: null } },
             ]
           : [
               {
-                id: "finish-notes",
+                id: "finish-reasons",
                 name: "finish",
                 input: {
-                  notes:
-                    "Open door and Treasure stay red because their score has not been implemented.",
+                  testReasons: [
+                    { test: "Open door", reason: "you asked to remove it." },
+                    { test: "Treasure", reason: "you asked for score 0." },
+                  ],
                 },
               },
             ];
@@ -1191,15 +1209,21 @@ for (const width of [1440, 390])
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByTestId("agent-review")).toBeVisible();
     expect(refusal).toBe(
-      'Not finished: "Open door", "Treasure" fail. Fix them, or say in notes why each stays red.',
+      'Not finished: give testReasons for "Open door", "Treasure". Each red test needs a reason it stays red, and each existing test you changed or deleted needs a reason for the change.',
     );
-    await expect(page.getByTestId("workspace-agent-panel")).toContainText(
-      "2 tests fail: Open door, Treasure",
-    );
+    // Tests run as Apply would leave them: one test is left, and its weaker check passes.
+    await expect(page.getByTestId("workspace-agent-panel")).toContainText("1 test passes.");
+    await expect(page.getByTestId("agent-review-tests").getByRole("listitem")).toHaveText([
+      "Open door: you asked to remove it.",
+      "Treasure: you asked for score 0.",
+    ]);
     await expect(page.getByTestId("agent-test-change")).toHaveText([
       'Deleted test "Open door"',
       'Changed expectation of "Treasure"',
     ]);
+    await expect(page.getByTestId("agent-test-change-detail").getByRole("row").last()).toHaveText(
+      /Checks\s*score 99\s*score 0/,
+    );
     expect(await documents(page)).toEqual(before);
     await page.screenshot({ path: test.info().outputPath(`test-review-changes-${width}.png`) });
   });

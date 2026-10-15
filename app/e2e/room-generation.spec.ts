@@ -79,7 +79,7 @@ function roomReply(id: string) {
         type: "function_call",
         call_id: `${id}-finish`,
         name: "finish",
-        arguments: '{"notes":"The hall is ready."}',
+        arguments: '{"testReasons":null}',
       },
     ],
   });

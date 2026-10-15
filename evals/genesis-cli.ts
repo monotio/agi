@@ -282,7 +282,7 @@ async function runCliGenesis(): Promise<void> {
       `,
     });
     const finish = executeAgentTool(session, "finish", {
-      notes: "Stub world genesis complete.",
+      testReasons: null,
     });
     if (!finish.success) {
       console.error(`${ANSI.red}Stub genesis failed: ${finish.error}${ANSI.reset}`);

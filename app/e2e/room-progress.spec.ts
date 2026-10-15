@@ -119,7 +119,7 @@ for (const fail of [false, true])
                     type: "function_call",
                     call_id: "room-finish",
                     name: "finish",
-                    arguments: JSON.stringify({ notes: null }),
+                    arguments: JSON.stringify({ testReasons: null }),
                   },
                 ],
         }),

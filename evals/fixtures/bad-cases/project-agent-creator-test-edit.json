@@ -1,6 +1,6 @@
 {
   "name": "project-agent-creator-test-edit",
-  "description": "A test change the creator asks for is proposed for review instead of refused: the Agent edits the expectation, the finish notes say why, and Apply stays with the creator even in Auto-approve.",
+  "description": "A test change the creator asks for is proposed for review instead of refused: the Agent edits the expectation, its finish testReasons say why, and Apply stays with the creator even in Auto-approve.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -37,7 +37,12 @@
             "id": "finish",
             "name": "finish",
             "input": {
-              "notes": "look describes clearing: it now expects the current look text as you asked, and passes once you apply it."
+              "testReasons": [
+                {
+                  "test": "look describes clearing",
+                  "reason": "it now expects the current look text, as you asked."
+                }
+              ]
             }
           }
         ]

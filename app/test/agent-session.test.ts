@@ -106,7 +106,7 @@ test("a successful finish ends the turn with no provider request and rejects bun
             type: "function_call",
             call_id: "h",
             name: "finish",
-            arguments: JSON.stringify({ notes: null }),
+            arguments: JSON.stringify({ testReasons: null }),
           },
           {
             type: "function_call",
@@ -178,7 +178,12 @@ test("a remix finish waits until the model has read a failure from its own batch
               source: room(write === "write" ? "sparkle" : "look"),
             }),
           },
-          { type: "function_call", call_id: finish, name: "finish", arguments: '{"notes":null}' },
+          {
+            type: "function_call",
+            call_id: finish,
+            name: "finish",
+            arguments: '{"testReasons":null}',
+          },
         ]
       : [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] }];
     return new Response(providerSse("openai", { id: `r${bodies.length}`, output }), {
@@ -239,7 +244,7 @@ test("a remix ending in text commits only after the host verdict passes", async 
               type: "function_call",
               call_id: "h",
               name: "finish",
-              arguments: '{"notes":null}',
+              arguments: '{"testReasons":null}',
             },
           ]
         : n === 3
@@ -258,7 +263,7 @@ test("a remix ending in text commits only after the host verdict passes", async 
                 type: "function_call",
                 call_id: "h2",
                 name: "finish",
-                arguments: '{"notes":null}',
+                arguments: '{"testReasons":null}',
               },
             ]
           : [
@@ -495,7 +500,7 @@ test("room helper edits are transactional and may rewrite another room", async (
               type: "function_call",
               call_id: "done",
               name: "finish",
-              arguments: '{"notes":null}',
+              arguments: '{"testReasons":null}',
             },
           ];
     return new Response(providerSse("openai", { id: String(count), output }), {
@@ -550,7 +555,7 @@ test("pinned map notes reach the room turn's request body", async (t) => {
               type: "function_call",
               call_id: "done",
               name: "finish",
-              arguments: '{"notes":null}',
+              arguments: '{"testReasons":null}',
             },
           ];
     return new Response(providerSse("openai", { id: String(bodies.length), output }), {
@@ -606,9 +611,9 @@ test("a room finish waits until the model has read a failure from its own batch"
               room: 2,
               source: 'if (said("sparkle")) { print("Sparkle"); } return;',
             }),
-            call("done", "finish", { notes: null }),
+            call("done", "finish", { testReasons: null }),
           ]
-        : [call("done2", "finish", { notes: null })];
+        : [call("done2", "finish", { testReasons: null })];
     return new Response(providerSse("openai", { id: String(bodies.length), output }), {
       headers: { "Content-Type": "text/event-stream" },
     });
@@ -837,7 +842,12 @@ test("a genesis finish waits until the model has read a failure from its own bat
           source: 'if (said("sparkle")) { print("Sparkle"); } return;',
         }),
       },
-      { type: "function_call", call_id: "finish", name: "finish", arguments: '{"notes":null}' },
+      {
+        type: "function_call",
+        call_id: "finish",
+        name: "finish",
+        arguments: '{"testReasons":null}',
+      },
     ];
     return new Response(providerSse("openai", { id: `g${bodies.length}`, output }), {
       headers: { "Content-Type": "text/event-stream" },
@@ -1244,9 +1254,13 @@ for (const mode of ["genesis", "room", "implicit remix"] as const)
                 call("write_logic", { room: 2, source: "return;" }),
                 call("write_picture", { room: 2, source: "vis 1\nfill 0,0\nend" }),
               ]
-            : mode === "implicit remix"
+            : mode === "implicit remix" && requests === 1
               ? [call("write_logic", { room: 1, source: "return;" })]
-              : [call("finish", { notes: "Future room needs room 5." })];
+              : [
+                  call("finish", {
+                    testReasons: [{ test: "Future room", reason: "needs room 5." }],
+                  }),
+                ];
       return new Response(providerSse("openai", { id: String(requests), output }), {
         headers: { "Content-Type": "text/event-stream" },
       });
@@ -1265,17 +1279,19 @@ for (const mode of ["genesis", "room", "implicit remix"] as const)
     );
     if (mode === "genesis") {
       await session.startGenesis("A simple mystery.");
-      assert.match(session.getMessages().at(-1)?.text ?? "", /^1 tests fail: Future room/);
+      assert.match(session.getMessages().at(-1)?.text ?? "", /^1 test fails: Future room/);
     } else if (mode === "room") {
       await session.handle({ op: "room", context: { room: 2, from: 1 } });
       assert.match(
         session.getBackgroundChats().at(-1)?.messages.at(-1)?.text ?? "",
-        /^1 tests fail: Future room/,
+        /^1 test fails: Future room/,
       );
     } else {
       state.genesisComplete = true;
       const result = await session.runPowerUp("Edit logic", 1);
-      assert.match(result.text, /^1 tests fail: Future room/);
+      // A reason given only in the reply goes back to the model to call finish with testReasons.
+      assert.equal(requests, 3);
+      assert.match(result.text, /^1 test fails: Future room\n- Future room: needs room 5\./);
       assert.ok(
         state.container.getResource("logic", 1),
         "a failed affected-test rerun retains the edit for finish",
@@ -1319,7 +1335,11 @@ for (const mode of ["power-up", "room", "genesis"] as const)
                   : []),
               call("write_game_tests", { mode: "remove", names: ["Future room"], tests: null }),
             ]
-          : [call("finish", { notes: "Future room stays red because room 5 has not been built." })];
+          : [
+              call("finish", {
+                testReasons: [{ test: "Future room", reason: "room 5 has not been built." }],
+              }),
+            ];
       return new Response(providerSse("openai", { id: String(bodies.length), output }), {
         headers: { "Content-Type": "text/event-stream" },
       });

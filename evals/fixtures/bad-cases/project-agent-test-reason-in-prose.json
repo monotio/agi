@@ -1,0 +1,60 @@
+{
+  "name": "project-agent-test-reason-in-prose",
+  "description": "A red test's reason written only in the reply text is refused; the refusal names the test, and the testReasons entry shows under the status line as the Agent wrote it.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[]"
+    },
+    "request": "Write a test for the cave before room 5 exists",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "tests",
+            "name": "write_game_tests",
+            "input": {
+              "mode": "merge",
+              "names": null,
+              "tests": [{ "name": "Cave entrance", "room": 5, "steps": [] }]
+            }
+          }
+        ]
+      },
+      {
+        "text": "Cave entrance stays red because room 5 has not been built yet.",
+        "toolCalls": [
+          {
+            "id": "finish-prose",
+            "name": "finish",
+            "input": { "testReasons": null }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "finish-reasons",
+            "name": "finish",
+            "input": {
+              "testReasons": [
+                { "test": "Cave entrance", "reason": "room 5 has not been built yet." }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "expectedKeys": ["tests"],
+    "expectedOutcomes": {
+      "finish-prose": false,
+      "finish-reasons": true
+    },
+    "expectedCommits": 1,
+    "expectedReviewLines": ["Added test \"Cave entrance\""],
+    "expectedInstructions": ["testReasons needs one entry for each red test"],
+    "expectedReply": "1 test fails: Cave entrance\n- Cave entrance: room 5 has not been built yet.\n\nWrite a test for the cave before room 5 exists"
+  }
+}
