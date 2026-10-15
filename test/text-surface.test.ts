@@ -703,3 +703,24 @@ test("the window frame is a solid colour bar with no border glyphs", () => {
   assert.equal(middle.attrs[21], attr(15, 4));
   assert.equal(middle.attrs[19], BLACK_ON_WHITE);
 });
+
+test("version shows the version string modally and never touches string slot 0", () => {
+  // Player-visible rule: the version action pops the interpreter version in a
+  // window; a game's string slot 0 keeps its contents. The 0x8d handler
+  // pushes the CONST versionMsg and calls WindowPrint — a modal key-wait —
+  // then returns (kq3 2.936 0x733C / kq1 2.917 0x7275 / gr1 3.002.149
+  // 0x7670); nothing writes string storage.
+  const host = new Host();
+  const engine = new Engine(
+    gameWith('if (!isset(f200)) { set(f200); set.string(s0, "KEEP"); version(); } return;'),
+    host,
+    DICT,
+  );
+  engine.tick();
+  assert.equal(engine.modalKind, "print", "the version displays modally");
+  assert.ok(host.prints[0]?.includes("AGI"), "the version text is what shows");
+  assert.equal(engine.strings[0], "KEEP", "string slot 0 is untouched");
+  host.keys.push(0x0d);
+  engine.tick();
+  assert.equal(engine.modalKind, null);
+});
