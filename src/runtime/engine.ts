@@ -2909,7 +2909,12 @@ export class Engine {
    */
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
     this.emitPrint(
-      `${action === "restart" ? "Restart" : "Quit"} the game?\nENTER: yes   ESC: continue`,
+      action === "restart"
+        ? // Identical bytes in kq3 2.936 (ovl DS+0x0ADB), mh1 3.002.107 and
+          // gr1 3.002.149.
+          "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
+        : // kq3 2.936 ovl DS+0x5E3; same in mh1 and gr1.
+          "Press ENTER to quit.\nPress ESC to keep playing.",
       undefined,
       true,
     );
@@ -3847,9 +3852,12 @@ export class Engine {
     this.editLine = "";
     this.acceptedLine = "";
     this.controllers.fill(0);
-    this.vars[V_KEY] = 0;
-    this.flags[F_INPUT_READY] = 0;
-    this.flags[F_SAID_MATCHED] = 0;
+    // The restore tail clears controllers explicitly and rewrites the machine
+    // vars from the probe, then sets f12; f2/f4 die at the next cycle top and
+    // v19 is never written (kq3 2.936 0x2647-0x2693 / gr1 3.002.149 0x28C7 /
+    // mh1 3.002.107 0x2928).
+    this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+    this.vars[26] = 3;
 
     // 2. Reset transient caches and replay the saved sequence.
     this.replaySequence(s.logicResume, sequence, screen !== null);
@@ -7704,7 +7712,10 @@ export class Engine {
     this.textMode = false;
     this.statusEnabled = false;
     this.statusRefreshRequested = false;
-    this.inputAccepted = false;
+    // Input acceptance survives: ResetAll clears only vars/flags/controllers/
+    // object records (kq3 2.936 0x0FA5), and the accepted prompt path redraws
+    // the marker unconditionally. The edit line itself was cancelled by the
+    // prompt (gr1 3.002.149 restart 0x26E0: CancelLine … WriteCur).
     this.editLine = "";
     this.acceptedLine = "";
     this.blockRect = null;

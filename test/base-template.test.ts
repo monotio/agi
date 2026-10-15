@@ -1097,7 +1097,7 @@ describe("base template engine behaviour", () => {
     host.keys.push(0x0d); // ENTER -> quit confirmation prompt
     tick(engine);
     assert.equal(engine.modalKind, "print");
-    assert.match(surfaceRows(engine).join("\n"), /Quit the game\?/);
+    assert.match(surfaceRows(engine).join("\n"), /Press ENTER to quit\./);
   });
 
   test("declining the quit confirmation returns to the box still dead", () => {
@@ -1110,7 +1110,7 @@ describe("base template engine behaviour", () => {
     tick(engine, 2);
     host.keys.push(0x33); // '3' -> Quit directly
     tick(engine);
-    assert.match(surfaceRows(engine).join("\n"), /Quit the game\?/);
+    assert.match(surfaceRows(engine).join("\n"), /Press ENTER to quit\./);
     engine.deliverHostAnswer(27); // ESC declines
     tick(engine, 2);
     assert.equal(engine.readState().terminated, false);
