@@ -73,12 +73,17 @@ export interface AgentSessionState {
   objectPayload?: Uint8Array | undefined;
   /** Stored game tests (TESTS.JSON) written this session; see gameTests.ts. */
   testsPayload?: Uint8Array | undefined;
-  /** Project hosts supply the current committed document for every simulation. */
-  /** Original turn tests; finish includes only genuinely added proposed names. */
+  /**
+   * The finish verdict line for game tests. Finish covers every failing test
+   * and every existing test the turn changed or deleted; each needs a reason
+   * in the structured `testReasons` argument.
+   */
   finishTestsStatus?: string | undefined;
-  /** The finish-notes sentences that explain each red or changed test. */
+  /** The `test: reason` lines built from `testReasons`, shown with the verdict. */
   finishTestsNotes?: readonly string[] | undefined;
+  /** The tests document as the turn began; changes and deletions are measured from it. */
   finishTestsBase?: string | Uint8Array | null | undefined;
+  /** Project hosts supply the current committed tests document for every simulation. */
   readCommittedTests?: (() => string | Uint8Array | undefined) | undefined;
   genesisComplete: boolean;
   /**
