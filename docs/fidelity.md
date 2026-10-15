@@ -1350,8 +1350,10 @@ directly off the machine code; each entry names the finding it settles.
   `4b50c681`, main cycle 0x150): the ego↔v6 direction mirror runs before the
   autonomous-direction/block dispatcher — under program control v6 := ego.dir
   (0x186-0x189), else ego.dir := v6 (0x18E-0x195) — then dispatcher 0x644
-  runs; a second post-logic ego.dir := v6 store sits at 0x1EA. Engine order
-  (motion pass then mirror) is backwards.
+  runs; a second post-logic ego.dir := v6 store sits at 0x1EA. Verified in
+  2.936 only. The engine's mirror placement matches, but its object motion
+  pass runs post-logic (after the cycle-tail store), so logic there sees the
+  previous cycle's motion results where 2.936 logic sees this cycle's.
 - **F-motion-03 (fact; engine matches).** Zero-step reposition pass (2.936 kq3
   0x150A / 3.002.086 kq4 body 0x1751): the REPOS test (0x0400) skips only the
   direction-delta computation; border clamps+reporting, Collide, CanBHere and
@@ -1381,9 +1383,23 @@ directly off the machine code; each entry names the finding it settles.
   0x7E7C) is operand-fetch + store to the horizon global DS:0x12D and
   returns; no object relocation — enforcement is lazy via the MoveObjs clamp
   and GoodPos.
-- **F-motion-10 (fact; engine matches).** new.room object loop (2.936 kq3
-  0x17B6): flags `&= 0xFFBE; |= 0x10`; celptr/viewptr/save := NULL;
-  movefreq/moveclk/cycleclk/cyclfreq/stepsize all := 1; x, y, dir preserved.
+- **F-motion-10 (fact; engine diverges).** new.room object loop (2.936 kq3
+  core 0x1792, loop body 0x17B6, record stride 0x2B): `and word
+  [si+0x25],0xffbe / or word [si+0x25],0x10` — drawn (0x01) and animated
+  membership (0x40) clear, the update-partition bit (0x10) is set on every
+  record, and EVERY OTHER control bit survives, including pending-reposition
+  (0x0400) and the initial animation delay (0x1000) (contrast unanimate.all
+  — action 0x22 handler 0x53D — whose loop clears 0x41 only and does not
+  set 0x10). Word stores NULL viewptr (+0x08), celptr (+0x10) and save
+  (+0x14); byte stores of 1 write movefreq (+0x00), moveclk (+0x01),
+  stepsize (+0x1E), cyclefreq (+0x1F) and cycleclk (+0x20) — cadence offsets
+  cross-checked against MoveObjs (0x1542: moveclk dec/reload from movefreq)
+  and the Animate sweep (0x5EF: cycleclk/cyclefreq). x (+0x03), y (+0x05)
+  and dir (+0x21) are preserved. The engine's room reset reloads the five
+  cadence scalars and reproduces the 0xFFBE|0x10 flag outcome, but it
+  additionally clears the pending-reposition and initial-delay bits for
+  every object — a REPOS-armed or first-delay-pending object crossing
+  new.room loses that state in the engine and keeps it in the original.
 - **F-motion-12 (fact; engine diverges).** FindPosn (2.936 kq3 0x593A): spiral
   legs x--/y++/x++/y-- with leg length incremented after the down and up
   legs; the only exits are GoodPos∧¬Collide∧CanBHere acceptance. No bound or
@@ -1591,11 +1607,15 @@ direction coupling = 1, unblock, horizon = 36; v1 = v0, v0 = room, v4 = v5 = 0;
 v16 = ego view; load the room logic; reposition ego from v2 and clear it;
 set f5; clear the mapped controller array; redraw status and input line.
 
-Consequences the engine models:
+Consequences the engine models, and one it does not:
 
 - The object loop **selects** the updating partition (0x10) while clearing
   drawn (0x01) and animated membership (0x40). A stopped-update actor
-  rejoins the updating partition across a room change.
+  rejoins the updating partition across a room change; the engine's reset
+  reproduces this. What the engine adds is two extra clears the original's
+  0xFFBE mask preserves: pending-reposition (0x0400) and the initial
+  animation delay (0x1000) are cleared for every object across new.room in
+  the engine only (F-motion-10).
 - The transition tail memsets the 50-byte mapped controller array (core
   0x189d, the same routine the loop top calls before the input phase). The
   handler then returns the zero continuation result, taking the main loop's
@@ -1692,22 +1712,38 @@ body; the two builds are instruction-identical on these paths.
 - **F-VIEWS-09 (fact; engine diverges).** add.to.pic box gate (2.936 kq3
   objinpic 0x57FA, 3.002.086 kq4 0x5C15): the sole skip condition is
   `cmp byte [entry+0x24],0x3F; ja` on the packed margin|priority byte —
-  margins 16..31 truncate through the byte store and still draw a
-  (truncated-color) box. No y-range guard exists; the box top is bounded by
+  the margin operand reaches the gate nibble-truncated (F-VIEWS-04's byte
+  store), so margins 16..19 (and every margin ≡ 0..3 mod 16) still draw a
+  truncated-color box while margins with a truncated nibble ≥ 4 skip it.
+  No y-range guard exists; the box top is bounded by
   the pri_tbl band scan and shadow-ram top only.
 - **F-VIEWS-12 (fact; deliberate engine divergence).** Narrow-cel control box
   (2.936 kq3 0x5867, 3.002.086 kq4 0x5C82): the top-row loop is
   `mov cl,al; sub cl,2; … loop` with no zero test — xdim 1 stamps 255 cells,
   xdim 2 wraps LOOP to 65536 iterations marching across shadow ram. Not
   modelled (deliberate).
-- **F-picture-06 (fact; engine matches).** add.to.pic control box (2.936 kq3
-  objinpic 0x57CF / 3.002.086 kq4 body 0x5BEA, instruction-identical): box
-  drawn only when the final pri byte ≤ 0x3F; height = min(cel ydim, rows
-  walked up through the priority table while the band value is unchanged),
-  walk bounded by row 0 (`or cl,cl; jz`); paint is `and es:[di],0xF /
-  or es:[di],boxpri<<4`; top-row count is `sub cl,2` in 8-bit CL — cel width
-  < 3 wraps to 255/254 iterations (overrun exists in the original, unmodelled
-  in the engine; see F-VIEWS-12).
+- **F-picture-06 (fact; engine matches the modeled box).** add.to.pic
+  control box (2.936 kq3 objinpic 0x57CF / 3.002.086 kq4 body 0x5BEA,
+  instruction-identical): the cel blit runs first (a runtime-loaded OBJS
+  overlay routine — kq3 loads IBM_OBJS.OVL/HGC_OBJS.OVL at paragraph 0x9DB
+  and calls its third entry at 0x9DB6), then the box is gated on the whole
+  packed margin|priority byte ≤ 0x3F (the gate is owned by F-VIEWS-09), so a
+  truncated margin nibble of 0..3 draws it. Height: a counter starts at 1
+  and walks up from row y−1 while pri_tbl[row] == pri_tbl[y], stopping at
+  row 0 (`or cl,cl; jz` at 0x5808) — the walk, and therefore the box top,
+  is bounded by y+1 rows; box height = min(cel ydim, walked rows) (`cmp
+  ah,dh / jna` at 0x582D). Paint per cell: `and es:[di],0x0F / or
+  es:[di],packed&0xF0` — the truncated margin nibble into the shadow byte's
+  high nibble, low nibble preserved. Geometry: the bottom row paints all
+  width cells at (x,y); each of the height−1 rows above paints only the two
+  edge columns; the top row then paints its width−2 interior cells; a
+  height-1 box is the bottom row only (`dec cl; jz` at 0x5851). The top-row
+  count runs as a 16-bit LOOP with CH=0, so widths below 3 overrun — that
+  finding (255 iterations at width 1, 65536 at width 2) is owned by
+  F-VIEWS-12. The engine's control-box stamp matches the gate for margins
+  0..3, the band walk, the height cap and the bottom/edges/top geometry;
+  the truncated-margin gate and the absent y-guard diverge (F-VIEWS-09) and
+  the narrow-cel overrun is deliberately unmodelled (F-VIEWS-12).
 
 ### Text under later graphics
 
@@ -2005,9 +2041,12 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
   0x18F4 / 3.002.086 kq4 0x1BAD / 3.002.149 gr1 0x1B7C): the word loop tests
   `i >= 10` BEFORE each Match call and exits silently — tokens past the tenth
   retained word are never examined, so an unknown word at position 11+ is not
-  reported (v9 stays 0) and no eleventh text is kept; count byte = 10, f2
-  set. WORDS/WORDPTR are 10-slot arrays zeroed at Parse entry (FillMem 0x14
-  bytes each).
+  reported and no eleventh text is kept. The cap path (kq1 0x1940) stores
+  count := 10 and nothing else; v9 and f2 are written only on the
+  unknown-word path (kq1 0x1901: wordPtr[i] := text pointer, v9 := i+1,
+  count := i+1, SetFlag(2)), so an over-long line of known words leaves v9
+  and f2 clear. WORDS/WORDPTR are 10-slot arrays zeroed at Parse entry
+  (FillMem 0x14 bytes each).
 - **F-Parser-05 (fact; engine diverges).** Input-line capacity (2.917 kq1
   editor 0x3652 / 3.002.086 kq4 0x39EF / 3.002.149 gr1 0x3961): a character
   is accepted only while editLen < min(var[24], 40 − strlen(s0) −
@@ -2190,15 +2229,24 @@ the same 0x5234 helper, consistent with the shared 2.936 core.
 
 Static disassembly of KQ2 2.411, LSL1 2.440 and XMAS 2.272 (`a0c26b5d…`).
 
-- **F-SOUND-02 (fact; engine diverges on the +3 rule scope, matches the
-  rest).** Early sound attenuation (2.272 xmas 0x764D / 2.411 kq2 0x7D02 /
-  2.440 lsl1 0x7E2B): 2.272 adds var[23] to the whole control byte with a
+- **F-SOUND-02 (fact; engine matches 2.272, diverges for 2.411/2.440).**
+  Early sound attenuation (2.272 xmas 0x764D / 2.411 kq2 0x7D02 / 2.440 lsl1
+  0x7E2B): 2.272 adds var[23] (DS+0x20) to the whole control byte with a
   signed `jng` clamp to 0x0F; 2.411/2.440 mask the nibble first then clamp
-  (`(c&0xF0)|min(15,n+v23)`). On machType==2 (Tandy) all three builds first
-  apply +3 to any attenuation latch byte ((b&0x90)==0x90) whose low nibble <
-  8 (ConvertTDVolume kq2 0x7D3C / lsl1 0x7E65 / xmas 0x7680) — not
-  channel-2-only. Terminator emits (saved&0xEF, 0x00, selector|0x0F) from the
-  read-only initial array `9F BF DF FF`.
+  (`(c&0xF0)|min(15,n+v23)`) — but their clamp is also a signed `jng`, so a
+  nibble+var[23] sum that wraps past 0x7F is kept and bleeds into the
+  selector nibble on the OR. On machType==2 (Tandy) all three builds first
+  apply +3 to any attenuation latch byte ((b&0x90)==0x90 — the
+  0x90/0xB0/0xD0/0xF0 family, every tone channel and the noise channel)
+  whose low nibble < 8 (ConvertTDVolume kq2 0x7D3C / lsl1 0x7E65 / xmas
+  0x7680). 2.440 alone suppresses the second tone byte when its top three
+  bits are set (lsl1 0x7E21 `and al,0xe0 / cmp al,0xe0 / jz`), which the
+  engine models under its early-2.440 family. Terminator emits
+  (saved&0xEF, 0x00, selector|0x0F), the saved bytes initialized from the
+  shipped word array {0x9F,0xBF,0xDF,0xFF} (kq2 AGIDATA.OVL DS+0x166F).
+  Engine: the 2.272 whole-byte signed rule is matched exactly; the
+  2.411/2.440 path never applies the Tandy +3 and clamps with an unsigned
+  min, flattening the wrapped sums the original keeps.
 - **F-SOUND-03 (fact; engine diverges).** sound() ordering (2.411 kq2 0x4FD5,
   2.440 lsl1 0x5007, 2.272 xmas 0x4943): StopSnd runs first (sets the OLD
   done flag, silences the chip), then operands are read, the new done flag is
@@ -2681,11 +2729,28 @@ Playback completes at payload exhaustion and silences the chip.
 #### Wave-3 booter sound verdict
 
 - **F-SOUND-01 (fact; engine diverges).** Booter f9 gate (2.001, ddp decoded
-  `424da51a…`, 0x75B3): flag 9 is tested inside the per-write chip routine
-  (0x75BB `call flagGetter` → `jz → ret`); the row cursor and countdown
-  advance regardless (0x74B0/0x7482), and the done flag is set only on
-  payload exhaustion (0x747C → 0x4B96 SetFlag [0xe80]). f9-clear silences the
-  chip but never completes the sound.
+  `424da51a…`; the row-stream offsets are owned by
+  [PC booter sound rows](#pc-booter-sound-rows)): flag 9 is tested inside the
+  per-write chip routine (0x75BB `call flagGetter` → `jz → ret`), so with f9
+  clear every chip write is skipped — the suppression writes nothing, so it
+  does not silence the chip: the chip holds its last-programmed state while
+  the row cursor and countdown keep advancing per INT 1Ch tick
+  (0x74B0/0x7482), and the done flag is set only at payload exhaustion
+  (0x747C → 0x4B96, SetFlag via the stored index DS:0xE80). The exhaustion
+  silence (0x4B96 → 0x7560) writes 9F BF DF FF straight to port 0xC0 on the
+  Tandy path — not f9-gated — but routes through the gated writer on the
+  PC-speaker path, so there it is suppressed too while f9 is clear. The
+  engine instead stops and completes the sound on the first f9-clear tick
+  (SoundPlayback.tick's disabled path), so the original's
+  keeps-playing-with-writes-suppressed state has no engine counterpart. Tick
+  delivery also differs: the original's rows and clock ride the asynchronous
+  BIOS INT 1Ch cascade (the ~18.2 Hz default — the booter never reprograms
+  PIT channel 0; its only port-0x43 writes are timer-2 speaker divisors),
+  while the engine advances its sound/clock ticks from its own clock lane
+  inside host poll/timer processing.
+  (Incidental: the booter writer carries the early family's Tandy +3
+  attenuation rule — `(b & 0x90) == 0x90 && nibble < 8` at 0x75DA, all four
+  attenuation latches — see the early-family F-SOUND-02 entry.)
 
 ### Original directory and resource loading
 
@@ -2749,7 +2814,11 @@ hash-pinned data segments.
   0x201/0x401→ESC, type-1 only) runs inside GetKey — so have.key,
   get.string/get.num (WaitChar), and all ChkAcAb modals normalize — plus the
   inventory, menu, and menu-status handlers directly. The input-phase
-  EditLine is the only key consumer that never normalizes.
+  EditLine is the only key consumer that never normalizes. kq3 2.936 carries
+  the same mapping (0x4634: 0x101/0x301→0x0D, 0x201/0x401→0x1B, type-1
+  events only), called inside its key-read helper (0x459E, at 0x45B7) and
+  from the inventory (0x32F4) and menu (0x941D) paths; the full consumer
+  sweep above is verified in 3.002.102 only.
 - **F-IN-05 (fact; engine diverges).** Menu-interaction gate (3.002.107 mh1 /
   3.002.149 gr1): allow.menu (0xB1) stores its operand to a dedicated word
   (mh1 DS+0x5E3, gr1 DS+0x403), shipped value 1, never re-initialized.
@@ -2813,7 +2882,8 @@ strings read byte-exact from the hash-pinned data segments.
   maxLength)>>1 (shr = floor; slack non-negative via the verbose gate);
   engine centering matches exactly. print.at row/col overrides are stored
   VERBATIM (picTop still added to row) with no clamping — off-screen
-  overrides corrupt pixels rather than shift to fit; the engine's
+  overrides write outside the window bounds (unverified how far the
+  corruption reaches) rather than shifting to fit; the engine's
   clamp-to-screen is unoriginal.
 - **F-text-08 (fact; engine matches).** Timed print (2.917 kq1 0x1CE8 / 2.936
   kq3): timeOut = sysTimer + v21*10 (dword, 20 Hz → half-second units);
@@ -2837,11 +2907,13 @@ body; brush tables read from the hash-pinned overlays.
   3.002.086 kq4 body 0x4FB0): `Reset(15)` (LEAVE_WIN), `CloseWindow(NULL)`,
   `BackToScrn`, `picVisible=1`, in that order — the flag-15 clear and window
   close exist on PC exactly as on Amiga/IIgs.
-- **F-picture-02 (fact; engine matches).** Seed fill (2.936 kq3 colorFill
-  0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose pending-line stack
-  is the CPU stack, seeded with 4×0xFFFF (`B8 FF FF 50 50 50 50` at 0x5377),
-  popped until start-Y == 0xFF; no SP bound — a pathological fill corrupts
-  the stack rather than aborting. Fill with visual 15 or priority 4 is
+- **F-picture-02 (fact; engine matches the modeled fill).** Seed fill (2.936
+  kq3 colorFill 0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose
+  pending-line stack is the CPU stack, seeded with 4×0xFFFF (`B8 FF FF 50 50
+  50 50` at 0x5377), popped until start-Y == 0xFF; no SP bound — a
+  pathological fill corrupts the stack rather than aborting (the overrun is
+  real in the original and deliberately unmodelled in the engine, as with
+  F-VIEWS-12). Fill with visual 15 or priority 4 is
   dropped before the seed test (`cmp byte [color],0xF / jz`,
   `cmp byte [pri],0x40 / jz`); visual channel selected before priority
   (`test bh,0xF` first); seed masked pixel must equal the background mask or
@@ -2907,7 +2979,10 @@ overlays.
   AGIDATA.OVL): the interpreter data image ships SCRIPTSIZE = 0x0032 (50
   pairs) at DS+0x141, between MAXDRAWN 0x000F (DS+0x13F) and SCRIPTENTRIES 0
   (DS+0x143); the buffer is allocated lazily by InitScript at scriptSize*2
-  bytes. 200-pair images are game-side script.size calls, not the default.
+  bytes. Where the 200-pair configurations observed elsewhere come from is
+  inference: the three shipped images carry 50, and any larger runtime
+  capacity arrives through game-side script.size calls
+  (F-timing-02 / F-OPCORE-03), not the default.
 - **F-timing-02 / F-OPCORE-03 (fact; engine diverges).** script.size 0x8e
   (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149 0x74E8):
   stores the operand into SCRIPTSIZE DS+0x141, then calls RestoreAll,
@@ -2935,37 +3010,77 @@ Static disassembly of the decoded SQ1 2.089 image (`e31e5e86…`), XMAS 2.230
 lineage with per-version deltas.
 
 - **F-motion-01 / F-OPCORE-01 (fact; engine diverges).** Original position
-  handlers (2.089, sq1 `e31e5e86`, runtime 0x7141): x/y stored, then
-  `and cx,1` on the control word, `call Erase` (0x515C) if drawn, then
-  prevx/prevy snapshot — erase-then-store. The 2.230 (0x70FA) and 2.272
-  (0x7196) handlers are store-together with no DRAWN test; the erase variant
-  is 2.089-only. Engine profile field positionActionOrder must drive the
-  0x25/0x26 handlers.
+  handlers (2.089, sq1 `e31e5e86`; position 0x7141, position.v 0x7199): the
+  operands are stored to x (+0x03) and y (+0x05); then, only when the
+  control word's drawn bit (0x01) is set (`and cx,1 / cmp ax,1` at 0x7172),
+  the placement fixup at 0x515C runs; prevx/prevy (+0x16/+0x18) are
+  snapshotted LAST, from the possibly adjusted coordinates. The fixup is not
+  an erase: it first raises y to horizon+1 when y ≤ the horizon word
+  (DS:0x12F) and the record's ignore-horizon bit (0x08) is clear
+  (0x5167-0x517B), then tests the position with three predicates —
+  bounds+horizon (0x5236), object collision (0x3F8B, skipped under
+  ignore-objects 0x0200) and the control-screen footprint test (0x4E25,
+  which first recomputes the priority band unless fixed-priority 0x04) —
+  and, while any of them fails, spiral-searches a legal placement with legs
+  x−−/y++/x++/y−−, the leg length incremented after the down and up legs
+  (the spiral 2.936's FindPosn keeps, F-motion-12), with no iteration cap.
+  The fixup routine survives in 2.230 (0x515D) with other callers, but the
+  2.230 (0x70FA) and 2.272 (0x7196) position handlers dropped the call:
+  they store x into +0x16/+0x03 and y into +0x18/+0x05 together, with no
+  drawn test and no placement fixup — store-together. The engine stores the
+  coordinates and the snapshot together in every profile and never runs the
+  fixup on position: under a 2.089 game a drawn object positioned at or
+  below the horizon keeps that position (the original raises it above the
+  horizon before snapshotting), and a colliding placement is never
+  spiral-relocated.
 - **F-motion-15 (fact; engine matches).** Original distance (2.089 sq1
   0x4061, 2.230 0x3FE5, 2.272 0x4043): center-X+baseline-Y Manhattan sum
   computed in 16 bits, then a plain `mov [var],al` byte store — wraps mod
-  256, no clamp. Undrawn object → 0xFF. The 254 clamp arrived later (source
-  changelog 06/04/87).
+  256, no clamp. Either object undrawn → 0xFF (both control words are
+  tested for the drawn bit 0x01 before the sum). The 254 clamp exists by
+  2.936, still absent from all three early builds: kq3's distance body ends
+  `cmp word [bp-0x2],0xfe / jna / mov ax,0xfe` (0x4893) before the byte
+  store.
 - **F-VIEWS-02 (fact; engine matches).** Original 2.230 packed loop header
   (xmas `875547de`, _SetLoop 0x350D, LastCel 0x36E2): loop byte 0 =
   celcnt&0x0F | orientation<<4 (0x30) | mirrorable 0x40 | mutable 0x80; cel
   count masked with `and ax,0xf`. 2.089 (0x35C7) and 2.272 (0x35C4) use a
   full-byte cel count with no in-header orientation — the packed form is
   2.230-only.
-- **F-VIEWS-08 (fact; engine diverges).** 2.230 packed orientation truncation
-  (xmas 0x3545): writeback `and ax,0xffcf / or ax,(loop<<4) / mov [di],al`
-  stores only (loop mod 4) into bits 0x30, but the equal-test compares the
-  2-bit field against the full loop operand — a loop ≥ 4 re-mirrors on every
-  set.loop. In-place mutation of the loaded view resource.
+- **F-VIEWS-08 (fact; engine diverges).** 2.230 packed loop-header writeback
+  (xmas `875547de`, _SetLoop 0x350D; mutable branch 0x3545, writeback
+  0x356A): after storing the loop/cel fields, a mutable (0x80) loop header
+  is updated in place. The skip test compares the stored 2-bit orientation
+  ((hdr&0x30)>>4) against the FULL loop operand, so a loop ≥ 4 can never
+  test equal. If the mirrorable bit (0x40) is set, MirrorLoop (0x50AF)
+  rebuilds every cel mirrored in a 0x800-byte stack buffer and rep-movsb's
+  it back over the original — in-place mutation of the loaded view
+  resource. The writeback `and ax,0xffcf / or ax,(loop<<4) / mov [di],al`
+  stores the whole shifted operand's low byte: loops 0-3 update only the
+  orientation field, but loops 4-7 also SET the mirrorable bit 0x40, 8-11
+  set the mutable bit 0x80 and 12-15 set both. So a mutable, non-mirrorable
+  header 0x82 becomes 0xC2 on the first set.loop(4) — no mirror yet, 0x40
+  was clear on entry — and every later set.loop with a loop ≥ 4 mirrors the
+  loop again, the truncated field never matching the full operand. The
+  engine's packed-path selection stores the untruncated orientation and
+  never sets the mirrorable bit, so a repeated set.loop(≥4) is a no-op
+  there.
 - **F-SOUND-02 (fact; engine matches).** Early sound player (2.089 sq1
-  0x7615, 2.230 0x7598, 2.272 0x7634): Tandy path emits both tone bytes then
-  the control byte; on machType==2 the control byte's low nibble is raised by
-  3 if its high nibble is 0x90 and nibble < 8. 2.272 additionally adds a
-  global adjustment byte (DS+0x20) to the whole control byte with a signed
-  `cmp al,0xf / jng / mov al,0xf` clamp. Sound end silences all four channels
-  with 9F BF DF FF (selector|0x0F) from StopSnd; PC-speaker path only honors
-  the 0x9F mute. (The later 2.411/2.440 form of the same rules is under
-  [Wave-3 sound verdicts](#wave-3-sound-verdicts).)
+  0x7615, 2.230 0x7598, 2.272 0x7634): the PSG path emits both tone bytes,
+  then the control byte. On machType==2 (Tandy) the control byte first
+  passes ConvertTDVolume (sq1 0x7657, 2.230 0x75DA; 2.272's instance is
+  owned by the Wave-3 entry): `(b & 0x90) == 0x90 && (b & 0x0F) < 8` raises
+  the low nibble by 3. The mask matches the whole attenuation-latch family
+  — 0x90/0xB0/0xD0/0xF0, all three tone channels AND the noise channel —
+  not channel zero alone; tone and continuation bytes never match it. The
+  engine applies the +3 to every channel's control byte under its
+  early-2.089/early-2.272 families — the same scope. 2.272 additionally
+  adds var[23] to the whole control byte with a signed clamp (owned by the
+  Wave-3 entry). Sound end silences all four channels with 9F BF DF FF
+  (selector|0x0F) written straight to port 0xC0 (sq1 0x75F6); on machType 0
+  the stop routes a single 0x9F through the speaker path, the only control
+  byte that path treats as a mute. (The 2.411/2.440 forms of the same rules
+  are under [Wave-3 sound verdicts](#wave-3-sound-verdicts).)
 - **F-Parser-03 (fact; engine matches).** said() tail terminator introduction
   point (sq1 2.089 `e31e5e86` Said 0x965 vs xmas 2.230 0x851): 2.089 has no
   0x270F immediate anywhere in the interpreter and gates the match on
