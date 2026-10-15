@@ -35,6 +35,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Deleting the room the game is in restarts the game from the beginning and
   says so, instead of offering a restart into the deleted room.
 - Progress is kept while only chat, notes or tests are saving.
+- Pausing the moment Play starts a game keeps it for Undo rewind. A game
+  that is still starting says so instead of naming a game prompt.
 - Closing the Agent restores your Parts setting at any width.
 - A dialog you reopen right away stays open.
 - When the game does not answer while the Agent opens, the notice says so and
