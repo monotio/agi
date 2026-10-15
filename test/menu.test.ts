@@ -4,6 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { TEXT_COLS, attr } from "../src/runtime/textSurface.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
 
 /**
  * Menu bar and pulldown interaction (spec "Menu construction" and "Menu
@@ -192,4 +193,64 @@ test("menu.input is ignored while f14 is clear", () => {
   engine.flags[14] = 0;
   openMenu(engine);
   assert.equal(engine.modalKind, null);
+});
+
+function bootV3(source: string): { engine: Engine; host: Host } {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(source, { dictionary: DICT, profile: PROFILES["3.002.149"] }).payload,
+  );
+  const host = new Host();
+  return {
+    engine: new Engine(container, host, DICT, { profile: "3.002.149" }),
+    host,
+  };
+}
+
+test("v3 menu.input opens without allow.menu: the interaction gate ships 1", () => {
+  // Player-visible rule: a v3 game that never calls allow.menu still opens
+  // its menu — the gate word ships 1 in the data image and nothing resets it
+  // (mh1 3.002.107 ovl DS+0x5E3 = 01 00; gr1 3.002.149 ovl DS+0x403 = 01 00;
+  // no shipped gr1/mh1/demopac4 logic calls allow.menu).
+  const { engine } = bootV3(`
+    if (!isset(f200)) {
+      set(f200); set.menu("File"); set.menu.item("Save", 1); submit.menu(); set(f14);
+    }
+    if (isset(f201)) { reset(f201); menu.input(); }
+    return;
+  `);
+  engine.tick();
+  engine.flags[201] = 1;
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.modalKind, "menu");
+});
+
+test("a gated menu request pends and opens when allow.menu re-enables it", () => {
+  // Player-visible rule: allow.menu(0) does not cancel a requested menu; the
+  // request waits and the menu opens on a later input phase once the gate is
+  // nonzero again. menu.input tests f14 only and sets the request word; the
+  // gate is consulted at the head of DoMenu and the gated exit leaves the
+  // request set (mh1 3.002.107 0x9859 / 0x9895-0x989C; the request word's
+  // only clear is the menu-close path 0x993F).
+  const { engine } = bootV3(`
+    if (!isset(f200)) {
+      set(f200); set.menu("File"); set.menu.item("Save", 1); submit.menu(); set(f14);
+    }
+    if (isset(f201)) { reset(f201); allow.menu(0); menu.input(); }
+    if (isset(f202)) { reset(f202); allow.menu(1); }
+    return;
+  `);
+  engine.tick();
+  engine.flags[201] = 1;
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.modalKind, null, "the gate holds the menu closed");
+  engine.flags[202] = 1;
+  engine.tick(); // allow.menu(1) lands in the logic phase, after that input phase
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.modalKind, "menu", "the pending request opens once ungated");
 });
