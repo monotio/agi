@@ -54,6 +54,8 @@ export interface WindowOverlay {
   readonly y1: number;
   /** Write stamp of the window overlay on `TextSurface`. */
   seq: number;
+  /** Frame pixel indices (y * 320 + x) erased since the window opened; omitted when intact. */
+  erased?: number[];
 }
 
 /**
@@ -471,11 +473,44 @@ export function placePrintWindow(
 }
 
 /**
+ * Return the flat 320x200 indices of any frame pixels of `win` that have been
+ * erased from `surface.overlay` since the window opened, or undefined when the
+ * entire frame is intact.
+ */
+export function captureWindowErased(
+  surface: TextSurface,
+  win: WindowOverlay,
+): number[] | undefined {
+  const x0 = Math.max(0, win.x0);
+  const x1 = Math.min(OVERLAY_WIDTH - 1, win.x1);
+  const y0 = Math.max(0, win.y0);
+  const y1 = Math.min(OVERLAY_HEIGHT - 1, win.y1);
+  if (x1 < x0 || y1 < y0) return undefined;
+
+  const intX0 = win.textLeft * 8;
+  const intX1 = (win.textLeft + win.textCols) * 8 - 1;
+  const intY0 = win.textTop * 8;
+  const intY1 = (win.textTop + win.textRows) * 8 - 1;
+
+  let erased: number[] | undefined;
+  for (let y = y0; y <= y1; y++) {
+    const inIntY = y >= intY0 && y <= intY1;
+    const rowBase = y * OVERLAY_WIDTH;
+    for (let x = x0; x <= x1; x++) {
+      if (inIntY && x >= intX0 && x <= intX1) continue;
+      const idx = rowBase + x;
+      if (surface.overlay[idx] === 0) (erased ??= []).push(idx);
+    }
+  }
+  return erased;
+}
+
+/**
  * Stamp the outer margin fill (white, EGA 15 -> 16) and border bars (red,
  * EGA 4 -> 5) of `win` onto `surface.overlay` at `win.seq`, leaving the
  * interior text cells to `surface.cells`. When `preserveNewerCells` is true
- * (checkpoint restore), cells written after `win.seq` also keep priority over
- * the overlay.
+ * (checkpoint restore), cells written after `win.seq` and any frame pixels
+ * recorded in `win.erased` keep priority over the overlay.
  */
 export function stampWindowOverlayOnly(
   surface: TextSurface,
@@ -502,6 +537,7 @@ export function stampWindowOverlayOnly(
   const barRightX1 = win.x1 - 2;
   const barHorizX0 = win.x0 + 2;
   const barHorizX1 = win.x1 - 2;
+  const erased = win.erased && win.erased.length > 0 ? new Set(win.erased) : null;
 
   let wrote = false;
   for (let y = y0; y <= y1; y++) {
@@ -510,6 +546,8 @@ export function stampWindowOverlayOnly(
     const rowBase = y * OVERLAY_WIDTH;
     for (let x = x0; x <= x1; x++) {
       if (inIntY && x >= intX0 && x <= intX1) continue;
+      const idx = rowBase + x;
+      if (erased?.has(idx)) continue;
       if (preserveNewerCells) {
         const cell = row * TEXT_COLS + (x >> 3);
         if (surface.cells[cell * 2] !== 0 && surface.written[cell]! > win.seq) continue;
@@ -519,8 +557,8 @@ export function stampWindowOverlayOnly(
         y >= barTopY &&
         y <= barBotY &&
         ((x >= barLeftX0 && x <= barLeftX1) || (x >= barRightX0 && x <= barRightX1));
-      surface.overlay[rowBase + x] = isHorizBar || isVertBar ? 5 : 16;
-      surface.overlayWritten[rowBase + x] = win.seq;
+      surface.overlay[idx] = isHorizBar || isVertBar ? 5 : 16;
+      surface.overlayWritten[idx] = win.seq;
       wrote = true;
     }
   }

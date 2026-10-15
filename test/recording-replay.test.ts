@@ -928,7 +928,7 @@ test("script.size redraws every drawn object over text written since its draw", 
   assert.notEqual(engine.textRow(13).charAt(2), "X");
 });
 
-test("sync marks carry either the released combined digest or the split state and text digests", () => {
+test("sync marks require the combined digest and admit the optional split state and text digests as a pair", () => {
   const recording = (sync: unknown[]) => ({
     version: HISTORY_FORMAT_VERSION,
     identity: {
@@ -958,36 +958,35 @@ test("sync marks carry either the released combined digest or the split state an
     ],
   });
   const base = { seq: 0, tick: 0, cycle: 0, room: 1, score: 0, patchGeneration: 0, modal: null };
-  // The released version-1 shape round-trips with its combined digest kept.
+  // The released version-1/version-2 shape round-trips with its combined digest kept.
   assert.deepEqual(
     validateHistoryRecording(recording([{ ...base, digest: "c2c5e065" }])).segments[0]!.sync[0],
     { ...base, digest: "c2c5e065" },
   );
-  // The current shape records state and text separately.
+  // The current shape keeps the combined digest for released 1.2.4 readers and adds state + text.
   assert.deepEqual(
-    validateHistoryRecording(recording([{ ...base, state: "aaaaaaaa", text: "bbbbbbbb" }]))
-      .segments[0]!.sync[0],
-    { ...base, state: "aaaaaaaa", text: "bbbbbbbb" },
+    validateHistoryRecording(
+      recording([{ ...base, digest: "c2c5e065", state: "aaaaaaaa", text: "bbbbbbbb" }]),
+    ).segments[0]!.sync[0],
+    { ...base, digest: "c2c5e065", state: "aaaaaaaa", text: "bbbbbbbb" },
   );
-  // Neither shape incomplete nor both at once.
+  // Missing digest or an incomplete state/text pair is rejected.
+  assert.throws(() => validateHistoryRecording(recording([base])), /sync digest/);
   assert.throws(
-    () => validateHistoryRecording(recording([base])),
-    /combined digest or the state and text digests/,
-  );
-  assert.throws(
-    () => validateHistoryRecording(recording([{ ...base, state: "aaaaaaaa" }])),
-    /combined digest or the state and text digests/,
+    () => validateHistoryRecording(recording([{ ...base, state: "aaaaaaaa", text: "bbbbbbbb" }])),
+    /sync digest/,
   );
   assert.throws(
-    () =>
-      validateHistoryRecording(
-        recording([{ ...base, digest: "c2c5e065", state: "aaaaaaaa", text: "bbbbbbbb" }]),
-      ),
-    /combined digest or the state and text digests/,
+    () => validateHistoryRecording(recording([{ ...base, digest: "c2c5e065", state: "aaaaaaaa" }])),
+    /both state and text digests or neither/,
+  );
+  assert.throws(
+    () => validateHistoryRecording(recording([{ ...base, digest: "c2c5e065", text: "bbbbbbbb" }])),
+    /both state and text digests or neither/,
   );
 });
 
-test("the sync mark records the state and text digests separately", () => {
+test("the sync mark records the combined digest alongside the split state and text digests", () => {
   const source = (text: string) => ({
     vars: [1, 2, 3],
     flags: [0, 1],
@@ -1000,5 +999,6 @@ test("the sync mark records the state and text digests separately", () => {
   const b = computeSyncMark(source("world"), 0, 0, 0);
   assert.equal(a.state, b.state, "a text-only change leaves the state digest");
   assert.notEqual(a.text, b.text, "a text change moves the text digest");
-  assert.equal(a.digest, undefined, "current recordings carry no combined digest");
+  assert.equal(typeof a.digest, "string", "current recordings still carry the combined digest");
+  assert.notEqual(a.digest, b.digest, "the combined digest also reflects the text change");
 });

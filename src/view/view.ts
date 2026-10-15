@@ -417,8 +417,8 @@ export function selectViewCel(
       // loop operand UNMASKED: the equal-test above compares the full index,
       // bits 0x30 read back as the orientation, and an index ≥ 4 also sets
       // bit 0x40 — selecting loop 4 on an initially non-mirrorable loop
-      // (0x82 → 0xC2) makes the NEXT selection mirror (xmas 2.230 _SetLoop
-      // 0x3545-0x357C: and ax,0xffcf / or ax,cx with cx = loop<<4).
+      // (0x82 → 0xC2) makes the NEXT selection mirror (docs/fidelity.md
+      // "Early PC family", F-VIEWS-01).
       const writeback = (loopIndex << 4) & 0xff;
       loop.orientation = (writeback & 0x30) >>> 4;
       loop.mirrorable = loop.mirrorable || (writeback & 0x40) !== 0;

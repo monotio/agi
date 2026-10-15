@@ -910,6 +910,18 @@ test("every shipped profile carries its binary-verified authenticity fields", ()
             : "dialogue-36";
     assert.equal(profile.inputLineEditCap, expectedEditCap, `${id}.inputLineEditCap`);
     assert.equal(profile.originalRestartRestore, true, `${id}.originalRestartRestore`);
+    const latePcGroup = new Set<ProfileId>([
+      "2.917",
+      "2.936",
+      "3.002.086",
+      "3.002.102",
+      "3.002.149",
+    ]);
+    assert.equal(
+      profile.restoreRewritesMachineState,
+      latePcGroup.has(id),
+      `${id}.restoreRewritesMachineState`,
+    );
     assert.equal(profile.restartCursorMemory, v3Group.has(id), `${id}.restartCursorMemory`);
     assert.equal(profile.soundStopsBeforeFault, true, `${id}.soundStopsBeforeFault`);
     assert.equal(profile.printConsumesF15, !earlyGroup.has(id), `${id}.printConsumesF15`);

@@ -194,21 +194,20 @@ export interface HistoryRoomMark {
  * A cheap checksum of interpreter state at a stream position plus diagnostic
  * fields. Marks detect divergence; they do not prove equivalence.
  *
- * Version-2 tapes may carry either form: the released combined `digest`
- * (FNV-1a over vars, flags, object positions and the 25 text rows) or the
- * split `state` and `text` digests, never both. New writers emit the split
- * digests; the split digests are optional fields at the same version, so
- * older files express them by omission.
+ * Every mark carries the combined `digest` (FNV-1a over vars, flags, object
+ * positions and the 25 text rows) so version-2 recordings stay readable by
+ * released 1.2.4 readers. Current writers also emit the optional `state` and
+ * `text` digests as a pair; older files express them by omission.
  */
 export interface HistorySyncMark {
   seq: number;
   tick: number;
   cycle: number;
-  /** Released form: FNV-1a over vars, flags, object positions and the 25 text rows. */
-  digest?: string;
-  /** Current writer form: FNV-1a over vars, flags and object positions. */
+  /** FNV-1a over vars, flags, object positions and the 25 text rows. */
+  digest: string;
+  /** Current writer extension: FNV-1a over vars, flags and object positions. */
   state?: string;
-  /** Current writer form: FNV-1a over the 25 text rows. */
+  /** Current writer extension: FNV-1a over the 25 text rows. */
   text?: string;
   room: number;
   score: number;
@@ -444,6 +443,7 @@ export function computeSyncMark(
     seq,
     tick,
     cycle,
+    digest: historySyncDigest(engine),
     state: digestOf((feed) => feedState(engine, feed)),
     text: digestOf((feed) => feedText(engine, feed)),
     room: engine.vars[V_ROOM] ?? 0,
@@ -964,23 +964,21 @@ function syncMarks(value: unknown): HistorySyncMark[] {
   if (!Array.isArray(value) || value.length > 1_000_000) fail("sync marks must be a bounded list.");
   return value.map((m) => {
     if (!isObj(m)) fail("sync mark must be an object.");
-    // Version-2 tapes keep their original marks: either the released
-    // combined digest or the split digests, never both.
-    const combined = m["digest"] !== undefined;
-    const split = m["state"] !== undefined && m["text"] !== undefined;
-    if (combined === split)
-      fail("sync mark carries either the combined digest or the state and text digests.");
+    const hasState = m["state"] !== undefined;
+    const hasText = m["text"] !== undefined;
+    if (hasState !== hasText) fail("sync mark must carry both state and text digests or neither.");
     // Key order preserves the released bytes on re-export.
     const out: HistorySyncMark = {
       seq: int(m["seq"], "sync seq"),
       tick: int(m["tick"], "sync tick"),
       cycle: int(m["cycle"], "sync cycle"),
-      ...(combined
-        ? { digest: text(m["digest"], "sync digest", 64) }
-        : {
+      digest: text(m["digest"], "sync digest", 64),
+      ...(hasState
+        ? {
             state: text(m["state"], "sync state digest", 64),
             text: text(m["text"], "sync text digest", 64),
-          }),
+          }
+        : {}),
       room: int(m["room"], "sync room", 255),
       score: int(m["score"], "sync score", 0xffff),
       patchGeneration: int(m["patchGeneration"], "sync patchGeneration"),

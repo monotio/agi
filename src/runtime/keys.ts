@@ -67,8 +67,8 @@ export const NAV_KEY_CODES: Record<number, number> = Object.fromEntries(
  * on every GetKey-consuming path — have.key, the get.string/get.num editors,
  * all modal windows, the inventory selector and the menus — so a keypad press
  * behaves exactly like its main-keyboard twin there; the input-phase line
- * editor is the one key consumer that never normalizes (demopac4 3.002.102
- * ButtonToChar 0x4A78, called inside GetKey 0x49D2).
+ * editor is the one key consumer that never normalizes (docs/fidelity.md
+ * "Original input, menu and modal handling", F-IN-06).
  */
 export function normalizeKeyWord(word: number): number {
   if (word === 0x0101 || word === 0x0301) return AGI_KEY.ENTER;

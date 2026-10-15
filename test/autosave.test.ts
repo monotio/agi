@@ -213,29 +213,79 @@ test("restoreImage replays an autosave into a fresh engine without unwinding", (
   assert.equal(fresh.vars[0], 1);
 });
 
-test("a host image restore keeps the recorded machine vars; only the authentic restore rewrites them", () => {
+test("a host image restore keeps the recorded machine vars; only the authentic restore rewrites them per profile", () => {
   // Player-visible rule: replaying a recorded session must reproduce the
   // recorded state exactly — the restore tail's native machine rewrites
-  // (v22 = sound device, v26 = 3, then f12) belong to the original's
-  // save-file restore only (kq3 2.936 0x2647-0x2693), never to a history or
-  // autosave restore, or a recorded [v22,v26] silently becomes [3,3].
+  // (v20 = 0, v26 = 3, v22 = 1 on 1-voice or v22 = 3 + f11 = 1 on 3-voice,
+  // then f12) belong to the original's save-file restore on PC 2.903..3.002.149
+  // only (kq3 2.936 0x2651-0x267b, gr1 3.002.149 0x28e3-0x290d; docs/fidelity.md
+  // F-persistence-03), never to a history/autosave restore and never on earlier
+  // PC (2.001..2.440), Amiga (2.082..2.333), or IIgs (1.014) builds whose
+  // RestoreGame leaves the saved v20/v22/v26/f11 intact.
   const engine = new Engine(buildGame(), new RecordingHost(), DICT);
   engine.tick();
+  engine.vars[20] = 7;
   engine.vars[22] = 7;
   engine.vars[26] = 8;
+  engine.flags[11] = 0;
   engine.flags[12] = 0;
 
   const history = new Engine(buildGame(), new RecordingHost(), DICT);
   history.restoreImage(engine.autosaveImage()!);
+  assert.equal(history.vars[20], 7, "history restore keeps the recorded v20");
   assert.equal(history.vars[22], 7, "history restore keeps the recorded v22");
   assert.equal(history.vars[26], 8, "history restore keeps the recorded v26");
+  assert.equal(history.flags[11], 0, "history restore keeps the recorded f11");
   assert.equal(history.flags[12], 0, "history restore does not set the restored flag");
 
-  const authentic = new Engine(buildGame(), new RecordingHost(), DICT);
-  authentic.restoreImage(engine.serialize());
-  assert.equal(authentic.vars[22], 3, "the authentic restore rewrites v22 from the machine");
-  assert.equal(authentic.vars[26], 3, "the authentic restore rewrites v26");
-  assert.equal(authentic.flags[12], 1, "the authentic restore sets f12");
+  for (const profile of ["2.936", "3.002.149"] as const) {
+    const src = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    src.tick();
+    src.vars[20] = 7;
+    src.vars[22] = 7;
+    src.vars[26] = 8;
+    src.flags[11] = 0;
+    const saveBytes = src.serialize();
+
+    const authentic3Voice = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    authentic3Voice.restoreImage(saveBytes);
+    assert.equal(authentic3Voice.vars[20], 0, `${profile}: authentic restore rewrites v20 to 0`);
+    assert.equal(authentic3Voice.vars[22], 3, `${profile}: authentic restore rewrites v22 to 3`);
+    assert.equal(authentic3Voice.vars[26], 3, `${profile}: authentic restore rewrites v26 to 3`);
+    assert.equal(authentic3Voice.flags[11], 1, `${profile}: authentic 3-voice restore sets f11`);
+    assert.equal(authentic3Voice.flags[12], 1, `${profile}: authentic restore sets f12`);
+
+    const host1Voice = new RecordingHost();
+    (host1Voice as EngineHost).soundDevice = () => 0;
+    src.flags[11] = 1;
+    const saveBytesWithF11 = src.serialize();
+    const authentic1Voice = new Engine(buildGame(), host1Voice, DICT, { profile });
+    authentic1Voice.restoreImage(saveBytesWithF11);
+    assert.equal(authentic1Voice.vars[20], 0, `${profile} (1-voice): rewrites v20 to 0`);
+    assert.equal(authentic1Voice.vars[22], 1, `${profile} (1-voice): rewrites v22 to 1`);
+    assert.equal(authentic1Voice.vars[26], 3, `${profile} (1-voice): rewrites v26 to 3`);
+    assert.equal(
+      authentic1Voice.flags[11],
+      1,
+      `${profile} (1-voice): does not clear f11 from the save file`,
+    );
+  }
+
+  for (const profile of ["2.089", "2.440", "amiga-2.316", "iigs-1.014"] as const) {
+    const src = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    src.tick();
+    src.vars[20] = 7;
+    src.vars[22] = 9;
+    src.vars[26] = 8;
+    src.flags[11] = 0;
+    const dst = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    dst.restoreImage(src.serialize());
+    assert.equal(dst.vars[20], 7, `${profile}: RestoreGame preserves saved v20`);
+    assert.equal(dst.vars[22], 9, `${profile}: RestoreGame preserves saved v22`);
+    assert.equal(dst.vars[26], 8, `${profile}: RestoreGame preserves saved v26`);
+    assert.equal(dst.flags[11], 0, `${profile}: RestoreGame preserves saved f11`);
+    assert.equal(dst.flags[12], 1, `${profile}: RestoreGame still sets f12`);
+  }
 });
 
 test("restoreImage reinstates the game signature from block 1", () => {

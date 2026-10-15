@@ -168,21 +168,46 @@ function savedRect(value: unknown): SerializedSavedRect {
     throw new Error("Replay state saved rect dimensions are invalid.");
   let window: WindowOverlay | undefined;
   if (hasWindow && s["window"] !== undefined) {
-    const win = record(s["window"], [
-      "geometry",
-      "textTop",
-      "textLeft",
-      "textRows",
-      "textCols",
-      "x0",
-      "y0",
-      "x1",
-      "y1",
-      "seq",
-    ]);
+    const hasErased =
+      s["window"] !== null &&
+      typeof s["window"] === "object" &&
+      Object.hasOwn(s["window"], "erased");
+    const win = record(
+      s["window"],
+      hasErased
+        ? [
+            "geometry",
+            "textTop",
+            "textLeft",
+            "textRows",
+            "textCols",
+            "x0",
+            "y0",
+            "x1",
+            "y1",
+            "seq",
+            "erased",
+          ]
+        : [
+            "geometry",
+            "textTop",
+            "textLeft",
+            "textRows",
+            "textCols",
+            "x0",
+            "y0",
+            "x1",
+            "y1",
+            "seq",
+          ],
+    );
     const geometry = win["geometry"];
     if (geometry !== "pc-2.001" && geometry !== "pc" && geometry !== "amiga" && geometry !== "iigs")
       throw new Error("Replay state window geometry is invalid.");
+    const erased =
+      hasErased && win["erased"] !== undefined
+        ? array(win["erased"], 320 * 200, (v) => number(v, 0, 320 * 200 - 1))
+        : undefined;
     window = {
       geometry: geometry as WindowFrameGeometry,
       textTop: number(win["textTop"], -1024, 1024),
@@ -194,6 +219,7 @@ function savedRect(value: unknown): SerializedSavedRect {
       x1: number(win["x1"], -8192, 8192),
       y1: number(win["y1"], -8192, 8192),
       seq: number(win["seq"], 0, 0xffffffff),
+      ...(erased !== undefined ? { erased } : {}),
     };
   }
   return {

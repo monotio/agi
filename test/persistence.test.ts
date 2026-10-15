@@ -2147,39 +2147,24 @@ describe("original restart/restore audit", () => {
     assert.equal(engine.textRow(22), " ".repeat(40), "the edit line was cancelled");
   });
 
-  test("a declined restart leaves the input row intact in v3 (3.002.149) and cancels it in v2 (2.936)", () => {
-    // PC v3 saves cursor memory before the confirmation and redraws it on
-    // cancel only when it was visible (gr1 3.002.149 0x274C-0x2752, tail
-    // 0x27D0-0x27DC); PC v2 (kq3 2.936 0x243A) calls CancelLine before the
-    // prompt.
-    {
-      const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""), "3.002.149");
+  test("a declined restart leaves the input row intact across v2 (2.936) and v3 (3.002.149)", () => {
+    // In every binary, CancelLine runs only on the accepted branch after
+    // WaitAcAb != 0 or the f16 bypass (kq3 2.936 0x24BC, gr1 3.002.149 0x2735);
+    // declining the confirmation leaves editLine and the input row intact
+    // (docs/fidelity.md, F-persistence-02).
+    for (const profile of ["3.002.149", "2.936"] as const) {
+      const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""), profile);
       engine.tick();
       host.keys.push(0x61, 0x62);
       engine.tick();
       assert.equal(engine.textRow(22), "ab" + " ".repeat(38));
       engine.flags[201] = 1;
       engine.tick();
-      assert.equal(engine.flags[6], 0, "the restart was declined");
+      assert.equal(engine.flags[6], 0, `${profile}: the restart was declined`);
       assert.equal(
         engine.textRow(22),
         "ab" + " ".repeat(38),
-        "3.002.149: the row survived the prompt",
-      );
-    }
-    {
-      const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""), "2.936");
-      engine.tick();
-      host.keys.push(0x61, 0x62);
-      engine.tick();
-      assert.equal(engine.textRow(22), "ab" + " ".repeat(38));
-      engine.flags[201] = 1;
-      engine.tick();
-      assert.equal(engine.flags[6], 0, "the restart was declined");
-      assert.equal(
-        engine.textRow(22),
-        " ".repeat(40),
-        "2.936: CancelLine cleared the row before the prompt",
+        `${profile}: the typed row survived the declined prompt`,
       );
     }
   });
@@ -2303,17 +2288,18 @@ test("2.089/2.230/2.272 show.mem prints no rm.0 line", () => {
   }
 });
 
-describe("restartCursorMemory profile split: PC v3 saves cursor memory across restart.game; v2/Amiga/IIgs call CancelLine", () => {
-  test("declining restart.game clears the in-progress line on v2/Amiga/IIgs and preserves it on PC v3", () => {
-    // Player-visible rule: PC v2 (2.001..2.936), Amiga (2.082..2.333) and IIgs
-    // (1.014) call CancelLine at the start of RestartGame, wiping the partially
-    // typed command line before opening the confirmation window. PC v3
-    // (3.002.086..3.002.149) replaces CancelLine with CursorOff + saving cursor
-    // memory, so declining the prompt leaves the partial command line intact.
-    class DeclineHost extends RecordingHost {
+describe("restart.game CancelLine ordering across PC, Amiga and IIgs profiles", () => {
+  test("declining restart.game preserves the in-progress line across all profiles and accepting clears it", () => {
+    // Player-visible rule: in every binary (PC 2.001..3.002.149, Amiga
+    // 2.082..2.333, IIgs 1.014), RestartGame hides the cursor (EraseCur)
+    // before the confirmation window and runs CancelLine only on the accepted
+    // branch (docs/fidelity.md, F-persistence-02). Declining the prompt
+    // preserves the partially typed command line on every profile.
+    class PromptHost extends RecordingHost {
       keys: number[] = [];
+      answerKey = 0x1b;
       waitKey(): number {
-        return 0x1b; // ESC declines the restart confirmation
+        return this.answerKey;
       }
       override takeKeys(): number[] {
         return this.keys.splice(0);
@@ -2322,6 +2308,7 @@ describe("restartCursorMemory profile split: PC v3 saves cursor memory across re
     const run = (
       profile:
         "2.089" | "2.411" | "2.936" | "3.002.086" | "3.002.149" | "amiga-2.316" | "iigs-1.014",
+      answerKey: number,
     ): string => {
       const container = createContainer();
       container.putResource(
@@ -2329,6 +2316,7 @@ describe("restartCursorMemory profile split: PC v3 saves cursor memory across re
         0,
         assembleLogic(
           `
+          if (isset(f6)) { return; }
           if (!isset(f200)) { set(f200); accept.input(); }
           if (isset(f201)) { reset(f201); restart.game(); }
           return;
@@ -2336,7 +2324,8 @@ describe("restartCursorMemory profile split: PC v3 saves cursor memory across re
           { dictionary: DICT, profile: PROFILES[profile] },
         ).payload,
       );
-      const host = new DeclineHost();
+      const host = new PromptHost();
+      host.answerKey = answerKey;
       const engine = new Engine(container, host, DICT, { profile });
       host.engine = engine;
       engine.tick();
@@ -2348,11 +2337,17 @@ describe("restartCursorMemory profile split: PC v3 saves cursor memory across re
       return engine.inputEdit;
     };
 
-    for (const profile of ["2.089", "2.411", "2.936", "amiga-2.316", "iigs-1.014"] as const) {
-      assert.equal(run(profile), "", `${profile}: CancelLine cleared inputEdit before the prompt`);
-    }
-    for (const profile of ["3.002.086", "3.002.149"] as const) {
-      assert.equal(run(profile), "ab", `${profile}: cursor-memory save left inputEdit intact`);
+    for (const profile of [
+      "2.089",
+      "2.411",
+      "2.936",
+      "3.002.086",
+      "3.002.149",
+      "amiga-2.316",
+      "iigs-1.014",
+    ] as const) {
+      assert.equal(run(profile, 0x1b), "ab", `${profile}: declined restart preserves inputEdit`);
+      assert.equal(run(profile, 0x0d), "", `${profile}: accepted restart clears inputEdit`);
     }
   });
 

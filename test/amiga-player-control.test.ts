@@ -18,19 +18,21 @@ import { findFixture, fixtureSkip } from "./fixtures.ts";
 
 // docs/fidelity.md "Original player.control handler": the DOS handlers and
 // the Amiga 2.082 executable clear object 0's motion word every time the
-// action runs. The inspected later Amiga handlers (2.176 through 2.333) test
-// the prior player-control field first and return early when it is already
-// set, so a repeated player.control leaves an autonomous ego motion — any of
-// modes 1..4 — running; only a program→player transition clears it.
+// action runs. The later Amiga handlers (2.176 through 2.333) and Apple IIgs
+// 1.014 (motionseg+0x02b2: lda $011d; bne +24) test the prior player-control
+// field first and return early when it is already set, so a repeated
+// player.control leaves an autonomous ego motion — any of modes 1..4 —
+// running; only a program→player transition clears it.
 
-const TRANSITION_ONLY: readonly ProfileId[] = [
+const AMIGA_TRANSITION_ONLY: readonly ProfileId[] = [
   "amiga-2.176",
   "amiga-2.202",
   "amiga-2.310",
   "amiga-2.316",
   "amiga-2.333",
 ];
-const UNCONDITIONAL: readonly ProfileId[] = ["2.936", "amiga-2.082"];
+const TRANSITION_ONLY: readonly ProfileId[] = [...AMIGA_TRANSITION_ONLY, "iigs-1.014"];
+const UNCONDITIONAL: readonly ProfileId[] = ["2.089", "2.936", "amiga-2.082"];
 
 const AUTONOMOUS = [
   ["move.obj", MOTION_MOVE_OBJ],
@@ -168,7 +170,7 @@ function clickWalkEngine(profile: ProfileId): { engine: Engine; host: QuietHost 
   return { engine, host };
 }
 
-for (const profile of TRANSITION_ONLY) {
+for (const profile of AMIGA_TRANSITION_ONLY) {
   test(`${profile}: a click-walk survives a per-cycle player.control and reaches the target`, () => {
     const { engine, host } = clickWalkEngine(profile);
     const ego = engine.screenObjects[0]!;

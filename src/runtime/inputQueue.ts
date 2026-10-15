@@ -18,10 +18,9 @@ export class InputQueue {
 
   /**
    * @param keypadWords the queue keeps the full 16-bit keypad Enter/Escape
-   * words and leaves normalization to the consuming GetKey path (PC 2.001..3.002.149:
-   * demopac4 3.002.102 PostEvent 0x48DD / ButtonToChar 0x4A78); Amiga and IIgs
-   * builds have no PC scan-code word table and mask queued keys to their low
-   * byte.
+   * words and leaves normalization to the consuming GetKey path (docs/fidelity.md
+   * "Original input, menu and modal handling", F-IN-06); Amiga and IIgs builds
+   * have no PC scan-code word table and mask queued keys to their low byte.
    */
   constructor(keypadWords: boolean) {
     this.keypadWords = keypadWords;

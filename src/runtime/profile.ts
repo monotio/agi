@@ -476,17 +476,25 @@ export interface AgiProfile {
   /**
    * The original restart/restore contract: the restart/quit prompts carry
    * the original wording, the authentic restore tail clears controllers and
-   * rewrites the machine vars without touching v19/f2/f4, and input
-   * acceptance survives restart (docs/fidelity.md "Wave-3 persistence
-   * verdicts").
+   * leaves v19/f2/f4 untouched, and input acceptance survives restart
+   * (docs/fidelity.md "Wave-3 persistence verdicts").
    */
   readonly originalRestartRestore: boolean;
   /**
-   * Whether the restart prompt calls RememberCur / RestoreCur around the
-   * confirmation window: true in PC v3 (3.002.086..3.002.149), where a
-   * declined restart leaves the edit buffer intact while an accepted restart
-   * empties it at the prompt's CancelLine (docs/fidelity.md "Wave-3
-   * persistence verdicts").
+   * Whether the authentic RestoreGame tail rewrites v20, v26, v22 and
+   * conditional f11 after reading the save blocks: true in PC 2.903..3.002.149
+   * and false in PC 2.001..2.440, Amiga 2.082..2.333, and IIgs 1.014, where
+   * the save file's machine variables remain untouched (docs/fidelity.md
+   * "Wave-3 persistence verdicts", F-persistence-03).
+   */
+  readonly restoreRewritesMachineState: boolean;
+  /**
+   * Whether the restart prompt saves CursorState before EraseCur and restores
+   * cursor visibility on cancel only when it was visible on entry: true in PC
+   * v3 (3.002.086..3.002.149) and false in PC v2, Amiga, and IIgs. In all
+   * builds CancelLine runs only on the accepted branch, so a declined restart
+   * preserves the typed command line across every profile (docs/fidelity.md
+   * "Wave-3 persistence verdicts", F-persistence-02).
    */
   readonly restartCursorMemory: boolean;
   /**
@@ -585,6 +593,7 @@ const BASE_2936: AgiProfile = {
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
   originalRestartRestore: true,
+  restoreRewritesMachineState: true,
   restartCursorMemory: false,
   defaultScriptBufferPairs: 50,
   scriptSizeResetsSequence: true,
@@ -622,6 +631,7 @@ const BASE_EARLY: AgiProfile = {
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   restartPromptBypassedByF16: false,
+  restoreRewritesMachineState: false,
   heapDiagnosticExtraLine: false,
   sound: "early-2.089",
   psgNoise: "sn76496",
@@ -696,6 +706,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
   // Fields not listed here were checked against the handlers and match the
   // base; docs/fidelity.md "Amiga profile fields verified from the handlers".
+  restoreRewritesMachineState: false,
   restartCursorMemory: false,
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
@@ -708,7 +719,7 @@ const BASE_AMIGA_31X: AgiProfile = {
 
 export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // PC booter 2.001: no promoted spec profile exists (the catalog starts at
-  // 2.089); every field is verified against the KQ2 2.001 disk image in
+  // 2.089); every field is verified against the 2.001 booter disk image in
   // docs/fidelity.md (pc-booter-2001-profile).
   "2.001": {
     ...BASE_EARLY,
@@ -760,6 +771,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     patternProfile: "point-2.411",
     restartPromptBypassedByF16: false,
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.411",
     psgNoise: "sn76496",
@@ -771,6 +783,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     releaseGateAction: "unavailable",
     directionLoops: "exact-four",
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
     psgNoise: "sn76496",
@@ -934,6 +947,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     windowFrameGeometry: "amiga",
     patternProfile: "short-r1",
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     frameTiming: "amiga-vblank",
     sound: "amiga",
@@ -969,6 +983,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     condition0x13: "wild-dispatch",
     clickMove: "iigs",
     motionCounters: "word",
+    playerControlMotionClear: "on-control-transition",
     // menu.input and the input-width pair are stubs; slot 0xae is the sound
     // discard, not set.pri.base; distance saturates at 255; the plotter keeps
     // the 320 limit with the center-row cross; show.mem has no "rm.0" line
@@ -981,6 +996,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     objectDistanceCap: 255,
     windowFrameGeometry: "iigs",
     patternProfile: "center-row-320",
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     extraActions: "iigs",
     stringSlots: 13,

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { MESSAGE_KEY, buildLogicResource } from "../src/logic/resource.ts";
-import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 import { validateEngineReplayState } from "../src/runtime/replayState.ts";
 import {
@@ -939,4 +939,162 @@ test("show.obj routes through the profile window frame selector with zero legacy
     assert.equal(ov[topBarY * 320 + 144], 5, `${profile}: top red bar at y=${topBarY}`);
     assert.equal(ov[26 * 320 + rightBarX], 5, `${profile}: right red bar at x=${rightBarX}`);
   }
+});
+
+test("window border pixels compare per-pixel overlay write ages against sprite draw stamps in both orders", () => {
+  // Hand-computed for PC 2.936 (displayBase = 1):
+  // print("Hi") stamps top red border bar at screen y = 84, x = 144..175 (color 5).
+  // Picture pixel (x = 72, y = 76) maps to screen y = 1*8 + 76 = 84, x = 144..145
+  // inside text cell (row 10, col 18), while x = 146..151 in the same 8x8 cell
+  // are uncovered by a 1x1 cel at (72, 76).
+  const onePixelView = new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0, 0x11, 0]);
+
+  // Order 1: sprite drawn first, then persistent print("Hi") opens on top.
+  const c1 = gameWith(`
+    if (!isset(f200)) {
+      set(f200);
+      load.pic(v0); draw.pic(v0); show.pic();
+      animate.obj(o0); load.view(1); set.view(o0, 1);
+      position(o0, 72, 76); draw(o0); stop.update(o0);
+      set(f15); print("Hi");
+      return;
+    }
+    erase(o0);
+    return;
+  `);
+  c1.putResource("picture", 0, Uint8Array.of(0xff));
+  c1.putResource("view", 1, onePixelView);
+  const e1 = new Engine(c1, new Host(), DICT, { profile: "2.936" });
+  e1.tick();
+  const ov1Before = e1.getPresentation().windowOverlay;
+  assert.equal(
+    ov1Before[84 * 320 + 144],
+    5,
+    "draw then print: newer border pixel x=144 stays visible over older sprite",
+  );
+  assert.equal(
+    ov1Before[84 * 320 + 145],
+    5,
+    "draw then print: newer border pixel x=145 stays visible over older sprite",
+  );
+  e1.tick(); // erase(o0) restores pre-window background over (72, 76) -> x=144..145, y=84
+  const ov1After = e1.getPresentation().windowOverlay;
+  assert.equal(ov1After[84 * 320 + 144], 0, "draw then print then erase: x=144 erased");
+  assert.equal(ov1After[84 * 320 + 145], 0, "draw then print then erase: x=145 erased");
+  assert.equal(ov1After[84 * 320 + 146], 5, "draw then print then erase: x=146 untouched");
+
+  // Order 2: persistent print("Hi") opens first, then sprite draws on top.
+  const c2 = gameWith(`
+    if (!isset(f200)) {
+      set(f200);
+      load.pic(v0); draw.pic(v0); show.pic();
+      set(f15); print("Hi");
+      animate.obj(o0); load.view(1); set.view(o0, 1);
+      position(o0, 72, 76); draw(o0); stop.update(o0);
+      return;
+    }
+    erase(o0);
+    return;
+  `);
+  c2.putResource("picture", 0, Uint8Array.of(0xff));
+  c2.putResource("view", 1, onePixelView);
+  const e2 = new Engine(c2, new Host(), DICT, { profile: "2.936" });
+  e2.tick();
+  const ov2Before = e2.getPresentation().windowOverlay;
+  assert.equal(
+    ov2Before[84 * 320 + 144],
+    0,
+    "print then draw: newer sprite hides covered border pixel x=144",
+  );
+  assert.equal(
+    ov2Before[84 * 320 + 145],
+    0,
+    "print then draw: newer sprite hides covered border pixel x=145",
+  );
+  assert.equal(
+    ov2Before[84 * 320 + 146],
+    5,
+    "print then draw: uncovered border pixel x=146 in same 8x8 cell stays visible",
+  );
+  e2.tick(); // erase(o0) restores background saved when window was already present
+  const ov2After = e2.getPresentation().windowOverlay;
+  assert.equal(ov2After[84 * 320 + 144], 5, "print then draw then erase: border x=144 restored");
+  assert.equal(ov2After[84 * 320 + 145], 5, "print then draw then erase: border x=145 restored");
+});
+
+test("checkpoints preserve erased window border pixels across parked have.key restores and accept legacy window records", () => {
+  // Review case: draw sprite at (72, 76), open persistent print("Hi"), erase
+  // sprite (clearing top border bar at y=84, x=144..145), then park on have.key.
+  class SuspendingKeyHost extends Host {
+    waitKey(): number {
+      throw new HostWait();
+    }
+  }
+  const onePixelView = new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0, 0x11, 0]);
+  const build = () => {
+    const c = gameWith(`
+      if (!isset(f200)) {
+        set(f200);
+        load.pic(v0); draw.pic(v0); show.pic();
+        animate.obj(o0); load.view(1); set.view(o0, 1);
+        position(o0, 72, 76); draw(o0); stop.update(o0);
+        set(f15); print("Hi");
+        erase(o0);
+      }
+      wait:
+      if (!have.key()) { goto wait; }
+      return;
+    `);
+    c.putResource("picture", 0, Uint8Array.of(0xff));
+    c.putResource("view", 1, onePixelView);
+    return c;
+  };
+  const engine = new Engine(build(), new SuspendingKeyHost(), DICT, { profile: "2.936" });
+  engine.tick();
+  assert.equal(engine.awaitingKey, true, "parked on have.key");
+  const beforeOv = engine.getPresentation().windowOverlay;
+  assert.equal(beforeOv[84 * 320 + 144], 0, "before checkpoint: border pixel (144, 84) is erased");
+  assert.equal(beforeOv[84 * 320 + 145], 0, "before checkpoint: border pixel (145, 84) is erased");
+  assert.equal(beforeOv[84 * 320 + 146], 5, "before checkpoint: border pixel (146, 84) is intact");
+
+  const autosave = engine.autosaveImage();
+  assert.ok(autosave, "parked have.key with persistent window is snapshottable");
+  const recImage = engine.recordingImage()!;
+  const replayState = validateEngineReplayState(engine.captureReplayState());
+
+  const fromAutosave = new Engine(build(), new SuspendingKeyHost(), DICT, { profile: "2.936" });
+  fromAutosave.restoreImage(autosave);
+  const autoOv = fromAutosave.getPresentation().windowOverlay;
+  assert.equal(
+    autoOv[84 * 320 + 144],
+    0,
+    "after autosave restore: border pixel (144, 84) stays erased",
+  );
+  assert.equal(
+    autoOv[84 * 320 + 145],
+    0,
+    "after autosave restore: border pixel (145, 84) stays erased",
+  );
+  assert.equal(autoOv[84 * 320 + 146], 5, "after autosave restore: border pixel (146, 84) intact");
+  assert.deepEqual(Array.from(autoOv), Array.from(beforeOv), "exact overlay preserved");
+
+  const fromReplay = new Engine(build(), new SuspendingKeyHost(), DICT, { profile: "2.936" });
+  fromReplay.restoreImage(recImage);
+  fromReplay.restoreReplayState(replayState);
+  assert.deepEqual(
+    Array.from(fromReplay.getPresentation().windowOverlay),
+    Array.from(beforeOv),
+    "recordingImage + restoreReplayState preserves exact overlay",
+  );
+
+  // Older checkpoints whose window record omits `erased` still validate and restore.
+  const legacyState = structuredClone(replayState);
+  delete legacyState.continuation!.persistentWindow!.window!.erased;
+  const validatedLegacy = validateEngineReplayState(legacyState);
+  fromReplay.restoreReplayState(validatedLegacy);
+  assert.equal(
+    fromReplay.getPresentation().windowOverlay[84 * 320 + 144],
+    5,
+    "legacy checkpoint without erased field restores the full geometry",
+  );
 });

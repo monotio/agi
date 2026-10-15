@@ -690,8 +690,9 @@ export class SoundPlayback {
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {
     if (!this.active) return { outputs: [], complete: true };
     // The booter's flag-9 gate sits inside its per-write chip routine
-    // (ddp-booter 2.001 0x75B3): with f9 clear the row cursor and countdown
-    // still advance and the done flag fires only at payload exhaustion.
+    // (docs/fidelity.md "Wave-3 booter sound verdict", F-sound-02): with f9
+    // clear the row cursor and countdown still advance and the done flag fires
+    // only at payload exhaustion.
     if (!enabled && this.rows === null) return { outputs: this.stop(), complete: true };
     // The IIgs fade watchdog runs before the per-family stream work in the
     // original's heartbeat: pace zero completes the armed sound immediately;
@@ -768,9 +769,8 @@ export class SoundPlayback {
         }
         channel.countdown = note.duration;
         channel.base = note.attenuation;
-        // SQ1 h138 0xe8ca..0xe8f8: attenuation minus v23, floored at 0
-        // (`cmp.l d1,d0; bls` zeroes it when v23 >= attenuation), then
-        // ((15 - it) << 6) / 15 — v23 raises the volume.
+        // Attenuation minus v23, floored at 0, then ((15 - it) << 6) / 15 —
+        // v23 raises the volume (docs/fidelity.md "Original Amiga sound player").
         const attenuation = note.attenuation > adjustment ? note.attenuation - adjustment : 0;
         outputs.push({
           kind: "paula",
@@ -813,8 +813,8 @@ export class SoundPlayback {
             channel.envelopeIndex = -1;
             channel.base = channel.envelopeValue;
           } else {
-            // GR h197 0xf494..0xf4a6: base + delta clamped to 0..15, so
-            // KQ2's signed attack saturates at attenuation 0.
+            // Base + delta clamped to 0..15, so KQ2's signed attack saturates
+            // at attenuation 0 (docs/fidelity.md "Original Amiga sound player").
             channel.envelopeValue = Math.max(0, Math.min(15, channel.base + delta));
           }
         }
@@ -877,9 +877,7 @@ export class SoundPlayback {
           // ConvertTDVolume on machType 2 (Tandy): any attenuation latch —
           // (b & 0x90) == 0x90 covers every channel's selector, not just
           // channel 2 — whose low nibble is below 8 gains 3 before the v23
-          // clamp. Present in all four probed early builds (xmas 2.272
-          // 0x7680 / kq2 2.411 0x7D3C / lsl1 2.440 0x7E65 / sq1 2.089
-          // 0x7657).
+          // clamp (docs/fidelity.md "Wave-3 sound verdicts", F-sound-01).
           if (this.device === 2 && (control & 0x90) === 0x90 && (control & 15) < 8)
             control = (control & 0xf0) | ((control & 15) + 3);
           if (this.profile.sound === "early-2.272") {

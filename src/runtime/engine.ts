@@ -92,6 +92,7 @@ import {
   TEXT_ROWS,
   TextSurface,
   attr,
+  captureWindowErased,
   drawWindow,
   placePrintWindow,
   stampWindow,
@@ -317,7 +318,27 @@ type Modal = { serial: number } & (
   | { kind: "showPri" }
 );
 
-function serializeSavedRect(saved: SavedWindow): SerializedSavedRect {
+function serializeSavedRect(saved: SavedWindow, text?: TextSurface): SerializedSavedRect {
+  const erased =
+    saved.window !== undefined && text !== undefined
+      ? captureWindowErased(text, saved.window)
+      : saved.window?.erased;
+  const window: WindowOverlay | undefined =
+    saved.window !== undefined
+      ? {
+          geometry: saved.window.geometry,
+          textTop: saved.window.textTop,
+          textLeft: saved.window.textLeft,
+          textRows: saved.window.textRows,
+          textCols: saved.window.textCols,
+          x0: saved.window.x0,
+          y0: saved.window.y0,
+          x1: saved.window.x1,
+          y1: saved.window.y1,
+          seq: saved.window.seq,
+          ...(erased !== undefined && erased.length > 0 ? { erased: [...erased] } : {}),
+        }
+      : undefined;
   return {
     written: Array.from(saved.written),
     top: saved.top,
@@ -325,7 +346,7 @@ function serializeSavedRect(saved: SavedWindow): SerializedSavedRect {
     bottom: saved.bottom,
     right: saved.right,
     cells: Array.from(saved.cells),
-    ...(saved.window !== undefined ? { window: { ...saved.window } } : {}),
+    ...(window !== undefined ? { window } : {}),
   };
 }
 
@@ -337,7 +358,14 @@ function deserializeSavedRect(saved: SerializedSavedRect): SavedWindow {
     bottom: saved.bottom,
     right: saved.right,
     cells: Uint8Array.from(saved.cells),
-    ...(saved.window !== undefined ? { window: { ...saved.window } } : {}),
+    ...(saved.window !== undefined
+      ? {
+          window: {
+            ...saved.window,
+            ...(saved.window.erased !== undefined ? { erased: [...saved.window.erased] } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -699,8 +727,8 @@ export class Engine {
   private menuRequested = false;
   // The menu-interaction gate (action 0xb1) is a word that ships 1 in the
   // data image and is never re-initialized — not even by restart, whose
-  // ResetAll clears only vars/flags/controllers/object records (mh1
-  // 3.002.107 ovl DS+0x5E3 = 01 00; gr1 3.002.149 ovl DS+0x403 = 01 00).
+  // ResetAll clears only vars/flags/controllers/object records
+  // (docs/fidelity.md "Original input, menu and modal handling", F-IN-04).
   private menuInteractionGate = 1;
   private blockRect: { left: number; top: number; right: number; bottom: number } | null = null;
   private textMode = false;
@@ -731,8 +759,6 @@ export class Engine {
   /** Live input-line edit buffer and the most recently accepted line (echo.line). */
   private editLine = "";
   private acceptedLine = "";
-  /** Saved editLine during a PC v3 restart confirmation (RememberCur / RestoreCur). */
-  private rememberedEditLine: string | null = null;
   /**
    * Open modals, innermost last. Saved text windows replace each other
    * (spec: opening another saved window closes the current one); the
@@ -771,6 +797,7 @@ export class Engine {
   private readonly cachedPriority = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedText = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
   private readonly cachedWindowOverlay = new Uint8Array(TEXT_COLS * 8 * TEXT_ROWS * 8);
+  private cachedWindowOverlayDirty = false;
   private cachedEgoVisible = false;
   private presentationDirty = true;
   private lastComposedTextDirty = -1;
@@ -2243,7 +2270,6 @@ export class Engine {
       this.saveDialogMode = null;
     }
     if (pending?.kind === "confirm") {
-      this.rememberedEditLine = null;
       if (this.modal?.serial === pending.modalSerial) this.closeModal();
     }
     if (pending !== null || roomWait) this.pendingLogic = null;
@@ -2381,8 +2407,8 @@ export class Engine {
     for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
       // The selector's wait runs GetKey too, so keypad Enter/Escape words
-      // normalize here (demopac4 3.002.102 call site 0x36A7) — on the
-      // profiles whose queue keeps the full words.
+      // normalize here on the profiles whose queue keeps the full words
+      // (docs/fidelity.md "Original input, menu and modal handling", F-IN-06).
       if (event.type === 1)
         return this.profile.keypadWordsNormalized ? normalizeKeyWord(event.value) : event.value;
       if (event.type === 2 && event.value !== 0) {
@@ -2428,9 +2454,9 @@ export class Engine {
           : (this.host.takeKeys()[0] ?? AGI_KEY.ESCAPE),
       );
       // The host's answer is GetKey's return here: ButtonToChar normalizes
-      // the keypad/joystick Enter/Escape duplicates on this path too
-      // (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey 0x49D2) —
-      // on the profiles whose queue keeps the full words.
+      // the keypad/joystick Enter/Escape duplicates on this path too, on the
+      // profiles whose queue keeps the full words (docs/fidelity.md "Original
+      // input, menu and modal handling", F-IN-06).
       if (this.profile.keypadWordsNormalized) key = normalizeKeyWord(key);
       const byte = key & 0xff;
       if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
@@ -2450,15 +2476,7 @@ export class Engine {
     // The window closes if it is still open; a key that drained through the
     // modal path while the request was in flight may have closed it already.
     if (this.modal?.serial === pending.modalSerial) this.closeModal();
-    if (!accepted) {
-      if (pending.action === "restart" && this.rememberedEditLine !== null) {
-        this.editLine = this.rememberedEditLine;
-        this.rememberedEditLine = null;
-        this.drawInputRow();
-      }
-      return;
-    }
-    this.rememberedEditLine = null;
+    if (!accepted) return;
     if (pending.action === "restart") {
       this.restart();
     } else {
@@ -2754,9 +2772,9 @@ export class Engine {
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
       // GetKey normalizes the keypad Enter/Escape words on every consumer of
-      // this path (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey
-      // 0x49D2, which have.key 0x0C13 drains) — where the profile keeps the
-      // full words; elsewhere the queue already masked them.
+      // this path where the profile keeps the full words; elsewhere the queue
+      // already masked them (docs/fidelity.md "Original input, menu and modal
+      // handling", F-IN-06).
       if (event.type === 1)
         return this.profile.keypadWordsNormalized ? normalizeKeyWord(event.value) : event.value;
     }
@@ -2863,7 +2881,8 @@ export class Engine {
     const m = this.modal;
     if (!m) return;
     // The non-interactive inventory's bare WaitEvent ends on ANY event,
-    // navigation included (demopac4 3.002.102 0x3696).
+    // navigation included (docs/fidelity.md "Original input, menu and modal
+    // handling", F-IN-01).
     if (this.profile.inventoryListEndsOnAnyEvent && m.kind === "inventory" && !m.interactive) {
       this.closeModal();
       return;
@@ -2996,14 +3015,10 @@ export class Engine {
    * and the delivered key resolves it through applyInteraction.
    */
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
-    // Original restart/quit prompt wording and CancelLine / RememberCur
-    // behavior (docs/fidelity.md "Wave-3 persistence verdicts").
+    // Original restart/quit prompt wording; CancelLine runs only on the
+    // accepted restart branch, so declining preserves editLine across all
+    // profiles (docs/fidelity.md "Wave-3 persistence verdicts", F-persistence-02).
     const original = this.profile.originalRestartRestore;
-    if (action === "restart" && original) {
-      this.rememberedEditLine = this.profile.restartCursorMemory ? this.editLine : null;
-      this.editLine = "";
-      this.drawInputRow();
-    }
     this.emitPrint(
       action === "restart"
         ? original
@@ -3027,7 +3042,6 @@ export class Engine {
       // The window survives a suspension (the game waits visibly) but not a
       // synchronous resolution or a real failure.
       if (this.pendingInteraction === null) {
-        this.rememberedEditLine = null;
         if (this.modal?.serial === pending.modalSerial) this.closeModal();
       }
     }
@@ -3585,7 +3599,7 @@ export class Engine {
           case "print":
             return {
               kind: "print",
-              saved: serializeSavedRect(m.saved),
+              saved: serializeSavedRect(m.saved, this.text),
               remainingMs: m.remainingMs,
               pauseClock: m.pauseClock,
             };
@@ -3601,13 +3615,15 @@ export class Engine {
           case "menu":
             return { kind: "menu", saved: serializeSavedRect(m.saved) };
           case "showObj":
-            return { kind: "showObj", saved: serializeSavedRect(m.saved), view: m.view };
+            return { kind: "showObj", saved: serializeSavedRect(m.saved, this.text), view: m.view };
           case "showPri":
             return { kind: "showPri" };
         }
       }),
       persistentWindow:
-        this.persistentWindow === null ? null : serializeSavedRect(this.persistentWindow),
+        this.persistentWindow === null
+          ? null
+          : serializeSavedRect(this.persistentWindow, this.text),
       keyWait:
         this.pendingInteraction?.kind === "key"
           ? {
@@ -3653,6 +3669,7 @@ export class Engine {
         this.text.restore(deserializeSavedRect(continuation.persistentWindow));
       return;
     }
+    this.text.clearWindowOverlay();
     this.pendingLogic = continuation.frames.map((frame) => ({
       logic: frame.logic,
       resource: this.loadLogic(frame.logic),
@@ -3960,18 +3977,23 @@ export class Engine {
     this.lastInputLine = "";
     this.editLine = "";
     this.acceptedLine = "";
-    this.rememberedEditLine = null;
     this.controllers.fill(0);
     if (this.profile.originalRestartRestore) {
-      // The authentic restore tail clears controllers explicitly and rewrites
-      // the machine vars from the probe, then sets f12; f2/f4 die at the next
-      // cycle top and v19 is never written (docs/fidelity.md "Wave-3
-      // persistence verdicts"). A host restore — history or autosave replay —
-      // reproduces the recorded state exactly instead: the rewrites would
-      // silently turn a recorded [v22,v26] into [3,3].
-      if (screen === null) {
-        this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+      // The authentic restore tail clears controllers explicitly, rewrites the
+      // machine vars on builds whose RestoreGame does so (PC 2.903..3.002.149),
+      // and sets f12; f2/f4 die at the next cycle top and v19 is never written
+      // (docs/fidelity.md "Wave-3 persistence verdicts", F-persistence-03). A
+      // host restore — history or autosave replay — reproduces the recorded
+      // state exactly instead.
+      if (screen === null && this.profile.restoreRewritesMachineState) {
+        this.vars[20] = 0;
         this.vars[26] = 3;
+        if ((this.host.soundDevice?.() ?? 1) === 0) {
+          this.vars[22] = 1;
+        } else {
+          this.vars[22] = 3;
+          this.flags[11] = 1;
+        }
       }
     } else {
       this.vars[V_KEY] = 0;
@@ -4395,22 +4417,27 @@ export class Engine {
     const cells = this.text.cells;
     if (!ownership) return cells;
     let out: Uint8Array | null = null;
+    const displayTopPx = this.displayBaseRow * 8 * (TEXT_COLS * 8);
+    const overlayWritten = this.text.overlayWritten;
     for (let pixel = 0; pixel < ownership.length; pixel++) {
       const owner = ownership[pixel]!;
       if (owner === 0) continue;
+      const drawSeq = sprites[owner - 1]!.drawSeq;
       const index = this.textCellUnder(pixel);
-      if (index < 0 || this.text.written[index]! > sprites[owner - 1]!.drawSeq) continue;
-      if (cells[index * 2] !== 0) {
+      if (index >= 0 && this.text.written[index]! <= drawSeq && (out ?? cells)[index * 2] !== 0) {
         out ??= cells.slice();
         out[index * 2] = 0;
         out[index * 2 + 1] = 0;
       }
       if (windowOverlay) {
-        const row = (index / TEXT_COLS) | 0;
-        const col = index % TEXT_COLS;
-        for (let gy = 0; gy < 8; gy++) {
-          const base = (row * 8 + gy) * (TEXT_COLS * 8) + col * 8;
-          for (let gx = 0; gx < 8; gx++) windowOverlay[base + gx] = 0;
+        const oIdx = displayTopPx + pixel * 2;
+        if (oIdx + 1 < windowOverlay.length) {
+          if (windowOverlay[oIdx] !== 0 && overlayWritten[oIdx]! <= drawSeq) {
+            windowOverlay[oIdx] = 0;
+          }
+          if (windowOverlay[oIdx + 1] !== 0 && overlayWritten[oIdx + 1]! <= drawSeq) {
+            windowOverlay[oIdx + 1] = 0;
+          }
         }
       }
     }
@@ -4531,7 +4558,8 @@ export class Engine {
           !this.modal.interactive
         ) {
           // WaitEvent: any queued event dismisses the acknowledgement-only
-          // list, controllers included (demopac4 3.002.102 0x3696).
+          // list, controllers included (docs/fidelity.md "Original input,
+          // menu and modal handling", F-IN-01).
           this.closeModal();
           continue;
         }
@@ -4603,8 +4631,8 @@ export class Engine {
       if (this.menuRequested) {
         // The v3 gate is tested at the head of DoMenu, and the gated exit
         // leaves the request word set: a gated request pends until allow.menu
-        // re-enables it (mh1 3.002.107 0x9895-0x989C; the request's only clear
-        // is the menu-close path 0x993F).
+        // re-enables it (docs/fidelity.md "Original input, menu and modal
+        // handling", F-IN-04).
         if (this.profile.menuInteractionGate && this.menuInteractionGate === 0) {
           menuOpened = false;
         } else {
@@ -5428,10 +5456,21 @@ export class Engine {
       this.cachedPriority.set(this.scratchPriority);
     }
 
-    this.cachedWindowOverlay.set(this.text.overlay);
+    const hasOverlay = this.text.hasOverlay;
+    if (hasOverlay) {
+      this.cachedWindowOverlay.set(this.text.overlay);
+      this.cachedWindowOverlayDirty = true;
+    } else if (this.cachedWindowOverlayDirty) {
+      this.cachedWindowOverlay.fill(0);
+      this.cachedWindowOverlayDirty = false;
+    }
     const ownership = !this.textMode ? this.scratchOwnership : null;
     const text = this.mergeTraceText(
-      this.hideTextUnderSprites(ownership, this.objects, this.cachedWindowOverlay),
+      this.hideTextUnderSprites(
+        ownership,
+        this.objects,
+        hasOverlay ? this.cachedWindowOverlay : undefined,
+      ),
     );
     this.cachedText.set(text);
     this.lastComposedTextDirty = this.text.dirty;
@@ -6675,13 +6714,10 @@ export class Engine {
         return next;
       }
       // position and position.v write the coordinates and their saved pair;
-      // the originals leave the newly-positioned bit to the reposition family
-      // (docs/fidelity.md, "Original position handlers"). 2.089 alone runs
-      // the horizon/placement routine when the object is DRAWN, then
-      // snapshots the saved pair from the possibly-adjusted coordinates
-      // (sq1 2.089 Position 0x7141: store x/y, test flags&1, call 0x515C —
-      // horizon raise and placement spiral, not an erase — then copy x/y to
-      // prev; 2.230/2.272 are store-together, xmas 0x70FA/0x7196).
+      // the originals leave the newly-positioned bit to the reposition family.
+      // 2.001 and 2.089 run the horizon/placement routine when the object is
+      // DRAWN, then snapshot the saved pair from the possibly-adjusted
+      // coordinates (docs/fidelity.md "Original position handlers", F-motion-02).
       case 0x25: {
         const o = obj(0);
         o.x = a(1);
@@ -7267,9 +7303,9 @@ export class Engine {
       case 0x8d: {
         // version: the handler pushes the CONST version string and calls
         // WindowPrint — a modal window, never a write to string slot 0
-        // (kq3 2.936 0x733C / kq1 2.917 0x7275 / gr1 3.002.149 0x7670).
-        // WindowPrint is the routine print calls, winTime included: v21
-        // times the window out.
+        // (docs/fidelity.md "Original script capacity and version handlers",
+        // F-OPCORE-07). WindowPrint is the routine print calls, winTime
+        // included: v21 times the window out.
         this.emitPrint(
           this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0",
           undefined,
@@ -7368,10 +7404,10 @@ export class Engine {
       case 0x84: {
         // Player coupling; the direction byte is left alone. The DOS and
         // Amiga 2.082 handlers end object 0's autonomous motion outright; the
-        // inspected later Amiga handlers (2.176 through 2.333) return early
-        // when player control is already selected, so the motion word clears
-        // only on the program→player transition (docs/fidelity.md, "Original
-        // player.control handler").
+        // later Amiga handlers (2.176 through 2.333) and Apple IIgs 1.014
+        // return early when player control is already selected, so the motion
+        // word clears only on the program→player transition (docs/fidelity.md,
+        // "Original player.control handler").
         const wasProgramControl = this.directionCoupling === 0;
         this.directionCoupling = 1;
         if (this.profile.playerControlMotionClear === "always" || wasProgramControl)
@@ -7392,10 +7428,9 @@ export class Engine {
         return next;
       case 0x8e: {
         // script.size stores the capacity, then resets the recorded pair
-        // sequence and refreshes the object update lists: RestoreAll +
-        // InitScript (scriptTop := script, SCRIPTENTRIES := 0) + AllInBack
-        // (all 19 shipped profiles with 0x8e: docs/fidelity.md, "Original
-        // script capacity and version handlers").
+        // sequence and refreshes the object update lists (all 20 shipped
+        // profiles: docs/fidelity.md, "Original script capacity and version
+        // handlers", F-timing-02).
         this.scriptCapacity = a(0);
         if (this.profile.scriptSizeResetsSequence) {
           this.replay.length = 0;
@@ -7436,9 +7471,8 @@ export class Engine {
         // by action 0xb1 (profile.menuInteractionGate); the v2 profiles gate on
         // f14 alone. On Amiga the slot is the stub routine (menuInputAction).
         // The request itself tests f14 only; the gate is consulted at menu-open
-        // time with the request still pending (mh1 3.002.107 menu.input 0x9859
-        // tests IsSet(14) then sets the request word; the gate test sits at the
-        // DoMenu head 0x9895).
+        // time with the request still pending (docs/fidelity.md "Original
+        // input, menu and modal handling", F-IN-04).
         if (
           this.profile.menuInputAction === "effect" &&
           this.profile.menuActions === "full" &&
@@ -7449,9 +7483,10 @@ export class Engine {
         return next;
       case 0x8f: {
         if (this.profile.action0x8f === "max-drawn-objects") {
-          // In 2.001 (load-module 0x0284), action 0x8f is max.drawn.objects(count):
-          // sets the capacity of the animated/drawn object table. In 2.089+, this
-          // was moved to the third byte of the OBJECT header and 0x8f became set.game.id.
+          // In 2.001, action 0x8f is max.drawn.objects(count): sets the capacity
+          // of the animated/drawn object table (docs/fidelity.md "PC booter
+          // action 0x8f (max.drawn.objects)"). In 2.089+, this was moved to the
+          // third byte of the OBJECT header and 0x8f became set.game.id.
           const count = a(0);
           this.maxDrawnObjectsCount = count;
           if (this.inventoryMetaCache) {
@@ -7889,12 +7924,11 @@ export class Engine {
     this.statusEnabled = false;
     this.statusRefreshRequested = false;
     // Input acceptance survives: ResetAll clears only vars/flags/controllers/
-    // object records (kq3 2.936 0x0FA5), and the accepted prompt path redraws
-    // the marker unconditionally. The edit line itself was cancelled by the
-    // prompt (gr1 3.002.149 restart 0x26E0: CancelLine … WriteCur).
+    // object records, while the accepted restart branch runs CancelLine and
+    // redraws the marker (docs/fidelity.md "Wave-3 persistence verdicts",
+    // F-persistence-01, F-persistence-02).
     if (!this.profile.originalRestartRestore) this.inputAccepted = false;
     this.editLine = "";
-    this.rememberedEditLine = null;
     this.acceptedLine = "";
     this.blockRect = null;
     this.horizon = 36;

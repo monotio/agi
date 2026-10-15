@@ -322,8 +322,10 @@ test("released combined-digest sync marks replay unverified, however their field
   const segment = collectSegments(h.control)[0]!;
   assert.ok(segment.sync.length >= 1, "the session recorded sync marks");
   assert.ok(
-    segment.sync.every((m) => m.state !== undefined && m.digest === undefined),
-    "current recordings write the split digests",
+    segment.sync.every(
+      (m) => m.state !== undefined && m.text !== undefined && typeof m.digest === "string",
+    ),
+    "current recordings write the split digests alongside the combined digest",
   );
 
   // The released shape: a combined digest only. Released v1–v2 tapes replay
@@ -1657,4 +1659,28 @@ test("tracing a 1024-square attachment never copies its pixels into recording ba
             ["bindings", "inventory", "words"],
           );
     }
+});
+
+test("fallback session identities retain the full clock and a distinct counter", (t) => {
+  const timestamp = 2 ** 40 - 1;
+  t.mock.method(Date, "now", () => timestamp);
+  const real = globalThis.crypto;
+  Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+  try {
+    const sessions = Array.from({ length: 16 }, () => {
+      const h = historyHarness(historyGame(), { rngSeed: 1 });
+      h.tick(2);
+      return h.ctx.history.session;
+    });
+    assert.ok(
+      sessions.every((session) => Number.parseInt(session.slice(1), 36) >= timestamp * 0x10000),
+    );
+    assert.equal(
+      new Set(sessions).size,
+      sessions.length,
+      "each worker has a distinct session in the same millisecond",
+    );
+  } finally {
+    Object.defineProperty(globalThis, "crypto", { value: real, configurable: true });
+  }
 });
