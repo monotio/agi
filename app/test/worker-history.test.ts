@@ -315,7 +315,7 @@ test("a recorded live session replays from its boot to the same observed state",
 
 test("version-1 sync marks verify room, score, modal and patchGeneration without the combined digest", () => {
   const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
-  const { ctx, send, tick } = h;
+  const { send, tick } = h;
   tick(4);
   send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
   tick(4);
@@ -365,8 +365,7 @@ test("version-3 sync marks verify the state and text digests separately", () => 
   send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
   tick(4);
   const segment = collectSegments(h.control)[0]!;
-  const flip = (value: string): string =>
-    (value[0] === "0" ? "1" : "0") + value.slice(1);
+  const flip = (value: string): string => (value[0] === "0" ? "1" : "0") + value.slice(1);
 
   const corruptState: HistorySegment = {
     ...segment,

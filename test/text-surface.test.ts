@@ -243,11 +243,7 @@ test("print: solid-framed window centred in the display area, restored on acknow
   // font8x8.ts) — never full character-cell bands.
   const FRAME = attr(4, 15);
   const r10 = row(engine, 10);
-  assert.deepEqual(r10.chars.slice(15, 25), [
-    GLYPH_TL,
-    ...Array(8).fill(GLYPH_TOP),
-    GLYPH_TR,
-  ]);
+  assert.deepEqual(r10.chars.slice(15, 25), [GLYPH_TL, ...Array(8).fill(GLYPH_TOP), GLYPH_TR]);
   assert.ok(r10.attrs.slice(15, 25).every((a) => a === FRAME));
   const r11 = row(engine, 11);
   assert.equal(engine.textRow(11), "under" + spaces(10) + "#Hi there#" + spaces(15));
@@ -257,11 +253,7 @@ test("print: solid-framed window centred in the display area, restored on acknow
   assert.equal(r11.attrs[24], FRAME);
   assert.ok(r11.attrs.slice(16, 24).every((a) => a === BLACK_ON_WHITE));
   const r12 = row(engine, 12);
-  assert.deepEqual(r12.chars.slice(15, 25), [
-    GLYPH_BL,
-    ...Array(8).fill(GLYPH_BOTTOM),
-    GLYPH_BR,
-  ]);
+  assert.deepEqual(r12.chars.slice(15, 25), [GLYPH_BL, ...Array(8).fill(GLYPH_BOTTOM), GLYPH_BR]);
   assert.ok(r12.attrs.slice(15, 25).every((a) => a === FRAME));
 
   // The interpreter is paused: another tick does not re-run logic 0.

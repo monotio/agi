@@ -210,5 +210,9 @@ test("2.089 position on a drawn object raises it above the horizon before storin
     "drawn with ignore.horizon: stored verbatim",
   );
   assert.equal(run("2.089", ""), 10, "undrawn: stored verbatim");
-  assert.equal(run("2.936", "draw(o1); stop.update(o1);"), 10, "store-together profiles never place");
+  assert.equal(
+    run("2.936", "draw(o1); stop.update(o1);"),
+    10,
+    "store-together profiles never place",
+  );
 });

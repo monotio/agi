@@ -205,7 +205,7 @@ test("version honours the v21 timeout like any WindowPrint window", () => {
   // Player-visible rule: v21=1 closes the version window after a half second.
   // The 0x8d handler's WindowPrint call is the same routine print uses, with
   // the same winTime path (kq3 2.936 0x733C; v21 clear at 0x1d80).
-  const e = game('assignn(v21,1);version();increment(v200);return;');
+  const e = game("assignn(v21,1);version();increment(v200);return;");
   e.tick();
   assert.equal(e.modalKind, "print");
   assert.equal(e.vars[200], 0, "the pass is parked");

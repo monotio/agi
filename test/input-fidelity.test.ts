@@ -11,6 +11,7 @@ class Host implements EngineHost {
   print(): void {}
   displayAt(): void {}
   statusLine(): void {}
+  quit(): void {}
   takeInputLine(): null {
     return null;
   }

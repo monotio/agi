@@ -959,8 +959,10 @@ test("sync marks carry either the released combined digest or the split state an
   });
   const base = { seq: 0, tick: 0, cycle: 0, room: 1, score: 0, patchGeneration: 0, modal: null };
   // The released version-1 shape round-trips with its combined digest kept.
-  assert.deepEqual(validateHistoryRecording(recording([{ ...base, digest: "c2c5e065" }]))
-    .segments[0]!.sync[0], { ...base, digest: "c2c5e065" });
+  assert.deepEqual(
+    validateHistoryRecording(recording([{ ...base, digest: "c2c5e065" }])).segments[0]!.sync[0],
+    { ...base, digest: "c2c5e065" },
+  );
   // The current shape records state and text separately.
   assert.deepEqual(
     validateHistoryRecording(recording([{ ...base, state: "aaaaaaaa", text: "bbbbbbbb" }]))
