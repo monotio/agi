@@ -355,13 +355,14 @@ const CLOCK_WAIT_JUMPS = 1000;
  */
 const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
 /**
- * Replay-pair capacity of a game that never calls script.size. The
- * interpreters always hold a configured capacity (the save layout has no
- * unconfigured state) and the spec's 2.230 XMAS data carries 200 pairs; the
- * shipped default itself is undocumented, so 200 stands until the binaries
- * settle it. A game's own script.size replaces it.
+ * Replay-pair capacity of a game that never calls script.size. The shipped
+ * interpreter data image holds SCRIPTSIZE = 0x0032 (50 pairs) at DS+0x141 in
+ * every probed build (kq3 2.936 / kq1 2.917 / gr1 3.002.149 AGIDATA.OVL
+ * 0x141); the 200-pair image in the spec's 2.230 XMAS data is a game-side
+ * script.size call, not the interpreter default. A game's own script.size
+ * replaces it.
  */
-const DEFAULT_REPLAY_CAPACITY = 200;
+const DEFAULT_REPLAY_CAPACITY = 50;
 /** Pairs the host-only shadow record keeps for autosaves of a blocked script buffer. */
 const HOST_REPLAY_LIMIT = 4096;
 /** Hash basis for a frame whose logic resource is absent from the container. */

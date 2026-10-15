@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Engine } from "../src/runtime/engine.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
-import { openContainer } from "../src/container/container.ts";
+import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
 test("recording restoration preserves discarded view caches instead of reviving object references", () => {
@@ -813,4 +813,56 @@ test("a PAL recorded setup keeps its timing in the operation tape and authored t
     true,
     String(result.error ?? result.message ?? JSON.stringify(result.details)),
   );
+});
+
+test("a game without script.size faults on the 51st recorded pair", () => {
+  // Player-visible rule: the interpreter's shipped script buffer holds 50
+  // recorded resource pairs, so a game that never calls script.size faults
+  // when it records the 51st. The interpreter data image ships SCRIPTSIZE =
+  // 0x0032 (50) at DS+0x141 (kq3 2.936 / kq1 2.917 / gr1 3.002.149
+  // AGIDATA.OVL 0x141); 200-pair images are game-side script.size calls.
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`${"load.view(1);".repeat(51)} return;`, { dictionary: new Map() })
+      .payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  assert.throws(() => engine.tick(), /50-pair capacity/);
+});
+
+test("script.size still replaces the shipped 50-pair default", () => {
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`script.size(60); ${"load.view(1);".repeat(51)} return;`, {
+      dictionary: new Map(),
+    }).payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
 });
