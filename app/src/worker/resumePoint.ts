@@ -47,6 +47,18 @@ export function prepareCreateProgress(
   return { mode: "create", returnPoint, cycle: 0, tick: 0, room: prepared.engine.vars[0]! };
 }
 
+/**
+ * Before its first LOGIC pass the game is at its start, in no room yet. That
+ * moment keeps no image; a cold boot record reproduces it exactly.
+ */
+export function liveGameUnstarted(ctx: WorkerContext): boolean {
+  return (
+    !ctx.run.cycle.initialLogicStarted &&
+    ctx.run.cycle.cycleCount === 0 &&
+    ctx.run.engine?.completedCycleSerial === 0
+  );
+}
+
 export function enterCreateRun(ctx: WorkerContext, cold = false): void {
   if (ctx.run.progress.mode === "create") return;
   const engine = ctx.run.engine;
@@ -56,13 +68,9 @@ export function enterCreateRun(ctx: WorkerContext, cold = false): void {
     (engine.hostInteractionPending && !engine.awaitingKey)
   )
     throw new Error("Finish the game's question, then open Create.");
-  // Before the first LOGIC pass the game is at its start, in no room yet. That moment keeps no
-  // image, as a Create boot does, so a visit offers Restart rather than Back to Room 0.
-  const unstarted =
-    cold ||
-    (!ctx.run.cycle.initialLogicStarted &&
-      ctx.run.cycle.cycleCount === 0 &&
-      engine.completedCycleSerial === 0);
+  // An unstarted game keeps no image, as a Create boot does, so a visit offers Restart rather
+  // than Back to Room 0.
+  const unstarted = cold || liveGameUnstarted(ctx);
   const returnPoint = ctx.fns.historySnapshot(
     cold || (!ctx.run.cycle.initialLogicStarted && ctx.run.cycle.cycleCount === 0),
     !unstarted,

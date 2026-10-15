@@ -380,6 +380,68 @@ test("Create take and restore grant the adopted engine admission and journal the
   ctx.fns.stopTimers();
 });
 
+// Player rule: a player who presses Pause the moment Play starts, then rewinds and resumes, keeps
+// the paused game. Undo rewind brings it back at its start, as it stood when they paused.
+test("a game paused before its first cycle is kept for Undo rewind", async () => {
+  const documents = {
+    "logic:0":
+      "if (v40 == 0) { load.pic(0); draw.pic(0); show.pic(); assignn(v40, 1); } increment(v41); return;",
+    "picture:0": "vis 1\nfill 1,1\nend\n",
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const h = viewHarness(openContainer(compiled.files()), {
+    projectMode: "create",
+    projectDocuments: writeProjectWorkspace(documents),
+  });
+  await h.ctx.projectLoader.loading;
+  h.ctx.fns.stopTimers();
+  const { ctx, send, tick } = h;
+  tick(12);
+  // Create began this game, so Play starts it afresh; the pause lands before its first cycle.
+  send({ type: "projectPlay", id: 1 });
+  assert.ok(h.control.findLast((m) => m.type === "projectPlayed")?.ok);
+  send({ type: "pause", paused: true });
+  const paused = ctx.run.engine!.readState();
+  assert.equal(paused.vars[40], 0, "the paused game has not started");
+
+  send({ type: "historyRetain", id: 2 });
+  const retained = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyRetained" }> =>
+      m.type === "historyRetained" && m.id === 2,
+  );
+  assert.ok(retained?.boot, "the paused game is kept");
+  assert.equal(retained.from, null, "it continued from no recorded position");
+
+  const recording = asRecording(collectSegments(h.control));
+  send({ type: "historyViewStart", id: 3, recording, segment: 0, tick: 6 });
+  const opened = finalView(h.control, 3);
+  assert.equal(opened.canResume, true);
+  send({
+    type: "historyViewTake",
+    id: 4,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  assert.ok(h.control.find((m) => m.type === "historyTaken")?.ok);
+  assert.equal(ctx.run.engine!.vars[40], 1, "the rewound moment is live");
+
+  send({ type: "historyViewRestore", id: 5, boot: retained.boot, from: retained.from });
+  const restored = h.control.find((m) => m.type === "historyViewRestored");
+  assert.ok(restored?.type === "historyViewRestored" && restored.ok, JSON.stringify(restored));
+  assert.deepEqual(ctx.run.engine!.readState(), paused, "Undo rewind restores the paused game");
+  send({ type: "pause", paused: false });
+  tick(3);
+  assert.equal(ctx.run.engine!.vars[40], 1, "the restored game starts and draws its room");
+  assert.ok(ctx.run.engine!.recordingImage(), "the restored game reaches a resumable moment");
+  ctx.fns.stopTimers();
+});
+
 /** The terminal report for a request id (progress posts share it). */
 function finalView(control: WorkerControl[], id: number) {
   const reports = control.filter(

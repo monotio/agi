@@ -14,7 +14,7 @@
  * session's segment ends with reason "resume" — the tape is never
  * rewritten, only continued.
  */
-import { adoptResumePoint } from "./resumePoint.ts";
+import { adoptResumePoint, liveGameUnstarted } from "./resumePoint.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import {
   stampBoot,
@@ -330,13 +330,17 @@ export function createHistoryView(
     endView(true);
   }
 
-  /** The parked live session's resume point for the retained-original slot. */
+  /**
+   * The parked live session's resume point for the retained-original slot. A
+   * game paused before its first cycle (Pause pressed as Play starts it) is
+   * kept as a cold boot: its start is the moment Undo rewind returns to.
+   */
   function onHistoryRetain(msg: Inbound<"historyRetain">): void {
     const h = ctx.history;
     ctx.ports.control({
       type: "historyRetained",
       id: msg.id,
-      boot: ctx.fns.historySnapshot(),
+      boot: ctx.fns.historySnapshot(liveGameUnstarted(ctx)),
       from:
         h.segment === null
           ? null
