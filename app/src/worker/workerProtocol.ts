@@ -708,6 +708,7 @@ export type WorkerControl =
       /** The viewed moment is a boundary the live session could resume from. */
       canResume: boolean;
       diverged: HistoryViewDivergence | null;
+      incompatible?: HistoryViewDivergence | null;
       error: string | null;
     }
   /**
@@ -908,6 +909,7 @@ export type WorkerPresentation =
       visual: Uint8Array;
       priority: Uint8Array;
       text: Uint8Array;
+      windowOverlay?: Uint8Array;
       picRow: number;
       modal: string | null;
       textMode: boolean;

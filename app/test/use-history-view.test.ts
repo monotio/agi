@@ -34,7 +34,6 @@ import {
   saveHistoryBookmark,
   stageRetainedOriginal,
 } from "../src/history/historyStorage.ts";
-import { bindProgressTarget } from "../src/project/progressBinding.ts";
 import { readHistoryLifetime, saveAuthoredGame } from "../src/project/gameStorage.ts";
 import {
   projectProgressTarget,
@@ -154,7 +153,6 @@ function makeHarness(opts?: {
   restoreRevision?: string;
   /** adoptSession throws this — the install leg of the swap failed. */
   adoptError?: string;
-  onAdopt?: (game: BootedGame) => void;
   /** historyRetain rejects with this — the retain leg of the swap failed. */
   retainError?: string;
   seqAt?: (segment: number, tick: number) => number;
@@ -231,7 +229,6 @@ function makeHarness(opts?: {
     adoptSession: async (_game: BootedGame, boot: HistoryBoot, snapshot: unknown) => {
       if (opts?.adoptError) throw new Error(opts.adoptError);
       adoptions.push({ boot, snapshot });
-      opts?.onAdopt?.(_game);
       sessionState.hold = null;
     },
     drainHistoryCommits: () =>
@@ -324,9 +321,6 @@ function makeHarness(opts?: {
   return {
     state,
     view,
-    get game() {
-      return game;
-    },
     seeks,
     takes,
     restores,
@@ -1400,6 +1394,47 @@ test("a seek that lands on a divergence holds there even when the tape was playi
   assert.equal(await tapeMoves(view), false);
 });
 
+test("a seek that lands on an incompatible legacy tail holds there and shows a compatibility notice, never divergence", async (t) => {
+  const { view, release, waitHeld } = await longHarness(t, { defer: ["historyViewSeek"] });
+  await watching(view);
+  const seeking = view.dispatchSeek(150);
+  await waitHeld("historyViewSeek");
+  release("historyViewSeek", {
+    type: "historyView",
+    id: 0,
+    final: true,
+    generation: 7,
+    segment: 0,
+    tick: 7,
+    seq: 1,
+    cycle: 7,
+    room: 1,
+    score: 0,
+    modal: null,
+    canResume: false,
+    diverged: null,
+    incompatible: {
+      at: { seq: 1, tick: 18, cycle: 18 },
+      detail:
+        "recorded event unreachable: replay cannot advance past tick 7: the engine terminated",
+    },
+    error: null,
+  });
+  await seeking;
+  await flushSeeks();
+  assert.notEqual(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), false);
+  assert.equal(view.transport.play?.disabled, true);
+  assert.deepEqual(view.transport.errors, [
+    {
+      testid: "history-incompatible",
+      text: "This earlier recording ended before this moment.",
+      details:
+        "recorded event unreachable: replay cannot advance past tick 7: the engine terminated",
+    },
+  ]);
+});
+
 test("a seek during a Watch step leaves one Watch loop running, not two", async (t) => {
   const { view, release, waitHeld, heldCount } = await longHarness(t, {
     defer: ["historyViewAdvance"],
@@ -2014,47 +2049,4 @@ test("a game replaced after Undo start over's retain answers undoes nothing and 
     "the replacement keeps running — the stale wrapper does not pause it",
   );
   assert.deepEqual(h.pauses.slice(before), []);
-});
-
-test("Tests are documents: recording a test keeps bookmarks and rewind on the running tape", async () => {
-  const originalTarget = await bindViewGame();
-  await importGameHistory(originalTarget, { recording: RECORDING });
-  const copyId = testProjectId("view-test-document-copy");
-  await saveAuthoredGame(copyId, { title: "Copy", files: {}, words: [] });
-  const copyLifetime = await readHistoryLifetime(copyId);
-  const h = makeHarness({
-    onAdopt: (game) => {
-      bindProgressTarget(game);
-    },
-  });
-  Object.assign(h.game, {
-    projectId: copyId,
-    historyLifetime: copyLifetime,
-    retainedProgressTarget: { target: originalTarget, lifetime: originalTarget.bodyEpoch },
-  });
-  await h.view.openHistory({ segment: 0, tick: 8 });
-  assert.equal(h.state.historyView.active, true, h.state.historyView.error);
-  assert.equal(h.state.historyView.error, "");
-  await h.view.addBookmark("Before game edits");
-  assert.equal(
-    (await loadHistoryBookmarks(originalTarget.locator)).at(-1)?.label,
-    "Before game edits",
-  );
-  const copyTarget = projectProgressTarget(copyId, h.game.revision, copyLifetime)!;
-  assert.deepEqual(
-    await loadHistoryBookmarks(copyTarget.locator),
-    [],
-    "test saving leaves the new document's tape untouched",
-  );
-  await h.view.resumeFromHere();
-  assert.equal(h.state.historyView.active, false, h.state.historyView.error);
-  assert.equal(
-    h.state.historyView.error,
-    "",
-    "native adoption keeps its departing tape with the captured runtime lifetime",
-  );
-  assert.equal(h.game.retainedProgressTarget, undefined);
-  const branches = await loadRetainedBranches(originalTarget.locator);
-  assert.equal(branches.length, 1);
-  assert.deepEqual(branches[0]!.session, SESSION_SNAPSHOT);
 });

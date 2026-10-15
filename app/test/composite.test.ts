@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compositeFrame, FRAME_HEIGHT, FRAME_WIDTH } from "../src/render/composite.ts";
 import { EGA_PALETTE } from "../src/render/palette.ts";
-import { TextSurface, attr, drawWindow } from "../../src/runtime/textSurface.ts";
+import { TextSurface, attr, placePrintWindow, stampWindow } from "../../src/runtime/textSurface.ts";
 
 function fixture(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array; picRow: number } {
   const visual = new Uint8Array(160 * 168).fill(15);
@@ -128,90 +128,95 @@ test("checkpoint glyph codes 0x01..0x07 keep their pre-9f506052 pixels", () => {
   assert.deepEqual(pixelAt(out, 56 + 3, 21), BLACK, "0x07 is a cursor, not a corner");
 });
 
-test("the window frame renders the decoded OpenWndw bars, inset one pixel", () => {
-  // Decode (kq1 2.917 descrambled AGI, SHA-256
-  // bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04):
-  // WindowNoWait 0x1E4B..0x1E66 sets winDim h = 8*rows + 10 scanlines and
-  // w = 4*cols + 10 nibbles (rows/cols = TEXT extents — executing the
-  // original formatter under Unicorn for print("Hi") yields winRows=1,
-  // winCols=2, winDim 0x1212 = 18x18); 0x1ECC..0x1EED sets winPos
-  // x = 4*winLeft - 5 nibbles, y = 8*(winBot+1-picTop) + 4 scanlines.
-  // OpenWndw 0x54C8..0x553D issues five DrawWndw calls (captured under
-  // Unicorn): fill (x, y, h, w) white; then red bars (x+1, y-1, 1, w-2),
-  // (x+w-2, y-2, h-4, 1), (x+1, y-h+2, 1, w-2), (x+1, y-2, h-4, 1).
-  // DrawWndw anchors at the bottom line and paints upward (covers
-  // y-h+1..y): the only reading under which the h-4 verticals (y-h+3..y-2)
-  // meet both horizontal bars (y-h+2 and y-1) with no gap, leaving 5
-  // nibbles/scanlines of fill on every side of the text. So each bar is one
-  // logical pixel, inset ONE pixel from the fill edge — 1 nibble/scanline
-  // of white outside it, 3 between it and the text.
-  //
-  // Cell mapping (the 8x8-cell model cannot express the fill exactly:
-  // 18 nibbles = 4.5 cells, 18 scanlines = 2.25 cells; the fill stays
-  // text+2 cols by lines+2 rows of whole cells, 2 nibbles narrower and 6
-  // scanlines taller than the original). The glyph masks carry the decoded
-  // INSET structure: side bars at the second logical column of each edge
-  // cell, the top bar on cell row 1, the bottom bar on cell row 6, and the
-  // horizontal bars stopping at the side-bar columns in the corner cells.
-  //
-  // Hand-computed for {top:10, left:18, rows:3, cols:4} ("Hi" at row 11,
-  // col 19): fill pixels x 144..175, y 80..103; top bar y=81, x 146..173;
-  // bottom bar y=102, x 146..173; left bar x 146..147, y 82..101; right bar
-  // x 172..173, y 82..101 (one logical pixel = two rendered columns).
+test("the window frame renders the decoded sub-cell OpenWndw fill and bars across PC, Amiga and IIgs", () => {
+  // Hand-computed for print("Hi") (1 row, 2 cols) at displayBase = 1:
+  // textTop = 11, textLeft = 19 -> interior text pixels x = 152..167, y = 88..95.
+  // - PC ("pc"): fill x0 = 142..x1 = 177 (36px = 18 nibbles), y0 = 83..y1 = 100 (18px).
+  //   Top bar y = 84, bottom bar y = 99, x = 144..175; left bar x = 144..145, right bar x = 174..175.
   const surface = new TextSurface();
-  drawWindow(
-    surface,
-    { top: 10, left: 18, rows: 3, cols: 4 },
-    ["Hi"],
-    attr(0, 15),
-    attr(4, 15),
-    true,
-  );
-  const input = { ...fixture(), text: surface.cells };
+  const win = placePrintWindow(["Hi"], 1, "pc");
+  stampWindow(surface, win, ["Hi"], attr(0, 15));
+  const input = { ...fixture(), text: surface.cells, windowOverlay: surface.overlay };
   const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
   compositeFrame(input, out, "visual", 0.5, "only");
   const RED = EGA_PALETTE[4];
   const WHITE = EGA_PALETTE[15];
 
-  // Top bar on cell row 1 (y=81): one fill scanline above it (y=80),
-  // spanning x 146..173 with the fill-edge columns staying white.
-  assert.deepEqual(pixelAt(out, 150, 80), WHITE, "fill scanline above the top bar");
-  assert.deepEqual(pixelAt(out, 144, 81), WHITE, "left fill edge stays white at the bar row");
-  assert.deepEqual(pixelAt(out, 145, 81), WHITE);
-  assert.deepEqual(pixelAt(out, 146, 81), RED, "top bar starts at the side-bar column");
-  assert.deepEqual(pixelAt(out, 150, 81), RED, "top bar, one scanline tall");
-  assert.deepEqual(pixelAt(out, 173, 81), RED, "top bar ends at the right side-bar column");
-  assert.deepEqual(pixelAt(out, 174, 81), WHITE, "right fill edge stays white at the bar row");
-  assert.deepEqual(pixelAt(out, 150, 82), WHITE, "below the top bar is fill");
-  // Bottom bar on cell row 6 of the bottom edge (y=102): fill below (y=103).
-  assert.deepEqual(pixelAt(out, 150, 101), WHITE, "above the bottom bar is fill");
-  assert.deepEqual(pixelAt(out, 150, 102), RED, "bottom bar, one scanline tall");
-  assert.deepEqual(pixelAt(out, 146, 102), RED, "bottom bar reaches the side-bar column");
-  assert.deepEqual(pixelAt(out, 173, 102), RED);
-  assert.deepEqual(pixelAt(out, 150, 103), WHITE, "fill scanline below the bottom bar");
-  // Left bar at the edge cell's second logical column (x 146..147), one
-  // white logical pixel (x 144..145) outside it, fill inside (x 148+).
-  assert.deepEqual(pixelAt(out, 144, 90), WHITE, "outer fill nibble left of the bar");
-  assert.deepEqual(pixelAt(out, 145, 90), WHITE);
-  assert.deepEqual(pixelAt(out, 146, 90), RED, "left bar, inset one logical pixel");
-  assert.deepEqual(pixelAt(out, 147, 90), RED, "the nibble is two rendered columns");
-  assert.deepEqual(pixelAt(out, 148, 90), WHITE, "bar is one logical pixel, not a cell band");
-  // Right bar at the edge cell's third logical column (x 172..173).
-  assert.deepEqual(pixelAt(out, 171, 90), WHITE, "fill inside the right bar");
-  assert.deepEqual(pixelAt(out, 172, 90), RED, "right bar, inset one logical pixel");
-  assert.deepEqual(pixelAt(out, 173, 90), RED);
-  assert.deepEqual(pixelAt(out, 174, 90), WHITE, "outer fill nibble right of the bar");
-  assert.deepEqual(pixelAt(out, 175, 90), WHITE);
-  // Corners connect the bars: the top-left corner cell carries the top bar
-  // from its second column on, then the left bar below it.
-  assert.deepEqual(pixelAt(out, 151, 81), RED, "corner: top bar crosses the corner cell");
-  assert.deepEqual(pixelAt(out, 146, 82), RED, "corner: left bar continues below the top bar");
-  assert.deepEqual(pixelAt(out, 146, 80), WHITE, "no pixel above the top bar");
-  assert.deepEqual(pixelAt(out, 144, 82), WHITE, "no bar pixel on the fill edge column");
-  // Bottom-right corner: right bar above, bottom bar across.
-  assert.deepEqual(pixelAt(out, 172, 101), RED, "corner: right bar reaches the bottom bar");
-  assert.deepEqual(pixelAt(out, 168, 102), RED, "corner: bottom bar crosses the corner cell");
-  assert.deepEqual(pixelAt(out, 172, 103), WHITE, "no pixel below the bottom bar");
+  // Outer fill bounds: x 142..177, y 83..100; outside stays transparent (0,0,0).
+  assert.deepEqual(pixelAt(out, 141, 83), [0, 0, 0], "left of fill is transparent");
+  assert.deepEqual(pixelAt(out, 142, 83), WHITE, "top-left fill corner at (142, 83)");
+  assert.deepEqual(pixelAt(out, 177, 100), WHITE, "bottom-right fill corner at (177, 100)");
+  assert.deepEqual(pixelAt(out, 178, 100), [0, 0, 0], "right of fill is transparent");
+  // Top bar on y = 84 (y0 + 1), x = 144..175.
+  assert.deepEqual(pixelAt(out, 150, 83), WHITE, "1px fill scanline above the top bar");
+  assert.deepEqual(pixelAt(out, 142, 84), WHITE, "left fill nibble stays white at the bar row");
+  assert.deepEqual(pixelAt(out, 143, 84), WHITE);
+  assert.deepEqual(pixelAt(out, 144, 84), RED, "top bar starts at x0 + 2 = 144");
+  assert.deepEqual(pixelAt(out, 150, 84), RED, "top bar, one scanline tall");
+  assert.deepEqual(pixelAt(out, 175, 84), RED, "top bar ends at x1 - 2 = 175");
+  assert.deepEqual(pixelAt(out, 176, 84), WHITE, "right fill nibble stays white at the bar row");
+  assert.deepEqual(pixelAt(out, 150, 85), WHITE, "3px fill below the top bar (y = 85..87)");
+  // Bottom bar on y = 99 (y1 - 1), fill below on y = 100.
+  assert.deepEqual(pixelAt(out, 150, 98), WHITE, "3px fill above the bottom bar (y = 96..98)");
+  assert.deepEqual(pixelAt(out, 150, 99), RED, "bottom bar on y = 99");
+  assert.deepEqual(pixelAt(out, 144, 99), RED);
+  assert.deepEqual(pixelAt(out, 175, 99), RED);
+  assert.deepEqual(pixelAt(out, 150, 100), WHITE, "1px fill scanline below the bottom bar");
+  // Left bar at x = 144..145 (1 logical pixel = 2 rendered columns), 6px white inside (146..151).
+  assert.deepEqual(pixelAt(out, 142, 90), WHITE, "outer fill nibble left of the bar");
+  assert.deepEqual(pixelAt(out, 143, 90), WHITE);
+  assert.deepEqual(pixelAt(out, 144, 90), RED, "left bar col 0");
+  assert.deepEqual(pixelAt(out, 145, 90), RED, "left bar col 1");
+  assert.deepEqual(pixelAt(out, 146, 90), WHITE, "white margin inside the left bar (x = 146..151)");
+  assert.deepEqual(pixelAt(out, 151, 90), WHITE);
+  // Right bar at x = 174..175, 6px white inside (168..173).
+  assert.deepEqual(
+    pixelAt(out, 168, 90),
+    WHITE,
+    "white margin inside the right bar (x = 168..173)",
+  );
+  assert.deepEqual(pixelAt(out, 173, 90), WHITE);
+  assert.deepEqual(pixelAt(out, 174, 90), RED, "right bar col 0");
+  assert.deepEqual(pixelAt(out, 175, 90), RED, "right bar col 1");
+  assert.deepEqual(pixelAt(out, 176, 90), WHITE, "outer fill nibble right of the bar");
+  assert.deepEqual(pixelAt(out, 177, 90), WHITE);
   // Interior carries the message black on white.
   assert.deepEqual(pixelAt(out, 160, 90), WHITE, "interior fill beside the glyph");
+
+  // Amiga ("amiga"): 37px wide (x 142..178), 19px tall (y 82..100), 1px bars inset 2px.
+  const amigaSurface = new TextSurface();
+  stampWindow(amigaSurface, placePrintWindow(["Hi"], 1, "amiga"), ["Hi"], attr(0, 15));
+  const amigaOut = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+  compositeFrame(
+    { ...fixture(), text: amigaSurface.cells, windowOverlay: amigaSurface.overlay },
+    amigaOut,
+    "visual",
+    0.5,
+    "only",
+  );
+  assert.deepEqual(pixelAt(amigaOut, 142, 82), WHITE, "Amiga fill top-left at (142, 82)");
+  assert.deepEqual(pixelAt(amigaOut, 178, 100), WHITE, "Amiga fill bottom-right at (178, 100)");
+  assert.deepEqual(pixelAt(amigaOut, 144, 84), RED, "Amiga 1px top bar at y=84");
+  assert.deepEqual(pixelAt(amigaOut, 144, 90), RED, "Amiga 1px left bar at x=144");
+  assert.deepEqual(pixelAt(amigaOut, 145, 90), WHITE, "Amiga left bar is 1px wide");
+  assert.deepEqual(pixelAt(amigaOut, 176, 90), RED, "Amiga 1px right bar at x=176");
+  assert.deepEqual(pixelAt(amigaOut, 175, 90), WHITE, "Amiga right bar is 1px wide");
+
+  // IIgs ("iigs"): 36px wide (x 142..177), 18px tall (y 83..100), 1px bars inset 2px.
+  const iigsSurface = new TextSurface();
+  stampWindow(iigsSurface, placePrintWindow(["Hi"], 1, "iigs"), ["Hi"], attr(0, 15));
+  const iigsOut = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+  compositeFrame(
+    { ...fixture(), text: iigsSurface.cells, windowOverlay: iigsSurface.overlay },
+    iigsOut,
+    "visual",
+    0.5,
+    "only",
+  );
+  assert.deepEqual(pixelAt(iigsOut, 144, 85), RED, "IIgs 1px top bar at y=85 (y0+2)");
+  assert.deepEqual(pixelAt(iigsOut, 144, 98), RED, "IIgs 1px bottom bar at y=98 (y1-2)");
+  assert.deepEqual(pixelAt(iigsOut, 144, 90), RED, "IIgs 1px left bar at x=144");
+  assert.deepEqual(pixelAt(iigsOut, 145, 90), WHITE, "IIgs left bar is 1px wide");
+  assert.deepEqual(pixelAt(iigsOut, 175, 90), RED, "IIgs 1px right bar at x=175");
+  assert.deepEqual(pixelAt(iigsOut, 174, 90), WHITE, "IIgs right bar is 1px wide");
 });

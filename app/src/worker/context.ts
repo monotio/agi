@@ -222,6 +222,7 @@ interface PresentationState {
   lastVisual: Uint8Array | null;
   lastPriority: Uint8Array | null;
   lastText: Uint8Array | null;
+  lastWindowOverlay: Uint8Array | null;
   lastOwnership: Uint16Array | null;
   /** show.obj preview mask of the last published frame (null while closed). */
   lastPreview: Uint8Array | null;

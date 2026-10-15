@@ -1,10 +1,13 @@
 /** Host recording state deliberately excluded from authentic save.game images. */
 import type { InputEvent } from "./inputQueue.ts";
+import type { WindowFrameGeometry, WindowOverlay } from "./textSurface.ts";
 
 /**
  * A modal's covered cells, serialized. `cells` are the row-major [char, attr]
  * pairs of the inclusive rect; `written` its per-cell write stamps — together
- * they restore both the text and its age under sprites.
+ * they restore both the text and its age under sprites. `window` optionally
+ * carries the active window's sub-cell pixel frame metadata so a resumed
+ * continuation re-stamps its authentic border.
  */
 export interface SerializedSavedRect {
   written: number[];
@@ -13,6 +16,7 @@ export interface SerializedSavedRect {
   bottom: number;
   right: number;
   cells: number[];
+  window?: WindowOverlay | undefined;
 }
 
 /** A parked modal window; fresh serials are assigned on restore. */
@@ -145,7 +149,13 @@ function array<T>(value: unknown, max: number, parse: (v: unknown) => T): T[] {
   return value.map(parse);
 }
 function savedRect(value: unknown): SerializedSavedRect {
-  const s = record(value, ["written", "top", "left", "bottom", "right", "cells"]);
+  const hasWindow = value !== null && typeof value === "object" && Object.hasOwn(value, "window");
+  const s = record(
+    value,
+    hasWindow
+      ? ["written", "top", "left", "bottom", "right", "cells", "window"]
+      : ["written", "top", "left", "bottom", "right", "cells"],
+  );
   const top = number(s["top"], 0, 24);
   const left = number(s["left"], 0, 39);
   const bottom = number(s["bottom"], 0, 24);
@@ -156,7 +166,45 @@ function savedRect(value: unknown): SerializedSavedRect {
   const written = array(s["written"], 25 * 40, (v) => number(v, 0, 4294967295));
   if (cells.length !== w * h * 2 || written.length !== w * h)
     throw new Error("Replay state saved rect dimensions are invalid.");
-  return { written, top, left, bottom, right, cells };
+  let window: WindowOverlay | undefined;
+  if (hasWindow && s["window"] !== undefined) {
+    const win = record(s["window"], [
+      "geometry",
+      "textTop",
+      "textLeft",
+      "textRows",
+      "textCols",
+      "x0",
+      "y0",
+      "x1",
+      "y1",
+      "seq",
+    ]);
+    const geometry = win["geometry"];
+    if (geometry !== "pc-2.001" && geometry !== "pc" && geometry !== "amiga" && geometry !== "iigs")
+      throw new Error("Replay state window geometry is invalid.");
+    window = {
+      geometry: geometry as WindowFrameGeometry,
+      textTop: number(win["textTop"], -1024, 1024),
+      textLeft: number(win["textLeft"], -1024, 1024),
+      textRows: number(win["textRows"], 0, 256),
+      textCols: number(win["textCols"], 0, 256),
+      x0: number(win["x0"], -8192, 8192),
+      y0: number(win["y0"], -8192, 8192),
+      x1: number(win["x1"], -8192, 8192),
+      y1: number(win["y1"], -8192, 8192),
+      seq: number(win["seq"], 0, 0xffffffff),
+    };
+  }
+  return {
+    written,
+    top,
+    left,
+    bottom,
+    right,
+    cells,
+    ...(window !== undefined ? { window } : {}),
+  };
 }
 
 function serializedModal(value: unknown): SerializedModal {

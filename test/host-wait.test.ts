@@ -188,7 +188,7 @@ test("quit confirmation suspends; the delivered key resumes the session action",
   engine.tick();
   assert.equal(engine.hostInteraction?.kind, "confirm");
   assert.ok(
-    host.prints.some((text) => text.includes("Quit")),
+    host.prints.some((text) => text.includes("quit.")),
     "the confirm window is up",
   );
 

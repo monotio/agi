@@ -3,8 +3,8 @@ import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref } from "vue";
 import {
   TextSurface,
   wrapLines,
-  placeWindow,
-  drawWindow,
+  placePrintWindow,
+  stampWindow,
 } from "../../../../src/runtime/textSurface.ts";
 import { compositeFrame } from "../../render/composite.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
@@ -27,12 +27,13 @@ function render(): void {
   if (!stage && !fallback) return;
   const surface = new TextSurface();
   const lines = wrapLines(text, 30);
-  drawWindow(surface, placeWindow(lines, 1), lines, 0xf0, 0xf4);
+  stampWindow(surface, placePrintWindow(lines, 1, "pc"), lines, 0xf0);
   const pixels = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
     {
       visual: presentation.lastFrame.value?.visual ?? new Uint8Array(160 * 168),
       text: surface.cells,
+      windowOverlay: surface.overlay,
       picRow: 1,
     },
     pixels,

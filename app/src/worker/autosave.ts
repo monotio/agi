@@ -76,6 +76,7 @@ export function createAutosave(ctx: WorkerContext) {
       const frame = {
         visual: presentation.visual,
         text: presentation.text,
+        windowOverlay: presentation.windowOverlay,
         picRow: ctx.run.engine.displayBase,
       };
       // A black screen leaves the card's previous picture in place.

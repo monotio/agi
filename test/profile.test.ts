@@ -401,12 +401,16 @@ describe("engine selects behavior by profile field", () => {
     const capped = boot(OPEN).engine;
     capped.setEditLine("x".repeat(50));
     assert.equal(capped.inputEdit.length, 36);
-    // close.dialogue restores the derived width under 2.936 only — and 2.936
-    // is unprobed for the original capacity formula, so the previous
-    // 39-column cap applies.
+    // close.dialogue restores the derived width under 2.936 (min(41, 40 - 0 - 0) = 40
+    // when both s0 and the prompt marker are empty; 39 once a prompt marker is set).
     const closed = boot("accept.input();\nopen.dialogue();\nclose.dialogue();\nreturn;\n").engine;
     closed.setEditLine("x".repeat(50));
-    assert.equal(closed.inputEdit.length, 39);
+    assert.equal(closed.inputEdit.length, 40);
+    const closedWithPrompt = boot(
+      'set.cursor.char(">");\naccept.input();\nopen.dialogue();\nclose.dialogue();\nreturn;\n',
+    ).engine;
+    closedWithPrompt.setEditLine("x".repeat(50));
+    assert.equal(closedWithPrompt.inputEdit.length, 39);
   });
 
   test("the script key map stops at the profile capacity", () => {
@@ -861,34 +865,59 @@ test("profile ids are a frozen public vocabulary", () => {
     assert.equal(PROFILES[id as ProfileId]?.id, id, id);
 });
 
-test("the authenticity-fix gates select only their probed profiles", () => {
-  // Each lane behavior change runs only where its probe evidence covers the
-  // build (the per-field comments in profile.ts name the binaries and
-  // offsets); every other profile keeps the previous behavior.
-  const flags = {
-    preLogicDirectionMirror: ["2.936"],
-    defaultScriptBufferPairs: ["2.917", "2.936", "3.002.149"],
-    scriptSizeResetsSequence: ["2.917", "2.936", "3.002.149"],
-    keyByteStoredBeforeEdit: ["2.936"], // pq1 2.903 falls back to 2.936
-    keypadWordsNormalized: ["2.936", "3.002.102", "3.002.149"],
-    modalDismissalKeys: ["2.917", "2.936"],
-    inventoryListEndsOnAnyEvent: ["2.936", "3.002.102"],
-    originalTextWindows: ["2.917", "2.936"],
-    parserStopsAtTenthWord: ["2.917", "3.002.086", "3.002.149"],
-    originalInputCapacity: ["2.917", "3.002.086", "3.002.149"],
-    originalRestartRestore: ["2.936", "3.002.102", "3.002.149"],
-    soundStopsBeforeFault: ["2.272", "2.411", "2.440"],
-  } as const;
-  for (const [id, profile] of Object.entries(PROFILES)) {
-    for (const [field, probed] of Object.entries(flags)) {
-      const value = profile[field as keyof typeof profile];
-      const selected = field === "modalDismissalKeys" ? value === "enter-escape" : value === true;
-      const expected = (probed as readonly string[]).includes(id);
-      if (field === "defaultScriptBufferPairs") {
-        assert.equal(value, expected ? 50 : 200, `${id}.defaultScriptBufferPairs`);
-      } else {
-        assert.equal(selected, expected, `${id}.${field}`);
-      }
-    }
+test("every shipped profile carries its binary-verified authenticity fields", () => {
+  const earlyGroup = new Set<ProfileId>(["2.001", "2.089", "2.230", "2.272", "amiga-2.082"]);
+  const v3Group = new Set<ProfileId>(["3.002.086", "3.002.102", "3.002.149"]);
+
+  for (const [id, profile] of Object.entries(PROFILES) as [ProfileId, AgiProfile][]) {
+    assert.equal(
+      profile.preLogicDirectionMirror,
+      !earlyGroup.has(id),
+      `${id}.preLogicDirectionMirror`,
+    );
+    assert.equal(profile.defaultScriptBufferPairs, 50, `${id}.defaultScriptBufferPairs`);
+    assert.equal(profile.scriptSizeResetsSequence, true, `${id}.scriptSizeResetsSequence`);
+    assert.equal(profile.keyByteStoredBeforeEdit, true, `${id}.keyByteStoredBeforeEdit`);
+    assert.equal(
+      profile.keypadWordsNormalized,
+      !id.startsWith("amiga-") && id !== "iigs-1.014",
+      `${id}.keypadWordsNormalized`,
+    );
+    assert.equal(profile.modalDismissalKeys, "enter-escape", `${id}.modalDismissalKeys`);
+    assert.equal(profile.inventoryListEndsOnAnyEvent, true, `${id}.inventoryListEndsOnAnyEvent`);
+    assert.equal(profile.originalTextWindows, true, `${id}.originalTextWindows`);
+    const expectedStatusFormat =
+      id === "2.001" ? "booter-2.001" : id === "2.089" ? "early-2.089" : "common";
+    assert.equal(profile.statusLineFormat, expectedStatusFormat, `${id}.statusLineFormat`);
+    const expectedGeometry =
+      id === "2.001"
+        ? "pc-2.001"
+        : id.startsWith("amiga-")
+          ? "amiga"
+          : id === "iigs-1.014"
+            ? "iigs"
+            : "pc";
+    assert.equal(profile.windowFrameGeometry, expectedGeometry, `${id}.windowFrameGeometry`);
+    assert.equal(profile.parserStopsAtTenthWord, true, `${id}.parserStopsAtTenthWord`);
+    assert.equal(profile.originalInputCapacity, true, `${id}.originalInputCapacity`);
+    const expectedEditCap =
+      id === "2.001" || id === "2.089" || id === "2.230"
+        ? "early-35"
+        : id === "2.272" || id === "3.002.149" || id.startsWith("amiga-")
+          ? "prompt-40"
+          : id === "iigs-1.014"
+            ? "iigs-39"
+            : "dialogue-36";
+    assert.equal(profile.inputLineEditCap, expectedEditCap, `${id}.inputLineEditCap`);
+    assert.equal(profile.originalRestartRestore, true, `${id}.originalRestartRestore`);
+    assert.equal(profile.restartCursorMemory, v3Group.has(id), `${id}.restartCursorMemory`);
+    assert.equal(profile.soundStopsBeforeFault, true, `${id}.soundStopsBeforeFault`);
+    assert.equal(profile.printConsumesF15, !earlyGroup.has(id), `${id}.printConsumesF15`);
+    assert.equal(
+      profile.timedPrintClearsV21,
+      !earlyGroup.has(id) || id === "amiga-2.082",
+      `${id}.timedPrintClearsV21`,
+    );
+    assert.equal(profile.showPictureClearsF15, !earlyGroup.has(id), `${id}.showPictureClearsF15`);
   }
 });

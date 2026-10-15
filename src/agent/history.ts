@@ -421,16 +421,6 @@ function feedText(engine: HistorySyncSource, feed: (v: number) => void): void {
   }
 }
 
-/** FNV-1a over vars, flags and object positions. */
-export function historyStateDigest(engine: HistorySyncSource): string {
-  return digestOf((feed) => feedState(engine, feed));
-}
-
-/** FNV-1a over the 25 text rows. */
-export function historyTextDigest(engine: HistorySyncSource): string {
-  return digestOf((feed) => feedText(engine, feed));
-}
-
 /**
  * The released combined digest: FNV-1a over vars, flags, object positions
  * and the 25 text rows. Version-2 tapes written before the split digests
@@ -449,13 +439,13 @@ export function computeSyncMark(
   seq: number,
   tick: number,
   cycle: number,
-): HistorySyncMark {
+): HistorySyncMark & { state: string; text: string } {
   return {
     seq,
     tick,
     cycle,
-    state: historyStateDigest(engine),
-    text: historyTextDigest(engine),
+    state: digestOf((feed) => feedState(engine, feed)),
+    text: digestOf((feed) => feedText(engine, feed)),
     room: engine.vars[V_ROOM] ?? 0,
     score: engine.vars[V_SCORE] ?? 0,
     patchGeneration: engine.patchGeneration,

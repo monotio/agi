@@ -207,7 +207,7 @@ for (const game of GAMES) {
       assert.equal(engine.vars[7], game.maximumScore);
       assert.equal(
         engine.textRow(0).slice(1, 18).trimEnd(),
-        `Score: ${engine.vars[3]} of ${game.maximumScore}`,
+        `Score:${engine.vars[3]} of ${game.maximumScore}`,
       );
     });
 

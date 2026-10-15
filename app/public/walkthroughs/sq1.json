@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "sq1",
     "revision": "4e25ac4490afba3c5d6bd49c0d1429d8d375f8bb557e284c7337c1f334ccbe1e"
@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 5989,
+  "elapsedMs": 15378,
   "virtualTicks": 142268,
   "cycles": 18999,
   "actions": [
@@ -4491,15 +4491,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 237
+      "ticks": 243
     },
     {
       "kind": "key",
@@ -4507,7 +4499,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2
+      "ticks": 1
     },
     {
       "kind": "key",
@@ -4515,7 +4507,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 64
+      "ticks": 59
     },
     {
       "kind": "key",
@@ -19667,7 +19659,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1116
+      "ticks": 1122
     },
     {
       "kind": "key",

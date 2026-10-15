@@ -60,6 +60,16 @@ export function createPresentation(ctx: WorkerContext) {
         }
       }
     }
+    if (same && ctx.run.presentation.lastWindowOverlay) {
+      for (let i = 0; i < frame.windowOverlay.length; i++) {
+        if (frame.windowOverlay[i] !== ctx.run.presentation.lastWindowOverlay[i]) {
+          same = false;
+          break;
+        }
+      }
+    } else if (!ctx.run.presentation.lastWindowOverlay) {
+      same = false;
+    }
     if (same && ctx.run.presentation.lastVisual) {
       for (let i = 0; i < frame.visual.length; i++) {
         if (frame.visual[i] !== ctx.run.presentation.lastVisual[i]) {
@@ -122,6 +132,7 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.run.presentation.lastVisual = frame.visual.slice(); // retained copy, never transferred
     ctx.run.presentation.lastPriority = frame.priority.slice();
     ctx.run.presentation.lastText = textCells.slice();
+    ctx.run.presentation.lastWindowOverlay = frame.windowOverlay.slice();
     ctx.run.presentation.lastOwnership = ownership ? ownership.slice() : null;
     ctx.run.presentation.lastPreview = preview ? preview.slice() : null;
     ctx.run.presentation.lastPicture = picture ? picture.visual.slice() : null;
@@ -135,12 +146,14 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.run.presentation.lastModal = modal;
     ctx.run.presentation.lastPatchGen = ctx.run.engine.patchGeneration;
     const text = textCells.slice();
+    const windowOverlay = frame.windowOverlay.slice();
     ctx.ports.presentation(
       {
         type: "frame",
         visual: frame.visual,
         priority: frame.priority,
         text,
+        windowOverlay,
         picRow: ctx.run.engine.displayBase,
         modal,
         textMode: ctx.run.engine.textModeActive,
@@ -159,6 +172,7 @@ export function createPresentation(ctx: WorkerContext) {
         frame.visual.buffer,
         frame.priority.buffer,
         text.buffer,
+        windowOverlay.buffer,
         ...(ownership ? [ownership.buffer] : []),
         ...(preview ? [preview.buffer] : []),
         ...(picture ? [picture.visual.buffer, picture.priority.buffer] : []),
@@ -227,6 +241,7 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.replay.isSeeking = false;
       ctx.run.presentation.lastVisual = null;
       ctx.run.presentation.lastText = null;
+      ctx.run.presentation.lastWindowOverlay = null;
       postFrame();
     }
   }

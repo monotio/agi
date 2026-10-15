@@ -369,92 +369,131 @@ test("the parser stops examining the line after the tenth retained word", () => 
   // Player-visible rule: an eleventh word is never looked at — an unknown
   // token past the cap is not reported (v9 stays 0) and no eleventh word
   // text exists. The word loop tests i >= 10 BEFORE each Match call and
-  // exits silently (kq1 2.917 Parse 0x18F4 / kq4 3.002.086 0x1BAD / gr1
-  // 3.002.149 0x1B7C); WORDS/WORDPTR are 10-slot arrays zeroed at entry.
+  // exits silently across all 18 profiles (kq2boot 2.001 0x10B2 .. gr1
+  // 3.002.149 0x1B7C, Amiga 2.082..2.333, IIgs 1.014); WORDS/WORDPTR are
+  // 10-slot arrays zeroed at entry.
   const words = Array.from({ length: 11 }, (_, i) => [`w${i}`, i + 1] as [string, number]);
   const dict = new Map<string, number>(words);
-  const container = createContainer();
-  container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: dict }).payload);
-  const host = new Host();
-  const engine = new Engine(container, host, dict, { profile: PROFILES["2.917"] });
-  engine.tick();
-  host.line = words.map(([w]) => w).join(" ") + " zzz";
-  engine.tick();
-  assert.equal(engine.vars[9], 0, "the twelfth token is never examined");
-  assert.equal(engine.parserCount, 10);
-  assert.equal(engine.flags[2], 1, "the capped line still counts as input");
+  for (const profile of [
+    "2.089",
+    "2.917",
+    "2.936",
+    "3.002.149",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(ACCEPT, { dictionary: dict, profile: PROFILES[profile] }).payload,
+    );
+    const host = new Host();
+    const engine = new Engine(container, host, dict, { profile: PROFILES[profile] });
+    engine.tick();
+    host.line = words.map(([w]) => w).join(" ") + " zzz";
+    engine.tick();
+    assert.equal(engine.vars[9], 0, `${profile}: the twelfth token is never examined`);
+    assert.equal(engine.parserCount, 10, `${profile}: capped at 10 parsed words`);
+    assert.equal(engine.flags[2], 1, `${profile}: the capped line still counts as input`);
+  }
 });
 
-test("unprobed profiles keep examining words past the tenth", () => {
-  // The tenth-word stop is probed on kq1 2.917 / kq4 3.002.086 / gr1
-  // 3.002.149 only; every other profile keeps the previous behavior — a
-  // capped retained list, but an unknown token past the cap is still
-  // examined and reported in v9.
-  const words = Array.from({ length: 11 }, (_, i) => [`w${i}`, i + 1] as [string, number]);
-  const dict = new Map<string, number>(words);
-  const container = createContainer();
-  container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: dict }).payload);
-  const host = new Host();
-  const engine = new Engine(container, host, dict); // 2.936: unprobed for the parser cap
-  engine.tick();
-  host.line = words.map(([w]) => w).join(" ") + " zzz";
-  engine.tick();
-  assert.equal(engine.vars[9], 11, "the twelfth token is examined and reported");
-  assert.equal(engine.parserCount, 11, "the reported unknown counts as a word");
-});
-
-test("the command line holds min(v24, 40 − strlen(s0) − prompt) characters", () => {
-  // Player-visible rule: keystrokes past the cap are silently rejected; the
-  // cap is min(var[24], 40 − strlen(string0) − (prompt ? 1 : 0)) with v24
-  // shipped as 41 — so 40 characters with no prompt, 39 with a one-character
-  // prompt (kq1 2.917 editor 0x365A-0x368C; ResetAll 0x108C sets v24 = 41).
-  // Probed on kq1 2.917 / kq4 3.002.086 / gr1 3.002.149, so these engines
-  // run the 2.917 profile.
+test("the command line honors the four profile-specific inputLineEditCap formulas", () => {
+  // Player-visible rule: keystrokes past the profile's edit cap are silently
+  // rejected:
+  // - "early-35" (PC 2.001..2.230): min(v24, 35)
+  // - "prompt-40" (PC 2.272, 3.002.149, Amiga 2.082..2.333): min(v24, 40 - strlen(s0) - (prompt ? 1 : 0))
+  // - "dialogue-36" (PC 2.411..3.002.107): min(v24, (dialogueOpen ? 36 : 40) - strlen(s0) - (prompt ? 1 : 0))
+  // - "iigs-39" (IIgs 1.014): min(v24, 39 - strlen(s0))
   const type = (engine: Engine, host: Host, n: number) => {
-    // Nineteen events fit a cycle's queue; the edit buffer persists.
     for (let left = n; left > 0; left -= 19) {
       host.keys.push(...Array<number>(Math.min(19, left)).fill(0x61));
       engine.tick();
     }
   };
-  const boot = (source: string): { engine: Engine; host: Host } => {
+  const measure = (
+    profile: "2.089" | "2.272" | "2.917" | "2.936" | "3.002.149" | "amiga-2.316" | "iigs-1.014",
+    source: string,
+  ): number => {
     const container = createContainer();
-    container.putResource("logic", 0, assembleLogic(source, { dictionary: DICT }).payload);
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
     const host = new Host();
-    return { engine: new Engine(container, host, DICT, { profile: PROFILES["2.917"] }), host };
+    const engine = new Engine(container, host, DICT, { profile: PROFILES[profile] });
+    engine.tick();
+    type(engine, host, 45);
+    return engine.inputEdit.length;
   };
-  {
-    const { engine, host } = boot(ACCEPT);
-    engine.tick();
-    type(engine, host, 45);
-    assert.equal(engine.inputEdit.length, 40, "no prompt: 40 columns");
-  }
-  {
-    const { engine, host } = boot('set.cursor.char(">"); accept.input(); return;');
-    engine.tick();
-    type(engine, host, 45);
-    assert.equal(engine.inputEdit.length, 39, "a one-character prompt leaves 39");
-  }
-  {
-    const { engine, host } = boot("assignn(v24, 10); accept.input(); return;");
-    engine.tick();
-    type(engine, host, 45);
-    assert.equal(engine.inputEdit.length, 10, "v24 lowers the cap");
-  }
-});
 
-test("unprobed profiles keep the previous input-line capacity", () => {
-  // The original capacity formula is probed on kq1 2.917 / kq4 3.002.086 /
-  // gr1 3.002.149; every other profile caps at min(inputWidthCap ?? 39,
-  // 39 − prompt length) as before.
-  const container = createContainer();
-  container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: DICT }).payload);
-  const host = new Host();
-  const engine = new Engine(container, host, DICT); // 2.936: unprobed for the capacity formula
-  engine.tick();
-  for (let left = 45; left > 0; left -= 19) {
-    host.keys.push(...Array<number>(Math.min(19, left)).fill(0x61));
-    engine.tick();
+  // "early-35": always 35 unless v24 is smaller
+  assert.equal(measure("2.089", ACCEPT), 35, "2.089 no prompt: 35 columns");
+  assert.equal(
+    measure("2.089", 'set.cursor.char(">"); accept.input(); return;'),
+    35,
+    "2.089 with prompt: still 35",
+  );
+  assert.equal(
+    measure("2.089", "assignn(v24, 10); accept.input(); return;"),
+    10,
+    "2.089: v24 lowers the cap",
+  );
+
+  // "prompt-40": 40 with no prompt, 39 with prompt, unaffected by open.dialogue (where opcode 0x99 exists)
+  for (const profile of ["2.272", "3.002.149", "amiga-2.316"] as const) {
+    assert.equal(measure(profile, ACCEPT), 40, `${profile} no prompt: 40 columns`);
+    assert.equal(
+      measure(profile, 'set.cursor.char(">"); accept.input(); return;'),
+      39,
+      `${profile} one-char prompt: 39 columns`,
+    );
+    if (profile !== "2.272") {
+      assert.equal(
+        measure(profile, "open.dialogue(); accept.input(); return;"),
+        40,
+        `${profile} open.dialogue does not lower the base from 40`,
+      );
+    }
   }
-  assert.equal(engine.inputEdit.length, 39, "no prompt: the previous 39-column cap");
+
+  // "dialogue-36": 40 normally, 39 with prompt, 36 under open.dialogue (35 with prompt)
+  for (const profile of ["2.917", "2.936"] as const) {
+    assert.equal(measure(profile, ACCEPT), 40, `${profile} no prompt: 40 columns`);
+    assert.equal(
+      measure(profile, 'set.cursor.char(">"); accept.input(); return;'),
+      39,
+      `${profile} one-char prompt: 39 columns`,
+    );
+    assert.equal(
+      measure(profile, "open.dialogue(); accept.input(); return;"),
+      36,
+      `${profile} open.dialogue lowers base to 36`,
+    );
+    assert.equal(
+      measure(profile, 'open.dialogue(); set.cursor.char(">"); accept.input(); return;'),
+      35,
+      `${profile} open.dialogue + prompt leaves 35`,
+    );
+    assert.equal(
+      measure(profile, "assignn(v24, 10); accept.input(); return;"),
+      10,
+      `${profile} v24 lowers the cap`,
+    );
+  }
+
+  // "iigs-39": 39 - strlen(s0), unaffected by cursor char
+  assert.equal(measure("iigs-1.014", ACCEPT), 39, "iigs-1.014 no prompt: 39 columns");
+  assert.equal(
+    measure("iigs-1.014", 'set.cursor.char(">"); accept.input(); return;'),
+    39,
+    "iigs-1.014 with cursor char: still 39",
+  );
+  assert.equal(
+    measure("iigs-1.014", 'set.string(s0, ">> "); accept.input(); return;'),
+    36,
+    "iigs-1.014 subtracts strlen(s0) from 39",
+  );
 });

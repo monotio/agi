@@ -59,6 +59,12 @@ export interface CompositeInput {
   priority?: Uint8Array | undefined;
   /** 40x25 [char, attr] cells; char 0 is transparent. */
   text: Uint8Array;
+  /**
+   * Optional 320x200 sub-cell window border overlay (`0` = transparent,
+   * `1 + EGA colour` = opaque pixel) painted into the window's outer cells
+   * before interior text cells overwrite it.
+   */
+  windowOverlay?: Uint8Array | undefined;
   /** Text row at which picture row 0 is presented (configure.screen). */
   picRow: number;
 }
@@ -149,6 +155,21 @@ export function compositeFrame(
           o += 4;
         }
       }
+    }
+  }
+  // Sub-cell window border overlay painted into the window's outer margin
+  // (excluding interior text cells and any cells written after the window).
+  if (text !== "skip" && input.windowOverlay) {
+    const overlay = input.windowOverlay;
+    for (let i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++) {
+      const v = overlay[i]!;
+      if (v === 0) continue;
+      const c = EGA_PALETTE[(v - 1) & 0x0f]!;
+      const o = i * 4;
+      out[o] = c[0];
+      out[o + 1] = c[1];
+      out[o + 2] = c[2];
+      out[o + 3] = 255;
     }
   }
 }

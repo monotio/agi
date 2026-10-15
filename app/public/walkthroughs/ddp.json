@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "ddp",
     "revision": "4ae970dd2e680033206d042b0fddf295ae91b29e6bd303d8c0cfc9635c766a15"
@@ -23,7 +23,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 615,
+  "elapsedMs": 3019,
   "virtualTicks": 10269,
   "cycles": 2319,
   "actions": [

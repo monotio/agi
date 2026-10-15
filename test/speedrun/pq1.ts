@@ -2365,7 +2365,7 @@ function collectTransmitter(run: Speedrun): void {
   go(run, { x0: detective.x + 8, x1: detective.x + 12, y0: detective.y - 2, y1: detective.y + 2 });
   run.take("get transmitter", ITEM.transmitter);
   score(run, 242, "wired for sound");
-  run.verify("Collected the pen transmitter from the backup team", { room: 67, score: 242 });
+  run.checkpoint("Collected the pen transmitter from the backup team", { room: 67, score: 242 });
 }
 
 /** The password gets Whitey into the private game, where Frank turns out to be Jessie Bains. */

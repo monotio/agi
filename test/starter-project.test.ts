@@ -334,8 +334,8 @@ describe("starter starter project", () => {
     host.lines.push("look");
     tick(engine, 3);
     const text = surfaceRows(engine).join("\n");
-    assert.match(text, /sunny clearing/);
-    assert.equal((text.match(/sunny clearing/g) ?? []).length, 1);
+    assert.match(text, /sunny\s+clearing/);
+    assert.equal((text.match(/sunny\s+clearing/g) ?? []).length, 1);
     assert.doesNotMatch(text, /I don't understand/);
     assert.doesNotMatch(text, /I don't know/);
   });

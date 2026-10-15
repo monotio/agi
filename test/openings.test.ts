@@ -49,7 +49,7 @@ test(
       "the only opening prompt asks the first name",
     );
     assert.equal(run.state().room, 2, "the opening room");
-    assert.ok(run.engine.textRow(0).includes("Score: 0 of 202"), "the SQ1 status line is up");
+    assert.ok(run.engine.textRow(0).includes("Score:0 of 202"), "the SQ1 status line is up");
     assertNonBlank(run.engine, "sq1");
   },
 );
@@ -66,7 +66,7 @@ test(
     run.key(AGI_KEY.ENTER); // the credits screen waits for any key
     run.until(() => run.engine.inputEnabled, 600, "first playable room");
     assert.equal(run.state().room, 1, "the opening room");
-    assert.ok(run.engine.textRow(0).includes("Score: 0 of 185"), "the KQ2 status line is up");
+    assert.ok(run.engine.textRow(0).includes("Score:0 of 185"), "the KQ2 status line is up");
     assertNonBlank(run.engine, "kq2");
   },
 );
@@ -86,7 +86,7 @@ test(
     run.key(AGI_KEY.ENTER); // the title waits for any key
     run.until(() => run.engine.inputEnabled, 600, "first playable room");
     assert.equal(run.state().room, 7, "the opening room");
-    assert.ok(run.engine.textRow(0).includes("Score: 0 of 210"), "the KQ3 status line is up");
+    assert.ok(run.engine.textRow(0).includes("Score:0 of 210"), "the KQ3 status line is up");
     assertNonBlank(run.engine, "kq3");
   },
 );
@@ -101,7 +101,7 @@ test(
     run.key(AGI_KEY.ENTER); // the title waits for any key
     run.until(() => run.engine.inputEnabled, 600, "first playable room");
     assert.equal(run.state().room, 6, "the opening room");
-    assert.ok(run.engine.textRow(0).includes("Score: 0 of 245"), "the PQ1 status line is up");
+    assert.ok(run.engine.textRow(0).includes("Score:0 of 245"), "the PQ1 status line is up");
     assertNonBlank(run.engine, "pq1");
   },
 );

@@ -91,6 +91,6 @@ test(
       if (rooms[rooms.length - 1] !== engine.vars[0]) rooms.push(engine.vars[0]!);
     }
     assert.deepEqual(rooms, [129, 73, 1]);
-    assert.match(engine.textRow(0), /Score: 0 of 250/);
+    assert.match(engine.textRow(0), /Score:0 of 250/);
   },
 );

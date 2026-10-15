@@ -136,8 +136,8 @@ for (const viewport of [
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  const phone = viewport.width === 390 ? " @phone" : " @webkit-desktop";
-  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}${phone}`, async ({
+  const tag = viewport.width === 390 ? " @phone" : " @webkit-desktop";
+  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}${tag}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -170,7 +170,7 @@ for (const viewport of [
     await page.mouse.up();
   });
 
-  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}${phone}`, async ({
+  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}${tag}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);

@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "kq4",
     "revision": "ad3bef3648923e5082ef5b5f318aa47e3afd47c5492b60d69705b441bbb074f9"
@@ -23,9 +23,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 9118,
-  "virtualTicks": 151260,
-  "cycles": 70672,
+  "elapsedMs": 27345,
+  "virtualTicks": 151683,
+  "cycles": 70674,
   "actions": [
     {
       "kind": "advance",
@@ -26885,27 +26885,11 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
+      "ticks": 158
     },
     {
       "kind": "key",
-      "code": 8
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 8
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 8
+      "code": 13
     },
     {
       "kind": "advance",
@@ -30445,7 +30429,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 94
+      "ticks": 95
     },
     {
       "kind": "key",
@@ -30453,7 +30437,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 29
+      "ticks": 13
     },
     {
       "kind": "key",
@@ -30549,23 +30533,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 22
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 2
-    },
-    {
-      "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 9
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -30573,7 +30541,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 17
+      "ticks": 29
     },
     {
       "kind": "key",
@@ -33201,6 +33169,262 @@
     },
     {
       "kind": "key",
+      "code": 108
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 111
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 111
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 107
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 32
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 97
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 116
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 32
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 98
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 114
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 105
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 100
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 103
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 101
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 144
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 108
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 111
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 111
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 107
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 32
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 97
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 116
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 32
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 98
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 114
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 105
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 100
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 103
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 101
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 137
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
       "code": 19200
     },
     {
@@ -33949,7 +34173,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2467
+      "ticks": 2442
     },
     {
       "kind": "checkpoint",
@@ -33991,7 +34215,7 @@
       255,
       0,
       2,
-      1,
+      8,
       42,
       0,
       0,
@@ -34011,7 +34235,7 @@
       0,
       0,
       0,
-      2,
+      1,
       0,
       100,
       105,
@@ -34042,7 +34266,7 @@
       68,
       0,
       0,
-      0,
+      12,
       18,
       6,
       1,
@@ -34113,7 +34337,7 @@
       0,
       81,
       0,
-      1,
+      8,
       113,
       159,
       0,
@@ -34134,7 +34358,7 @@
       4,
       204,
       206,
-      5,
+      7,
       16,
       22,
       2,
@@ -34145,7 +34369,7 @@
       0,
       0,
       0,
-      1,
+      0,
       0,
       0,
       0,

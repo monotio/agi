@@ -250,7 +250,7 @@ test("distance uses cel centers and early profiles wrap overflow", () => {
     "2.089",
   );
   engine.tick();
-  assert.equal(engine.vars[60], 69, "(158 + 167) modulo 256");
+  assert.equal(engine.vars[60], 32, "(158 + 130) modulo 256 after 2.089 horizon placement at Y37");
   const differentWidths = game(`${objects} distance(o0, o1, v60); return;`);
   differentWidths.patchResources([
     {

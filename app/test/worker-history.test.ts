@@ -449,6 +449,80 @@ test("a released tape of the version() logic does not diverge on the fixed modal
   assert.equal(replayed.applied, segment.events.length);
 });
 
+test("a released tape whose later events are stranded by the v19 ordering reports compatibility, never divergence", () => {
+  // Astra's repro: under the released consume-first input ordering, typing 'A'
+  // (code 65) while accept.input() was active went into the input line without
+  // setting v19, so `if (v19 == 65) { quit(1); }` did not terminate and a later
+  // key 'B' at tick 18 was recorded. Under the authentic store-first ordering,
+  // v19 is set to 65 before the input line consumes the key, so quit(1)
+  // terminates at tick 7 and 'B' at tick 18 is unreachable.
+  const h = historyHarness(
+    gameContainer(
+      [
+        `if (!isset(f201)) { set(f201); new.room(1); }
+         accept.input();
+         if (v19 == 65) { quit(1); }
+         if (v0 > 0) { call.v(v0); } return;`,
+        `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+      ],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+    { rngSeed: 0x5eed },
+  );
+  const { ctx, send, tick } = h;
+  tick(6);
+  ctx.fns.historyFlush("flush");
+  const base = collectSegments(h.control)[0]!;
+  const released: HistorySegment = {
+    ...base,
+    events: [
+      { seq: 0, tick: 6, cycle: 6, cause: { kind: "key", code: 65 } },
+      { seq: 1, tick: 18, cycle: 18, cause: { kind: "key", code: 66 } },
+    ],
+    sync: base.sync.map(({ seq, tick, cycle, room, score, patchGeneration, modal }) => ({
+      seq,
+      tick,
+      cycle,
+      digest: "00000000",
+      room,
+      score,
+      patchGeneration,
+      modal,
+    })),
+    end: { seq: 2, tick: 24, cycle: 24, reason: "quit" },
+  };
+  const replayed = replayHistorySegment(released);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "a released tape never claims verified divergence");
+  assert.ok(replayed.incompatible !== null, "the unreachable tail is noted as incompatible");
+  assert.equal(replayed.incompatible.at.tick, 18);
+  assert.match(replayed.incompatible.detail, /engine terminated/);
+
+  send({ type: "pause", paused: true });
+  send({
+    type: "historyViewStart",
+    id: 77,
+    recording: {
+      version: 2,
+      identity: { project: "p" as never, revision: "r" as never },
+      profile: "2.936",
+      resourceSet: released.boot.resourceSet,
+      startedAt: 0,
+      segments: [released],
+    },
+    segment: 0,
+    tick: 24,
+  });
+  const viewReply = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyView" }> =>
+      m.type === "historyView" && m.id === 77 && m.final,
+  );
+  assert.ok(viewReply);
+  assert.equal(viewReply.diverged, null);
+  assert.equal(viewReply.incompatible?.at.tick, 18);
+  assert.equal(viewReply.canResume, false);
+});
+
 test("split-digest sync marks verify the state and text digests separately", () => {
   const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
   const { send, tick } = h;

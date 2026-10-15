@@ -39,20 +39,22 @@ export const GLYPH_BL = 0x05;
 export const GLYPH_BR = 0x06;
 export const GLYPH_CURSOR = 0x07;
 
-/**
- * Window-frame glyphs written by drawWindow: each edge cell's font mask
- * carries the original's solid 1-pixel bar INSET one logical pixel from the
- * fill edge (kq1 2.917 OpenWndw 0x54C8). Fresh IDs, never the 1.x codes:
- * an old checkpoint holding 0x07 must still render a cursor, not a corner.
- */
-export const GLYPH_BAR_TOP = 0x0a;
-export const GLYPH_BAR_BOTTOM = 0x0b;
-export const GLYPH_BAR_LEFT = 0x0c;
-export const GLYPH_BAR_RIGHT = 0x0d;
-export const GLYPH_CORNER_TL = 0x0e;
-export const GLYPH_CORNER_TR = 0x0f;
-export const GLYPH_CORNER_BL = 0x10;
-export const GLYPH_CORNER_BR = 0x11;
+export type WindowFrameGeometry = "pc-2.001" | "pc" | "amiga" | "iigs";
+
+export interface WindowOverlay {
+  readonly geometry: WindowFrameGeometry;
+  readonly textTop: number;
+  readonly textLeft: number;
+  readonly textRows: number;
+  readonly textCols: number;
+  /** Inclusive 320x200 screen-pixel bounds of the window fill. */
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+  /** Write stamp of the window overlay on `TextSurface`. */
+  seq: number;
+}
 
 /**
  * A cell as readable text: a transparent cell is a space, printable ASCII
@@ -78,9 +80,19 @@ export interface SavedRect {
   cells: Uint8Array;
 }
 
+const OVERLAY_WIDTH = 320;
+const OVERLAY_HEIGHT = 200;
+
 export class TextSurface {
   /** Row-major cells: [char, attr] per cell, TEXT_COLS * TEXT_ROWS pairs. */
   readonly cells = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
+  /**
+   * Pixel-resolution window frame overlay (320x200): 0 = transparent,
+   * 1..16 = EGA palette index + 1 (16 = white fill, 5 = red border bar).
+   */
+  readonly overlay = new Uint8Array(OVERLAY_WIDTH * OVERLAY_HEIGHT);
+  readonly overlayWritten = new Uint32Array(OVERLAY_WIDTH * OVERLAY_HEIGHT);
+  hasOverlay = false;
   /** Increments on every mutation; presentation layers poll it. */
   dirty = 0;
   /**
@@ -96,7 +108,32 @@ export class TextSurface {
   clear(): void {
     this.cells.fill(0);
     this.written.fill(0);
+    if (this.hasOverlay) {
+      this.overlay.fill(0);
+      this.overlayWritten.fill(0);
+      this.hasOverlay = false;
+    }
     this.dirty++;
+  }
+
+  clearWindowOverlay(): void {
+    if (!this.hasOverlay) return;
+    this.overlay.fill(0);
+    this.overlayWritten.fill(0);
+    this.hasOverlay = false;
+    this.dirty++;
+  }
+
+  private clearCellOverlay(row: number, col: number): void {
+    const y0 = row * 8;
+    const x0 = col * 8;
+    for (let dy = 0; dy < 8; dy++) {
+      const base = (y0 + dy) * OVERLAY_WIDTH + x0;
+      for (let dx = 0; dx < 8; dx++) {
+        this.overlay[base + dx] = 0;
+        this.overlayWritten[base + dx] = 0;
+      }
+    }
   }
 
   charAt(row: number, col: number): number {
@@ -113,6 +150,7 @@ export class TextSurface {
     this.cells[at] = ch & 0xff;
     this.cells[at + 1] = a & 0xff;
     this.written[row * TEXT_COLS + col] = ++this.seq;
+    if (this.hasOverlay) this.clearCellOverlay(row, col);
     this.dirty++;
   }
 
@@ -132,6 +170,7 @@ export class TextSurface {
         this.cells[at] = ch & 0xff;
         this.cells[at + 1] = a & 0xff;
         this.written[r * TEXT_COLS + c] = stamp;
+        if (this.hasOverlay) this.clearCellOverlay(r, c);
       }
     }
     this.dirty++;
@@ -141,7 +180,24 @@ export class TextSurface {
   dropCells(indices: Iterable<number>): void {
     let changed = false;
     for (const i of indices) {
-      if (i < 0 || i >= TEXT_COLS * TEXT_ROWS || this.cells[i * 2] === 0) continue;
+      if (i < 0 || i >= TEXT_COLS * TEXT_ROWS) continue;
+      if (this.hasOverlay) {
+        const row = (i / TEXT_COLS) | 0;
+        const col = i % TEXT_COLS;
+        const y0 = row * 8;
+        const x0 = col * 8;
+        for (let dy = 0; dy < 8; dy++) {
+          const base = (y0 + dy) * OVERLAY_WIDTH + x0;
+          for (let dx = 0; dx < 8; dx++) {
+            if (this.overlay[base + dx] !== 0) {
+              this.overlay[base + dx] = 0;
+              this.overlayWritten[base + dx] = 0;
+              changed = true;
+            }
+          }
+        }
+      }
+      if (this.cells[i * 2] === 0) continue;
       this.cells[i * 2] = 0;
       this.cells[i * 2 + 1] = 0;
       this.written[i] = 0;
@@ -151,9 +207,10 @@ export class TextSurface {
   }
 
   /**
-   * Drop the cells written after `since` whose area meets the picture-space
-   * rectangle (x0..x1, y0..y1), the graphics having been repainted there.
-   * Picture row 0 lies on text row `baseRow`; a cell spans 4 by 8 pixels.
+   * Drop the cells and window-overlay pixels written after `since` whose area
+   * meets the picture-space rectangle (x0..x1, y0..y1), the graphics having
+   * been repainted there. Picture row 0 lies on text row `baseRow`; a cell
+   * spans 4 by 8 logical pixels.
    */
   coverPicture(
     x0: number,
@@ -176,6 +233,22 @@ export class TextSurface {
         this.cells[i * 2 + 1] = 0;
         this.written[i] = 0;
         changed = true;
+      }
+    }
+    if (this.hasOverlay) {
+      const px0 = Math.max(0, x0 * 2);
+      const px1 = Math.min(OVERLAY_WIDTH - 1, x1 * 2 + 1);
+      const py0 = Math.max(0, baseRow * 8 + y0);
+      const py1 = Math.min(OVERLAY_HEIGHT - 1, baseRow * 8 + y1);
+      for (let py = py0; py <= py1; py++) {
+        const rowBase = py * OVERLAY_WIDTH;
+        for (let px = px0; px <= px1; px++) {
+          const idx = rowBase + px;
+          if (this.overlayWritten[idx]! <= since || this.overlay[idx] === 0) continue;
+          this.overlay[idx] = 0;
+          this.overlayWritten[idx] = 0;
+          changed = true;
+        }
       }
     }
     if (changed) this.dirty++;
@@ -241,43 +314,14 @@ export class TextSurface {
 }
 
 /**
- * Greedy word wrap for modal windows. With `original` (probed on kq1 2.917 /
- * kq3 2.936, wrap block 0x2191): explicit newlines start a new line; when a
- * line is full the LAST space on it is consumed — overwritten by the break
- * and excluded from the line's width — and every space that would lead the
- * continuation line is dropped; a line with no space is hard-split at
- * exactly the width. Without it, unprobed builds keep the previous wrap:
- * words join with single spaces and overlong words hard-split.
+ * Greedy word wrap for modal windows, verified across all 20 shipped PC, Amiga
+ * and IIgs binaries (FormStr wrap block, docs/fidelity.md): explicit newlines
+ * start a new line; when a line is full the LAST space on it is consumed —
+ * overwritten by the break and excluded from the line's width — and every
+ * space that would lead the continuation line is dropped; a line with no space
+ * is hard-split at exactly the width.
  */
-export function wrapLines(text: string, width: number, original = false): string[] {
-  if (!original) {
-    const out: string[] = [];
-    for (const paragraph of text.split("\n")) {
-      const words = paragraph.split(" ");
-      let line = "";
-      for (const word of words) {
-        let w = word;
-        while (w.length > width) {
-          if (line.length > 0) {
-            out.push(line);
-            line = "";
-          }
-          out.push(w.slice(0, width));
-          w = w.slice(width);
-        }
-        if (line.length === 0) {
-          line = w;
-        } else if (line.length + 1 + w.length <= width) {
-          line += " " + w;
-        } else {
-          out.push(line);
-          line = w;
-        }
-      }
-      out.push(line);
-    }
-    return out;
-  }
+export function wrapLines(text: string, width: number): string[] {
   const out: string[] = [];
   for (const paragraph of text.split("\n")) {
     let line = "";
@@ -306,19 +350,18 @@ export function wrapLines(text: string, width: number, original = false): string
 }
 
 /**
- * Window text. With `original` (probed on kq1 2.917 0x1E0C / kq3 2.936) a
- * message formatting to more than winBot−1 (19) lines is REPLACED by the
- * verbose notice quoting its first 20 characters, then re-formatted — the
- * window never silently clips; without it, unprobed builds keep the plain
- * wrap.
+ * Window text formatting, verified across all 20 shipped PC, Amiga and IIgs
+ * binaries (WindowNoWait verbose check, docs/fidelity.md): a message
+ * formatting to more than winBot−1 lines (18 in PC 2.001, 19 in 2.089+ / Amiga
+ * / IIgs) is replaced by the verbose notice quoting its first 20 characters,
+ * then re-formatted — the window never silently clips.
  */
-export function windowLines(text: string, width: number, original = false): string[] {
-  const lines = wrapLines(text, width, original);
-  if (!original || lines.length <= 19) return lines;
+export function windowLines(text: string, width: number, maxLines = 19): string[] {
+  const lines = wrapLines(text, width);
+  if (lines.length <= maxLines) return lines;
   return wrapLines(
     `Message too verbose:\n\n"${text.slice(0, 20)}..."\n\nPress ESC to continue.`,
     width,
-    true,
   );
 }
 
@@ -331,29 +374,17 @@ export interface WindowBox {
 }
 
 /**
- * Place a bordered window around `lines`. Without overrides the window is
- * centred vertically in the 21-row display area starting at `displayBase`
- * and horizontally across the 40 columns (spec "Modal text"). With
- * `original` (probed on kq1 2.917 WindowNoWait 0x1E69 / kq3 2.936) print.at
- * overrides are used VERBATIM — the row relative to the display base — with
- * no clamping into the screen, picTop added on both paths. Without it,
- * unprobed builds treat the override as an absolute row and clamp the box
- * into the screen.
+ * Place a cell-bordered dialog box (used by engine-owned menus and the save
+ * selector).
  */
 export function placeWindow(
   lines: readonly string[],
   displayBase: number,
   override?: { row?: number | undefined; col?: number | undefined },
-  original = false,
 ): WindowBox {
   const textWidth = lines.reduce((m, l) => Math.max(m, l.length), 0);
   const cols = Math.min(TEXT_COLS, textWidth + 2);
   const rows = Math.min(TEXT_ROWS, lines.length + 2);
-  if (original) {
-    const top = displayBase + (override?.row ?? Math.floor((21 - rows) / 2));
-    const left = override?.col ?? Math.floor((TEXT_COLS - cols) / 2);
-    return { top, left, rows, cols };
-  }
   let top = override?.row ?? displayBase + Math.floor((21 - rows) / 2);
   let left = override?.col ?? Math.floor((TEXT_COLS - cols) / 2);
   if (top + rows > TEXT_ROWS) top = TEXT_ROWS - rows;
@@ -364,38 +395,8 @@ export function placeWindow(
 }
 
 /**
- * Draw a window with its text; returns nothing, caller saved the rect.
- *
- * The original's geometry (kq1 2.917 descrambled AGI, SHA-256
- * bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04):
- * WindowNoWait 0x1E4B..0x1E66 sets winDim h = 8*rows + 10 scanlines and
- * w = 4*cols + 10 nibbles with rows/cols the TEXT extents (executing the
- * original formatter for print("Hi") gives winRows=1, winCols=2 and
- * winDim 0x1212 — an 18x18 window), and 0x1ECC..0x1EED sets winPos
- * x = 4*winLeft - 5 nibbles, y = 8*(winBot+1-picTop) + 4 scanlines.
- * OpenWndw 0x54C8..0x553D then issues five DrawWndw calls on the colour
- * word 0x040F (captured under Unicorn): the fill (x, y, h, w) in the low
- * nibble (white), and four 1-wide bars in the high nibble (red, `mov
- * dl,dh`): top (x+1, y-h+2, w-2, 1), bottom (x+1, y-1, w-2, 1), left
- * (x+1, y-2, 1, h-4), right (x+w-2, y-2, 1, h-4). DrawWndw anchors at its
- * bottom line and paints upward (covers y-h+1..y) — the only reading under
- * which the h-4 verticals (y-h+3..y-2) meet both horizontal bars with no
- * gap. Net: 5 nibbles/scanlines of fill on every side of the text, and
- * each bar sits ONE nibble/scanline inside the fill edge (1 of fill
- * outside it, 3 between it and the text).
- *
- * The character-cell model cannot express that fill exactly — 18 nibbles
- * are 4.5 cells and 18 scanlines are 2.25 cells, and a cell's background
- * always paints the whole 8x8 — so the box stays text+2 columns by lines+2
- * rows of whole cells (2 nibbles narrower and 6 scanlines taller than the
- * original for a one-line message) and the masks carry the decoded inset
- * structure instead (app/src/render/font8x8.ts): the side bars sit at the
- * second logical column of each edge cell, the top bar on cell row 1 and
- * the bottom bar on cell row 6, and the corner cells run the horizontal
- * bars only as far as the side-bar columns. Bars are the GLYPH_BAR_* /
- * GLYPH_CORNER_* codes, never the 1.x checkpoint codes 0x01..0x07.
- * `originalFrame` selects this measured frame (probed on kq1 2.917 / kq3
- * 2.936); without it the legacy thin-line 1.x frame is drawn.
+ * Draw a cell-bordered dialog box with the 1.x thin-line glyphs 0x01..0x06
+ * (used by engine-owned menus and the save selector).
  */
 export function drawWindow(
   surface: TextSurface,
@@ -403,40 +404,157 @@ export function drawWindow(
   lines: readonly string[],
   textAttr: number,
   borderAttr: number,
-  originalFrame = false,
 ): void {
   const bottom = box.top + box.rows - 1;
   const right = box.left + box.cols - 1;
   surface.fill(box.top, box.left, bottom, right, 0x20, textAttr);
-  if (!originalFrame) {
-    // Unprobed builds keep the previous frame: the 1.x thin-line glyphs.
-    for (let c = box.left + 1; c < right; c++) {
-      surface.put(box.top, c, GLYPH_H, borderAttr);
-      surface.put(bottom, c, GLYPH_H, borderAttr);
-    }
-    for (let r = box.top + 1; r < bottom; r++) {
-      surface.put(r, box.left, GLYPH_V, borderAttr);
-      surface.put(r, right, GLYPH_V, borderAttr);
-    }
-    surface.put(box.top, box.left, GLYPH_TL, borderAttr);
-    surface.put(box.top, right, GLYPH_TR, borderAttr);
-    surface.put(bottom, box.left, GLYPH_BL, borderAttr);
-    surface.put(bottom, right, GLYPH_BR, borderAttr);
-  } else {
-    for (let c = box.left + 1; c < right; c++) {
-      surface.put(box.top, c, GLYPH_BAR_TOP, borderAttr);
-      surface.put(bottom, c, GLYPH_BAR_BOTTOM, borderAttr);
-    }
-    for (let r = box.top + 1; r < bottom; r++) {
-      surface.put(r, box.left, GLYPH_BAR_LEFT, borderAttr);
-      surface.put(r, right, GLYPH_BAR_RIGHT, borderAttr);
-    }
-    surface.put(box.top, box.left, GLYPH_CORNER_TL, borderAttr);
-    surface.put(box.top, right, GLYPH_CORNER_TR, borderAttr);
-    surface.put(bottom, box.left, GLYPH_CORNER_BL, borderAttr);
-    surface.put(bottom, right, GLYPH_CORNER_BR, borderAttr);
+  for (let c = box.left + 1; c < right; c++) {
+    surface.put(box.top, c, GLYPH_H, borderAttr);
+    surface.put(bottom, c, GLYPH_H, borderAttr);
   }
+  for (let r = box.top + 1; r < bottom; r++) {
+    surface.put(r, box.left, GLYPH_V, borderAttr);
+    surface.put(r, right, GLYPH_V, borderAttr);
+  }
+  surface.put(box.top, box.left, GLYPH_TL, borderAttr);
+  surface.put(box.top, right, GLYPH_TR, borderAttr);
+  surface.put(bottom, box.left, GLYPH_BL, borderAttr);
+  surface.put(bottom, right, GLYPH_BR, borderAttr);
   for (let i = 0; i < lines.length && box.top + 1 + i < bottom; i++) {
     surface.write(box.top + 1 + i, box.left + 1, lines[i]!.slice(0, box.cols - 2), textAttr);
   }
+}
+
+/**
+ * Compute text origin and screen-space (320x200) fill bounds for a print /
+ * print.at / show.obj message window (docs/fidelity.md "Original window and
+ * status-line text"):
+ * - Centered text origin: topRow = ((winBot - 1 - rows) >> 1) + 1 + displayBase
+ *   (winBot = 19 in PC 2.001, 20 in PC 2.089+, Amiga and IIgs),
+ *   leftCol = (40 - cols) >> 1.
+ * - Override text origin (print.at / print.at.v): topRow = displayBase + row,
+ *   leftCol = col verbatim, with no clamping.
+ * - Fill bounds:
+ *   - PC (all 13 builds) & IIgs: [8*leftCol - 10, 8*(leftCol + cols) + 9] x
+ *     [8*topRow - 5, 8*(topRow + rows) + 4]
+ *   - Amiga (all 6 builds, inclusive RectFill):
+ *     [8*leftCol - 10, 8*(leftCol + cols) + 10] x
+ *     [8*topRow - 6, 8*(topRow + rows) + 4]
+ */
+export function placePrintWindow(
+  lines: readonly string[],
+  displayBase: number,
+  geometry: WindowFrameGeometry = "pc",
+  override?: { row?: number | undefined; col?: number | undefined },
+): WindowOverlay {
+  const textRows = lines.length;
+  const textCols = lines.reduce((m, l) => Math.max(m, l.length), 0);
+  const winBot = geometry === "pc-2.001" ? 19 : 20;
+  const textTop = displayBase + (override?.row ?? ((winBot - 1 - textRows) >> 1) + 1);
+  const textLeft = override?.col ?? (TEXT_COLS - textCols) >> 1;
+  const x0 = 8 * textLeft - 10;
+  const x1 = 8 * (textLeft + textCols) + (geometry === "amiga" ? 10 : 9);
+  const y0 = 8 * textTop - (geometry === "amiga" ? 6 : 5);
+  const y1 = 8 * (textTop + textRows) + 4;
+  return {
+    geometry,
+    textTop,
+    textLeft,
+    textRows,
+    textCols,
+    x0,
+    y0,
+    x1,
+    y1,
+    seq: 0,
+  };
+}
+
+/**
+ * Stamp the outer margin fill (white, EGA 15 -> 16) and border bars (red,
+ * EGA 4 -> 5) of `win` onto `surface.overlay` at `win.seq`, leaving the
+ * interior text cells to `surface.cells`. When `preserveNewerCells` is true
+ * (checkpoint restore), cells written after `win.seq` also keep priority over
+ * the overlay.
+ */
+export function stampWindowOverlayOnly(
+  surface: TextSurface,
+  win: WindowOverlay,
+  preserveNewerCells = false,
+): void {
+  const x0 = Math.max(0, win.x0);
+  const x1 = Math.min(OVERLAY_WIDTH - 1, win.x1);
+  const y0 = Math.max(0, win.y0);
+  const y1 = Math.min(OVERLAY_HEIGHT - 1, win.y1);
+  if (x1 < x0 || y1 < y0) return;
+
+  const intX0 = win.textLeft * 8;
+  const intX1 = (win.textLeft + win.textCols) * 8 - 1;
+  const intY0 = win.textTop * 8;
+  const intY1 = (win.textTop + win.textRows) * 8 - 1;
+
+  const isPc = win.geometry === "pc" || win.geometry === "pc-2.001";
+  const barTopY = win.y0 + (isPc ? 1 : 2);
+  const barBotY = win.y1 - (isPc ? 1 : 2);
+  const barLeftX0 = win.x0 + 2;
+  const barLeftX1 = win.x0 + (isPc ? 3 : 2);
+  const barRightX0 = win.x1 - (isPc ? 3 : 2);
+  const barRightX1 = win.x1 - 2;
+  const barHorizX0 = win.x0 + 2;
+  const barHorizX1 = win.x1 - 2;
+
+  let wrote = false;
+  for (let y = y0; y <= y1; y++) {
+    const row = y >> 3;
+    const inIntY = y >= intY0 && y <= intY1;
+    const rowBase = y * OVERLAY_WIDTH;
+    for (let x = x0; x <= x1; x++) {
+      if (inIntY && x >= intX0 && x <= intX1) continue;
+      if (preserveNewerCells) {
+        const cell = row * TEXT_COLS + (x >> 3);
+        if (surface.cells[cell * 2] !== 0 && surface.written[cell]! > win.seq) continue;
+      }
+      const isHorizBar = (y === barTopY || y === barBotY) && x >= barHorizX0 && x <= barHorizX1;
+      const isVertBar =
+        y >= barTopY &&
+        y <= barBotY &&
+        ((x >= barLeftX0 && x <= barLeftX1) || (x >= barRightX0 && x <= barRightX1));
+      surface.overlay[rowBase + x] = isHorizBar || isVertBar ? 5 : 16;
+      surface.overlayWritten[rowBase + x] = win.seq;
+      wrote = true;
+    }
+  }
+  if (wrote) {
+    surface.hasOverlay = true;
+    surface.dirty++;
+  }
+}
+
+/**
+ * Draw a message window: write the interior text cells on the 40x25 grid, then
+ * stamp the pixel-exact outer fill and border bars into `surface.overlay`.
+ */
+export function stampWindow(
+  surface: TextSurface,
+  win: WindowOverlay,
+  lines: readonly string[],
+  textAttr: number,
+): void {
+  if (win.textRows > 0 && win.textCols > 0) {
+    surface.fill(
+      win.textTop,
+      win.textLeft,
+      win.textTop + win.textRows - 1,
+      win.textLeft + win.textCols - 1,
+      0x20,
+      textAttr,
+    );
+    for (let i = 0; i < lines.length && i < win.textRows; i++) {
+      surface.write(win.textTop + i, win.textLeft, lines[i]!.slice(0, win.textCols), textAttr);
+    }
+  } else {
+    surface.seq++;
+  }
+  win.seq = surface.seq;
+  stampWindowOverlayOnly(surface, win, false);
 }

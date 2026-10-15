@@ -81,7 +81,12 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
   const presentation = engine.getPresentation();
   const rgba = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
-    { visual: presentation.visual, text: presentation.text, picRow: engine.displayBase },
+    {
+      visual: presentation.visual,
+      text: presentation.text,
+      windowOverlay: presentation.windowOverlay,
+      picRow: engine.displayBase,
+    },
     rgba,
   );
   return {

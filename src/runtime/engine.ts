@@ -93,9 +93,12 @@ import {
   TextSurface,
   attr,
   drawWindow,
-  placeWindow,
+  placePrintWindow,
+  stampWindow,
+  stampWindowOverlayOnly,
   windowLines,
   type SavedRect,
+  type WindowOverlay,
 } from "./textSurface.ts";
 import type {
   ExecutionCause,
@@ -297,8 +300,10 @@ export interface EngineMenuState {
   requested: boolean;
 }
 
+type SavedWindow = SavedRect & { window?: WindowOverlay | undefined };
+
 type Modal = { serial: number } & (
-  | { kind: "print"; saved: SavedRect; remainingMs: number | null; pauseClock: boolean }
+  | { kind: "print"; saved: SavedWindow; remainingMs: number | null; pauseClock: boolean }
   | {
       kind: "inventory";
       saved: SavedRect;
@@ -308,11 +313,11 @@ type Modal = { serial: number } & (
       interactive: boolean;
     }
   | { kind: "menu"; saved: SavedRect }
-  | { kind: "showObj"; saved: SavedRect; view: number }
+  | { kind: "showObj"; saved: SavedWindow; view: number }
   | { kind: "showPri" }
 );
 
-function serializeSavedRect(saved: SavedRect): SerializedSavedRect {
+function serializeSavedRect(saved: SavedWindow): SerializedSavedRect {
   return {
     written: Array.from(saved.written),
     top: saved.top,
@@ -320,10 +325,11 @@ function serializeSavedRect(saved: SavedRect): SerializedSavedRect {
     bottom: saved.bottom,
     right: saved.right,
     cells: Array.from(saved.cells),
+    ...(saved.window !== undefined ? { window: { ...saved.window } } : {}),
   };
 }
 
-function deserializeSavedRect(saved: SerializedSavedRect): SavedRect {
+function deserializeSavedRect(saved: SerializedSavedRect): SavedWindow {
   return {
     written: Uint32Array.from(saved.written),
     top: saved.top,
@@ -331,6 +337,7 @@ function deserializeSavedRect(saved: SerializedSavedRect): SavedRect {
     bottom: saved.bottom,
     right: saved.right,
     cells: Uint8Array.from(saved.cells),
+    ...(saved.window !== undefined ? { window: { ...saved.window } } : {}),
   };
 }
 
@@ -724,6 +731,8 @@ export class Engine {
   /** Live input-line edit buffer and the most recently accepted line (echo.line). */
   private editLine = "";
   private acceptedLine = "";
+  /** Saved editLine during a PC v3 restart confirmation (RememberCur / RestoreCur). */
+  private rememberedEditLine: string | null = null;
   /**
    * Open modals, innermost last. Saved text windows replace each other
    * (spec: opening another saved window closes the current one); the
@@ -733,7 +742,7 @@ export class Engine {
   /** Instance counter stamped on each pushed modal: identity for story-pause beats. */
   private modalSerialCounter = 0;
   /** f15 output mode keeps a window visible without suspending execution. */
-  private persistentWindow: SavedRect | null = null;
+  private persistentWindow: SavedWindow | null = null;
   /** Menu selection carried into the next cycle's input phase as a mapped event. */
   private pendingController: number | null = null;
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
@@ -761,6 +770,7 @@ export class Engine {
   private readonly cachedVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedPriority = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedText = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
+  private readonly cachedWindowOverlay = new Uint8Array(TEXT_COLS * 8 * TEXT_ROWS * 8);
   private cachedEgoVisible = false;
   private presentationDirty = true;
   private lastComposedTextDirty = -1;
@@ -2232,8 +2242,10 @@ export class Engine {
       pending.dialog.text.restore(pending.dialog.saved);
       this.saveDialogMode = null;
     }
-    if (pending?.kind === "confirm" && this.modal?.serial === pending.modalSerial)
-      this.closeModal();
+    if (pending?.kind === "confirm") {
+      this.rememberedEditLine = null;
+      if (this.modal?.serial === pending.modalSerial) this.closeModal();
+    }
     if (pending !== null || roomWait) this.pendingLogic = null;
     if (roomWait) {
       while (this.modal !== null) this.closeModal();
@@ -2438,7 +2450,15 @@ export class Engine {
     // The window closes if it is still open; a key that drained through the
     // modal path while the request was in flight may have closed it already.
     if (this.modal?.serial === pending.modalSerial) this.closeModal();
-    if (!accepted) return;
+    if (!accepted) {
+      if (pending.action === "restart" && this.rememberedEditLine !== null) {
+        this.editLine = this.rememberedEditLine;
+        this.rememberedEditLine = null;
+        this.drawInputRow();
+      }
+      return;
+    }
+    this.rememberedEditLine = null;
     if (pending.action === "restart") {
       this.restart();
     } else {
@@ -2541,6 +2561,7 @@ export class Engine {
     const top = this.modal;
     if (top && (top.kind === "print" || top.kind === "showObj")) this.closeModal();
     if (this.persistentWindow) {
+      this.text.clearWindowOverlay();
       this.text.restore(this.persistentWindow);
       this.persistentWindow = null;
     }
@@ -2632,17 +2653,27 @@ export class Engine {
   }
 
   private inputCapacity(): number {
-    // A character is accepted only while editLen < min(var[24], 40 −
-    // strlen(s0) − (promptByte ≠ 0)); the open.dialogue mode substitutes 36
-    // for 40 (kq1 2.917 editor 0x365A-0x368C). Excess keys are silently
-    // rejected. Probed on kq1 2.917 / kq4 3.002.086 / gr1 3.002.149; other
-    // profiles keep the previous cap.
-    if (this.profile.originalInputCapacity) {
-      const base =
-        (this.inputWidthCap ?? TEXT_COLS) - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
-      return Math.max(0, Math.min(this.vars[24]!, base));
+    // Line-editor character-acceptance cap from the binary disassembly
+    // (docs/fidelity.md "Original input, menu and modal handling"). Excess keys
+    // are silently rejected.
+    if (!this.profile.originalInputCapacity) {
+      return Math.min(this.inputWidthCap ?? TEXT_COLS - 1, TEXT_COLS - 1 - this.inputPrompt.length);
     }
-    return Math.min(this.inputWidthCap ?? TEXT_COLS - 1, TEXT_COLS - 1 - this.inputPrompt.length);
+    switch (this.profile.inputLineEditCap) {
+      case "early-35":
+        return Math.max(0, Math.min(this.vars[24]!, 35));
+      case "iigs-39":
+        return Math.max(0, Math.min(this.vars[24]!, 39 - this.strings[0]!.length));
+      case "prompt-40": {
+        const base = TEXT_COLS - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
+        return Math.max(0, Math.min(this.vars[24]!, base));
+      }
+      case "dialogue-36": {
+        const base =
+          (this.inputWidthCap ?? TEXT_COLS) - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
+        return Math.max(0, Math.min(this.vars[24]!, base));
+      }
+    }
   }
 
   private textAttr(): number {
@@ -2665,13 +2696,15 @@ export class Engine {
     const a = attr(0, 15);
     this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
     this.text.write(this.statusRow, 1, this.statusText(), a);
-    // "Sound:%s" with the space-padded "on " (kq1 2.917 ovl DS+0xF88/0xF91;
-    // probed on kq1 2.917 / kq3 2.936 — unprobed profiles keep the previous
-    // unpadded form).
+    // "Sound:%s" with space-padded "on " on every profile except 2.089, whose
+    // data segment stores unpadded "on\0" (docs/fidelity.md "Original window
+    // and status-line text").
+    const paddedSound =
+      this.profile.originalTextWindows && this.profile.statusLineFormat !== "early-2.089";
     this.text.write(
       this.statusRow,
       30,
-      this.profile.originalTextWindows
+      paddedSound
         ? `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`
         : `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`,
       a,
@@ -2683,11 +2716,16 @@ export class Engine {
   private statusText(): string {
     // Supplemental variable contract: AGI specs §3.3 identifies v7 as maximum score.
     // https://www.agidev.com/articles/agispec/agispecs-3.html
-    // Format "Score:%d of %d  " — no space after the colon, two trailing
-    // spaces (kq1 2.917 DisplayStatusLine 0x34BD, ovl DS+0xF77; probed on
-    // kq1 2.917 / kq3 2.936 — unprobed profiles keep the previous format).
-    if (this.profile.originalTextWindows) return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
-    return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
+    // docs/fidelity.md "Original window and status-line text".
+    if (!this.profile.originalTextWindows) return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
+    switch (this.profile.statusLineFormat) {
+      case "booter-2.001":
+        return `Score:${this.vars[V_SCORE]}  `;
+      case "early-2.089":
+        return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}`;
+      case "common":
+        return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
+    }
   }
 
   /** Input row: prompt marker, then the edit buffer (spec "Text geometry"). */
@@ -2734,9 +2772,8 @@ export class Engine {
     const byte = key & 0xff;
     // v19 receives the low byte of every type-1 event FIRST — before the
     // input-acceptance gate and before the line editor consumes Enter,
-    // Backspace or printable bytes (kq3 2.936 0x35B0; pq1 2.903 START.EXE
-    // 0x35A9, sha256 db97accc…99730a7). Unprobed builds store v19 only for
-    // keys the editor did not consume.
+    // Backspace or printable bytes (docs/fidelity.md "Original input, menu and
+    // modal handling").
     if (this.profile.keyByteStoredBeforeEdit) this.vars[V_KEY] = byte;
     if (this.inputAccepted && !this.textMode) {
       if (byte === AGI_KEY.ENTER && this.editLine.length > 0) {
@@ -2780,9 +2817,8 @@ export class Engine {
       case "showObj":
       case "showPri":
         // ChkAcAb accepts CR (1) or ESC (0) only; every other key keeps
-        // waiting — Space is not an acknowledgement key (demopac4 3.002.102
-        // 0x4A34 / kq3 2.936 0x45F0 / kq1 2.917). Unprobed builds also
-        // dismiss on Space.
+        // waiting — Space is not an acknowledgement key (docs/fidelity.md
+        // "Original input, menu and modal handling").
         if (
           byte === AGI_KEY.ENTER ||
           byte === AGI_KEY.ESCAPE ||
@@ -2793,9 +2829,8 @@ export class Engine {
       case "inventory":
         if (!m.interactive) {
           // The acknowledgement-only list ends on a bare WaitEvent: ANY event
-          // dismisses it, including zero-low-byte extended words (demopac4
-          // 3.002.102 0x3696 / kq3 2.936 0x32E9). Unprobed builds require a
-          // nonzero key byte.
+          // dismisses it, including zero-low-byte extended words
+          // (docs/fidelity.md "Original input, menu and modal handling").
           if (this.profile.inventoryListEndsOnAnyEvent || byte !== 0) this.closeModal();
           return;
         }
@@ -2852,6 +2887,7 @@ export class Engine {
     // docs/fidelity.md: print-handler-output-modes
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
       this.vars[21] = 0;
+    if (m.kind === "print" || m.kind === "showObj") this.text.clearWindowOverlay();
     if (m.kind !== "showPri") this.text.restore(m.saved);
     if (m.kind === "menu") {
       this.menuRequested = false;
@@ -2875,18 +2911,23 @@ export class Engine {
     const width = place?.width ? place.width : 30;
     // windowLines applies the overlong-message recovery: more than 19
     // formatted lines substitutes "Message too verbose:" quoting the first
-    // 20 characters (kq1 2.917 0x1E0C / kq3 2.936 — probed there; unprobed
-    // profiles wrap, place and frame the previous way).
-    const original = this.profile.originalTextWindows;
-    const lines = windowLines(text, width, original);
-    const box = placeWindow(lines, this.displayBaseRow, place, original);
-    const saved = this.text.save(
-      box.top,
-      box.left,
-      box.top + box.rows - 1,
-      box.left + box.cols - 1,
+    // 20 characters (docs/fidelity.md "Original window and status-line text").
+    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
+    const lines = windowLines(text, width, maxLines);
+    const win = placePrintWindow(
+      lines,
+      this.displayBaseRow,
+      this.profile.windowFrameGeometry,
+      place,
     );
-    drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15), original);
+    const saved: SavedWindow = this.text.save(
+      win.textTop,
+      win.textLeft,
+      win.textTop + win.textRows - 1,
+      win.textLeft + win.textCols - 1,
+    );
+    saved.window = win;
+    stampWindow(this.text, win, lines, attr(0, 15));
     if (!forceAcknowledgement && this.flags[15] !== 0) {
       // A print that opens a non-blocking window consumes f15 as it returns.
       // docs/fidelity.md: print-handler-output-modes
@@ -2926,23 +2967,19 @@ export class Engine {
     }
     // The description goes through the same message box as print, so %v, %s
     // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
-    const lines = windowLines(
-      this.expandMessage(view.description ?? ""),
-      30,
-      this.profile.originalTextWindows,
+    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
+    const lines = windowLines(this.expandMessage(view.description ?? ""), 30, maxLines);
+    const win = placePrintWindow(lines, this.displayBaseRow, this.profile.windowFrameGeometry, {
+      row: 2,
+    });
+    const saved: SavedWindow = this.text.save(
+      win.textTop,
+      win.textLeft,
+      win.textTop + win.textRows - 1,
+      win.textLeft + win.textCols - 1,
     );
-    // The probed builds place the window one row below the display base;
-    // unprobed builds pass the absolute row as before.
-    const box = this.profile.originalTextWindows
-      ? placeWindow(lines, this.displayBaseRow, { row: 1 }, true)
-      : placeWindow(lines, this.displayBaseRow, { row: this.displayBaseRow + 1 });
-    const saved = this.text.save(
-      box.top,
-      box.left,
-      box.top + box.rows - 1,
-      box.left + box.cols - 1,
-    );
-    drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
+    saved.window = win;
+    stampWindow(this.text, win, lines, attr(0, 15));
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showObj", saved, view: viewNum });
     this.host.showObj?.(viewNum);
   }
@@ -2959,10 +2996,14 @@ export class Engine {
    * and the delivered key resolves it through applyInteraction.
    */
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
-    // The original wording is probed on kq3 2.936 (ovl DS+0x0ADB / DS+0x5E3),
-    // mh1 3.002.107 and gr1 3.002.149; unprobed profiles keep the previous
-    // strings.
+    // Original restart/quit prompt wording and CancelLine / RememberCur
+    // behavior (docs/fidelity.md "Wave-3 persistence verdicts").
     const original = this.profile.originalRestartRestore;
+    if (action === "restart" && original) {
+      this.rememberedEditLine = this.profile.restartCursorMemory ? this.editLine : null;
+      this.editLine = "";
+      this.drawInputRow();
+    }
     this.emitPrint(
       action === "restart"
         ? original
@@ -2985,8 +3026,10 @@ export class Engine {
     } finally {
       // The window survives a suspension (the game waits visibly) but not a
       // synchronous resolution or a real failure.
-      if (this.pendingInteraction === null && this.modal?.serial === pending.modalSerial)
-        this.closeModal();
+      if (this.pendingInteraction === null) {
+        this.rememberedEditLine = null;
+        if (this.modal?.serial === pending.modalSerial) this.closeModal();
+      }
     }
   }
 
@@ -3601,6 +3644,7 @@ export class Engine {
       // The peel only makes sense when the snapshot's surface — window drawn
       // and all — was restored; preservePresentation replays repaint anyway.
       if (!peel) return;
+      this.text.clearWindowOverlay();
       for (let i = continuation.modals.length - 1; i >= 0; i--) {
         const m = continuation.modals[i]!;
         if ("saved" in m) this.text.restore(deserializeSavedRect(m.saved));
@@ -3617,15 +3661,18 @@ export class Engine {
     for (const m of continuation.modals) {
       const serial = ++this.modalSerialCounter;
       switch (m.kind) {
-        case "print":
+        case "print": {
+          const saved = deserializeSavedRect(m.saved);
+          if (saved.window !== undefined) stampWindowOverlayOnly(this.text, saved.window, true);
           this.modals.push({
             serial,
             kind: "print",
-            saved: deserializeSavedRect(m.saved),
+            saved,
             remainingMs: m.remainingMs,
             pauseClock: m.pauseClock,
           });
           break;
+        }
         case "inventory":
           this.modals.push({
             serial,
@@ -3640,23 +3687,29 @@ export class Engine {
         case "menu":
           this.modals.push({ serial, kind: "menu", saved: deserializeSavedRect(m.saved) });
           break;
-        case "showObj":
+        case "showObj": {
+          const saved = deserializeSavedRect(m.saved);
+          if (saved.window !== undefined) stampWindowOverlayOnly(this.text, saved.window, true);
           this.modals.push({
             serial,
             kind: "showObj",
-            saved: deserializeSavedRect(m.saved),
+            saved,
             view: m.view,
           });
           break;
+        }
         case "showPri":
           this.modals.push({ serial, kind: "showPri" });
           break;
       }
     }
-    this.persistentWindow =
-      continuation.persistentWindow === null
-        ? null
-        : deserializeSavedRect(continuation.persistentWindow);
+    if (continuation.persistentWindow === null) {
+      this.persistentWindow = null;
+    } else {
+      const saved = deserializeSavedRect(continuation.persistentWindow);
+      if (saved.window !== undefined) stampWindowOverlayOnly(this.text, saved.window, true);
+      this.persistentWindow = saved;
+    }
     if (continuation.keyWait !== null) {
       this.conditionOutcomes.clear();
       for (const [pc, outcome] of continuation.keyWait.outcomes)
@@ -3907,20 +3960,20 @@ export class Engine {
     this.lastInputLine = "";
     this.editLine = "";
     this.acceptedLine = "";
+    this.rememberedEditLine = null;
     this.controllers.fill(0);
     if (this.profile.originalRestartRestore) {
       // The authentic restore tail clears controllers explicitly and rewrites
       // the machine vars from the probe, then sets f12; f2/f4 die at the next
-      // cycle top and v19 is never written (kq3 2.936 0x2647-0x2693 / gr1
-      // 3.002.149 0x28C7 / mh1 3.002.107 0x2928). A host restore — history or
-      // autosave replay — reproduces the recorded state exactly instead: the
-      // rewrites would silently turn a recorded [v22,v26] into [3,3].
+      // cycle top and v19 is never written (docs/fidelity.md "Wave-3
+      // persistence verdicts"). A host restore — history or autosave replay —
+      // reproduces the recorded state exactly instead: the rewrites would
+      // silently turn a recorded [v22,v26] into [3,3].
       if (screen === null) {
         this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
         this.vars[26] = 3;
       }
     } else {
-      // Unprobed profiles keep the previous tail: v19, f2 and f4 cleared.
       this.vars[V_KEY] = 0;
       this.flags[F_INPUT_READY] = 0;
       this.flags[F_SAID_MATCHED] = 0;
@@ -4337,6 +4390,7 @@ export class Engine {
   private hideTextUnderSprites(
     ownership: Uint16Array | null,
     sprites: readonly ScreenObject[],
+    windowOverlay?: Uint8Array,
   ): Uint8Array {
     const cells = this.text.cells;
     if (!ownership) return cells;
@@ -4345,15 +4399,20 @@ export class Engine {
       const owner = ownership[pixel]!;
       if (owner === 0) continue;
       const index = this.textCellUnder(pixel);
-      if (
-        index < 0 ||
-        cells[index * 2] === 0 ||
-        this.text.written[index]! > sprites[owner - 1]!.drawSeq
-      )
-        continue;
-      out ??= cells.slice();
-      out[index * 2] = 0;
-      out[index * 2 + 1] = 0;
+      if (index < 0 || this.text.written[index]! > sprites[owner - 1]!.drawSeq) continue;
+      if (cells[index * 2] !== 0) {
+        out ??= cells.slice();
+        out[index * 2] = 0;
+        out[index * 2 + 1] = 0;
+      }
+      if (windowOverlay) {
+        const row = (index / TEXT_COLS) | 0;
+        const col = index % TEXT_COLS;
+        for (let gy = 0; gy < 8; gy++) {
+          const base = (row * 8 + gy) * (TEXT_COLS * 8) + col * 8;
+          for (let gx = 0; gx < 8; gx++) windowOverlay[base + gx] = 0;
+        }
+      }
     }
     return out ?? cells;
   }
@@ -4563,9 +4622,9 @@ export class Engine {
 
     if (stage === "pre-logic") {
       // The ego↔v6 direction mirror runs before the autonomous-direction and
-      // block pass: under program control v6 := ego.dir, else ego.dir := v6
-      // (kq3 2.936 main cycle 0x17B-0x195, dispatcher call at 0x198 — probed
-      // there only; unprobed profiles mirror after the pass).
+      // block pass on PC 2.411..3.002.149, Amiga 2.176..2.333, and IIgs 1.014,
+      // and after that pass on PC 2.001..2.272 and Amiga 2.082
+      // (docs/fidelity.md "Original input, menu and modal handling").
       if (this.profile.preLogicDirectionMirror) {
         if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
         else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
@@ -5369,8 +5428,11 @@ export class Engine {
       this.cachedPriority.set(this.scratchPriority);
     }
 
+    this.cachedWindowOverlay.set(this.text.overlay);
     const ownership = !this.textMode ? this.scratchOwnership : null;
-    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, this.objects));
+    const text = this.mergeTraceText(
+      this.hideTextUnderSprites(ownership, this.objects, this.cachedWindowOverlay),
+    );
     this.cachedText.set(text);
     this.lastComposedTextDirty = this.text.dirty;
     this.lastComposedModal = this.modal;
@@ -5406,12 +5468,18 @@ export class Engine {
   }
 
   /** Pixels and text from one completed composition; buffers may be transferred by the host. */
-  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
+  getPresentation(): {
+    visual: Uint8Array;
+    priority: Uint8Array;
+    text: Uint8Array;
+    windowOverlay: Uint8Array;
+  } {
     this.ensurePresentationCurrent();
     return {
       visual: this.cachedVisual.slice(),
       priority: this.cachedPriority.slice(),
       text: this.cachedText.slice(),
+      windowOverlay: this.cachedWindowOverlay.slice(),
     };
   }
 
@@ -6515,7 +6583,10 @@ export class Engine {
         // Presenting the picture repaints its band; text there is gone.
         if (!this.textMode)
           this.text.fill(this.displayBaseRow, 0, this.displayBaseRow + 20, TEXT_COLS - 1, 0, 0);
-        if (visibleWindow) this.text.restore(visibleWindow);
+        if (visibleWindow) {
+          this.text.restore(visibleWindow);
+          if (window?.window) stampWindowOverlayOnly(this.text, window.window, false);
+        }
         return next;
       }
       case 0x1b: {
@@ -7017,8 +7088,8 @@ export class Engine {
       case 0x63: {
         // StopSnd runs FIRST — setting the interrupted sound's done flag —
         // then the operands are read, the new done flag resets, and only then
-        // can the lookup fault (kq2 2.411 0x4FD5 / lsl1 2.440 0x5007 / xmas
-        // 2.272 0x4943). Unprobed profiles fault on the lookup first.
+        // can the lookup fault (all 20 shipped profiles: docs/fidelity.md,
+        // "Wave-3 sound verdicts").
         if (this.profile.soundStopsBeforeFault) {
           this.stopSound();
           this.flags[a(1)] = 0;
@@ -7323,8 +7394,8 @@ export class Engine {
         // script.size stores the capacity, then resets the recorded pair
         // sequence and refreshes the object update lists: RestoreAll +
         // InitScript (scriptTop := script, SCRIPTENTRIES := 0) + AllInBack
-        // (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149
-        // 0x74E8). Unprobed profiles store the capacity only.
+        // (all 19 shipped profiles with 0x8e: docs/fidelity.md, "Original
+        // script capacity and version handlers").
         this.scriptCapacity = a(0);
         if (this.profile.scriptSizeResetsSequence) {
           this.replay.length = 0;
@@ -7820,10 +7891,10 @@ export class Engine {
     // Input acceptance survives: ResetAll clears only vars/flags/controllers/
     // object records (kq3 2.936 0x0FA5), and the accepted prompt path redraws
     // the marker unconditionally. The edit line itself was cancelled by the
-    // prompt (gr1 3.002.149 restart 0x26E0: CancelLine … WriteCur). Unprobed
-    // profiles clear input acceptance as before.
+    // prompt (gr1 3.002.149 restart 0x26E0: CancelLine … WriteCur).
     if (!this.profile.originalRestartRestore) this.inputAccepted = false;
     this.editLine = "";
+    this.rememberedEditLine = null;
     this.acceptedLine = "";
     this.blockRect = null;
     this.horizon = 36;

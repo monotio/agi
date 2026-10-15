@@ -537,125 +537,120 @@ test("a keypad Enter delivered as the host answer accepts the quit confirmation"
   assert.equal(host.quits, 1, "the delivered keypad word confirmed the quit");
 });
 
-// ---- Profile gating: unprobed builds keep the pre-fix behavior ----
-// The behaviors above are probed on specific builds only (each test names
-// them); profile fields select them, and every other profile runs the
-// previous behavior. 2.411/2.440 stand in for unprobed builds below.
-
-test("unprobed profiles store v19 after the line editor consumes Enter", () => {
-  // v19-first ordering is probed on kq3 2.936 (0x35B0) and pq1 2.903
-  // (START.EXE 0x35A9) only. Elsewhere an accepted Enter is consumed by the
-  // editor and never lands in v19.
-  const host = new Host();
-  const engine = game(
-    `
-    if (!isset(f200)) { set(f200); accept.input(); }
-    if (isset(f201)) { reset(f201); assignv(v100,v19); }
-    return;
-  `,
-    host,
-    PROFILES["2.440"],
-  );
-  engine.tick();
-  host.keys.push(0x61); // 'a' starts the line
-  engine.tick();
-  engine.flags[201] = 1; // logic reads v19 in the same cycle Enter lands
-  host.keys.push(0x0d);
-  engine.tick();
-  assert.equal(engine.vars[100], 0, "the consumed Enter never reached v19");
-  assert.equal(engine.inputEdit.length, 0, "the line was still accepted and cleared");
-});
-
-test("unprobed profiles report a keypad Escape word as its raw low byte", () => {
-  // Full-word queueing plus GetKey normalization is probed on kq3 2.936 /
-  // demopac4 3.002.102 / mh1 3.002.107 / gr1 3.002.149. Elsewhere the queue
-  // keeps only the low byte: 0x0201 reads as 0x01, not Escape (0x1b).
-  class LateHost extends Host {
-    polls = 0;
-    override takeKeys(): number[] {
-      return ++this.polls === 3 ? [0x0201] : [];
+test("PC profiles normalize keypad words (0x0101/0x0201); Amiga and IIgs profiles have no PC BIOS keypad scanwords", () => {
+  // PC builds (2.001..3.002.149) run ButtonToChar in GetKey/WaitAcAb,
+  // normalizing keypad-5/button-1 (0x0101, 0x0301) to Enter (0x0D) and
+  // keypad-0/button-2 (0x0201, 0x0401) to Escape (0x1B). Amiga (2.082..2.333)
+  // and IIgs (1.014) have no PC BIOS keypad scanword translation (path-absent).
+  for (const profile of [
+    "2.089",
+    "2.411",
+    "2.936",
+    "3.002.149",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    class LateHost extends Host {
+      polls = 0;
+      override takeKeys(): number[] {
+        return ++this.polls === 3 ? [0x0201] : [];
+      }
     }
-  }
-  const host = new LateHost();
-  const engine = game(
-    `
-    if (isset(f201)) {
-      reset(f201);
-      assignn(v19,0);
-      if (have.key()) { assignv(v100,v19); } else { assignn(v100,255); }
-    }
-    return;
-  `,
-    host,
-    PROFILES["2.411"],
-  );
-  engine.tick();
-  engine.flags[201] = 1;
-  engine.tick();
-  assert.equal(engine.vars[100], 0x01, "the unnormalized low byte reaches v19");
-});
-
-test("unprobed profiles still dismiss a message window on Space", () => {
-  // ENTER/ESC-only acknowledgement (ChkAcAb) is probed on kq3 2.936 (0x45F0)
-  // and kq1 2.917; elsewhere Space keeps dismissing print modals.
-  const host = new Host();
-  const engine = game(
-    `
-    if (!isset(f200)) { set(f200); print("hello"); }
-    return;
-  `,
-    host,
-    PROFILES["2.411"],
-  );
-  engine.tick();
-  assert.equal(engine.modalKind, "print");
-  host.keys.push(0x20);
-  engine.tick();
-  assert.equal(engine.modalKind, null, "Space dismisses on unprobed builds");
-});
-
-test("unprobed profiles end the bare inventory list on a nonzero key byte only", () => {
-  // The WaitEvent any-event rule is probed on demopac4 3.002.102 (0x3696)
-  // and kq3 2.936 (0x32E9); elsewhere neither navigation nor a zero-low-byte
-  // extended key closes the list.
-  for (const key of [0x4800, 0x3b00]) {
-    const host = new Host();
+    const host = new LateHost();
     const engine = game(
       `
-      if (!isset(f200)) { set(f200); status(); }
+      if (isset(f201)) {
+        reset(f201);
+        assignn(v19,0);
+        if (have.key()) { assignv(v100,v19); } else { assignn(v100,255); }
+      }
       return;
     `,
       host,
-      PROFILES["2.411"],
+      PROFILES[profile],
     );
     engine.tick();
-    assert.equal(engine.modalKind, "inventory");
-    host.keys.push(key);
+    engine.flags[201] = 1;
     engine.tick();
+    const expected = PROFILES[profile].keypadWordsNormalized ? 0x1b : 0x01;
+    assert.equal(engine.vars[100], expected, `${profile}: have.key() on 0x0201`);
+
+    class KeypadHost extends Host {
+      quits = 0;
+      answers = [0x0101, 0x1b];
+      waitKey(): number {
+        return this.answers.shift() ?? 0x1b;
+      }
+      override quit(): void {
+        this.quits++;
+      }
+    }
+    const quitHost = new KeypadHost();
+    const quitEngine = game("quit(0); return;", quitHost, PROFILES[profile]);
+    quitEngine.tick();
     assert.equal(
-      engine.modalKind,
-      "inventory",
-      `0x${key.toString(16)} does not end the list on unprobed builds`,
+      quitHost.quits,
+      PROFILES[profile].keypadWordsNormalized ? 1 : 0,
+      `${profile}: quit(0) confirmation on 0x0101`,
     );
   }
 });
 
-test("unprobed profiles do not normalize a keypad Enter host answer", () => {
-  // ButtonToChar on the host-answer paths is probed on demopac4 3.002.102 /
-  // kq3 2.936 / mh1 / gr1; elsewhere a keypad Enter answer reads as 0x01 and
-  // the quit confirmation keeps waiting.
-  class KeypadHost extends Host {
-    quits = 0;
-    answers = [0x0101, 0x1b];
-    waitKey(): number {
-      return this.answers.shift() ?? 0x1b;
-    }
-    override quit(): void {
-      this.quits++;
-    }
+test("all profile families store v19 before the line editor, require Enter/Escape for print modals, and end bare status() on any event", () => {
+  for (const profile of [
+    "2.089",
+    "2.411",
+    "2.936",
+    "3.002.149",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const host = new Host();
+    const engine = game(
+      `
+      if (!isset(f200)) { set(f200); accept.input(); }
+      if (isset(f201)) { reset(f201); assignv(v100,v19); }
+      return;
+    `,
+      host,
+      PROFILES[profile],
+    );
+    engine.tick();
+    host.keys.push(0x61);
+    engine.tick();
+    engine.flags[201] = 1;
+    host.keys.push(0x0d);
+    engine.tick();
+    assert.equal(engine.vars[100], 0x0d, `${profile}: Enter stored in v19 before line editor`);
+
+    const printHost = new Host();
+    const printEngine = game(
+      'if (!isset(f200)) { set(f200); print("hello"); } return;',
+      printHost,
+      PROFILES[profile],
+    );
+    printEngine.tick();
+    printHost.keys.push(0x20); // Space does not dismiss ChkAcAb
+    printEngine.tick();
+    assert.equal(printEngine.modalKind, "print", `${profile}: Space keeps print modal open`);
+    printHost.keys.push(0x0d);
+    printEngine.tick();
+    assert.equal(printEngine.modalKind, null, `${profile}: Enter dismisses print modal`);
+
+    const invHost = new Host();
+    const invEngine = game(
+      "if (!isset(f200)) { set(f200); status(); } return;",
+      invHost,
+      PROFILES[profile],
+    );
+    invEngine.tick();
+    assert.equal(invEngine.modalKind, "inventory");
+    invHost.keys.push(0x4800);
+    invEngine.tick();
+    assert.equal(
+      invEngine.modalKind,
+      null,
+      `${profile}: WaitEvent closes bare status() on any event`,
+    );
   }
-  const host = new KeypadHost();
-  const engine = game("quit(0); return;", host, PROFILES["2.411"]);
-  engine.tick();
-  assert.equal(host.quits, 0, "keypad Enter did not confirm; Escape declined");
 });

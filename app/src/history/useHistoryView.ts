@@ -35,7 +35,7 @@ import {
   type HistoryBookmark,
 } from "./historyStorage.ts";
 import type { BootedGame } from "../project/gameTypes.ts";
-import { resolveProgressTarget, resolveProgressLifetime } from "../project/progressBinding.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
 import type {
   HistoryBatch,
@@ -286,7 +286,6 @@ interface SessionOwner {
 interface SwapOwner extends SessionOwner {
   readonly game: BootedGame;
   readonly target: ProgressTarget;
-  readonly lifetime: string | null | undefined;
 }
 
 export function useHistoryView(deps: HistoryViewDeps) {
@@ -469,6 +468,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
     v.score = msg.score;
     v.canResume = msg.canResume;
     v.diverged = msg.diverged ? { tick: msg.diverged.at.tick, detail: msg.diverged.detail } : null;
+    v.incompatible = msg.incompatible
+      ? { tick: msg.incompatible.at.tick, detail: msg.incompatible.detail }
+      : null;
     if (msg.error !== null) v.error = msg.error;
   }
 
@@ -615,7 +617,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     playAfterSeek = null;
     if (!play || v.error !== "") return;
     if (!v.active) resumeLive();
-    else if (v.diverged === null) {
+    else if (v.diverged === null && v.incompatible === null) {
       v.watching = true;
       playHistory();
     }
@@ -669,7 +671,6 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (!game) throw new Error("no game is running");
       const worker = deps.getWorker();
       const target = resolveProgressTarget(game);
-      const lifetime = resolveProgressLifetime(game);
       const loaded = target === null ? null : await loadGameHistory(target.locator);
       if (mine !== openSerial || deps.getBootedGame() !== game) return;
       recording = loaded;
@@ -680,7 +681,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // The batch stream's newest segment is the worker's live tail, which
       // settles candidates the tape alone cannot judge.
       if (target !== null) {
-        await resolveStagedSwap(target, recording, outline.at(-1)?.id ?? null, lifetime);
+        await resolveStagedSwap(
+          target,
+          recording,
+          outline.at(-1)?.id ?? null,
+          game.historyLifetime,
+        );
         await refreshMeta(target.locator);
         const kept = await loadHistoryBookmarks(target.locator);
         // The open's results publish only while the session that asked
@@ -944,7 +950,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
     try {
       const reply = await deps.query("historyViewAdvance", { ticks }, 30_000);
       applyReport(reply);
-      if (reply.diverged !== null || reply.error !== null) {
+      if (
+        reply.diverged !== null ||
+        (reply.incompatible ?? null) !== null ||
+        reply.error !== null
+      ) {
         stop();
         return;
       }
@@ -1038,7 +1048,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
   ): Promise<boolean> {
     if (deps.state.powerUp.busy && !reservationOwned)
       throw new Error("Wait for the current authoring operation before changing sessions.");
-    const { game, target, lifetime } = owner;
+    const { game, target } = owner;
     // The swap answers only to the session that asked: its captured game,
     // worker and session generation. A replacement mid-flight — even a
     // reboot at the same tape address — fences the operation before each
@@ -1097,7 +1107,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         ...(session ? { session: session.snapshotAuthoring() } : {}),
       };
       try {
-        await stageRetainedOriginal(target, candidate, lifetime);
+        await stageRetainedOriginal(target, candidate, game.historyLifetime);
       } catch (error) {
         session?.releaseAdoption();
         throw error;
@@ -1134,7 +1144,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (!reply.ok) {
         session?.releaseAdoption();
         try {
-          await clearStagedOriginal(target, candidate.id, lifetime);
+          await clearStagedOriginal(target, candidate.id, game.historyLifetime);
         } catch {
           await refreshMeta(target.locator);
         }
@@ -1174,8 +1184,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
         return true;
       }
       try {
-        if (keepDeparting) await commitStagedOriginal(target, candidate.id, dropBranch, lifetime);
-        else await clearStagedOriginal(target, candidate.id, lifetime);
+        if (keepDeparting)
+          await commitStagedOriginal(target, candidate.id, dropBranch, game.historyLifetime);
+        else await clearStagedOriginal(target, candidate.id, game.historyLifetime);
       } catch (error) {
         if (stillOwned(owner)) {
           closeHistory();
@@ -1215,7 +1226,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     keepDeparting = true,
   ): Promise<void> {
     const v = view();
-    if (!v.active || !v.canResume || v.diverged !== null) return;
+    if (!v.active || !v.canResume || v.diverged !== null || v.incompatible !== null) return;
     const game = deps.getBootedGame();
     if (!game || recording === null) return;
     const target = resolveProgressTarget(game);
@@ -1228,7 +1239,6 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const owner: SwapOwner = {
       game,
       target,
-      lifetime: resolveProgressLifetime(game),
       worker: deps.getWorker(),
       session: sessionSerial,
     };
@@ -1282,13 +1292,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     // game object and its worker. A replacement while the branches load —
     // another project, or a reboot at the same tape address — must not have
     // the branch it reads restored, adopted or staged under itself.
-    const owner: SwapOwner = {
-      game,
-      target,
-      lifetime: resolveProgressLifetime(game),
-      worker: deps.getWorker(),
-      session: sessionSerial,
-    };
+    const owner: SwapOwner = { game, target, worker: deps.getWorker(), session: sessionSerial };
     if (deps.state.powerUp.busy) return;
     const powerUp = deps.state.powerUp;
     powerUp.busy = true;
@@ -1373,6 +1377,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const refuse = (reason: string): false => {
       closeHistory();
       v.diverged = null;
+      v.incompatible = null;
       v.error = explain(reason);
       if (play) resumeLive();
       return false;
@@ -1396,7 +1401,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (!stillOwned(owner)) return false;
     if (!v.active) return false;
     if (v.error !== "") return refuse(v.error);
-    if (v.diverged !== null)
+    if (v.diverged !== null || v.incompatible !== null)
       return refuse("the earlier session's recording can't be replayed to its end.");
     if (!v.canResume) return refuse("the earlier session ended at a moment that can't be resumed.");
     await resumeFromHere("Undo start over", false);
@@ -1419,7 +1424,6 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const seg = recording?.segments[v.segment];
     if (!v.active || !game || !seg) return;
     const target = resolveProgressTarget(game);
-    const lifetime = resolveProgressLifetime(game);
     // The mark names the loaded tape's segment: it persists only while the
     // live game still owns that recording's physical address.
     if (target === null || target.locator !== tapeLocator) return;
@@ -1433,7 +1437,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     bookmarks = [...bookmarks, bookmark];
     v.marks = buildMarks(recording!, bookmarks, startedOver);
     recordingAxis = [];
-    await saveHistoryBookmark(target, bookmark, lifetime);
+    await saveHistoryBookmark(target, bookmark, game.historyLifetime);
   }
 
   /**
@@ -1563,7 +1567,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           label: "Resume from here",
           title: "Play on from this moment; the current session stays as a branch",
           aria: "Resume from here",
-          disabled: !v.canResume || v.diverged !== null || v.seeking,
+          disabled: !v.canResume || v.diverged !== null || v.incompatible !== null || v.seeking,
           run: () => void resumeFromHere(),
         };
       if (v.parked)
@@ -1692,6 +1696,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
           testid: "history-diverged",
           text: "This moment can't be restored: the recording diverges here.",
           details: v.diverged.detail,
+        });
+      if (v.incompatible !== null)
+        errors.push({
+          testid: "history-incompatible",
+          text: "This earlier recording ended before this moment.",
+          details: v.incompatible.detail,
         });
       return errors;
     },

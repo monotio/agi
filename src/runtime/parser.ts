@@ -10,7 +10,7 @@ interface SentenceToken {
 export function parseSentence(
   line: string,
   dictionary?: ReadonlyMap<string, number>,
-  stopAtTenthWord = false,
+  stopAtTenthWord = true,
 ) {
   // Spec "Parser normalization"; retain the interpreter's normalization exactly.
   const normalized = line
@@ -28,11 +28,11 @@ export function parseSentence(
       tokens.push({ text: input[index++]!, id: undefined, status: "unread" });
       continue;
     }
-    // The word loop tests i >= 10 BEFORE each Match call and exits silently:
-    // tokens past the tenth retained word are never examined, so an unknown
-    // word there is not reported and no eleventh text is kept (kq1 2.917
-    // Parse 0x18F4 / kq4 3.002.086 0x1BAD / gr1 3.002.149 0x1B7C). Unprobed
-    // builds keep examining (and reporting) words past the cap.
+    // The word loop tests i >= 10 BEFORE each Match call and exits silently
+    // across all 20 shipped PC, Amiga and IIgs profiles: tokens past the tenth
+    // retained word are never examined, so an unknown word there is not
+    // reported and no eleventh text is kept (docs/fidelity.md "Wave-3 parser
+    // verdicts").
     if (stopAtTenthWord && words.length >= 10) {
       tokens.push({ text: input[index++]!, id: undefined, status: "unread" });
       continue;

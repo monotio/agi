@@ -2084,11 +2084,18 @@ describe("original restart/restore audit", () => {
     }
   }
 
-  function auditGame(source: string): { engine: Engine; host: AuditHost } {
+  function auditGame(
+    source: string,
+    profile: "2.936" | "3.002.149" = "2.936",
+  ): { engine: Engine; host: AuditHost } {
     const container = createContainer();
-    container.putResource("logic", 0, assembleLogic(source, { dictionary: DICT }).payload);
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
     const host = new AuditHost();
-    const engine = new Engine(container, host, DICT);
+    const engine = new Engine(container, host, DICT, { profile });
     host.engine = engine;
     return { engine, host };
   }
@@ -2140,20 +2147,41 @@ describe("original restart/restore audit", () => {
     assert.equal(engine.textRow(22), " ".repeat(40), "the edit line was cancelled");
   });
 
-  test("a declined restart leaves the input row as it was", () => {
-    // v3 saves the prompt marker's visibility before the confirmation and
-    // redraws it on cancel only when it was visible (gr1 3.002.149
-    // 0x274C-0x2752, tail 0x27D0-0x27DC); the engine's window save/restore
-    // preserves the row either way — pinned here.
-    const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""));
-    engine.tick();
-    host.keys.push(0x61, 0x62);
-    engine.tick();
-    assert.equal(engine.textRow(22), "ab" + " ".repeat(38));
-    engine.flags[201] = 1;
-    engine.tick();
-    assert.equal(engine.flags[6], 0, "the restart was declined");
-    assert.equal(engine.textRow(22), "ab" + " ".repeat(38), "the row survived the prompt");
+  test("a declined restart leaves the input row intact in v3 (3.002.149) and cancels it in v2 (2.936)", () => {
+    // PC v3 saves cursor memory before the confirmation and redraws it on
+    // cancel only when it was visible (gr1 3.002.149 0x274C-0x2752, tail
+    // 0x27D0-0x27DC); PC v2 (kq3 2.936 0x243A) calls CancelLine before the
+    // prompt.
+    {
+      const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""), "3.002.149");
+      engine.tick();
+      host.keys.push(0x61, 0x62);
+      engine.tick();
+      assert.equal(engine.textRow(22), "ab" + " ".repeat(38));
+      engine.flags[201] = 1;
+      engine.tick();
+      assert.equal(engine.flags[6], 0, "the restart was declined");
+      assert.equal(
+        engine.textRow(22),
+        "ab" + " ".repeat(38),
+        "3.002.149: the row survived the prompt",
+      );
+    }
+    {
+      const { engine, host } = auditGame(AUDIT_SOURCE.replace("set(f16);", ""), "2.936");
+      engine.tick();
+      host.keys.push(0x61, 0x62);
+      engine.tick();
+      assert.equal(engine.textRow(22), "ab" + " ".repeat(38));
+      engine.flags[201] = 1;
+      engine.tick();
+      assert.equal(engine.flags[6], 0, "the restart was declined");
+      assert.equal(
+        engine.textRow(22),
+        " ".repeat(40),
+        "2.936: CancelLine cleared the row before the prompt",
+      );
+    }
   });
 
   test("restore never clears the key variable v19", () => {
@@ -2213,11 +2241,12 @@ describe("original restart/restore audit", () => {
   });
 });
 
-test("2.089/2.230/2.272 always show the restart confirmation, f16 or not", () => {
+test("2.001/2.089/2.230/2.272/amiga-2.082 always show the restart confirmation, f16 or not", () => {
   // Player-visible rule: in the early family restart.game always asks — the
-  // f16 bypass does not exist yet (sq1 2.089 0x22AB / xmas 2.230 0x21ED /
-  // xmas 2.272 0x2289: no IsSet(0x10) anywhere in the handler).
-  for (const profile of ["2.089", "2.230", "2.272"] as const) {
+  // f16 bypass does not exist yet (kq2boot 2.001 0x1706 / sq1 2.089 0x22AB /
+  // xmas 2.230 0x21ED / xmas 2.272 0x2289 / amiga-2.082 0x00496A: no IsSet(0x10)
+  // anywhere in the handler).
+  for (const profile of ["2.001", "2.089", "2.230", "2.272", "amiga-2.082"] as const) {
     const container = createContainer();
     container.putResource(
       "logic",
@@ -2240,8 +2269,8 @@ test("2.089/2.230/2.272 always show the restart confirmation, f16 or not", () =>
     engine.flags[201] = 1;
     engine.tick();
     assert.ok(
-      host.prints.some((t) => t.startsWith("Restart the game?")),
-      `${profile}: the confirmation prompt shows (previous wording — the original strings are probed on kq3 2.936 / mh1 3.002.107 / gr1 3.002.149 only)`,
+      host.prints.some((t) => t.startsWith("Press ENTER to restart")),
+      `${profile}: the confirmation prompt shows`,
     );
     assert.equal(engine.vars[100], 42, `${profile}: declined prompt keeps state`);
   }
@@ -2274,120 +2303,100 @@ test("2.089/2.230/2.272 show.mem prints no rm.0 line", () => {
   }
 });
 
-// ---- Profile gating: unprobed builds keep the pre-fix behavior ----
-// The restart/restore/script-buffer behaviors above are probed on kq3 2.936,
-// kq1 2.917, mh1 3.002.107 and gr1 3.002.149 (each test names its builds);
-// profile fields select them, and every other profile runs the previous
-// behavior. 2.411 stands in for an unprobed build below.
-
-describe("unprobed profiles keep the previous restart/restore and script-buffer behavior", () => {
-  test("the restart prompt keeps the previous wording and clears input acceptance", () => {
-    // The original wording and the surviving input acceptance are probed on
-    // kq3 2.936 (ovl DS+0x0ADB, ResetAll 0x0FA5) / mh1 3.002.107 / gr1
-    // 3.002.149 only.
-    class AcceptHost extends RecordingHost {
+describe("restartCursorMemory profile split: PC v3 saves cursor memory across restart.game; v2/Amiga/IIgs call CancelLine", () => {
+  test("declining restart.game clears the in-progress line on v2/Amiga/IIgs and preserves it on PC v3", () => {
+    // Player-visible rule: PC v2 (2.001..2.936), Amiga (2.082..2.333) and IIgs
+    // (1.014) call CancelLine at the start of RestartGame, wiping the partially
+    // typed command line before opening the confirmation window. PC v3
+    // (3.002.086..3.002.149) replaces CancelLine with CursorOff + saving cursor
+    // memory, so declining the prompt leaves the partial command line intact.
+    class DeclineHost extends RecordingHost {
       keys: number[] = [];
       waitKey(): number {
-        return 0x0d; // ENTER accepts the confirmation
+        return 0x1b; // ESC declines the restart confirmation
       }
       override takeKeys(): number[] {
         return this.keys.splice(0);
       }
     }
-    const container = createContainer();
-    container.putResource(
-      "logic",
-      0,
-      assembleLogic(
-        `
-        if (isset(f6)) { return; }
-        if (!isset(f200)) { set(f200); accept.input(); assignn(v100, 42); }
-        if (isset(f201)) { reset(f201); restart.game(); }
-        return;
-      `,
-        { dictionary: DICT, profile: PROFILES["2.411"] },
-      ).payload,
-    );
-    const host = new AcceptHost();
-    const engine = new Engine(container, host, DICT, { profile: "2.411" });
-    host.engine = engine;
-    engine.tick();
-    host.keys.push(0x61);
-    engine.tick();
-    assert.equal(engine.inputEnabled, true);
-    engine.flags[201] = 1;
-    engine.tick();
-    assert.ok(
-      host.prints.includes("Restart the game?\nENTER: yes   ESC: continue"),
-      `previous wording, got ${JSON.stringify(host.prints)}`,
-    );
-    assert.equal(engine.vars[100], 0, "the restart cleared the vars");
-    assert.equal(engine.inputEnabled, false, "input acceptance did not survive");
-  });
+    const run = (
+      profile:
+        "2.089" | "2.411" | "2.936" | "3.002.086" | "3.002.149" | "amiga-2.316" | "iigs-1.014",
+    ): string => {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(
+          `
+          if (!isset(f200)) { set(f200); accept.input(); }
+          if (isset(f201)) { reset(f201); restart.game(); }
+          return;
+        `,
+          { dictionary: DICT, profile: PROFILES[profile] },
+        ).payload,
+      );
+      const host = new DeclineHost();
+      const engine = new Engine(container, host, DICT, { profile });
+      host.engine = engine;
+      engine.tick();
+      host.keys.push(0x61, 0x62); // "ab"
+      engine.tick();
+      assert.equal(engine.inputEdit, "ab", `${profile}: typed before restart.game`);
+      engine.flags[201] = 1;
+      engine.tick();
+      return engine.inputEdit;
+    };
 
-  test("restore clears the key variable v19", () => {
-    // The no-v19-store restore tail is probed on kq3 2.936 (0x2647-0x2693) /
-    // gr1 3.002.149 (0x28C7) / mh1 3.002.107 (0x2928) only; elsewhere the
-    // restore clears v19, f2 and f4 as before.
-    const container = createContainer();
-    container.putResource(
-      "logic",
-      0,
-      assembleLogic("return;", { dictionary: DICT, profile: PROFILES["2.411"] }).payload,
-    );
-    class KeyHost extends RecordingHost {
-      keys: number[] = [];
-      override takeKeys(): number[] {
-        return this.keys.splice(0);
-      }
+    for (const profile of ["2.089", "2.411", "2.936", "amiga-2.316", "iigs-1.014"] as const) {
+      assert.equal(run(profile), "", `${profile}: CancelLine cleared inputEdit before the prompt`);
     }
-    const host = new KeyHost();
-    const engine = new Engine(container, host, DICT, { profile: "2.411" });
-    host.keys.push(0x61);
-    engine.tick();
-    assert.equal(engine.vars[19], 0x61);
-    const image = engine.serialize();
-    const fresh = new Engine(container, new RecordingHost(), DICT, { profile: "2.411" });
-    fresh.restoreImage(image);
-    assert.equal(fresh.vars[19], 0, "v19 is cleared on restore");
+    for (const profile of ["3.002.086", "3.002.149"] as const) {
+      assert.equal(run(profile), "ab", `${profile}: cursor-memory save left inputEdit intact`);
+    }
   });
 
-  test("the default script buffer holds 200 pairs and script.size keeps the recorded sequence", () => {
-    // SCRIPTSIZE = 50 at AGIDATA.OVL DS+0x141 and the script.size reset
-    // (handler 0x716A/0x70A3/0x74E8) are probed on kq3 2.936 / kq1 2.917 /
-    // gr1 3.002.149 only; elsewhere the previous 200-pair default stands and
-    // script.size stores the capacity without resetting.
-    const container = createContainer();
-    container.putResource(
-      "logic",
-      0,
-      assembleLogic("if (!isset(f200)) { set(f200); load.view(1); script.size(30); } return;", {
-        dictionary: DICT,
-        profile: PROFILES["2.411"],
-      }).payload,
-    );
-    container.putResource(
-      "view",
-      1,
-      buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
-    );
-    const host = new RecordingHost();
-    const engine = new Engine(container, host, DICT, { profile: "2.411" });
-    engine.tick();
-    const replay = (engine as unknown as { replay: unknown[] }).replay;
-    assert.equal(replay.length, 1, "the recorded pair survives script.size");
-    const plain = createContainer();
-    plain.putResource(
-      "logic",
-      0,
-      assembleLogic("return;", { dictionary: DICT, profile: PROFILES["2.411"] }).payload,
-    );
-    const fresh = new Engine(plain, new RecordingHost(), DICT, { profile: "2.411" });
-    fresh.tick();
-    assert.equal(
-      decodeSave(fresh.serialize(), fresh.profile).replayCapacity,
-      200,
-      "the previous default capacity is written",
-    );
+  test("default 50-pair script buffer and script.size sequence reset apply across PC, Amiga and IIgs profiles", () => {
+    for (const profile of [
+      "2.089",
+      "2.411",
+      "2.936",
+      "3.002.149",
+      "amiga-2.316",
+      "iigs-1.014",
+    ] as const) {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic("if (!isset(f200)) { set(f200); load.view(1); script.size(30); } return;", {
+          dictionary: DICT,
+          profile: PROFILES[profile],
+        }).payload,
+      );
+      container.putResource(
+        "view",
+        1,
+        buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+      );
+      const engine = new Engine(container, new RecordingHost(), DICT, { profile });
+      engine.tick();
+      const replay = (engine as unknown as { replay: unknown[] }).replay;
+      assert.equal(replay.length, 0, `${profile}: script.size resets the recorded sequence`);
+
+      const plain = createContainer();
+      plain.putResource(
+        "logic",
+        0,
+        assembleLogic("return;", { dictionary: DICT, profile: PROFILES[profile] }).payload,
+      );
+      const fresh = new Engine(plain, new RecordingHost(), DICT, { profile });
+      fresh.tick();
+      assert.equal(
+        decodeSave(fresh.serialize(), fresh.profile).replayCapacity,
+        50,
+        `${profile}: default SCRIPTSIZE = 50 pairs`,
+      );
+    }
   });
 });

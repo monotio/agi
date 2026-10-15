@@ -7,7 +7,7 @@ import { AGI_KEY } from "../src/runtime/keys.ts";
 import { buildView } from "../src/view/view.ts";
 import { MOTION_MOVE_OBJ, MOTION_NORMAL } from "../src/runtime/screenObject.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
-import { PROFILES } from "../src/runtime/profile.ts";
+import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 
 /** The object-0 coupling selector as the save image records it: 1 = player control. */
 function coupling(engine: Engine): number {
@@ -47,7 +47,7 @@ test("movement authority is observable independently of parser availability", ()
   }
 });
 
-function game(source: string, profile?: "2.917"): { engine: Engine; host: Host } {
+function game(source: string, profile?: ProfileId): { engine: Engine; host: Host } {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);
   container.putResource(
@@ -223,13 +223,14 @@ test("2.089 position on a drawn object raises it above the horizon before storin
   );
 });
 
-test("unprobed profiles mirror the ego direction after the block pass", () => {
-  // The pre-logic mirror-first ordering is probed on kq3 2.936 (main cycle
-  // 0x17B-0x195, dispatcher call at 0x198) only. Elsewhere the mirror runs
-  // after the autonomous-motion/block pass: a direction pressed this cycle
-  // is not yet on the object when the block check runs, so v6 survives.
-  const { engine, host } = game(
-    `
+test("early profiles (2.001..2.272, amiga-2.082) mirror the ego direction after the block pass; 2.411+ mirror before", () => {
+  // In PC 2.001..2.272 (kq2boot 0x01C3..0x01DC, sq1 0x018F..0x01AA) and
+  // Amiga 2.082 (0x000284..0x0002AA), GetObjDirs / ChkBlock runs BEFORE the
+  // ego.dir <-> var[6] mirror, so a direction pressed this cycle is not yet on
+  // the object when the block check runs and v6 survives into logic 0. From PC
+  // 2.411+ (kq2 0x0181..0x019E, kq1 2.917 0x0179..0x0196), Amiga 2.176+ and
+  // IIgs 1.014, the mirror runs before GetObjDirs and cancels v6 immediately.
+  const source = `
     if (!isset(f200)) {
       set(f200);
       load.view(1); animate.obj(o0); set.view(o0, 1);
@@ -238,11 +239,19 @@ test("unprobed profiles mirror the ego direction after the block pass", () => {
       assignn(v60, 1); step.size(o0, v60); step.time(o0, v60);
     }
     return;
-  `,
-    "2.917",
-  );
-  engine.tick();
-  host.keys.push(AGI_KEY.RIGHT);
-  engine.tick();
-  assert.equal(engine.vars[6], 3, "the fresh direction was never block-checked");
+  `;
+  for (const profile of ["2.089", "amiga-2.082"] as const) {
+    const { engine, host } = game(source, profile);
+    engine.tick();
+    host.keys.push(AGI_KEY.RIGHT);
+    engine.tick();
+    assert.equal(engine.vars[6], 3, `${profile}: fresh direction was mirrored after ChkBlock`);
+  }
+  for (const profile of ["2.411", "2.917", "amiga-2.316", "iigs-1.014"] as const) {
+    const { engine, host } = game(source, profile);
+    engine.tick();
+    host.keys.push(AGI_KEY.RIGHT);
+    engine.tick();
+    assert.equal(engine.vars[6], 0, `${profile}: fresh direction met ChkBlock and was cancelled`);
+  }
 });

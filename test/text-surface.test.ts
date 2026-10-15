@@ -4,21 +4,21 @@ import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { MESSAGE_KEY, buildLogicResource } from "../src/logic/resource.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
 import { validateEngineReplayState } from "../src/runtime/replayState.ts";
 import {
-  GLYPH_BAR_BOTTOM,
-  GLYPH_BAR_LEFT,
-  GLYPH_BAR_RIGHT,
-  GLYPH_BAR_TOP,
-  GLYPH_CORNER_BL,
-  GLYPH_CORNER_BR,
-  GLYPH_CORNER_TL,
-  GLYPH_CORNER_TR,
+  GLYPH_BL,
+  GLYPH_BR,
   GLYPH_CURSOR,
+  GLYPH_H,
+  GLYPH_TL,
+  GLYPH_TR,
+  GLYPH_V,
   TEXT_COLS,
   TextSurface,
   attr,
   cellChar,
+  placePrintWindow,
   placeWindow,
   windowLines,
   wrapLines,
@@ -236,51 +236,35 @@ test("print: solid-framed window centred in the display area, restored on acknow
   engine.tick();
   assert.deepEqual(host.prints, ["Hi there"]);
   assert.equal(engine.modalKind, "print");
-  // 8 chars + frame = 10 cols, 3 rows; top = 1 + (21-3)/2 = 10, left = (40-10)/2 = 15.
-  // The frame is the decoded OpenWndw geometry: a white fill plus four
-  // 1-pixel bars inset one pixel from the fill edge (kq1 2.917 OpenWndw
-  // 0x54C8, colour word 0x040F), drawn as edge glyph cells whose font masks
-  // carry the inset bar (app/src/render/font8x8.ts) — never full
-  // character-cell bands.
-  const FRAME = attr(4, 15);
-  const r10 = row(engine, 10);
-  assert.deepEqual(r10.chars.slice(15, 25), [
-    GLYPH_CORNER_TL,
-    ...Array(8).fill(GLYPH_BAR_TOP),
-    GLYPH_CORNER_TR,
-  ]);
-  assert.ok(r10.attrs.slice(15, 25).every((a) => a === FRAME));
+  // "Hi there" -> 8 chars wide, 1 row tall; in 2.936 (winBot = 20, picTop = 1):
+  // textTop = ((20 - 1 - 1) >> 1) + 1 + 1 = 11, textLeft = (40 - 8) >> 1 = 16.
+  // Fill spans x0 = 8*16 - 10 = 118 .. x1 = 8*24 + 9 = 201,
+  // y0 = 8*11 - 5 = 83 .. y1 = 8*12 + 4 = 100.
   const r11 = row(engine, 11);
-  assert.equal(engine.textRow(11), "under" + spaces(10) + "#Hi there#" + spaces(15));
-  assert.equal(r11.chars[15], GLYPH_BAR_LEFT);
-  assert.equal(r11.chars[24], GLYPH_BAR_RIGHT);
-  assert.equal(r11.attrs[15], FRAME);
-  assert.equal(r11.attrs[24], FRAME);
+  assert.equal(engine.textRow(11), "under" + spaces(11) + "Hi there" + spaces(16));
   assert.ok(r11.attrs.slice(16, 24).every((a) => a === BLACK_ON_WHITE));
-  const r12 = row(engine, 12);
-  assert.deepEqual(r12.chars.slice(15, 25), [
-    GLYPH_CORNER_BL,
-    ...Array(8).fill(GLYPH_BAR_BOTTOM),
-    GLYPH_CORNER_BR,
-  ]);
-  assert.ok(r12.attrs.slice(15, 25).every((a) => a === FRAME));
+  const overlay = engine.getPresentation().windowOverlay;
+  assert.equal(overlay[83 * 320 + 118], 16, "outer top-left white fill");
+  assert.equal(overlay[84 * 320 + 120], 5, "top red bar at y0+1, x0+2");
+  assert.equal(overlay[99 * 320 + 201], 16, "outer bottom-right white fill");
+  assert.equal(overlay[99 * 320 + 199], 5, "bottom red bar at y1-1, x1-2");
+  assert.equal(overlay[88 * 320 + 128], 0, "interior text cell stays transparent in overlay");
 
   // The interpreter is paused: another tick does not re-run logic 0.
   engine.tick();
   assert.equal(host.prints.length, 1);
 
-  // Enter restores the covered cells (the display text survives underneath).
+  // Enter restores the covered cells and clears the window overlay.
   host.keys.push(0x0d);
   engine.tick();
   assert.equal(engine.modalKind, null);
   assert.equal(engine.textRow(11), "under" + spaces(35));
-  assert.equal(row(engine, 10).chars[15], 0);
+  assert.ok(engine.getPresentation().windowOverlay.every((b) => b === 0));
 });
 
 test("print.at honours row, column and width; width 0 means 30", () => {
   // The row override is relative to the display base and used verbatim
   // (kq1 2.917 WindowNoWait 0x1E69: picTop is added on both paths).
-  const FRAME = attr(4, 15);
   const host = new Host();
   const engine = new Engine(
     gameWith('print.at("one two three four", 2, 3, 10); return;'),
@@ -288,24 +272,24 @@ test("print.at honours row, column and width; width 0 means 30", () => {
     DICT,
   );
   engine.tick();
-  // "one two"/"three four" -> 10 + 2 frame = 12 cols, 4 rows at row 1+2, col 3.
+  // "one two"/"three four" -> 10 cols, 2 text rows at row 1+2 = 3, col 3.
+  assert.equal(engine.textRow(3), spaces(3) + "one two   " + spaces(27));
+  assert.equal(engine.textRow(4), spaces(3) + "three four" + spaces(27));
   assert.ok(
     row(engine, 3)
-      .attrs.slice(3, 15)
-      .every((a) => a === FRAME),
+      .attrs.slice(3, 13)
+      .every((a) => a === BLACK_ON_WHITE),
   );
-  assert.equal(engine.textRow(4), spaces(3) + "#one two   #" + spaces(25));
-  assert.equal(engine.textRow(5), spaces(3) + "#three four#" + spaces(25));
   assert.ok(
-    row(engine, 6)
-      .attrs.slice(3, 15)
-      .every((a) => a === FRAME),
+    row(engine, 4)
+      .attrs.slice(3, 13)
+      .every((a) => a === BLACK_ON_WHITE),
   );
   engine.ackPrint();
 
   const wide = new Engine(gameWith('print.at("one two three four", 6, 1, 0); return;'), host, DICT);
   wide.tick();
-  assert.equal(wide.textRow(8), " #" + "one two three four" + "#" + spaces(19));
+  assert.equal(wide.textRow(7), " " + "one two three four" + spaces(21));
 });
 
 test("text.screen fills the surface with the text attribute; graphics restores status and input", () => {
@@ -608,6 +592,46 @@ test("host sound toggle refreshes status immediately or after a modal closes", (
   assert.equal(engine.textRow(0).slice(30), "Sound:off ");
 });
 
+test("status line formatting matches the three profile families (booter-2.001, early-2.089, common)", () => {
+  // Player-visible rule:
+  // - 2.001 ("booter-2.001"): " Score:%d  " (no max score) and "Sound:%s" padded to col 40
+  // - 2.089 ("early-2.089"): " Score:%d of %d" (no trailing spaces) and "Sound:on"/"Sound:off" (no trailing spaces)
+  // - 2.230+ / Amiga / IIgs ("common"): " Score:%d of %d  " and "Sound:on  "/"Sound:off "
+  const renderRow = (
+    profile: "2.001" | "2.089" | "2.230" | "2.936" | "amiga-2.316" | "iigs-1.014",
+    soundOn: boolean,
+  ): string => {
+    const source = `assignn(v3, 5); assignn(v7, 42); ${soundOn ? "set(f9);" : "reset(f9);"} status.line.on(); return;`;
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    const engine = new Engine(container, new Host(), DICT, { profile: PROFILES[profile] });
+    engine.tick();
+    return engine.textRow(0);
+  };
+
+  assert.equal(
+    renderRow("2.001", true),
+    " Score:5  " + spaces(20) + "Sound:on  ",
+    "2.001 booter status line omits 'of %d' and pads sound to col 40",
+  );
+  assert.equal(
+    renderRow("2.089", true),
+    " Score:5 of 42" + spaces(16) + "Sound:on" + spaces(2),
+    "2.089 early status line has no trailing space padding in the format strings",
+  );
+  for (const profile of ["2.230", "2.936", "amiga-2.316", "iigs-1.014"] as const) {
+    assert.equal(
+      renderRow(profile, true),
+      " Score:5 of 42  " + spaces(14) + "Sound:on  ",
+      `${profile} common status line`,
+    );
+  }
+});
+
 test("numeric message fields honor explicit zero-padded widths", () => {
   const engine = new Engine(
     gameWith(`
@@ -646,42 +670,20 @@ test("display breaks lines on newlines and wraps after column 39, both at column
   assert.equal(engine.textRow(24).trimEnd(), "two");
 });
 
-test("glyph IDs: 0x01..0x07 keep pre-9f506052 meanings; the window frame uses 0x0A+", () => {
-  // Host-image checkpoints stay at format version 1 and copy text cells
-  // unchanged (engine.ts captureRestore), so the codes a 1.x checkpoint can
-  // hold — 0x01 H, 0x02 V, 0x03 TL, 0x04 TR, 0x05 BL, 0x06 BR, 0x07 cursor
-  // — must keep those meanings forever; the window frame 9f506052 added
-  // moves to fresh IDs instead of repurposing them.
+test("glyph IDs: 0x01..0x07 keep their 1.x checkpoint meanings", () => {
+  assert.equal(GLYPH_H, 0x01);
+  assert.equal(GLYPH_V, 0x02);
+  assert.equal(GLYPH_TL, 0x03);
+  assert.equal(GLYPH_TR, 0x04);
+  assert.equal(GLYPH_BL, 0x05);
+  assert.equal(GLYPH_BR, 0x06);
   assert.equal(GLYPH_CURSOR, 0x07, "the cursor code a 1.x checkpoint stores");
-  for (const code of [
-    GLYPH_BAR_TOP,
-    GLYPH_BAR_BOTTOM,
-    GLYPH_BAR_LEFT,
-    GLYPH_BAR_RIGHT,
-    GLYPH_CORNER_TL,
-    GLYPH_CORNER_TR,
-    GLYPH_CORNER_BL,
-    GLYPH_CORNER_BR,
-  ]) {
-    assert.ok(code >= 0x0a, `frame glyph 0x${code.toString(16)} must not reuse 0x01..0x09`);
-    assert.equal(cellChar(code), "#");
-  }
 });
 
 test("cells read as text: borders and code-page bytes are '#', never raw control characters", () => {
   assert.equal(cellChar(0), " ");
   assert.equal(cellChar(0x41), "A");
-  for (const code of [
-    GLYPH_BAR_TOP,
-    GLYPH_BAR_BOTTOM,
-    GLYPH_BAR_LEFT,
-    GLYPH_BAR_RIGHT,
-    GLYPH_CORNER_TL,
-    GLYPH_CORNER_TR,
-    GLYPH_CORNER_BL,
-    GLYPH_CORNER_BR,
-    GLYPH_CURSOR,
-  ])
+  for (const code of [GLYPH_H, GLYPH_V, GLYPH_TL, GLYPH_TR, GLYPH_BL, GLYPH_BR, GLYPH_CURSOR])
     assert.equal(cellChar(code), "#", `glyph 0x${code.toString(16)}`);
   assert.equal(cellChar(0x82), "#", "é in the PC code page");
 });
@@ -690,26 +692,22 @@ test("wrap consumes the break space and strips continuation leading spaces", () 
   // Player-visible rule: "aaa  bbb" at width 4 shows "aaa" and "bbb" — the
   // break space is overwritten by the line break (never a trailing cell, so
   // the window is a column narrower) and the continuation's leading spaces
-  // are deleted (kq1 2.917 _Print wrap block 0x2191: the break space becomes
-  // '\n' and maxLength excludes it). Probed on kq1 2.917 / kq3 2.936, so the
-  // callers select the original wrap explicitly.
-  assert.deepEqual(wrapLines("aaa  bbb", 4, true), ["aaa", "bbb"]);
+  // are deleted (verified across all 20 shipped PC, Amiga and IIgs binaries:
+  // docs/fidelity.md "Original window and status-line text").
+  assert.deepEqual(wrapLines("aaa  bbb", 4), ["aaa", "bbb"]);
   // A hard split (no space on the line) does not strip: the space after it
   // stays, as the original's no-space path inserts the break without the
   // strip loop (kq1 2.917 0x2198).
-  assert.deepEqual(wrapLines("abcd ef", 4, true), ["abcd", " ef"]);
-  assert.deepEqual(wrapLines("aa bb cc", 5, true), ["aa", "bb cc"]);
-  // Unprobed builds keep the previous wrap: the break space stays.
-  assert.deepEqual(wrapLines("aaa  bbb", 4), ["aaa ", "bbb"]);
+  assert.deepEqual(wrapLines("abcd ef", 4), ["abcd", " ef"]);
+  assert.deepEqual(wrapLines("aa bb cc", 5), ["aa", "bb cc"]);
 });
 
-test("an overlong message is replaced by the verbose notice", () => {
-  // Player-visible rule: a message formatting to more than winBot−1 (19)
-  // lines never clips silently — the window shows "Message too verbose:"
-  // quoting the first 20 characters (kq1 2.917 WindowNoWait 0x1E0C, ovl
-  // DS+0xCCB "Message too verbose:\n\n\"%s...\"\n\nPress ESC to continue.").
-  // Probed on kq1 2.917 / kq3 2.936, so the callers select it explicitly.
-  const verbose = windowLines("word ".repeat(120).trimEnd(), 30, true);
+test("an overlong message is replaced by the verbose notice (18 lines in 2.001, 19 in 2.089+)", () => {
+  // Player-visible rule: a message formatting to more than winBot−1 lines
+  // (18 in PC 2.001 where winBot=19; 19 in PC 2.089+, Amiga and IIgs where
+  // winBot=20) never clips silently — the window shows "Message too verbose:"
+  // quoting the first 20 characters.
+  const verbose = windowLines("word ".repeat(120).trimEnd(), 30);
   assert.deepEqual(verbose, [
     "Message too verbose:",
     "",
@@ -717,91 +715,134 @@ test("an overlong message is replaced by the verbose notice", () => {
     "",
     "Press ESC to continue.",
   ]);
-  assert.deepEqual(windowLines("short", 30, true), ["short"]);
-  // Unprobed builds keep the plain wrap — no substitution.
-  assert.ok(windowLines("word ".repeat(120).trimEnd(), 30).length > 19);
+  assert.deepEqual(windowLines("short", 30), ["short"]);
+
+  // A 19-line message fits in 2.936 (winBot-1 = 19) but triggers the verbose
+  // notice in 2.001 (winBot-1 = 18).
+  const nineteenLines = Array.from({ length: 19 }, (_, i) => `L${i + 1}`).join("\\n");
+  const e2936 = new Engine(gameWith(`print("${nineteenLines}"); return;`), new Host(), DICT, {
+    profile: "2.936",
+  });
+  e2936.tick();
+  assert.ok(
+    Array.from({ length: 25 }, (_, r) => e2936.textRow(r))
+      .join(" ")
+      .includes("L19"),
+    "2.936 fits 19 lines without verbose substitution",
+  );
+  const e2001 = new Engine(gameWith(`print("${nineteenLines}"); return;`), new Host(), DICT, {
+    profile: "2.001",
+  });
+  e2001.tick();
+  assert.ok(
+    Array.from({ length: 25 }, (_, r) => e2001.textRow(r))
+      .join(" ")
+      .includes("Message too verbose:"),
+    "2.001 substitutes the verbose notice at 19 lines (winBot-1 = 18)",
+  );
 });
 
 test("print.at overrides place the window verbatim, off-screen included", () => {
   // Player-visible rule: print.at rows/columns are honoured exactly as the
   // script gave them — the original stores the overrides with no clamping
-  // and adds picTop even on the override path (kq1 2.917 WindowNoWait
-  // 0x1E69-0x1EBB), so a bad override draws off-screen rather than shift.
-  // Probed on kq1 2.917 / kq3 2.936, so the callers select it explicitly.
-  assert.deepEqual(placeWindow(["hello"], 1, { row: 2, col: 3 }, true), {
-    top: 3,
-    left: 3,
-    rows: 3,
-    cols: 7,
-  });
-  assert.deepEqual(placeWindow(["hello"], 1, { row: 24, col: 38 }, true), {
-    top: 25,
-    left: 38,
-    rows: 3,
-    cols: 7,
-  });
-  // Unprobed builds keep the previous placement: absolute row, clamped on-screen.
-  assert.deepEqual(placeWindow(["hello"], 1, { row: 24, col: 38 }), {
-    top: 22,
-    left: 33,
-    rows: 3,
-    cols: 7,
-  });
+  // and adds picTop even on the override path (verified across all 20 shipped
+  // binaries), so a bad override draws off-screen rather than shift.
+  const placed = placePrintWindow(["hello"], 1, "pc", { row: 2, col: 3 });
+  assert.equal(placed.textTop, 3);
+  assert.equal(placed.textLeft, 3);
+  assert.equal(placed.textRows, 1);
+  assert.equal(placed.textCols, 5);
+  assert.deepEqual(
+    { x0: placed.x0, y0: placed.y0, x1: placed.x1, y1: placed.y1 },
+    { x0: 14, y0: 19, x1: 73, y1: 36 },
+  );
+
+  const offscreen = placePrintWindow(["hello"], 1, "pc", { row: 24, col: 38 });
+  assert.equal(offscreen.textTop, 25);
+  assert.equal(offscreen.textLeft, 38);
+  assert.deepEqual(
+    { x0: offscreen.x0, y0: offscreen.y0, x1: offscreen.x1, y1: offscreen.y1 },
+    { x0: 294, y0: 195, x1: 353, y1: 212 },
+  );
 });
 
-test("the window frame is the decoded OpenWndw geometry: fill plus four inset 1-pixel bars", () => {
-  // Player-visible rule: the message window is a white fill framed by solid
-  // red bars one nibble (one logical pixel) wide, inset one nibble/scanline
-  // from the fill's edge — not full character-cell bands and no line-drawing
-  // corners. OpenWndw issues five DrawWndw calls on the colour word 0x040F:
-  // one bottom-anchored fill (dl = 0x0F white), then four edge rects with
-  // `mov dl,dh` (red) and 1-wide adjustments — top (x+1, y-h+2, w-2, 1),
-  // bottom (x+1, y-1, w-2, 1), left (x+1, y-2, 1, h-4), right
-  // (x+w-2, y-2, 1, h-4) (kq1 2.917 OpenWndw 0x54C8, rects captured by
-  // executing it under Unicorn; fill geometry w = 4*cols+10 nibbles,
-  // h = 8*rows+10 scanlines at WindowNoWait 0x1E4B/0x1ECC — 18x18 for
-  // print("Hi")). On the cell surface each edge is a glyph cell whose font
-  // mask carries exactly that inset bar (app/src/render/font8x8.ts,
-  // pixel-verified in app/test/composite.test.ts).
-  const host = new Host();
-  const engine = new Engine(gameWith('print("Hi"); return;'), host, DICT);
-  engine.tick();
-  assert.equal(engine.modalKind, "print");
-  // "Hi" -> 2 + 2 frame = 4 cols, 3 rows; left = (40-4)/2 = 18, top = 1+9 = 10.
-  const FRAME = attr(4, 15); // red bar pixels over the white fill
-  const top = row(engine, 10);
-  assert.deepEqual(top.chars.slice(18, 22), [
-    GLYPH_CORNER_TL,
-    GLYPH_BAR_TOP,
-    GLYPH_BAR_TOP,
-    GLYPH_CORNER_TR,
-  ]);
-  assert.ok(
-    top.attrs.slice(18, 22).every((a) => a === FRAME),
-    "the edge cells carry the frame colour over the fill",
-  );
-  const middle = row(engine, 11);
-  assert.equal(middle.chars[18], GLYPH_BAR_LEFT);
-  assert.equal(middle.chars[21], GLYPH_BAR_RIGHT);
-  assert.equal(middle.attrs[18], FRAME);
-  assert.equal(middle.attrs[21], FRAME);
-  assert.equal(middle.chars[19], 0x48, "the interior carries the message, not a band");
-  assert.equal(middle.attrs[19], BLACK_ON_WHITE);
-  const bottom = row(engine, 12);
-  assert.deepEqual(bottom.chars.slice(18, 22), [
-    GLYPH_CORNER_BL,
-    GLYPH_BAR_BOTTOM,
-    GLYPH_BAR_BOTTOM,
-    GLYPH_CORNER_BR,
-  ]);
+test("the window frame matches each profile family's decoded pixel geometry (PC 2.001, PC 2.089+, Amiga, IIgs)", () => {
+  // Hand-computed for print("Hi") (1 row, 2 cols) with displayBase = 1:
+  // textLeft = (40 - 2) >> 1 = 19 -> interior x = 152..167.
+  // - PC 2.936 ("pc", winBot = 20): textTop = ((20-1-1)>>1)+1+1 = 11 -> interior y = 88..95.
+  //   Fill x0 = 142..x1 = 177 (36px), y0 = 83..y1 = 100 (18px).
+  //   Bars: top y = 84, bottom y = 99, x = 144..175; left x = 144..145, right x = 174..175.
+  // - PC 2.001 ("pc-2.001", winBot = 19): textTop = ((19-1-1)>>1)+1+1 = 10 -> interior y = 80..87.
+  //   Fill x0 = 142..x1 = 177 (36px), y0 = 75..y1 = 92 (18px).
+  //   Bars: top y = 76, bottom y = 91, x = 144..175; left x = 144..145, right x = 174..175.
+  // - Amiga ("amiga", winBot = 20): textTop = 11 -> interior y = 88..95.
+  //   Fill x0 = 142..x1 = 178 (37px), y0 = 82..y1 = 100 (19px).
+  //   1px bars inset 2px: top y = 84, bottom y = 98, x = 144..176; left x = 144, right x = 176.
+  // - IIgs ("iigs", winBot = 20): textTop = 11 -> interior y = 88..95.
+  //   Fill x0 = 142..x1 = 177 (36px), y0 = 83..y1 = 100 (18px).
+  //   1px bars inset 2px: top y = 85, bottom y = 98, x = 144..175; left x = 144, right x = 175.
+  const pc = new Engine(gameWith('print("Hi"); return;'), new Host(), DICT, { profile: "2.936" });
+  pc.tick();
+  const pcOv = pc.getPresentation().windowOverlay;
+  assert.equal(pc.textRow(11).slice(19, 21), "Hi");
+  assert.equal(pcOv[83 * 320 + 141], 0, "pc: outside left of fill");
+  assert.equal(pcOv[83 * 320 + 142], 16, "pc: fill x0=142, y0=83");
+  assert.equal(pcOv[100 * 320 + 177], 16, "pc: fill x1=177, y1=100");
+  assert.equal(pcOv[100 * 320 + 178], 0, "pc: outside right of fill");
+  assert.equal(pcOv[84 * 320 + 144], 5, "pc: top bar at y=84, x=144");
+  assert.equal(pcOv[99 * 320 + 175], 5, "pc: bottom bar at y=99, x=175");
+  assert.equal(pcOv[90 * 320 + 144], 5, "pc: 2px left bar col 144");
+  assert.equal(pcOv[90 * 320 + 145], 5, "pc: 2px left bar col 145");
+  assert.equal(pcOv[90 * 320 + 146], 16, "pc: white fill inside left bar");
+  assert.equal(pcOv[90 * 320 + 174], 5, "pc: 2px right bar col 174");
+  assert.equal(pcOv[90 * 320 + 175], 5, "pc: 2px right bar col 175");
+
+  const pc2001 = new Engine(gameWith('print("Hi"); return;'), new Host(), DICT, {
+    profile: "2.001",
+  });
+  pc2001.tick();
+  const pc2001Ov = pc2001.getPresentation().windowOverlay;
+  assert.equal(pc2001.textRow(10).slice(19, 21), "Hi", "pc-2.001 centers at row 10 (winBot=19)");
+  assert.equal(pc2001Ov[75 * 320 + 142], 16, "pc-2.001: fill y0=75");
+  assert.equal(pc2001Ov[76 * 320 + 144], 5, "pc-2.001: top bar y=76");
+  assert.equal(pc2001Ov[91 * 320 + 175], 5, "pc-2.001: bottom bar y=91");
+  assert.equal(pc2001Ov[92 * 320 + 177], 16, "pc-2.001: fill y1=92");
+
+  const amiga = new Engine(gameWith('print("Hi"); return;'), new Host(), DICT, {
+    profile: "amiga-2.316",
+  });
+  amiga.tick();
+  const amigaOv = amiga.getPresentation().windowOverlay;
+  assert.equal(amigaOv[82 * 320 + 142], 16, "amiga: fill y0=82 (6px above text)");
+  assert.equal(amigaOv[100 * 320 + 178], 16, "amiga: fill x1=178 (11px right of text)");
+  assert.equal(amigaOv[84 * 320 + 144], 5, "amiga: top bar at y0+2=84");
+  assert.equal(amigaOv[98 * 320 + 176], 5, "amiga: bottom bar at y1-2=98, x1-2=176");
+  assert.equal(amigaOv[90 * 320 + 144], 5, "amiga: 1px left bar at x0+2=144");
+  assert.equal(amigaOv[90 * 320 + 145], 16, "amiga: left bar is 1px wide, col 145 is white");
+  assert.equal(amigaOv[90 * 320 + 176], 5, "amiga: 1px right bar at x1-2=176");
+  assert.equal(amigaOv[90 * 320 + 175], 16, "amiga: right bar is 1px wide, col 175 is white");
+
+  const iigs = new Engine(gameWith('print("Hi"); return;'), new Host(), DICT, {
+    profile: "iigs-1.014",
+  });
+  iigs.tick();
+  const iigsOv = iigs.getPresentation().windowOverlay;
+  assert.equal(iigsOv[83 * 320 + 142], 16, "iigs: fill x0=142, y0=83");
+  assert.equal(iigsOv[100 * 320 + 177], 16, "iigs: fill x1=177, y1=100");
+  assert.equal(iigsOv[85 * 320 + 144], 5, "iigs: top bar at y0+2=85");
+  assert.equal(iigsOv[98 * 320 + 175], 5, "iigs: bottom bar at y1-2=98, x1-2=175");
+  assert.equal(iigsOv[90 * 320 + 144], 5, "iigs: 1px left bar at x0+2=144");
+  assert.equal(iigsOv[90 * 320 + 145], 16, "iigs: left bar is 1px wide, col 145 is white");
+  assert.equal(iigsOv[90 * 320 + 175], 5, "iigs: 1px right bar at x1-2=175");
+  assert.equal(iigsOv[90 * 320 + 174], 16, "iigs: right bar is 1px wide, col 174 is white");
 });
 
 test("version shows the version string modally and never touches string slot 0", () => {
   // Player-visible rule: the version action pops the interpreter version in a
   // window; a game's string slot 0 keeps its contents. The 0x8d handler
   // pushes the CONST versionMsg and calls WindowPrint — a modal key-wait —
-  // then returns (kq3 2.936 0x733C / kq1 2.917 0x7275 / gr1 3.002.149
-  // 0x7670); nothing writes string storage.
+  // then returns (verified across all 20 shipped binaries); nothing writes
+  // string storage.
   const host = new Host();
   const engine = new Engine(
     gameWith('if (!isset(f200)) { set(f200); set.string(s0, "KEEP"); version(); } return;'),
@@ -835,8 +876,9 @@ test("an off-screen print.at saves a canonical empty rect that captures and rest
   const state = validateEngineReplayState(engine.captureReplayState());
   const modal = state.continuation?.modals[0];
   assert.ok(modal?.kind === "print", "the parked window serialized");
+  const { window: _win, ...savedRect } = modal.saved;
   assert.deepEqual(
-    { ...modal.saved, cells: modal.saved.cells.length, written: modal.saved.written.length },
+    { ...savedRect, cells: savedRect.cells.length, written: savedRect.written.length },
     { top: 0, left: 1, bottom: 0, right: 0, cells: 0, written: 0 },
     "the canonical empty rect",
   );
@@ -865,4 +907,36 @@ test("TextSurface: a fully off-screen save canonicalizes to an empty in-range re
     { top: partial.top, left: partial.left, bottom: partial.bottom, right: partial.right },
     { top: 24, left: 38, bottom: 24, right: 39 },
   );
+});
+
+test("show.obj routes through the profile window frame selector with zero legacy border glyphs", () => {
+  // Hand-computed for show.obj(1) with description "Hi" (1 row, 2 cols, displayBase = 1):
+  // ShowObj calls WindowPrint(description) at row = 2 + displayBase = 3 across all 20
+  // shipped binaries, so it stamps the profile's WindowOverlay without writing legacy
+  // 0x01..0x06 border glyphs into textCells.
+  const viewBytes = new Uint8Array([
+    0, 0, 1, 15, 0, 7, 0, 1, 3, 0, 3, 1, 0, 0x53, 0, 0x48, 0x69, 0,
+  ]);
+  for (const [profile, topBarY, rightBarX] of [
+    ["2.936", 20, 175],
+    ["2.001", 20, 175],
+    ["amiga-2.316", 20, 176],
+    ["iigs-1.014", 21, 175],
+  ] as const) {
+    const container = gameWith("show.obj(1); return;");
+    container.putResource("view", 1, viewBytes);
+    const engine = new Engine(container, new Host(), DICT, { profile });
+    engine.tick();
+    assert.equal(engine.modalKind, "showObj", `${profile}: showObj modal open`);
+    assert.equal(engine.textRow(3).slice(19, 21), "Hi", `${profile}: description row`);
+    for (let i = 0; i < engine.textCells.length; i += 2) {
+      assert.ok(
+        engine.textCells[i]! === 0 || engine.textCells[i]! >= 0x20,
+        `${profile}: no legacy border glyph in textCells at ${i}`,
+      );
+    }
+    const ov = engine.getPresentation().windowOverlay;
+    assert.equal(ov[topBarY * 320 + 144], 5, `${profile}: top red bar at y=${topBarY}`);
+    assert.equal(ov[26 * 320 + rightBarX], 5, `${profile}: right red bar at x=${rightBarX}`);
+  }
 });

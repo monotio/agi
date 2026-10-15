@@ -495,15 +495,18 @@ test("log, obj.status.v, show.mem and pause route to the host", () => {
   );
 });
 
-test("version stores the host string, or the engine fallback, into slot 0", () => {
-  const source = "version(); return;";
+test("version prints the host string, or the engine fallback, without overwriting slot 0", () => {
+  const source = 'set.string(s0, ">"); version(); return;';
   const host = new TestHost();
   (host as { versionString?: () => string }).versionString = () => "test-interp 9.9";
   const engine = new Engine(gameWith(source), host, DICT);
   engine.tick();
-  assert.equal(engine.strings[0], "test-interp 9.9");
+  assert.deepEqual(host.prints, ["test-interp 9.9"]);
+  assert.equal(engine.strings[0], ">");
 
-  const bare = new Engine(gameWith(source), new TestHost(), DICT);
+  const bareHost = new TestHost();
+  const bare = new Engine(gameWith(source), bareHost, DICT);
   bare.tick();
-  assert.equal(bare.strings[0], "AGI IS HERE 1.0.0");
+  assert.deepEqual(bareHost.prints, ["AGI IS HERE 1.0.0"]);
+  assert.equal(bare.strings[0], ">");
 });

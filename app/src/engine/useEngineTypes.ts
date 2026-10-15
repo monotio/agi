@@ -46,6 +46,7 @@ export function freshHistoryView(): HistoryViewUiState {
     pendingSwaps: 0,
     dropped: 0,
     diverged: null,
+    incompatible: null,
     error: "",
   };
 }
@@ -134,6 +135,7 @@ export interface HistoryViewUiState {
   /** Segments the retention bound evicted before this tape was opened. */
   dropped: number;
   diverged: { tick: number; detail: string } | null;
+  incompatible: { tick: number; detail: string } | null;
   error: string;
 }
 
@@ -218,7 +220,7 @@ export interface EngineState {
   otherTab: boolean;
   returnProblem: string;
   /** Play's note that its room started fresh to show changes made in Create. */
-  returnNote: number | null;
+  returnNote: string;
   entryProblem: string;
   /** Installed conversation ownership is moving into its editable project. */
   conversationTransitioning: boolean;

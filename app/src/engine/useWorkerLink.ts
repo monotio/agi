@@ -143,12 +143,6 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   };
 
   let worker: Worker | null = null;
-  let pendingHostRequest: { generation: number; id: number; abort: AbortController } | null = null;
-  function abandonHostRequest(): void {
-    const pending = pendingHostRequest;
-    pendingHostRequest = null;
-    pending?.abort.abort();
-  }
   let latestFrame: Frame | null = null;
   let shakeTimer: number | null = null;
   const workerQueries = createWorkerQueries();
@@ -204,7 +198,6 @@ export function useWorkerLink(options: WorkerLinkOptions) {
 
   /** Terminate the current worker and forget it (eject / shutdown paths). */
   function terminateWorker(): void {
-    abandonHostRequest();
     deps.projectClosed?.();
     worker?.terminate();
     worker = null;
@@ -221,7 +214,6 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   }
 
   function spawnWorker(preservePlayOwnership = false): Worker {
-    abandonHostRequest();
     deps.projectClosed?.(preservePlayOwnership);
     worker?.terminate();
     options.audio?.stop();
@@ -238,10 +230,10 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   }
 
   function wireWorker(w: Worker): void {
-    abandonHostRequest();
     // Trace stream instance last seen from this worker; an epoch change
     // means the worker reset or re-armed the channel, so stale records drop.
     let traceEpochSeen = -1;
+    let pendingHostRequest: { generation: number; id: number } | null = null;
     // The map is required, not partial: a union member without a handler is a
     // type error here, so deleting one fails `npm run check` at compile time.
     const handlers: WorkerOutboundHandlers = {
@@ -320,16 +312,13 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       // The live identity combines run generation and replayable request serial.
       // Abandoned completions cannot publish answers or follow-up checkpoints.
       hostRequest: (msg) => {
-        abandonHostRequest();
         const { generation, id } = msg;
-        const pending = { generation, id, abort: new AbortController() };
+        const pending = { generation, id };
         pendingHostRequest = pending;
         const req: LlmRequest = {
           op: msg.op,
           context: msg.context,
         };
-        // Lifetime belongs to this request identity, outside its authoring payload.
-        Object.defineProperty(req, "signal", { value: pending.abort.signal });
         logAgent("request", `${req.op} ${JSON.stringify(req.context)}`);
         hostRequestHandler(currentSessionAgent)
           .handle(req)
@@ -358,7 +347,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       interactionCancelled: (msg) => {
         if (pendingHostRequest?.generation !== msg.generation || pendingHostRequest.id !== msg.id)
           return;
-        abandonHostRequest();
+        pendingHostRequest = null;
         deps.cancelPrompt();
       },
       frame: (msg) => {
@@ -370,6 +359,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           visual: msg.visual,
           priority: msg.priority,
           text: msg.text,
+          windowOverlay: msg.windowOverlay,
           picRow: msg.picRow,
           cycle: msg.cycle,
           patchGeneration: msg.patchGeneration,

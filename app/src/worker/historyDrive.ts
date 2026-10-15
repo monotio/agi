@@ -138,6 +138,13 @@ export interface HistoryDrive {
   readonly applied: number;
   /** First verification failure, or null when every mark held. */
   readonly diverged: HistoryDivergence | null;
+  /**
+   * A legacy combined-digest recording that replay cannot continue or verify
+   * — a plain compatibility notice, never a verified divergence: the released
+   * build's legitimately-different behavior (e.g. the version() modal, the
+   * v19 store ordering) can strand recorded events or marks.
+   */
+  readonly incompatible: HistoryDivergence | null;
   /** A thrown boundary or structurally unusable recording. */
   readonly error: string | null;
   /** The recorded tick the drive sits on (host-poll axis). */
@@ -236,11 +243,20 @@ export function openHistoryDrive(
   const outcome = {
     applied: 0,
     diverged: null as HistoryDivergence | null,
+    incompatible: null as HistoryDivergence | null,
     error: null as string | null,
   };
   const fail = (at: { seq: number; tick: number; cycle: number }, detail: string): void => {
     if (outcome.diverged === null) outcome.diverged = { at, detail };
   };
+  const note = (at: { seq: number; tick: number; cycle: number }, detail: string): void => {
+    if (outcome.incompatible === null) outcome.incompatible = { at, detail };
+  };
+  // A segment without split-digest marks was recorded by a released build
+  // whose behavior legitimately differs from today's; nothing in it is
+  // verified, and a position replay cannot reach is a compatibility notice,
+  // never a divergence or a hard failure.
+  const legacyOnly = segment.sync.every((m) => m.state === undefined);
 
   const events = segment.events;
   let ei = 0;
@@ -261,6 +277,9 @@ export function openHistoryDrive(
     },
     get diverged() {
       return outcome.diverged;
+    },
+    get incompatible() {
+      return outcome.incompatible;
     },
     get error() {
       return outcome.error;
@@ -438,10 +457,13 @@ export function openHistoryDrive(
       const mark: HistorySyncMark = segment.sync[markIdx]!;
       const seqNow = appliedSeq();
       if (seqNow > mark.seq || replay!.tick > mark.tick) {
-        fail(
-          { seq: mark.seq, tick: mark.tick, cycle: mark.cycle },
-          `sync mark unreachable: stream passed it at tick ${replay!.tick} seq ${seqNow}`,
-        );
+        // A split-digest mark the stream passed is a verified divergence; a
+        // legacy combined-only mark only notes the recording cannot be
+        // verified from here on.
+        const at = { seq: mark.seq, tick: mark.tick, cycle: mark.cycle };
+        const detail = `sync mark unreachable: stream passed it at tick ${replay!.tick} seq ${seqNow}`;
+        if (mark.state === undefined || mark.text === undefined) note(at, detail);
+        else fail(at, detail);
         markIdx++;
         continue;
       }
@@ -453,7 +475,7 @@ export function openHistoryDrive(
       // split-digest marks are verified — the state digest and the text
       // digest separately, plus room, score, patchGeneration, modal and
       // cycle.
-      if (mark.state === undefined) continue;
+      if (mark.state === undefined || mark.text === undefined) continue;
       const actual = computeSyncMark(engine!, mark.seq, mark.tick, mark.cycle);
       const detail =
         actual.state !== mark.state
@@ -680,12 +702,16 @@ export function openHistoryDrive(
       if (event === null && replay.tick >= endTick) return halt();
       // A pending event behind a terminated engine is one the live session
       // could never have produced — report the strand. Paused polls still
-      // advance the recorded tick, so a pause is never a strand.
+      // advance the recorded tick, so a pause is never a strand. A legacy
+      // combined-digest recording instead gets a plain compatibility notice:
+      // the released build's ordering legitimately differs, so the strand
+      // says nothing verified (e.g. a quit the v19 store ordering no longer
+      // reaches at the recorded tick).
       if (event !== null && engine.readLeanState().terminated) {
-        fail(
-          { seq: event.seq, tick: event.tick, cycle: event.cycle },
-          `recorded event unreachable: replay cannot advance past tick ${replay.tick}: the engine terminated`,
-        );
+        const at = { seq: event.seq, tick: event.tick, cycle: event.cycle };
+        const detail = `recorded event unreachable: replay cannot advance past tick ${replay.tick}: the engine terminated`;
+        if (legacyOnly) note(at, detail);
+        else fail(at, detail);
         return halt();
       }
       advanceTick();

@@ -62,9 +62,11 @@ export function createHistoryView(
         drive !== null &&
         engine !== null &&
         drive.diverged === null &&
+        drive.incompatible === null &&
         drive.error === null &&
         engine.recordingImage() !== null,
       diverged: drive?.diverged ?? null,
+      ...(drive?.incompatible ? { incompatible: drive.incompatible } : {}),
       error: drive?.error ?? null,
     };
   }
@@ -417,6 +419,12 @@ export function createHistoryView(
     }
     if (drive.diverged !== null) {
       refuse(`the recording diverged: ${drive.diverged.detail}`);
+      return;
+    }
+    if (drive.incompatible !== null) {
+      refuse(
+        `this earlier recording ended before the selected moment: ${drive.incompatible.detail}`,
+      );
       return;
     }
     if (drive.error !== null) {
