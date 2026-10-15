@@ -428,12 +428,14 @@ test("Generate sends one styled request and Use image opens tracing @webkit-desk
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
-  const generatedCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
-  const generatedEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
-  expect(generatedCanvas.width).toBe(normalCanvas.width);
-  expect(generatedCanvas.height).toBe(normalCanvas.height);
-  expect(generatedEditor.width).toBe(normalEditor.width);
-  expect(generatedEditor.x).toBe(normalEditor.x);
+  // Staging finishes before ResizeObserver settles the tracing canvas's fitted zoom.
+  await expect
+    .poll(async () => {
+      const canvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
+      const editor = (await page.getByTestId("workspace-editor").boundingBox())!;
+      return [canvas.width, canvas.height, editor.width, editor.x];
+    })
+    .toEqual([normalCanvas.width, normalCanvas.height, normalEditor.width, normalEditor.x]);
   expect(requests).toBe(1);
   await imageShot(page, "generated-trace");
 });
