@@ -67,11 +67,15 @@ import {
 } from "./referenceTools.ts";
 import { GAME_TEST_TOOLS, executeGameTestTool } from "./gameTests.ts";
 import {
+  readStoredTests,
   runFinishGameTests,
   rerunAffectedTests,
   type TouchedResource,
   type GameTestOutcome,
 } from "./gameTestsRunner.ts";
+import { gameTestDefinitionChanges } from "./gameTestReview.ts";
+import { parseGameTests } from "./gameTestFormat.ts";
+import { finishReport, readTestReasons } from "./finishReport.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -1151,7 +1155,7 @@ function executeLegacyTool(
     }
 
     case "finish":
-      return validateAgentHandover(session, args["notes"] ?? null);
+      return validateAgentHandover(session, args["testReasons"] ?? null);
 
     case "write_objects": {
       let mergedItem: { id: number; name: string } | undefined;
@@ -1839,36 +1843,43 @@ export function validateAgentGameHandover(
 /** The Agent's final handover check; creator admission validates the game separately. */
 export function validateAgentHandover(
   session: AgentSessionState,
-  notes: unknown = null,
+  testReasons: unknown = null,
   checkGenesis = true,
 ): AgentToolResult {
   const game = validateAgentGameHandover(session, checkGenesis);
   if (!game.success) return game;
   const connections = game.details!["connections"] as ReturnType<typeof verifyPlanConnections>;
-  // Tests run last, against the committed document and final candidate resources.
+  // Tests run last, as Apply would leave them, against the final candidate resources.
   const testRun = runFinishGameTests(session);
   const gameTests = testRun.details?.["gameTests"] as readonly GameTestOutcome[] | undefined;
   const failed = gameTests?.filter((test) => !test.passed) ?? [];
   const testsVerdict = failed.length
-    ? `${failed.length} tests fail: ${failed.map((test) => test.name).join(", ")}`
+    ? `${failed.length} ${failed.length === 1 ? "test fails" : "tests fail"}: ${failed.map((test) => test.name).join(", ")}`
     : gameTests?.length
-      ? `All ${gameTests.length} tests pass.`
+      ? gameTests.length === 1
+        ? "1 test passes."
+        : `All ${gameTests.length} tests pass.`
       : gameTests
         ? ""
         : (testRun.error ?? "");
-  if (failed.some((test) => typeof notes !== "string" || !notes.includes(test.name)))
+  // Each red test and each existing test this turn changed needs its own reason.
+  const changed = agentChangedTests(session);
+  const reasons = readTestReasons(testReasons, [...failed.map((test) => test.name), ...changed]);
+  if (reasons.missing.length)
     return {
       success: false,
-      error: `Not finished: ${failed.map((test) => JSON.stringify(test.name)).join(", ")} fail. Fix them, or say in notes why each stays red.`,
+      error: `Not finished: give testReasons for ${reasons.missing.map((name) => JSON.stringify(name)).join(", ")}. Each red test needs a reason it stays red, and each existing test you changed or deleted needs a reason for the change.`,
       details: { gameTests, testsVerdict, connections },
     };
 
   session.genesisComplete = true;
   session.finishTestsStatus = testsVerdict;
+  session.finishTestsNotes = reasons.lines;
+  const report = finishReport(testsVerdict, reasons.lines);
   return {
     success: true,
     message:
-      (testsVerdict ? `${testsVerdict}\n` : "") +
+      (report ? `${report}\n` : "") +
       (testRun.details?.["proposedTestsCause"]
         ? `${String(testRun.details["proposedTestsCause"])}\n`
         : "") +
@@ -1879,10 +1890,30 @@ export function validateAgentHandover(
       `. Resuming gameplay.`,
     details: {
       genesisComplete: true,
-      notes,
       gameTests,
       testsVerdict,
+      testNotes: reasons.lines,
+      testsReport: report,
       connections,
     },
   };
+}
+
+/** Existing tests this turn changed or deleted, measured from the turn's own base. */
+function agentChangedTests(session: AgentSessionState): readonly string[] {
+  if (session.finishTestsBase === undefined) return [];
+  try {
+    const base = parseGameTests(
+      typeof session.finishTestsBase === "string"
+        ? new TextEncoder().encode(session.finishTestsBase)
+        : (session.finishTestsBase ?? undefined),
+      session.profile,
+    ).tests;
+    return gameTestDefinitionChanges(base, readStoredTests(session))
+      .filter((change) => change.kind !== "added")
+      .map((change) => change.name);
+  } catch {
+    // The finish run already reports unreadable proposed tests.
+    return [];
+  }
 }

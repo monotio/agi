@@ -1,6 +1,6 @@
 {
   "name": "project-agent-failed-finish-tests",
-  "description": "Agent finish refuses unnamed red tests; notes naming every failure permit handover.",
+  "description": "Agent finish refuses red tests without reasons; a testReasons entry for every failure permits handover.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -46,7 +46,7 @@
             "id": "finish",
             "name": "finish",
             "input": {
-              "notes": null
+              "testReasons": null
             }
           }
         ]
@@ -54,10 +54,12 @@
       {
         "toolCalls": [
           {
-            "id": "finish-with-notes",
+            "id": "finish-with-reasons",
             "name": "finish",
             "input": {
-              "notes": "Impossible score needs its score implementation."
+              "testReasons": [
+                { "test": "Impossible score", "reason": "its score is not implemented yet." }
+              ]
             }
           }
         ]
@@ -66,7 +68,7 @@
     "expectedKeys": [],
     "expectedOutcomes": {
       "finish": false,
-      "finish-with-notes": true
+      "finish-with-reasons": true
     },
     "autoApprove": true,
     "expectedDocuments": {

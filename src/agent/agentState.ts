@@ -76,6 +76,8 @@ export interface AgentSessionState {
   /** Project hosts supply the current committed document for every simulation. */
   /** Original turn tests; finish includes only genuinely added proposed names. */
   finishTestsStatus?: string | undefined;
+  /** The finish-notes sentences that explain each red or changed test. */
+  finishTestsNotes?: readonly string[] | undefined;
   finishTestsBase?: string | Uint8Array | null | undefined;
   readCommittedTests?: (() => string | Uint8Array | undefined) | undefined;
   genesisComplete: boolean;
@@ -129,6 +131,7 @@ export function createAgentSessionState(
     objectPayload,
     testsPayload: undefined,
     finishTestsStatus: undefined,
+    finishTestsNotes: undefined,
     genesisComplete: false,
     diagnostics: new Map<string, AgentToolResult>(),
     testEvidence: new Map<string, { outcome: unknown; result: AgentToolResult }>(),

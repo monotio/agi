@@ -10,6 +10,7 @@ import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 type RoomAuthoringRequest = LlmRequest & { readonly signal?: AbortSignal };
 import type { AgentRunState } from "../agent/agentRun.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
+import { withFinishReport } from "../../../src/agent/finishReport.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../../src/agent/frames.ts";
 import { continuationTranscript } from "../archive/projectConversation.ts";
@@ -1013,7 +1014,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         task.messages.push({
           id: messageId!,
           role: "assistant",
-          text: [author.state.finishTestsStatus, task.title].filter(Boolean).join("\n"),
+          text: withFinishReport(
+            author.state.finishTestsStatus,
+            author.state.finishTestsNotes,
+            task.title,
+            "\n",
+          ),
           ...(own?.parent ? { beforeCommit: own.parent, commit: own.id } : {}),
         });
         await project.saveChats(appendAgentTasks({ chats: project.chats() }, tasks));

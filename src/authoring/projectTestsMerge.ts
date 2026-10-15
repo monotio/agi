@@ -1,4 +1,4 @@
-import { sameGameTestDefinition } from "../agent/gameTestComparison.ts";
+import { mergeGameTestsByName, sameGameTestDefinition } from "../agent/gameTestComparison.ts";
 /** Agent test changes merge by name; untouched names belong to the current document. */
 import { parseGameTests, serializeGameTests } from "../agent/gameTestFormat.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
@@ -45,20 +45,8 @@ export function mergeAgentTestChanges(
     );
   }
   const latest = parse(current["tests"]);
-  const changed = candidate.filter((test) => {
-    const previous = before.find((entry) => entry.name === test.name);
-    return !previous || !sameGameTestDefinition(previous, test);
-  });
-  const removed = before.filter((test) => !candidate.some((entry) => entry.name === test.name));
-  const writtenNames = new Set(changed.map((test) => test.name));
-  const removedNames = new Set(removed.map((test) => test.name));
-  const merged = [
-    ...latest
-      .filter((test) => !removedNames.has(test.name))
-      .map((test) => changed.find((entry) => entry.name === test.name) ?? test),
-    ...changed.filter((test) => !latest.some((entry) => entry.name === test.name)),
-  ];
-  if ((!writtenNames.size && !removedNames.size) || sameGameTestDefinition(latest, merged))
+  const merged = mergeGameTestsByName(before, candidate, latest);
+  if (sameGameTestDefinition(latest, merged))
     return changes.filter((change) => change.key !== "tests");
   const content =
     offered.content === null && !merged.length

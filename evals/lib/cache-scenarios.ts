@@ -110,7 +110,7 @@ const call = (name: string, input: Record<string, unknown>): ScriptedTurn => ({
   calls: [{ name, input }],
 });
 const say = (text: string): ScriptedTurn => ({ text });
-const HANDOVER = call("finish", { notes: null });
+const HANDOVER = call("finish", { testReasons: null });
 
 export const SCENARIOS: readonly Scenario[] = [
   {

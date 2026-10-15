@@ -1,6 +1,6 @@
 {
   "name": "project-agent-tests-first",
-  "description": "Tests may describe a missing room and finish with notes naming the failure.",
+  "description": "Tests may describe a missing room and finish with a reason for the failure.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -35,7 +35,7 @@
             "id": "finish",
             "name": "finish",
             "input": {
-              "notes": "Future room stays red because room 5 has not been built."
+              "testReasons": [{ "test": "Future room", "reason": "room 5 has not been built yet." }]
             }
           }
         ]

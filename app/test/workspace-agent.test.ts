@@ -24,6 +24,8 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
+import { gameTestReviewLines } from "../../src/agent/gameTestReview.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import { capturedResourceDocuments } from "../src/agent/agentResultPreview.ts";
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { wordsTaskReply } from "../src/studio/workspace/wordsPrompts.ts";
@@ -109,9 +111,14 @@ for (const mode of ["review", "auto", "background"] as const) {
                       id: "finish",
                       name: "finish",
                       input: {
-                        notes:
+                        testReasons:
                           failure === "tests"
-                            ? "Impossible score needs the score implementation."
+                            ? [
+                                {
+                                  test: "Impossible score",
+                                  reason: "needs the score implementation.",
+                                },
+                              ]
                             : null,
                       },
                     },
@@ -171,7 +178,7 @@ test("successful workspace finish ends the tool batch and provider turn", async 
               name: "write_picture",
               input: { room: 1, source: "vis 2\nfill 0,0\nend\n" },
             },
-            { id: "finish", name: "finish", input: { notes: null } },
+            { id: "finish", name: "finish", input: { testReasons: null } },
             {
               id: "late",
               name: "write_picture",
@@ -221,11 +228,11 @@ for (const provider of ["openai", "anthropic"] as const) {
     const batches = [
       [
         { id: "write", name: "write_logic", input: { room: 1, source: unregistered } },
-        { id: "finish", name: "finish", input: { notes: null } },
+        { id: "finish", name: "finish", input: { testReasons: null } },
       ],
       [
         { id: "repair", name: "write_logic", input: { room: 1, source: repaired } },
-        { id: "finish2", name: "finish", input: { notes: null } },
+        { id: "finish2", name: "finish", input: { testReasons: null } },
       ],
     ];
     const bodies: string[] = [];
@@ -317,8 +324,8 @@ for (const readOnly of [false, true]) {
     try {
       const reply = readOnly ? await agent.ask("What is here?") : await agent.send("Add a tree");
       const expected = readOnly
-        ? "The agent stopped without answering. Ask again."
-        : "The agent stopped before changing anything. Ask again, or describe the change differently.";
+        ? "The agent ended its turn without an answer. Ask again."
+        : "The agent ended its turn without a reply or a change. Ask again, or describe the change differently.";
       assert.equal(agent.current().messages.at(-1)?.text, expected);
       if (readOnly) assert.equal(reply, expected);
       assert.equal(agent.pending(), null);
@@ -329,7 +336,7 @@ for (const readOnly of [false, true]) {
   });
 }
 
-test("a passing finish with no change and no reply still says the agent stopped", async () => {
+test("a passing finish with no change and no reply says the agent finished without a change", async () => {
   const { session } = fixture();
   const agent = createWorkspaceAgent({
     session,
@@ -339,7 +346,7 @@ test("a passing finish with no change and no reply still says the agent stopped"
       setAvailableTools() {},
       getTranscript: () => [],
       async sendUserMessage() {
-        return { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] };
+        return { toolCalls: [{ id: "finish", name: "finish", input: { testReasons: null } }] };
       },
       appendToolResults() {},
       async complete() {
@@ -351,12 +358,148 @@ test("a passing finish with no change and no reply still says the agent stopped"
     await agent.send("Add a tree");
     assert.equal(
       agent.current().messages.at(-1)?.text,
-      "The agent stopped before changing anything. Ask again, or describe the change differently.",
+      "The agent finished without changing anything. Ask again, or describe the change differently.",
     );
   } finally {
     session.dispose();
   }
 });
+
+for (const cause of [
+  "withdrawn after an error",
+  "a failed write after a red test run",
+  "a failed write after a withdrawal",
+  "a test run with bad arguments",
+  "a passing finish after an error",
+  "output limit",
+  "output limit in Ask",
+  "refusal",
+] as const)
+  test(`a turn that stops without a change names the cause: ${cause}`, async () => {
+    const { session } = fixture();
+    const sparkle = {
+      id: "write",
+      name: "write_logic",
+      input: { room: 1, source: 'if (said("sparkle")) { print("Hi"); } return;' },
+    };
+    if (cause === "a failed write after a red test run")
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator test", [
+          { key: "logic:1", content: "return;" },
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [{ name: "Open door", room: 1, steps: [], expect: { score: 99 } }],
+            }),
+          },
+        ]),
+        label: "Creator test",
+        origin: "guided",
+        author: "creator",
+      });
+    const turns: LlmTurnResult[] =
+      cause === "a failed write after a red test run"
+        ? [
+            {
+              toolCalls: [{ id: "run", name: "run_game_tests", input: { names: null } }, sparkle],
+            },
+            { text: "", toolCalls: [], stopReason: "end_turn" },
+          ]
+        : cause === "withdrawn after an error" || cause === "a failed write after a withdrawal"
+          ? [
+              ...(cause === "withdrawn after an error"
+                ? [sparkle, { id: "withdraw", name: "withdraw_changes", input: {} }]
+                : [
+                    { id: "plain", name: "write_logic", input: { room: 1, source: "return;" } },
+                    { id: "withdraw", name: "withdraw_changes", input: {} },
+                    sparkle,
+                  ]
+              ).map((call) => ({ toolCalls: [call] })),
+              { text: "", toolCalls: [], stopReason: "end_turn" },
+            ]
+          : cause === "a test run with bad arguments"
+            ? [
+                {
+                  toolCalls: [{ id: "run", name: "run_game_tests", input: { names: "Open door" } }],
+                },
+                { text: "", toolCalls: [], stopReason: "end_turn" },
+              ]
+            : cause === "a passing finish after an error"
+              ? [
+                  { toolCalls: [sparkle] },
+                  {
+                    toolCalls: [{ id: "finish", name: "finish", input: { testReasons: null } }],
+                    stopReason: "end_turn",
+                  },
+                ]
+              : [
+                  {
+                    text: "",
+                    toolCalls: [],
+                    stopReason: cause === "refusal" ? "refusal" : "max_tokens",
+                  },
+                ];
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return turns[round++]!;
+        },
+        async complete() {
+          return turns[round++]!;
+        },
+      }),
+    });
+    try {
+      if (cause === "output limit in Ask") await agent.ask("Why does LOOK not sparkle?");
+      else await agent.send("Make LOOK sparkle");
+      const text = agent.current().messages.at(-1)?.text ?? "";
+      if (
+        cause === "a failed write after a red test run" ||
+        cause === "a failed write after a withdrawal"
+      )
+        assert.match(
+          text,
+          /^The agent stopped after this error: .*sparkle.*\. Ask again, or describe the change differently\.$/,
+        );
+      else if (cause === "a test run with bad arguments")
+        assert.match(
+          text,
+          /^The agent stopped after this error: names must be array or null, got string\. Ask again/,
+        );
+      else if (cause === "a passing finish after an error")
+        assert.equal(
+          text,
+          "The agent finished without changing anything. Ask again, or describe the change differently.",
+        );
+      else if (cause === "withdrawn after an error")
+        assert.match(
+          text,
+          /^The agent withdrew its changes after this error: .*sparkle.*\. Ask again, or describe the change differently\.$/,
+        );
+      else
+        assert.equal(
+          text,
+          {
+            "output limit":
+              "The agent reached its reply length limit before it finished. Ask for a smaller change.",
+            "output limit in Ask":
+              "The agent reached its reply length limit before it finished. Ask a shorter question.",
+            refusal: "The agent declined this request. Describe it differently.",
+          }[cause],
+        );
+      assert.equal(agent.pending(), null);
+    } finally {
+      session.dispose();
+    }
+  });
 
 test("partial approval validates the selected candidate's handover", async () => {
   const { session } = fixture();
@@ -2859,8 +3002,18 @@ for (const restore of [false, true]) {
           async complete() {
             rounds++;
             return {
-              text: "Echo, Change, Remove, Creator and Renamed stay red because their rooms have not been built.",
-              toolCalls: [],
+              toolCalls: [
+                {
+                  id: "finish",
+                  name: "finish",
+                  input: {
+                    testReasons: ["Echo", "Change", "Remove", "Renamed"].map((test) => ({
+                      test,
+                      reason: "its room has not been built.",
+                    })),
+                  },
+                },
+              ],
             };
           },
         }),
@@ -3062,7 +3215,17 @@ for (const alreadyEqual of [false, true])
           };
         },
         async complete() {
-          return { text: "Changed Intro", toolCalls: [] };
+          return {
+            toolCalls: [
+              {
+                id: "finish",
+                name: "finish",
+                input: {
+                  testReasons: [{ test: "Intro", reason: "it now expects score 1, as asked." }],
+                },
+              },
+            ],
+          };
         },
       }),
     });
@@ -3146,7 +3309,9 @@ for (const stored of [true, false])
               {
                 id: "finish",
                 name: "finish",
-                input: { notes: stored ? "Future needs room 5." : null },
+                input: {
+                  testReasons: stored ? [{ test: "Future", reason: "needs room 5." }] : null,
+                },
               },
             ],
           };
@@ -3168,7 +3333,9 @@ for (const stored of [true, false])
       assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
       assert.equal(
         agent.current().messages.at(-1)!.text,
-        stored ? "1 tests fail: Future\nFormatted reply" : "Formatted reply",
+        stored
+          ? "1 test fails: Future\n- Future: needs room 5.\nFormatted reply"
+          : "Formatted reply",
       );
     } finally {
       session.dispose();
@@ -3176,7 +3343,7 @@ for (const stored of [true, false])
   });
 
 for (const explained of [false, true])
-  test(`Agent implicit finish names red proposed tests before review (${explained ? "named reason" : "unnamed refusal"})`, async () => {
+  test(`An implicit finish with a red proposed test asks for finish testReasons (${explained ? "reason in the reply" : "no reason"})`, async () => {
     const { session } = fixture();
     const agent = createWorkspaceAgent({
       session,
@@ -3207,22 +3374,114 @@ for (const explained of [false, true])
       }),
     });
     try {
-      if (explained) {
-        await agent.send("Write tests first");
-        assert.match(agent.current().messages.at(-1)!.text, /^1 tests fail: Future/);
-        const restored = createWorkspaceAgent({
-          session,
-          profileId: "2.936",
-          config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
-        });
-        await restored.approve();
-        assert.match(String(session.model.capture().read("tests")?.content), /Future/);
-      } else {
-        await agent.send("Write tests first");
-        assert.match(agent.error ?? "", /Not finished: "Future" fail/);
-        assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Future" fail/);
-        assert.equal(agent.pending(), null);
-        assert.equal(session.model.capture().read("tests"), undefined);
+      await agent.send("Write tests first");
+      assert.match(agent.error ?? "", /Not finished: give testReasons for "Future"/);
+      assert.match(
+        agent.current().messages.at(-1)!.text,
+        /^1 test fails: Future\nNot finished: give testReasons for "Future"/,
+      );
+      assert.equal(agent.pending(), null);
+      assert.equal(session.model.capture().read("tests"), undefined);
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const request of ["a red finish", "a test change the creator asked for"] as const)
+  test(`The player sees each red or changed test with the Agent's reason in the reply and in review: ${request}`, async () => {
+    const { session } = fixture();
+    const document = (tests: readonly unknown[]) =>
+      JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const openDoor = { name: "Open door", room: 1, steps: [], expect: { score: 99 } };
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator tests", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "view:0", content: DOT_EGO },
+        { key: "logic:1", content: scoreRoom(0) },
+        { key: "tests", content: document([openDoor, { name: "Lake start", room: 5, steps: [] }]) },
+      ]),
+      label: "Creator tests",
+      origin: "guided",
+      author: "creator",
+    });
+    const lakeStart = { test: "Lake start", reason: "room 5 was deleted, so it cannot start." };
+    const testReasons =
+      request === "a red finish"
+        ? [{ test: "Open door", reason: "the score handler is not written yet." }, lakeStart]
+        : [{ test: "Open door", reason: "it now expects score 0, as you asked." }, lakeStart];
+    const edit =
+      request === "a red finish"
+        ? {
+            id: "edit",
+            name: "propose_changes",
+            input: {
+              label: "Blue room",
+              changes: [{ key: "picture:1", content: "vis 1\nfill 1,1\nend\n" }],
+            },
+          }
+        : {
+            id: "edit",
+            name: "write_game_tests",
+            input: { mode: "merge", names: null, tests: [{ ...openDoor, expect: { score: 0 } }] },
+          };
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults(entries) {
+          for (const entry of entries)
+            assert.equal(entry.result.success, true, JSON.stringify(entry.result));
+        },
+        async sendUserMessage() {
+          return { toolCalls: [edit] };
+        },
+        async complete() {
+          assert.equal(round++, 0, "a successful finish ends the turn");
+          return { toolCalls: [{ id: "finish", name: "finish", input: { testReasons } }] };
+        },
+      }),
+    });
+    agent.autoApprove = request !== "a red finish";
+    try {
+      await agent.send(
+        request === "a red finish"
+          ? "Paint the room blue"
+          : 'Update "Open door" to expect score 0. I approve changing this expectation.',
+      );
+      // Tests run as Apply would leave them: the requested expectation passes.
+      const reasons =
+        request === "a red finish"
+          ? "- Open door: the score handler is not written yet.\n- Lake start: room 5 was deleted, so it cannot start."
+          : "- Lake start: room 5 was deleted, so it cannot start.\n- Open door: it now expects score 0, as you asked.";
+      const status =
+        request === "a red finish"
+          ? "2 tests fail: Open door, Lake start"
+          : "1 test fails: Lake start";
+      const message = agent.current().messages.at(-1)!;
+      assert.ok(agent.pending(), "the change waits for the creator's Apply");
+      assert.equal(message.testReport, `${status}\n${reasons}`);
+      assert.ok(
+        message.text.startsWith(`${status}\n${reasons}\n\n`),
+        `reply shows the reasons under the status line: ${message.text}`,
+      );
+      if (request !== "a red finish") {
+        const review = agent.pending()!;
+        assert.deepEqual(
+          gameTestReviewLines(
+            review.proposal.base.read("tests")?.content,
+            review.proposal.documents()["tests"],
+            PROFILES["2.936"]!,
+          ),
+          ['Changed expectation of "Open door"'],
+        );
       }
     } finally {
       session.dispose();
@@ -3285,7 +3544,9 @@ for (const tool of ["write_game_tests", "propose_changes"] as const)
                       id: "finish",
                       name: "finish",
                       input: {
-                        notes: "Open door stays red because the score needs implementation.",
+                        testReasons: [
+                          { test: "Open door", reason: "the score needs implementation." },
+                        ],
                       },
                     },
                   ],
@@ -3303,6 +3564,11 @@ for (const tool of ["write_game_tests", "propose_changes"] as const)
         const cursor = session.history.capture().cursor;
         await agent.send("Propose test edits");
         assert.ok(agent.pending(), "existing-test changes require the creator's Apply");
+        // Review lists the reason even when no test is left to give a status line.
+        assert.match(
+          agent.current().messages.at(-1)!.testReport ?? "",
+          /^(1 test (passes\.|fails: Open door)\n)?- Open door: the score needs implementation\.$/,
+        );
         assert.equal(session.model.capture().read("tests")!.content, before);
         assert.equal(session.history.capture().cursor, cursor);
         await agent.approve();
@@ -3369,7 +3635,9 @@ for (const timing of ["before approval", "inside queue"] as const)
                   {
                     id: "finish",
                     name: "finish",
-                    input: { notes: "Future stays red because its room has not been built." },
+                    input: {
+                      testReasons: [{ test: "Future", reason: "its room has not been built." }],
+                    },
                   },
                 ],
               }
@@ -3469,7 +3737,7 @@ for (const fixes of [true, false])
         },
         async complete() {
           return round++ === 0
-            ? { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] }
+            ? { toolCalls: [{ id: "finish", name: "finish", input: { testReasons: null } }] }
             : { text: "Done", toolCalls: [] };
         },
       }),
@@ -3479,7 +3747,7 @@ for (const fixes of [true, false])
       assert.equal(results.find((entry) => entry.toolCallId === "run")?.result.success, fixes);
       assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, fixes);
       if (fixes) {
-        assert.match(agent.current().messages.at(-1)!.text, /^All 1 tests pass\./);
+        assert.match(agent.current().messages.at(-1)!.text, /^1 test passes\./);
         assert.equal(
           agent
             .pending()!
@@ -3491,10 +3759,13 @@ for (const fixes of [true, false])
       } else {
         assert.match(
           results.find((entry) => entry.toolCallId === "finish")?.result.error ?? "",
-          /Not finished: "Score test" fail/,
+          /Not finished: give testReasons for "Score test"/,
         );
-        assert.match(agent.error ?? "", /Not finished: "Score test" fail/);
-        assert.match(agent.current().messages.at(-1)!.text, /Not finished: "Score test" fail/);
+        assert.match(agent.error ?? "", /Not finished: give testReasons for "Score test"/);
+        assert.match(
+          agent.current().messages.at(-1)!.text,
+          /Not finished: give testReasons for "Score test"/,
+        );
         assert.equal(agent.pending(), null);
       }
     } finally {
@@ -3502,7 +3773,7 @@ for (const fixes of [true, false])
     }
   });
 
-test("Auto-approve commits a game proposal with red tests; only finish notes explain failures", async () => {
+test("Auto-approve commits a game proposal with red tests; only finish testReasons explain failures", async () => {
   const { session } = fixture();
   const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
   await session.submit({
@@ -3547,7 +3818,9 @@ test("Auto-approve commits a game proposal with red tests; only finish notes exp
             {
               id: "finish",
               name: "finish",
-              input: { notes: "Score test needs the score implementation." },
+              input: {
+                testReasons: [{ test: "Score test", reason: "needs the score implementation." }],
+              },
             },
           ],
         };
@@ -3566,7 +3839,7 @@ test("Auto-approve commits a game proposal with red tests; only finish notes exp
     assert.equal(results.find((entry) => entry.toolCallId === "proposal")?.result.success, true);
     assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, true);
     assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
-    assert.match(agent.current().messages.at(-1)!.text, /^1 tests fail: Score test/);
+    assert.match(agent.current().messages.at(-1)!.text, /^1 test fails: Score test/);
   } finally {
     session.dispose();
   }
@@ -3620,7 +3893,7 @@ for (const creatorAction of ["partial approval", "save a red test"] as const)
                 name: "write_picture",
                 input: { room: 1, source: "vis 2\nfill 0,0\nend\n" },
               },
-              { id: "finish", name: "finish", input: { notes: null } },
+              { id: "finish", name: "finish", input: { testReasons: null } },
             ],
           };
         },
@@ -3631,7 +3904,7 @@ for (const creatorAction of ["partial approval", "save a red test"] as const)
     });
     try {
       await agent.send("Fix score and recolor");
-      assert.match(agent.current().messages.at(-1)!.text, /^All 1 tests pass\./);
+      assert.match(agent.current().messages.at(-1)!.text, /^1 test passes\./);
       if (creatorAction === "save a red test")
         await session.submit({
           proposal: session.model.propose(session.model.capture(), "Creator adds a test", [
@@ -3647,7 +3920,7 @@ for (const creatorAction of ["partial approval", "save a red test"] as const)
         session.model.capture().read("logic:1")!.content,
         creatorAction === "partial approval" ? scoreRoom(0) : scoreRoom(5),
       );
-      assert.match(agent.current().messages.at(-1)!.text, /^All 1 tests pass\./);
+      assert.match(agent.current().messages.at(-1)!.text, /^1 test passes\./);
       assert.equal(agent.pending(), null);
     } finally {
       session.dispose();
@@ -3699,7 +3972,13 @@ test("Only the creator edits existing tests: Auto-approve reviews a changed orig
           origin: "guided",
         });
         return {
-          toolCalls: [{ id: "finish", name: "finish", input: { notes: "Future needs room 5." } }],
+          toolCalls: [
+            {
+              id: "finish",
+              name: "finish",
+              input: { testReasons: [{ test: "Future", reason: "needs room 5." }] },
+            },
+          ],
         };
       },
     }),
@@ -3840,7 +4119,7 @@ for (const path of ["answer", "untouched plan", "read tests", "echo tests", "fin
               },
             ]
           : path === "finish"
-            ? [{ id: "finish", name: "finish", input: { notes: null } }]
+            ? [{ id: "finish", name: "finish", input: { testReasons: null } }]
             : [];
     const agent = createWorkspaceAgent({
       session,

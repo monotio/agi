@@ -34,6 +34,8 @@ interface Case {
     expectedCommits?: number;
     expectedReviewLines?: readonly string[];
     expectedDocuments?: Record<string, string | null>;
+    /** Text the first request and its tool descriptions must carry, so the model is told the rule. */
+    expectedInstructions?: readonly string[];
     readOnly?: boolean;
     submission?: { mode: "play" | "create"; readOnly?: boolean; context?: string };
     unreadableSound?: number;
@@ -116,14 +118,17 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       },
     });
     let round = 0;
+    let instructions = "";
     const agent = createWorkspaceAgent({
       session,
       profileId: "2.936",
       config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
-      conversation() {
+      conversation(_config, _transcript, _run, catalog = []) {
+        instructions = catalog.map((tool) => tool.description).join("\n");
         return {
           setAvailableTools() {},
-          async sendUserMessage() {
+          async sendUserMessage(text) {
+            if (round === 0) instructions += `\n${text}`;
             return content.turns[round++]!;
           },
           appendToolResults(results) {
@@ -234,6 +239,8 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       }
       for (const [key, value] of Object.entries(content.expectedDocuments ?? {}))
         assert.equal(session.model.capture().read(key)?.content ?? null, value);
+      for (const instruction of content.expectedInstructions ?? [])
+        assert.ok(instructions.includes(instruction), `the model is told: ${instruction}`);
       if (content.expectedReply !== undefined)
         assert.equal(agent.current().messages.at(-1)?.text, content.expectedReply);
       assert.equal(round, content.turns.length, "every scripted turn was requested");

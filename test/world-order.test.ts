@@ -281,7 +281,7 @@ test("stored tests replay and finish validates, then survive export/reimport", (
   const run = executeAgentTool(state, "run_game_tests", { names: null });
   assert.equal(run.success, true, run.error ?? "");
 
-  const finish = executeAgentTool(state, "finish", { notes: null });
+  const finish = executeAgentTool(state, "finish", { testReasons: null });
   assert.equal(finish.success, true, finish.error ?? "");
   const connections = finish.details?.["connections"] as {
     verified: unknown[];
@@ -313,7 +313,7 @@ test("finish accepts declared exits whose source room is not built yet", () => {
   assert.equal(declared?.success, true, declared?.error ?? "");
   writeRoom(state, garden(false));
   state.genesisComplete = true;
-  const finish = executeAgentTool(state, "finish", { notes: null });
+  const finish = executeAgentTool(state, "finish", { testReasons: null });
   assert.equal(finish.success, true, finish.error ?? "");
   const connections = finish.details?.["connections"] as {
     pending: { from: number; name: string; to: number }[];
@@ -399,7 +399,7 @@ return;`,
   });
   assert.equal(rewritten.success, true, rewritten.error ?? "");
   assert.deepEqual(rewritten.details?.["droppedPlanExits"], [{ from: 3, name: "right", to: 8 }]);
-  const finish = executeAgentTool(state, "finish", { notes: null });
+  const finish = executeAgentTool(state, "finish", { testReasons: null });
   assert.equal(finish.success, false);
   assert.match(finish.error ?? "", /room 3 declares exit "right" to room 8/);
 });
@@ -426,7 +426,7 @@ return;`,
   assert.deepEqual(rewritten.details?.["mismatchedPlanExits"], [
     { from: 3, name: "right", to: 8, declared: "right", compiled: "bottom" },
   ]);
-  const finish = executeAgentTool(state, "finish", { notes: null });
+  const finish = executeAgentTool(state, "finish", { testReasons: null });
   assert.equal(finish.success, false);
   assert.match(finish.error ?? "", /room 3 declares exit "right" to room 8/);
   assert.match(finish.error ?? "", /leaves the bottom edge instead/);

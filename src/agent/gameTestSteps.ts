@@ -54,7 +54,7 @@ const STEP_ACTIONS = [
 ] as const;
 type StepAction = (typeof STEP_ACTIONS)[number];
 
-const DIRECTION_NAMES: Readonly<Record<number, string>> = {
+export const DIRECTION_NAMES: Readonly<Record<number, string>> = {
   0: "stop",
   1: "up",
   2: "up-right",

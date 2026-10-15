@@ -272,7 +272,12 @@ test("coordinated tests proposal has a native test review @webkit-desktop", asyn
               ],
             }),
           },
-          { type: "function_call", call_id: "finish", name: "finish", arguments: '{"notes":null}' },
+          {
+            type: "function_call",
+            call_id: "finish",
+            name: "finish",
+            arguments: '{"testReasons":null}',
+          },
         ],
       }),
     );
@@ -382,7 +387,7 @@ test("native inspected LOGIC and test bytes render captured source and named tes
               type: "function_call",
               call_id: "finish",
               name: "finish",
-              arguments: '{"notes":null}',
+              arguments: '{"testReasons":null}',
             },
           ]
         : requests === 1

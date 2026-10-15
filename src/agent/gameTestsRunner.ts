@@ -1,4 +1,4 @@
-import { sameGameTestDefinition } from "./gameTestComparison.ts";
+import { mergeGameTestsByName } from "./gameTestComparison.ts";
 /** Stored tests run through the same detached interpreter as Agent playtests. */
 import { createContainer } from "../container/container.ts";
 import { assembleLogic } from "../logic/assembler.ts";
@@ -25,14 +25,49 @@ export function readStoredTests(session: AgentSessionState): readonly GameTest[]
   return parseGameTests(session.getFiles().get(GAME_TESTS_FILE), session.profile).tests;
 }
 
-function readRunTests(session: AgentSessionState): readonly GameTest[] {
-  const content = session.readCommittedTests
-    ? session.readCommittedTests()
-    : session.getFiles().get(GAME_TESTS_FILE);
+function parseTestsContent(
+  session: AgentSessionState,
+  content: string | Uint8Array | null | undefined,
+): readonly GameTest[] {
   return parseGameTests(
-    typeof content === "string" ? new TextEncoder().encode(content) : content,
+    typeof content === "string" ? new TextEncoder().encode(content) : (content ?? undefined),
     session.profile,
   ).tests;
+}
+
+/**
+ * Runs check the tests as Apply would leave them: the committed document with
+ * the Agent's proposed additions, edits and deletions merged by name.
+ * Unreadable proposed tests leave the committed ones to run, with the cause.
+ */
+function readRunTests(session: AgentSessionState): {
+  tests: readonly GameTest[];
+  proposedTestsCause?: string;
+} {
+  if (!session.readCommittedTests) return { tests: readStoredTests(session) };
+  const committed = parseTestsContent(session, session.readCommittedTests());
+  let proposed: readonly GameTest[];
+  try {
+    proposed = readStoredTests(session);
+  } catch (error) {
+    return {
+      tests: committed,
+      proposedTestsCause: `Proposed tests could not be read: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  let base: readonly GameTest[] | undefined;
+  try {
+    if (session.finishTestsBase !== undefined)
+      base = parseTestsContent(session, session.finishTestsBase);
+  } catch {
+    // An unreadable base names no Agent edits.
+  }
+  // Without a base, only tests with new names are known to be the Agent's.
+  return {
+    tests: base
+      ? mergeGameTestsByName(base, proposed, committed)
+      : [...committed, ...proposed.filter((test) => !committed.some((c) => c.name === test.name))],
+  };
 }
 
 /** A standalone parser uses the engine's normalization and dictionary matching. */
@@ -307,33 +342,11 @@ function runTests(
   session: AgentSessionState,
   names: readonly string[] | null,
   limit = Infinity,
-  finish = false,
 ): AgentToolResult {
   let stored: readonly GameTest[];
   let proposedTestsCause: string | undefined;
   try {
-    stored = readRunTests(session);
-    if (finish && session.readCommittedTests) {
-      try {
-        const base =
-          session.finishTestsBase === undefined
-            ? stored
-            : parseGameTests(
-                typeof session.finishTestsBase === "string"
-                  ? new TextEncoder().encode(session.finishTestsBase)
-                  : (session.finishTestsBase ?? undefined),
-                session.profile,
-              ).tests;
-        const additions = readStoredTests(session).filter(
-          (test) =>
-            !stored.some((current) => current.name === test.name) &&
-            !base.some((old) => old.name === test.name && sameGameTestDefinition(old, test)),
-        );
-        stored = [...stored, ...additions];
-      } catch (error) {
-        proposedTestsCause = `Proposed tests could not be read: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    }
+    ({ tests: stored, proposedTestsCause } = readRunTests(session));
   } catch (error) {
     return { success: false, error: String(error instanceof Error ? error.message : error) };
   }
@@ -384,7 +397,7 @@ function runTests(
   };
 }
 
-/** Runs read the committed document, independent of proposed Agent test edits. */
+/** Run the named tests, or all of them, as Apply would leave them. */
 export function runGameTests(
   session: AgentSessionState,
   names: readonly string[] | null,
@@ -393,9 +406,9 @@ export function runGameTests(
   return runTests(session, names, limit);
 }
 
-/** Finish protects all committed definitions and checks genuinely new proposed tests too. */
+/** Finish runs every test as Apply would leave it. */
 export function runFinishGameTests(session: AgentSessionState): AgentToolResult {
-  return runTests(session, null, Infinity, true);
+  return runTests(session, null);
 }
 
 /** How a touched resource reads in the rerun report, e.g. "room 3" for its logic. */
@@ -423,7 +436,7 @@ export function rerunAffectedTests(
   if (!touched.length) return null;
   let stored: readonly GameTest[];
   try {
-    stored = readRunTests(session);
+    stored = readRunTests(session).tests;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {

@@ -1,4 +1,5 @@
 import { gameTestsNeedCreatorReview } from "../../../src/agent/gameTestReview.ts";
+import { finishReport, withFinishReport } from "../../../src/agent/finishReport.ts";
 import {
   mergeAgentTestChanges,
   sameNonTestDocuments,
@@ -76,11 +77,25 @@ import { createSelectionStub } from "./selectionStub.ts";
 import { SELECTION_TOOL_NAMES } from "../../../src/agent/selectionTools.ts";
 import { proposeNames } from "../../../src/agent/namingTools.ts";
 
-/** A turn that ends without a change and without a reply says so in place of an empty reply. */
-const STOPPED = {
-  edit: "The agent stopped before changing anything. Ask again, or describe the change differently.",
-  ask: "The agent stopped without answering. Ask again.",
-};
+/** A turn that ends without a change and without a reply names why in place of an empty reply. */
+function stoppedNotice(
+  readOnly: boolean,
+  cause: { stopReason?: string; failure?: string; withdrew: boolean; finished: boolean },
+): string {
+  const next = readOnly ? "Ask again." : "Ask again, or describe the change differently.";
+  const failure = cause.failure
+    ? `${cause.failure.length > 240 ? `${cause.failure.slice(0, 239)}…` : cause.failure.replace(/[^.!?…]$/, "$&.")}`
+    : "";
+  if (cause.stopReason === "max_tokens")
+    return `The agent reached its reply length limit before it finished. ${readOnly ? "Ask a shorter question." : "Ask for a smaller change."}`;
+  if (cause.stopReason === "refusal")
+    return "The agent declined this request. Describe it differently.";
+  if (cause.withdrew)
+    return `The agent withdrew its changes${failure ? ` after this error: ${failure}` : "."} ${next}`;
+  if (failure) return `The agent stopped after this error: ${failure} ${next}`;
+  if (cause.finished && !readOnly) return `The agent finished without changing anything. ${next}`;
+  return `The agent ended its turn without ${readOnly ? "an answer" : "a reply or a change"}. ${next}`;
+}
 const HANDOFF =
   "Summarize this task for a different model using the compaction summary pattern: objective, decisions, completed changes, unresolved work, resource identifiers, and next steps. Return only the summary. Preserve user constraints. Omit thinking blocks, credentials and protocol records.";
 class CreatorTestReviewRequired extends Error {}
@@ -705,6 +720,12 @@ export function createWorkspaceAgent(options: Options) {
     }
     let notes: string | undefined;
     let finishStatus = "";
+    let finishLines: readonly string[] = [];
+    // Why a turn with no change and no reply stopped: the first tool failure of
+    // the latest batch that had one, unless a later finish passed, and whether
+    // the agent withdrew its changes after that failure.
+    let stopFailure: string | undefined;
+    let withdrew = false;
     const prepared = new Map<string, ProjectChange>();
     let scene: Awaited<ReturnType<typeof selectionScene>> = {};
     let selection = readOnly
@@ -921,12 +942,14 @@ export function createWorkspaceAgent(options: Options) {
           status: "pending",
         },
         text: [
-          finishStatus && !text.startsWith(finishStatus) ? finishStatus : "",
-          text || proposal.label,
+          withFinishReport(finishStatus, finishLines, text || proposal.label, "\n\n"),
           selectionReview,
         ]
           .filter(Boolean)
           .join("\n\n"),
+        ...(finishStatus || finishLines.length
+          ? { testReport: finishReport(finishStatus, finishLines) }
+          : {}),
       });
       const capturedCommit = session.history.capture().cursor!;
       chat.pendingReview = {
@@ -1041,7 +1064,7 @@ export function createWorkspaceAgent(options: Options) {
           review?.chatId === chat.id
             ? `\nPrevious changes for revision:\n${JSON.stringify(review.changes())}`
             : "";
-        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Answer questions directly; edit when the user requests a change. Attached context identifies the current focus and does not restrict the resources you may inspect or change. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains. Red committed tests require finish notes naming every failure and saying why it stays red. Never change a test's expectation or delete a test to make it pass. Fix the game, or leave it red and say why."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
+        const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Answer questions directly; edit when the user requests a change. Attached context identifies the current focus and does not restrict the resources you may inspect or change. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits. Call finish when the task is complete; repair a rejected handover before finishing. A successful finish ends the tool batch and hands the validated changes to the creator. Include concise progress notes with your next tool call while work remains. Finish testReasons give each red test, and each existing test you changed or deleted, a reason. Never weaken or delete a test on your own to make it pass: fix the game, or leave it red and say why. When the creator asks to change or delete a test, make that change; review shows it on its own line and the creator's Apply approves it."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${sendReference ? reference.text : ""}${revised}\nRequest:\n${instruction}`;
         let turn = await provider.sendUserMessage(
           prompt,
           sendReference ? [reference.image] : undefined,
@@ -1069,6 +1092,7 @@ export function createWorkspaceAgent(options: Options) {
           }
           const results = unreported;
           const failed: string[] = [];
+          let batchFailed = false;
           for (const call of turn.toolCalls) {
             progress.push(
               VOCABULARY_ACTIONS[call.name as keyof typeof VOCABULARY_ACTIONS]?.label ?? call.name,
@@ -1300,6 +1324,8 @@ export function createWorkspaceAgent(options: Options) {
                 staged = undefined;
                 notes = undefined;
                 finishStatus = "";
+                finishLines = [];
+                withdrew = true;
                 prepared.clear();
                 selection = undefined;
                 selectionReview = "";
@@ -1349,9 +1375,20 @@ export function createWorkspaceAgent(options: Options) {
             }
             if (call.name === "finish" && result.success) {
               handedOver = true;
+              stopFailure = undefined;
               finishStatus = String(result.details?.["testsVerdict"] ?? "");
+              finishLines = (result.details?.["testNotes"] as readonly string[] | undefined) ?? [];
             }
             if (!result.success) {
+              // A red test run is evidence for the model, not why the turn stopped.
+              const redTests =
+                result.details?.["gameTestsFailed"] ||
+                (call.name === "run_game_tests" && result.details?.["gameTests"]);
+              if (!redTests && !batchFailed) {
+                stopFailure = result.error;
+                withdrew = false;
+                batchFailed = true;
+              }
               if (!result.details?.["gameTestsFailed"]) failed.push(call.name);
               progress.push(`${call.name} failed: ${result.error ?? "no details"}`);
               notify();
@@ -1401,6 +1438,7 @@ export function createWorkspaceAgent(options: Options) {
           if (followup) {
             handedOver = false;
             finishStatus = "";
+            finishLines = [];
             turn = followup;
             continue;
           }
@@ -1424,8 +1462,7 @@ export function createWorkspaceAgent(options: Options) {
         if (!readOnly && !handedOver) {
           let verdict: AgentToolResult | undefined;
           try {
-            if (hasHandoverDocuments())
-              verdict = validateAgentHandover(handoverState(), turn.text ?? "");
+            if (hasHandoverDocuments()) verdict = validateAgentHandover(handoverState());
           } catch (cause) {
             // Candidate construction can fail before the handover verdict. It is
             // still a visible authoring failure; provider and cancellation errors
@@ -1437,6 +1474,7 @@ export function createWorkspaceAgent(options: Options) {
           }
           if (verdict?.success) {
             finishStatus = String(verdict.details?.["testsVerdict"] ?? "");
+            finishLines = (verdict.details?.["testNotes"] as readonly string[] | undefined) ?? [];
           } else if (verdict) {
             handoverRejected = true;
             error = verdict.error ?? "Handover rejected.";
@@ -1463,7 +1501,16 @@ export function createWorkspaceAgent(options: Options) {
             ? { text: turn.text! }
             : formatReply
               ? formatReply(turn.text ?? "")
-              : { text: stopped ? STOPPED[readOnly ? "ask" : "edit"] : turn.text! };
+              : {
+                  text: stopped
+                    ? stoppedNotice(readOnly, {
+                        ...(turn.stopReason ? { stopReason: turn.stopReason } : {}),
+                        ...(stopFailure ? { failure: stopFailure } : {}),
+                        withdrew,
+                        finished: handedOver,
+                      })
+                    : turn.text!,
+                };
           chat.messages.push({
             id: id(),
             role: "assistant",
@@ -1483,10 +1530,7 @@ export function createWorkspaceAgent(options: Options) {
                 }
               : {}),
             ...reply,
-            text:
-              finishStatus && !reply.text.startsWith(finishStatus)
-                ? `${finishStatus}\n${reply.text}`
-                : reply.text,
+            text: withFinishReport(finishStatus, finishLines, reply.text, "\n"),
           });
         }
       });

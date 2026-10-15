@@ -1,6 +1,6 @@
 {
   "name": "project-agent-empty-reply",
-  "description": "A turn that ends with neither a change nor a reply must say so in plain words instead of leaving an empty message.",
+  "description": "A turn that ends with neither a change nor a reply must say so in plain words, naming why it stopped, instead of leaving an empty message.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -17,6 +17,6 @@
       }
     ],
     "expectedKeys": [],
-    "expectedReply": "The agent stopped before changing anything. Ask again, or describe the change differently."
+    "expectedReply": "The agent ended its turn without a reply or a change. Ask again, or describe the change differently."
   }
 }

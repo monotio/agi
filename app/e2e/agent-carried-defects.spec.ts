@@ -48,7 +48,7 @@ test("an edit applies to a game with an unreadable sound and the notice names it
                   type: "function_call",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"testReasons":null}',
                 },
               ]
             : [

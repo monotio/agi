@@ -14,7 +14,11 @@ import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.
 import { parseView, selectViewCel } from "../../../src/view/view.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
-import { gameTestReviewLines, readGameTestReviewSide } from "../../../src/agent/gameTestReview.ts";
+import {
+  gameTestActionCount,
+  gameTestReviewChanges,
+  readGameTestReviewSide,
+} from "../../../src/agent/gameTestReview.ts";
 import { readInventoryObjects } from "../../../src/authoring/inventory.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { reviewText } from "./agentResultPreview.ts";
@@ -153,7 +157,7 @@ const source = computed(() => (props.inspection ? afterText.value : undefined));
 const testChanges = computed(() => {
   if (props.documentKey !== "tests" || props.inspection) return [];
   try {
-    return gameTestReviewLines(props.before, props.after, props.profile);
+    return gameTestReviewChanges(props.before, props.after, props.profile);
   } catch {
     return [];
   }
@@ -248,7 +252,25 @@ const removed = computed(() =>
     class="agent-tests-review"
     data-testid="agent-tests-review"
   >
-    <p v-for="line in testChanges" :key="line" data-testid="agent-test-change">{{ line }}</p>
+    <template v-for="change in testChanges" :key="change.line">
+      <p data-testid="agent-test-change">{{ change.line }}</p>
+      <table v-if="change.rows.length" data-testid="agent-test-change-detail">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Before</th>
+            <th>After</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in change.rows" :key="row.label">
+            <th scope="row">{{ row.label }}</th>
+            <td>{{ row.before }}</td>
+            <td>{{ row.after }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
     <section v-for="side in tests" :key="side.label">
       <h4>{{ side.label }}</h4>
       <p v-if="side.cause" data-testid="agent-tests-cause">{{ side.cause }}</p>
@@ -264,7 +286,7 @@ const removed = computed(() =>
           <tr v-for="test in side.tests" :key="test.name">
             <td>{{ test.name }}</td>
             <td>{{ test.room }}</td>
-            <td>{{ test.steps.length }}</td>
+            <td>{{ gameTestActionCount(test) }}</td>
           </tr>
         </tbody>
       </table>
@@ -330,6 +352,8 @@ const removed = computed(() =>
   padding: var(--space-2);
   border-bottom: 1px solid var(--hairline);
   text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .agent-source-preview {
   white-space: pre-wrap;
