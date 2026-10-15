@@ -2361,10 +2361,10 @@ describe("unprobed profiles keep the previous restart/restore and script-buffer 
     container.putResource(
       "logic",
       0,
-      assembleLogic(
-        "if (!isset(f200)) { set(f200); load.view(1); script.size(30); } return;",
-        { dictionary: DICT, profile: PROFILES["2.411"] },
-      ).payload,
+      assembleLogic("if (!isset(f200)) { set(f200); load.view(1); script.size(30); } return;", {
+        dictionary: DICT,
+        profile: PROFILES["2.411"],
+      }).payload,
     );
     container.putResource(
       "view",

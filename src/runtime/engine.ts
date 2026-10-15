@@ -2686,8 +2686,7 @@ export class Engine {
     // Format "Score:%d of %d  " — no space after the colon, two trailing
     // spaces (kq1 2.917 DisplayStatusLine 0x34BD, ovl DS+0xF77; probed on
     // kq1 2.917 / kq3 2.936 — unprobed profiles keep the previous format).
-    if (this.profile.originalTextWindows)
-      return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
+    if (this.profile.originalTextWindows) return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
     return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
   }
 
@@ -2830,11 +2829,7 @@ export class Engine {
     if (!m) return;
     // The non-interactive inventory's bare WaitEvent ends on ANY event,
     // navigation included (demopac4 3.002.102 0x3696).
-    if (
-      this.profile.inventoryListEndsOnAnyEvent &&
-      m.kind === "inventory" &&
-      !m.interactive
-    ) {
+    if (this.profile.inventoryListEndsOnAnyEvent && m.kind === "inventory" && !m.interactive) {
       this.closeModal();
       return;
     }

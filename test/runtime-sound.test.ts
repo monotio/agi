@@ -6,11 +6,7 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES, type AgiProfile } from "../src/runtime/profile.ts";
 import type { SoundOutput } from "../src/sound/sound.ts";
 
-function game(
-  source: string,
-  soundHost: Partial<EngineHost> = {},
-  profile?: AgiProfile,
-): Engine {
+function game(source: string, soundHost: Partial<EngineHost> = {}, profile?: AgiProfile): Engine {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);
   // Channel0: duration2 tone0x8123 attenuation4; channels1..3 terminate.

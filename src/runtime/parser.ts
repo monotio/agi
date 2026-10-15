@@ -23,7 +23,7 @@ export function parseSentence(
   const tokens: SentenceToken[] = [];
   let unknownPosition = 0;
   const input = normalized.split(" ").filter((token) => token.length > 0);
-  for (let index = 0; index < input.length; ) {
+  for (let index = 0; index < input.length;) {
     if (!dictionary || unknownPosition) {
       tokens.push({ text: input[index++]!, id: undefined, status: "unread" });
       continue;

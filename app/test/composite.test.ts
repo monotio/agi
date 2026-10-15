@@ -159,7 +159,14 @@ test("the window frame renders the decoded OpenWndw bars, inset one pixel", () =
   // bottom bar y=102, x 146..173; left bar x 146..147, y 82..101; right bar
   // x 172..173, y 82..101 (one logical pixel = two rendered columns).
   const surface = new TextSurface();
-  drawWindow(surface, { top: 10, left: 18, rows: 3, cols: 4 }, ["Hi"], attr(0, 15), attr(4, 15), true);
+  drawWindow(
+    surface,
+    { top: 10, left: 18, rows: 3, cols: 4 },
+    ["Hi"],
+    attr(0, 15),
+    attr(4, 15),
+    true,
+  );
   const input = { ...fixture(), text: surface.cells };
   const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
   compositeFrame(input, out, "visual", 0.5, "only");
