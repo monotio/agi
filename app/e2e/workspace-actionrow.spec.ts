@@ -19,7 +19,11 @@ for (const [width, height] of [
     test.use({ viewport: { width, height }, hasTouch: width === 390 });
 
     for (const kind of ["logic", "picture"] as const) {
-      test(`${kind} groups room helpers in Add @webkit-desktop`, async ({ page }) => {
+      // Layout rules: the wide row (1440) and the narrow touch row (390). 1063 adds no new rule.
+      if (width === 1063) continue;
+      // Logic runs on desktop WebKit at 1440; picture also keeps the touch row on the phone project.
+      const tag = width === 1440 ? " @webkit-desktop" : kind === "picture" ? " @phone" : "";
+      test(`${kind} groups room helpers in Add${tag}`, async ({ page }) => {
         await start(page);
         await open(page, kind === "logic" ? "part-room:1:logic" : "part-room:1:picture:1");
         await expect(
@@ -135,89 +139,95 @@ for (const [width, height] of [
       });
     }
 
-    test("overflowing tab names stay clear and reachable @webkit-desktop", async ({ page }) => {
-      await start(page);
-      for (const id of [
-        "part-room:1:logic",
-        "part-room:1:picture:1",
-        "part-room:8:logic",
-        "part-room:8:picture:8",
-        "part-view:0",
-        "part-view:8",
-        "part-view:9",
-        "part-picture:9",
-        "part-logic:0",
-        "part-notes",
-        "part-messages",
-        "part-inventory",
-        "part-words",
-      ])
-        await open(page, id);
-      const strip = page.getByTestId("project-studio-tabs");
-      await expect.poll(() => strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-      await expect.soft(strip).toHaveCSS("scrollbar-width", "none");
-      const first = strip.getByRole("tab").first();
-      const last = strip.getByRole("tab").last();
-      await last.focus();
-      await last.press("Home");
-      await expect(first).toBeFocused();
-      await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBe(0);
-      await first.press("End");
-      await expect(last).toBeFocused();
-      await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
-      const geometry = await last.locator(".project-tabs__text").evaluate((el) => {
-        const strip = el.closest<HTMLElement>(".project-tabs")!;
-        const name = el.getBoundingClientRect();
-        const bounds = strip.getBoundingClientRect();
-        return {
-          top: name.top,
-          bottom: name.bottom,
-          left: name.left,
-          right: name.right,
-          stripTop: bounds.top + strip.clientTop,
-          stripBottom: bounds.top + strip.clientTop + strip.clientHeight,
-          stripLeft: bounds.left,
-          stripRight: bounds.right,
-        };
+    // The tab strip overflows at 1063; 390 adds the touch tap.
+    if (width !== 1440)
+      test(`overflowing tab names stay clear and reachable${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+        page,
+      }) => {
+        await start(page);
+        for (const id of [
+          "part-room:1:logic",
+          "part-room:1:picture:1",
+          "part-room:8:logic",
+          "part-room:8:picture:8",
+          "part-view:0",
+          "part-view:8",
+          "part-view:9",
+          "part-picture:9",
+          "part-logic:0",
+          "part-notes",
+          "part-messages",
+          "part-inventory",
+          "part-words",
+        ])
+          await open(page, id);
+        const strip = page.getByTestId("project-studio-tabs");
+        await expect.poll(() => strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+        await expect.soft(strip).toHaveCSS("scrollbar-width", "none");
+        const first = strip.getByRole("tab").first();
+        const last = strip.getByRole("tab").last();
+        await last.focus();
+        await last.press("Home");
+        await expect(first).toBeFocused();
+        await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBe(0);
+        await first.press("End");
+        await expect(last).toBeFocused();
+        await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+        const geometry = await last.locator(".project-tabs__text").evaluate((el) => {
+          const strip = el.closest<HTMLElement>(".project-tabs")!;
+          const name = el.getBoundingClientRect();
+          const bounds = strip.getBoundingClientRect();
+          return {
+            top: name.top,
+            bottom: name.bottom,
+            left: name.left,
+            right: name.right,
+            stripTop: bounds.top + strip.clientTop,
+            stripBottom: bounds.top + strip.clientTop + strip.clientHeight,
+            stripLeft: bounds.left,
+            stripRight: bounds.right,
+          };
+        });
+        expect(geometry.top).toBeGreaterThanOrEqual(geometry.stripTop);
+        expect(geometry.bottom).toBeLessThanOrEqual(geometry.stripBottom);
+        expect(geometry.left).toBeGreaterThanOrEqual(geometry.stripLeft);
+        expect(geometry.right).toBeLessThanOrEqual(geometry.stripRight);
+        if (width === 390) await last.tap();
+        else await last.press("Enter");
+        await expect(last).toHaveAttribute("aria-selected", "true");
+        await page.screenshot({
+          path: test.info().outputPath(`tabs-${width}.png`),
+          animations: "disabled",
+        });
       });
-      expect(geometry.top).toBeGreaterThanOrEqual(geometry.stripTop);
-      expect(geometry.bottom).toBeLessThanOrEqual(geometry.stripBottom);
-      expect(geometry.left).toBeGreaterThanOrEqual(geometry.stripLeft);
-      expect(geometry.right).toBeLessThanOrEqual(geometry.stripRight);
-      if (width === 390) await last.tap();
-      else await last.press("Enter");
-      await expect(last).toHaveAttribute("aria-selected", "true");
-      await page.screenshot({
-        path: test.info().outputPath(`tabs-${width}.png`),
-        animations: "disabled",
-      });
-    });
 
-    test("More actions formats LOGIC in one Undo @webkit-desktop", async ({ page }) => {
-      await start(page);
-      await open(page, "part-room:1:logic");
-      const messy = "if(f1){v2=3;}else{return;}";
-      await expect(
-        page.getByTestId("workspace-logic-editor").locator(".monaco-editor"),
-      ).toBeVisible();
-      await page.evaluate(async (text) => {
-        const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-        const editor = monaco.editor
-          .getEditors()
-          .find((editor) => editor.getDomNode()?.offsetParent)!;
-        editor.getModel()!.setValue(text);
-        editor.focus();
-      }, messy);
-      await page.getByTestId("context-more-actions").click();
-      const format = page.getByRole("menuitem", { name: "Format document", exact: true });
-      await expect(format).toBeVisible();
-      await format.click();
-      await expect
-        .poll(() => workspaceDocument(page, "logic:1"))
-        .toBe("if (f1) {\n  v2 = 3;\n} else {\n  return;\n}\n");
-      await focusWorkspaceLogic(page);
-      await page.keyboard.press("ControlOrMeta+z");
-      await expect.poll(() => workspaceDocument(page, "logic:1")).toBe(messy);
-    });
+    // Formatting has no width rule; it runs once on the wide layout.
+    if (width === 1440)
+      test("More actions formats LOGIC in one Undo @webkit-desktop", async ({ page }) => {
+        await start(page);
+        await open(page, "part-room:1:logic");
+        const messy = "if(f1){v2=3;}else{return;}";
+        await expect(
+          page.getByTestId("workspace-logic-editor").locator(".monaco-editor"),
+        ).toBeVisible();
+        await page.evaluate(async (text) => {
+          const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+          const editor = monaco.editor
+            .getEditors()
+            .find((editor) => editor.getDomNode()?.offsetParent)!;
+          editor.getModel()!.setValue(text);
+          editor.focus();
+        }, messy);
+        await page.getByTestId("context-more-actions").click();
+        const format = page.getByRole("menuitem", { name: "Format document", exact: true });
+        await expect(format).toBeVisible();
+        await format.click();
+        await expect
+          .poll(() => workspaceDocument(page, "logic:1"))
+          .toBe("if (f1) {\n  v2 = 3;\n} else {\n  return;\n}\n");
+        await focusWorkspaceLogic(page);
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect.poll(() => workspaceDocument(page, "logic:1")).toBe(messy);
+      });
   });
 }

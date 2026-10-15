@@ -21,6 +21,11 @@ import { bindProgressTarget } from "../src/project/progressBinding.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { installedProgressTarget } from "../src/project/progressTarget.ts";
 import type { BootedGame, ProjectId } from "../src/project/gameTypes.ts";
+import { reactive, watch } from "vue";
+import { createPresentation } from "../src/play/usePresentation.ts";
+import { FRAME_WIDTH } from "../src/render/composite.ts";
+import { EGA_PALETTE } from "../src/render/palette.ts";
+import { requireResourceRevision } from "../../src/gameIdentity.ts";
 
 installIndexedDbFixture();
 // The project index lives in localStorage; each test file runs in its own process.
@@ -912,3 +917,99 @@ for (const path of ["installed", "fresh", "authored", "authored lazy", "cached"]
     });
   }
 }
+
+/** The flat 2D game canvas: keeps the last picture put on it, as the player sees it. */
+function flatScreen() {
+  let shown: Uint8ClampedArray | null = null;
+  const ctx = {
+    createImageData: (width: number, height: number) => ({
+      width,
+      height,
+      data: new Uint8ClampedArray(width * height * 4),
+    }),
+    putImageData: (image: { data: Uint8ClampedArray }) => {
+      shown = new Uint8ClampedArray(image.data);
+    },
+  };
+  return {
+    canvas: { getContext: () => ctx } as unknown as HTMLCanvasElement,
+    /** The picture's first pixel, or null while the canvas is blank. */
+    corner: (): number[] | null => {
+      const y = 8 * FRAME_WIDTH * 4;
+      return shown ? [shown[y]!, shown[y + 1]!, shown[y + 2]!] : null;
+    },
+  };
+}
+
+// A refused opening puts the running game's surface back: the game screen
+// unmounts while the boot loads and mounts again for the same game, whose
+// still room sends no new frame. The picture must come back with it. Leaving
+// the game drops the picture, so the next game's screen starts blank.
+test("a refused opening keeps the running game's picture; leaving the game drops it", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  globalThis.fetch = async (input) =>
+    String(input).endsWith("/")
+      ? new Response(JSON.stringify(["WORDS.TOK"]))
+      : new Response(new Uint8Array(52));
+  const presentation = createPresentation();
+  const state = reactive({
+    loading: null as unknown,
+    leaving: false,
+    powerUp: { busy: false },
+    phase: "idle" as string,
+    error: "",
+    installedGames: [] as unknown[],
+    genesisStarter: null as unknown,
+    soundMode: "pc-speaker" as string,
+    walkthrough: {},
+  });
+  // PlayArea renders only while the phase is running, as App.vue's v-if does.
+  let screen = flatScreen();
+  watch(
+    () => state.phase === "running",
+    (running) => {
+      if (running) {
+        screen = flatScreen();
+        presentation.canvasEl.value = screen.canvas;
+        void presentation.initStage(1);
+      } else {
+        presentation.closeScreen();
+        presentation.canvasEl.value = undefined;
+      }
+    },
+    { flush: "sync" },
+  );
+  const { lifecycle, workers } = bootHarness({
+    state: state as never,
+    devFixtures: true,
+    onScreenReset: () => presentation.forgetFrame(),
+  });
+  lifecycle.setBootedGame({
+    installed: true,
+    title: "running",
+    revision: requireResourceRevision("a".repeat(64)),
+    files: {},
+    words: [],
+  });
+  state.phase = "running";
+  const green = new Uint8Array(160 * 168).fill(2);
+  presentation.present({ visual: green, priority: green, text: new Uint8Array(2000), picRow: 1 });
+  assert.deepEqual(screen.corner(), EGA_PALETTE[2]);
+
+  const elsewhere = installedProgressTarget(
+    { folder: "elsewhere" },
+    requireResourceRevision("b".repeat(64)),
+  )!;
+  await lifecycle.bootGame("synthetic", undefined, { isCurrent: () => true, target: elsewhere });
+  assert.equal(workers.length, 0, "the refused opening never replaced the engine");
+  assert.equal(state.phase, "running");
+  assert.deepEqual(screen.corner(), EGA_PALETTE[2], "the running game's room is still shown");
+
+  await lifecycle.ejectGame();
+  assert.equal(state.phase, "idle");
+  state.phase = "running";
+  assert.equal(screen.corner(), null, "the next screen waits for its own game's frame");
+});

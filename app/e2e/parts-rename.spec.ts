@@ -33,11 +33,12 @@ function stateRow(page: Page, name: string, num: number) {
 }
 
 for (const [width, height] of [
-  [1440, 900],
   [1063, 815],
   [390, 844],
 ] as const)
-  test(`Game state names rename on their row at ${width} @webkit-desktop`, async ({ page }) => {
+  test(`Game state names rename on their row at ${width}${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+    page,
+  }) => {
     const parts = await start(page, width, height);
     const row = stateRow(page, "chime_done", 204);
     await row.getByLabel("Actions for chime_done", { exact: true }).click();

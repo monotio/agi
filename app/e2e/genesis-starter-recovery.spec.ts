@@ -69,7 +69,7 @@ async function storedProjectCount(page: Page): Promise<number> {
   );
 }
 
-test("a refused genesis offers Open starter and opens a real editable starter project @webkit-desktop", async ({
+test("a refused genesis offers Open starter and opens a real editable starter project", async ({
   page,
 }) => {
   let requests = 0;
@@ -162,7 +162,7 @@ test("a refused genesis offers Open starter and opens a real editable starter pr
   expect(requests).toBe(1);
 });
 
-test("a cancelled genesis offers the same recovery, and late bytes cannot take the slot @webkit-desktop", async ({
+test("a cancelled genesis offers the same recovery, and late bytes cannot take the slot", async ({
   page,
 }) => {
   let requests = 0;

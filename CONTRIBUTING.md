@@ -85,9 +85,11 @@ server is already running, give the browser tests their own port:
 | `npm --prefix app run dev`                                   | Start Vite with app defaults                                          |
 | `npm --prefix app run build`                                 | Build the browser app                                                 |
 | `npm --prefix app run preview`                               | Serve app/dist for a local preview                                    |
-| `npm --prefix app run e2e`                                   | Chromium browser scenarios, excluding performance                     |
+| `npm --prefix app run e2e`                                   | Chromium browser scenarios except @perf and @walkthrough-full         |
 | `npm --prefix app run e2e:perf`                              | Performance budgets, one worker                                       |
-| `npm --prefix app run e2e:phone`                             | Phone scenarios in Chromium and WebKit                                |
+| `npm --prefix app run e2e:walkthrough-full`                  | Every walkthrough tape replayed whole, with local game fixtures       |
+| `npm --prefix app run e2e:webkit`                            | Both WebKit projects in one run                                       |
+| `npm --prefix app run e2e:phone`                             | Scenarios tagged @phone in WebKit                                     |
 | `npm --prefix app run e2e:webkit-desktop`                    | Scenarios tagged @webkit-desktop in WebKit                            |
 | `npm --prefix app run typecheck`                             | Check app DOM and worker projects                                     |
 | `npm --prefix app run e2e:production`                        | Browser checks against production output or AGI_DEPLOY_URL            |
@@ -396,14 +398,23 @@ AI settings wait for conversation startup. The controller rechecks the current
 owner and running task before accepting a change; a synchronous commit saves
 settings before publishing the runtime configuration.
 
+Game tests are project documents about a game. Saving, editing or deleting a test records History,
+Undo and autosave without sending a worker command or changing game admission. Validate test
+structure at save; rooms, command words and objects may be added later, and a run names missing
+references. Tests never block game edits. Room deletion offers checked test cleanup; retained tests
+fail when run. Agent test changes compare base and candidate by name, then apply only changed,
+added or removed names over the current document. Later commits win for a shared changed name;
+History and Undo retain the earlier version. Exports read the committed tests document; Agent test
+runs apply the same merge to the Agent's proposed tests first.
+
 **Room generation answers the interpreter**
 
 1. When the project's room-generation setting is on, `new.room` calls the `prepareRoom` host hook (`Engine.newRoom`); `worker/host.ts` asks for a room only when the room has no logic yet. Create with AI turns the setting on by default. Other games start with it off. The creator can switch it in Home or Create game Details.
 2. `worker/hostRequests.ts` posts a `hostRequest` and parks the interpreter; the worker keeps serving other messages.
 3. `authoring/useAuthoringController.ts` loads the authoring stack and hands the request to `AgentSession` (`agent/agentSession.ts`), which forks the game state.
 4. The provider conversation (`agent/llmClient.ts`) calls tools through `executeAgentToolAsync` (`src/agent/tools.ts`), which refuses any tool outside the session's allowlist.
-5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `finish` tool runs the room's game tests.
-6. The gate: `turnBaseGuard` (`authoring/useAuthoringController.ts`) records the revision the turn builds on, and `requireSaved` (`project/projectTransaction.ts`) refuses the turn before it spends and again before its room lands if the stored project moved on.
+5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `finish` tool runs the tests last, as Apply would leave them, against all prepared edits and pending proposals. A turn that hands over no documents keeps its answer without a handover check or test status. That check belongs to the Agent handover: creator approval, partial approval and test saves never rerun it, and proposal labels never become finish notes. The Agent may finish with red tests when its `testReasons` give every failing test a reason; its result and reply start with the test status, followed by each `test: reason` as written, which review shows again. The Agent never weakens a test on its own; a test change the creator asks for is proposed, `testReasons` say why each existing test changed, and review shows the test before and after. Existing test edits or deletions need explicit creator review even with Auto-approve on. Direct room and power-up turns refuse those edits and keep game edits available. Creator test and game writes remain free.
+6. The gate: `turnBaseGuard` (`authoring/useAuthoringController.ts`) records the revision the turn builds on, and `requireSaved` (`project/projectTransaction.ts`) refuses the turn before it spends and again before its room lands if non-test game documents in the stored project moved on. Test saves and test Undo leave the turn current.
 7. `prepareRoomPatch` (`src/agent/roomPatch.ts`) checks the room as a whole, the answer returns in `hostAnswer`, and the worker checks it again before `Engine.patchResources` resumes `new.room`.
 8. For an owned project, the controller validates the complete candidate through `ProjectSession`. After the room answer resumes the worker, `mainProjectAdmission.ts` verifies the exact landed resource revision before recording one History commit and saving the background task chat. Detached compatibility services retain `writeOverSaved` and `confirmSaved`.
 

@@ -1,6 +1,6 @@
 {
   "name": "project-agent-failed-finish-tests",
-  "description": "A rejected finish must never admit staged changes when a provider ends with text.",
+  "description": "Agent finish refuses red tests without reasons; a testReasons entry for every failure permits handover.",
   "projectAgent": {
     "documents": {
       "logic:0": "return;",
@@ -46,25 +46,34 @@
             "id": "finish",
             "name": "finish",
             "input": {
-              "notes": null
+              "testReasons": null
             }
           }
         ]
       },
       {
-        "text": "Done",
-        "toolCalls": []
+        "toolCalls": [
+          {
+            "id": "finish-with-reasons",
+            "name": "finish",
+            "input": {
+              "testReasons": [
+                { "test": "Impossible score", "reason": "its score is not implemented yet." }
+              ]
+            }
+          }
+        ]
       }
     ],
     "expectedKeys": [],
     "expectedOutcomes": {
-      "finish": false
+      "finish": false,
+      "finish-with-reasons": true
     },
-    "expectedError": "Handover rejected",
     "autoApprove": true,
     "expectedDocuments": {
-      "world": null,
-      "tests": null
-    }
+      "world": null
+    },
+    "expectedCommits": 2
   }
 }

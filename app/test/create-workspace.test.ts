@@ -1,3 +1,4 @@
+import { effectScope, nextTick, ref } from "vue";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkspaceEditor } from "../src/shell/workspaceEditor.ts";
@@ -128,4 +129,148 @@ test("a chosen splitter width applies to VIEW and SOUND editors", () => {
   editor.selected.value = "sound:1";
   editor.resize(35);
   assert.equal(editor.effectiveSplit.value, 35);
+});
+
+test("Parts toggles temporarily beside the Agent and preserves the stored dock choice", () => {
+  const storage = memoryStorage();
+  const open = ref(false);
+  const focus = ref(true);
+  const temporary = ref(true);
+  const ws = createCreateWorkspace({
+    panelDock: () => undefined,
+    storage,
+    compactAgent: () => temporary.value,
+    parts: { open, focus, phone: () => false },
+  });
+  ws.toggleParts();
+  assert.equal(open.value, true);
+  assert.equal(focus.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), undefined);
+  ws.toggleParts();
+  assert.equal(open.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), undefined);
+  temporary.value = false;
+  ws.toggleParts();
+  assert.equal(ws.collapsed.left, true);
+  const folded = storage.data.get(DOCKS_STORAGE_KEY);
+  temporary.value = true;
+  ws.toggleParts();
+  assert.equal(open.value, true);
+  temporary.value = false;
+  ws.toggleParts();
+  assert.equal(open.value, false);
+  assert.equal(ws.collapsed.left, true);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
+});
+
+test("closing the Agent restores the saved Parts setting after a resize, and a vanished rename stops holding it", async () => {
+  const open = ref(false);
+  const agent = ref(true);
+  const compact = ref(true);
+  const storage = memoryStorage();
+  const ws = createCreateWorkspace({
+    panelDock: () => undefined,
+    storage,
+    compactAgent: () => compact.value,
+    agentOpen: () => agent.value,
+    parts: { open, focus: ref(false), phone: () => false },
+  });
+  ws.toggleDock("left");
+  const folded = storage.data.get(DOCKS_STORAGE_KEY);
+  // The component's rule: renaming a room that is still listed holds Parts.
+  const renaming = ref<number>();
+  const rooms = ref([2]);
+  const scope = effectScope();
+  scope.run(() =>
+    ws.holdParts(() => renaming.value !== undefined && rooms.value.includes(renaming.value)),
+  );
+  ws.toggleParts();
+  assert.equal(open.value, true);
+  compact.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  // Add a room, then close the Agent mid-rename: Parts stays for the naming.
+  renaming.value = 2;
+  agent.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  // Undo removes the room: the rename is gone and Parts follows the saved setting.
+  rooms.value = [];
+  await nextTick();
+  assert.equal(open.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
+  // A hold still active when the page unmounts is released as well.
+  open.value = true;
+  rooms.value = [2];
+  agent.value = true;
+  await nextTick();
+  agent.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  scope.stop();
+  await nextTick();
+  assert.equal(open.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
+});
+
+test("naming a new room keeps Parts open when the Agent stayed closed", async () => {
+  const open = ref(false);
+  const agent = ref(false);
+  const ws = createCreateWorkspace({
+    panelDock: () => undefined,
+    storage: memoryStorage(),
+    agentOpen: () => agent.value,
+    parts: { open, focus: ref(false), phone: () => true },
+  });
+  const renaming = ref<number>();
+  const scope = effectScope();
+  scope.run(() => ws.holdParts(() => renaming.value !== undefined));
+  // Rooms + opens Parts on the phone so the new room is named in place.
+  open.value = true;
+  renaming.value = 2;
+  await nextTick();
+  // Enter names the room: Parts still shows the named room.
+  renaming.value = undefined;
+  await nextTick();
+  assert.equal(open.value, true);
+  // A rename that outlives an Agent opened and closed meanwhile restores the setting when it ends.
+  renaming.value = 3;
+  agent.value = true;
+  await nextTick();
+  agent.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  renaming.value = undefined;
+  await nextTick();
+  assert.equal(open.value, false);
+  // Reopening the Agent before the rename ends cancels that pending restore.
+  open.value = true;
+  renaming.value = 4;
+  agent.value = true;
+  await nextTick();
+  agent.value = false;
+  await nextTick();
+  agent.value = true;
+  await nextTick();
+  renaming.value = undefined;
+  await nextTick();
+  assert.equal(open.value, true);
+  scope.stop();
+});
+
+test("the missing-room action starts once from the beginning without changing the room's launch preference", async () => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  editor.actionRoom.value = 3;
+  editor.selectedLaunch.value = "carry";
+  editor.selectLaunch.value = async () => {
+    assert.fail("a notice must not save a preference");
+  };
+  const calls: unknown[][] = [];
+  editor.update.value = async (...args) => {
+    calls.push(args);
+  };
+  await editor.startFromBeginning();
+  assert.deepEqual(calls, [[true, "beginning"]]);
+  assert.equal(editor.selectedLaunch.value, "carry");
+  assert.equal(editor.actionRoom.value, 3);
 });

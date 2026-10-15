@@ -11,12 +11,11 @@ import {
 
 for (const [width, height] of [
   [390, 844],
-  [1063, 815],
   [1440, 900],
 ] as const) {
   test.describe("Workspace viewport " + width, () => {
     test.use({ hasTouch: width === 390 });
-    test(`workspace tips and agent at ${width} @webkit-desktop`, async ({ page }) => {
+    test(`workspace tips and agent at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       await isolateStorage(page);
       await page.goto("/");

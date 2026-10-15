@@ -12,7 +12,37 @@ import { configureSessionTiming } from "./session.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import type { HistoryCommittedPatch } from "../../../src/agent/history.ts";
 import type { HostRequestOp } from "./workerProtocol.ts";
+import type {
+  PreviewUpdatePlan,
+  PreviewUpdateResult,
+} from "../../../src/runtime/previewAdmission.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
+
+/** Timeline policy is explicit for every admitted room entry. */
+export function commitRoomReentry(
+  ctx: WorkerContext,
+  engine: Engine,
+  plan: PreviewUpdatePlan,
+  segment: "continue" | "resume" | "replacement",
+  beforeEntry?: () => void,
+): PreviewUpdateResult {
+  if (segment === "replacement") return engine.commitRoomReentry(plan, beforeEntry);
+  return engine.commitRoomReentry(plan, () => {
+    beginRoomReentry(ctx);
+    if (segment === "resume") ctx.fns.historyEnd("resume");
+    ctx.fns.setKeyWaiting(false);
+    ctx.fns.abandonHostRequest();
+    beforeEntry?.();
+    ctx.fns.markReenter();
+  });
+}
+
+function beginRoomReentry(ctx: WorkerContext): void {
+  // A test recording cannot replay the changed resources or the fresh entry.
+  const recording = ctx.run.recording.recording;
+  if (recording && recording.tainted === null)
+    recording.tainted = "Game resources changed during recording.";
+}
 
 /** The outcome an accepted host answer produced — what history records. */
 export interface HostAnswerOutcome {
@@ -459,8 +489,7 @@ export function createHostRequests(ctx: WorkerContext) {
     )
       throw new Error(`Room ${room} needs a LOGIC to enter.`);
     ctx.fns.debugBeforeReplace();
-    if (ctx.run.recording.recording)
-      ctx.run.recording.recording.tainted = "Game resources changed during recording.";
+    beginRoomReentry(ctx);
     // A suspended interaction is abandoned: its parked continuation is
     // meaningless once the room's resources change under it, and the
     // request still in flight resolves into a dropped answer.

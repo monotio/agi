@@ -124,7 +124,7 @@ const offDefaults = registerDefaultCommands(props.registry, {
   stepOut: () => editor.debugCommand.value?.("out"),
   quickOpen: () => showChooser("parts"),
   palette: () => showChooser("palette"),
-  parts: () => workspace.toggleDock("left"),
+  parts: workspace.toggleParts,
   panel: () => {
     if (editor.selected.value === "problems") editor.close("problems");
     else editor.open("problems");

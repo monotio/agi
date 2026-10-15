@@ -1,5 +1,7 @@
 /** One editable model and immutable History for an opened project's lifetime. */
 import { migrateAgentChats, readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
+import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
+import { parseGameTests } from "../../../src/agent/gameTestFormat.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import {
   ProjectModel,
@@ -62,6 +64,7 @@ import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 
 interface SessionSave {
   readonly snapshot: ProjectSnapshot;
+  readonly documentOnly?: boolean;
   readonly data: ProjectCommitRequest["data"];
   request?: ProjectCommitRequest;
   attempted?: boolean;
@@ -191,15 +194,21 @@ function createSession(
       data: ProjectCommitRequest["data"],
       outcome?: PreviewUpdateOutcome,
       nativeInstalled?: boolean,
+      documentOnly?: boolean,
     ) => void;
     readonly roomGenerationChanged?: (enabled: boolean) => void;
     readonly changed?: () => void;
     readonly checkpointReady?: () => void;
-    readonly forked?: (data: CachedGameData, lifetime: string) => void | Promise<void>;
+    readonly forked?: (
+      data: CachedGameData,
+      lifetime: string,
+      documentOnly?: boolean,
+    ) => void | Promise<void>;
     readonly saved?: (
       data: ProjectCommitRequest["data"],
       lifetime: string,
       generation: number,
+      documentOnly?: boolean,
     ) => void;
   },
   storage: SessionStorage,
@@ -265,6 +274,8 @@ function createSession(
   let tail = Promise.resolve();
   let documentTail = tail;
   let queued = 0;
+  let checkpointPending = false;
+  let checkpointRevision: string | undefined;
   let diagnostics: PreparedProjectEdit["diagnostics"] = prepareProjectEdit({
     model,
     proposal: model.propose(model.capture(), "Opened", []),
@@ -283,6 +294,21 @@ function createSession(
   const current = () => !disposed && (input.current?.() ?? true);
   const versions = (snapshot: ProjectSnapshot) =>
     snapshot.keys.map((key) => ({ key, version: snapshot.version(key) }));
+  function checkpointResourcesReady() {
+    const revision = model.capture().lastAdmissibleBuild!.identity.revision;
+    // Undo can return to the stored revision while a different revision is
+    // still writing. That write must settle before progress can name this body.
+    return (
+      expected.revision === revision &&
+      !autosave
+        .captures()
+        .some(
+          (capture) =>
+            !capture.acknowledged &&
+            capture.snapshot.lastAdmissibleBuild!.identity.revision !== revision,
+        )
+    );
+  }
   function notify() {
     if (disposed) return;
     input.changed?.();
@@ -292,6 +318,22 @@ function createSession(
       } catch {
         /* A presentation observer cannot cancel the owned save. */
       }
+    }
+    // Retry owed checkpoints once storage holds the admitted resources.
+    // Document writes do not move that revision.
+    if (
+      checkpointPending &&
+      current() &&
+      writeBlock === undefined &&
+      checkpointResourcesReady() &&
+      pendingImage === undefined &&
+      (pendingRestart === null ||
+        (checkpointRevision !== undefined &&
+          checkpointRevision === model.capture().lastAdmissibleBuild!.identity.revision))
+    ) {
+      checkpointPending = false;
+      checkpointRevision = undefined;
+      input.checkpointReady?.();
     }
   }
   let journalBase = structuredClone(input.data);
@@ -470,7 +512,7 @@ function createSession(
           if (held) persistPending();
           else session.stopWrites();
         });
-        await input.forked?.(structuredClone(data), receipt.saved.lifetime);
+        await input.forked?.(structuredClone(data), receipt.saved.lifetime, capture.documentOnly);
       }
       data.library = capture.request!.data.library;
       expected = { ...receipt.saved };
@@ -494,7 +536,12 @@ function createSession(
         typeof localStorage !== "undefined"
       )
         localStorage.removeItem(previousKey);
-      input.saved?.(capture.request!.data, receipt.saved.lifetime, receipt.saved.generation);
+      input.saved?.(
+        capture.request!.data,
+        receipt.saved.lifetime,
+        receipt.saved.generation,
+        capture.documentOnly,
+      );
     },
     conflict(error) {
       if (
@@ -517,6 +564,7 @@ function createSession(
     outcome?: PreviewUpdateOutcome,
     nativeInstalled = false,
     save = true,
+    documentOnly = false,
   ) {
     const image = snapshot.lastAdmissibleBuild!;
     const authoringState = updateAcceptedSourceClaims(
@@ -549,18 +597,19 @@ function createSession(
           }
         : {}),
     };
-    const tests = image.documents()["tests"];
+    const tests = snapshot.read("tests")?.content;
     delete next.files["TESTS.JSON"];
     if (tests !== undefined)
       next.files["TESTS.JSON"] =
         typeof tests === "string" ? new TextEncoder().encode(tests) : tests.slice();
     if (next.files["WORDS.TOK"] !== undefined)
       next.words = parseWordsTok(next.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
-    input.publish?.(snapshot, next, outcome, nativeInstalled);
+    input.publish?.(snapshot, next, outcome, nativeInstalled, documentOnly);
     if (!save) return;
     sourceClaimsNeedCapture = false;
     autosave.enqueue({
       snapshot,
+      documentOnly,
       data: next,
       operation: operationSerial,
     });
@@ -589,15 +638,59 @@ function createSession(
     beforeRenumber?: readonly ProjectChange[],
   ) {
     await ready;
+    beforeCommit?.();
+    if (!current() || autosave.status().state === "conflict")
+      throw new Error("Project session is closed for writes.");
+    const documentChanges = proposal.changes();
+    const tests = proposal.documents()["tests"];
+    if (
+      action === undefined &&
+      tests !== undefined &&
+      documentChanges.some((change) => change.key === "tests")
+    )
+      parseGameTests(
+        typeof tests === "string" ? new TextEncoder().encode(tests) : tests,
+        PROFILES[inspection.profileId],
+      );
+    if (
+      documentChanges.every((change) => change.key === "tests") &&
+      (documentChanges.length > 0 || (!preparedRoom && updateMode === undefined))
+    ) {
+      // Documents about the game save and undo independently of its executable build.
+      const application = model.issueApplication(proposal);
+      if (action === undefined) {
+        const prospective = new ProjectHistory(sha256Hex, history.capture());
+        prospective.record(proposal.documents(), metadata);
+      }
+      beforeCommit?.();
+      const before = model.capture();
+      const snapshot = model.apply(application);
+      partDrafts?.rebase(
+        { documentId: before.documentId, world: before.read("world")?.content },
+        { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
+      );
+      if (action !== undefined) history.accept(action);
+      else history.record(snapshot.documents(), metadata);
+      recordOperation({
+        kind: "edit",
+        changes: documentChanges.map((change) => ({
+          ...change,
+          version: snapshot.version(change.key),
+        })),
+        metadata,
+        ...(action === undefined
+          ? {}
+          : { action: { direction: action.direction, target: action.target } }),
+      });
+      captureSave(snapshot, undefined, false, true, true);
+      return { status: "committed" as const, diagnostics };
+    }
     if (action !== undefined)
       reviewedRenumbering ??= projectRenumberingBetween(
         model.capture().documents(),
         proposal.documents(),
         PROFILES[inspection.profileId],
       );
-    beforeCommit?.();
-    if (!current() || autosave.status().state === "conflict")
-      throw new Error("Project session is closed for writes.");
     const beforeNumberDocuments = beforeRenumber?.length
       ? model.propose(proposal.base, "Edits before number change", beforeRenumber).documents()
       : undefined;
@@ -608,7 +701,7 @@ function createSession(
       workerRunToken: input.admission.runToken,
       generation: expected.generation,
     };
-    const { prepared, outcome, changes } = await prepareAndAdmitProjectEdit({
+    const edit = await prepareAndAdmitProjectEdit({
       model,
       proposal,
       profileId: inspection.profileId,
@@ -667,6 +760,7 @@ function createSession(
           : input.admission.admit(compiled, documents);
       },
     });
+    const { prepared, outcome, changes } = edit;
     beforeCommit?.();
     if (
       prepared.compiled === undefined &&
@@ -692,11 +786,8 @@ function createSession(
       outcome.status !== "deferred"
     )
       return { ...outcome, diagnostics: prepared.diagnostics };
-    if (outcome?.status === "restartRequired")
-      pendingRestart = {
-        action: outcome.roomReentry === true ? "reenter" : "restart",
-        reason: restartReason(outcome.reason ?? "This image needs a game restart."),
-      };
+    const hadPendingActivation = pendingRestart !== null || pendingImage !== undefined;
+    if (outcome?.status === "restartRequired") pendingRestart = restartFor(outcome);
     else if (prepared.compiled !== undefined) pendingRestart = null;
     if (prepared.compiled !== undefined) {
       pendingImage = outcome?.status === "deferred" ? prepared.compiled : undefined;
@@ -724,10 +815,18 @@ function createSession(
         ? {}
         : { action: { direction: action.direction, target: action.target } }),
     });
+    if (
+      (outcome?.status === "committed" || outcome?.status === "unchanged") &&
+      (before.lastAdmissibleBuild!.identity.revision !==
+        snapshot.lastAdmissibleBuild!.identity.revision ||
+        hadPendingActivation ||
+        updateMode === "reenter")
+    ) {
+      checkpointPending = true;
+      checkpointRevision = undefined;
+    }
     captureSave(snapshot, outcome, preparedRoom);
     if (pendingImage !== undefined) void retryAdmission();
-    else if (outcome?.status === "committed" || outcome?.status === "unchanged")
-      input.checkpointReady?.();
     return {
       status:
         outcome?.status === "restartRequired"
@@ -780,14 +879,11 @@ function createSession(
           if (!current() || writeBlock !== undefined || pendingImage !== image) return;
           if (outcome.status === "deferred") return;
           pendingImage = undefined;
-          if (outcome.status === "restartRequired")
-            pendingRestart = {
-              action: outcome.roomReentry === true ? "reenter" : "restart",
-              reason: restartReason(outcome.reason ?? "This image needs a game restart."),
-            };
+          if (outcome.status === "restartRequired") pendingRestart = restartFor(outcome);
           if (outcome.status === "committed" || outcome.status === "unchanged") {
+            checkpointPending = true;
+            checkpointRevision = undefined;
             captureSave(before, outcome, false, false);
-            input.checkpointReady?.();
           }
           notify();
         }, false);
@@ -802,6 +898,12 @@ function createSession(
         notify();
       }
     }
+  }
+  function restartFor(outcome: PreviewUpdateOutcome): PendingProjectRestart {
+    return {
+      action: outcome.roomReentry === true ? "reenter" : "restart",
+      reason: restartReason(outcome.reason ?? "This image needs a game restart."),
+    };
   }
   async function activate(mode: "restart" | "reenter") {
     if (!current() || autosave.status().state === "conflict")
@@ -827,17 +929,30 @@ function createSession(
       if (outcome.status === "deferred")
         await (input.boundary?.() ?? new Promise<void>((resolve) => setTimeout(resolve, 50)));
     } while (outcome.status === "deferred");
-    if (!current() || writeBlock !== undefined || before.documentId !== model.capture().documentId)
+    if (
+      !current() ||
+      writeBlock !== undefined ||
+      !sameNonTestDocuments(before.documents(), model.capture().documents())
+    )
       throw new Error("Project restart was superseded.");
     if (outcome.status === "committed" || outcome.status === "unchanged") {
       pendingRestart = null;
-      captureSave(model.apply(prepared.application), outcome);
+      const latest = model.capture();
+      const application =
+        latest.documentId === before.documentId
+          ? prepared.application
+          : prepareProjectEdit({
+              model,
+              proposal: model.propose(latest, "Restart", []),
+              profileId: inspection.profileId,
+              policy: { allowMissingRooms: data.roomGeneration === true },
+            }).application;
+      checkpointPending = true;
+      checkpointRevision = undefined;
+      captureSave(model.apply(application), outcome);
     }
     if (outcome.status === "restartRequired") {
-      pendingRestart = {
-        action: outcome.roomReentry === true ? "reenter" : "restart",
-        reason: restartReason(outcome.reason ?? "This image needs a game restart."),
-      };
+      pendingRestart = restartFor(outcome);
       notify();
     }
     return outcome;
@@ -987,7 +1102,7 @@ function createSession(
           throw new Error("Project session was closed for writes.");
         data.chats = readAgentChats(chats);
         recordOperation({ kind: "chats", chats: data.chats });
-        captureSave(model.capture());
+        captureSave(model.capture(), undefined, false, true, true);
       });
     },
     /**
@@ -1052,15 +1167,28 @@ function createSession(
         ),
       );
     },
-    submitPreparedRoom(edit: { proposal: ProjectProposal } & Omit<ProjectCommitMetadata, "time">) {
-      const { proposal, ...metadata } = edit;
-      return schedule(() => apply(proposal, { ...metadata, time: Date.now() }, undefined, true));
+    submitPreparedRoom(
+      edit: { proposal: ProjectProposal; beforeCommit?: () => void } & Omit<
+        ProjectCommitMetadata,
+        "time"
+      >,
+    ) {
+      const { proposal, beforeCommit, ...metadata } = edit;
+      return schedule(() =>
+        apply(proposal, { ...metadata, time: Date.now() }, undefined, true, beforeCommit),
+      );
     },
     undo(review?: ComputedRoomRemovalReview) {
       return schedule(async () => {
         if (partDrafts?.undo()) return { status: "draft" as const, diagnostics: [] };
         const action = history.undo(model);
         if (action === undefined) return undefined;
+        if (action.proposal.changes().every((change) => change.key === "tests"))
+          return apply(
+            action.proposal,
+            { label: "Undo", origin: "history", author: "creator", time: Date.now() },
+            action,
+          );
         const capture = model.capture();
         const prepared = prepareProjectEdit({
           model,
@@ -1170,15 +1298,27 @@ function createSession(
     },
     async prepareCheckpoint(revision?: string) {
       const status = session.saveStatus();
-      if (status.state === "failed") throw new Error(status.message);
-      return current() &&
+      const ready =
+        current() &&
         writeBlock === undefined &&
-        status.state === "saved" &&
+        checkpointResourcesReady() &&
         (revision === undefined
           ? pendingImage === undefined
-          : revision === model.capture().lastAdmissibleBuild!.identity.revision)
-        ? ("ready" as const)
-        : ("not_ready" as const);
+          : revision === model.capture().lastAdmissibleBuild!.identity.revision);
+      if (
+        !ready &&
+        current() &&
+        writeBlock === undefined &&
+        (!checkpointResourcesReady() || pendingImage !== undefined)
+      ) {
+        checkpointPending = true;
+        if (checkpointRevision !== model.capture().lastAdmissibleBuild!.identity.revision)
+          checkpointRevision = revision;
+      }
+      if (!ready && status.state === "failed") throw new Error(status.message);
+      // A mismatched revision with no readiness blocker needs a new build
+      // admission, rather than repeatedly capturing the same running bytes.
+      return ready ? ("ready" as const) : ("not_ready" as const);
     },
     retry() {
       return session.flush();

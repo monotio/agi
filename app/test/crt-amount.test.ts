@@ -50,3 +50,24 @@ test("CRT defaults to Full while display fixtures can request a flat default", a
   assert.equal(readCrtAmount(storage("on"), 0), 1);
   assert.equal(readCrtAmount(storage("off")), 0);
 });
+
+test("the old CRT switch migrates to an amount and stays stored", async () => {
+  const { readCrtAmount } = await import("../src/settings/crtPreference.ts");
+  for (const [legacy, amount] of [
+    ["off", "0"],
+    ["on", "1"],
+  ] as const) {
+    const values: Record<string, string> = { "monotio_agi.crt": legacy };
+    const storage = {
+      getItem: (key: string) => values[key] ?? null,
+      setItem: (key: string, value: string) => {
+        values[key] = value;
+      },
+    };
+    assert.equal(readCrtAmount(storage), Number(amount));
+    assert.equal(values["monotio_agi.crtAmount"], amount, `${legacy} writes its amount`);
+    assert.equal(values["monotio_agi.crt"], legacy, `${legacy} stays for older tabs`);
+    values["monotio_agi.crtAmount"] = "0.25";
+    assert.equal(readCrtAmount(storage), 0.25, "a chosen amount wins over the old switch");
+  }
+});

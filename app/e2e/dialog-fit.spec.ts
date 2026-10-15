@@ -22,7 +22,7 @@ test.use({ keepDetectedProfileOption: false });
  * too narrow for its row of buttons stacks them full width instead of pushing
  * Cancel, the safe choice, off the dialog's edge. A button may sit below the
  * fold of a scrolling body, never past a dialog's side or the viewport's.
- * Runs in both phone projects (playwright.phone.config.ts).
+ * Every size runs in Chromium; 390 also runs in the iphone-webkit project.
  */
 test.use({ hasTouch: true });
 
@@ -100,7 +100,9 @@ for (const [width, height] of [
   [390, 844],
   [360, 740],
 ] as const) {
-  test(`every dialog keeps its buttons on screen at ${width}×${height}`, async ({ page }) => {
+  test(`every dialog keeps its buttons on screen at ${width}×${height}${width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height });
     await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
     await isolateStorage(page);

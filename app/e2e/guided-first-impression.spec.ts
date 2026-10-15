@@ -25,7 +25,6 @@ async function seedProject(
     },
     { title, kind },
   );
-  await page.waitForLoadState("networkidle");
   return projectId;
 }
 
@@ -52,7 +51,6 @@ async function seedMixedProject(page: Page, title: string): Promise<string> {
     },
     { name: title, workspaceModule: WORKSPACE_MODULE },
   );
-  await page.waitForLoadState("networkidle");
   return projectId;
 }
 
@@ -62,7 +60,7 @@ async function openStudio(page: Page, title: string): Promise<void> {
   await openWorkspaceLogic(page);
 }
 
-test("a fresh Starter opens on its room's real source, not the LOGIC 0 boilerplate @webkit-desktop", async ({
+test("a fresh Starter opens on its room's real source, not the LOGIC 0 boilerplate", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -84,9 +82,7 @@ test("a fresh Starter opens on its room's real source, not the LOGIC 0 boilerpla
   await reviewShot(page, "first-impression-room-source");
 });
 
-test("a project with retained LOGIC bytes keeps the plain first document @webkit-desktop", async ({
-  page,
-}) => {
+test("a project with retained LOGIC bytes keeps the plain first document", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
   await seedMixedProject(page, "Mixed bytes");

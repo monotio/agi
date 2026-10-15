@@ -41,6 +41,7 @@ import {
   ref,
   shallowRef,
   watch,
+  type ComponentPublicInstance,
 } from "vue";
 import { compilePictureSource } from "../../../../src/picture/source.ts";
 import { openContainer } from "../../../../src/container/container.ts";
@@ -81,6 +82,7 @@ import UiChip from "../../ui/UiChip.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import PartsList from "./PartsList.vue";
+import EditorLoading from "./EditorLoading.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
 import { workspaceParts, workspaceOpenParts } from "../host/workspaceParts.ts";
 import { roomPictureUse } from "../../../../src/agent/roomPictures.ts";
@@ -174,8 +176,16 @@ async function applyNumber(
     actionBusy.value = false;
   }
 }
-const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
-const DocumentEditor = defineAsyncComponent(() => import("./DocumentEditor.vue"));
+const NotesEditor = defineAsyncComponent({
+  loader: () => import("./NotesEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const DocumentEditor = defineAsyncComponent({
+  loader: () => import("./DocumentEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const ImageReferencePanel = defineAsyncComponent(
   () => import("../creative/ImageReferencePanel.vue"),
 );
@@ -185,24 +195,69 @@ const traceUnderlays = shallowRef<
   Record<string, { pixels: Uint8Array; opacity: number; behindArt: boolean } | null>
 >({});
 let imageRefresh = 0;
-const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
+const SoundPanel = defineAsyncComponent({
+  loader: () => import("./SoundPanel.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"));
-const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
-const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
-const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));
-const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.vue"));
-const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
+const WordsEditor = defineAsyncComponent({
+  loader: () => import("./WordsEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const TableEditor = defineAsyncComponent({
+  loader: () => import("./TableEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const RoomStudio = defineAsyncComponent({
+  loader: () => import("../RoomStudio.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const SpriteStudio = defineAsyncComponent({
+  loader: () => import("../sprite/SpriteStudio.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const LogicEditor = defineAsyncComponent({
+  loader: () => import("./LogicEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
 const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControls.vue"));
 const StudioKeySheet = defineAsyncComponent(() => import("../StudioKeySheet.vue"));
-const ReferencesTab = defineAsyncComponent(() => import("./ReferencesTab.vue"));
-const GameStateTab = defineAsyncComponent(() => import("./GameStateTab.vue"));
-const MessagesTab = defineAsyncComponent(() => import("./MessagesTab.vue"));
-const LaunchEditor = defineAsyncComponent(() => import("./LaunchEditor.vue"));
+const ReferencesTab = defineAsyncComponent({
+  loader: () => import("./ReferencesTab.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const GameStateTab = defineAsyncComponent({
+  loader: () => import("./GameStateTab.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const MessagesTab = defineAsyncComponent({
+  loader: () => import("./MessagesTab.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
+const LaunchEditor = defineAsyncComponent({
+  loader: () => import("./LaunchEditor.vue"),
+  loadingComponent: EditorLoading,
+  delay: 0,
+});
 const engine = useEngineApi();
 const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+// Vue calls a function ref on every patch of its element; writing the same element to the
+// shallowRef again triggers nothing, so Room Studio moves only when the row mounts or unmounts.
+function setContextTarget(element: Element | ComponentPublicInstance | null): void {
+  editor.contextTarget.value = element instanceof HTMLElement ? element : null;
+}
 const commands = useOptionalCommands();
 const presentation = usePresentation();
 const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
@@ -210,8 +265,20 @@ const phoneQuery = window.matchMedia("(max-width: 600px)");
 const phoneWidth = ref(phoneQuery.matches);
 function phoneLayout(event: MediaQueryListEvent): void {
   phoneWidth.value = event.matches;
+  if (event.matches) editor.partsOpen.value = false;
 }
 phoneQuery.addEventListener("change", phoneLayout);
+// A temporary fold never writes the saved dock setting. Opening Parts beside the Agent lasts only while the Agent is open.
+const autoFoldParts = computed(
+  () => props.creating && workspace.compactAgent.value && !editor.partsOpen.value,
+);
+const partsVisible = computed(
+  () =>
+    props.creating &&
+    !editor.focus.value &&
+    !autoFoldParts.value &&
+    (!workspace.collapsed.left || editor.partsOpen.value),
+);
 const stacked = computed(() => phoneWidth.value || editor.stackedLayout.value);
 const roomHint = shallowRef<{ key: string; room: number }>();
 function openPart(key: string, room?: number): void {
@@ -413,6 +480,7 @@ let draftKeys = "";
 let draftError = "";
 const draftMembership = shallowRef<readonly string[]>([]);
 const deletedParts = shallowRef<readonly string[]>([]);
+const deleteRoomTests = ref(true);
 const partRemovalReview = shallowRef<{
   owner: ProjectSession;
   snapshot: ProjectSnapshot;
@@ -426,6 +494,8 @@ const groupMetadata = shallowRef<{
 }>({ world: undefined, bindings: undefined });
 const editorEpoch = ref(0);
 let session: ProjectSession | null = null;
+/** Notes render before the project opens; until then they have no stored text to edit. */
+const sessionOpen = ref(false);
 let unsubscribe: (() => void) | undefined;
 let retired = false;
 const writeConflict = ref(false);
@@ -529,6 +599,7 @@ function attach(): void {
   if (next !== session) {
     unsubscribe?.();
     session = next;
+    sessionOpen.value = session !== null;
     offDrafts?.();
     optimistic.value = {};
     deletedParts.value = [];
@@ -692,6 +763,15 @@ const groups = computed(() => {
     debugging: editor.debugging.value || (debug.value?.state.breakpoints.length ?? 0) > 0,
   });
 });
+// Parts is held only while the rename form can show: the room must still be listed (Undo can remove it).
+const renameActive = computed(
+  () =>
+    renamingRoom.value !== undefined &&
+    groups.value.some((group) =>
+      group.entries.some((entry) => entry.id === `room:${renamingRoom.value}`),
+    ),
+);
+workspace.holdParts(() => renameActive.value);
 const roomThumbs = useNodeThumbs(engine.roomMap, () => engine.roomMap.graph.value.nodes);
 const thumbnails = computed<Readonly<Record<string, string>>>(() => {
   void engine.roomMap.thumbVersion.value;
@@ -785,6 +865,7 @@ const tabRows = computed(() =>
       draftMembership.value.includes(key) ||
       (key.startsWith("launches:") && draftMembership.value.includes("world")),
     missing:
+      sessionOpen.value &&
       !key.startsWith("launches:") &&
       DATA_LABELS[key] === undefined &&
       !snapshot.value?.keys.includes(key) &&
@@ -800,15 +881,22 @@ const livePreview = shallowRef<{
   objects: readonly ScreenObjectState[];
 }>({ state: null, objects: [] });
 let previewRead = 0;
+async function readLivePreview(): Promise<void> {
+  const ticket = ++previewRead;
+  const [state, objects] = await Promise.all([
+    engine.readEngineState().catch(() => null),
+    engine.readObjects().catch(() => []),
+  ]);
+  if (ticket === previewRead && !retired) livePreview.value = { state, objects };
+}
+/** Heartbeats of the running game that check again after a selection, update or room change. */
+const LIVE_RECHECKS = 8;
+let liveRechecksLeft = 0;
 watch(
   [editor.selected, revision, engine.roomMap.currentRoom],
-  async () => {
-    const ticket = ++previewRead;
-    const [state, objects] = await Promise.all([
-      engine.readEngineState().catch(() => null),
-      engine.readObjects().catch(() => []),
-    ]);
-    if (ticket === previewRead && !retired) livePreview.value = { state, objects };
+  () => {
+    liveRechecksLeft = LIVE_RECHECKS;
+    void readLivePreview();
   },
   { immediate: true },
 );
@@ -889,10 +977,25 @@ const selectedRoom = computed(() => {
 });
 const rememberedLaunches = ref<Record<string, string>>({});
 watch(
-  [selectedRoom, engine.roomMap.currentRoom, snapshot, groupMetadata, groups],
+  [
+    selectedRoom,
+    engine.roomMap.currentRoom,
+    snapshot,
+    groupMetadata,
+    groups,
+    rememberedLaunches,
+    deletedParts,
+  ],
   () => {
     const room = selectedRoom.value ?? engine.roomMap.currentRoom.value ?? undefined;
-    editor.actionRoom.value = room;
+    const removed = [room, engine.roomMap.currentRoom.value].some(
+      (target) =>
+        target !== undefined &&
+        target !== null &&
+        (deletedParts.value.includes(`logic:${target}`) ||
+          (snapshot.value?.read(`logic:${target}`) === undefined &&
+            snapshot.value?.lastAdmissibleBuild?.documents()[`logic:${target}`] !== undefined)),
+    );
     let world: {
       rooms?: Record<string, { title?: string }>;
       launches?: Record<string, { selected?: string; entries: Launch[] }>;
@@ -904,14 +1007,6 @@ watch(
     } catch {
       /* Room identities stay available. */
     }
-    editor.actionRoomName.value =
-      room === undefined
-        ? ""
-        : world.rooms?.[room]?.title ||
-          groups.value
-            .flatMap((group) => group.entries)
-            .find((entry) => entry.id === `room:${room}`)?.title ||
-          numberedLabel("room", room);
     const launches = launchRecovery.value.launches;
     const choices = room === undefined ? undefined : launches[room];
     editor.launchChoices.value = choices?.entries ?? [];
@@ -930,6 +1025,17 @@ watch(
       editor.launchChoices.value.some((entry) => entry.id === selected)
         ? selected
         : "carry";
+    // The display describes a deleted active room's fallback; the worker owns its admission.
+    editor.actionBeginning.value = removed;
+    editor.actionRoom.value = room;
+    editor.actionRoomName.value =
+      room === undefined
+        ? ""
+        : world.rooms?.[room]?.title ||
+          groups.value
+            .flatMap((group) => group.entries)
+            .find((entry) => entry.id === `room:${room}`)?.title ||
+          numberedLabel("room", room);
   },
   { immediate: true },
 );
@@ -989,6 +1095,18 @@ const unusedArt = computed(
   () =>
     (editor.kind.value === "picture" || editor.kind.value === "view") &&
     selectedRoom.value === undefined,
+);
+// A VIEW that LOGIC picks at run time counts as used once the running room shows it. An update
+// restarts the room, and a read before the room's first cycle finds no objects yet, so while the
+// note says unused, the next few heartbeats in which the game ran check again. Then the reads stop:
+// a sprite left open does not keep the worker and Create busy for the rest of the session.
+watch(
+  () => (unusedArt.value && editor.kind.value === "view" ? engine.currentCycle.value : undefined),
+  (cycle) => {
+    if (cycle === undefined || liveRechecksLeft <= 0) return;
+    liveRechecksLeft--;
+    void readLivePreview();
+  },
 );
 /** The context row shows only when the open tab has tools to offer. */
 const contextRow = computed(() => {
@@ -1416,11 +1534,15 @@ const writes = {
   },
   retry: async () => {
     await session?.drafts().flush();
+    await session?.flush();
     draftChanged();
   },
   dispose: () => {},
 };
 const buildErrorLocation = ref<{ problem: ProjectEditDiagnostic; message: string }>();
+const missingRoomNotice = computed(() =>
+  /needs a LOGIC to (enter|re-enter)/.test(editor.error.value),
+);
 const buildErrorNotice = computed(() => buildErrorLocation.value?.message === editor.error.value);
 function refuseBuild(problem: ProjectEditDiagnostic): void {
   const document = problem.document;
@@ -1433,7 +1555,7 @@ function goToBuildError(): void {
   if (!location) return;
   revealProblem(location.problem);
 }
-async function updateGame(restartRoom = true): Promise<void> {
+async function updateGame(restartRoom = true, launchOverride?: "beginning"): Promise<void> {
   if (!session || actionBusy.value || imageBusy.value || editingPaused.value) return;
   const firstError = diagnostics.value.find(
     (entry) => entry.severity === "error" && (restartRoom || entry.code !== "launch-input"),
@@ -1448,8 +1570,11 @@ async function updateGame(restartRoom = true): Promise<void> {
   const state = editor.launchChoices.value.find(
     (entry) => entry.id === editor.selectedLaunch.value,
   );
-  const beginning = editor.selectedLaunch.value === "beginning";
-  const fromMyGame = editor.selectedLaunch.value === "my-game";
+  const beginning =
+    editor.actionBeginning.value ||
+    launchOverride === "beginning" ||
+    editor.selectedLaunch.value === "beginning";
+  const fromMyGame = !beginning && editor.selectedLaunch.value === "my-game";
   const launch =
     room === undefined ? undefined : { room, ...(state ? { state } : {}), beginning, fromMyGame };
   actionBusy.value = true;
@@ -2165,15 +2290,26 @@ async function clearName(name: string): Promise<void> {
   });
 }
 async function deletePart(key: string, room?: number): Promise<void> {
-  if (!session || editingPaused.value || actionBusy.value) return;
+  const review = partRemovalReview.value;
+  if (!session || editingPaused.value || actionBusy.value) {
+    partRemovalReview.value = undefined;
+    return;
+  }
   const owner = session;
   try {
     await writes.flush();
-    if (session !== owner || editingPaused.value || actionBusy.value) return;
+    if (session !== owner || editingPaused.value || actionBusy.value) {
+      if (partRemovalReview.value === review) partRemovalReview.value = undefined;
+      return;
+    }
     const captured = owner.workingSnapshot();
-    if (!captured.read(key)) return;
+    if (!captured.read(key)) {
+      if (partRemovalReview.value === review) partRemovalReview.value = undefined;
+      return;
+    }
     const plan = preparePartDraftRemoval(captured, key, profile.value, room);
-    if (plan.problems.length) {
+    if (room !== undefined || plan.problems.length) {
+      deleteRoomTests.value = true;
       partRemovalReview.value = {
         owner,
         snapshot: captured,
@@ -2183,11 +2319,15 @@ async function deletePart(key: string, room?: number): Promise<void> {
       };
     } else applyPartRemoval(plan.changes);
   } catch (cause) {
+    if (partRemovalReview.value === review) partRemovalReview.value = undefined;
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
 function applyPartRemoval(changes: readonly ProjectChange[]): void {
-  if (!session || editingPaused.value || actionBusy.value) return;
+  if (!session || editingPaused.value || actionBusy.value) {
+    partRemovalReview.value = undefined;
+    return;
+  }
   session.drafts().stageTransaction(changes);
   partRemovalReview.value = undefined;
   editor.error.value = "";
@@ -2198,15 +2338,24 @@ function applyPartRemoval(changes: readonly ProjectChange[]): void {
 }
 async function confirmPartRemoval(): Promise<void> {
   const review = partRemovalReview.value;
-  if (!session || !review || session !== review.owner) return;
+  if (!session || !review || session !== review.owner || editingPaused.value || actionBusy.value) {
+    partRemovalReview.value = undefined;
+    return;
+  }
   if (
     diffProjectDocuments(review.snapshot.documents(), session.workingSnapshot().documents()).length
   ) {
-    partRemovalReview.value = undefined;
     await deletePart(review.key, review.room);
     return;
   }
-  applyPartRemoval(review.plan.changes);
+  const plan = preparePartDraftRemoval(
+    review.snapshot,
+    review.key,
+    profile.value,
+    review.room,
+    deleteRoomTests.value,
+  );
+  applyPartRemoval(plan.changes);
 }
 async function add(group: string, option?: string): Promise<void> {
   if (editingPaused.value || actionBusy.value) return;
@@ -2456,8 +2605,24 @@ onBeforeUnmount(() => {
       }
     "
   >
+    <p v-if="partRemovalReview?.room !== undefined">
+      Delete {{ numberedLabel("room", partRemovalReview.room, { rooms: allRooms }) }}?
+    </p>
+    <label v-if="partRemovalReview?.room !== undefined">
+      <input v-model="deleteRoomTests" type="checkbox" />
+      Also delete tests that use this room<span v-if="partRemovalReview.plan.testCount">
+        ({{ partRemovalReview.plan.testCount }}
+        {{ partRemovalReview.plan.testCount === 1 ? "test" : "tests" }})</span
+      >
+    </label>
+    <p v-if="partRemovalReview?.room !== undefined && !deleteRoomTests">
+      Tests that use this room will fail when run.
+    </p>
+    <p v-if="partRemovalReview?.plan.testNotice">{{ partRemovalReview.plan.testNotice }}</p>
     <p v-for="message in partRemovalReview?.plan.messages" :key="message">{{ message }}</p>
-    <p>These will show as problems until you change them.</p>
+    <p v-if="partRemovalReview?.plan.problems.length">
+      These will show as problems until you change them.
+    </p>
     <p v-for="message in partRemovalReview?.plan.metadata" :key="message">{{ message }}</p>
     <template #footer>
       <UiButton variant="ghost" @click="partRemovalReview = undefined">Cancel</UiButton>
@@ -2516,14 +2681,10 @@ onBeforeUnmount(() => {
   </aside>
   <PartsList
     :data-analysis="engine.roomMap.analysisStatus.value"
-    :active="
-      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
-    "
+    :active="partsVisible"
     :read-only="editingPaused || actionBusy"
-    :class="{ 'parts-list--open': editor.partsOpen.value }"
-    v-show="
-      creating && !editor.focus.value && (!workspace.collapsed.left || editor.partsOpen.value)
-    "
+    :class="{ 'parts-list--open': editor.partsOpen.value, 'parts-list--auto-fold': autoFoldParts }"
+    v-show="partsVisible"
     :pending="draftMembership"
     :bindings="typeof content('bindings') === 'string' ? String(content('bindings')) : undefined"
     :groups="groups"
@@ -2722,7 +2883,7 @@ onBeforeUnmount(() => {
         >Not used by a room yet</span
       >
       <!-- The open editor's own context (the picture's drawing place) teleports here. -->
-      <span id="workspace-context-editor" class="workspace-context__editor"></span>
+      <span :ref="setContextTarget" class="workspace-context__editor"></span>
       <ImageReferencePanel
         v-if="
           !editingPaused &&
@@ -2791,6 +2952,9 @@ onBeforeUnmount(() => {
       >
         {{ editor.error.value }}
         <UiButton v-if="buildErrorNotice" @click="goToBuildError">Go to error</UiButton>
+        <UiButton v-else-if="missingRoomNotice" @click="editor.startFromBeginning"
+          >From the beginning</UiButton
+        >
         <UiButton v-else-if="!writeConflict" @click="retrySave">Retry</UiButton>
       </p>
     </Teleport>
@@ -2947,7 +3111,7 @@ onBeforeUnmount(() => {
         @open="openPart(`sound:${$event}`)"
       />
       <NotesEditor
-        :read-only="editingPaused || actionBusy"
+        :read-only="editingPaused || actionBusy || !sessionOpen"
         v-else-if="key === 'notes'"
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
@@ -2985,7 +3149,7 @@ onBeforeUnmount(() => {
           @reveal="revealDebug"
           @problem="revealProblem"
         />
-        <template #fallback><p>Loading…</p></template>
+        <template #fallback><EditorLoading /></template>
       </Suspense>
       <LaunchEditor
         :read-only="editingPaused || actionBusy"
@@ -3014,7 +3178,8 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
         @typing-end="endTyping"
       />
-      <p v-else class="workspace-error">Open an authored part to edit it.</p>
+      <EditorLoading v-else-if="!sessionOpen" />
+      <p v-else class="workspace-note">Open an authored part to edit it.</p>
       <p
         v-for="(preview, object) in key === editor.selected.value && key.startsWith('picture:')
           ? visiblePlacementPreviews

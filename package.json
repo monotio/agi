@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "private": true,
   "workspaces": [
@@ -45,7 +45,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p evals/tsconfig.json --noEmit",
     "typecheck:app": "npm --prefix app run typecheck",
     "check:dependencies": "npm ls --depth=0 && node --experimental-strip-types scripts/check-engine-dependencies.ts",
-    "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast lint:dead lint:deps lint:tokens format:check test test:app eval:replay",
+    "check": "run-p -c --aggregate-output check:dependencies typecheck typecheck:app lint lint:ast lint:dead lint:deps lint:tokens format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types evals/genesis-cli.ts",
     "eval:image-style": "node --experimental-strip-types evals/image-style.ts",
     "eval:picture": "node --experimental-strip-types evals/picture-fidelity.ts",
@@ -59,7 +59,7 @@
     "eval:replay": "node --test --experimental-strip-types 'evals/tests/**/*.test.ts'",
     "eval": "npm --prefix evals run eval --",
     "language-server": "node --experimental-strip-types scripts/agi-language-server.ts",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint . --max-warnings 0 --cache --cache-strategy content --cache-location node_modules/.cache/eslint/",
     "lint:dead": "knip",
     "lint:deps": "node scripts/lint-deps.mjs",
     "mutation": "stryker run",
@@ -68,7 +68,7 @@
     "lint:tokens": "node scripts/check-design-tokens.mjs",
     "lint:ast": "node scripts/check-ast-grep-suppressions.mjs && ast-grep scan -c .ast-grep/sgconfig.yml --error && ast-grep test -c .ast-grep/sgconfig.yml",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check --cache --cache-strategy content ."
   },
   "overrides": {
     "monaco-editor": {

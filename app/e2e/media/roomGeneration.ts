@@ -106,7 +106,7 @@ function roomReply() {
         type: "function_call",
         call_id: `${id}-finish`,
         name: "finish",
-        arguments: '{"notes":"The workshop is ready."}',
+        arguments: '{"testReasons":null}',
       },
     ],
   });

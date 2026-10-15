@@ -10,7 +10,7 @@ import {
   serializeGameTests,
   type GameTest,
 } from "../src/agent/gameTestFormat.ts";
-import { testsForResource, verdictLine } from "../src/agent/gameTests.ts";
+import { testsForResource, verdictLine } from "../src/agent/gameTestsRunner.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../src/agent/gameTestSteps.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";
@@ -24,7 +24,8 @@ import {
   createAgentSessionState,
   type AgentSessionState,
 } from "../src/agent/agentState.ts";
-import { ASK_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
+import { ASK_TOOLS, executeAgentTool, validateAgentHandover } from "../src/agent/tools.ts";
+import { gameTestActionCount, gameTestReviewChanges } from "../src/agent/gameTestReview.ts";
 import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -287,7 +288,7 @@ test("testsForResource follows real dependencies and stays conservative when the
   );
 });
 
-test("write_game_tests stores, merges, replaces and removes; commands need registered words", () => {
+test("Write tests first: test documents accept rooms and commands before the game knows them", () => {
   const state = world();
   const written = executeAgentTool(state, "write_game_tests", {
     mode: null,
@@ -308,24 +309,25 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
       },
     ],
   });
-  assert.equal(unknown.success, false);
-  assert.match(unknown.error ?? "", /frobnicate/);
-  assert.match(unknown.error ?? "", /write_words/);
+  assert.equal(unknown.success, true, unknown.error ?? "");
   const close = executeAgentTool(state, "write_game_tests", {
     mode: "merge",
     names: null,
     tests: [{ ...takeKey, name: "typo", steps: [step("command", { command: "tak key" })] }],
   });
-  assert.equal(close.success, false);
-  assert.match(close.error ?? "", /\btak\b/);
-  assert.match(close.error ?? "", /\btake\b/, "the error names registered candidates");
+  assert.equal(close.success, true, close.error ?? "");
   const merged = executeAgentTool(state, "write_game_tests", {
     mode: "merge",
     names: null,
     tests: [{ ...takeKey, name: "look around", steps: [step("wait", { ticks: 3 })], expect: null }],
   });
   assert.equal(merged.success, true, merged.error ?? "");
-  assert.deepEqual(merged.details?.["names"], ["take the key", "look around"]);
+  assert.deepEqual(merged.details?.["names"], [
+    "take the key",
+    "frobnicate",
+    "typo",
+    "look around",
+  ]);
   const listed = executeAgentTool(state, "read_game_tests", { names: ["look around"] });
   assert.equal(listed.success, true);
   assert.equal((JSON.parse(listed.details?.["definition"] as string) as unknown[]).length, 1);
@@ -335,7 +337,7 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
     tests: null,
   });
   assert.equal(removed.success, true, removed.error ?? "");
-  assert.deepEqual(removed.details?.["names"], ["take the key"]);
+  assert.deepEqual(removed.details?.["names"], ["take the key", "frobnicate", "typo"]);
   const replaced = executeAgentTool(state, "write_game_tests", {
     mode: "replace",
     names: null,
@@ -393,7 +395,7 @@ function realParserAccepts(command: string): boolean {
   return engine.vars[9] === 0;
 }
 
-test("stored-command acceptance matches the real parser: normalization, punctuation, filler and phrases", () => {
+test("Write tests first: command words are checked when tests run, using the real parser", () => {
   // The dictionary knows keycard, dont, "ice cream" and the ignored filler "the".
   const cases: [command: string, accepted: boolean][] = [
     ["take key", true],
@@ -415,9 +417,12 @@ test("stored-command acceptance matches the real parser: normalization, punctuat
     });
     assert.equal(
       written.success,
-      accepted,
-      `write_game_tests must ${accepted ? "accept" : "reject"} ${JSON.stringify(command)} the way the real parser does${written.success ? "" : `: ${written.error}`}`,
+      true,
+      `well-formed command ${JSON.stringify(command)} saves before its vocabulary exists`,
     );
+    const run = executeAgentTool(state, "run_game_tests", { names: null });
+    assert.equal(run.success, accepted, `runtime parser: ${command}`);
+    if (!accepted) assert.match(run.error ?? "", /frobnicate/);
   }
 });
 
@@ -494,7 +499,7 @@ test("a write tool leads with the verdict and reports selection, coverage and pa
     room: 1,
     source: ROOM_LOGIC.replace("set(f30);", ""),
   });
-  assert.equal(broken.success, true, broken.error ?? "");
+  assert.equal(broken.success, false);
   assert.match(
     broken.message ?? "",
     /^Game tests: 0 game tests pass, 1 fail: "take the key" Expected flag 30=true/,
@@ -503,7 +508,7 @@ test("a write tool leads with the verdict and reports selection, coverage and pa
   assert.equal(outcomes[0]?.passed, false);
   // The global dynamic dispatcher means another room cannot be proven irrelevant.
   const elsewhere = executeAgentTool(state, "write_logic", { room: 2, source: "return;" });
-  assert.equal(elsewhere.success, true, elsewhere.error ?? "");
+  assert.equal(elsewhere.success, false);
   assert.match(elsewhere.message ?? "", /^Game tests:/);
 });
 
@@ -523,8 +528,9 @@ test("reruns report skipped coverage instead of looking like full coverage", () 
 test("verdicts are reused for the same tree and rerun when the tree moves", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
-  // write_game_tests already ran the test on this tree, so an immediate
-  // re-ask reuses that verdict instead of simulating again.
+  // Saving a document does not run it. A second run reuses the first verdict.
+  const initial = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(initial.details?.["reused"], 0);
   const first = executeAgentTool(state, "run_game_tests", { names: null });
   assert.equal(first.success, true, first.error ?? "");
   assert.equal(first.details?.["reused"], 1);
@@ -981,6 +987,92 @@ function recordSetupImage(state: AgentSessionState): string {
   return Buffer.from(engine.serialize()).toString("base64");
 }
 
+test("Review shows a changed start state, even when only the saved game behind it changed", () => {
+  const state = world();
+  const booted = new Engine(
+    openContainer(state.getFiles()),
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    },
+    state.sources.words,
+    { profile: state.profile },
+  );
+  booted.tick();
+  const first = Buffer.from(booted.serialize()).toString("base64");
+  const second = recordSetupImage(state);
+  const document = (setup?: { image: string }) =>
+    serializeGameTests([{ ...takeKey, ...(setup ? { setup } : {}) }]);
+  const startRow = (before: Uint8Array, after: Uint8Array) =>
+    gameTestReviewChanges(before, after, state.profile)[0]?.rows.find(
+      (row) => row.label === "Start state",
+    );
+  assert.deepEqual(startRow(document(), document({ image: first })), {
+    label: "Start state",
+    before: "Fresh start",
+    after: "Saved game",
+  });
+  assert.deepEqual(startRow(document({ image: first }), document({ image: second })), {
+    label: "Start state",
+    before: "Saved game",
+    after: "Different saved game",
+  });
+});
+
+test("The tests table counts what the player did, including a recording that typed look", () => {
+  const state = world();
+  const engine = new Engine(
+    openContainer(state.getFiles()),
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    },
+    state.sources.words,
+    { profile: state.profile },
+  );
+  engine.tick();
+  const setup = {
+    image: Buffer.from(engine.recordingImage()!).toString("base64"),
+    replay: JSON.stringify({
+      state: engine.captureReplayState(),
+      operations: [
+        [
+          "tick",
+          [
+            ["line", "look"],
+            ["keys", []],
+            ["random", 4],
+          ],
+        ],
+        ["clock", 1],
+        [
+          "tick",
+          [
+            ["line", null],
+            ["keys", [13]],
+          ],
+        ],
+        ["release", [["keys", []]]],
+        ["ack"],
+        ["navigate", 2],
+      ],
+    }),
+  };
+  const [recorded, authored] = parseGameTests(
+    serializeGameTests([{ ...takeKey, name: "look", steps: [], setup }, takeKey]),
+    state.profile,
+  ).tests;
+  // "look", the Enter that closed its message, a click that closed the next one and a menu arrow.
+  assert.equal(gameTestActionCount(recorded!), 4);
+  assert.equal(gameTestActionCount(authored!), 2);
+});
+
 test("recorded test reads omit opaque setup and paginate complete editable definitions", () => {
   const state = world();
   const engine = new Engine(
@@ -1192,3 +1284,391 @@ test("a malformed setup image is rejected at parse and at write_game_tests", () 
 // Keep the GameTest type referenced so the stored shape stays exported.
 const _typecheck: GameTest = takeKey;
 void _typecheck;
+
+test("a failing game test reports exact expected and observed values for the Tests panel", () => {
+  const result = playtestRoom(world(), {
+    room: 1,
+    steps: [],
+    expect: { room: 2, flags: [{ id: 30, value: true }], vars: [{ id: 40, value: 7 }] },
+  });
+  assert.equal(result.success, false);
+  assert.deepEqual(result.details?.["failures"], [
+    { kind: "room", id: null, expected: 2, observed: 1, stepIndex: null },
+    { kind: "flag", id: 30, expected: true, observed: false, stepIndex: null },
+    { kind: "var", id: 40, expected: 7, observed: 0, stepIndex: null },
+  ]);
+  const stepFailure = playtestRoom(world(), {
+    room: 1,
+    steps: [{ action: "wait", ticks: 1, until: { flag: { id: 30, value: true } } }],
+  });
+  assert.equal(stepFailure.details?.["failingStepIndex"], 0);
+  assert.deepEqual(stepFailure.details?.["failures"], [
+    {
+      kind: "until",
+      id: null,
+      expected: { room: null, flag: { id: 30, value: true }, var: null },
+      observed: { room: 1, flag: false, var: null },
+      stepIndex: 0,
+    },
+  ]);
+});
+
+test("Write tests first: runs name missing rooms even when those rooms are planned", () => {
+  const state = world();
+  state.authoring.world.rooms["3"] = { title: "Future", description: "", exits: {} };
+  const write = executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ name: "Future room", room: 3, steps: [] }],
+  });
+  assert.equal(write.success, true);
+  const run = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(run.success, false);
+  assert.match(run.error ?? "", /Room 3 is missing/);
+});
+
+test("Write tests first: runs name inventory objects that do not exist yet", () => {
+  const state = world();
+  const write = executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ name: "Future key", room: 1, steps: [], expect: { carriedItems: [77] } }],
+  });
+  assert.equal(write.success, true);
+  const run = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(run.success, false);
+  assert.match(run.error ?? "", /Object 77 is missing/);
+});
+
+test("Runs check the tests as Apply would leave them: the Agent's edits merge over the committed document", () => {
+  const state = world();
+  const committedTests = [takeKey, { ...takeKey, name: "Open door", expect: { score: 99 } }];
+  let committed: string | undefined = JSON.stringify({
+    format: GAME_TESTS_FORMAT,
+    tests: committedTests,
+  });
+  state.readCommittedTests = () => committed;
+  state.finishTestsBase = committed;
+  state.testsPayload = new TextEncoder().encode(committed);
+  executeAgentTool(state, "write_game_tests", {
+    mode: "merge",
+    names: null,
+    tests: [
+      { ...takeKey, expect: { score: 99 } },
+      { ...takeKey, name: "Open door" },
+    ],
+  });
+  const outcomes = () =>
+    (
+      executeAgentTool(state, "run_game_tests", { names: null }).details?.["gameTests"] as {
+        name: string;
+        passed: boolean;
+      }[]
+    ).map((test) => [test.name, test.passed]);
+  // The edit that breaks "take the key" fails, and the edit that fixes "Open door" passes.
+  assert.deepEqual(outcomes(), [
+    ["take the key", false],
+    ["Open door", true],
+  ]);
+  // A test the creator adds during the turn runs too.
+  committed = JSON.stringify({
+    format: GAME_TESTS_FORMAT,
+    tests: [...committedTests, { ...takeKey, name: "Creator" }],
+  });
+  assert.deepEqual(outcomes(), [
+    ["take the key", false],
+    ["Open door", true],
+    ["Creator", true],
+  ]);
+  // A test the creator deletes comes back only as the Agent's changed version, as Apply does.
+  committed = JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [committedTests[1]] });
+  assert.deepEqual(outcomes(), [
+    ["Open door", true],
+    ["take the key", false],
+  ]);
+  committed = undefined;
+  executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: committedTests,
+  });
+  assert.equal(executeAgentTool(state, "run_game_tests", { names: null }).details?.["ran"], 0);
+});
+
+for (const direction of ["fixes", "breaks"] as const)
+  test(`Finish reports a test edit that ${direction} a test as Apply would leave it`, () => {
+    const state = world();
+    state.genesisComplete = true;
+    const red = { ...takeKey, expect: { score: 99 } };
+    const committed = JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: [direction === "fixes" ? red : takeKey],
+    });
+    state.readCommittedTests = () => committed;
+    state.finishTestsBase = committed;
+    executeAgentTool(state, "write_game_tests", {
+      mode: "merge",
+      names: null,
+      tests: [direction === "fixes" ? takeKey : red],
+    });
+    const refused = validateAgentHandover(state);
+    assert.equal(refused.success, false);
+    assert.equal(
+      refused.details?.["testsVerdict"],
+      direction === "fixes" ? "1 test passes." : "1 test fails: take the key",
+    );
+    assert.match(refused.error!, /^Not finished: give testReasons for "take the key"\./);
+    const reason =
+      direction === "fixes" ? "it checks the key, as you asked." : "it needs score 99.";
+    const accepted = validateAgentHandover(state, [{ test: "take the key", reason }]);
+    assert.equal(accepted.success, true, accepted.error ?? "");
+    assert.equal(
+      accepted.details?.["testsReport"],
+      `${direction === "fixes" ? "1 test passes." : "1 test fails: take the key"}\n- take the key: ${reason}`,
+    );
+  });
+
+test("Tests never block game edits: malformed tests remain visible in a successful handover verdict", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.testsPayload = new TextEncoder().encode("{");
+  const verdict = validateAgentHandover(state);
+  assert.equal(verdict.success, true, verdict.error ?? "");
+  assert.match(verdict.message ?? "", /TESTS.JSON.*valid JSON/);
+  assert.match(String(verdict.details?.["testsVerdict"]), /valid JSON/);
+});
+
+test("Write tests first: recorded setup names missing resources and ignores unrelated item locations", () => {
+  const state = world();
+  state.objectPayload = buildObjectFile([
+    { name: "key", startingRoom: 1 },
+    { name: "future item", startingRoom: 77 },
+  ]);
+  const image = recordSetupImage(state);
+  executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ name: "Recorded key", room: 1, steps: [], expect: { room: 1 }, setup: { image } }],
+  });
+  const present = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(present.success, true, present.error ?? "");
+  state.container.putResources([{ kind: "view", num: 0, payload: null }]);
+  const missing = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(missing.success, false);
+  assert.match(missing.error ?? "", /setup needs missing view 0/);
+});
+
+test("Agent finish names every red committed test, including creator tests, before handing over", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.readCommittedTests = () =>
+    JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: [
+        { ...takeKey, name: "Open door", expect: { score: 99 } },
+        { ...takeKey, name: "Treasure", room: 5 },
+      ],
+    });
+  const refused = validateAgentHandover(state);
+  assert.equal(refused.success, false);
+  assert.equal(
+    refused.error,
+    'Not finished: give testReasons for "Open door", "Treasure". Each red test needs a reason it stays red, and each existing test you changed or deleted needs a reason for the change.',
+  );
+  const partial = validateAgentHandover(state, [{ test: "Open door", reason: "needs work" }]);
+  assert.match(partial.error!, /^Not finished: give testReasons for "Treasure"\./);
+  const accepted = validateAgentHandover(state, [
+    { test: "Open door", reason: "the score is wrong." },
+    { test: "Treasure", reason: "room 5 is not built." },
+  ]);
+  assert.equal(accepted.success, true, accepted.error ?? "");
+  assert.match(accepted.message!, /^2 tests fail: Open door, Treasure/);
+});
+
+test("The player sees each red test with the Agent's reason as written: an empty reason or the test's name is not one", () => {
+  const state = world();
+  state.genesisComplete = true;
+  const names = ["Room 1. Intro", "Dr. Lee's door", "Score"];
+  state.readCommittedTests = () =>
+    JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: names.map((name) => ({ ...takeKey, name, room: 5 })),
+    });
+  const reasons = ["Room 5 is not built yet. It comes next.", "部屋5がまだない", "0 -> 10"];
+  const given = names.map((test, index) => ({ test, reason: ` ${reasons[index]} ` }));
+  for (const testReasons of [
+    null,
+    "Room 1. Intro: room 5 is missing.\nDr. Lee's door: 部屋5がまだない\nScore: 0 -> 10",
+    given.slice(1),
+    [{ ...given[0], reason: "  " }, ...given.slice(1)],
+    [{ ...given[0], reason: "room 1. intro." }, ...given.slice(1)],
+    [{ test: "Room 1.", reason: "Intro needs room 5." }, ...given.slice(1)],
+  ]) {
+    const refused = validateAgentHandover(state, testReasons);
+    assert.equal(refused.success, false, JSON.stringify(testReasons));
+    assert.match(refused.error!, /"Room 1\. Intro"/);
+  }
+  const accepted = validateAgentHandover(state, given);
+  assert.equal(accepted.success, true, accepted.error ?? "");
+  const lines = names.map((name, index) => `${name}: ${reasons[index]}`);
+  assert.deepEqual(accepted.details?.["testNotes"], lines);
+  const report = [
+    "3 tests fail: Room 1. Intro, Dr. Lee's door, Score",
+    ...lines.map((line) => `- ${line}`),
+  ].join("\n");
+  assert.equal(accepted.details?.["testsReport"], report);
+  assert.ok(accepted.message!.startsWith(`${report}\n`));
+  assert.deepEqual(state.finishTestsNotes, lines);
+});
+
+test("A red test's reason matches its stored name exactly, so a name with spaces can still finish", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.readCommittedTests = () =>
+    JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: [{ ...takeKey, name: "Open door ", room: 5 }],
+    });
+  const trimmed = validateAgentHandover(state, [{ test: "Open door", reason: "room 5 is next." }]);
+  assert.match(trimmed.error!, /^Not finished: give testReasons for "Open door "\./);
+  const accepted = validateAgentHandover(state, [
+    { test: "Open door ", reason: "room 5 is next." },
+  ]);
+  assert.equal(accepted.success, true, accepted.error ?? "");
+  assert.deepEqual(state.finishTestsNotes, ["Open door : room 5 is next."]);
+});
+
+test("Test edits the creator asked for finish once testReasons say why each changed", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.finishTestsBase = new TextDecoder().decode(serializeGameTests([takeKey]));
+  state.testsPayload = serializeGameTests([
+    { ...takeKey, expect: expectation({ printed: "take the key" }) },
+  ]);
+  const refused = validateAgentHandover(state, null);
+  assert.equal(refused.success, false);
+  assert.match(refused.error!, /^Not finished: give testReasons for "take the key"\./);
+  const accepted = validateAgentHandover(state, [
+    { test: "take the key", reason: "it now checks only the printed message, as you asked." },
+  ]);
+  assert.equal(accepted.success, true, accepted.error ?? "");
+  assert.equal(
+    accepted.details?.["testsReport"],
+    "1 test passes.\n- take the key: it now checks only the printed message, as you asked.",
+  );
+});
+
+test("Agent finish starts with passing-test status and stays silent when no tests exist", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.testsPayload = serializeGameTests([takeKey, { ...takeKey, name: "again" }]);
+  assert.match(validateAgentHandover(state).message!, /^All 2 tests pass\./);
+  state.testsPayload = serializeGameTests([takeKey]);
+  assert.match(validateAgentHandover(state).message!, /^1 test passes\./);
+  state.testsPayload = undefined;
+  assert.doesNotMatch(validateAgentHandover(state).message!, /tests/i);
+});
+
+test("A failing affected-test rerun reports failure without losing the game edit", () => {
+  const state = world();
+  executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
+  const result = executeAgentTool(state, "write_logic", {
+    room: 1,
+    source: ROOM_LOGIC.replace("set(f30);", ""),
+  });
+  assert.equal(result.success, false);
+  assert.match(result.error!, /take the key/);
+  state.genesisComplete = true;
+  assert.equal(validateAgentHandover(state).success, false);
+  assert.equal(
+    validateAgentHandover(state, [{ test: "take the key", reason: "needs its flag set" }]).success,
+    true,
+  );
+});
+
+for (const change of ["delete", "weaken"] as const)
+  test(`Agent finish shows a red test the Agent ${change === "delete" ? "deleted" : "weakened"} with its reason`, () => {
+    const state = world();
+    state.genesisComplete = true;
+    const red = { ...takeKey, name: "Open door", expect: { score: 99 } };
+    const committed = JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [red] });
+    state.readCommittedTests = () => committed;
+    state.finishTestsBase = committed;
+    executeAgentTool(
+      state,
+      "write_game_tests",
+      change === "delete"
+        ? { mode: "remove", names: ["Open door"], tests: null }
+        : { mode: "merge", names: null, tests: [{ ...takeKey, name: "Open door" }] },
+    );
+    assert.match(validateAgentHandover(state).error!, /give testReasons for "Open door"/);
+    const accepted = validateAgentHandover(state, [
+      { test: "Open door", reason: "you asked to drop the score check." },
+    ]);
+    assert.equal(accepted.success, true, accepted.error ?? "");
+    assert.equal(
+      accepted.details?.["testsReport"],
+      `${change === "delete" ? "" : "1 test passes.\n"}- Open door: you asked to drop the score check.`,
+    );
+  });
+
+test("Agent finish includes proposed tests written first but ignores echoes the creator deleted", () => {
+  const state = world();
+  state.genesisComplete = true;
+  const echo = { ...takeKey, name: "Echo" };
+  state.finishTestsBase = JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [echo] });
+  state.testsPayload = serializeGameTests([echo]);
+  state.readCommittedTests = () => undefined;
+  assert.doesNotMatch(validateAgentHandover(state).message!, /tests/i);
+  state.testsPayload = new TextEncoder().encode(
+    JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: [echo, { name: "Future room", room: 5, steps: [] }],
+    }),
+  );
+  assert.equal(validateAgentHandover(state).success, false);
+  assert.equal(
+    validateAgentHandover(state, [{ test: "Future room", reason: "needs room 5" }]).success,
+    true,
+  );
+});
+
+test("Agent finish always checks creator's committed failures even when its original tests are unreadable", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.testsPayload = new TextEncoder().encode("{");
+  state.finishTestsBase = "{";
+  state.readCommittedTests = () =>
+    JSON.stringify({
+      format: GAME_TESTS_FORMAT,
+      tests: [{ name: "Creator future", room: 5, steps: [] }],
+    });
+  assert.equal(validateAgentHandover(state).success, false);
+  assert.match(validateAgentHandover(state).error!, /"Creator future"/);
+  const explained = validateAgentHandover(state, [
+    { test: "Creator future", reason: "needs room 5" },
+  ]);
+  assert.equal(explained.success, true, explained.error ?? "");
+  assert.match(explained.message!, /^1 test fails: Creator future/);
+  assert.match(explained.message!, /valid JSON/);
+});
+
+test("Agent finish checks an intentional changed test re-added after the creator removed it", () => {
+  const state = world();
+  state.genesisComplete = true;
+  state.finishTestsBase = JSON.stringify({
+    format: GAME_TESTS_FORMAT,
+    tests: [{ ...takeKey, name: "Re-add" }],
+  });
+  state.readCommittedTests = () => undefined;
+  state.testsPayload = new TextEncoder().encode(
+    JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [{ name: "Re-add", room: 5, steps: [] }] }),
+  );
+  const refused = validateAgentHandover(state);
+  assert.equal(refused.success, false);
+  assert.match(refused.error!, /"Re-add"/);
+  assert.equal(
+    validateAgentHandover(state, [{ test: "Re-add", reason: "needs room 5" }]).success,
+    true,
+  );
+});

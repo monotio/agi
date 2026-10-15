@@ -12,12 +12,14 @@ import {
   downloadFromSettings,
   isolateStorage,
   openWorkspaceAgent,
+  playFromCreate,
   savedGameCard,
   textHook,
+  waitForAutosaveAfter,
 } from "./engineProbe.ts";
 
 for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] as const)
-  test(`an installed-game conversation survives ${handoff} owner handoff @webkit-desktop`, async ({
+  test(`an installed-game conversation survives ${handoff} owner handoff${handoff === "new" ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     const attachedInPlay = handoff === "attached";
@@ -165,6 +167,13 @@ for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] a
     await expect
       .poll(async () => (await textHook(page)).rows.join(" "))
       .toContain("ALLIGATOR REMIX");
+    // Play restarts the changed room. Resume needs progress that Play stored,
+    // and Create stores none, so clear the mark and wait for Play's own save.
+    await page.evaluate(() => {
+      if (window.__AGI_TEXT__) window.__AGI_TEXT__.autosave = -1;
+    });
+    await playFromCreate(page);
+    await waitForAutosaveAfter(page, -1);
     // Delay actual IndexedDB completion callbacks: Menu must await storage, not just the worker reply.
     await page.evaluate(() => {
       const gate = Promise.withResolvers<void>();
@@ -181,7 +190,6 @@ for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] a
         },
       });
     });
-    await page.getByRole("radio", { name: "Play", exact: true }).click();
     await page.getByTestId("btn-exit").click();
     await page.waitForFunction(() => Reflect.get(window, "completionPending") === true);
     await expect(page.getByTestId("btn-exit")).toBeVisible();

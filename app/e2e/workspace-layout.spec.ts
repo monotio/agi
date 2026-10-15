@@ -18,10 +18,12 @@ import { openStoredWorkspace, openWorkspaceLogic } from "./workspaceShared.ts";
 
 const sizes = [
   { width: 1063, height: 815 },
-  { width: 1280, height: 800 },
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ];
+/** WebKit runs the 390 layout in the phone suite and the 1063 layout in the desktop suite. */
+const suites = (width: number) =>
+  width === 390 ? " @phone" : width === 1063 ? " @webkit-desktop" : "";
 async function start(page: Page) {
   await isolateStorage(page);
   await page.goto("/");
@@ -104,7 +106,7 @@ async function fit(page: Page) {
 for (const size of sizes) {
   test.describe(`${size.width} workspace`, () => {
     test.use({ hasTouch: size.width === 390 });
-    test(`workspace surfaces fit ${size.width}`, async ({ page }) => {
+    test(`workspace surfaces fit ${size.width}${suites(size.width)}`, async ({ page }) => {
       await page.setViewportSize(size);
       await start(page);
       await page.getByRole("radio", { name: "Play", exact: true }).click();
@@ -209,7 +211,7 @@ for (const size of sizes) {
       expect((await textHook(page)).room).toBe(1);
     });
     for (const removed of [false, true]) {
-      test(`read-only actions fit ${removed ? "removed" : "stale"} ${size.width}`, async ({
+      test(`read-only actions fit ${removed ? "removed" : "stale"} ${size.width}${suites(size.width)}`, async ({
         page,
         context,
       }) => {
@@ -280,7 +282,7 @@ for (const size of sizes) {
 for (const size of sizes) {
   test.describe(`${size.width} workspace`, () => {
     test.use({ hasTouch: size.width === 390 });
-    test(`Saving keeps the editor still and a refused save offers Download ${size.width}`, async ({
+    test(`Saving keeps the editor still and a refused save offers Download ${size.width}${suites(size.width)}`, async ({
       page,
     }) => {
       const pageErrors: string[] = [];
@@ -336,8 +338,8 @@ for (const size of sizes) {
   });
 }
 
-for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
-  test(`entry and header boxes ${size.width}`, async ({ page }) => {
+for (const size of sizes) {
+  test(`entry and header boxes ${size.width}${suites(size.width)}`, async ({ page }) => {
     await page.setViewportSize(size);
     await isolateStorage(page);
     await page.goto("/");
@@ -399,10 +401,12 @@ for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
   });
 }
 
-for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+for (const size of sizes) {
   test.describe(`${size.width} Create geometry`, () => {
     test.use({ hasTouch: size.width === 390 });
-    test(`Create tools and Map heading fit ${size.width}`, async ({ page }) => {
+    test(`Create tools and Map heading fit ${size.width}${suites(size.width)}`, async ({
+      page,
+    }) => {
       await page.setViewportSize(size);
       await start(page);
       await shot(page, `tools-closed-${size.width}`);
@@ -441,10 +445,10 @@ for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
   });
 }
 
-for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
+for (const size of sizes) {
   test.describe(`${size.width} imported Map geometry`, () => {
     test.use({ hasTouch: size.width === 390 });
-    test(`Imported Map heading fits ${size.width}`, async ({ page }) => {
+    test(`Imported Map heading fits ${size.width}${suites(size.width)}`, async ({ page }) => {
       await page.setViewportSize(size);
       await isolateStorage(page);
       await page.goto("/");
@@ -492,7 +496,7 @@ for (const size of [sizes[0]!, sizes[2]!, sizes[3]!]) {
   });
 }
 
-test("A native refused write rejects the deferred update and rolls back its records", async ({
+test("A native refused write rejects the deferred update and rolls back its records @webkit-desktop", async ({
   page,
 }) => {
   const pageErrors: string[] = [];

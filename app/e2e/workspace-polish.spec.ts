@@ -45,8 +45,10 @@ async function upload(page: Page) {
 async function shot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled" });
 }
-for (const width of [1063, 1440, 390]) {
-  test(`workspace polish screenshots ${width}`, async ({ page }) => {
+// Evidence shots: the wide layout in Chromium and the touch layout on the phone project.
+for (const width of [1440, 390]) {
+  const phone = width === 390 ? " @phone" : "";
+  test(`workspace polish screenshots ${width}${phone}`, async ({ page }) => {
     await start(page, width);
     await shot(page, `parts-${width}`);
     await picture(page);
@@ -62,7 +64,7 @@ for (const width of [1063, 1440, 390]) {
     await expect(page.getByTestId("generate-prompt")).toBeVisible();
     await shot(page, `generate-${width}`);
   });
-  test(`walk status screenshots ${width}`, async ({ page }) => {
+  test(`walk status screenshots ${width}${phone}`, async ({ page }) => {
     await start(page, width);
     await picture(page);
     const studio = page.getByTestId("room-studio");
@@ -132,7 +134,7 @@ test("game state usage lives in the revealed entry", async ({ page }) => {
   await expect(details).toContainText("Changed · first_room · LOGIC 1");
 });
 for (const width of [1063, 1440])
-  test(`Items has room for eight rows Side by side at ${width} @webkit-desktop`, async ({
+  test(`Items has room for eight rows Side by side at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await start(page, width);
@@ -175,7 +177,7 @@ async function cursor(page: Page) {
         .capture().history.cursor,
   );
 }
-test("trace handles preview privately and Update makes each chosen History step with Reset and Undo", async ({
+test("trace handles preview privately and Update makes each chosen History step with Reset and Undo @webkit-desktop", async ({
   page,
 }) => {
   await start(page);

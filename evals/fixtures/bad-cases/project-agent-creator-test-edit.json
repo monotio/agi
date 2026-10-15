@@ -1,0 +1,60 @@
+{
+  "name": "project-agent-creator-test-edit",
+  "description": "A test change the creator asks for is proposed for review instead of refused: the Agent edits the expectation, its finish testReasons say why, and Apply stays with the creator even in Auto-approve.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "if (said(\"look\")) { print(\"A quiet meadow.\"); } return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[[\"look\",1]]",
+      "tests": "{\"format\": \"monotio.agi.tests.v2\", \"tests\": [{\"name\": \"look describes clearing\", \"room\": 1, \"steps\": [{\"action\": \"command\", \"command\": \"look\"}], \"expect\": {\"printed\": \"A sunny clearing.\"}}]}"
+    },
+    "request": "Update \"look describes clearing\" to expect the current look text. I approve changing this expectation.",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "edit",
+            "name": "write_game_tests",
+            "input": {
+              "mode": "merge",
+              "names": null,
+              "tests": [
+                {
+                  "name": "look describes clearing",
+                  "room": 1,
+                  "steps": [{ "action": "command", "command": "look" }],
+                  "expect": { "printed": "A quiet meadow." }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "finish",
+            "name": "finish",
+            "input": {
+              "testReasons": [
+                {
+                  "test": "look describes clearing",
+                  "reason": "it now expects the current look text, as you asked."
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "expectedKeys": ["tests"],
+    "expectedOutcomes": {
+      "finish": true
+    },
+    "expectedCommits": 1,
+    "expectedReviewLines": ["Changed expectation of \"look describes clearing\""],
+    "expectedInstructions": ["When the creator asks to change or delete a test, make that change"],
+    "autoApprove": true
+  }
+}

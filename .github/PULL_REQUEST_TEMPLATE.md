@@ -7,6 +7,7 @@
 - [ ] **Every new test/eval was seen failing once** before it passed (broke the code or fed the bad case). Say how below.
 - [ ] **Assertions are exact** where possible (bytes, pixels, bytecode, schema) — model judges only for ambiguity.
 - [ ] **Browser behavior is proven in the real app** with scenario, request or download assertions; screenshots for visual changes.
+- [ ] **New or changed browser specs passed ten repeats under load** (`--repeat-each=10` beside the full suite).
 - [ ] **A recurring failure became a rule**: stored bad case under `evals/`, permanent test, or eslint/ast-grep rule.
 - [ ] **Public documentation updated** for changed behavior.
 - [ ] **Format or version changes follow the [release contract](../AGENTS.md#release-contract)**: optional extensions retain their version; breaking changes include migrations and released fixtures.

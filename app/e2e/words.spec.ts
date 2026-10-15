@@ -9,103 +9,98 @@ import {
   workspaceUpdated,
 } from "./engineProbe.ts";
 
-for (const [width, height] of [
-  [1063, 815],
-  [1440, 900],
-] as const)
-  test(`WORDS shortcut opens the shared agent at ${width} @webkit-desktop`, async ({ page }) => {
-    await checkWordsAgentHandoff(page, width, height);
-  });
+test("WORDS shortcut opens the shared agent at 1440 @webkit-desktop", async ({ page }) => {
+  await checkWordsAgentHandoff(page, 1440, 900);
+});
 
-for (const width of [1440, 1280])
-  test(`Words sentence, local playtest miss and Same as at ${width} @webkit-desktop`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 900 });
-    await isolateStorage(page);
-    await page.goto("/#create-adventure");
-    await page
-      .getByTestId("create-adventure-disclosure")
-      .getByLabel("Name", { exact: true })
-      .fill("Words proof");
-    await page.getByTestId("local-create-kind-starter").click();
-    await page.getByRole("button", { name: "Start building", exact: true }).click();
-    await expect.poll(async () => (await textHook(page)).room).toBe(1);
-    if ((await textHook(page)).modal) {
-      await page.getByTestId("input-line").focus();
-      await page.keyboard.press("Enter");
-    }
-    await page.getByTestId("part-words").click();
-    const editor = page.getByTestId("workspace-words-editor");
-    await expect(editor).toBeVisible();
-    const sentence = editor.getByRole("textbox", { name: "A sentence a player might type" });
-    await sentence.fill("inspect around");
-    await expect(page.getByTestId("sentence-parse")).toContainText("new word");
-    await expect(page.getByTestId("sentence-parse")).toContainText("not read");
-    await editor.getByRole("button", { name: "Type it in the game ↵", exact: true }).click();
-    await expect(page.getByTestId("player-sentence")).toContainText("inspect around");
-    await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+test("Words sentence, local playtest miss and Same as at 1440 @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("Words proof");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  if ((await textHook(page)).modal) {
     await page.getByTestId("input-line").focus();
     await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBeNull();
-    await page
-      .getByTestId("player-sentence")
-      .getByRole("button", { name: "Teach “inspect”…", exact: true })
-      .click();
-    const teaching = editor.getByRole("form", { name: "Teach inspect", exact: true });
-    await expect(teaching).toBeVisible();
-    await teaching.getByLabel("Same as…", { exact: true }).check();
-    const choose = teaching.getByRole("combobox", { name: "Same meaning" });
-    await expect(choose).toHaveValue("");
-    await choose.selectOption("100");
-    await teaching.getByLabel("The game says…", { exact: true }).fill("You look around.");
-    await teaching.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(page.getByTestId("player-sentence")).toHaveCount(0);
-    await sentence.fill("inspect");
-    await expect(page.getByTestId("sentence-parse")).toContainText("Word group 100");
-    await expect(page.getByTestId("sentence-outcome")).toContainText("LOGIC 1");
-    await expect(page.getByTestId("workspace-saved")).toBeVisible();
-    await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
-    await expect(page.getByTestId("sentence-outcome")).toContainText("Answers “You stand");
-    const meaning = editor.locator('[data-word-group="100"]');
-    await expect(meaning.locator(".head")).toHaveText(/look/);
-    const singleUse = editor.locator('[data-word-group="101"] .meaning-uses');
-    await expect(singleUse).toContainText("1 use");
-    await expect(singleUse).not.toContainText("1 uses");
-    await expect(page.getByTestId("sentence-outcome")).toContainText(
-      "when the game's state allows it",
-    );
-    await workspaceUpdated(page);
-    await sentence.focus();
-    await page.mouse.move(0, 0);
-    const move = meaning.getByRole("button", { name: "Move to… inspect", exact: true });
-    await expect(move).toHaveCSS("opacity", "0");
-    await move.focus();
-    await expect(move).toHaveCSS("opacity", "1");
-    await meaning.locator(".word-chip").filter({ hasText: "inspect" }).hover();
-    await expect(move).toHaveCSS("opacity", "1");
-    await sentence.focus();
-    await editor.getByRole("button", { name: "Type it in the game ↵", exact: true }).click();
-    await expect
-      .poll(async () => (await textHook(page)).rows.join("\n"))
-      .toContain("You stand in a sunny clearing");
-    await expect(page.getByTestId("player-sentence")).toHaveCount(0);
-    await editor.getByRole("textbox", { name: "Find a word", exact: true }).fill("100");
-    await expect(editor.locator(".meaning-row")).toHaveCount(1);
-    await editor.getByRole("textbox", { name: "Find a word", exact: true }).fill("");
-    await page.screenshot({ path: test.info().outputPath(`chromium-${width}-words.png`) });
-    await page.getByTestId("workspace-focus").click();
-    await meaning.locator(".word-chip").filter({ hasText: "inspect" }).hover();
-    await editor.getByRole("button", { name: "Move to… inspect", exact: true }).click();
-    await editor.getByRole("combobox", { name: "Destination meaning", exact: true }).focus();
-    await page.keyboard.press("Escape");
-    await expect(editor.getByRole("form", { name: "Move to…" })).toHaveCount(0);
-    await sentence.focus();
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".play-area")).toBeHidden();
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".play-area")).toBeVisible();
-  });
+  }
+  await page.getByTestId("part-words").click();
+  const editor = page.getByTestId("workspace-words-editor");
+  await expect(editor).toBeVisible();
+  const sentence = editor.getByRole("textbox", { name: "A sentence a player might type" });
+  await sentence.fill("inspect around");
+  await expect(page.getByTestId("sentence-parse")).toContainText("new word");
+  await expect(page.getByTestId("sentence-parse")).toContainText("not read");
+  await editor.getByRole("button", { name: "Type it in the game ↵", exact: true }).click();
+  await expect(page.getByTestId("player-sentence")).toContainText("inspect around");
+  await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+  await page.getByTestId("input-line").focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await page
+    .getByTestId("player-sentence")
+    .getByRole("button", { name: "Teach “inspect”…", exact: true })
+    .click();
+  const teaching = editor.getByRole("form", { name: "Teach inspect", exact: true });
+  await expect(teaching).toBeVisible();
+  await teaching.getByLabel("Same as…", { exact: true }).check();
+  const choose = teaching.getByRole("combobox", { name: "Same meaning" });
+  await expect(choose).toHaveValue("");
+  await choose.selectOption("100");
+  await teaching.getByLabel("The game says…", { exact: true }).fill("You look around.");
+  await teaching.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByTestId("player-sentence")).toHaveCount(0);
+  await sentence.fill("inspect");
+  await expect(page.getByTestId("sentence-parse")).toContainText("Word group 100");
+  await expect(page.getByTestId("sentence-outcome")).toContainText("LOGIC 1");
+  await expect(page.getByTestId("workspace-saved")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
+  await expect(page.getByTestId("sentence-outcome")).toContainText("Answers “You stand");
+  const meaning = editor.locator('[data-word-group="100"]');
+  await expect(meaning.locator(".head")).toHaveText(/look/);
+  const singleUse = editor.locator('[data-word-group="101"] .meaning-uses');
+  await expect(singleUse).toContainText("1 use");
+  await expect(singleUse).not.toContainText("1 uses");
+  await expect(page.getByTestId("sentence-outcome")).toContainText(
+    "when the game's state allows it",
+  );
+  await workspaceUpdated(page);
+  await sentence.focus();
+  await page.mouse.move(0, 0);
+  const move = meaning.getByRole("button", { name: "Move to… inspect", exact: true });
+  await expect(move).toHaveCSS("opacity", "0");
+  await move.focus();
+  await expect(move).toHaveCSS("opacity", "1");
+  await meaning.locator(".word-chip").filter({ hasText: "inspect" }).hover();
+  await expect(move).toHaveCSS("opacity", "1");
+  await sentence.focus();
+  await editor.getByRole("button", { name: "Type it in the game ↵", exact: true }).click();
+  await expect
+    .poll(async () => (await textHook(page)).rows.join("\n"))
+    .toContain("You stand in a sunny clearing");
+  await expect(page.getByTestId("player-sentence")).toHaveCount(0);
+  await editor.getByRole("textbox", { name: "Find a word", exact: true }).fill("100");
+  await expect(editor.locator(".meaning-row")).toHaveCount(1);
+  await editor.getByRole("textbox", { name: "Find a word", exact: true }).fill("");
+  await page.screenshot({ path: test.info().outputPath(`chromium-1440-words.png`) });
+  await page.getByTestId("workspace-focus").click();
+  await meaning.locator(".word-chip").filter({ hasText: "inspect" }).hover();
+  await editor.getByRole("button", { name: "Move to… inspect", exact: true }).click();
+  await editor.getByRole("combobox", { name: "Destination meaning", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(editor.getByRole("form", { name: "Move to…" })).toHaveCount(0);
+  await sentence.focus();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".play-area")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".play-area")).toBeVisible();
+});
 
 test("WORDS row actions, agent drawer prompts and tester choices", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

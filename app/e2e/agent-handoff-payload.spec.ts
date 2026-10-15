@@ -6,7 +6,7 @@ import { traceImageChanges } from "../../src/creative/imageOperations.ts";
 import type { ProjectContent } from "../../src/authoring/projectContent.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
-test("captured art survives reload while a model handoff sends source outcomes without image payloads @webkit-desktop", async ({
+test("captured art survives reload while a model handoff sends source outcomes without image payloads", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

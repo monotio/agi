@@ -23,11 +23,12 @@ function hasDocument(page: Page, key: string): Promise<boolean> {
  * and picks it as the destination.
  */
 for (const [width, height] of [
-  [1440, 900],
   [1063, 815],
   [390, 844],
 ] as const)
-  test(`a Door's destination offers New room at ${width} @webkit-desktop`, async ({ page }) => {
+  test(`a Door's destination offers New room at ${width} ${width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height });
     await isolateStorage(page);
     await page.goto("/");

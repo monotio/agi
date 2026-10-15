@@ -57,6 +57,8 @@ interface AgentChatMessage {
     readonly incomplete: boolean;
   };
   readonly review?: PendingAgentReview;
+  /** Test status and the Agent's reason for each red or changed test, shown again in review. */
+  readonly testReport?: string;
   readonly beforeCommit?: string;
   readonly commit?: string;
 }
@@ -221,6 +223,8 @@ function validateResult(value: AgentResult): void {
   }
 }
 function validateReview(pending: PendingAgentReview, messageIds: Set<string>): void {
+  // Earlier readers stored these notes; accept them without using them for approval.
+  const legacy = pending as PendingAgentReview & { finishNotes?: unknown };
   if (
     !pending ||
     typeof pending.label !== "string" ||
@@ -231,6 +235,7 @@ function validateReview(pending: PendingAgentReview, messageIds: Set<string>): v
     typeof pending.baseDocumentId !== "string" ||
     !/^[a-f0-9]{64}$/.test(pending.baseDocumentId) ||
     typeof pending.baseCommit !== "string" ||
+    (legacy.finishNotes !== undefined && typeof legacy.finishNotes !== "string") ||
     !onlyKeys(pending, [
       "label",
       "messageId",
@@ -240,6 +245,7 @@ function validateReview(pending: PendingAgentReview, messageIds: Set<string>): v
       "base",
       "baseImage",
       "candidate",
+      "finishNotes",
     ])
   )
     throw new Error("Invalid pending agent review.");
@@ -294,9 +300,11 @@ export function readAgentChats(value: unknown): AgentChats {
               "result",
               "spend",
               "review",
+              "testReport",
             ].includes(key),
         ) ||
         (message.context !== undefined && typeof message.context !== "string") ||
+        (message.testReport !== undefined && typeof message.testReport !== "string") ||
         (message.commit !== undefined &&
           (typeof message.commit !== "string" || typeof message.beforeCommit !== "string")) ||
         (message.beforeCommit !== undefined && message.commit === undefined)

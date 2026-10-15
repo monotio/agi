@@ -10,9 +10,7 @@ import {
   type TextHook,
 } from "./engineProbe.ts";
 
-test("saving Play progress waits for the actual Play and Create admissions @webkit-desktop", async ({
-  page,
-}) => {
+test("saving Play progress waits for the actual Play and Create admissions", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
@@ -119,7 +117,7 @@ test("saving Play progress waits for the actual Play and Create admissions @webk
 });
 
 for (const boundary of ["direct", "initial", "conversation"] as const)
-  test(`a failed Create ${boundary} session keeps Play and reports how to recover @webkit-desktop`, async ({
+  test(`a failed Create ${boundary} session keeps Play and reports how to recover`, async ({
     page,
   }) => {
     await isolateStorage(page);
@@ -195,7 +193,7 @@ for (const boundary of ["direct", "initial", "conversation"] as const)
   });
 
 for (const boundary of ["request", "session", "fork"] as const)
-  test(`Create waits for the Play conversation ${boundary} and transitions the worker @webkit-desktop`, async ({
+  test(`Create waits for the Play conversation ${boundary} and transitions the worker`, async ({
     page,
   }) => {
     await isolateStorage(page);
@@ -317,9 +315,7 @@ for (const boundary of ["request", "session", "fork"] as const)
     );
   });
 
-test("lazy conversation acquisition reports a stale stored project @webkit-desktop", async ({
-  page,
-}) => {
+test("lazy conversation acquisition reports a stale stored project", async ({ page }) => {
   await isolateStorage(page);
   await page.addInitScript(() => Reflect.deleteProperty(window, "BroadcastChannel"));
   await page.goto("/");

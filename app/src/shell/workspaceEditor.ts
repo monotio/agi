@@ -97,7 +97,11 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const flush = shallowRef<() => Promise<void>>();
   const discard = shallowRef<() => Promise<void>>();
   const retry = shallowRef<() => Promise<void>>();
-  const update = shallowRef<(restartRoom?: boolean) => Promise<void>>();
+  const update = shallowRef<(restartRoom?: boolean, launch?: "beginning") => Promise<void>>();
+  /** The missing-room notice starts once without changing the room's saved launch. */
+  async function startFromBeginning(): Promise<void> {
+    await update.value?.(true, "beginning");
+  }
   const discardDrafts = shallowRef<() => Promise<void>>();
   const changeCount = ref(0);
   const problemCount = ref(0);
@@ -105,6 +109,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const updateResult = ref("");
   const actionRoom = ref<number>();
   const actionRoomName = ref("");
+  const actionBeginning = ref(false);
   const launchChoices = shallowRef<readonly Launch[]>([]);
   const selectedLaunch = ref("carry");
   const selectLaunch = shallowRef<(id: string) => Promise<void>>();
@@ -241,6 +246,13 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const partsOpen = ref(false);
   const partsScroll = ref(0);
   const history = ref(false);
+  /**
+   * The context row's slot for the open editor's own context (the picture's drawing place). The
+   * row unmounts while an editor without context is selected, so editors teleport to this live
+   * element, never to a selector resolved once: a stale or missing target would strand or break
+   * the teleported content.
+   */
+  const contextTarget = shallowRef<HTMLElement | null>(null);
   const parts = shallowRef<readonly ChooserItem[]>([]);
   const save = ref("Saved");
   const readOnly = ref(false);
@@ -398,6 +410,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     updateResult.value = "";
     actionRoom.value = undefined;
     actionRoomName.value = "";
+    actionBeginning.value = false;
     launchChoices.value = [];
     selectedLaunch.value = "carry";
     nameLocation.value = undefined;
@@ -444,6 +457,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     updateResult,
     actionRoom,
     actionRoomName,
+    actionBeginning,
+    startFromBeginning,
     launchChoices,
     selectedLaunch,
     selectLaunch,
@@ -482,6 +497,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     narrowFrame,
     phoneFrame,
     history,
+    contextTarget,
     parts,
     save,
     readOnly,

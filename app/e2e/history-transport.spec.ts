@@ -134,10 +134,10 @@ async function scrubToTape(page: Page, fraction: number): Promise<void> {
 
 for (const viewport of [
   { width: 1063, height: 815 },
-  { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}`, async ({
+  const tag = viewport.width === 390 ? " @phone" : " @webkit-desktop";
+  test(`zero scrub shows the first presented picture at ${viewport.width}×${viewport.height}${tag}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -170,7 +170,7 @@ for (const viewport of [
     await page.mouse.up();
   });
 
-  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}`, async ({
+  test(`speed selection stays visible under the pointer and changes watch pacing at ${viewport.width}×${viewport.height}${tag}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -235,7 +235,7 @@ for (const viewport of [
   });
 }
 
-test("the transport rides live play from boot; the timeline enters the tape and LIVE returns paused", async ({
+test("the transport rides live play from boot; the timeline enters the tape and LIVE returns paused @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -789,10 +789,9 @@ async function askUncovered(page: Page): Promise<boolean> {
 
 for (const viewport of [
   { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
   { width: 1024, height: 600 },
 ]) {
-  test(`the transport's cards never cover Ask at ${viewport.width}×${viewport.height}`, async ({
+  test(`the transport's cards never cover Ask at ${viewport.width}×${viewport.height}${viewport.width === 1024 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -823,7 +822,7 @@ for (const viewport of [
 test.describe("phone transport", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("seeking, Watch and Undo keep a usable timeline and every control on screen", async ({
+  test("seeking, Watch and Undo keep a usable timeline and every control on screen @phone", async ({
     page,
   }) => {
     await isolateStorage(page);

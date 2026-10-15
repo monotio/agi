@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import vue from "@vitejs/plugin-vue";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type DevEnvironment, type Plugin } from "vite";
 import { scanFixtures, type DiscoveredFixture } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES } from "../src/games/knownGames.ts";
@@ -479,8 +479,141 @@ function buildIdentity(): Plugin {
   };
 }
 
+/**
+ * Browser-test servers (`--mode test`) pre-bundle dependencies afresh at every
+ * start, into a cache of their own port. Vite keys its dependency cache on the
+ * lockfile and this config only, so a cache left by an older checkout lacks a
+ * package import the current source added; the server then finds it while
+ * tests run, bundles again and reloads every open page, and module requests
+ * already in flight fail with 504 Outdated Optimize Dep. A cache per port also
+ * keeps two servers in one checkout, and the development server, from
+ * replacing each other's files.
+ */
+function testServerDependencies(): Plugin {
+  return {
+    name: "agi-test-server-dependencies",
+    apply: "serve",
+    config(config, { mode }) {
+      if (mode !== "test") return;
+      return {
+        cacheDir: `node_modules/.vite-test/${config.server?.port ?? "default"}`,
+        optimizeDeps: { force: true },
+        // Playwright runs against a fixed checkout. A late watcher event under
+        // load otherwise hot-reloads pages mid-test with no file changed. The
+        // manual hot-reload check (e2e/manual/hmr-resume.mjs) keeps watching.
+        ...(process.env["AGI_E2E_NO_WATCH"] === "1" ? { server: { watch: null } } : {}),
+      };
+    },
+  };
+}
+
+/** A worker entry as Vite's dev server rewrites `new Worker(new URL(…, import.meta.url))`. */
+const DEV_WORKER_URL = /"([^"]+[?&]worker_file&type=\w+)"/g;
+
+/** The most walks one warm-up makes; a graph still changing after them stops the server. */
+const WARMUP_PASSES = 5;
+
+/**
+ * Transforms the client's whole module graph, from the page entry through
+ * every static and dynamic import and every module worker. A dependency
+ * found during a walk can make the optimizer bundle again and invalidate
+ * every cached transform, so the walk repeats until one pass transforms
+ * nothing new. A module that fails to transform is left for its first
+ * request to report. Returns the modules the last pass found uncached,
+ * which is none once a pass settles.
+ */
+async function transformModuleGraph(
+  environment: DevEnvironment,
+  entry: string,
+): Promise<{ modules: number; passes: number; uncached: string[] }> {
+  for (let pass = 1; ; pass++) {
+    const seen = new Set<string>();
+    const uncached: string[] = [];
+    const visit = async (url: string): Promise<void> => {
+      if (seen.has(url)) return;
+      seen.add(url);
+      const cached = (await environment.moduleGraph.getModuleByUrl(url))?.transformResult;
+      const result = await environment.transformRequest(url).catch(() => null);
+      if (result === null) return;
+      const module = await environment.moduleGraph.getModuleByUrl(url);
+      if (!cached && module?.transformResult) uncached.push(url);
+      const workers = [...result.code.matchAll(DEV_WORKER_URL)].map((match) => match[1]!);
+      const imported = [...(module?.importedModules ?? [])].map((child) => child.url);
+      await Promise.all([...imported, ...workers].map(visit));
+    };
+    await visit(entry);
+    if (uncached.length === 0 || pass === WARMUP_PASSES)
+      return { modules: seen.size, passes: pass, uncached };
+  }
+}
+
+/**
+ * Browser-test servers (`--mode test`) transform the client before they
+ * answer any request. The dev server otherwise transforms each module on its
+ * first request, so the first tests of a run, started together on every
+ * worker while the rest of a gate loads the machine, wait several times
+ * longer for a page, a game boot or Create than every later test.
+ * Playwright waits for the first answer before it starts a worker.
+ */
+function testServerWarmup(): Plugin {
+  let enabled = false;
+  return {
+    name: "agi-test-server-warmup",
+    apply: "serve",
+    configResolved(config) {
+      enabled = config.mode === "test";
+    },
+    configureServer(server) {
+      const httpServer = server.httpServer;
+      if (!enabled || httpServer === null) return;
+      const warm = new Promise<void>((resolve) => {
+        httpServer.once("listening", () => {
+          const started = performance.now();
+          transformModuleGraph(server.environments.client, "/src/main.ts")
+            .then(({ modules, passes, uncached }) => {
+              const seconds = ((performance.now() - started) / 1000).toFixed(1);
+              if (uncached.length === 0) {
+                server.config.logger.info(
+                  `[warmup] ${modules} modules in ${seconds}s, ${passes} passes`,
+                  { timestamp: true },
+                );
+                resolve();
+                return;
+              }
+              // Requests stay held: a server released with an invalidated graph
+              // is the cold start this warm-up exists to prevent.
+              server.config.logger.error(
+                `[warmup] the module graph still changed after ${passes} passes (${seconds}s); ` +
+                  `${uncached.length} modules were uncached in the last pass:\n  ${uncached.join("\n  ")}`,
+                { timestamp: true },
+              );
+              process.exit(1);
+            })
+            .catch((error: unknown) => {
+              server.config.logger.warn(`[warmup] stopped early: ${String(error)}`, {
+                timestamp: true,
+              });
+              resolve();
+            });
+        });
+      });
+      server.middlewares.use((_request, _response, next) => {
+        void warm.then(() => next());
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [vue(), fixtureServer(), devProviderKeys(), bundleGraph(), buildIdentity()],
+  plugins: [
+    vue(),
+    fixtureServer(),
+    devProviderKeys(),
+    bundleGraph(),
+    buildIdentity(),
+    testServerDependencies(),
+    testServerWarmup(),
+  ],
   // Discover the lazy editor's dependencies before a browser connects. Finding
   // them on first Studio open otherwise makes Vite reload the authoring page.
   // This prebundles dependencies on the server; Play still loads no editor code.

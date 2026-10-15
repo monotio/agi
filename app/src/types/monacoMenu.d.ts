@@ -34,3 +34,8 @@ declare module "monaco-editor/editor/contrib/codeAction/browser/codeActionModel.
     setState(state: CodeActionsState, skipNotify?: boolean): void;
   }
 }
+
+// The rename focus fix checks the private members it reads at run time (renameFocus.ts).
+declare module "monaco-editor/editor/contrib/rename/browser/renameWidget.js" {
+  export class RenameWidget {}
+}

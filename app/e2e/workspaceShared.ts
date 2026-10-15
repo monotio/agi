@@ -3,6 +3,7 @@ import { VOCABULARY } from "../../src/vocabulary.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import {
   enterCreateMode,
+  FIRST_LOAD_BUDGET_MS,
   openLibraryActions,
   savedGameCard,
   waitForGameInput,
@@ -28,7 +29,7 @@ export async function openStoredWorkspace(page: Page, title: string): Promise<vo
   const parts = page.getByTestId("parts-list");
   if (page.viewportSize()!.width <= 600 && !(await parts.isVisible()))
     await page.getByTestId("workspace-parts").click();
-  await expect(parts).toBeVisible();
+  await expect(parts).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await workspaceSaved(page);
 }
 
@@ -36,13 +37,23 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
   await enterCreateMode(page);
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
-  await page
-    .getByTestId(`part-room:${num}:logic`)
-    .or(page.getByTestId(`part-logic:${num}`))
-    .click();
+  // Room analysis inserts PICTURE rows above LOGIC when it finishes; click after the list settles.
+  await expect(page.getByTestId("parts-list")).toHaveAttribute(
+    "data-analysis",
+    /^(idle|resolved|failed)$/,
+    { timeout: FIRST_LOAD_BUDGET_MS },
+  );
+  const row = page.getByTestId(`part-room:${num}:logic`).or(page.getByTestId(`part-logic:${num}`));
+  // Mid widths fold Parts away while the Agent is open; Parts brings the list back.
+  const partsButton = page.getByTestId("workspace-parts");
+  if (!(await row.first().isVisible()) && (await partsButton.isVisible()))
+    await partsButton.click();
+  await row.click();
   if (await show.isVisible()) await show.click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
-  await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({ timeout: 30_000 });
+  await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({
+    timeout: FIRST_LOAD_BUDGET_MS,
+  });
   return editor;
 }
 
@@ -96,6 +107,27 @@ export async function storedDocument(
 export async function workspaceDocumentEnd(page: Page): Promise<void> {
   const mac = await page.evaluate(() => /mac|iphone|ipad/i.test(navigator.platform));
   await page.keyboard.press(mac ? "Meta+ArrowDown" : "Control+End");
+}
+
+/**
+ * The LOGIC editor lays itself out on the animation frame after its box
+ * resizes, and that layout closes an open Quick Fix menu. After a viewport
+ * change, wait until the editor fills its box before opening a menu.
+ */
+export async function logicEditorLaidOut(page: Page): Promise<void> {
+  const host = page.getByTestId("workspace-logic-editor").filter({ visible: true });
+  await expect
+    .poll(() =>
+      host.evaluate((element) => {
+        const editor = element.querySelector<HTMLElement>(":scope > .monaco-editor");
+        return (
+          !!editor &&
+          editor.offsetWidth === element.clientWidth &&
+          editor.offsetHeight === element.clientHeight
+        );
+      }),
+    )
+    .toBe(true);
 }
 
 export async function focusWorkspaceLogic(page: Page): Promise<void> {

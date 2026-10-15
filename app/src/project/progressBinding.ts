@@ -38,6 +38,9 @@ export interface ProgressBindingSource {
   readonly projectId?: string | undefined;
   readonly historyLifetime?: string | null | undefined;
   readonly progressTarget?: ProgressTarget | undefined;
+  retainedProgressTarget?:
+    | { readonly target: ProgressTarget | null; readonly lifetime: string | null | undefined }
+    | undefined;
 }
 
 /**
@@ -52,6 +55,7 @@ export interface ProgressBindingSource {
  * fabricate one.
  */
 export function resolveProgressTarget(game: ProgressBindingSource): ProgressTarget | null {
+  if (game.retainedProgressTarget !== undefined) return game.retainedProgressTarget.target;
   if (game.installed) {
     return installedProgressTarget(
       { folder: game.folder, hash: game.hash, alias: game.alias },
@@ -77,6 +81,14 @@ export function resolveProgressTarget(game: ProgressBindingSource): ProgressTarg
   return projectProgressTarget(game.projectId, game.revision, epoch);
 }
 
+/** The captured runtime history lifetime stays with progress through document-only copies. */
+export function resolveProgressLifetime(
+  game: ProgressBindingSource | null | undefined,
+): string | null | undefined {
+  const retained = game?.retainedProgressTarget;
+  return retained === undefined ? game?.historyLifetime : retained.lifetime;
+}
+
 /**
  * Resolve and store the game's progress target on the object itself — the
  * ephemeral `progressTarget` field a boot or a card resolution fills. A
@@ -85,6 +97,7 @@ export function resolveProgressTarget(game: ProgressBindingSource): ProgressTarg
 export function bindProgressTarget(
   game: ProgressBindingSource & { progressTarget?: ProgressTarget | undefined },
 ): ProgressTarget | null {
+  delete game.retainedProgressTarget;
   const target = resolveProgressTarget(game);
   const previous = game.progressTarget;
   if (

@@ -199,3 +199,23 @@ export function decodeRecordedReplay(text: string): RecordedReplay {
   if (text.length > 262144) throw new Error("Recorded replay payload is too large.");
   return validateRecordedReplay(JSON.parse(text));
 }
+
+/**
+ * Player inputs on a recorded tape: typed command lines, key presses
+ * (direction holds and dismissals included), pointer clicks, clicks that close
+ * a message, key-wait answers and prompt answers. Releases end a hold and are
+ * not inputs of their own.
+ */
+export function recordedPlayerInputs(replay: RecordedReplay): number {
+  let inputs = 0;
+  for (const operation of replay.operations) {
+    if (operation[0] === "navigate" || operation[0] === "ack") inputs++;
+    if (operation[0] !== "tick" && operation[0] !== "release") continue;
+    for (const call of operation[1]) {
+      if (call[0] === "line") inputs += call[1] === null ? 0 : 1;
+      else if (call[0] === "keys" || call[0] === "clicks") inputs += call[1].length;
+      else if (call[0] === "waitKey" || call[0] === "string" || call[0] === "number") inputs++;
+    }
+  }
+  return inputs;
+}

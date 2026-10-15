@@ -74,7 +74,9 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`picture debugger layout at ${width} @webkit-desktop`, async ({ page }) => {
+  test(`picture debugger layout at ${width}${width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height });
     await starter(page);
     await parts(page);

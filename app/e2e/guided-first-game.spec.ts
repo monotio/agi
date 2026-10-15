@@ -211,6 +211,7 @@ async function walkToRoom(
 // Each phase reads the same durable project in a fresh browser context.
 // Authoring and native play/export keep separate contracts within the test budget.
 test.describe("the first guided game", () => {
+  // Serial: each test continues the project and stored session the one before it left.
   test.describe.configure({ mode: "serial" });
   let projectId: string;
   let authored: Awaited<ReturnType<BrowserContext["storageState"]>>;
@@ -407,7 +408,7 @@ test.describe("the first guided game", () => {
   });
 });
 
-test("custom code stays precise: a rewritten entry block refuses Custom code, guidance still applies @webkit-desktop", async ({
+test("custom code stays precise: a rewritten entry block refuses Custom code, guidance still applies", async ({
   page,
 }) => {
   await isolateStorage(page);

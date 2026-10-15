@@ -1,0 +1,47 @@
+{
+  "name": "project-agent-test-weakening",
+  "description": "Agent test deletion remains an explicit named change in review, with its reason.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "logic:1": "return;",
+      "picture:1": "vis 1\nfill 0,0\nend\n",
+      "words": "[]",
+      "tests": "{\"format\": \"monotio.agi.tests.v2\", \"tests\": [{\"name\": \"Open door\", \"room\": 1, \"steps\": []}]}"
+    },
+    "request": "Remove the stored test",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "remove",
+            "name": "write_game_tests",
+            "input": {
+              "mode": "remove",
+              "names": ["Open door"],
+              "tests": null
+            }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "finish",
+            "name": "finish",
+            "input": {
+              "testReasons": [{ "test": "Open door", "reason": "you asked to remove it." }]
+            }
+          }
+        ]
+      }
+    ],
+    "expectedKeys": ["tests"],
+    "expectedOutcomes": {
+      "finish": true
+    },
+    "expectedCommits": 1,
+    "expectedReviewLines": ["Deleted test \"Open door\""],
+    "autoApprove": true
+  }
+}

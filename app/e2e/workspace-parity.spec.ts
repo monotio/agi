@@ -40,7 +40,9 @@ async function cell(page: Page, x: number, y: number) {
 for (const width of [1063, 1440, 390]) {
   test.describe(`${width} PICTURE`, () => {
     test.use({ hasTouch: width === 390 });
-    test(`PICTURE inspector and metadata fit ${width}`, async ({ page }) => {
+    test(`PICTURE inspector and metadata fit ${width}${width === 390 ? " @phone" : width === 1063 ? " @webkit-desktop" : ""}`, async ({
+      page,
+    }) => {
       await page.setViewportSize({
         width,
         height: width === 1063 ? 815 : width === 1440 ? 900 : 844,
@@ -72,7 +74,7 @@ for (const width of [1063, 1440, 390]) {
 }
 test.describe("phone Items", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
-  test("Items rows remain visible and select an item on a phone", async ({ page }) => {
+  test("Items rows remain visible and select an item on a phone @phone", async ({ page }) => {
     const studio = await picture(page);
     const row = studio.locator('[role="treeitem"][data-row]').first();
     // The transport sits under the canvas; on a phone the Items list scrolls to it.
@@ -93,13 +95,15 @@ test.describe("phone Items", () => {
     await page.screenshot({ path: test.info().outputPath("phone-selected-item.png") });
   });
 });
-for (const width of [1063, 1440, 390]) {
+for (const width of [1063, 390]) {
   test.describe(`${width} Rebuilt`, () => {
     test.use({
       viewport: { width, height: width === 1063 ? 815 : width === 1440 ? 900 : 844 },
       hasTouch: width === 390,
     });
-    test("a native picture explains its Rebuilt source in the workspace", async ({ page }) => {
+    test(`a native picture explains its Rebuilt source in the workspace${width === 390 ? " @phone" : ""}`, async ({
+      page,
+    }) => {
       await picture(page);
       const bytes = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(
         "picture",
@@ -141,7 +145,7 @@ for (const width of [1063, 1440, 390]) {
     });
   });
 }
-test("Focus gives the PICTURE canvas more room", async ({ page }) => {
+test("Focus gives the PICTURE canvas more room @webkit-desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   const studio = await picture(page);
   const before = (await studio.locator(".studio__stage").boundingBox())!;
@@ -149,7 +153,9 @@ test("Focus gives the PICTURE canvas more room", async ({ page }) => {
   const after = (await studio.locator(".studio__stage").boundingBox())!;
   expect(after.width * after.height).toBeGreaterThan(before.width * before.height * 1.2);
 });
-test("draw order, Split and Distance bands are reachable in the workspace", async ({ page }) => {
+test("draw order, Split and Distance bands are reachable in the workspace @phone", async ({
+  page,
+}) => {
   const studio = await picture(page);
   // The draw-order transport is on by default; the Items list's Draw order only sorts the list.
   await expect(studio.getByTestId("studio-scrubber")).toBeVisible();
@@ -257,7 +263,7 @@ test("while a line is open only its points sit on the picture; Done, Enter and a
   await expect.poll(lines).toBe(before + 3);
   await workspaceUpdated(page);
 });
-test("a polygon finishes with Done in the context row and its point menu names Delete shape", async ({
+test("a polygon finishes with Done in the context row and its point menu names Delete shape @phone", async ({
   page,
 }) => {
   const studio = await picture(page);
@@ -295,7 +301,7 @@ test("a polygon finishes with Done in the context row and its point menu names D
 test.describe("phone drawing", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
   for (const tool of ["line", "polygon"] as const)
-    test(`a ${tool} drawn on a phone keeps the picture clear and finishes with Done above it`, async ({
+    test(`a ${tool} drawn on a phone keeps the picture clear and finishes with Done above it @phone`, async ({
       page,
     }) => {
       const studio = await picture(page);
@@ -322,7 +328,9 @@ test.describe("phone drawing", () => {
       await workspaceUpdated(page);
     });
 });
-test("the Priority lens shows doors and runs a real test with Play here", async ({ page }) => {
+test("the Priority lens shows doors and runs a real test with Play here @phone", async ({
+  page,
+}) => {
   const studio = await picture(page);
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
@@ -350,7 +358,7 @@ test("the Priority lens shows doors and runs a real test with Play here", async 
   await studio.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(status).not.toContainText("Now click the goal");
 });
-test("Create Inspector opens screen, state and timeline controls", async ({ page }) => {
+test("Create Inspector opens screen, state and timeline controls @phone", async ({ page }) => {
   await picture(page);
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
@@ -373,31 +381,40 @@ test("Create Inspector opens screen, state and timeline controls", async ({ page
   );
   await page.screenshot({ path: test.info().outputPath("game-inspector.png") });
 });
-test("splitter saves once on release and keeps the game buffer during drag", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await picture(page);
-  await page.getByTestId("part-room:1:logic").click();
-  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible();
-  const separator = page.getByRole("separator", { name: "Editor height" });
-  await expect(separator).toBeVisible();
-  const before = await page.evaluate(() => ({
-    stored: localStorage.getItem("monotio_agi.workspaceSplit"),
-    width: document.querySelector<HTMLCanvasElement>('[data-testid="gpu-canvas"]')!.width,
-  }));
-  const box = (await separator.boundingBox())!;
-  await page.mouse.move(box.x + 40, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + 40, box.y + 160, { steps: 20 });
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).toBe(
-    before.stored,
-  );
-  expect(
-    await page.getByTestId("gpu-canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width),
-  ).toBe(before.width);
-  await page.mouse.up();
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).not.toBe(
-    before.stored,
-  );
+test.describe(() => {
+  // About the GPU stage, so it creates one (e2e/test.ts `gpuStage`).
+  test.use({ gpuStage: true });
+
+  test("splitter saves once on release and keeps the game buffer during drag @webkit-desktop", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await picture(page);
+    await page.getByTestId("part-room:1:logic").click();
+    await expect(
+      page.getByTestId("workspace-logic-editor").locator(".monaco-editor"),
+    ).toBeVisible();
+    const separator = page.getByRole("separator", { name: "Editor height" });
+    await expect(separator).toBeVisible();
+    const before = await page.evaluate(() => ({
+      stored: localStorage.getItem("monotio_agi.workspaceSplit"),
+      width: document.querySelector<HTMLCanvasElement>('[data-testid="gpu-canvas"]')!.width,
+    }));
+    const box = (await separator.boundingBox())!;
+    await page.mouse.move(box.x + 40, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 40, box.y + 160, { steps: 20 });
+    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).toBe(
+      before.stored,
+    );
+    expect(
+      await page.getByTestId("gpu-canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width),
+    ).toBe(before.width);
+    await page.mouse.up();
+    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.workspaceSplit"))).not.toBe(
+      before.stored,
+    );
+  });
 });
 
 async function drawLine(page: Page) {
@@ -420,7 +437,7 @@ async function drawLine(page: Page) {
   return studio;
 }
 
-test("item inspector saves name, colour, Lock and points and seeks a pixel's step", async ({
+test("item inspector saves name, colour, Lock and points and seeks a pixel's step @phone", async ({
   page,
 }) => {
   const studio = await drawLine(page);
@@ -458,7 +475,7 @@ test("item inspector saves name, colour, Lock and points and seeks a pixel's ste
 });
 
 for (const key of ["Delete", "Backspace"] as const) {
-  test(`${key} removes the selected line vertex`, async ({ page }) => {
+  test(`${key} removes the selected line vertex @phone`, async ({ page }) => {
     const studio = await drawLine(page);
     await studio.locator('button[data-tool="point"]').click();
     const handles = studio.locator("[data-point]");
@@ -469,7 +486,7 @@ for (const key of ["Delete", "Backspace"] as const) {
     await workspaceUpdated(page);
   });
 }
-test("a point's context menu offers Delete point and Delete line", async ({ page }) => {
+test("a point's context menu offers Delete point and Delete line @phone", async ({ page }) => {
   const studio = await drawLine(page);
   await studio.locator('button[data-tool="point"]').click();
   const handles = studio.locator("[data-point]");
@@ -482,7 +499,9 @@ test("a point's context menu offers Delete point and Delete line", async ({ page
   await expect(handles).toHaveCount(2);
 });
 
-test("Share picture downloads a Still and a Clip when recording is supported", async ({ page }) => {
+test("Share picture downloads a Still and a Clip when recording is supported @phone", async ({
+  page,
+}) => {
   await picture(page);
   for (const kind of ["still", "clip"] as const) {
     await page.getByTestId("workspace-more").click();
@@ -518,7 +537,7 @@ test("Share picture downloads a Still and a Clip when recording is supported", a
   }
 });
 
-test("Walk edits a door box and an edge exit and shows drawing errors beside the controls", async ({
+test("Walk edits a door box and an edge exit and shows drawing errors beside the controls @phone", async ({
   page,
 }) => {
   const studio = await picture(page);
@@ -605,7 +624,9 @@ test("Walk edits a door box and an edge exit and shows drawing errors beside the
   await page.screenshot({ path: test.info().outputPath("walk-doors.png") });
 });
 
-test("a door keeps an unfinished box number when its saved LOGIC refreshes", async ({ page }) => {
+test("a door keeps an unfinished box number when its saved LOGIC refreshes @phone", async ({
+  page,
+}) => {
   const studio = await picture(page);
   await studio
     .getByRole("radiogroup", { name: "Lens", exact: true })
@@ -643,7 +664,7 @@ test("a door keeps an unfinished box number when its saved LOGIC refreshes", asy
   await expect(box).toHaveValue("121");
 });
 
-test("stand-in readout and an item's depth controls are reachable", async ({ page }) => {
+test("stand-in readout and an item's depth controls are reachable @phone", async ({ page }) => {
   const studio = await picture(page);
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");
   await studio.locator('[role="treeitem"][data-row]').first().click();
@@ -665,7 +686,7 @@ test("stand-in readout and an item's depth controls are reachable", async ({ pag
   await expect(studio.getByTestId("ghost-probe-readout")).toBeVisible();
 });
 
-test("an empty picture names the next drawing action", async ({ page }) => {
+test("an empty picture names the next drawing action @phone", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
@@ -787,4 +808,47 @@ test("drawing cannot resubmit a door edit over a newer pending LOGIC draft", asy
   await page.getByTestId("studio-path").getByRole("button", { name: "Done", exact: true }).click();
   await workspaceSaved(page);
   expect(await workspaceDocument(page, "logic:1")).toBe(source);
+});
+
+// The picture's open line rides the context row, which leaves while Words is open. A first open
+// can finish loading the picture editor behind Words; going back to the picture, after that or
+// after any visit to Words, still shows the line in the row and keeps the workspace working.
+test("an open line shows in the context row after the picture loads behind Words and after a Words visit", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  // Hold the picture editor's code until Words is open, as a slow first load does.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/RoomStudio\.vue/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await enterCreateMode(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await page.getByTestId("part-words").click();
+  await expect(page.getByTestId("workspace-context")).toHaveCount(0);
+  release();
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toHaveCount(1);
+  await page.getByTestId("project-tab-picture:1").click();
+  await expect(studio).toBeVisible();
+  await page.getByTestId("project-tab-words").click();
+  await expect(studio).toBeHidden();
+  await page.getByTestId("project-tab-picture:1").click();
+  await expect(studio).toBeVisible();
+  await studio.locator('button[data-tool="line"]').click();
+  await clickPoints(studio, LINE);
+  const path = page.getByTestId("workspace-context").getByTestId("studio-path");
+  await expect(path).toBeVisible();
+  await expect(path).toContainText("Line · 3 points");
+  expect(errors).toEqual([]);
 });

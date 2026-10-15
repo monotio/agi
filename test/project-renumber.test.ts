@@ -26,7 +26,14 @@ const input = {
   }),
   tests: JSON.stringify({
     format: "monotio.agi.tests.v2",
-    tests: [{ name: "Door", room: 2, steps: [{ until: { room: 2 } }], expect: { room: 2 } }],
+    tests: [
+      {
+        name: "Door",
+        room: 2,
+        steps: [{ action: "wait", ticks: 1, until: { room: 2 } }],
+        expect: { room: 2 },
+      },
+    ],
   }),
   references: JSON.stringify([{ id: "art", kind: "room", target: 2, brief: "Room 2", images: [] }]),
 };
@@ -68,11 +75,197 @@ test("a room and every typed reference move in one complete change set", () => {
   assert.equal(world.launches["7"].entries[0].items["0"], 7);
   const tests = JSON.parse(String(result.documents["tests"])).tests;
   assert.deepEqual(tests, [
-    { name: "Door", room: 7, steps: [{ until: { room: 7 } }], expect: { room: 7 } },
+    {
+      name: "Door",
+      room: 7,
+      steps: [{ action: "wait", ticks: 1, until: { room: 7 } }],
+      expect: { room: 7 },
+    },
   ]);
   assert.equal(JSON.parse(String(result.documents["references"]))[0].target, 7);
   assert.deepEqual(input, before);
 });
+test("Tests never block game numbers: future test references allow renumbering", () => {
+  const documents = {
+    "logic:2": "return;",
+    "view:2": new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0, 0x51, 0]),
+    tests: JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [
+        { name: "Future room", room: 7, steps: [], expect: { room: 7 } },
+        { name: "Future view", room: 2, steps: [], expect: { object: { num: 0, view: 7 } } },
+        {
+          name: "Moved room",
+          room: 2,
+          steps: [{ action: "wait", ticks: 1, until: { room: 2 } }],
+          expect: { room: 2 },
+        },
+      ],
+    }),
+  };
+  const room = prepareProjectRenumber({ documents, key: "logic:2", number: 7, profile });
+  assert.ok(room.ok, room.ok ? "" : room.reason);
+  assert.deepEqual(JSON.parse(String(room.documents["tests"])).tests, [
+    { name: "Future room", room: 7, steps: [], expect: { room: 7 } },
+    { name: "Future view", room: 7, steps: [], expect: { object: { num: 0, view: 7 } } },
+    {
+      name: "Moved room",
+      room: 7,
+      steps: [{ action: "wait", ticks: 1, until: { room: 7 } }],
+      expect: { room: 7 },
+    },
+  ]);
+  const view = prepareProjectRenumber({ documents, key: "view:2", number: 7, profile });
+  assert.ok(view.ok, view.ok ? "" : view.reason);
+  assert.equal(JSON.parse(String(view.documents["tests"])).tests[1].expect.object.view, 7);
+});
+
+test("Tests never block game numbers: recorded setup references reserve no resource slots", async () => {
+  const { newSaveState, newObjectRecord, encodeSave } =
+    await import("../src/runtime/persistence.ts");
+  const { buildObjectFile } = await import("../src/authoring/inventory.ts");
+  const { decodeInventoryFile } = await import("../src/runtime/inventoryFile.ts");
+  const state = newSaveState(profile);
+  state.vars[0] = 1;
+  state.vars[1] = 7;
+  state.inventory = decodeInventoryFile(
+    buildObjectFile([{ name: "Key", startingRoom: 7 }], profile),
+    profile,
+  );
+  state.logicResume = [{ logic: 7, offset: 0 }];
+  state.lastPicture = 7;
+  state.objects = [{ ...newObjectRecord(), view: 7 }];
+  const tests = JSON.stringify({
+    format: "monotio.agi.tests.v2",
+    tests: [
+      {
+        name: "Recorded room",
+        room: 1,
+        steps: [],
+        setup: { image: Buffer.from(encodeSave(state, profile)).toString("base64") },
+      },
+    ],
+  });
+  for (const kind of ["logic", "picture", "view", "sound"] as const) {
+    const result = prepareProjectRenumber({
+      documents: { [`${kind}:2`]: "return;", tests },
+      key: `${kind}:2`,
+      number: 7,
+      profile,
+    });
+    assert.ok(result.ok, result.ok ? "" : result.reason);
+    assert.equal(result.documents[`${kind}:2`], undefined);
+    assert.equal(result.documents[`${kind}:7`], "return;");
+  }
+});
+
+test("Tests never block game numbers: unreadable tests stay exact through renumbering", () => {
+  for (const tests of [
+    "not json",
+    JSON.stringify({ format: "future", tests: [] }),
+    JSON.stringify({ format: "monotio.agi.tests.v2", tests: [{}] }),
+    JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [{ name: "Broken setup", room: 7, steps: [], setup: { image: "AA==" } }],
+    }),
+    Uint8Array.of(0xff, 0xfe),
+  ]) {
+    const result = prepareProjectRenumber({
+      documents: { "logic:2": "return;", tests },
+      key: "logic:2",
+      number: 7,
+      profile,
+    });
+    assert.ok(result.ok, result.ok ? "" : result.reason);
+    assert.deepEqual(result.documents["tests"], tests);
+  }
+});
+
+test("Tests never block game numbers: a damaged recorded setup stays exact during a move", () => {
+  const tests = JSON.stringify({
+    format: "monotio.agi.tests.v2",
+    tests: [{ name: "Broken setup", room: 2, steps: [], setup: { image: "AA==" } }],
+  });
+  const result = prepareProjectRenumber({
+    documents: { "logic:2": "return;", tests },
+    key: "logic:2",
+    number: 7,
+    profile,
+  });
+  assert.ok(result.ok);
+  assert.equal(result.documents["tests"], tests);
+});
+
+test("Tests never block game edits: a damaged setup leaves its test exact while siblings follow a room move", async (t) => {
+  const { newSaveState, encodeSave, encodeHostImage, decodeHostImage, decodeSave } =
+    await import("../src/runtime/persistence.ts");
+  const state = newSaveState(profile);
+  state.vars[0] = 2;
+  state.vars[1] = 2;
+  state.logicResume = [{ logic: 2, offset: 0 }];
+  state.replayCapacity = 1;
+  state.replayActive = 1;
+  state.replay = [{ kind: 0, value: 2 }];
+  const plain = {
+    name: "Door",
+    room: 2,
+    steps: [{ action: "wait", ticks: 1, until: { room: 2 } }],
+    expect: { room: 2 },
+  };
+  const recorded = {
+    ...plain,
+    name: "Recorded door",
+    setup: {
+      image: Buffer.from(
+        encodeHostImage(encodeSave(state, profile), [{ kind: 0, value: 2 }]),
+      ).toString("base64"),
+    },
+  };
+  for (const [cause, setup] of [
+    ["truncated native image", { image: "AA==" }],
+    ["malformed base64 image", { image: "!" }],
+    ["malformed replay", { image: "AA==", replay: "invalid" }],
+  ] as const)
+    await t.test(`Tests never block game edits: ${cause} affects only its test`, () => {
+      const damaged = { ...plain, name: "Damaged recording", setup };
+      const documents = {
+        "logic:2": "return;",
+        tests: JSON.stringify({
+          format: "monotio.agi.tests.v2",
+          tests: [plain, damaged, recorded],
+        }),
+      };
+      const before = structuredClone(documents);
+      const result = prepareProjectRenumber({ documents, key: "logic:2", number: 7, profile });
+      assert.ok(result.ok);
+      assert.equal(result.documents["logic:2"], undefined);
+      assert.equal(result.documents["logic:7"], "return;");
+      const moved = JSON.parse(String(result.documents["tests"])).tests;
+      assert.deepEqual(moved[0], {
+        ...plain,
+        room: 7,
+        steps: [{ action: "wait", ticks: 1, until: { room: 7 } }],
+        expect: { room: 7 },
+      });
+      assert.equal(JSON.stringify(moved[1]), JSON.stringify(damaged));
+      assert.deepEqual(moved[2], {
+        ...recorded,
+        room: 7,
+        steps: [{ action: "wait", ticks: 1, until: { room: 7 } }],
+        expect: { room: 7 },
+        setup: moved[2].setup,
+      });
+      const host = decodeHostImage(new Uint8Array(Buffer.from(moved[2].setup.image, "base64")));
+      const saved = decodeSave(host.image, profile);
+      assert.equal(saved.vars[0], 7);
+      assert.equal(saved.vars[1], 7);
+      assert.deepEqual(saved.logicResume, [{ logic: 7, offset: 0 }]);
+      assert.deepEqual(saved.replay, [{ kind: 0, value: 7 }]);
+      assert.deepEqual(host.screen, [{ kind: 0, value: 7 }]);
+      assert.deepEqual(documents, before);
+    });
+});
+
 test("literal operands and proven variable feeds move; unrelated values and text stay", () => {
   const documents = {
     "picture:2": "end\n",
@@ -282,7 +475,7 @@ test("native inventory locations move while carried and missing items keep their
   );
 });
 
-test("a reviewed move still refuses a recorded test whose saved resource stays behind", async () => {
+test("Tests never block game edits: a room move preserves the recorded setup", async () => {
   const { newSaveState, encodeSave } = await import("../src/runtime/persistence.ts");
   const { compileProjectDocuments } = await import("../src/authoring/projectDocuments.ts");
   const { createContainer } = await import("../src/container/container.ts");
@@ -316,8 +509,12 @@ test("a reviewed move still refuses a recorded test whose saved resource stays b
     profileId: "2.936",
     policy: { reviewedRenumbering: { key: "logic:2", number: 7 } },
   });
-  assert.equal(result.status, "diagnostics");
-  assert.ok(result.diagnostics.some((d) => d.document === "tests" && d.severity === "error"));
+  assert.equal(result.status, "ready");
+  assert.equal(
+    JSON.parse(String(proposal.changes().find((c) => c.key === "tests")!.content)).tests[0].setup
+      .image,
+    setup.image,
+  );
 });
 
 test("recoverable source drafts rewrite typed literal operands in unfinished calls", () => {

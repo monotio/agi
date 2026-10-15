@@ -224,7 +224,7 @@ async function refuseTimeline(page: Page, refuse: boolean): Promise<void> {
   }, refuse);
 }
 
-test("the game's Start over waits for an unsaved timeline, and Start over anyway goes without it @webkit-desktop", async ({
+test("the game's Start over waits for an unsaved timeline, and Start over anyway goes without it", async ({
   page,
 }) => {
   test.setTimeout(150_000);

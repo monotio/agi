@@ -4,6 +4,25 @@
  * is written under from the released identity the record embeds.
  */
 import { test } from "node:test";
+import { openProjectSession } from "../src/project/projectSession.ts";
+import { saveTests } from "../src/authoring/saveTests.ts";
+import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
+import { ProjectModel } from "../../src/authoring/projectModel.ts";
+import { sha256Hex } from "../../src/crypto.ts";
+import {
+  compileProjectDocuments,
+  readProjectDocuments,
+} from "../../src/authoring/projectDocuments.ts";
+import { createContainer } from "../../src/container/container.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../src/authoring/projectWorkspace.ts";
+import { installWebLocksFixture } from "./webLocksFixture.ts";
+import { createProjectPublication } from "../src/engine/projectPublication.ts";
+import { createProgressOwnership } from "../src/saves/progressOwnership.ts";
+import { claimProgressWriter, progressWriterKey } from "../src/saves/progressWriter.ts";
+import { waitUntil } from "./async.ts";
 import assert from "node:assert/strict";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -37,6 +56,8 @@ import {
 } from "../src/saves/useAutosaveController.ts";
 import {
   clearCachedGame,
+  commitProject,
+  loadAuthoredGame,
   readHistoryLifetime,
   saveAuthoredGame,
 } from "../src/project/gameStorage.ts";
@@ -49,7 +70,8 @@ import { createStarterProject } from "../../src/authoring/starterProject.ts";
 import { bytesToBase64 } from "../src/project/bytes.ts";
 import type { ProfileId } from "../../src/runtime/profile.ts";
 
-installIndexedDbFixture();
+const records = installIndexedDbFixture();
+installWebLocksFixture();
 
 const HOST = {
   print() {},
@@ -113,6 +135,12 @@ function installLocalStorageMock(t: { after: (fn: () => void) => void }): Map<st
       },
       clear(): void {
         values.clear();
+      },
+      get length() {
+        return values.size;
+      },
+      key(index: number) {
+        return [...values.keys()][index] ?? null;
       },
     },
   });
@@ -771,3 +799,544 @@ test("a saved game whose epoch was replaced writes nothing for either incarnatio
     "nothing lands on the new incarnation's address",
   );
 });
+
+function projectPublicationCallbacks(ports: {
+  game: BootedGame;
+  state: {
+    copyCreated?: { projectId: string; originalTitle: string } | null;
+    patchTick: number;
+    worldTick: number;
+  };
+  lifecycle: { setBootedGame(game: BootedGame): void };
+  progressOwnership: Pick<ReturnType<typeof createProgressOwnership>, "acquire"> &
+    Partial<Pick<ReturnType<typeof createProgressOwnership>, "close">>;
+  autosaveController: Pick<AutosaveController, "reset" | "flushAutosave">;
+  hook: { autosave: number };
+  current: () => boolean;
+}) {
+  let game = ports.game;
+  return createProjectPublication({
+    ...ports,
+    state: { status: "", profile: null, ...ports.state },
+    getGame: () => game,
+    setGame(next) {
+      game = next;
+      ports.lifecycle.setBootedGame(next);
+    },
+    progressOwnership: { close() {}, ...ports.progressOwnership },
+    publishHook() {},
+    useGameFiles() {},
+    admitted() {},
+  });
+}
+
+for (const originalKind of ["installed", "project"] as const) {
+  test(`Tests are documents: the first ${originalKind} test save preserves runtime progress ownership`, async (t) => {
+    installLocalStorageMock(t);
+    const rig = await starterRig();
+    const originalId = testProjectId(`test-fork-original-${originalKind}`);
+    const remixId = testProjectId(`test-fork-remix-${originalKind}`);
+    for (const id of [originalId, remixId]) {
+      await saveAuthoredGame(id, { title: "Game", files: rig.files, words: [] });
+    }
+    const originalLifetime = (await readHistoryLifetime(originalId))!;
+    const remixLifetime = (await readHistoryLifetime(remixId))!;
+    const originalData = {
+      projectId: originalId,
+      title: "Game",
+      authoredAt: "",
+      files: rig.files,
+      words: [],
+    };
+    const game: BootedGame = {
+      installed: originalKind === "installed",
+      folder: "kq1",
+      projectId: originalId,
+      title: "Game",
+      authoredGame: originalData,
+      historyLifetime: originalLifetime,
+      revision: rig.revision,
+      files: rig.files,
+      words: [],
+    };
+    const originalTarget = bindProgressTarget(game)!;
+    const notices: boolean[] = [];
+    const ownership = createProgressOwnership({
+      storage: localStorage,
+      owner: "first",
+      lock: async (_key, action) => action(),
+      changed: (lost) => notices.push(lost),
+    });
+    for (let index = 0; index < 3; index++) await ownership.acquire(originalTarget);
+    const originalGeneration = ownership.generation()!;
+    let runtime = game;
+    let resets = 0;
+    let flushes = 0;
+    const state = { copyCreated: null, patchTick: 0, worldTick: 0 };
+    const callbacks = projectPublicationCallbacks({
+      game,
+      state,
+      lifecycle: {
+        setBootedGame(next: BootedGame) {
+          runtime = next;
+        },
+      },
+      progressOwnership: ownership,
+      current: () => true,
+      autosaveController: {
+        reset() {
+          resets++;
+        },
+        async flushAutosave() {
+          flushes++;
+          return true;
+        },
+      },
+      hook: { autosave: 10 },
+    });
+    const newData = { ...originalData, projectId: remixId, title: "Game Remix" };
+    const noticeCount = notices.length;
+    await callbacks.forked(newData, remixLifetime, true);
+    assert.equal(runtime, game, "test saving keeps the running game's object");
+    assert.equal(runtime.files, rig.files);
+    assert.equal(runtime.revision, rig.revision);
+    assert.deepEqual(
+      resolveProgressTarget(runtime),
+      originalTarget,
+      "test documents retain the game's progress address",
+    );
+    assert.equal(ownership.generation(), originalGeneration);
+    assert.equal(
+      notices.length,
+      noticeCount,
+      "test saving sends no play ownership or pause messages",
+    );
+    assert.equal(resets, 0, "test saving keeps the game's existing checkpoint cache");
+    assert.equal(flushes, 0);
+    const remixTarget = projectProgressTarget(remixId, rig.revision, remixLifetime)!;
+    claimProgressWriter(localStorage, remixTarget, "second");
+    ownership.observe(progressWriterKey(remixTarget.locator));
+    const slots = useSaveSlotController({
+      getBootedGame: () => runtime,
+      getWriterGeneration: () => ownership.generation(),
+      storage: localStorage,
+    });
+    assert.equal(
+      await slots.handleSaveSlotRequest("saveWrite", {
+        slot: 1,
+        image: "runtime",
+        writerGeneration: originalGeneration,
+      }),
+      "true",
+    );
+    assert.equal(readGameSaves(localStorage, originalTarget)["1"], "runtime");
+    assert.deepEqual(
+      readGameSaves(localStorage, remixTarget),
+      {},
+      "another page's remix saves are independent",
+    );
+    const { ctx } = autosaveTestContext(runtime);
+    const autosaves = useAutosaveController({
+      ...ctx,
+      getWriterGeneration: () => ownership.generation(),
+    });
+    autosaves.handleAutosave({
+      image: "runtime-checkpoint",
+      cycle: 10,
+      room: 1,
+      revision: rig.revision,
+      writerGeneration: originalGeneration,
+    });
+    assert.equal(await autosaves.getAutosaveWrite(), true);
+    assert.equal(
+      readAutosave(originalTarget.locator)?.game.installed,
+      originalKind === "installed",
+    );
+    assert.equal(readAutosave(remixTarget.locator), null);
+    if (originalKind === "project") {
+      await clearCachedGame(originalId);
+      autosaves.handleAutosave({
+        image: "late-checkpoint",
+        cycle: 11,
+        room: 1,
+        revision: rig.revision,
+        writerGeneration: originalGeneration,
+      });
+      assert.equal(await autosaves.getAutosaveWrite(), false);
+      assert.equal(
+        runtime.removed,
+        undefined,
+        "removing old progress keeps the new test document editable",
+      );
+      assert.equal(resolveProgressTarget(runtime), null, "the removed runtime binding is retired");
+      assert.equal(
+        await slots.handleSaveSlotRequest("saveWrite", {
+          slot: 2,
+          image: "late",
+          writerGeneration: originalGeneration,
+        }),
+        "false",
+      );
+    }
+    // A later native game edit can move play to the remix under its own claim.
+    const documents = readProjectDocuments({
+      files: rig.files,
+      profileId: rig.profileId,
+    }).documents;
+    const build = compileProjectDocuments({
+      files: rig.files,
+      profileId: rig.profileId,
+      documents,
+    });
+    const snapshot = new ProjectModel({ documents, build, digest: sha256Hex }).capture();
+    assert.equal(snapshot.lastAdmissibleBuild!.identity.revision, rig.revision);
+    callbacks.publish(
+      snapshot,
+      newData,
+      { status: "committed", expected: null, current: null, patchGeneration: 1 },
+      false,
+      false,
+    );
+    await waitUntil(
+      () => ownership.generation() !== undefined && ownership.generation() !== originalGeneration,
+      "native admission did not acquire the remix progress claim",
+    );
+    assert.equal(resolveProgressTarget(runtime)?.locator, remixTarget.locator);
+    assert.equal(
+      await slots.handleSaveSlotRequest("saveWrite", {
+        slot: 2,
+        image: "remix",
+        writerGeneration: ownership.generation(),
+      }),
+      "true",
+    );
+    assert.equal(readGameSaves(localStorage, remixTarget)["2"], "remix");
+    assert.equal(
+      ownership.generation(),
+      2,
+      "native adoption follows the remix's latest physical writer",
+    );
+    for (const id of [originalId, remixId]) await clearCachedGame(id);
+  });
+}
+
+test("Tests are documents: a test-only copy preserves an unbound game's progress", async (t) => {
+  const values = installLocalStorageMock(t);
+  const rig = await starterRig();
+  const id = testProjectId("test-fork-unbound");
+  const game: BootedGame = {
+    installed: true,
+    title: "Game",
+    files: rig.files,
+    words: [],
+    revision: rig.revision,
+    historyLifetime: null,
+    authoredGame: { projectId: id, title: "Game", files: rig.files, words: [], authoredAt: "" },
+  };
+  let runtime = game;
+  const callbacks = projectPublicationCallbacks({
+    game,
+    state: { patchTick: 0, worldTick: 0 },
+    current: () => true,
+    lifecycle: {
+      setBootedGame(next: BootedGame) {
+        runtime = next;
+      },
+    },
+    progressOwnership: {
+      acquire: async () => assert.fail("a test save cannot acquire runtime ownership"),
+    },
+    autosaveController: {
+      reset: () => assert.fail("a test save keeps the runtime cache"),
+      flushAutosave: async () => assert.fail("a test save cannot flush runtime progress"),
+    },
+    hook: { autosave: 10 },
+  });
+  await callbacks.forked({ ...game.authoredGame!, projectId: id }, "initial", true);
+  assert.equal(runtime, game);
+  assert.equal(resolveProgressTarget(runtime), null);
+  const slots = useSaveSlotController({ storage: localStorage, getBootedGame: () => runtime });
+  assert.equal(
+    await slots.handleSaveSlotRequest("saveWrite", { slot: 1, image: "unbound" }),
+    "false",
+  );
+  assert.equal(values.size, 0);
+  const target = bindProgressTarget(runtime);
+  assert.equal(target?.kind, "project", "a later native binding can establish progress authority");
+});
+
+test("Tests are documents: a late source removal cannot retire newly admitted remix progress", async (t) => {
+  installLocalStorageMock(t);
+  const rig = await starterRig();
+  const originalId = testProjectId("test-fork-late-removal-original");
+  const remixId = testProjectId("test-fork-late-removal-remix");
+  for (const id of [originalId, remixId])
+    await saveAuthoredGame(id, { title: "Game", files: rig.files, words: [] });
+  const originalLifetime = (await readHistoryLifetime(originalId))!;
+  const remixLifetime = (await readHistoryLifetime(remixId))!;
+  const originalTarget = projectProgressTarget(originalId, rig.revision, originalLifetime)!;
+  const game: BootedGame = {
+    installed: false,
+    projectId: remixId,
+    title: "Remix",
+    files: rig.files,
+    words: [],
+    revision: rig.revision,
+    historyLifetime: remixLifetime,
+    progressTarget: originalTarget,
+    retainedProgressTarget: { target: originalTarget, lifetime: originalLifetime },
+  };
+  await clearCachedGame(originalId);
+  const get = records.get.bind(records);
+  let rebound = false;
+  t.mock.method(records, "get", (key: IDBValidKey) => {
+    if (key === `lifetime/${originalId}`) {
+      // The native admission lands while the old source lifetime read awaits storage.
+      bindProgressTarget(game);
+      rebound = true;
+    }
+    return get(key);
+  });
+  const { ctx } = autosaveTestContext(game);
+  const autosaves = useAutosaveController(ctx);
+  autosaves.handleAutosave({
+    image: "old-runtime-checkpoint",
+    cycle: 1,
+    room: 1,
+    revision: rig.revision,
+  });
+  assert.equal(await autosaves.getAutosaveWrite(), false);
+  assert.equal(rebound, true);
+  assert.equal(
+    game.retainedProgressTarget,
+    undefined,
+    "the completed native binding stays current",
+  );
+  assert.equal(resolveProgressTarget(game)?.identity.project, remixId);
+  assert.equal(game.removed, undefined);
+  await clearCachedGame(remixId);
+});
+
+for (const source of ["catalog", "installed"] as const) {
+  for (const coalesced of [false, true]) {
+    test(`Tests are documents: ${source} progress follows its admitted remix after ${coalesced ? "coalesced test captures" : "a delayed test receipt"}`, async (t) => {
+      t.after(async () => {
+        session.dispose();
+        ownership.close();
+        await clearCachedGame(originalId);
+        if (remixId !== originalId) await clearCachedGame(remixId);
+      });
+      installLocalStorageMock(t);
+      const documents = { "logic:0": "return;", "logic:1": "return;" };
+      const compiled = compileProjectDocuments({
+        files: Object.fromEntries(createContainer().files),
+        documents,
+        profileId: "2.936",
+      });
+      const originalId = testProjectId(`delayed-test-receipt-${source}-${coalesced}`);
+      const files = Object.fromEntries(compiled.files());
+      const data = {
+        projectId: originalId,
+        title: "Catalog game",
+        authoredAt: "",
+        files,
+        words: [] as [string, number][],
+        workspace: writeProjectWorkspace(documents),
+        library: {
+          version: 1 as const,
+          source: source === "catalog" ? ("catalog" as const) : ("folder" as const),
+          revision: compiled.build.identity.revision,
+          validation: { status: "ready" as const, message: "Ready" },
+          catalog: { id: "catalog-game", version: "1" },
+        },
+      };
+      await saveAuthoredGame(originalId, data);
+      const lifetime = (await readHistoryLifetime(originalId))!;
+      let game: BootedGame = {
+        installed: source === "installed",
+        folder: "installed-game",
+        projectId: originalId,
+        title: data.title,
+        authoredGame: data,
+        historyLifetime: lifetime,
+        revision: compiled.build.identity.revision,
+        files,
+        words: [],
+      };
+      const originalTarget = bindProgressTarget(game)!;
+      const ownership = createProgressOwnership({
+        storage: localStorage,
+        owner: "playing",
+        lock: async (_key, action) => action(),
+        changed() {},
+      });
+      await ownership.acquire(originalTarget);
+      const beforeGeneration = ownership.generation();
+      const captured = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let writes = 0;
+      let remixId = originalId;
+      let admittedRevision = game.revision;
+      let flushes = 0;
+      const callbacks = createProjectPublication({
+        getGame: () => game,
+        setGame: (next) => {
+          game = next;
+        },
+        current: () => true,
+        state: { patchTick: 0, worldTick: 0, status: "", profile: null },
+        progressOwnership: ownership,
+        autosaveController: {
+          reset() {},
+          async flushAutosave() {
+            flushes++;
+            return true;
+          },
+        },
+        hook: { autosave: 10 },
+        publishHook() {},
+        useGameFiles() {},
+        admitted() {},
+      });
+      const session = openProjectSession({
+        data,
+        lifetime,
+        ...callbacks,
+        ...(source === "installed" ? { forkParent: originalTarget.identity } : {}),
+        admission: {
+          runToken: `delayed-test-receipt-${source}-${coalesced}`,
+          async admit(image) {
+            admittedRevision = image.build.identity.revision;
+            return { status: "committed", expected: null, current: null, patchGeneration: 1 };
+          },
+        },
+        async write(request) {
+          writes++;
+          remixId = request.projectId;
+          if (writes === 1) {
+            captured.resolve();
+            await release.promise;
+          }
+          return (await commitProject(request)).receipt;
+        },
+      });
+      const first = saveTests(session, {
+        kind: "merge",
+        tests: [{ name: "Intro", room: 1, steps: [], expect: null }],
+      });
+      await captured.promise;
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Room", [
+          { key: "logic:1", content: "assignn(v40,1);return;" },
+        ]),
+        label: "Room",
+        origin: "guided",
+        author: "creator",
+      });
+      assert.notEqual(
+        admittedRevision,
+        originalTarget.identity.revision,
+        "the native game edit is already admitted while storage waits",
+      );
+      const liveFiles = structuredClone(game.files);
+      const second = coalesced
+        ? saveTests(session, {
+            kind: "merge",
+            tests: [{ name: "Door", room: 1, steps: [], expect: null }],
+          })
+        : undefined;
+      if (coalesced)
+        await waitUntil(
+          () => String(session.model.capture().read("tests")?.content).includes("Door"),
+          "the later tests capture was not queued",
+        );
+      release.resolve();
+      await first;
+      if (second) await second;
+      await session.flush();
+      assert.notEqual(remixId, originalId);
+      assert.equal(
+        writes,
+        2,
+        "pending native and test edits coalesce behind the held first receipt",
+      );
+      assert.deepEqual(
+        game.files,
+        liveFiles,
+        "the older tests receipt cannot roll back admitted resources",
+      );
+      assert.equal(game.revision, admittedRevision);
+      const committed = (await loadAuthoredGame(remixId))!;
+      const committedDocuments = readProjectWorkspace(committed.workspace!);
+      const liveDocuments = readProjectWorkspace(game.authoredGame!.workspace!);
+      assert.equal(committedDocuments["logic:1"], "assignn(v40,1);return;");
+      assert.equal(liveDocuments["logic:1"], "assignn(v40,1);return;");
+      assert.equal(computeResourceRevision(committed.files), admittedRevision);
+      assert.equal(computeResourceRevision(game.authoredGame!.files), admittedRevision);
+      assert.equal(
+        game.authoredGame!.library!.source,
+        "remix",
+        "the receipt transfers document ownership to the new copy",
+      );
+      assert.equal(game.authoredGame!.library!.revision, admittedRevision);
+      assert.equal(game.authoredGame!.imported, true);
+      for (const name of coalesced ? ["Intro", "Door"] : ["Intro"]) {
+        assert.match(String(committedDocuments["tests"]), new RegExp(name));
+        assert.match(
+          String(liveDocuments["tests"]),
+          new RegExp(name),
+          "a delayed receipt preserves later committed test documents",
+        );
+      }
+      const target = resolveProgressTarget(game)!;
+      assert.equal(
+        target.identity.project,
+        remixId,
+        "game progress follows its admitted remix, never the original catalog project",
+      );
+      assert.equal(target.identity.revision, admittedRevision);
+      assert.equal(
+        target.locator,
+        projectProgressTarget(remixId, admittedRevision, (await readHistoryLifetime(remixId))!)!
+          .locator,
+      );
+      assert.notEqual(
+        ownership.generation(),
+        undefined,
+        "the remix has acquired its own progress writer",
+      );
+      assert.ok(flushes > 0, "native adoption resumes checkpoint saving on the remix");
+      const slots = useSaveSlotController({
+        getBootedGame: () => game,
+        getWriterGeneration: () => ownership.generation(),
+        storage: localStorage,
+      });
+      assert.equal(
+        await slots.handleSaveSlotRequest("saveWrite", {
+          slot: 1,
+          image: "remix-checkpoint",
+          writerGeneration: ownership.generation(),
+        }),
+        "true",
+      );
+      assert.equal(readGameSaves(localStorage, target)["1"], "remix-checkpoint");
+      assert.deepEqual(
+        readGameSaves(localStorage, originalTarget),
+        {},
+        "the original game's save slots are untouched",
+      );
+      claimProgressWriter(localStorage, target, "second-page");
+      ownership.observe(progressWriterKey(target.locator));
+      assert.equal(
+        await slots.handleSaveSlotRequest("saveWrite", {
+          slot: 2,
+          image: "late",
+          writerGeneration: beforeGeneration,
+        }),
+        "false",
+        "a second page's remix writer fences the original page",
+      );
+      assert.equal(readGameSaves(localStorage, target)["2"], undefined);
+    });
+  }
+}

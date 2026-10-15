@@ -257,7 +257,7 @@ test("agent drawer sits beside the editor in both arrangements @webkit-desktop",
   await expect(panel).toBeVisible();
 });
 
-test("the drawer is full width on a phone @webkit-desktop", async ({ page }) => {
+test("the drawer is full width on a phone @phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await startStarter(page);
   await openWorkspaceAgent(page);

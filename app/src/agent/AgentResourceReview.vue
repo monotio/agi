@@ -14,7 +14,11 @@ import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.
 import { parseView, selectViewCel } from "../../../src/view/view.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
-import { parseGameTests } from "../../../src/agent/gameTestFormat.ts";
+import {
+  gameTestActionCount,
+  gameTestReviewChanges,
+  readGameTestReviewSide,
+} from "../../../src/agent/gameTestReview.ts";
 import { readInventoryObjects } from "../../../src/authoring/inventory.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { reviewText } from "./agentResultPreview.ts";
@@ -150,17 +154,20 @@ const afterText = computed(() =>
   reviewText(props.documentKey, props.after, props.afterDocuments, props.profile),
 );
 const source = computed(() => (props.inspection ? afterText.value : undefined));
+const testChanges = computed(() => {
+  if (props.documentKey !== "tests" || props.inspection) return [];
+  try {
+    return gameTestReviewChanges(props.before, props.after, props.profile);
+  } catch {
+    return [];
+  }
+});
 const tests = computed(() => {
   if (props.documentKey !== "tests") return [];
   return sides.value.map(({ index }) => {
     const content = index ? props.after : props.before;
-    return {
-      label: props.inspection ? "Tests" : index ? "After" : "Before",
-      tests: parseGameTests(
-        typeof content === "string" ? new TextEncoder().encode(content) : (content ?? undefined),
-        props.profile,
-      ).tests,
-    };
+    const label = props.inspection ? "Tests" : index ? "After" : "Before";
+    return { label, ...readGameTestReviewSide(content, props.profile) };
   });
 });
 function entries(content: ProjectContent | null | undefined): string[] {
@@ -240,10 +247,34 @@ const removed = computed(() =>
     :audio="sounds.filter((sound) => sound.url)"
     class="agent-sound-review"
   />
-  <div v-else-if="tests.length" class="agent-tests-review" data-testid="agent-tests-review">
+  <div
+    v-else-if="props.documentKey === 'tests'"
+    class="agent-tests-review"
+    data-testid="agent-tests-review"
+  >
+    <template v-for="change in testChanges" :key="change.line">
+      <p data-testid="agent-test-change">{{ change.line }}</p>
+      <table v-if="change.rows.length" data-testid="agent-test-change-detail">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Before</th>
+            <th>After</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in change.rows" :key="row.label">
+            <th scope="row">{{ row.label }}</th>
+            <td>{{ row.before }}</td>
+            <td>{{ row.after }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
     <section v-for="side in tests" :key="side.label">
       <h4>{{ side.label }}</h4>
-      <table v-if="side.tests.length">
+      <p v-if="side.cause" data-testid="agent-tests-cause">{{ side.cause }}</p>
+      <table v-else-if="side.tests.length">
         <thead>
           <tr>
             <th>Test</th>
@@ -255,7 +286,7 @@ const removed = computed(() =>
           <tr v-for="test in side.tests" :key="test.name">
             <td>{{ test.name }}</td>
             <td>{{ test.room }}</td>
-            <td>{{ test.steps.length }}</td>
+            <td>{{ gameTestActionCount(test) }}</td>
           </tr>
         </tbody>
       </table>
@@ -321,6 +352,8 @@ const removed = computed(() =>
   padding: var(--space-2);
   border-bottom: 1px solid var(--hairline);
   text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .agent-source-preview {
   white-space: pre-wrap;

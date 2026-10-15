@@ -47,6 +47,12 @@ const HOME_DEFERRED_MODULES = [
  */
 export const STUDIO_MODULES = [/^app\/src\/studio\//, /^src\/studio\//];
 
+/** Test editing loads on Save; execution loads in its own worker on Run. */
+export const TESTS_MODULES = [
+  /^src\/agent\/gameTests(Edit|Runner)\.ts$/,
+  /^app\/src\/authoring\/saveTests\.ts$/,
+];
+
 /** Identify lazy editor code. */
 /** @param {string} module */
 export function isStudioModule(module) {
@@ -58,6 +64,7 @@ export function isStudioModule(module) {
 export function isHomeDeferredModule(module) {
   return (
     isStudioModule(module) ||
+    TESTS_MODULES.some((pattern) => pattern.test(module)) ||
     HOME_DEFERRED_MODULES.some((pattern) => pattern.test(module)) ||
     AUTHORING_MODULES.some((pattern) => pattern.test(module)) ||
     ROOM_ANALYSIS_MODULES.some((pattern) => pattern.test(module))

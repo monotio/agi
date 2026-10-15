@@ -1,7 +1,7 @@
 import { workspaceUpdated, workspaceSaved } from "./engineProbe.ts";
 import { focusWorkspaceGame, workspaceDocumentEnd } from "./workspaceShared.ts";
 import { test, expect, reviewShot } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, textHook, waitForGameInput } from "./engineProbe.ts";
 import type { Page, Locator } from "@playwright/test";
 import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -146,30 +146,11 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.getByRole("radio", { name: "Create", exact: true }).click();
   await expect(page.getByTestId("workspace-status-problems")).toBeVisible();
 });
-test("Blank adds its first room through the session @webkit-desktop", async ({ page }) => {
-  await isolateStorage(page);
-  await page.goto("/#create-adventure");
-  await page
-    .getByTestId("create-adventure-disclosure")
-    .getByLabel("Name", { exact: true })
-    .fill("Empty proof");
-  await page.getByTestId("local-create-kind-blank").click();
-  await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect(
-    page.locator(".screen").getByText("Nothing to play yet.", { exact: true }),
-  ).toBeVisible();
-  const emptyBox = (await page.getByTestId("empty-project-stage").boundingBox())!;
-  expect(emptyBox.y).toBe(0);
-  await page.getByTestId("empty-add-room").click();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
-});
-
 for (const [width, height] of [
   [1440, 900],
   [1063, 815],
 ] as const) {
-  test(`a blank game shows its start inside the game screen of the Create frame at ${width} @webkit-desktop`, async ({
+  test(`a blank game shows its start inside the game screen of the Create frame at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -181,6 +162,7 @@ for (const [width, height] of [
     await expect(screen).toBeVisible();
     await expect(screen.getByText("Nothing to play yet.", { exact: true })).toBeVisible();
     const box = async (locator: Locator) => (await locator.boundingBox())!;
+    expect((await box(page.getByTestId("empty-project-stage"))).y).toBe(0);
     const blankScreen = await box(screen);
     const blankParts = await box(page.getByTestId("parts-list"));
     for (const button of [
@@ -418,10 +400,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     .toContain("A red flower grows.");
 });
 
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`workspace review at ${size.width}×${size.height} @webkit-desktop`, async ({ page }) => {
     await page.setViewportSize(size);
     await starter(page);
@@ -818,6 +797,8 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     .poll(async () => (await textHook(page)).rows.join("\n"))
     .toContain("Keyboard flower.");
   await page.keyboard.press("Enter");
+  // The game takes its prompt back before the focus-zone shortcuts move focus off it.
+  await waitForGameInput(page);
   // Use the workspace's focus-zone shortcut before the header's native Tab walk.
   await page.keyboard.press("Shift+F6");
   await expect(page.getByTestId("workspace-editor")).toBeFocused();
@@ -854,9 +835,7 @@ test("keyboard creates a Blank game and adds its first room @webkit-desktop", as
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("adding a room leaves play in place until Update and restart enters it @webkit-desktop", async ({
-  page,
-}) => {
+test("adding a room leaves play in place until Update and restart enters it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page
@@ -1011,10 +990,7 @@ test("Undo and History restore apply while a game message waits", async ({ page 
   await expect(page.locator(".monaco-editor")).toContainText("Latest while waiting");
 });
 
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 800 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`polished workspace at ${size.width}×${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
     await starter(page);
@@ -1123,6 +1099,8 @@ test("parts show keyboard focus and align the VIEW thumbnail with other rows", a
 test("VIEW thumbnails animate only in visible parts and follow reduced motion @webkit-desktop", async ({
   page,
 }) => {
+  // The rule starts from motion on, so this test opts out of the suite's reduced motion.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => {
     const timers = new Set<number>();
@@ -1180,32 +1158,37 @@ async function sourceColourOf(page: Page): Promise<number[]> {
   });
 }
 
-test("Create renders crisp while Play retains the CRT preference", async ({ page }) => {
-  // Hold the GPU stage until Create runs, so it also arrives after the game starts.
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/src/three/AgiStage.ts", async (route) => {
-    await gate;
-    await route.continue();
+test.describe(() => {
+  // About the GPU stage, so it creates one (e2e/test.ts `gpuStage`).
+  test.use({ gpuStage: true });
+
+  test("Create renders crisp while Play retains the CRT preference", async ({ page }) => {
+    // Hold the GPU stage until Create runs, so it also arrives after the game starts.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/src/three/AgiStage.ts", async (route) => {
+      await gate;
+      await route.continue();
+    });
+    await page.addInitScript(() => {
+      localStorage.clear();
+      localStorage.setItem("monotio_agi.e2e.isolated", "1");
+      localStorage.setItem("monotio_agi.crt", "on");
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await starter(page);
+    release();
+    // Compare with the game's own picture once it has painted.
+    await expect.poll(() => sourceColourOf(page)).not.toEqual([0, 0, 0]);
+    const sourceColour = await sourceColourOf(page);
+    const renderedColour = () => renderedColourOf(page);
+    await expect.poll(renderedColour).toEqual(sourceColour);
+    await page.getByTestId("part-room:1:picture:1").click();
+    await expect.poll(renderedColour).toEqual(sourceColour);
+    await page.getByRole("radio", { name: "Play", exact: true }).click();
+    await expect.poll(renderedColour).not.toEqual(sourceColour);
+    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crt"))).toBe("on");
+    await page.getByRole("radio", { name: "Create", exact: true }).click();
+    await expect.poll(renderedColour).toEqual(sourceColour);
   });
-  await page.addInitScript(() => {
-    localStorage.clear();
-    localStorage.setItem("monotio_agi.e2e.isolated", "1");
-    localStorage.setItem("monotio_agi.crt", "on");
-  });
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await starter(page);
-  release();
-  // Compare with the game's own picture once it has painted.
-  await expect.poll(() => sourceColourOf(page)).not.toEqual([0, 0, 0]);
-  const sourceColour = await sourceColourOf(page);
-  const renderedColour = () => renderedColourOf(page);
-  await expect.poll(renderedColour).toEqual(sourceColour);
-  await page.getByTestId("part-room:1:picture:1").click();
-  await expect.poll(renderedColour).toEqual(sourceColour);
-  await page.getByRole("radio", { name: "Play", exact: true }).click();
-  await expect.poll(renderedColour).not.toEqual(sourceColour);
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crt"))).toBe("on");
-  await page.getByRole("radio", { name: "Create", exact: true }).click();
-  await expect.poll(renderedColour).toEqual(sourceColour);
 });

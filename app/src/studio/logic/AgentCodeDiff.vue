@@ -4,6 +4,7 @@ import { monaco } from "./monacoLanguage.ts";
 const props = defineProps<{ before: string; after: string }>();
 const host = useTemplateRef("host");
 let editor: monaco.editor.IStandaloneDiffEditor | undefined;
+let viewModel: monaco.editor.IDiffEditorViewModel | undefined;
 let original: monaco.editor.ITextModel | undefined;
 let modified: monaco.editor.ITextModel | undefined;
 onMounted(() => {
@@ -28,7 +29,8 @@ onMounted(() => {
     },
     lineNumbers: "off",
   });
-  editor.setModel({ original, modified });
+  viewModel = editor.createViewModel({ original, modified });
+  editor.setModel(viewModel);
   editor.onDidUpdateDiff(() => {
     const first = editor?.getLineChanges()?.[0];
     if (first)
@@ -44,6 +46,10 @@ watch(
   (value) => modified?.setValue(value),
 );
 onBeforeUnmount(() => {
+  editor?.setModel(null);
+  // Monaco defers releasing its view-model reference. Cancel the pending diff before
+  // disposing text models so a late worker reply cannot read removed models.
+  viewModel?.dispose();
   editor?.dispose();
   original?.dispose();
   modified?.dispose();

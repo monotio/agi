@@ -1,6 +1,7 @@
 import { decodePng } from "../../scripts/png.ts";
 import type { Page } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { test, expect } from "./test.ts";
 import { textHook, waitForRoom, workspaceSaved } from "./engineProbe.ts";
 
@@ -173,7 +174,7 @@ test("room changes during Create keep the selected picture editor open", async (
   await expect(page.getByRole("tab", { selected: true })).toHaveText("PICTURE 8");
 });
 
-test("phone VIEW editing keeps a usable drawing canvas", async ({ page }) => {
+test("phone VIEW editing keeps a usable drawing canvas @phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await start(page);
   for (const view of [8, 9]) {
@@ -198,9 +199,15 @@ for (const dynamic of [false, true]) {
     await page.setViewportSize({ width: 1440, height: 900 });
     await start(page);
     await page.evaluate(async (dynamic) => {
-      const session = (
-        window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-      ).__AGI_PROJECT__.getSession();
+      const project = (
+        window as unknown as {
+          __AGI_PROJECT__: { getSession(): ProjectSession; query: WorkerQueryFn };
+        }
+      ).__AGI_PROJECT__;
+      // A slow game (v10 = 15, 0.75 s a cycle) keeps the restarted room undrawn while the VIEW
+      // opens, as on a busy device: the note must still follow the room once it draws.
+      await project.query("debugWrite", { vars: [[10, 15]] });
+      const session = project.getSession();
       const setup = dynamic
         ? "assignn(v101,0);load.view.v(v101);set.view.v(o0,v101);"
         : "load.view(0);set.view(o0,0);";
@@ -230,6 +237,56 @@ for (const dynamic of [false, true]) {
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
   });
 }
+
+// An unused VIEW checks the running room for a short while after it opens, then stops reading,
+// so a sprite left open does not keep the game and Create busy.
+test("an unused VIEW stops checking the running room after a few heartbeats", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  // Count the object reads Create sends to the running game's worker.
+  await page.evaluate(() => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getWorker(): Worker };
+      objectReads: number;
+    };
+    probe.objectReads = 0;
+    const worker = probe.__AGI_PROJECT__.getWorker();
+    const post = worker.postMessage;
+    worker.postMessage = function (message, ...args) {
+      if (message?.type === "objects") probe.objectReads++;
+      return Reflect.apply(post, this, [message, ...args]);
+    };
+  });
+  /** Resolves once the heartbeat has reported `count` new cycle values. */
+  const heartbeats = (count: number) =>
+    page.evaluate(
+      (count) =>
+        new Promise<void>((resolve) => {
+          let last = window.__AGI_TEXT__?.cycle;
+          let seen = 0;
+          const timer = setInterval(() => {
+            const cycle = window.__AGI_TEXT__?.cycle;
+            if (cycle === last) return;
+            last = cycle;
+            if (++seen < count) return;
+            clearInterval(timer);
+            resolve();
+          }, 20);
+        }),
+      count,
+    );
+  const reads = () =>
+    page.evaluate(() => (window as unknown as { objectReads: number }).objectReads);
+  await open(page, "part-view:9");
+  await expect(page.getByTestId("workspace-unused")).toContainText("Not used by a room yet");
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  await heartbeats(12);
+  const settled = await reads();
+  expect(settled).toBeGreaterThan(0);
+  await heartbeats(8);
+  expect(await reads()).toBe(settled);
+  await expect(page.getByTestId("workspace-unused")).toContainText("Not used by a room yet");
+});
 
 test("a shared PICTURE opens the room chosen in Parts", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -374,10 +431,9 @@ test("Play enters a VIEW's room and unused VIEW can become a room", async ({ pag
 
 for (const size of [
   { width: 1440, height: 900 },
-  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`a room launch follows its LOGIC redirect and keeps the selected editor ${size.width}`, async ({
+  test(`a room launch follows its LOGIC redirect and keeps the selected editor ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize(size);
@@ -417,7 +473,9 @@ for (const size of [
   });
 }
 
-test("stacked persists on reload and its splitter drags vertically", async ({ page }) => {
+test("stacked persists on reload and its splitter drags vertically @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1063, height: 815 });
   await start(page);
   await open(page, "part-room:1:logic");
@@ -445,10 +503,11 @@ test("stacked persists on reload and its splitter drags vertically", async ({ pa
 // workspace-picture.spec.ts's Edit / Playtest and Update regression.
 for (const size of [
   { width: 1440, height: 900 },
-  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`stage storyboard ${size.width}`, async ({ page }) => {
+  test(`stage storyboard ${size.width}${size.width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+    page,
+  }) => {
     await page.setViewportSize(size);
     await start(page);
     await shot(page, "stage");

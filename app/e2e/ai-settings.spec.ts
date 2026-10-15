@@ -8,7 +8,7 @@ import {
   waitForRoom,
 } from "./engineProbe.ts";
 
-test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
+test("one shared AI setup preserves the brief and keeps provider keys separate @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -79,7 +79,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   expect(providerCalls).toBe(0);
 });
 
-test("AI settings pause only their own game interaction and preserve the assistant draft", async ({
+test("AI settings pause only their own game interaction and preserve the assistant draft @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -306,7 +306,7 @@ test("a rejected settings write preserves the next Assistant request @webkit-des
   expect(authorizations.every((value) => value === "Bearer test-stored-key")).toBe(true);
 });
 
-test("changing the shared provider affects the next Ask without losing the conversation", async ({
+test("changing the shared provider affects the next Ask without losing the conversation @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -376,4 +376,95 @@ test("changing the shared provider affects the next Ask without losing the conve
   expect(JSON.parse(requests[2]!.body).output_config.effort).toBe("medium");
   expect(JSON.parse(requests[0]!.body).reasoning.effort).toBe("low");
   expect(JSON.parse(requests[1]!.body).output_config.effort).toBe("medium");
+});
+
+test("AI settings and Connect AI open while the Agent is still opening", async ({ page }) => {
+  await isolateStorage(page);
+  // Hold the opening's first engine query, so the Agent stays in its opening phase.
+  await page.addInitScript(() => {
+    const held: (() => void)[] = [];
+    const post = Worker.prototype.postMessage;
+    let holding = false;
+    Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+      const message = args[0] as { type?: string } | undefined;
+      if (holding && message?.type === "state") {
+        holding = false;
+        held.push(() => (post as (...a: unknown[]) => void).apply(this, args));
+        return;
+      }
+      (post as (...a: unknown[]) => void).apply(this, args);
+    } as typeof Worker.prototype.postMessage;
+    Object.assign(window, {
+      holdNextStateQuery: () => void (holding = true),
+      releaseHeldQueries: () => held.splice(0).forEach((send) => send()),
+    });
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  await enterPlayMode(page);
+  await page.evaluate(() =>
+    (window as never as { holdNextStateQuery(): void }).holdNextStateQuery(),
+  );
+  await page.getByTestId("menu-assistant").click();
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
+
+  // The Agent has not finished opening: both entry points still reach the dialog.
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await expect(page.getByTestId("agent-open-ai-settings")).toBeEnabled();
+  await page.getByTestId("agent-open-ai-settings").click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.getByTestId("settings-menu").click();
+  await expect(page.getByTestId("open-ai-settings")).toBeEnabled();
+  await page.getByTestId("open-ai-settings").click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("provider-select").selectOption("openai");
+  await dialog.getByTestId("api-key-input").fill("test-openai-key");
+  await dialog.getByTestId("ai-settings-save").click();
+  // Saving waits for the opening, which still waits for the held query.
+  await page.evaluate(() =>
+    (window as never as { releaseHeldQueries(): void }).releaseHeldQueries(),
+  );
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+});
+
+// A worker that never answers the opening's engine query cannot hold Save: the query gives up
+// after its timeout, the settings apply and the Agent opens again with them.
+test("AI settings save while the game never answers the Agent's opening", async ({ page }) => {
+  await isolateStorage(page);
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage;
+    let dropping = false;
+    Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+      const message = args[0] as { type?: string } | undefined;
+      if (dropping && message?.type === "state") {
+        dropping = false;
+        return;
+      }
+      (post as (...a: unknown[]) => void).apply(this, args);
+    } as typeof Worker.prototype.postMessage;
+    Object.assign(window, { dropNextStateQuery: () => void (dropping = true) });
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  await enterPlayMode(page);
+  await page.evaluate(() =>
+    (window as never as { dropNextStateQuery(): void }).dropNextStateQuery(),
+  );
+  await page.getByTestId("menu-assistant").click();
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await page.getByTestId("agent-open-ai-settings").click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("provider-select").selectOption("openai");
+  await dialog.getByTestId("api-key-input").fill("test-openai-key");
+  await dialog.getByTestId("ai-settings-save").click();
+  // The engine query gives up after 5 s (workerQueries.ts).
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });

@@ -24,11 +24,10 @@ async function breakpoint(page: Page): Promise<void> {
 }
 
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`one run control pauses at an armed breakpoint at ${width} @webkit-desktop`, async ({
+  test(`one run control pauses at an armed breakpoint at ${width}${width === 1440 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -101,7 +100,7 @@ test("F5 uses the top action; disabling breakpoints persists and passes them @we
   ).toBeChecked();
 });
 
-test("Update and every built-in Launch keep breakpoints on the replacement run @webkit-desktop", async ({
+test("Update and every built-in Launch keep breakpoints on the replacement run", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

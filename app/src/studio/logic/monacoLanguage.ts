@@ -48,6 +48,7 @@ import "monaco-editor/editor/standalone/browser/referenceSearch/standaloneRefere
 import "monaco-editor/editor/contrib/rename/browser/rename.js";
 import "monaco-editor/editor/contrib/codeAction/browser/codeActionContributions.js";
 import "./monacoCodeActions.ts";
+import "./monacoRename.ts";
 import "monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTokens.js";
 import "monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoSymbolQuickAccess.js";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";

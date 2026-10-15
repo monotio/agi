@@ -57,12 +57,18 @@ async function pauseDisagreement(page: Page): Promise<string | null> {
   }
 }
 
-export const test = base.extend<{
-  keepDetectedProfile: void;
-  keepDetectedProfileOption: boolean;
-  cpuThrottle: void;
-  pauseAgreement: void;
-}>({
+/** The option a test or config sets to create the GPU stage in Chromium and desktop WebKit. */
+export type GpuStageOption = { gpuStage: boolean };
+
+export const test = base.extend<
+  {
+    keepDetectedProfile: void;
+    keepDetectedProfileOption: boolean;
+    throttle: void;
+    pauseAgreement: void;
+    flatPictureUnlessStage: void;
+  } & GpuStageOption
+>({
   // A spec about the picker itself, or one whose profile is the subject, sets
   // `test.use({ keepDetectedProfileOption: false })` to meet the picker as a user would.
   keepDetectedProfileOption: [true, { scope: "test", option: true }],
@@ -112,15 +118,60 @@ export const test = base.extend<{
     },
     { auto: true },
   ],
-  cpuThrottle: [
+  // Diagnostic CPU and request slowdowns for reproducing load races (docs/testing.md).
+  throttle: [
     async ({ page, browserName }, use) => {
       const rate = Number(process.env["AGI_E2E_CPU_RATE"] ?? 1);
+      const latency = Number(process.env["AGI_E2E_LATENCY_MS"] ?? 0);
+      if ((rate > 1 || latency > 0) && browserName !== "chromium")
+        throw new Error("Throttling requires Chromium");
       if (rate > 1) {
-        if (browserName !== "chromium") throw new Error("CPU throttling requires Chromium");
         const session = await page.context().newCDPSession(page);
         await session.send("Emulation.setCPUThrottlingRate", { rate });
       }
+      if (latency > 0) {
+        const session = await page.context().newCDPSession(page);
+        await session.send("Network.enable");
+        await session.send("Network.emulateNetworkConditions", {
+          offline: false,
+          latency,
+          downloadThroughput: -1,
+          uploadThroughput: -1,
+        });
+      }
       await use();
+    },
+    { auto: true },
+  ],
+  // The GPU stage draws the picture players see, but most tests read the flat
+  // frame copy (engineProbe.ts). Chromium creates the stage only for a test
+  // that sets `test.use({ gpuStage: true })` and for the timing budgets (@perf);
+  // so does desktop WebKit, while phone WebKit always creates it. Test mode reads
+  // the flag; builds ignore it.
+  gpuStage: [false, { scope: "test", option: true }],
+  flatPictureUnlessStage: [
+    async ({ context, browser, browserName, gpuStage }, use, testInfo) => {
+      // Phone WebKit (iphone-webkit) keeps the stage in every test.
+      const flatProject = browserName === "chromium" || testInfo.project.name === "desktop-webkit";
+      if (!flatProject || gpuStage || testInfo.tags.includes("@perf")) {
+        await use();
+        return;
+      }
+      const flat = () => {
+        (globalThis as { __AGI_SKIP_GPU_STAGE__?: boolean }).__AGI_SKIP_GPU_STAGE__ = true;
+      };
+      await context.addInitScript(flat);
+      const newContext = browser.newContext.bind(browser);
+      browser.newContext = async (...args: Parameters<typeof newContext>) => {
+        const opened = await newContext(...args);
+        await opened.addInitScript(flat);
+        return opened;
+      };
+      try {
+        await use();
+      } finally {
+        browser.newContext = newContext;
+      }
     },
     { auto: true },
   ],

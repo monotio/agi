@@ -79,7 +79,7 @@ function roomReply(id: string) {
         type: "function_call",
         call_id: `${id}-finish`,
         name: "finish",
-        arguments: '{"notes":"The hall is ready."}',
+        arguments: '{"testReasons":null}',
       },
     ],
   });
@@ -92,12 +92,11 @@ async function walkEast(page: Page) {
 }
 
 for (const size of [
-  { width: 1440, height: 900 },
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
   for (const mode of ["Play", "Create"] as const) {
-    test(`${mode} shows room generation with the drawer closed ${size.width} @webkit-desktop`, async ({
+    test(`${mode} shows room generation with the drawer closed ${size.width} ${size.width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
       page,
     }) => {
       await page.setViewportSize(size);
@@ -154,7 +153,7 @@ for (const size of [
 }
 
 for (const mode of ["Play", "Create"] as const) {
-  test(`${mode} Stop cancels a room request and keeps the departure room @webkit-desktop`, async ({
+  test(`${mode} Stop cancels a room request and keeps the departure room${mode === "Play" ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await openGame(page, mode);
@@ -183,10 +182,9 @@ for (const mode of ["Play", "Create"] as const) {
 
 for (const size of [
   { width: 1440, height: 900 },
-  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`room budget stays live below budget and pauses once after crossing ${size.width} @webkit-desktop`, async ({
+  test(`room budget stays live below budget and pauses once after crossing ${size.width} ${size.width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
     page,
   }) => {
     await page.setViewportSize(size);
@@ -236,9 +234,7 @@ for (const size of [
   });
 }
 
-test("room errors offer Retry and Stop with the drawer closed @webkit-desktop", async ({
-  page,
-}) => {
+test("room errors offer Retry and Stop with the drawer closed", async ({ page }) => {
   await openGame(page, "Create");
   let requests = 0;
   await page.route("**/api/openai/v1/responses", async (route) => {

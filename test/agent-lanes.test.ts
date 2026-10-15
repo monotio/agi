@@ -18,7 +18,7 @@ import { test } from "node:test";
 
 const scripts = fileURLToPath(new URL("../scripts/agent-lanes/", import.meta.url));
 
-test("lane scripts create an isolated branch, install the workspaces once and wait for the agent", async () => {
+test("lane scripts create an isolated branch with the local game fixtures, install the workspaces once and wait for the agent", async () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "agi lanes ")));
   try {
     const repo = join(directory, "repo");
@@ -42,6 +42,12 @@ test("lane scripts create an isolated branch, install the workspaces once and wa
     const git = (...args: string[]) =>
       execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
     git("init", "-b", "base");
+    mkdirSync(join(repo, "games", "local-fixture"), { recursive: true });
+    writeFileSync(join(repo, ".gitignore"), "games/*\n!games/README.md\n");
+    writeFileSync(join(repo, "games", "README.md"), "Fixtures\n");
+    writeFileSync(join(repo, "games", "local-fixture", "WORDS.TOK"), "words\n");
+    writeFileSync(join(repo, "games", ".DS_Store"), "");
+    git("add", ".gitignore", "games/README.md");
     git(
       "-c",
       "user.name=Test",
@@ -63,6 +69,12 @@ test("lane scripts create an isolated branch, install the workspaces once and wa
     );
     assert.match(git("worktree", "list", "--porcelain"), /branch refs\/heads\/lane\/example/);
     assert.equal(readFileSync(installs, "utf8"), `${worktree}:ci\n`);
+    // A lane runs the contributor's local game fixtures, which git leaves out of the worktree.
+    assert.equal(
+      realpathSync(join(worktree, "games", "local-fixture")),
+      join(repo, "games", "local-fixture"),
+    );
+    assert.throws(() => readFileSync(join(worktree, "games", ".DS_Store")), { code: "ENOENT" });
     assert.throws(() => run("new-lane.sh", "example"), /branch already exists/);
     mkdirSync(join(lanes, "occupied"));
     assert.throws(() => run("new-lane.sh", "occupied"), /directory already exists/);

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { numberedLabel } from "../../src/logic/numberedLabels.ts";
+import { useProjectLabels } from "./shell/useProjectLabels.ts";
 import { VOCABULARY } from "../../src/vocabulary.ts";
 import GameHeader from "./shell/GameHeader.vue";
 import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
@@ -106,9 +108,11 @@ const engine = useEngine(
     onPromptType: (text) => {
       playArea.value?.handlePromptType(text);
     },
+    onScreenReset: () => presentation.forgetFrame(),
   },
 );
 provideEngine(engine);
+const labels = useProjectLabels(engine);
 provideInspector(createInspector(engine, presentation));
 
 // The map's graph code loads only when the player opens it — never on boot.
@@ -176,6 +180,14 @@ provideWorkspaceEditor(workspaceEditor);
 const workspace = createCreateWorkspace({
   panelDock: (id) => workspaceEditor.panelDock(id),
   viewOnly: () => phone.value,
+  compactAgent: () =>
+    state.powerUp.open && viewport.value.width >= 601 && viewport.value.width < 1200,
+  agentOpen: () => state.powerUp.open,
+  parts: {
+    open: workspaceEditor.partsOpen,
+    focus: workspaceEditor.focus,
+    phone: () => workspacePhone.value,
+  },
 });
 provideCreateWorkspace(workspace);
 /** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
@@ -792,14 +804,14 @@ watch(
               <UiButton size="sm" @click="engine.takePlayBack()">Take back</UiButton>
             </UiToast>
             <UiToast
-              v-if="state.returnNote && !creating"
+              v-if="state.returnNote !== null && !creating"
               :key="state.returnNote"
               dismissible
               timed
               data-testid="return-note"
-              @dismiss="state.returnNote = ''"
+              @dismiss="state.returnNote = null"
             >
-              {{ state.returnNote }}
+              {{ numberedLabel("room", state.returnNote, labels) }} started fresh with your changes.
             </UiToast>
             <UiToast v-if="state.returnProblem" tone="warn" data-testid="return-notice">
               <span>{{ state.returnProblem }}</span>

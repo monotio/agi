@@ -1,6 +1,6 @@
 import { clickContextAction } from "./workspaceShared.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook, workspaceSaved } from "./engineProbe.ts";
+import { isolateStorage, textHook, waitForGameInput, workspaceSaved } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 
 async function starter(page: Page): Promise<void> {
@@ -84,7 +84,7 @@ test("stacked is the default; side by side toggles and falls back when narrow @w
     .toBeGreaterThanOrEqual(0);
 });
 
-test("every parts section has its own + and OBJECTS and WORDS always show @webkit-desktop", async ({
+test("every parts section has its own + and OBJECTS and WORDS always show, and Game state + names a flag in place @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -122,11 +122,6 @@ test("every parts section has its own + and OBJECTS and WORDS always show @webki
     .first();
   await expect(state.getByTestId("part-problems")).toHaveCount(0);
   await expect(state.getByTestId("part-state")).toBeVisible();
-});
-
-test("Game state + names a flag in place @webkit-desktop", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await starter(page);
   const naming = page.getByTestId("game-state-naming");
   await page.getByTestId("add-game-state").click();
   await expect(naming).toBeVisible();
@@ -200,8 +195,11 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
-  // Capture a running Play moment for the visit and Back assertion.
+  // Capture a running Play moment for the visit and Back assertion. Play resumes the start of
+  // the game, and the game takes the keyboard once its first LOGIC pass has entered Meadow; the
+  // room hook alone still reads Room 1 from before Play.
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await waitForGameInput(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("radio", { name: "Create", exact: true }).click();
   const bar = page.getByTestId("workspace-game-bar");
@@ -242,10 +240,9 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
 
 for (const [width, height] of [
   [1063, 815],
-  [1440, 900],
   [390, 844],
 ] as const) {
-  test(`context row room actions receive clicks at ${width} @webkit-desktop`, async ({
+  test(`context row room actions receive clicks at ${width}${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
     page,
     browserName,
   }) => {

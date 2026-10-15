@@ -28,7 +28,8 @@ scripts/agent-lanes/new-lane.sh parser-fix
 scripts/agent-lanes/new-lane.sh editor-fix <base-ref>
 ```
 
-`new-lane.sh <name> [base]` creates branch `lane/<name>` and installs the root
+`new-lane.sh <name> [base]` creates branch `lane/<name>`, links your local game
+fixtures (the entries git ignores in `games/`) into the lane, and installs the root
 package and app workspace with one `npm ci`. It prints the absolute
 worktree path after the installs succeed. The default base is the current
 branch; with a detached HEAD, supply a base explicitly. If installation fails,
@@ -46,6 +47,10 @@ Write one brief per lane. Explain the problem, who the change serves, its origin
 and the expected cost and benefit before asking for a scope decision or mockup.
 List the owned files and concrete acceptance checks. Keep agent vendors and
 models optional; choose tools according to the task and contributor's setup.
+Match the model to the work: the strongest available model for UI design,
+engine and worker changes and hard diagnosis; a mid-tier model for
+well-specified fixes, tests and documentation; a fast, inexpensive model for
+exploration, sweeps and reading long logs.
 
 Copy this template into the private briefs folder:
 
@@ -83,9 +88,20 @@ screenshots inspected, failures and uncertainties.
 
 ## Run and wait
 
-Set `AGI_AGENT_CMD` to a trusted shell command that reads the brief on stdin.
-It executes through `sh -c` inside the lane's worktree. Configure permissions and
-any paid usage limits in your chosen tool before launching it.
+Use these scripts for every lane rather than a runner of your own; they hold the
+lane contract that the logs, PID files and checks rely on. Set `AGI_AGENT_CMD` to
+a trusted shell command that reads the brief on stdin. It executes through `sh -c`
+inside the lane's worktree. Configure permissions and any paid usage limits in
+your chosen tool before launching it.
+
+A lane must commit in its worktree and launch Playwright browsers. Codex's
+workspace sandbox blocks both (it keeps `.git` read-only, and Chromium cannot
+start inside it), so a Codex lane runs without that sandbox, which only the
+person who owns the machine can approve:
+
+```sh
+export AGI_AGENT_CMD='codex exec -m <model> -c model_reasoning_effort="high" --dangerously-bypass-approvals-and-sandbox -'
+```
 
 ```sh
 export AGI_AGENT_CMD='<your-agent-cli> exec -'
@@ -171,7 +187,11 @@ and verification evidence determine whether the task succeeded.
 ## Orchestrate
 
 The orchestrator chooses task boundaries, assigns ownership, tracks dependencies
-and keeps briefs consistent. It reads each report and the actual diff, examines
+and keeps briefs consistent, and leaves implementation to the lanes, as
+[Working together](../AGENTS.md#working-together) describes. For deep or
+cross-cutting changes, the independent plan review happens before any lane
+starts: a design problem costs far less to fix in a plan than in a pushed
+branch. It reads each report and the actual diff, examines
 test assertions and gate evidence, and resolves conflicts and cross-lane effects.
 A green report requires review before integration.
 
@@ -180,7 +200,9 @@ integration branch, resolve conflicts, and run the affected checks and the full
 gate (`npm run check`, build and bundle, the full browser suite) against the
 combined result; this is the only place the full gate runs locally. Run no more
 lanes at once than the machine can test without slowing them down; on a laptop
-that is about four. After merging several lanes, also run the
+that is about four. Spend the gate once per combined head, as
+[Done](../AGENTS.md#done) describes, including the ten repeats of each lane's
+new or changed browser specs. After merging several lanes, also run the
 complete browser suite, including Linux WebKit through the container, on the
 combined head before pushing; CI on that push is the final Linux verdict: lanes that pass on
 their own can collide, and the specs each lane touched will not show it. Review the whole change for failure paths,

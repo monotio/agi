@@ -34,8 +34,10 @@ const config: KnipConfig = {
         "playwright*.config.ts",
         // Documentation captures, matched by playwright.media.config.ts.
         "e2e/media/*.media.ts",
-        // Dynamically imported by the tab keyboard spec through a URL string.
+        // Dynamically imported by specs through a URL string: the tab keyboard
+        // spec, and the notice and compact-layout checks in the polish specs.
         "e2e/fixtures/studioFrameTabsReview.ts",
+        "e2e/fixtures/uxPolish.ts",
         "production/**/*.spec.ts",
         // node --test glob from the app `test:app` script.
         "test/*.test.ts",

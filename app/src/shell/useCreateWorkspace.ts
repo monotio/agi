@@ -18,6 +18,8 @@ import {
   type ComputedRef,
   type InjectionKey,
   type Ref,
+  onScopeDispose,
+  watch,
 } from "vue";
 import type { DockSide } from "./workspaceEditor.ts";
 
@@ -32,6 +34,11 @@ export interface CreateWorkspace {
   readonly sheetOpen: Ref<boolean>;
   /** A phone's Create: the panels show, nothing edits. */
   readonly viewOnly: ComputedRef<boolean>;
+  /** Compact desktop with the Agent open: Parts uses a temporary override. */
+  readonly compactAgent: ComputedRef<boolean>;
+  /** Keep Parts open past the Agent closing while `active()` is true; the hold ends with the caller's scope. */
+  holdParts(active: () => boolean): void;
+  toggleParts(): void;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
   showPanel(id: string): void;
@@ -57,11 +64,54 @@ export function createCreateWorkspace(deps: {
   panelDock(id: string): DockSide | undefined;
   viewOnly?: () => boolean;
   storage?: StorageLike | undefined;
+  compactAgent?: () => boolean;
+  /** Whether the Agent is open at any width; closing it ends a temporary Parts override. */
+  agentOpen?: () => boolean;
+  parts?: {
+    open: Ref<boolean>;
+    focus: Ref<boolean>;
+    phone: () => boolean;
+  };
 }): CreateWorkspace {
   const storage = deps.storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
   const active = reactive({ left: "world", right: "assistant", sheet: "world" });
   const collapsed = reactive(readCollapsed(storage));
   const sheetOpen = ref(false);
+  const compactAgent = computed(() => deps.compactAgent?.() ?? false);
+
+  // Opening Parts beside the Agent lasts only while the Agent is open, whatever the width did meanwhile.
+  const holds = ref(0);
+  const agentOpen = deps.agentOpen;
+  const parts = deps.parts;
+  if (agentOpen && parts) {
+    // Only the Agent closing restores the setting; a rename that ends with the Agent never open keeps Parts.
+    let restore = false;
+    watch([agentOpen, () => holds.value > 0], ([open, held], [wasOpen]) => {
+      if (open) restore = false;
+      else if (wasOpen) restore = true;
+      if (restore && !held) {
+        restore = false;
+        parts.open.value = false;
+      }
+    });
+  }
+  function holdParts(active: () => boolean): void {
+    let held = false;
+    const release = (): void => {
+      if (held) holds.value -= 1;
+      held = false;
+    };
+    watch(
+      active,
+      (now) => {
+        if (now === held) return;
+        held = now;
+        holds.value += now ? 1 : -1;
+      },
+      { immediate: true },
+    );
+    onScopeDispose(release);
+  }
 
   function persist(): void {
     try {
@@ -74,6 +124,22 @@ export function createCreateWorkspace(deps: {
   function toggleDock(side: DockSide): void {
     collapsed[side] = !collapsed[side];
     persist();
+  }
+
+  function toggleParts(): void {
+    const parts = deps.parts;
+    if (!parts) {
+      toggleDock("left");
+      return;
+    }
+    parts.focus.value = false;
+    if (compactAgent.value || parts.phone()) {
+      parts.open.value = !parts.open.value;
+      return;
+    }
+    const reopened = parts.open.value;
+    parts.open.value = false;
+    if (!reopened || !collapsed.left) toggleDock("left");
   }
 
   function showPanel(id: string): void {
@@ -90,6 +156,9 @@ export function createCreateWorkspace(deps: {
     collapsed,
     sheetOpen,
     viewOnly: computed(() => deps.viewOnly?.() ?? false),
+    compactAgent,
+    holdParts,
+    toggleParts,
     toggleDock,
     showPanel,
   };

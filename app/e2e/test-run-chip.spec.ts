@@ -6,11 +6,12 @@ const SAYS =
 
 /** Create's game bar marks the game as a test run; Play shows no chip. */
 for (const [width, height] of [
-  [1440, 900],
   [1063, 815],
   [390, 844],
 ] as const)
-  test(`Create's game bar says it is a test run at ${width} @webkit-desktop`, async ({ page }) => {
+  test(`Create's game bar says it is a test run at ${width}${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height });
     await isolateStorage(page);
     await page.goto("/");

@@ -36,6 +36,16 @@ async function roomTwo(page: Page): Promise<void> {
         },
         { key: "logic:90", content: "call.v(v40); return;" },
         {
+          key: "tests",
+          content: JSON.stringify({
+            format: "monotio.agi.tests.v2",
+            tests: [
+              { name: "Future room", room: 7, steps: [] },
+              { name: "Moved room", room: 2, steps: [], expect: { room: 2 } },
+            ],
+          }),
+        },
+        {
           key: "world",
           content: JSON.stringify({
             rooms: {
@@ -67,12 +77,11 @@ async function shot(page: Page, name: string, browserName: string): Promise<void
 }
 for (const [width, height] of [
   [1440, 900],
-  [1063, 815],
   [390, 844],
 ] as const) {
   test.describe(`Change number ${width}`, () => {
     test.use({ hasTouch: width === 390 });
-    test("room 2 moves to 7, its door still enters it, and one Undo restores it @webkit-desktop", async ({
+    test(`Tests never block game numbers: room 2 moves to future-test room 7 and Undo restores it${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
       browserName,
     }) => {
@@ -120,6 +129,16 @@ for (const [width, height] of [
       await expect(dialog).toBeHidden();
       await workspaceSaved(page);
       expect(await runningWorkspaceDocument(page, "logic:1")).toContain("new.room(7)");
+      const testsDocument = await page.evaluate(() => {
+        const session = (
+          window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+        ).__AGI_PROJECT__.getSession();
+        return session.model.capture().read("tests")?.content;
+      });
+      expect(JSON.parse(String(testsDocument)).tests).toEqual([
+        { name: "Future room", room: 7, steps: [] },
+        { name: "Moved room", room: 7, steps: [], expect: { room: 7 } },
+      ]);
       await expect(page.getByTestId("project-tab-logic:7")).toBeVisible();
       // Return from the selected room, then enter through its door.
       if (width === 390) {
@@ -156,3 +175,45 @@ for (const [width, height] of [
     });
   });
 }
+
+test("Tests never reserve game numbers: Rooms add uses future-test slot 7", async ({ page }) => {
+  await roomTwo(page);
+  const tests = await page.evaluate(async () => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    const before = session.model.capture();
+    const result = await session.submit({
+      proposal: session.model.propose(before, "Six existing rooms", [
+        ...[3, 4, 5, 6].map((room) => ({ key: `logic:${room}`, content: "return;" })),
+      ]),
+      label: "Six existing rooms",
+      author: "creator",
+      origin: "logic",
+    });
+    if (result.status !== "committed") throw new Error(JSON.stringify(result));
+    return before.read("tests")?.content;
+  });
+  await workspaceSaved(page);
+  const section = page
+    .getByTestId("parts-list")
+    .locator("section", {
+      has: page.getByRole("heading", { name: "ROOMS", exact: true }),
+    })
+    .first();
+  await section.locator(".parts-add").first().click();
+  const rename = page.getByTestId("room-rename-input");
+  await expect(rename).toBeVisible();
+  await rename.fill("Room seven");
+  await rename.press("Enter");
+  await expect(page.getByTestId("part-room:7")).toBeVisible();
+  await expect(page.getByTestId("part-room:7")).toContainText("Room seven");
+  await workspaceSaved(page);
+  const committed = await page.evaluate(() => {
+    const session = (
+      window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
+    ).__AGI_PROJECT__.getSession();
+    return session.model.capture().read("tests")?.content;
+  });
+  expect(committed).toEqual(tests);
+});

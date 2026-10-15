@@ -14,6 +14,7 @@ import WorkspaceAction from "./WorkspaceAction.vue";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
+import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { useOptionalCommands } from "./commands/commandContext.ts";
@@ -41,16 +42,12 @@ const emit = defineEmits<{
 }>();
 const labels = useProjectLabels();
 
-const { state, currentGame, getBootedGame, roomMap, closePowerUp } = useEngineApi();
+const { state, currentGame, getBootedGame, roomMap } = useEngineApi();
 const { identityTitle } = useGameLibrary();
 const shell = useShell();
 const commands = useOptionalCommands();
 const editor = useWorkspaceEditor();
-function toggleParts(): void {
-  if (state.powerUp.open) closePowerUp();
-  editor.focus.value = false;
-  editor.partsOpen.value = !editor.partsOpen.value;
-}
+const workspace = useCreateWorkspace();
 
 function showMap(): void {
   roomMap.openMap({ experience: shell.mode.value });
@@ -202,7 +199,7 @@ const shortcutsBlocked = computed(
             class="play-bar__parts"
             data-testid="workspace-parts"
             :aria-pressed="editor.partsOpen.value"
-            @click="toggleParts"
+            @click="workspace.toggleParts"
             >Parts</UiButton
           >
           <UiIconButton

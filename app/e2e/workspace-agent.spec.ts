@@ -19,6 +19,8 @@ import {
   observe,
   openWorkspaceAgent,
   openWorkspacePicture,
+  waitForCycles,
+  waitForGameInput,
 } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 async function start(page: Page, provider: "stub" | "openai" = "stub", openLogic = true) {
@@ -61,13 +63,50 @@ async function documents(page: Page) {
   });
 }
 
-test("Auto-approve shows a rejected handover without admitting its edits @webkit-desktop", async ({
+/** The creator saves the tests document from the Tests panel's own session path. */
+async function creatorSavesTests(page: Page, tests: readonly unknown[]) {
+  await page.evaluate(async (saved) => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: {
+          getSession(): {
+            model: {
+              capture(): unknown;
+              propose(base: unknown, label: string, changes: unknown[]): unknown;
+            };
+            submit(input: unknown): Promise<unknown>;
+            flush(): Promise<unknown>;
+          };
+        };
+      }
+    ).__AGI_PROJECT__.getSession();
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator tests", [
+        { key: "tests", content: JSON.stringify({ format: "monotio.agi.tests.v2", tests: saved }) },
+      ]),
+      label: "Creator tests",
+      origin: "guided",
+      author: "creator",
+    });
+    await session.flush();
+  }, tests);
+}
+
+test("Agent finish names red tests: Auto-approve commits a failing test and runs the committed document @webkit-desktop", async ({
   page,
 }) => {
   let requests = 0;
   const catalogNames: string[][] = [];
+  let testFailure: { success: boolean; error?: string } | undefined;
   await page.route("**/api/openai/v1/responses", async (route) => {
-    const body = route.request().postDataJSON() as { tools: { name: string }[] };
+    const body = route.request().postDataJSON() as {
+      tools: { name: string }[];
+      input?: { type?: string; call_id?: string; output?: { text?: string }[] }[];
+    };
+    const verdict = body.input
+      ?.find((item) => item.type === "function_call_output" && item.call_id === "run-tests")
+      ?.output?.find((block) => typeof block.text === "string")?.text;
+    if (verdict) testFailure = JSON.parse(verdict);
     catalogNames.push(body.tools.map((tool) => tool.name));
     requests++;
     await route.fulfill(
@@ -103,16 +142,32 @@ test("Auto-approve shows a rejected handover without admitting its edits @webkit
                   id: "finish",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: JSON.stringify({
+                    testReasons: [
+                      { test: "Impossible score", reason: "needs its score implementation." },
+                    ],
+                  }),
                 },
               ]
-            : [
-                {
-                  type: "message",
-                  role: "assistant",
-                  content: [{ type: "output_text", text: "Done." }],
-                },
-              ],
+            : requests === 2
+              ? [
+                  {
+                    type: "function_call",
+                    id: "run-tests",
+                    call_id: "run-tests",
+                    name: "run_game_tests",
+                    arguments: '{"names":["Impossible score"]}',
+                  },
+                ]
+              : [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [
+                      { type: "output_text", text: testFailure?.error ?? "Tests complete." },
+                    ],
+                  },
+                ],
       }),
     );
   });
@@ -121,23 +176,34 @@ test("Auto-approve shows a rejected handover without admitting its edits @webkit
   await page.getByRole("radio", { name: "Auto-approve", exact: true }).click();
   await page.getByTestId("agent-message").fill("Record and validate the score test");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByTestId("workspace-agent-panel").getByRole("alert")).toContainText(
-    "Handover rejected",
-  );
+  await expect(page.getByTestId("workspace-agent-panel")).toContainText("Applied automatically");
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await expect(page.getByTestId("workspace-agent-panel").getByRole("alert")).toHaveCount(0);
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
-  expect(await documents(page)).toEqual(before);
-  expect(requests).toBe(2);
+  const committed = await documents(page);
+  const tests = JSON.parse(committed["tests"]!);
+  expect(tests.tests.some((entry: { name: string }) => entry.name === "Impossible score")).toBe(
+    true,
+  );
+  const { tests: _oldTests, ...gameBefore } = before;
+  const { tests: _newTests, ...gameAfter } = committed;
+  expect(gameAfter).toEqual(gameBefore);
+
+  await page.getByTestId("agent-message").fill("Run the committed Impossible score test");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => testFailure?.success).toBe(false);
+  expect(testFailure!.error).toContain('0 game tests pass, 1 fail: "Impossible score"');
+  expect(testFailure!.error).toContain("Expected score 99; observed 0.");
+  await expect(page.getByTestId("workspace-agent-panel")).toContainText(testFailure!.error!);
+  expect(await documents(page)).toEqual(committed);
   expect(catalogNames[0]).toContain("configure_launch");
   expect(catalogNames[1]).toEqual(catalogNames[0]);
   await page.screenshot({
-    path: test.info().outputPath("rejected-handover.png"),
+    path: test.info().outputPath("committed-test-verdict.png"),
     animations: "disabled",
   });
 });
-for (const size of [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
-]) {
+for (const size of [{ width: 1440, height: 900 }]) {
   test(`workspace agent reviews coordinated changes and keyboard approval ${size.width}`, async ({
     page,
   }) => {
@@ -207,7 +273,7 @@ for (const size of [
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute(
       "title",
-      "Review asks before applying changes. Auto-approve applies them as they arrive.",
+      "Review asks before applying changes. Auto-approve applies game edits and new tests. Existing test edits need review.",
     );
     await page.evaluate(() => {
       const panel = document.querySelector("[data-testid=workspace-agent-panel]")!;
@@ -270,7 +336,6 @@ test("Agent toggles from composer, editor and game and Escape returns to the ori
 });
 
 for (const size of [
-  { width: 1440, height: 900 },
   { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
@@ -394,10 +459,23 @@ test("a turn that stops without a change or a reply says so plainly", async ({ p
                   type: "function_call",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"testReasons":null}',
                 },
               ]
-            : [],
+            : bodies.length > 2
+              ? [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "output_text",
+                        text: 'Hello **builder** and *player*.\n\n- Use `said()`.\n- Read words.\n\n1. Look\n2. Open\n\n```agi\nprint("Welcome");\n```\n\n<img src=x onerror="window.injected=true">',
+                      },
+                    ],
+                  },
+                ]
+              : [],
       }),
     );
   });
@@ -405,8 +483,9 @@ test("a turn that stops without a change or a reply says so plainly", async ({ p
   await page.getByTestId("agent-message").fill("Make LOOK sparkle");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   const reply = page.getByTestId("agent-conversation").locator("article").last();
+  // The notice names the failed write that stopped the turn, then the next step.
   await expect(reply).toContainText(
-    "The agent stopped before changing anything. Ask again, or describe the change differently.",
+    /The agent stopped after this error: .*sparkle.* Ask again, or describe the change differently\./,
   );
   // The failed write reached the model with the refused finish before the turn ended.
   expect(bodies).toHaveLength(2);
@@ -415,41 +494,18 @@ test("a turn that stops without a change or a reply says so plainly", async ({ p
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect(page.getByTestId("agent-error")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("stopped-turn-1440.png") });
-});
-
-test("Agent replies render safe Markdown", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.route("**/api/openai/v1/responses", async (route) => {
-    await route.fulfill(
-      providerReply("openai", {
-        id: "markdown",
-        output: [
-          {
-            type: "message",
-            role: "assistant",
-            content: [
-              {
-                type: "output_text",
-                text: 'Hello **builder** and *player*.\n\n- Use `said()`.\n- Read words.\n\n1. Look\n2. Open\n\n```agi\nprint("Welcome");\n```\n\n<img src=x onerror="window.injected=true">',
-              },
-            ],
-          },
-        ],
-      }),
-    );
-  });
-  await start(page, "openai");
+  // A later reply renders as safe Markdown.
   await page.getByTestId("agent-message").fill("Explain commands");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  const reply = page.locator(".agent-panel__markdown").last();
-  await expect(reply.locator("strong")).toHaveText("builder");
-  await expect(reply.locator("em")).toHaveText("player");
-  await expect(reply.locator("ul li")).toHaveCount(2);
-  await expect(reply.locator("ol li")).toHaveCount(2);
-  await expect(reply.locator("li code")).toHaveText("said()");
-  await expect(reply.locator("pre code")).toHaveText('print("Welcome");');
-  await expect(reply.locator("img")).toHaveCount(0);
-  await expect(reply).toContainText('<img src=x onerror="window.injected=true">');
+  const markdown = page.locator(".agent-panel__markdown").last();
+  await expect(markdown.locator("strong")).toHaveText("builder");
+  await expect(markdown.locator("em")).toHaveText("player");
+  await expect(markdown.locator("ul li")).toHaveCount(2);
+  await expect(markdown.locator("ol li")).toHaveCount(2);
+  await expect(markdown.locator("li code")).toHaveText("said()");
+  await expect(markdown.locator("pre code")).toHaveText('print("Welcome");');
+  await expect(markdown.locator("img")).toHaveCount(0);
+  await expect(markdown).toContainText('<img src=x onerror="window.injected=true">');
   await page.screenshot({ path: test.info().outputPath("markdown-1440.png") });
 });
 
@@ -543,8 +599,11 @@ test("an approved change after attaching reference art saves without pausing edi
   const { encodePngRgb } = await import("../../src/picture/png.ts");
   await start(page, "stub", false);
   const panel = page.getByTestId("workspace-agent-panel");
+  // The workspace composer offers reference art.
+  await expect(panel.getByTestId("agent-attach-reference")).toBeVisible();
   await panel.getByTestId("agent-attach-reference").click();
   const upload = page.getByTestId("reference-upload");
+  await expect(upload).toBeVisible();
   await upload.getByTestId("reference-room-file").setInputFiles({
     name: "bridge.png",
     mimeType: "image/png",
@@ -578,15 +637,6 @@ test("an approved change after attaching reference art saves without pausing edi
     .toBe("saved");
   await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
   await expect(panel.getByTestId("agent-message")).toBeEnabled();
-});
-
-test("the workspace composer offers reference art", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await start(page);
-  const attach = page.getByTestId("workspace-agent-panel").getByTestId("agent-attach-reference");
-  await expect(attach).toBeVisible();
-  await attach.click();
-  await expect(page.getByTestId("reference-upload")).toBeVisible();
 });
 
 test("a slow preview keeps Approve working through preview loading", async ({ page }) => {
@@ -650,8 +700,9 @@ test("an approved change shows at once in Create and again when Play resumes", a
   const panel = page.getByTestId("workspace-agent-panel");
   await panel.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("radio", { name: "Play", exact: true }).click();
+  // Play resumes its own run; keys reach that run once it owns the keyboard.
+  await waitForGameInput(page);
   const input = page.getByTestId("input-line");
-  await input.focus();
   if ((await textHook(page)).modal) {
     await input.press("Enter");
     await expect.poll(async () => (await textHook(page)).modal).toBeNull();
@@ -663,7 +714,8 @@ test("an approved change shows at once in Create and again when Play resumes", a
   await expect
     .poll(async () => {
       const before = (await textHook(page)).egoX;
-      await page.waitForTimeout(250);
+      // Let the game run a few cycles, then compare where the hero stands.
+      await waitForCycles(page, 4);
       if ((await textHook(page)).egoX === before) return true;
       await page.keyboard.press("ArrowRight");
       return false;
@@ -680,7 +732,7 @@ test("an approved change shows at once in Create and again when Play resumes", a
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   // Play resumes the walked-away moment, then re-enters Room 1 for the change.
   await expect(page.getByTestId("return-note")).toHaveText(
-    "Room 1 started fresh with your changes.",
+    "Meadow started fresh with your changes.",
   );
   // The Agent is still open, so Play waits paused; closing it plays on.
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -691,7 +743,7 @@ test("an approved change shows at once in Create and again when Play resumes", a
 });
 
 /** A new Room 2, then one approved Agent turn that writes its LOGIC: the result offers Show. */
-async function changeRoomTwo(page: Page): Promise<void> {
+async function changeRoomTwo(page: Page, kind: "logic" | "picture" = "logic"): Promise<void> {
   let requests = 0;
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
@@ -705,17 +757,20 @@ async function changeRoomTwo(page: Page): Promise<void> {
                 {
                   type: "function_call",
                   call_id: "write",
-                  name: "write_logic",
+                  name: kind === "logic" ? "write_logic" : "write_picture",
                   arguments: JSON.stringify({
                     room: 2,
-                    source: 'if (said("look")) { print("Room two."); } return;',
+                    source:
+                      kind === "logic"
+                        ? 'if (said("look")) { print("Room two."); } return;'
+                        : "vis 3\nfill 1,1\nend\n",
                   }),
                 },
                 {
                   type: "function_call",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"testReasons":null}',
                 },
               ]
             : [],
@@ -723,10 +778,17 @@ async function changeRoomTwo(page: Page): Promise<void> {
     );
   });
   await start(page, "openai", false);
+  if (!(await page.getByTestId("parts-list").isVisible())) {
+    // Mid widths fold Parts while the Agent is open and offer Parts beside it; phones swap panels.
+    if (page.viewportSize()!.width <= 600)
+      await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
+    await page.getByTestId("workspace-parts").click();
+  }
   await addWorkspaceAction(page, "Add a room", { "Room name": "Grove" }, "world");
   await expect.poll(async () => (await documents(page))["logic:2"]).toBeDefined();
   // Play reaches the Meadow; Create opens on that moment, so Back has one to return to.
-  await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
+  if (await page.getByTestId("workspace-agent-panel").isVisible())
+    await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("radio", { name: "Create", exact: true }).click();
@@ -780,6 +842,29 @@ test("Show Room takes the hero to a changed room, and Back returns", async ({ pa
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   expect((await textHook(page)).egoX).toBe(before.egoX);
 });
+
+for (const size of [
+  { width: 1063, height: 815 },
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`Show Room visits an applied PICTURE change and Back returns ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await changeRoomTwo(page, "picture");
+    const before = await textHook(page);
+    expect(before.room).toBe(1);
+    await page.screenshot({ path: test.info().outputPath(`picture-show-${size.width}.png`) });
+    await page.getByTestId("agent-show-room").click();
+    await expect.poll(async () => (await textHook(page)).room).toBe(2);
+    if (size.width === 390)
+      await page.getByTestId("workspace-agent-panel").getByTestId("agent-panel-close").click();
+    await page.getByRole("button", { name: "Back to Meadow", exact: true }).click();
+    await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    expect((await textHook(page)).egoX).toBe(before.egoX);
+  });
+}
 
 // A Show clicked in Create answers that Create only: leaving it while the save
 // finishes cancels the visit, so Play stays where the player was.
@@ -845,7 +930,7 @@ test("an Agent edit to an imported game's LOGIC shows only the changed lines", a
                   type: "function_call",
                   call_id: "finish",
                   name: "finish",
-                  arguments: '{"notes":null}',
+                  arguments: '{"testReasons":null}',
                 },
               ]
             : [],
@@ -870,3 +955,307 @@ test("an Agent edit to an imported game's LOGIC shows only the changed lines", a
   await expect.poll(() => diff.locator(".line-insert").count()).toBe(1);
   expect(await diff.locator(".line-delete").count()).toBe(0);
 });
+
+test("approving before the source diff finishes has no unhandled rejection @webkit-desktop", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await start(page);
+  await page.evaluate(async () => {
+    const path = "/e2e/fixtures/uxPolish.ts";
+    await (await import(path)).holdDiff();
+  });
+  await page.getByTestId("agent-message").fill("Add a welcome sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const path = "/e2e/fixtures/uxPolish.ts";
+        return (await import(path)).diffPending();
+      }),
+    )
+    .toBe(true);
+  await page.evaluate(async () => {
+    const path = "/e2e/fixtures/uxPolish.ts";
+    await (await import(path)).approveBeforeDiff();
+  });
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+for (const size of [
+  { width: 1063, height: 815 },
+  { width: 390, height: 844 },
+])
+  test(`A red finish shows each failing test with the Agent's reason in the reply and in review, and a test change the creator asks for is reviewed (${size.width}px)`, async ({
+    page,
+  }) => {
+    const lakeStart = {
+      test: "Lake start",
+      reason: "its room was deleted, so the test cannot start.",
+    };
+    const red = [
+      { test: "Impossible score", reason: "the score handler is not written yet." },
+      lakeStart,
+    ];
+    const change = [
+      lakeStart,
+      { test: "Impossible score", reason: "it now expects score 0, as you asked." },
+    ];
+    const lines = (reasons: typeof red) => reasons.map(({ test, reason }) => `${test}: ${reason}`);
+    let requests = 0;
+    await page.setViewportSize(size);
+    await page.route("**/api/openai/v1/responses", async (route) => {
+      requests++;
+      const calls =
+        requests === 1
+          ? [
+              {
+                id: "pond",
+                name: "propose_changes",
+                input: {
+                  label: "Blue meadow",
+                  changes: [{ key: "picture:1", content: "vis 1\nfill 0,0\nend\n" }],
+                },
+              },
+              { id: "finish", name: "finish", input: { testReasons: red } },
+            ]
+          : [
+              {
+                id: "expectation",
+                name: "write_game_tests",
+                input: {
+                  mode: "merge",
+                  names: null,
+                  tests: [{ name: "Impossible score", room: 1, steps: [], expect: { score: 0 } }],
+                },
+              },
+              { id: "finish", name: "finish", input: { testReasons: change } },
+            ];
+      await route.fulfill(
+        providerReply("openai", {
+          id: `reasons-${requests}`,
+          status: "completed",
+          output: calls.map((call) => ({
+            type: "function_call",
+            call_id: call.id,
+            id: call.id,
+            name: call.name,
+            arguments: JSON.stringify(call.input),
+          })),
+        }),
+      );
+    });
+    await start(page, "openai", false);
+    await creatorSavesTests(page, [
+      { name: "Impossible score", room: 1, steps: [], expect: { score: 99 } },
+      { name: "Lake start", room: 9, steps: [] },
+    ]);
+    const conversation = page.getByTestId("agent-conversation");
+    const review = page.getByTestId("agent-review-tests");
+    const openReview = async () => {
+      const button = conversation.getByRole("button", { name: "View changes", exact: true }).last();
+      if (!(await review.isVisible())) await button.click();
+      await expect(review).toBeVisible();
+    };
+
+    await page.getByTestId("agent-message").fill("Paint the meadow blue");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const reply = conversation.locator("article").last();
+    await expect(reply).toContainText("2 tests fail: Impossible score, Lake start");
+    await expect(reply.getByRole("listitem")).toHaveText(lines(red));
+    await openReview();
+    await expect(review).toContainText("2 tests fail: Impossible score, Lake start");
+    await expect(review.getByRole("listitem")).toHaveText(lines(red));
+    await expect(page.getByTestId("agent-art-review")).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`red-finish-review-${size.width}.png`) });
+    // A narrow layout shows the review in place of the chat; the reply is one step back.
+    await page.getByRole("button", { name: "Back to chat", exact: true }).click();
+    await expect(reply.getByRole("listitem").first()).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath(`red-finish-reply-${size.width}.png`) });
+    await openReview();
+    await page.getByTestId("agent-reject").click();
+    await expect(page.getByTestId("agent-review")).toHaveCount(0);
+
+    await page
+      .getByTestId("agent-message")
+      .fill('Update "Impossible score" to expect score 0. I approve changing this expectation.');
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    // Tests run as Apply would leave them, so the requested expectation already passes.
+    const changeReply = conversation.locator("article").last();
+    await expect(changeReply).toContainText("1 test fails: Lake start");
+    await expect(changeReply.getByRole("listitem")).toHaveText(lines(change));
+    await openReview();
+    await expect(review.getByRole("listitem")).toHaveText(lines(change));
+    await expect(page.getByTestId("agent-test-change")).toHaveText([
+      'Changed expectation of "Impossible score"',
+    ]);
+    await expect(page.getByTestId("agent-test-change-detail").getByRole("row")).toHaveText([
+      /Before\s*After/,
+      /Steps\s*None\s*None/,
+      /Checks\s*score 99\s*score 0/,
+    ]);
+    await page.screenshot({
+      path: test.info().outputPath(`test-change-review-${size.width}.png`),
+    });
+    await page.getByTestId("agent-approve").click();
+    await expect
+      .poll(async () => JSON.parse((await documents(page))["tests"]!).tests[0].expect.score)
+      .toBe(0);
+  });
+
+test("Apply needs the test comparison seen: a late same-name creator test refuses Apply from the chat, review shows it as Before, and Apply then commits the reviewed After", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1063, height: 815 });
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    const calls = [
+      {
+        id: "future",
+        name: "write_game_tests",
+        input: { mode: "merge", names: null, tests: [{ name: "Future", room: 5, steps: [] }] },
+      },
+      {
+        id: "finish",
+        name: "finish",
+        input: { testReasons: [{ test: "Future", reason: "its room is not built yet." }] },
+      },
+    ];
+    await route.fulfill(
+      providerReply("openai", {
+        id: "late-collision",
+        status: "completed",
+        output: calls.map((call) => ({
+          type: "function_call",
+          call_id: call.id,
+          id: call.id,
+          name: call.name,
+          arguments: JSON.stringify(call.input),
+        })),
+      }),
+    );
+  });
+  await start(page, "openai", false);
+  await page.getByTestId("agent-message").fill("Write a test for the future room");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-test-change")).toHaveText(['Added test "Future"']);
+  // The creator saves a test with the same name after returning to the chat, then applies there.
+  await page.getByRole("button", { name: "Back to chat", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await creatorSavesTests(page, [{ name: "Future", room: 9, steps: [] }]);
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-error")).toHaveText(
+    "A test in this review changed. Check the Tests comparison again, then choose Apply.",
+  );
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-test-change")).toHaveText(['Changed test "Future"']);
+  await expect(page.getByTestId("agent-test-change-detail").getByRole("row")).toHaveText([
+    /Before\s*After/,
+    /Room\s*9\s*5/,
+    /Steps\s*None\s*None/,
+    /Checks\s*Nothing checked\s*Nothing checked/,
+  ]);
+  await page.screenshot({ path: test.info().outputPath("late-collision-review-1063.png") });
+  const rooms = async () =>
+    (JSON.parse((await documents(page))["tests"]!).tests as { room: number }[]).map(
+      (entry) => entry.room,
+    );
+  expect(await rooms()).toEqual([9]);
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  expect(await rooms()).toEqual([5]);
+});
+
+for (const width of [1440, 390])
+  test(`Agent finish asks why each creator test it deleted or changed, and review shows the old and new expectation (${width}px)`, async ({
+    page,
+  }) => {
+    let requests = 0;
+    let refusal = "";
+    await page.setViewportSize({ width, height: 950 });
+    await page.route("**/api/openai/v1/responses", async (route) => {
+      requests++;
+      const body = route.request().postDataJSON() as {
+        input?: { type?: string; call_id?: string; output?: { text?: string }[] }[];
+      };
+      const raw = body.input
+        ?.find((entry) => entry.type === "function_call_output" && entry.call_id === "finish-red")
+        ?.output?.find((entry) => entry.text)?.text;
+      if (raw) refusal = JSON.parse(raw).error ?? "";
+      const calls =
+        requests === 1
+          ? [
+              {
+                id: "remove",
+                name: "write_game_tests",
+                input: { mode: "remove", names: ["Open door"], tests: null },
+              },
+              {
+                id: "weaken",
+                name: "write_game_tests",
+                input: {
+                  mode: "merge",
+                  names: null,
+                  tests: [{ name: "Treasure", room: 1, steps: [], expect: { score: 0 } }],
+                },
+              },
+              { id: "finish-red", name: "finish", input: { testReasons: null } },
+            ]
+          : [
+              {
+                id: "finish-reasons",
+                name: "finish",
+                input: {
+                  testReasons: [
+                    { test: "Open door", reason: "you asked to remove it." },
+                    { test: "Treasure", reason: "you asked for score 0." },
+                  ],
+                },
+              },
+            ];
+      await route.fulfill(
+        providerReply("openai", {
+          id: `red-review-${requests}`,
+          status: "completed",
+          output: calls.map((call) => ({
+            type: "function_call",
+            call_id: call.id,
+            id: call.id,
+            name: call.name,
+            arguments: JSON.stringify(call.input),
+          })),
+        }),
+      );
+    });
+    await start(page, "openai", false);
+    await page.getByRole("radio", { name: "Auto-approve", exact: true }).click();
+    await creatorSavesTests(page, [
+      { name: "Open door", room: 1, steps: [], expect: { score: 99 } },
+      { name: "Treasure", room: 1, steps: [], expect: { score: 99 } },
+    ]);
+    const before = await documents(page);
+    await page.getByTestId("agent-message").fill("Propose the requested test edits for review");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    expect(refusal).toBe(
+      'Not finished: give testReasons for "Open door", "Treasure". Each red test needs a reason it stays red, and each existing test you changed or deleted needs a reason for the change.',
+    );
+    // Tests run as Apply would leave them: one test is left, and its weaker check passes.
+    await expect(page.getByTestId("workspace-agent-panel")).toContainText("1 test passes.");
+    await expect(page.getByTestId("agent-review-tests").getByRole("listitem")).toHaveText([
+      "Open door: you asked to remove it.",
+      "Treasure: you asked for score 0.",
+    ]);
+    await expect(page.getByTestId("agent-test-change")).toHaveText([
+      'Deleted test "Open door"',
+      'Changed expectation of "Treasure"',
+    ]);
+    await expect(page.getByTestId("agent-test-change-detail").getByRole("row").last()).toHaveText(
+      /Checks\s*score 99\s*score 0/,
+    );
+    expect(await documents(page)).toEqual(before);
+    await page.screenshot({ path: test.info().outputPath(`test-review-changes-${width}.png`) });
+  });

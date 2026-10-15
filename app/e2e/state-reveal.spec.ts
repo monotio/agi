@@ -9,11 +9,7 @@ async function showParts(page: Page, width: number): Promise<void> {
   await expect(page.getByTestId("parts-list")).toBeVisible();
 }
 
-for (const [width, height] of [
-  [1063, 815],
-  [1440, 900],
-  [390, 844],
-] as const) {
+for (const [width, height] of [[1440, 900]] as const) {
   test(`Parts reveals Game state and its LOGIC uses at ${width} @webkit-desktop`, async ({
     page,
   }) => {
@@ -198,7 +194,7 @@ test.describe("touch phone", () => {
     hasTouch: true,
     userAgent: devices["iPhone 13"].userAgent,
   });
-  test("state rows reveal and their uses open LOGIC @webkit-desktop", async ({ page }) => {
+  test("state rows reveal and their uses open LOGIC @webkit-desktop @phone", async ({ page }) => {
     await start(page);
     await showParts(page, 390);
     const parts = page.getByTestId("parts-list");

@@ -5,6 +5,7 @@ import {
   textHook,
   openWorkspaceAgent,
   waitForGameInput,
+  waitForRoom,
   workspaceSaved,
 } from "./engineProbe.ts";
 import {
@@ -22,7 +23,7 @@ async function starter(page: Page) {
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await openWorkspaceAgent(page);
 }
 
@@ -36,7 +37,7 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await openWorkspaceAgent(page);
   const panel = page.getByTestId("workspace-agent-panel");
   const composer = panel.getByTestId("agent-message");
@@ -98,7 +99,7 @@ for (const open of [true, false]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`native review survives Apply and opens its earlier preview with the composer intact ${width} @webkit-desktop`, async ({
+  test(`native review survives Apply and opens its earlier preview with the composer intact ${width} ${width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
@@ -108,7 +109,10 @@ for (const width of [1440, 390]) {
     await page.getByTestId("agent-send").click();
     const result = page.getByTestId("agent-result-preview");
     await expect(result).toBeVisible();
-    await expect(result.getByTestId("agent-code-diff")).toBeVisible();
+    // The first code diff loads Monaco: while a run's first tests start together, the dev server
+    // answers its 300-odd module requests slowly, so it gets the 30 s budget of a first LOGIC
+    // editor mount.
+    await expect(result.getByTestId("agent-code-diff")).toBeVisible({ timeout: 30_000 });
     await expect(result.getByTestId("agent-art-review")).toBeVisible();
     await result.getByRole("button", { name: "Back to chat", exact: true }).click();
     await composer.fill("My next question stays here");
@@ -268,7 +272,12 @@ test("coordinated tests proposal has a native test review @webkit-desktop", asyn
               ],
             }),
           },
-          { type: "function_call", call_id: "finish", name: "finish", arguments: '{"notes":null}' },
+          {
+            type: "function_call",
+            call_id: "finish",
+            name: "finish",
+            arguments: '{"testReasons":null}',
+          },
         ],
       }),
     );
@@ -378,7 +387,7 @@ test("native inspected LOGIC and test bytes render captured source and named tes
               type: "function_call",
               call_id: "finish",
               name: "finish",
-              arguments: '{"notes":null}',
+              arguments: '{"testReasons":null}',
             },
           ]
         : requests === 1
@@ -442,7 +451,7 @@ test("first Agent save failure keeps its owner, draft and retry available @webki
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await workspaceSaved(page);
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
@@ -492,7 +501,7 @@ test("first Agent save failure keeps its owner, draft and retry available @webki
 // into Play pauses the game as opening it there does, so the bar never shows a
 // running game whose keyboard the panel holds, and Create's game keeps running
 // beside it so applied changes show.
-test("an open Agent pauses Play, never Create, until it closes", async ({ page }) => {
+test("an open Agent pauses Play, never Create, until it closes @phone", async ({ page }) => {
   await starter(page);
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeVisible();

@@ -1,3 +1,5 @@
+import { gameTestReviewLines } from "../../src/agent/gameTestReview.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 /** Replay whole-project task failures through the real coordinated candidate pipeline. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -24,11 +26,16 @@ interface Case {
     expectedKeys: string[];
     expectedOutcomes?: Record<string, boolean>;
     expectedError?: string;
+    /** Agent handover refusals are shown without aborting the conversation. */
+    expectedVisibleError?: string;
     /** The final assistant message, for turns that end without a change. */
     expectedReply?: string;
     autoApprove?: boolean;
     expectedCommits?: number;
+    expectedReviewLines?: readonly string[];
     expectedDocuments?: Record<string, string | null>;
+    /** Text the first request and its tool descriptions must carry, so the model is told the rule. */
+    expectedInstructions?: readonly string[];
     readOnly?: boolean;
     submission?: { mode: "play" | "create"; readOnly?: boolean; context?: string };
     unreadableSound?: number;
@@ -111,14 +118,17 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       },
     });
     let round = 0;
+    let instructions = "";
     const agent = createWorkspaceAgent({
       session,
       profileId: "2.936",
       config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
-      conversation() {
+      conversation(_config, _transcript, _run, catalog = []) {
+        instructions = catalog.map((tool) => tool.description).join("\n");
         return {
           setAvailableTools() {},
-          async sendUserMessage() {
+          async sendUserMessage(text) {
+            if (round === 0) instructions += `\n${text}`;
             return content.turns[round++]!;
           },
           appendToolResults(results) {
@@ -144,7 +154,24 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
     });
     agent.autoApprove = content.autoApprove ?? false;
     try {
-      if (content.expectedError)
+      if (content.expectedVisibleError) {
+        // Agent handover refusal is visible; it never aborts the creator's conversation.
+        const before = session.model.capture();
+        const cursor = session.history.capture().cursor;
+        await agent.send(content.request);
+        assert.match(agent.error ?? "", new RegExp(content.expectedVisibleError));
+        assert.match(
+          agent.current().messages.at(-1)!.text,
+          new RegExp(content.expectedVisibleError),
+        );
+        assert.equal(agent.pending(), null);
+        assert.equal(session.model.capture().documentId, before.documentId);
+        assert.equal(session.history.capture().cursor, cursor);
+        assert.deepEqual(
+          Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files()),
+          files,
+        );
+      } else if (content.expectedError)
         await assert.rejects(agent.send(content.request), new RegExp(content.expectedError));
       else if (content.readOnly) {
         const before = session.model.capture();
@@ -165,6 +192,17 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
         content.expectedKeys,
       );
       assert.equal(session.history.capture().commits.length, content.expectedCommits ?? 1);
+      if (content.expectedReviewLines) {
+        const review = agent.pending()!;
+        assert.deepEqual(
+          gameTestReviewLines(
+            review.proposal.base.read("tests")?.content,
+            review.proposal.documents()["tests"],
+            PROFILES["2.936"]!,
+          ),
+          content.expectedReviewLines,
+        );
+      }
       if (content.approveAndExportSound !== undefined) {
         assert.ok(content.expectedSoundPayload);
         const key = `sound:${content.approveAndExportSound}`;
@@ -201,6 +239,8 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
       }
       for (const [key, value] of Object.entries(content.expectedDocuments ?? {}))
         assert.equal(session.model.capture().read(key)?.content ?? null, value);
+      for (const instruction of content.expectedInstructions ?? [])
+        assert.ok(instructions.includes(instruction), `the model is told: ${instruction}`);
       if (content.expectedReply !== undefined)
         assert.equal(agent.current().messages.at(-1)?.text, content.expectedReply);
       assert.equal(round, content.turns.length, "every scripted turn was requested");

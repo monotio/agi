@@ -322,7 +322,8 @@ which has no test hooks, so the check has nothing to read there and passes.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
-Tagged WebKit desktop tests use four groups and `scripts/ci/webkit-durations.json`.
+Tagged WebKit desktop tests use four groups and `scripts/ci/webkit-durations.json`; the phone
+project runs in three Playwright shards.
 Every run discovers the current specs through Playwright; new specs receive the
 median measured weight. The longest specs are
 assigned first to the lightest group. JSON report artifacts retain per-test
@@ -373,6 +374,11 @@ Pull requests run each applicable suite once, with zero retries. Repetition is a
 explicit diagnostic action: use **Browser diagnostics** in GitHub Actions and
 choose the run count (one by default), or repeat a specific local spec with
 `npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=3`.
+To reproduce a load race in local Chromium, set `AGI_E2E_CPU_RATE` (for example `4`)
+to slow the page's own work, or `AGI_E2E_LATENCY_MS` (for example `70`) to delay every
+request as a busy dev server does. The first open of a lazily loaded editor fetches
+its modules one by one, so latency slows it and CPU throttling barely does: 70 ms
+makes Room Studio's first open take longer than the 5 s expect default.
 The diagnostic workflow has no schedule. It retains browser reports and updates
 a diagnostic flake issue when a test has both passing and failing attempts.
 Consistent failures remain failures. Only that report job has `issues: write`.
@@ -402,18 +408,51 @@ every game/version are not established by these checks.
 
 Run `npm --prefix app run e2e -- phone-input.spec.ts movement-input.spec.ts game-controls.spec.ts`
 for synthetic browser input coverage. `npm --prefix app run e2e:phone` runs the
-phone suite in Chromium and WebKit; with local KQ1–3 fixtures it also checks
-each game's opening room, touch walking and named save/restore slots. Touch
-emulation does not emulate Samsung Keyboard or the iOS keyboard: verify device
-compatibility on physical Android and iPhone browsers with the keyboard open,
-rotation, interruption and save/restore. Full-game compatibility needs recorded
+tests tagged `@phone` in the `iphone-webkit` project; with local KQ1–3 fixtures
+it also checks each game's opening room, touch walking and named save/restore
+slots. Touch emulation does not emulate Samsung Keyboard or the iOS keyboard:
+verify device compatibility on physical Android and iPhone browsers with the
+keyboard open, rotation, interruption and save/restore. Full-game compatibility needs recorded
 completion runs on the specific game edition and interpreter profile.
 
-Desktop workspace scenarios run in WebKit with
-`npm --prefix app run e2e:webkit-desktop` (`app/playwright.webkit.config.ts`).
-Tag a desktop scenario by ending its title with `@webkit-desktop`; the config
-selects it from its existing spec. Use the tag for visible workspace behavior
-that needs a WebKit check, including editors, keyboard controls and agent review.
+### Browser suites, tags and widths
+
+`npm --prefix app run e2e` runs every test in Chromium except the timing budgets and the full
+walkthrough set, which have their own Chromium scripts, so every test is protected there. Tests
+run in parallel across files and within them (`fullyParallel`); a file whose tests share state
+declares `test.describe.configure({ mode: "serial" })` with the reason in a comment. Failure traces keep
+actions, console and network without DOM snapshots; rerun a failing spec with `--trace=on` for
+the DOM. Chromium and desktop WebKit run with reduced motion, so clicks do not wait out entrance
+animations, and phone WebKit runs with full motion; a test whose rule needs motion opts out with
+`page.emulateMedia({ reducedMotion: "no-preference" })` and says why.
+
+A tag at the end of a test title selects its extra or separate runs. Linux WebKit is one config,
+`app/playwright.webkit.config.ts`, with one project per WebKit tag:
+
+| Tag                 | Project          | Script                                      | Runs                                                                                               |
+| ------------------- | ---------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review. |
+| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.  |
+| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Timing budgets, alone on one worker.                                                               |
+| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                   |
+
+`npm --prefix app run e2e:webkit` runs both WebKit projects in one invocation. A test carrying both
+WebKit tags runs once in each project, and the config selects a tagged test from its existing
+spec. WebKit keeps the rules that depend on the engine: pointer, touch, focus, Escape, clipboard,
+files and downloads, canvas paint, fonts, scrolling and layout metrics. DOM state, request
+bodies, saved bytes, refusal text and worker message order need only Chromium. When a test drops
+its phone run because it asserts no touch rule, give it `@webkit-desktop` if its rule depends on
+the engine and the phone run was its only WebKit run.
+
+Width policy: a loop over widths runs only the widths whose layout the rule depends on. Chromium
+defaults to 1063 and 390, and uses 1440 only for a rule about the wide layout. WebKit desktop
+runs one width, 1440 by default, at the Desktop Safari scale factor of 2. Phone WebKit runs 390
+only. A variant whose rule needs no particular width runs once.
+
+GPU stage: Chromium and desktop WebKit create it only for tests that read its pixels, uniforms or
+exploded view (`test.use({ gpuStage: true })` from `app/e2e/test.ts`) and for `@perf`, so every
+other test sees the flat picture players get without WebGPU or WebGL; phone WebKit creates it in
+every test.
 
 CI runs WebKit on Linux, and its result is the one that counts. WebKit on macOS
 reports a Mac platform and uses Mac fonts, so results can differ, and it cannot
@@ -423,10 +462,10 @@ the installed `playwright-core` package. Use the CI pin to reproduce its exact
 image (`npm ci` inside the container replaces any copied `node_modules`):
 
 ```bash
-tar -ch --exclude=node_modules --exclude=.git --exclude=.local . |
+tar -ch --exclude=node_modules --exclude=.git --exclude=.local --exclude=app/test-results . |
   docker run --rm -i --init --ipc=host "$(cat scripts/ci/playwright-image.txt)" \
   bash -lc 'mkdir /w && tar -x -C /w && cd /w && npm ci &&
-    CI=1 xvfb-run -a npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts'
+    CI=1 xvfb-run -a npm --prefix app run e2e:webkit -- e2e/<file>.spec.ts'
 ```
 
 The archive includes ignored local game fixtures and dereferences worktree
@@ -467,13 +506,16 @@ the app replays under **Watch walkthrough**.
 After supplying any of the fixtures above, run:
 
 ```bash
-node --test --experimental-strip-types test/walkthroughs.test.ts
+node --test --experimental-strip-types 'test/walkthroughs-*.test.ts'
 npm --prefix app run e2e -- e2e/walkthroughs.spec.ts
+npm --prefix app run e2e:walkthrough-full
 ```
 
-Each route uses normal player inputs and a virtual clock, asserts score and
-inventory milestones, and repeats from a cold boot with its catalog's fixed
-seed. The routes reach these endpoints:
+Each route uses normal player inputs and a virtual clock, and asserts score and
+inventory milestones. It plays once from a cold boot with its catalog's fixed
+seed and the settings its shipped tape was recorded with, and must reproduce
+that tape exactly. Each game has its own test file, so the routes play in
+parallel. The routes reach these endpoints:
 
 | Game                     | Route and endpoint                                                                                                                                                                                                                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -501,12 +543,30 @@ checks, and the same catalog includes KQ1's completion proof.
 `npm run prove:walkthrough -- sq1`. Game-specific route modules contain player
 actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
 
-Browser tests replay the committed `app/public/walkthroughs/*.json` tapes
-through the app's controls, checking their exact fixture hashes, interpreter
-profile, ending state and duration. They do not regenerate routes: the Node
-cold-boot tests cover route generation separately, so a stale or broken shipped
-tape fails the browser gate. `AGI_SPEEDRUN_FILE` selects a separately generated
-tape when validating a route before replacing its committed artifact.
+Each layer proves something different:
+
+- **Node** (`test/walkthroughs-*.test.ts`) regenerates every route and compares
+  it with its committed `app/public/walkthroughs/*.json` tape: inputs, virtual
+  ticks, cycles, ending state, fixture hashes and served revisions. A stale or
+  broken shipped tape fails here, with the first input that differs. When a
+  route changes on purpose, regenerate its tape in the same change.
+- **Browser** (`e2e/walkthroughs.spec.ts`) replays committed tapes in the app's
+  worker. The replay sends tape inputs to the worker directly, so it proves the
+  worker reaches the same state as Node, not the keyboard or touch controls.
+  KQ1, Manhunter 2, Donald Duck's Playground and the synthetic chamber replay
+  whole on every run. They cover parser typing, the cursor interface, a
+  keys-only game and a number prompt, on four interpreter profiles. Every other
+  tape replays its opening, to its first checkpoint past 15,000 ticks, and must
+  match the state Node reaches at that checkpoint.
+- **Full browser set** (`npm --prefix app run e2e:walkthrough-full`, tagged
+  `@walkthrough-full`) replays the remaining tapes whole. It runs before a
+  release is accepted ([release branches](hosting.md#release-branches)).
+- **Controls.** Two opening tests in the same spec play KQ1 through desktop keys
+  and phone touch. `kq1.spec.ts`, `kq-phone.spec.ts` and `phone-input.spec.ts`
+  cover keyboard, mouse, touch, menus and saves on a real game.
+
+`AGI_SPEEDRUN_FILE` selects a separately generated tape when validating a route
+before replacing its committed artifact; that tape replays whole.
 
 ### KQ1 completion proof
 
@@ -527,12 +587,12 @@ defaults to `/tmp/agi-kq1-speedrun.json` (pass another path after
 `npm run prove:walkthrough -- kq1`); reports contain input events, resource
 hashes, checkpoints and the observed ending state, and no game resources.
 
-The browser command replays that report through actual desktop keys and phone
-controls in Chromium and WebKit, with only the test-mode host clock
-accelerated. Each replay verifies the exact local fixture hashes and the game's
-terminal ending state independently of the report's success label; a missing
-fixture produces an explicit skip. Physical Samsung/iPhone keyboards and screen
-readers still require device testing.
+The browser command replays that report in the app's worker in Chromium and
+WebKit, with only the test-mode host clock accelerated. The replay verifies the
+exact local fixture hashes and the game's terminal ending state independently
+of the report's success label; a missing fixture produces an explicit skip.
+Physical Samsung/iPhone keyboards and screen readers still require device
+testing.
 
 ### Manhunter proofs
 
@@ -766,6 +826,19 @@ A missing static path is not evidence of an interpreter defect.
 
 ## Recorded game tests
 
+A game test is a project document about the game. Saving, editing or deleting a
+test uses project history, Undo and autosave, and sends nothing to the running
+game's worker. Test writes leave game admission and pending updates unchanged.
+
+Write tests first: rooms, words and objects may be named before they exist.
+Saving checks the tests document's structure. Running checks game references and
+reports missing resources by name.
+
+Tests never block a game edit. Deleting a room offers **Also delete tests that
+use this room**, checked by default. Clear it to keep the tests; those tests
+will fail when run. A recorded setup's inventory item locations do not make its
+test use those rooms. The room and optional test deletions share one Undo.
+
 Recorded game tests store a host snapshot and a bounded operation tape in
 `TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
 against current resources. Divergent or unconsumed calls fail the replay.
@@ -773,6 +846,17 @@ against current resources. Divergent or unconsumed calls fail the replay.
 this contract, including project export/import. Successful authoring mutations
 rerun affected tests conservatively; the verdict reports any tests not run.
 Stored tests travel only in project archives.
+
+The Agent may finish while tests are red when it gives every failing test a
+reason, and every existing test it changed or deleted too. The reply opens with
+`N tests fail: name, name` or `All N tests pass.` and lists each `test: reason`;
+review shows the same lines. The check runs the tests as Apply would leave them,
+including the Agent's proposed test changes. A turn that hands over no documents
+gets no test check. The Agent never weakens or deletes a test on its own. A test
+change the creator asks for appears in review as its own line with the old and
+new room, steps and checks, and it needs the creator's Apply even with
+Auto-approve on; new tests may apply automatically. None of this blocks the
+creator's own edits.
 
 `read_game_tests` lists compact summaries or pages of editable JSON definitions;
 opaque snapshots and replay tapes stay out of model responses. Merge edits

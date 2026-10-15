@@ -22,13 +22,12 @@ async function launchShot(page: Page, name: string, browserName: string): Promis
 }
 
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {
   test.describe(`Launch metadata ${width}`, () => {
     test.use({ hasTouch: width === 390 });
-    test(`Launch metadata saves without a game Update ${width} @webkit-desktop`, async ({
+    test(`Launch metadata saves without a game Update ${width} ${width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
       page,
       browserName,
     }) => {
@@ -84,7 +83,8 @@ for (const [width, height] of [
 ] as const) {
   test.describe(`Launch actions ${width}`, () => {
     test.use({ hasTouch: width === 390 });
-    test("selection stays in the editor and the action names its room @webkit-desktop", async ({
+    const suite = width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : "";
+    test(`selection stays in the editor and the action names its room${suite}`, async ({
       page,
       browserName,
     }) => {
@@ -143,19 +143,16 @@ for (const [width, height] of [
       await launchShot(page, `menu-${width}`, browserName);
       await page.getByRole("menuitem", { name: "From the beginning", exact: false }).click();
       await expect(page.getByRole("menu")).toBeHidden();
-      // The accessible name includes the selected launch.
-      await expect(action).toHaveAccessibleName(
-        "Restart Garden with the launch From the beginning",
-      );
-      await expect(action).toHaveText(/^Garden\s*·\s*From the beginning$/);
+      // From the beginning starts the whole game, so the action names no room.
+      await expect(action).toHaveAccessibleName("Restart from the beginning");
+      await expect(action).toHaveText("From the beginning");
       await launchShot(page, `launch-${width}`, browserName);
       expect((await textHook(page)).room).toBe(8);
+      // The choice belongs to Garden: Home keeps its own launch.
       await open(page, "part-room:1:logic");
       await expect(action).toHaveAccessibleName("Play Home");
       await open(page, "part-room:8:logic");
-      await expect(action).toHaveAccessibleName(
-        "Restart Garden with the launch From the beginning",
-      );
+      await expect(action).toHaveAccessibleName("Restart from the beginning");
     });
   });
 }
@@ -564,10 +561,9 @@ test("create a Launch for Room 2 with a flag and Came from, select it, Restart R
 
 for (const [width, height] of [
   [1063, 815],
-  [1440, 900],
   [390, 844],
 ] as const) {
-  test(`room removal names Launch changes and one Undo restores both ${width} @webkit-desktop`, async ({
+  test(`room removal names Launch changes and one Undo restores both ${width} ${width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
     page,
     browserName,
   }) => {

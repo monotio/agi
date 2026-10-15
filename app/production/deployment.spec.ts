@@ -17,6 +17,10 @@ test("bundled tutorial previews and plays on the production origin without a pro
       await route.abort();
     },
   );
+  // Builds ignore the browser-test flag that keeps the flat picture: players get the GPU stage.
+  await page.addInitScript(() => {
+    (globalThis as { __AGI_SKIP_GPU_STAGE__?: boolean }).__AGI_SKIP_GPU_STAGE__ = true;
+  });
   await page.goto("/");
   await expect(page.getByTestId("catalog-adventure-department").getByRole("img")).toHaveAttribute(
     "src",
@@ -43,7 +47,31 @@ test("bundled tutorial previews and plays on the production origin without a pro
   await expect(hint).toHaveText("A message is open: press Enter to continue");
   await page.mouse.move(0, 0);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Useful commands");
+  const gpu = page.getByTestId("gpu-canvas");
+  const flat = page.getByTestId("game-canvas");
+  await expect(gpu).toBeVisible();
+  await expect(flat).toBeHidden();
   await page.screenshot({ path: test.info().outputPath("tutorial-production.png") });
+
+  // A lost GPU context leaves the player the same picture on the flat canvas,
+  // even while the game is paused and sends no new frame.
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+  await gpu.evaluate((canvas: HTMLCanvasElement) =>
+    canvas.getContext("webgl2")!.getExtension("WEBGL_lose_context")!.loseContext(),
+  );
+  await expect(flat).toBeVisible();
+  await expect(gpu).toBeHidden();
+  const flatColours = () =>
+    flat.evaluate((canvas: HTMLCanvasElement) => {
+      const pixels = canvas.getContext("2d")!.getImageData(0, 0, 320, 200).data;
+      const colours = new Set<number>();
+      for (let i = 0; i < pixels.length; i += 4)
+        colours.add((pixels[i]! << 16) | (pixels[i + 1]! << 8) | pixels[i + 2]!);
+      return colours.size;
+    });
+  await expect.poll(flatColours).toBeGreaterThan(3);
+  await page.screenshot({ path: test.info().outputPath("tutorial-production-context-lost.png") });
   expect(externalRequests).toEqual([]);
 });
 

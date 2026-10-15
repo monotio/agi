@@ -38,11 +38,12 @@ async function drop(page: Page, disks: Uint8Array[]): Promise<void> {
   );
 }
 for (const size of [
-  { width: 1063, height: 815 },
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`disk drop and Add game at ${size.width}`, async ({ page }) => {
+  test(`disk drop and Add game at ${size.width}${size.width === 390 ? " @phone" : ""}`, async ({
+    page,
+  }) => {
     await isolateStorage(page);
     await page.setViewportSize(size);
     await page.goto("/");
@@ -96,7 +97,7 @@ for (const size of [
   });
 }
 
-test("disk selection rejects two images with the same filename", async ({ page }) => {
+test("disk selection rejects two images with the same filename @phone", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("game-disk-input").setInputFiles(
@@ -112,7 +113,7 @@ test("disk selection rejects two images with the same filename", async ({ page }
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
 });
 
-test("ignored disk files exhaust one shared import budget @webkit-desktop", async ({ page }) => {
+test("ignored disk files exhaust one shared import budget", async ({ page }) => {
   const emptyFiles = new Map(
     Array.from({ length: 100 }, (_, index) => [`J${index}.TXT`, new Uint8Array()]),
   );

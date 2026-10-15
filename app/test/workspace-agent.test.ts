@@ -24,6 +24,8 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
+import { gameTestReviewLines } from "../../src/agent/gameTestReview.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import { capturedResourceDocuments } from "../src/agent/agentResultPreview.ts";
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { wordsTaskReply } from "../src/studio/workspace/wordsPrompts.ts";
@@ -32,7 +34,7 @@ let seq = 0;
 
 for (const mode of ["review", "auto", "background"] as const) {
   for (const failure of ["exit", "tests"] as const) {
-    test(`${mode} rejects final admission after finish fails ${failure}`, async () => {
+    test(`${mode}: ${failure === "tests" ? "Agent finish names failing tests while game edits remain available" : "Unimplemented exits block final admission"}`, async () => {
       const { session } = fixture();
       await session.submit({
         proposal: session.model.propose(session.model.capture(), "Room", [
@@ -103,22 +105,50 @@ for (const mode of ["review", "auto", "background"] as const) {
           },
           async complete() {
             return round++ === 0
-              ? { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] }
+              ? {
+                  toolCalls: [
+                    {
+                      id: "finish",
+                      name: "finish",
+                      input: {
+                        testReasons:
+                          failure === "tests"
+                            ? [
+                                {
+                                  test: "Impossible score",
+                                  reason: "needs the score implementation.",
+                                },
+                              ]
+                            : null,
+                      },
+                    },
+                  ],
+                }
               : { text: "Done", toolCalls: [] };
           },
         }),
       });
       agent.autoApprove = mode === "auto";
       try {
-        await assert.rejects(
-          mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"),
-          /Handover rejected/,
-        );
-        assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, false);
-        assert.equal(session.model.capture().documentId, before);
-        assert.equal(session.history.capture().commits.length, commits);
-        assert.equal(agent.pending(), null);
-        assert.match(agent.error ?? "", /Handover rejected/);
+        if (failure === "tests") {
+          await (mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"));
+          assert.equal(
+            results.find((entry) => entry.toolCallId === "finish")?.result.success,
+            true,
+          );
+          if (mode === "review") await agent.approve();
+          assert.match(String(session.model.capture().read("tests")?.content), /Impossible score/);
+        } else {
+          await (mode === "background" ? agent.background("Task", "Edit") : agent.send("Edit"));
+          assert.equal(
+            results.find((entry) => entry.toolCallId === "finish")?.result.success,
+            false,
+          );
+          assert.equal(session.model.capture().documentId, before);
+          assert.equal(session.history.capture().commits.length, commits);
+          assert.equal(agent.pending(), null);
+          assert.match(agent.error ?? "", /Handover rejected/);
+        }
       } finally {
         session.dispose();
       }
@@ -148,7 +178,7 @@ test("successful workspace finish ends the tool batch and provider turn", async 
               name: "write_picture",
               input: { room: 1, source: "vis 2\nfill 0,0\nend\n" },
             },
-            { id: "finish", name: "finish", input: { notes: null } },
+            { id: "finish", name: "finish", input: { testReasons: null } },
             {
               id: "late",
               name: "write_picture",
@@ -198,11 +228,11 @@ for (const provider of ["openai", "anthropic"] as const) {
     const batches = [
       [
         { id: "write", name: "write_logic", input: { room: 1, source: unregistered } },
-        { id: "finish", name: "finish", input: { notes: null } },
+        { id: "finish", name: "finish", input: { testReasons: null } },
       ],
       [
         { id: "repair", name: "write_logic", input: { room: 1, source: repaired } },
-        { id: "finish2", name: "finish", input: { notes: null } },
+        { id: "finish2", name: "finish", input: { testReasons: null } },
       ],
     ];
     const bodies: string[] = [];
@@ -294,8 +324,8 @@ for (const readOnly of [false, true]) {
     try {
       const reply = readOnly ? await agent.ask("What is here?") : await agent.send("Add a tree");
       const expected = readOnly
-        ? "The agent stopped without answering. Ask again."
-        : "The agent stopped before changing anything. Ask again, or describe the change differently.";
+        ? "The agent ended its turn without an answer. Ask again."
+        : "The agent ended its turn without a reply or a change. Ask again, or describe the change differently.";
       assert.equal(agent.current().messages.at(-1)?.text, expected);
       if (readOnly) assert.equal(reply, expected);
       assert.equal(agent.pending(), null);
@@ -306,7 +336,7 @@ for (const readOnly of [false, true]) {
   });
 }
 
-test("a passing finish with no change and no reply still says the agent stopped", async () => {
+test("a passing finish with no change and no reply says the agent finished without a change", async () => {
   const { session } = fixture();
   const agent = createWorkspaceAgent({
     session,
@@ -316,7 +346,7 @@ test("a passing finish with no change and no reply still says the agent stopped"
       setAvailableTools() {},
       getTranscript: () => [],
       async sendUserMessage() {
-        return { toolCalls: [{ id: "finish", name: "finish", input: { notes: null } }] };
+        return { toolCalls: [{ id: "finish", name: "finish", input: { testReasons: null } }] };
       },
       appendToolResults() {},
       async complete() {
@@ -328,12 +358,148 @@ test("a passing finish with no change and no reply still says the agent stopped"
     await agent.send("Add a tree");
     assert.equal(
       agent.current().messages.at(-1)?.text,
-      "The agent stopped before changing anything. Ask again, or describe the change differently.",
+      "The agent finished without changing anything. Ask again, or describe the change differently.",
     );
   } finally {
     session.dispose();
   }
 });
+
+for (const cause of [
+  "withdrawn after an error",
+  "a failed write after a red test run",
+  "a failed write after a withdrawal",
+  "a test run with bad arguments",
+  "a passing finish after an error",
+  "output limit",
+  "output limit in Ask",
+  "refusal",
+] as const)
+  test(`a turn that stops without a change names the cause: ${cause}`, async () => {
+    const { session } = fixture();
+    const sparkle = {
+      id: "write",
+      name: "write_logic",
+      input: { room: 1, source: 'if (said("sparkle")) { print("Hi"); } return;' },
+    };
+    if (cause === "a failed write after a red test run")
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator test", [
+          { key: "logic:1", content: "return;" },
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [{ name: "Open door", room: 1, steps: [], expect: { score: 99 } }],
+            }),
+          },
+        ]),
+        label: "Creator test",
+        origin: "guided",
+        author: "creator",
+      });
+    const turns: LlmTurnResult[] =
+      cause === "a failed write after a red test run"
+        ? [
+            {
+              toolCalls: [{ id: "run", name: "run_game_tests", input: { names: null } }, sparkle],
+            },
+            { text: "", toolCalls: [], stopReason: "end_turn" },
+          ]
+        : cause === "withdrawn after an error" || cause === "a failed write after a withdrawal"
+          ? [
+              ...(cause === "withdrawn after an error"
+                ? [sparkle, { id: "withdraw", name: "withdraw_changes", input: {} }]
+                : [
+                    { id: "plain", name: "write_logic", input: { room: 1, source: "return;" } },
+                    { id: "withdraw", name: "withdraw_changes", input: {} },
+                    sparkle,
+                  ]
+              ).map((call) => ({ toolCalls: [call] })),
+              { text: "", toolCalls: [], stopReason: "end_turn" },
+            ]
+          : cause === "a test run with bad arguments"
+            ? [
+                {
+                  toolCalls: [{ id: "run", name: "run_game_tests", input: { names: "Open door" } }],
+                },
+                { text: "", toolCalls: [], stopReason: "end_turn" },
+              ]
+            : cause === "a passing finish after an error"
+              ? [
+                  { toolCalls: [sparkle] },
+                  {
+                    toolCalls: [{ id: "finish", name: "finish", input: { testReasons: null } }],
+                    stopReason: "end_turn",
+                  },
+                ]
+              : [
+                  {
+                    text: "",
+                    toolCalls: [],
+                    stopReason: cause === "refusal" ? "refusal" : "max_tokens",
+                  },
+                ];
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return turns[round++]!;
+        },
+        async complete() {
+          return turns[round++]!;
+        },
+      }),
+    });
+    try {
+      if (cause === "output limit in Ask") await agent.ask("Why does LOOK not sparkle?");
+      else await agent.send("Make LOOK sparkle");
+      const text = agent.current().messages.at(-1)?.text ?? "";
+      if (
+        cause === "a failed write after a red test run" ||
+        cause === "a failed write after a withdrawal"
+      )
+        assert.match(
+          text,
+          /^The agent stopped after this error: .*sparkle.*\. Ask again, or describe the change differently\.$/,
+        );
+      else if (cause === "a test run with bad arguments")
+        assert.match(
+          text,
+          /^The agent stopped after this error: names must be array or null, got string\. Ask again/,
+        );
+      else if (cause === "a passing finish after an error")
+        assert.equal(
+          text,
+          "The agent finished without changing anything. Ask again, or describe the change differently.",
+        );
+      else if (cause === "withdrawn after an error")
+        assert.match(
+          text,
+          /^The agent withdrew its changes after this error: .*sparkle.*\. Ask again, or describe the change differently\.$/,
+        );
+      else
+        assert.equal(
+          text,
+          {
+            "output limit":
+              "The agent reached its reply length limit before it finished. Ask for a smaller change.",
+            "output limit in Ask":
+              "The agent reached its reply length limit before it finished. Ask a shorter question.",
+            refusal: "The agent declined this request. Describe it differently.",
+          }[cause],
+        );
+      assert.equal(agent.pending(), null);
+    } finally {
+      session.dispose();
+    }
+  });
 
 test("partial approval validates the selected candidate's handover", async () => {
   const { session } = fixture();
@@ -1336,10 +1502,14 @@ test("settings, recordings and successive plan edits retain the owned writer and
     'print("Current typing"); return;',
   );
   const author = controller.getSession()!;
-  const tests = new TextEncoder().encode('{"format":"monotio.agi.tests.v1","tests":[]}');
-  await controller.commitTestsFile(game, author, tests);
+  const { saveTests } = await import("../src/authoring/saveTests.ts");
+  const edited = await saveTests(session, {
+    kind: "text",
+    text: '{"format":"monotio.agi.tests.v1","tests":[]}',
+  });
+  const tests = edited.payload;
   assert.equal(session.model.capture().read("tests")!.content, new TextDecoder().decode(tests));
-  assert.equal(session.history.capture().commits.at(-1)!.label, "Recorded test");
+  assert.equal(session.history.capture().commits.at(-1)!.label, "Tests");
   const exported = controller.assembleExportData(
     {
       projectId: game.projectId!,
@@ -2774,4 +2944,1377 @@ for (const provider of ["anthropic", "openai"] as const)
     const name = provider === "openai" ? "OpenAI" : "Anthropic";
     assert.equal(agent.error, `${name} did not accept your API key. Check it in AI settings.`);
     session.dispose();
+  });
+
+for (const restore of [false, true]) {
+  for (const retry of [false, true])
+    test(`Tests merge by name: ${retry ? "queued retry" : "direct commit"}, ${restore ? "restored" : "live"} review keeps creator edits to echoed names and later changed names win`, async () => {
+      const { session } = fixture();
+      const document = (tests: readonly unknown[]) =>
+        JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+      const save = async (tests: readonly unknown[]) =>
+        session.submit({
+          proposal: session.model.propose(session.model.capture(), "Tests", [
+            { key: "tests", content: document(tests) },
+          ]),
+          label: "Tests",
+          origin: "guided",
+          author: "creator",
+        });
+      const base = [
+        { name: "Echo", room: 1, steps: [], expect: { score: 1 } },
+        { name: "Change", room: 1, steps: [] },
+        { name: "Remove", room: 1, steps: [] },
+      ];
+      await save(base);
+      let rounds = 0;
+      const options = {
+        session,
+        profileId: "2.936" as const,
+        config: () => ({ provider: "stub" as const, model: "stub", apiKey: "" }),
+        conversation: () => ({
+          setAvailableTools() {},
+          getTranscript: () => [],
+          appendToolResults() {},
+          async sendUserMessage() {
+            return {
+              toolCalls: [
+                {
+                  id: "tests",
+                  name: "propose_changes",
+                  input: {
+                    label: "Tests",
+                    changes: [
+                      {
+                        key: "tests",
+                        content: document([
+                          base[0],
+                          { ...base[1], expect: { score: 2 } },
+                          { name: "Renamed", room: 1, steps: [] },
+                        ]),
+                      },
+                    ],
+                  },
+                },
+              ],
+            };
+          },
+          async complete() {
+            rounds++;
+            return {
+              toolCalls: [
+                {
+                  id: "finish",
+                  name: "finish",
+                  input: {
+                    testReasons: ["Echo", "Change", "Remove", "Renamed"].map((test) => ({
+                      test,
+                      reason: "its room has not been built.",
+                    })),
+                  },
+                },
+              ],
+            };
+          },
+        }),
+      };
+      const agent = createWorkspaceAgent(options);
+      try {
+        await agent.send("Write tests");
+        assert.ok(agent.pending());
+        await save([
+          { ...base[0], expect: { score: 9 } },
+          { ...base[1], expect: { score: 8 } },
+          { ...base[2], expect: { score: 7 } },
+          { name: "Creator", room: 1, steps: [] },
+        ]);
+        const reviewer = restore ? createWorkspaceAgent(options) : agent;
+        assert.equal(
+          reviewer.pending()!.stale(),
+          false,
+          "test document history never stales a review",
+        );
+        if (retry) {
+          const submit = session.submit;
+          let interrupted = false;
+          session.submit = async (edit) => {
+            if (!interrupted) {
+              interrupted = true;
+              await submit({
+                proposal: session.model.propose(session.model.capture(), "Queue tests", [
+                  {
+                    key: "tests",
+                    content: document([
+                      { ...base[0], expect: { score: 10 } },
+                      { ...base[1], expect: { score: 8 } },
+                      { ...base[2], expect: { score: 7 } },
+                      { name: "Creator", room: 1, steps: [] },
+                    ]),
+                  },
+                ]),
+                label: "Queue tests",
+                origin: "guided",
+                author: "creator",
+              });
+              throw new Error("Project proposal is stale.");
+            }
+            return submit(edit);
+          };
+        }
+        // The creator edited names this review touches, so Apply shows them before it wins.
+        await assert.rejects(reviewer.approve(), /A test in this review changed/);
+        await reviewer.approve(undefined, { shownTests: reviewer.pending()!.tests()!.touched });
+        const current = JSON.parse(String(session.model.capture().read("tests")?.content)).tests;
+        assert.deepEqual(
+          current.map((test: { name: string }) => test.name),
+          ["Echo", "Change", "Creator", "Renamed"],
+        );
+        assert.equal(
+          current[0].expect.score,
+          retry ? 10 : 9,
+          "echoed base entries preserve concurrent edits",
+        );
+        assert.equal(current[1].expect.score, 2, "later changed name wins");
+        assert.equal(rounds, 1);
+        await session.undo();
+        const undone = JSON.parse(String(session.model.capture().read("tests")?.content)).tests;
+        assert.equal(
+          undone[1].expect.score,
+          8,
+          "Undo retains the creator's earlier same-name version",
+        );
+      } finally {
+        session.dispose();
+      }
+    });
+}
+
+test("An Agent turn that commits nothing has no Undo message and cannot undo a creator change", async () => {
+  const { session } = fixture();
+  const tests = [{ name: "Intro", room: 1, steps: [] }];
+  const document = JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Creator tests", [
+      { key: "tests", content: document },
+    ]),
+    label: "Creator tests",
+    origin: "guided",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      appendToolResults() {},
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "echo",
+              name: "propose_changes",
+              input: {
+                label: "Echo",
+                changes: [
+                  {
+                    key: "tests",
+                    content: JSON.stringify({ format: "monotio.agi.tests.v2", tests }, null, 2),
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      },
+      async complete() {
+        return { text: "Echo", toolCalls: [] };
+      },
+    }),
+  });
+  try {
+    await agent.send("Echo tests");
+    assert.ok(agent.pending());
+    const before = session.history.capture().cursor;
+    const submit = session.submit;
+    let submissions = 0;
+    session.submit = async (edit) => {
+      submissions++;
+      const outcome = await submit(edit);
+      await submit({
+        proposal: session.model.propose(session.model.capture(), "Creator later", [
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [...tests, { name: "Later", room: 1, steps: [] }],
+            }),
+          },
+        ]),
+        label: "Creator later",
+        origin: "guided",
+        author: "creator",
+      });
+      return outcome;
+    };
+    await agent.approve();
+    assert.equal(
+      submissions,
+      0,
+      "a no-op Agent sends no document write whose receipt can acquire a creator checkpoint",
+    );
+    assert.equal(session.history.capture().cursor, before);
+    const message = session
+      .chats()
+      .chats.flatMap((chat) => chat.messages)
+      .find((message) => message.result?.kind === "changes");
+    assert.ok(message);
+    assert.equal(message.beforeCommit, undefined);
+    assert.equal(message.commit, undefined);
+    await assert.rejects(agent.undoMessage(message.id), /no applied changes/i);
+    assert.equal(session.history.capture().cursor, before);
+  } finally {
+    session.dispose();
+  }
+});
+
+for (const alreadyEqual of [false, true])
+  test(`Undo message belongs to the Agent's actual commit, even if a creator commit lands before its receipt (${alreadyEqual ? "already equal no-op" : "real edit"})`, async () => {
+    const { session } = fixture();
+    const doc = (score: number) =>
+      JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: [{ name: "Intro", room: 1, steps: [], expect: { score } }],
+      });
+    const save = async (score: number) =>
+      session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator", [
+          { key: "tests", content: doc(score) },
+        ]),
+        label: "Creator",
+        origin: "guided",
+        author: "creator",
+      });
+    await save(0);
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              {
+                id: "tests",
+                name: "propose_changes",
+                input: { label: "Change Intro", changes: [{ key: "tests", content: doc(1) }] },
+              },
+            ],
+          };
+        },
+        async complete() {
+          return {
+            toolCalls: [
+              {
+                id: "finish",
+                name: "finish",
+                input: {
+                  testReasons: [{ test: "Intro", reason: "it now expects score 1, as asked." }],
+                },
+              },
+            ],
+          };
+        },
+      }),
+    });
+    try {
+      await agent.send("Change Intro");
+      if (alreadyEqual) await save(1);
+      const submit = session.submit;
+      const before = session.history.capture().cursor;
+      session.submit = async (edit) => {
+        const result = await submit(edit);
+        await submit({
+          proposal: session.model.propose(session.model.capture(), "Creator later", [
+            { key: "tests", content: doc(2) },
+          ]),
+          label: "Creator later",
+          origin: "guided",
+          author: "creator",
+        });
+        return result;
+      };
+      await agent.approve();
+      const message = session
+        .chats()
+        .chats.flatMap((chat) => chat.messages)
+        .find((message) => message.result?.kind === "changes")!;
+      if (alreadyEqual) {
+        assert.equal(message.commit, undefined);
+        assert.equal(session.history.capture().cursor, before);
+      } else {
+        const own = session.history
+          .capture()
+          .commits.find((commit) => commit.messageId === message.id)!;
+        assert.equal(message.commit, own.id);
+        assert.equal(message.beforeCommit, own.parent);
+        await assert.rejects(agent.undoMessage(message.id), /Later edits changed tests/);
+        assert.equal(session.model.capture().read("tests")!.content, doc(2));
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const stored of [true, false])
+  test(`Agent finish status starts a formatted chat reply (${stored ? "creator tests red" : "no tests silent"})`, async () => {
+    const { session } = fixture();
+    if (stored)
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator test", [
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [{ name: "Future", room: 5, steps: [] }],
+            }),
+          },
+        ]),
+        label: "Creator test",
+        origin: "guided",
+        author: "creator",
+      });
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return {
+            text: "Model reply",
+            toolCalls: [
+              {
+                id: "proposal",
+                name: "propose_changes",
+                input: {
+                  label: "Recolor",
+                  changes: [{ key: "picture:1", content: "vis 2\nfill 0,0\nend\n" }],
+                },
+              },
+              {
+                id: "finish",
+                name: "finish",
+                input: {
+                  testReasons: stored ? [{ test: "Future", reason: "needs room 5." }] : null,
+                },
+              },
+            ],
+          };
+        },
+        async complete() {
+          throw new Error("A successful finish needs no further request");
+        },
+      }),
+    });
+    const before = session.history.capture().cursor;
+    agent.autoApprove = true;
+    try {
+      await agent.submit({
+        instruction: "Finish",
+        mode: "create",
+        formatReply: () => ({ text: "Formatted reply", context: "Task details" }),
+      });
+      assert.notEqual(session.history.capture().cursor, before);
+      assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
+      assert.equal(
+        agent.current().messages.at(-1)!.text,
+        stored
+          ? "1 test fails: Future\n- Future: needs room 5.\nFormatted reply"
+          : "Formatted reply",
+      );
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const explained of [false, true])
+  test(`An implicit finish with a red proposed test asks for finish testReasons (${explained ? "reason in the reply" : "no reason"})`, async () => {
+    const { session } = fixture();
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              {
+                id: "tests",
+                name: "write_game_tests",
+                input: {
+                  mode: "merge",
+                  names: null,
+                  tests: [{ name: "Future", room: 5, steps: [] }],
+                },
+              },
+            ],
+          };
+        },
+        async complete() {
+          return { text: explained ? "Future needs room 5." : "Done", toolCalls: [] };
+        },
+      }),
+    });
+    try {
+      await agent.send("Write tests first");
+      assert.match(agent.error ?? "", /Not finished: give testReasons for "Future"/);
+      assert.match(
+        agent.current().messages.at(-1)!.text,
+        /^1 test fails: Future\nNot finished: give testReasons for "Future"/,
+      );
+      assert.equal(agent.pending(), null);
+      assert.equal(session.model.capture().read("tests"), undefined);
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const request of ["a red finish", "a test change the creator asked for"] as const)
+  test(`The player sees each red or changed test with the Agent's reason in the reply and in review: ${request}`, async () => {
+    const { session } = fixture();
+    const document = (tests: readonly unknown[]) =>
+      JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const openDoor = { name: "Open door", room: 1, steps: [], expect: { score: 99 } };
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator tests", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "view:0", content: DOT_EGO },
+        { key: "logic:1", content: scoreRoom(0) },
+        { key: "tests", content: document([openDoor, { name: "Lake start", room: 5, steps: [] }]) },
+      ]),
+      label: "Creator tests",
+      origin: "guided",
+      author: "creator",
+    });
+    const lakeStart = { test: "Lake start", reason: "room 5 was deleted, so it cannot start." };
+    const testReasons =
+      request === "a red finish"
+        ? [{ test: "Open door", reason: "the score handler is not written yet." }, lakeStart]
+        : [{ test: "Open door", reason: "it now expects score 0, as you asked." }, lakeStart];
+    const edit =
+      request === "a red finish"
+        ? {
+            id: "edit",
+            name: "propose_changes",
+            input: {
+              label: "Blue room",
+              changes: [{ key: "picture:1", content: "vis 1\nfill 1,1\nend\n" }],
+            },
+          }
+        : {
+            id: "edit",
+            name: "write_game_tests",
+            input: { mode: "merge", names: null, tests: [{ ...openDoor, expect: { score: 0 } }] },
+          };
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults(entries) {
+          for (const entry of entries)
+            assert.equal(entry.result.success, true, JSON.stringify(entry.result));
+        },
+        async sendUserMessage() {
+          return { toolCalls: [edit] };
+        },
+        async complete() {
+          assert.equal(round++, 0, "a successful finish ends the turn");
+          return { toolCalls: [{ id: "finish", name: "finish", input: { testReasons } }] };
+        },
+      }),
+    });
+    agent.autoApprove = request !== "a red finish";
+    try {
+      await agent.send(
+        request === "a red finish"
+          ? "Paint the room blue"
+          : 'Update "Open door" to expect score 0. I approve changing this expectation.',
+      );
+      // Tests run as Apply would leave them: the requested expectation passes.
+      const reasons =
+        request === "a red finish"
+          ? "- Open door: the score handler is not written yet.\n- Lake start: room 5 was deleted, so it cannot start."
+          : "- Lake start: room 5 was deleted, so it cannot start.\n- Open door: it now expects score 0, as you asked.";
+      const status =
+        request === "a red finish"
+          ? "2 tests fail: Open door, Lake start"
+          : "1 test fails: Lake start";
+      const message = agent.current().messages.at(-1)!;
+      assert.ok(agent.pending(), "the change waits for the creator's Apply");
+      assert.equal(message.testReport, `${status}\n${reasons}`);
+      assert.ok(
+        message.text.startsWith(`${status}\n${reasons}\n\n`),
+        `reply shows the reasons under the status line: ${message.text}`,
+      );
+      if (request !== "a red finish") {
+        const review = agent.pending()!;
+        assert.deepEqual(
+          gameTestReviewLines(
+            review.proposal.base.read("tests")?.content,
+            review.proposal.documents()["tests"],
+            PROFILES["2.936"]!,
+          ),
+          ['Changed expectation of "Open door"'],
+        );
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const tool of ["write_game_tests", "propose_changes"] as const)
+  for (const change of ["delete", "expectation", "steps"] as const)
+    test(`Only the creator changes existing tests: Auto-approve retains ${tool} ${change} for explicit review`, async () => {
+      const { session } = fixture();
+      const base = { name: "Open door", room: 1, steps: [], expect: { score: 99 } };
+      const document = (tests: readonly unknown[]) =>
+        JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Creator test", [
+          { key: "logic:1", content: "return;" },
+          { key: "tests", content: document([base]) },
+        ]),
+        label: "Creator test",
+        origin: "guided",
+        author: "creator",
+      });
+      const candidate =
+        change === "delete"
+          ? []
+          : [
+              {
+                ...base,
+                ...(change === "expectation"
+                  ? { expect: { score: 0 } }
+                  : { steps: [{ action: "wait", ticks: 2 }] }),
+              },
+            ];
+      let round = 0;
+      const input =
+        tool === "propose_changes"
+          ? {
+              label: "Update tests",
+              changes: [{ key: "tests", content: document(candidate) }],
+            }
+          : change === "delete"
+            ? { mode: "remove", names: ["Open door"], tests: null }
+            : { mode: "merge", names: null, tests: candidate };
+      const agent = createWorkspaceAgent({
+        session,
+        profileId: "2.936",
+        config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+        conversation: () => ({
+          setAvailableTools() {},
+          getTranscript: () => [],
+          appendToolResults() {},
+          async sendUserMessage() {
+            return { toolCalls: [{ id: "edit", name: tool, input }] };
+          },
+          async complete() {
+            return round++ === 0
+              ? {
+                  toolCalls: [
+                    {
+                      id: "finish",
+                      name: "finish",
+                      input: {
+                        testReasons: [
+                          { test: "Open door", reason: "the score needs implementation." },
+                        ],
+                      },
+                    },
+                  ],
+                }
+              : {
+                  text: "Open door stays red because the score needs implementation.",
+                  toolCalls: [],
+                };
+          },
+        }),
+      });
+      agent.autoApprove = true;
+      try {
+        const before = session.model.capture().read("tests")!.content;
+        const cursor = session.history.capture().cursor;
+        await agent.send("Propose test edits");
+        assert.ok(agent.pending(), "existing-test changes require the creator's Apply");
+        // Review lists the reason even when no test is left to give a status line.
+        assert.match(
+          agent.current().messages.at(-1)!.testReport ?? "",
+          /^(1 test (passes\.|fails: Open door)\n)?- Open door: the score needs implementation\.$/,
+        );
+        assert.equal(session.model.capture().read("tests")!.content, before);
+        assert.equal(session.history.capture().cursor, cursor);
+        await agent.approve();
+        assert.notEqual(session.history.capture().cursor, cursor);
+        const committed = session.model.capture().read("tests")?.content;
+        if (change === "delete") assert.equal(JSON.parse(String(committed)).tests.length, 0);
+        else assert.notEqual(committed, before);
+      } finally {
+        session.dispose();
+      }
+    });
+
+for (const timing of ["before approval", "inside queue"] as const)
+  test(`Only the creator changes tests: Auto-approve keeps a late same-name test collision pending (${timing})`, async () => {
+    const { session } = fixture();
+    const document = (room: number) =>
+      JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: [{ name: "Future", room, steps: [] }],
+      });
+    const submit = session.submit;
+    let collided = false;
+    const collide = async () => {
+      if (collided) return;
+      collided = true;
+      await submit({
+        proposal: session.model.propose(session.model.capture(), "Creator tests", [
+          { key: "tests", content: document(9) },
+        ]),
+        label: "Creator tests",
+        origin: "guided",
+        author: "creator",
+      });
+    };
+    let rounds = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      ...(timing === "before approval" ? { beforeApprove: collide } : {}),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              {
+                id: "test",
+                name: "write_game_tests",
+                input: {
+                  mode: "merge",
+                  names: null,
+                  tests: [{ name: "Future", room: 5, steps: [] }],
+                },
+              },
+            ],
+          };
+        },
+        async complete() {
+          return rounds++ === 0
+            ? {
+                toolCalls: [
+                  {
+                    id: "finish",
+                    name: "finish",
+                    input: {
+                      testReasons: [{ test: "Future", reason: "its room has not been built." }],
+                    },
+                  },
+                ],
+              }
+            : { text: "Future stays red because its room has not been built.", toolCalls: [] };
+        },
+      }),
+    });
+    agent.autoApprove = true;
+    if (timing === "inside queue")
+      session.submit = async (edit) => {
+        await collide();
+        return submit(edit);
+      };
+    try {
+      await agent.send("Write a future test");
+      assert.ok(agent.pending(), "a late collision still needs creator Apply");
+      assert.equal(session.model.capture().read("tests")!.content, document(9));
+      assert.doesNotMatch(agent.current().messages.at(-1)!.text, /Applied automatically/);
+      // Apply without the comparison on screen refuses, however often it is chosen.
+      for (let click = 0; click < 2; click++)
+        await assert.rejects(agent.approve(), /A test in this review changed/);
+      assert.equal(session.model.capture().read("tests")!.content, document(9));
+      await agent.approve(undefined, { shownTests: agent.pending()!.tests()!.touched });
+      assert.equal(
+        JSON.parse(String(session.model.capture().read("tests")!.content)).tests[0].room,
+        5,
+      );
+    } finally {
+      session.dispose();
+    }
+  });
+
+/** An Agent turn that offers test changes for the creator's review (no Auto-approve). */
+async function reviewedTestChange(
+  session: ReturnType<typeof fixture>["session"],
+  input: Record<string, unknown>,
+  beforeApprove?: () => Promise<void>,
+) {
+  let rounds = 0;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    ...(beforeApprove ? { beforeApprove } : {}),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      appendToolResults() {},
+      async sendUserMessage() {
+        return { toolCalls: [{ id: "test", name: "write_game_tests", input }] };
+      },
+      async complete() {
+        return rounds++ === 0
+          ? {
+              toolCalls: [
+                {
+                  id: "finish",
+                  name: "finish",
+                  input: { testReasons: [{ test: "Future", reason: "its room is not built." }] },
+                },
+              ],
+            }
+          : { text: "Future stays red because its room is not built.", toolCalls: [] };
+      },
+    }),
+  });
+  await agent.send("Write tests");
+  assert.ok(agent.pending(), "the test change waits for the creator's Apply");
+  return agent;
+}
+const testsDocument = (tests: readonly unknown[]) =>
+  JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+const creatorSavesTests = (
+  session: ReturnType<typeof fixture>["session"],
+  tests: readonly unknown[],
+) =>
+  session.submit({
+    proposal: session.model.propose(session.model.capture(), "Creator tests", [
+      { key: "tests", content: testsDocument(tests) },
+    ]),
+    label: "Creator tests",
+    origin: "guided",
+    author: "creator",
+  });
+const futureRoom5 = { mode: "merge", names: null, tests: [{ name: "Future", room: 5, steps: [] }] };
+const roomOf = (content: unknown, name: string) =>
+  JSON.parse(String(content)).tests.find((test: { name: string }) => test.name === name)?.room;
+
+test("Review shows what Apply does: a late same-name test is replaced, not added", async () => {
+  const { session } = fixture();
+  try {
+    const agent = await reviewedTestChange(session, futureRoom5);
+    await creatorSavesTests(session, [{ name: "Future", room: 9, steps: [] }]);
+    const shown = agent.pending()!.tests()!;
+    assert.equal(roomOf(shown.before, "Future"), 9);
+    assert.equal(roomOf(shown.after, "Future"), 5);
+    assert.deepEqual(gameTestReviewLines(shown.before, shown.after, PROFILES["2.936"]!), [
+      'Changed test "Future"',
+    ]);
+    await agent.approve(undefined, { shownTests: shown.touched });
+    assert.equal(session.model.capture().read("tests")!.content, shown.after);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("Apply commits the comparison the creator saw: a touched test changed since is shown again first", async () => {
+  const { session } = fixture();
+  try {
+    const agent = await reviewedTestChange(session, futureRoom5);
+    const seen = agent.pending()!.tests()!.touched;
+    await creatorSavesTests(session, [{ name: "Future", room: 9, steps: [] }]);
+    await assert.rejects(
+      agent.approve(undefined, { shownTests: seen }),
+      /A test in this review changed\. Check the Tests comparison again, then choose Apply\./,
+    );
+    // A second Apply without the comparison refuses too.
+    await assert.rejects(agent.approve(), /A test in this review changed/);
+    assert.equal(roomOf(session.model.capture().read("tests")!.content, "Future"), 9);
+    assert.ok(agent.pending(), "the proposal stays pending");
+    const refreshed = agent.pending()!.tests()!;
+    assert.equal(roomOf(refreshed.before, "Future"), 9);
+    await agent.approve(undefined, { shownTests: refreshed.touched });
+    assert.equal(session.model.capture().read("tests")!.content, refreshed.after);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("A touched test that changes while Apply is in flight is shown before it is overwritten", async () => {
+  const { session } = fixture();
+  try {
+    let collided = false;
+    const agent = await reviewedTestChange(session, futureRoom5, async () => {
+      if (collided) return;
+      collided = true;
+      await creatorSavesTests(session, [{ name: "Future", room: 9, steps: [] }]);
+    });
+    const seen = agent.pending()!.tests()!.touched;
+    await assert.rejects(
+      agent.approve(undefined, { shownTests: seen }),
+      /A test in this review changed/,
+    );
+    assert.equal(roomOf(session.model.capture().read("tests")!.content, "Future"), 9);
+    assert.ok(agent.pending(), "the proposal stays pending");
+    await agent.approve(undefined, { shownTests: agent.pending()!.tests()!.touched });
+    assert.equal(roomOf(session.model.capture().read("tests")!.content, "Future"), 5);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("An unrelated test the creator adds meanwhile survives Apply without a new review", async () => {
+  const { session } = fixture();
+  try {
+    const agent = await reviewedTestChange(session, futureRoom5);
+    const seen = agent.pending()!.tests()!.touched;
+    await creatorSavesTests(session, [{ name: "Lake", room: 2, steps: [] }]);
+    await agent.approve(undefined, { shownTests: seen });
+    const committed = session.model.capture().read("tests")!.content;
+    assert.equal(roomOf(committed, "Lake"), 2);
+    assert.equal(roomOf(committed, "Future"), 5);
+    assert.equal(agent.pending(), null);
+  } finally {
+    session.dispose();
+  }
+});
+
+for (const mode of ["merge", "remove"] as const)
+  test(`Review describes a touched test the creator deleted: ${mode === "merge" ? "the change re-adds it" : "nothing is left to delete"}`, async () => {
+    const { session } = fixture();
+    try {
+      const door = { name: "Future", room: 1, steps: [], expect: { score: 99 } };
+      await creatorSavesTests(session, [door]);
+      const agent = await reviewedTestChange(
+        session,
+        mode === "merge"
+          ? { mode, names: null, tests: [{ ...door, expect: { score: 0 } }] }
+          : { mode, names: ["Future"], tests: null },
+      );
+      await creatorSavesTests(session, []);
+      const shown = agent.pending()!.tests()!;
+      assert.deepEqual(
+        gameTestReviewLines(shown.before, shown.after, PROFILES["2.936"]!),
+        mode === "merge" ? ['Added test "Future"'] : [],
+      );
+      await agent.approve(undefined, { shownTests: shown.touched });
+      const committed = session.model.capture().read("tests")!.content;
+      assert.equal(roomOf(committed, "Future"), mode === "merge" ? 1 : undefined);
+    } finally {
+      session.dispose();
+    }
+  });
+
+const scoreRoom = (score: number) =>
+  `if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input(); } assignn(v3,${score}); return;`;
+
+for (const fixes of [true, false])
+  test(`Agent handover tests the pending proposal: ${fixes ? "a proposed fix passes" : "a proposed regression stays red without aborting the conversation"}`, async () => {
+    const { session } = fixture();
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "view:0", content: DOT_EGO },
+        { key: "logic:1", content: fixes ? scoreRoom(0) : scoreRoom(5) },
+        {
+          key: "tests",
+          content: JSON.stringify({
+            format: "monotio.agi.tests.v2",
+            tests: [
+              {
+                name: "Score test",
+                room: 1,
+                steps: [{ action: "wait", ticks: 1 }],
+                expect: { score: 5 },
+              },
+            ],
+          }),
+        },
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const results: {
+      toolCallId: string;
+      result: { success: boolean; message?: string | undefined; error?: string | undefined };
+    }[] = [];
+    let round = 0;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              {
+                id: "native-picture",
+                name: "write_picture",
+                input: { room: 1, source: "vis 3\nfill 0,0\nend\n" },
+              },
+              {
+                id: "proposal",
+                name: "propose_changes",
+                input: {
+                  label: "Update score",
+                  changes: [{ key: "logic:1", content: fixes ? scoreRoom(5) : scoreRoom(0) }],
+                },
+              },
+              { id: "run", name: "run_game_tests", input: { names: null } },
+            ],
+          };
+        },
+        appendToolResults(entries) {
+          results.push(...entries);
+        },
+        async complete() {
+          return round++ === 0
+            ? { toolCalls: [{ id: "finish", name: "finish", input: { testReasons: null } }] }
+            : { text: "Done", toolCalls: [] };
+        },
+      }),
+    });
+    try {
+      await agent.send("Update the score");
+      assert.equal(results.find((entry) => entry.toolCallId === "run")?.result.success, fixes);
+      assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, fixes);
+      if (fixes) {
+        assert.match(agent.current().messages.at(-1)!.text, /^1 test passes\./);
+        assert.equal(
+          agent
+            .pending()!
+            .changes()
+            .find((change) => change.key === "picture:1")!.content,
+          "vis 3\nfill 0,0\nend\n",
+          "handover retains native writes alongside pending proposals",
+        );
+      } else {
+        assert.match(
+          results.find((entry) => entry.toolCallId === "finish")?.result.error ?? "",
+          /Not finished: give testReasons for "Score test"/,
+        );
+        assert.match(agent.error ?? "", /Not finished: give testReasons for "Score test"/);
+        assert.match(
+          agent.current().messages.at(-1)!.text,
+          /Not finished: give testReasons for "Score test"/,
+        );
+        assert.equal(agent.pending(), null);
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+
+test("Auto-approve commits a game proposal with red tests; only finish testReasons explain failures", async () => {
+  const { session } = fixture();
+  const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Creator test", [
+      {
+        key: "logic:0",
+        content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+      },
+      { key: "view:0", content: DOT_EGO },
+      { key: "logic:1", content: scoreRoom(0) },
+      {
+        key: "tests",
+        content: JSON.stringify({
+          format: "monotio.agi.tests.v2",
+          tests: [{ name: "Score test", room: 1, steps: [], expect: { score: 5 } }],
+        }),
+      },
+    ]),
+    label: "Creator test",
+    origin: "guided",
+    author: "creator",
+  });
+  const results: { toolCallId: string; result: { success: boolean } }[] = [];
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "proposal",
+              name: "propose_changes",
+              input: {
+                label: "Update room",
+                changes: [{ key: "picture:1", content: "vis 2\nfill 0,0\nend\n" }],
+              },
+            },
+            {
+              id: "finish",
+              name: "finish",
+              input: {
+                testReasons: [{ test: "Score test", reason: "needs the score implementation." }],
+              },
+            },
+          ],
+        };
+      },
+      appendToolResults(entries) {
+        results.push(...entries);
+      },
+      async complete() {
+        throw new Error("Successful finish ends the provider turn: " + JSON.stringify(results));
+      },
+    }),
+  });
+  agent.autoApprove = true;
+  try {
+    await agent.send("Recolor the room");
+    assert.equal(results.find((entry) => entry.toolCallId === "proposal")?.result.success, true);
+    assert.equal(results.find((entry) => entry.toolCallId === "finish")?.result.success, true);
+    assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
+    assert.match(agent.current().messages.at(-1)!.text, /^1 test fails: Score test/);
+  } finally {
+    session.dispose();
+  }
+});
+
+for (const creatorAction of ["partial approval", "save a red test"] as const)
+  test(`Creator actions never rerun the Agent finish check: ${creatorAction}`, async () => {
+    const { session } = fixture();
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const document = (names: readonly string[]) =>
+      JSON.stringify({
+        format: "monotio.agi.tests.v2",
+        tests: names.map((name) => ({
+          name,
+          room: 1,
+          steps: [{ action: "wait", ticks: 1 }],
+          expect: { score: name === "Score test" ? 5 : 9 },
+        })),
+      });
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "view:0", content: DOT_EGO },
+        { key: "logic:1", content: scoreRoom(0) },
+        { key: "tests", content: document(["Score test"]) },
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults(entries) {
+          for (const entry of entries)
+            assert.equal(entry.result.success, true, JSON.stringify(entry));
+        },
+        async sendUserMessage() {
+          return {
+            toolCalls: [
+              { id: "logic", name: "write_logic", input: { room: 1, source: scoreRoom(5) } },
+              {
+                id: "picture",
+                name: "write_picture",
+                input: { room: 1, source: "vis 2\nfill 0,0\nend\n" },
+              },
+              { id: "finish", name: "finish", input: { testReasons: null } },
+            ],
+          };
+        },
+        async complete() {
+          throw new Error("Successful finish ends the provider turn");
+        },
+      }),
+    });
+    try {
+      await agent.send("Fix score and recolor");
+      assert.match(agent.current().messages.at(-1)!.text, /^1 test passes\./);
+      if (creatorAction === "save a red test")
+        await session.submit({
+          proposal: session.model.propose(session.model.capture(), "Creator adds a test", [
+            { key: "tests", content: document(["Score test", "Treasure"]) },
+          ]),
+          label: "Creator adds a test",
+          origin: "guided",
+          author: "creator",
+        });
+      await agent.approve(creatorAction === "partial approval" ? ["picture:1"] : undefined);
+      assert.equal(session.model.capture().read("picture:1")!.content, "vis 2\nfill 0,0\nend\n");
+      assert.equal(
+        session.model.capture().read("logic:1")!.content,
+        creatorAction === "partial approval" ? scoreRoom(0) : scoreRoom(5),
+      );
+      assert.match(agent.current().messages.at(-1)!.text, /^1 test passes\./);
+      assert.equal(agent.pending(), null);
+    } finally {
+      session.dispose();
+    }
+  });
+
+test("Only the creator edits existing tests: Auto-approve reviews a changed original name re-added after creator deletion", async () => {
+  const { session } = fixture();
+  const document = (tests: readonly unknown[]) =>
+    JSON.stringify({ format: "monotio.agi.tests.v2", tests });
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Creator test", [
+      { key: "tests", content: document([{ name: "Future", room: 1, steps: [] }]) },
+    ]),
+    label: "Creator test",
+    author: "creator",
+    origin: "guided",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation: () => ({
+      setAvailableTools() {},
+      getTranscript: () => [],
+      appendToolResults() {},
+      async sendUserMessage() {
+        return {
+          toolCalls: [
+            {
+              id: "change",
+              name: "write_game_tests",
+              input: {
+                mode: "merge",
+                names: null,
+                tests: [{ name: "Future", room: 5, steps: [] }],
+              },
+            },
+          ],
+        };
+      },
+      async complete() {
+        await session.submit({
+          proposal: session.model.propose(session.model.capture(), "Creator removes test", [
+            { key: "tests", content: document([]) },
+          ]),
+          label: "Creator removes test",
+          author: "creator",
+          origin: "guided",
+        });
+        return {
+          toolCalls: [
+            {
+              id: "finish",
+              name: "finish",
+              input: { testReasons: [{ test: "Future", reason: "needs room 5." }] },
+            },
+          ],
+        };
+      },
+    }),
+  });
+  agent.autoApprove = true;
+  try {
+    await agent.send("Change Future");
+    assert.ok(agent.pending());
+    assert.equal(session.model.capture().read("tests")!.content, document([]));
+    await agent.approve(undefined, { shownTests: agent.pending()!.tests()!.touched });
+    assert.equal(
+      JSON.parse(String(session.model.capture().read("tests")!.content)).tests[0].room,
+      5,
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
+for (const outcome of ["named red", "unnamed red", "green", "formatted unnamed red"] as const)
+  test(`Questions keep their answer without a handover: ${outcome}`, async () => {
+    const { session } = fixture();
+    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        {
+          key: "logic:0",
+          content: "if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;",
+        },
+        { key: "logic:1", content: scoreRoom(0) },
+        { key: "view:0", content: DOT_EGO },
+        {
+          key: "tests",
+          content: JSON.stringify({
+            format: "monotio.agi.tests.v2",
+            tests: [
+              {
+                name: "Score test",
+                room: 1,
+                steps: [],
+                expect: { score: outcome === "green" ? 0 : 5 },
+              },
+            ],
+          }),
+        },
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const cursor = session.history.capture().cursor;
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults() {},
+        async sendUserMessage() {
+          return {
+            text: outcome === "named red" ? "Score test needs the score implementation." : "Done",
+            toolCalls: [],
+          };
+        },
+        async complete() {
+          throw new Error("No provider follow-up needed");
+        },
+      }),
+    });
+    try {
+      if (outcome === "formatted unnamed red")
+        await agent.submit({
+          instruction: "Finish without edits",
+          mode: "create",
+          formatReply: () => ({ text: "Changes complete", context: "Formatted task" }),
+        });
+      else await agent.send("Finish without edits");
+      assert.equal(session.history.capture().cursor, cursor);
+      assert.equal(agent.pending(), null);
+      assert.equal(agent.error ?? "", "");
+      assert.equal(
+        agent.current().messages.at(-1)!.text,
+        outcome === "formatted unnamed red"
+          ? "Changes complete"
+          : outcome === "named red"
+            ? "Score test needs the score implementation."
+            : "Done",
+      );
+    } finally {
+      session.dispose();
+    }
+  });
+
+for (const path of ["answer", "untouched plan", "read tests", "echo tests", "finish"] as const)
+  test(`a question that changes nothing gets its answer: ${path}`, async () => {
+    const { session } = fixture();
+    const tests = JSON.stringify({
+      format: "monotio.agi.tests.v2",
+      tests: [{ name: "Score test", room: 5, steps: [] }],
+    });
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Creator test", [
+        { key: "tests", content: tests },
+        { key: "logic:1", content: "return;" },
+        ...(path === "untouched plan"
+          ? [
+              {
+                key: "world",
+                content: JSON.stringify({
+                  rooms: { "1": { title: "Kitchen", description: "", exits: { north: 2 } } },
+                  facts: {},
+                  quests: {},
+                }),
+              },
+            ]
+          : []),
+      ]),
+      label: "Creator test",
+      origin: "guided",
+      author: "creator",
+    });
+    const cursor = session.history.capture().cursor;
+    const documents = session.model.capture().documents();
+    const answer = "Room 1 is the kitchen...";
+    const calls =
+      path === "read tests"
+        ? [{ id: "read", name: "read_game_tests", input: { names: null, offset: null } }]
+        : path === "echo tests"
+          ? [
+              {
+                id: "echo",
+                name: "propose_changes",
+                input: {
+                  label: "Echo",
+                  changes: [{ key: "tests", content: JSON.stringify(JSON.parse(tests), null, 2) }],
+                },
+              },
+            ]
+          : path === "finish"
+            ? [{ id: "finish", name: "finish", input: { testReasons: null } }]
+            : [];
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+      conversation: () => ({
+        setAvailableTools() {},
+        getTranscript: () => [],
+        appendToolResults(entries) {
+          for (const entry of entries)
+            assert.equal(entry.result.success, true, JSON.stringify(entry));
+        },
+        async sendUserMessage() {
+          return { text: answer, toolCalls: calls };
+        },
+        async complete() {
+          return { text: answer, toolCalls: [] };
+        },
+      }),
+    });
+    try {
+      await agent.send("What is room 1?");
+      assert.equal(agent.current().messages.at(-1)!.text, answer);
+      assert.equal(agent.error, "");
+      assert.equal(session.history.capture().cursor, cursor);
+      assert.deepEqual(session.model.capture().documents(), documents);
+    } finally {
+      session.dispose();
+    }
   });

@@ -141,7 +141,7 @@ describe("agent tools", () => {
 
     // 6. finish genesis
     const finishRes = executeAgentTool(session, "finish", {
-      notes: "Starting room and ego initialized.",
+      testReasons: null,
     });
     assert.equal(finishRes.success, true);
     assert.equal(session.genesisComplete, true);

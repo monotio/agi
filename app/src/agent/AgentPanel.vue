@@ -20,7 +20,11 @@ import { pendingReferences, removePendingReference } from "../references/referen
 import AgentReply from "./AgentReply.ts";
 import AgentResult from "./AgentResult.vue";
 import AgentReviewActions from "./AgentReviewActions.vue";
-import { borrowWorkspaceAgent, type ReplyFormatter } from "./workspaceAgent.ts";
+import {
+  AgentTestReviewChanged,
+  borrowWorkspaceAgent,
+  type ReplyFormatter,
+} from "./workspaceAgent.ts";
 import { useReadingPosition } from "../shell/useReadingPosition.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
@@ -34,7 +38,7 @@ import { compileProjectDocuments } from "../../../src/authoring/projectDocuments
 import { openContainer } from "../../../src/container/container.ts";
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
-import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
+import { sameProjectContent, type ProjectContent } from "../../../src/authoring/projectContent.ts";
 import { compileCapturedResource, capturedResourceDocuments } from "./agentResultPreview.ts";
 import { resourceRenderingDependencies } from "./agentResults.ts";
 import { formatSpent } from "./reportedSpend.ts";
@@ -170,13 +174,33 @@ function openResult(message: AgentChat["messages"][number], resource?: string): 
   resultMessageId.value = message.id;
   resultResource.value = resource;
 }
+/** A pending review compares the tests as Apply would commit them now, against the creator's current ones. */
+const liveTests = computed(() => {
+  void tick.value;
+  const live = review.value;
+  if (!live || live.messageId !== resultMessageId.value) return undefined;
+  try {
+    return live.tests();
+  } catch {
+    return undefined;
+  }
+});
 const resultDocuments = computed(() => {
   const stored = resultReview.value;
   const inspected = inspection.value;
+  const live = liveTests.value;
+  const withTests = (
+    documents: Readonly<Record<string, ProjectContent>>,
+    tests: ProjectContent | null | undefined,
+  ): Readonly<Record<string, ProjectContent>> => {
+    if (live === undefined) return documents;
+    const { tests: _stored, ...rest } = documents;
+    return tests === null || tests === undefined ? rest : { ...rest, tests };
+  };
   return {
-    before: stored ? readProjectWorkspace(stored.base) : {},
+    before: stored ? withTests(readProjectWorkspace(stored.base), live?.before) : {},
     after: stored
-      ? readProjectWorkspace(stored.candidate)
+      ? withTests(readProjectWorkspace(stored.candidate), live?.after)
       : inspected?.snapshot
         ? readProjectWorkspace(inspected.snapshot)
         : Object.fromEntries(
@@ -253,11 +277,15 @@ const resultImages = computed(() => {
 });
 const resultChanges = computed(() => {
   const stored = resultReview.value;
-  if (stored)
+  if (stored) {
+    const live = liveTests.value;
     return diffProjectDocuments(
       readProjectWorkspace(stored.base),
       readProjectWorkspace(stored.candidate),
+    ).map((change) =>
+      change.key === "tests" && live ? { key: "tests", content: live.after } : change,
     );
+  }
   const inspected = inspection.value;
   if (!inspected) return [];
   return inspected.resources.map((key) => ({
@@ -724,10 +752,31 @@ function currentReviewOwner(): ReviewOwner | undefined {
 async function approve() {
   const captured = currentReviewOwner();
   if (!captured?.writable || !captured.review) return;
+  // Apply carries the Tests comparison on screen at the click. The chat banner
+  // and a preview of another resource show none, so they carry none.
+  const pending = agent.value?.pending();
+  const testsOnScreen =
+    pending?.messageId === resultMessageId.value &&
+    (resultResource.value === undefined || resultResource.value === "tests");
+  const shownTests = testsOnScreen ? liveTests.value?.touched : undefined;
   await action(async () => {
-    await approveCapturedReview(captured, currentReviewOwner, async () => {
-      await editor.flush.value?.();
-    });
+    try {
+      await approveCapturedReview(
+        captured,
+        currentReviewOwner,
+        async () => {
+          await editor.flush.value?.();
+        },
+        shownTests,
+      );
+    } catch (cause) {
+      // The refused comparison opens, so the next Apply carries what it shows.
+      if (cause instanceof AgentTestReviewChanged && pending) {
+        resultMessageId.value = pending.messageId;
+        resultResource.value = undefined;
+      }
+      throw cause;
+    }
     if (agent.value === captured.owner) resultMessageId.value = undefined;
   });
 }
@@ -986,7 +1035,10 @@ onBeforeUnmount(() => {
             data-testid="agent-review-outcome"
             >{{ agent.reviewOutcome(message.id) }}</UiChip
           >
-          <div v-if="message.commit && creating" class="agent-panel__checkpoints">
+          <div
+            v-if="message.commit && message.beforeCommit !== message.commit && creating"
+            class="agent-panel__checkpoints"
+          >
             <UiButton
               size="sm"
               variant="ghost"
@@ -1013,11 +1065,18 @@ onBeforeUnmount(() => {
       >Jump to latest</UiButton
     >
     <p v-if="!settings.aiConfigured.value" class="agent-panel__intro agent-panel__setup">
-      Connect your AI provider in Settings to start a task.
+      <!-- A disabled button's title never reaches touch or keyboard players, so the sentence
+           itself says when Connect AI works again. -->
+      {{
+        settings.aiSettingsUnavailable.value
+          ? "Connect your AI provider when the Agent finishes."
+          : "Connect your AI provider in Settings to start a task."
+      }}
       <UiButton
         size="sm"
         variant="ghost"
         data-testid="agent-open-ai-settings"
+        :disabled="settings.aiSettingsUnavailable.value"
         @click="settings.openAiSettings($event, 'assistant')"
         >Connect AI</UiButton
       >
@@ -1149,6 +1208,11 @@ onBeforeUnmount(() => {
       />
       <div class="agent-panel__result-content">
         <h3>{{ resultReview?.label ?? "Result" }}</h3>
+        <AgentReply
+          v-if="resultMessage.testReport"
+          :text="resultMessage.testReport"
+          data-testid="agent-review-tests"
+        />
         <p
           v-if="review?.messageId === resultMessage.id && review.stale()"
           role="alert"

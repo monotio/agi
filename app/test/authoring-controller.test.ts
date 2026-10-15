@@ -7,12 +7,13 @@ import {
   type PowerUpUiState,
   type RoomGenerationUiState,
 } from "../src/authoring/useAuthoringController.ts";
-import { ResourceCommitError } from "../src/project/projectTransaction.ts";
+import { ResourceCommitError, advanceAuthoring } from "../src/project/projectTransaction.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createWorkspaceAgent } from "../src/agent/workspaceAgent.ts";
 import { createPauseHolds } from "../src/engine/pauseHolds.ts";
+import { saveTests } from "../src/authoring/saveTests.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import * as authoringStack from "../src/agent/authoringStack.ts";
@@ -417,12 +418,14 @@ for (const reopened of [false, true]) {
     });
     const opening = controller.openPowerUp(mockConfig);
     assert.equal(powerUp.busy, true);
+    assert.equal(powerUp.opening, true, "AI settings stay available while the Agent opens");
     // The engine wrapper hides the drawer immediately before the controller closes it.
     powerUp.open = false;
     controller.closePowerUp();
     assert.equal(pauseState.paused, false);
     assert.deepEqual(holds.pauseOwners(), []);
     assert.equal(powerUp.busy, false);
+    assert.equal(powerUp.opening, false);
     const replacement = reopened ? controller.openPowerUp(mockConfig) : undefined;
     if (reopened) {
       assert.equal(powerUp.open, true);
@@ -439,6 +442,7 @@ for (const reopened of [false, true]) {
       assert.equal(powerUp.open, true);
       assert.equal(powerUp.room, 23);
       assert.equal(powerUp.busy, false);
+      assert.equal(powerUp.opening, false);
       assert.deepEqual(holds.pauseOwners(), ["powerUp"]);
       controller.closePowerUp();
     }
@@ -717,7 +721,13 @@ for (const outcome of [
         outcome === "no-game" ? undefined : "next-model",
       );
     } else {
-      assert.match(String(error), /game changed|current agent task|Settings storage refused/);
+      // The notice names what happened: a closed Agent asks for another Save.
+      assert.match(
+        String(error),
+        outcome === "closed" || outcome === "closed-reopened"
+          ? /^Error: The Agent closed before the settings applied\. Save again\.$/
+          : /game changed|current agent task|Settings storage refused/,
+      );
       assert.equal(commits, outcome === "commit-refused" ? 1 : 0);
       assert.equal(controller.getSession(), author);
       assert.equal(author.getProviderContext().model, mockConfig.model);
@@ -956,103 +966,162 @@ test("handleRoomAuthoring moves the booted game to the revision it saved once th
   await clearCachedGame(projectId);
 });
 
-test("an answered room checkpoints after its owned project publishes the installed revision", async (t) => {
-  installLocalStorageMock(t);
-  const projectId = testProjectId("owned-room-checkpoint");
-  const files = createTestFiles();
-  await saveAuthoredGame(projectId, {
-    title: "JIT Room Game",
-    provider: "stub",
-    model: "offline-stub",
-    files,
-    words: [],
-    roomGeneration: true,
-  });
-  const bootedGame: BootedGame = {
-    installed: false,
-    projectId,
-    title: "JIT Room Game",
-    revision: await gameRevision(files),
-    files,
-    words: [],
-  };
-  const data = (await loadAuthoredGame(projectId))!;
-  const project = openProjectSession({
-    data,
-    lifetime: (await readHistoryLifetime(projectId))!,
-    admission: {
-      runToken: "room-run",
-      admit: async () => assert.fail("the worker already installed the room answer"),
-      admitPreparedRoom: async () => ({
-        status: "committed",
-        expected: null,
-        current: null,
-        patchGeneration: 1,
-      }),
-    },
-    publish(snapshot, saved) {
-      bootedGame.files = saved.files;
-      bootedGame.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-    },
-  });
-  t.after(() => project.dispose());
-  let checkpoints = 0;
-  const room = assembleLogic("return;", { dictionary: new Map() }).payload;
-  // The running game answers with what it holds: the room once the answer landed.
-  let running = files;
-  const worker = { postMessage() {} } as unknown as Worker;
-  const controller = useAuthoringController({
-    state: {
-      phase: "running",
-      powerUp: createMockPowerUp(),
-      agentTask: null,
-      agentLog: [],
-      profile: "2.936",
-      worldTick: 0,
-      planDurableRev: "",
-    },
-    getWorker: () => worker,
-    query: async <T>(type: string) => (type === "exportFiles" ? (running as T) : (null as T)),
-    logAgent: () => {},
-    readFrames: async () => [],
-    pauseEngine: () => {},
-    resumeEngine: () => {},
-    getBootedGame: () => bootedGame,
-    setBootedGame: () => {},
-    flushAutosave: async () => {
-      assert.equal(bootedGame.revision, computeResourceRevision(running));
-      assert.equal(project.saveStatus().state, "saved");
-      checkpoints++;
-    },
-    getProjectSession: () => project,
-    getAutosaveWrite: async () => true,
-    clearAutosave: () => {},
-    awaitPatched: ackPatch,
-    configForGame: (_p, config) => config,
-    getLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
-  });
-  await controller.handleRoomAuthoring(
-    { op: "room", context: { room: 2 } },
-    {
-      handle: async () => {
-        controller.getSession()!.state.container.putResource("logic", 2, room);
-        return "Room created";
+for (const delivery of ["publish", "cancel", "replace", "failure"] as const) {
+  test(`Tests are documents: saving tests during room answer delivery preserves cancellation (${delivery})`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId(`owned-room-checkpoint-${delivery}`);
+    const initial = openContainer(new Map(Object.entries(createTestFiles())));
+    initial.putResource("logic", 1, assembleLogic("return;", { dictionary: new Map() }).payload);
+    const files = Object.fromEntries(initial.files);
+    await saveAuthoredGame(projectId, {
+      title: "JIT Room Game",
+      provider: "stub",
+      model: "offline-stub",
+      files,
+      words: [],
+      roomGeneration: true,
+    });
+    const bootedGame: BootedGame = {
+      installed: false,
+      projectId,
+      title: "JIT Room Game",
+      revision: await gameRevision(files),
+      files,
+      words: [],
+    };
+    const data = (await loadAuthoredGame(projectId))!;
+    const writeGate = Promise.withResolvers<void>();
+    let holdWrite = false;
+    let reachedWriteDone = false;
+    t.after(() => writeGate.resolve());
+    const project = openProjectSession({
+      data,
+      lifetime: (await readHistoryLifetime(projectId))!,
+      admission: {
+        runToken: "room-run",
+        admit: async () => assert.fail("the worker already installed the room answer"),
+        admitPreparedRoom: async () => ({
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        }),
       },
-    },
-    () => {},
-  );
+      async write(request) {
+        if (holdWrite) {
+          reachedWriteDone = true;
+          await writeGate.promise;
+          if (delivery === "failure") throw new Error("Browser storage refused the room write.");
+        }
+        return (await commitProject(request)).receipt;
+      },
+      publish(snapshot, saved) {
+        bootedGame.files = saved.files;
+        bootedGame.revision = snapshot.lastAdmissibleBuild!.identity.revision;
+      },
+    });
+    t.after(() => project.dispose());
+    let checkpoints = 0;
+    const errors: string[] = [];
+    const room = assembleLogic("return;", { dictionary: new Map() }).payload;
+    // The running game answers with what it holds: the room once the answer landed.
+    let running = files;
+    const worker = { postMessage() {} } as unknown as Worker;
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp: createMockPowerUp(),
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getWorker: () => worker,
+      query: async <T>(type: string) => (type === "exportFiles" ? (running as T) : (null as T)),
+      logAgent: (kind, message) => {
+        if (kind === "error") errors.push(message);
+      },
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => bootedGame,
+      setBootedGame: () => {},
+      flushAutosave: async () => {
+        assert.equal(bootedGame.revision, computeResourceRevision(running));
+        assert.equal(project.saveStatus().state, "saved");
+        checkpoints++;
+      },
+      getProjectSession: () => project,
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      configForGame: (_p, config) => config,
+      getLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
+    });
+    t.after(() => controller.resetSession());
+    await controller.handleRoomAuthoring(
+      { op: "room", context: { room: 2 } },
+      {
+        handle: async () => {
+          controller.getSession()!.state.container.putResource("logic", 2, room);
+          return "Room created";
+        },
+      },
+      () => {},
+    );
 
-  assert.equal(checkpoints, 0, "the host answer has not been delivered");
-  running = Object.fromEntries(controller.getSession()!.state.getFiles());
-  controller.roomAnswered();
-  // Drain the answer's publish and durable write, without advancing the engine.
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  await project.flush();
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.equal(checkpoints, 1, "a parked room gets a checkpoint at its installed revision");
-
-  await clearCachedGame(projectId);
-});
+    assert.equal(checkpoints, 0, "the host answer has not been delivered");
+    const test = {
+      kind: "merge",
+      tests: [{ name: "between answer and save", room: 1, steps: [], expect: null }],
+    } as const;
+    await saveTests(project, test);
+    assert.match(String(project.model.capture().read("tests")!.content), /between answer and save/);
+    if (delivery === "cancel" || delivery === "replace") {
+      if (delivery === "cancel") controller.stopRoomGeneration();
+      else controller.resetSession();
+      controller.roomAnswered();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(checkpoints, 0);
+      assert.equal(project.model.capture().read("logic:2"), undefined);
+      await saveTests(project, test);
+    } else {
+      running = Object.fromEntries(controller.getSession()!.state.getFiles());
+      holdWrite = true;
+      controller.roomAnswered();
+      await waitUntil(
+        () => reachedWriteDone || errors.length > 0,
+        "room answer neither wrote nor reported a failure",
+      );
+      assert.deepEqual(errors, []);
+      writeGate.resolve();
+      await waitUntil(
+        () => (delivery === "failure" ? errors.length > 0 : checkpoints > 0 || errors.length > 0),
+        "room publication did not finish its write",
+      );
+      if (delivery === "failure") {
+        assert.equal(project.saveStatus().state, "failed");
+        assert.equal(checkpoints, 0);
+        assert.ok(errors.length > 0, "a publication failure is reported");
+        const stored = (await loadAuthoredGame(projectId))!;
+        assert.equal(
+          openContainer(new Map(Object.entries(stored.files))).getResource("logic", 2),
+          null,
+        );
+      } else {
+        await project.flush();
+        assert.equal(checkpoints, 1, "a parked room gets a checkpoint at its installed revision");
+        assert.ok(project.model.capture().read("logic:2"));
+        const stored = (await loadAuthoredGame(projectId))!;
+        assert.ok(openContainer(new Map(Object.entries(stored.files))).getResource("logic", 2));
+        assert.deepEqual(errors, []);
+        await saveTests(project, test);
+      }
+    }
+    await clearCachedGame(projectId);
+  });
+}
 
 test("handleRoomAuthoring shows recovery and sets needsConfig when credentials are missing", async (t) => {
   installLocalStorageMock(t);
@@ -1273,6 +1342,7 @@ async function openReferenceProject(
   t: { after: (fn: () => void) => void },
   name: string,
   write?: Parameters<typeof openProjectSession>[0]["write"],
+  runtime?: ReturnType<typeof remixHarness>,
 ) {
   const projectId = testProjectId(name);
   // Registered before the storage mock, so cleanup runs while it is installed.
@@ -1294,6 +1364,7 @@ async function openReferenceProject(
     files,
     words: [],
     authoredGame: (await loadAuthoredGame(projectId))!,
+    historyLifetime: await readHistoryLifetime(projectId),
   };
   const project = openProjectSession({
     data: game.authoredGame!,
@@ -1307,23 +1378,28 @@ async function openReferenceProject(
         patchGeneration: 1,
       }),
     },
+    saved(data) {
+      game.authoredGame = { ...game.authoredGame!, ...data };
+      advanceAuthoring(game, data.authoringState, data.workspace);
+    },
     ...(write ? { write } : {}),
   });
   t.after(() => project.dispose());
   assert.equal(await project.ready, true);
+  const powerUp = createMockPowerUp();
   const controller = useAuthoringController({
     state: {
       phase: "running",
-      powerUp: createMockPowerUp(),
+      powerUp,
       agentTask: null,
       agentLog: [],
       profile: "2.936",
       worldTick: 0,
       planDurableRev: "",
     },
-    getWorker: () => null,
+    getWorker: () => runtime?.worker ?? null,
     getProjectSession: () => project,
-    query: async <T>() => null as T,
+    query: runtime?.query ?? (async <T>() => null as T),
     logAgent: () => {},
     readFrames: async () => [],
     pauseEngine: () => {},
@@ -1335,7 +1411,7 @@ async function openReferenceProject(
     clearAutosave: () => {},
     awaitPatched: ackPatch,
   });
-  return { projectId, project, controller };
+  return { projectId, project, controller, powerUp };
 }
 
 const referenceImage = {
@@ -2580,6 +2656,107 @@ for (const outcome of ["ready", "disposed", "retired"] as const) {
   });
 }
 
+// Opening the Agent on a catalog game saves its first chat, which turns the game into the
+// player's own copy. Settings saved while an opening whose engine query timed out still apply to
+// that copy: the game the player plays did not change.
+for (const fork of ["before the opening ends", "during the Save"] as const) {
+  test(`AI settings saved during a timed-out opening apply to the catalog copy made ${fork}`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId("settings-opening-fork");
+    const files = createTestFiles();
+    const revision = computeResourceRevision(files);
+    await saveAuthoredGame(projectId, {
+      title: "Catalog",
+      files,
+      words: [],
+      library: {
+        version: 1,
+        source: "catalog",
+        revision,
+        catalog: { id: "settings", version: "1" },
+        validation: { status: "ready", message: "Ready" },
+      },
+    });
+    const data = (await loadAuthoredGame(projectId))!;
+    let game: BootedGame = {
+      installed: false,
+      projectId,
+      title: data.title,
+      revision,
+      files,
+      words: [],
+      authoredGame: data,
+      historyLifetime: await readHistoryLifetime(projectId),
+    };
+    const project = openProjectSession({
+      data,
+      lifetime: game.historyLifetime!,
+      admission: {
+        runToken: "settings-opening-fork-run",
+        admit: async () => assert.fail("a chat never admits resource changes"),
+      },
+      forked(saved, lifetime) {
+        game = {
+          ...game,
+          projectId: saved.projectId,
+          authoredGame: saved,
+          historyLifetime: lifetime,
+        };
+      },
+    });
+    t.after(() => project.dispose());
+    // The Agent panel opens the conversation project on its own; it is not open yet.
+    let activeProject: typeof project | null = null;
+    const engineState = Promise.withResolvers<never>();
+    const powerUp = createMockPowerUp();
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp,
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getConversationMode: () => "play",
+      getProjectSession: () => activeProject,
+      ensureProjectSession: async () => activeProject,
+      getWorker: () => null,
+      query: () => engineState.promise,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: (next) => {
+        game = next!;
+      },
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      loadAuthoring: async () => authoringStack,
+    });
+    const opening = controller.openPowerUp(mockConfig);
+    const applying = controller.updateAiConfig({ ...mockConfig, model: "next-model" });
+    activeProject = project;
+    await project.saveChats(project.chats());
+    if (fork === "before the opening ends") {
+      await project.flush();
+      assert.notEqual(game.projectId, projectId, "the first chat save made the player's copy");
+    }
+    engineState.reject(new Error("worker query state timed out"));
+    await opening;
+    assert.equal(powerUp.error, "The game did not answer. Reopen the Agent to try again.");
+    await applying;
+    assert.notEqual(game.projectId, projectId);
+    assert.equal(controller.getSession()?.getProviderContext().model, "next-model");
+    await clearCachedGame(projectId);
+    await clearCachedGame(game.projectId!);
+  });
+}
+
 test("a stale tab's AI settings change says the game changed elsewhere and never saves over the newer project", async (t) => {
   const { ui, controller, untouched } = await staleTab(t, "two-tab-ai-config");
   await controller.updateAiConfig({ ...mockConfig, model: "another-model" });
@@ -2922,3 +3099,217 @@ for (const source of ["catalog", "zip"] as const) {
     }
   });
 }
+
+for (const turn of ["room", "map"] as const) {
+  test(`Tests are documents: a ${turn} build permits test saves while its loader waits`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId(`test-write-${turn}`);
+    const files = createTestFiles();
+    await saveAuthoredGame(projectId, { title: "Build", files, words: [], roomGeneration: true });
+    const data = (await loadAuthoredGame(projectId))!;
+    const project = openProjectSession({
+      data,
+      lifetime: (await readHistoryLifetime(projectId))!,
+      admission: {
+        runToken: `test-write-${turn}`,
+        admit: async () => assert.fail("test writes wait"),
+      },
+    });
+    const gate = Promise.withResolvers<typeof authoringStack>();
+    const reached = Promise.withResolvers<void>();
+    const game: BootedGame = {
+      installed: false,
+      projectId,
+      title: data.title,
+      files,
+      words: [],
+      revision: await gameRevision(files),
+    };
+    const controller = useAuthoringController({
+      state: {
+        phase: "running",
+        powerUp: createMockPowerUp(),
+        agentTask: null,
+        agentLog: [],
+        profile: "2.936",
+        worldTick: 0,
+        planDurableRev: "",
+      },
+      getProjectSession: () => project,
+      getWorker: () => null,
+      query: async <T>() => null as T,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: () => {},
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      configForGame: (_p, config) => config,
+      getLlmConfig: () => mockConfig,
+      loadAuthoring: () => {
+        reached.resolve();
+        return gate.promise;
+      },
+    });
+    const pending =
+      turn === "room"
+        ? controller.handleRoomAuthoring(
+            { op: "room", context: { room: 2 } },
+            { handle: async () => "" },
+            () => {},
+          )
+        : controller.buildRoomFromMap(2, 1, []);
+    void pending.catch(() => {});
+    try {
+      await reached.promise;
+      await saveTests(project, {
+        kind: "merge",
+        tests: [{ name: "during build", room: 1, steps: [], expect: null }],
+      });
+      assert.match(String(project.model.capture().read("tests")!.content), /during build/);
+    } finally {
+      controller.stopRoomGeneration();
+      gate.reject(new Error("Build cancelled by the test."));
+      await pending.catch(() => {});
+      controller.resetSession();
+      project.dispose();
+      await clearCachedGame(projectId);
+    }
+  });
+}
+
+test("Every Agent path starts from committed tests: power-up preserves a creator's saved Intro", async (t) => {
+  const { project, controller, powerUp } = await openReferenceProject(
+    t,
+    "powerup-tests",
+    undefined,
+    remixHarness(createTestFiles()),
+  );
+  await controller.openPowerUp(mockConfig);
+  const author = controller.getSession()!;
+  author.runPowerUp = async () => {
+    const payload = assembleLogic("return;", { dictionary: new Map() }).payload;
+    author.state.container.putResource("logic", 1, payload);
+    return { text: "Added logic", patched: [{ kind: "logic", num: 1, payload }] };
+  };
+  await saveTests(project, {
+    kind: "merge",
+    tests: [{ name: "Intro", room: 1, steps: [], expect: null }],
+  });
+  await project.flush();
+  await controller.submitPowerUp("Add a sign");
+  assert.equal(powerUp.error, "", "power-up completes");
+  assert.match(String(project.model.capture().read("tests")?.content), /Intro/);
+  assert.ok(project.model.capture().read("logic:1"), "the power-up edits the game");
+  assert.match(new TextDecoder().decode(author.state.testsPayload), /Intro/);
+  controller.resetSession();
+});
+
+test("An Agent power-up that commits nothing has no Undo message for the creator's earlier tests", async (t) => {
+  const { project, controller, powerUp } = await openReferenceProject(
+    t,
+    "powerup-noop",
+    undefined,
+    remixHarness(createTestFiles()),
+  );
+  await controller.openPowerUp(mockConfig);
+  const author = controller.getSession()!;
+  await saveTests(project, {
+    kind: "merge",
+    tests: [{ name: "Intro", room: 1, steps: [], expect: null }],
+  });
+  await project.flush();
+  const task: ReturnType<AgentSession["getBackgroundChats"]>[number] = {
+    id: "noop-task",
+    title: "Echo tests",
+    provider: "stub",
+    model: "stub",
+    transcript: [],
+    messages: [],
+    background: true,
+  };
+  author.getBackgroundChats = () => [task];
+  author.runPowerUp = async () => {
+    const tests = JSON.parse(new TextDecoder().decode(author.state.testsPayload));
+    author.state.testsPayload = new TextEncoder().encode(JSON.stringify(tests, null, 2));
+    return { text: "Echo tests", patched: [] };
+  };
+  const before = project.history.capture().cursor;
+  await controller.submitPowerUp("Echo tests");
+  assert.equal(powerUp.error, "");
+  assert.equal(project.history.capture().cursor, before);
+  const message = project
+    .chats()
+    .chats.find((chat) => chat.id === task.id)!
+    .messages.at(-1)!;
+  assert.equal(message.beforeCommit, undefined);
+  assert.equal(message.commit, undefined);
+  controller.resetSession();
+});
+
+test("Undo message for a power-up belongs to its own commit when a creator test lands before its receipt", async (t) => {
+  const { project, controller, powerUp } = await openReferenceProject(
+    t,
+    "powerup-own-commit",
+    undefined,
+    remixHarness(createTestFiles()),
+  );
+  await controller.openPowerUp(mockConfig);
+  const author = controller.getSession()!;
+  await saveTests(project, {
+    kind: "merge",
+    tests: [{ name: "Intro", room: 1, steps: [], expect: null }],
+  });
+  await project.flush();
+  const task: ReturnType<AgentSession["getBackgroundChats"]>[number] = {
+    id: "own-task",
+    title: "Changed logic",
+    provider: "stub",
+    model: "stub",
+    transcript: [],
+    messages: [],
+    background: true,
+  };
+  author.getBackgroundChats = () => [task];
+  author.runPowerUp = async () => {
+    const payload = assembleLogic("return;", { dictionary: new Map() }).payload;
+    author.state.container.putResource("logic", 1, payload);
+    return { text: "Added logic", patched: [{ kind: "logic", num: 1, payload }] };
+  };
+  const submit = project.submit;
+  project.submit = async (edit) => {
+    const outcome = await submit(edit);
+    if (edit.author === "agent")
+      await submit({
+        proposal: project.model.propose(project.model.capture(), "Creator later tests", [
+          {
+            key: "tests",
+            content: JSON.stringify({
+              format: "monotio.agi.tests.v2",
+              tests: [{ name: "Intro", room: 5, steps: [] }],
+            }),
+          },
+        ]),
+        label: "Creator later tests",
+        author: "creator",
+        origin: "guided",
+      });
+    return outcome;
+  };
+  await controller.submitPowerUp("Edit logic");
+  assert.equal(powerUp.error, "");
+  const message = project
+    .chats()
+    .chats.find((chat) => chat.id === task.id)!
+    .messages.at(-1)!;
+  const own = project.history.capture().commits.find((commit) => commit.messageId === message.id)!;
+  assert.equal(message.commit, own.id);
+  assert.equal(message.beforeCommit, own.parent);
+  assert.notEqual(message.commit, project.history.capture().cursor);
+  assert.match(String(project.model.capture().read("tests")?.content), /"room":5/);
+  controller.resetSession();
+});

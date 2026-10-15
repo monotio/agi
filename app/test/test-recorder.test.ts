@@ -3,7 +3,7 @@ import { testRevision } from "./identity.ts";
 import assert from "node:assert/strict";
 import { useTestRecorder, type TestRecorderState } from "../src/authoring/useTestRecorder.ts";
 import type { BootedGame } from "../src/engine/useEngine.ts";
-import type { LlmConfig } from "../src/agent/llmClient.ts";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { RecordingSnapshot } from "../src/authoring/gameRecording.ts";
 
 function createMockState(
@@ -27,12 +27,6 @@ function createMockState(
   };
 }
 
-const mockConfig: LlmConfig = {
-  provider: "stub",
-  apiKey: "test",
-  model: "test-model",
-};
-
 test("test recorder refuses to start on a live host request but not a parked window", async () => {
   // A parked print window serializes into the recording's setup image; the
   // guard only refuses states whose answer belongs to the player.
@@ -47,8 +41,7 @@ test("test recorder refuses to start on a live host request but not a parked win
     },
     logAgent: () => {},
     getBootedGame: () => null,
-    getOrCreateSession: async () => assert.fail("session should not be created"),
-    commitTestsFile: async () => {},
+    getProjectSession: () => null,
     flushAutosave: async () => {},
   });
   await allowRecorder.startTestRecording();
@@ -62,8 +55,7 @@ test("test recorder refuses to start on a live host request but not a parked win
       query: async () => assert.fail("query should not be called during a live request"),
       logAgent: () => {},
       getBootedGame: () => null,
-      getOrCreateSession: async () => assert.fail("session should not be created"),
-      commitTestsFile: async () => {},
+      getProjectSession: () => null,
       flushAutosave: async () => {},
     });
     await recorder.startTestRecording();
@@ -133,8 +125,7 @@ test("test recorder starts and stops successfully through worker queries", async
     },
     logAgent: () => {},
     getBootedGame: () => null,
-    getOrCreateSession: async () => assert.fail("session should not be called"),
-    commitTestsFile: async () => {},
+    getProjectSession: () => null,
     flushAutosave: async () => {},
   });
 
@@ -192,8 +183,7 @@ test("test recorder cancels active recording and notifies worker", async () => {
     },
     logAgent: () => {},
     getBootedGame: () => null,
-    getOrCreateSession: async () => assert.fail("session should not be called"),
-    commitTestsFile: async () => {},
+    getProjectSession: () => null,
     flushAutosave: async () => {},
   });
 
@@ -224,8 +214,7 @@ test("saveRecordedTest rejects tainted recordings", async () => {
     query: async () => assert.fail("query should not be called"),
     logAgent: () => {},
     getBootedGame: () => booted,
-    getOrCreateSession: async () => assert.fail("session should not be created"),
-    commitTestsFile: async () => {},
+    getProjectSession: () => null,
     flushAutosave: async () => {},
   });
 
@@ -254,7 +243,66 @@ test("saveRecordedTest rejects tainted recordings", async () => {
     tainted: "Game state was modified externally",
   };
 
-  const result = await recorder.saveRecordedTest(taintedSnapshot, "test", [], mockConfig);
+  const result = await recorder.saveRecordedTest(taintedSnapshot, "test", []);
   assert.equal(result.ok, false);
   assert.equal(result.message, "Game state was modified externally");
+});
+
+test("Tests are documents: a recorded test saves during an Agent turn without AI tools", async () => {
+  const snapshot: RecordingSnapshot = {
+    start: {
+      image: "image",
+      cycle: 1,
+      state: { room: 1, vars: [], flags: [], inventory: [] },
+      replayState: {} as RecordingSnapshot["start"]["replayState"],
+    },
+    operations: [],
+    events: [],
+    printed: [],
+    endState: { room: 1, vars: [], flags: [], inventory: [] },
+    endCycle: 2,
+    tainted: null,
+  };
+  const project = {} as ProjectSession;
+  let saved = false;
+  const recorder = useTestRecorder({
+    state: createMockState({ powerUp: { open: true, busy: true } }),
+    getWorker: () => ({}) as Worker,
+    query: async () => assert.fail("saving a test never queries the live engine"),
+    logAgent: () => {},
+    getBootedGame: () => ({
+      installed: true,
+      title: "Test",
+      revision: testRevision("test"),
+      files: {},
+      words: [],
+    }),
+    getProjectSession: () => project,
+    saveTests: async (owner, op) => {
+      assert.equal(owner, project);
+      assert.equal(op.kind, "merge");
+      saved = true;
+      return {
+        tests: [
+          {
+            name: "recorded",
+            room: 1,
+            spawnX: null,
+            spawnY: null,
+            steps: [],
+            expect: null,
+            cycleBudget: null,
+          },
+        ],
+        written: [],
+        payload: new Uint8Array(),
+      };
+    },
+    flushAutosave: async () => {},
+  });
+  assert.deepEqual(await recorder.saveRecordedTest(snapshot, "recorded", []), {
+    ok: true,
+    message: "1 game test saved",
+  });
+  assert.equal(saved, true);
 });

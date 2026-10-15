@@ -32,12 +32,23 @@ function mapGame() {
 test("the full map and ROOMS include shared and picture-free rooms @webkit-desktop", async ({
   page,
 }) => {
+  const game = mapGame();
+  // An incoming exit makes ROOM 255 appear in the parts list.
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();accept.input();}if(isset(f7)){new.room(255);}if(v2==2){assignn(v76,2);}return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  game.putResource("logic", 255, assembleLogic("return;", { dictionary: new Map() }).payload);
   await page.goto("/");
   await cacheGame(page, {
     projectId: testProjectId("room-analysis"),
     title: "Room paths",
     imported: true,
-    files: Object.fromEntries(mapGame().files),
+    files: Object.fromEntries(game.files),
     words: [],
   });
   await page.reload();
@@ -84,34 +95,9 @@ test("the full map and ROOMS include shared and picture-free rooms @webkit-deskt
     await expect(row).toContainText(`Room ${room}`);
   }
   await expect(page.getByTestId("part-logic:9")).toBeVisible();
-});
-
-test("an incoming exit identifies ROOM 255 in the parts list", async ({ page }) => {
-  const game = mapGame();
-  game.putResource(
-    "logic",
-    1,
-    assembleLogic(
-      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();accept.input();}if(isset(f7)){new.room(255);}return;",
-      { dictionary: new Map() },
-    ).payload,
-  );
-  game.putResource("logic", 255, assembleLogic("return;", { dictionary: new Map() }).payload);
-  await page.goto("/");
-  await cacheGame(page, {
-    projectId: testProjectId("room-255"),
-    title: "Room 255",
-    imported: true,
-    files: Object.fromEntries(game.files),
-    words: [],
-  });
-  await page.reload();
-  await page.getByTestId("btn-resume-cached").click();
-  await expect(page.getByTestId("input-line")).toBeEnabled();
-  await enterCreateMode(page);
-  const room = page.getByTestId("part-room:255");
-  await expect(room).toBeVisible();
-  await expect(room).toContainText("Room 255");
+  const room255 = page.getByTestId("part-room:255");
+  await expect(room255).toBeVisible();
+  await expect(room255).toContainText("Room 255");
 });
 
 test("a staged room answer preserves the selected room and graph viewport", async ({ page }) => {
@@ -192,7 +178,7 @@ test("a staged room answer preserves the selected room and graph viewport", asyn
     .toBeLessThan(2);
 });
 
-test("ROOMS keep a room's analysed picture while a commit's room analysis runs @webkit-desktop", async ({
+test("ROOMS keep a room's analysed picture while a commit's room analysis runs", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

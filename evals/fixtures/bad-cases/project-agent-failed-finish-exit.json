@@ -41,7 +41,7 @@
             "id": "finish",
             "name": "finish",
             "input": {
-              "notes": null
+              "testReasons": null
             }
           }
         ]
@@ -55,7 +55,7 @@
     "expectedOutcomes": {
       "finish": false
     },
-    "expectedError": "Handover rejected",
+    "expectedVisibleError": "Handover rejected",
     "autoApprove": true,
     "expectedDocuments": {
       "world": null,

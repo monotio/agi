@@ -65,13 +65,17 @@ import {
   viewReference,
   type ReferenceSource,
 } from "./referenceTools.ts";
+import { GAME_TEST_TOOLS, executeGameTestTool } from "./gameTests.ts";
 import {
-  GAME_TEST_TOOLS,
-  executeGameTestTool,
+  readStoredTests,
+  runFinishGameTests,
   rerunAffectedTests,
-  runGameTests,
   type TouchedResource,
-} from "./gameTests.ts";
+  type GameTestOutcome,
+} from "./gameTestsRunner.ts";
+import { gameTestDefinitionChanges } from "./gameTestReview.ts";
+import { parseGameTests } from "./gameTestFormat.ts";
+import { finishReport, readTestReasons } from "./finishReport.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -328,8 +332,15 @@ function withGameTestVerdict(
   if (!rerun) return result;
   return {
     ...result,
+    success: result.success && rerun.outcomes.every((test) => test.passed),
+    ...(!rerun.outcomes.every((test) => test.passed) ? { error: `Game tests: ${rerun.line}` } : {}),
     message: `Game tests: ${rerun.line}${result.message ? ` ${result.message}` : ""}`,
-    details: { ...result.details, gameTests: rerun.outcomes, gameTestsRerun: rerun.selection },
+    details: {
+      ...result.details,
+      gameTests: rerun.outcomes,
+      gameTestsRerun: rerun.selection,
+      gameTestsFailed: !rerun.outcomes.every((test) => test.passed),
+    },
   };
 }
 /**
@@ -1144,7 +1155,7 @@ function executeLegacyTool(
     }
 
     case "finish":
-      return validateAgentHandover(session, args["notes"] ?? null);
+      return validateAgentHandover(session, args["testReasons"] ?? null);
 
     case "write_objects": {
       let mergedItem: { id: number; name: string } | undefined;
@@ -1785,26 +1796,13 @@ export function finishAfterFailures(failed: readonly string[]): string | undefin
   return `Not finished: ${names.join(", ")} failed earlier in this batch. Read ${failed.length === 1 ? "that result" : "those results"}, repair the change or say why it can stay, then call finish again.`;
 }
 
-/** The shared host verdict for the exact candidate being handed over. */
-export function validateAgentHandover(
+/** Validate game exits and initial playability for Agent or creator admission. */
+export function validateAgentGameHandover(
   session: AgentSessionState,
-  notes: unknown = null,
   checkGenesis = true,
 ): AgentToolResult {
-  // Handover is the validation gate, not the agent's word that it tested:
-  // every stored game test runs against the current resources (unchanged
-  // verdicts come from the evidence cache), every declared plan exit must
-  // be backed by a reachable compiled transition, and the first finish
-  // of a session also boots the world to a shown, interactive scene.
-  const testRun = runGameTests(session, null);
-  const gameTests = testRun.details?.["gameTests"];
-  if (!testRun.success)
-    return {
-      success: false,
-      error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
-      details: { ...testRun.details, genesisComplete: session.genesisComplete },
-      ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
-    };
+  // Every declared plan exit needs a reachable compiled transition. The first
+  // handover of a new game also boots it to a shown, interactive scene.
   const connections = verifyPlanConnections(
     collectLogics(session.container),
     session.authoring.world.rooms,
@@ -1824,7 +1822,7 @@ export function validateAgentHandover(
         `to room ${first.to} but ${cause}. ` +
         `Implement the exit in room ${first.from}'s logic or revise the plan with update_plan.` +
         (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
-      details: { connections, genesisComplete: session.genesisComplete, gameTests },
+      details: { connections, genesisComplete: session.genesisComplete },
     };
   }
   if (checkGenesis && !session.genesisComplete) {
@@ -1832,27 +1830,90 @@ export function validateAgentHandover(
     if (!result.success)
       return {
         ...result,
-        details: { ...result.details, genesisComplete: false, gameTests, connections },
+        details: {
+          ...result.details,
+          genesisComplete: false,
+          connections,
+        },
       };
-    session.genesisComplete = true;
-    return {
-      ...result,
-      details: { ...result.details, genesisComplete: true, gameTests, connections },
-    };
   }
+  return { success: true, details: { connections } };
+}
+
+/** The Agent's final handover check; creator admission validates the game separately. */
+export function validateAgentHandover(
+  session: AgentSessionState,
+  testReasons: unknown = null,
+  checkGenesis = true,
+): AgentToolResult {
+  const game = validateAgentGameHandover(session, checkGenesis);
+  if (!game.success) return game;
+  const connections = game.details!["connections"] as ReturnType<typeof verifyPlanConnections>;
+  // Tests run last, as Apply would leave them, against the final candidate resources.
+  const testRun = runFinishGameTests(session);
+  const gameTests = testRun.details?.["gameTests"] as readonly GameTestOutcome[] | undefined;
+  const failed = gameTests?.filter((test) => !test.passed) ?? [];
+  const testsVerdict = failed.length
+    ? `${failed.length} ${failed.length === 1 ? "test fails" : "tests fail"}: ${failed.map((test) => test.name).join(", ")}`
+    : gameTests?.length
+      ? gameTests.length === 1
+        ? "1 test passes."
+        : `All ${gameTests.length} tests pass.`
+      : gameTests
+        ? ""
+        : (testRun.error ?? "");
+  // Each red test and each existing test this turn changed needs its own reason.
+  const changed = agentChangedTests(session);
+  const reasons = readTestReasons(testReasons, [...failed.map((test) => test.name), ...changed]);
+  if (reasons.missing.length)
+    return {
+      success: false,
+      error: `Not finished: give testReasons for ${reasons.missing.map((name) => JSON.stringify(name)).join(", ")}. Each red test needs a reason it stays red, and each existing test you changed or deleted needs a reason for the change.`,
+      details: { gameTests, testsVerdict, connections },
+    };
+
+  session.genesisComplete = true;
+  session.finishTestsStatus = testsVerdict;
+  session.finishTestsNotes = reasons.lines;
+  const report = finishReport(testsVerdict, reasons.lines);
   return {
     success: true,
     message:
-      "Handover validated: stored game tests pass" +
+      (report ? `${report}\n` : "") +
+      (testRun.details?.["proposedTestsCause"]
+        ? `${String(testRun.details["proposedTestsCause"])}\n`
+        : "") +
+      "Handover validated" +
       (connections.verified.length
         ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
         : "") +
-      ". Resuming gameplay.",
+      `. Resuming gameplay.`,
     details: {
       genesisComplete: true,
-      notes,
       gameTests,
+      testsVerdict,
+      testNotes: reasons.lines,
+      testsReport: report,
       connections,
     },
   };
+}
+
+/** Existing tests this turn changed or deleted, measured from the turn's own base. */
+function agentChangedTests(session: AgentSessionState): readonly string[] {
+  if (session.finishTestsBase === undefined) return [];
+  try {
+    const base = parseGameTests(
+      typeof session.finishTestsBase === "string"
+        ? new TextEncoder().encode(session.finishTestsBase)
+        : (session.finishTestsBase ?? undefined),
+      session.profile,
+    ).tests;
+    return gameTestDefinitionChanges(base, readStoredTests(session))
+      .filter((change) => change.kind !== "added")
+      .map((change) => change.name);
+  } catch {
+    // The finish run already reports unreadable proposed tests.
+    return [];
+  }
 }

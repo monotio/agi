@@ -73,6 +73,18 @@ export interface AgentSessionState {
   objectPayload?: Uint8Array | undefined;
   /** Stored game tests (TESTS.JSON) written this session; see gameTests.ts. */
   testsPayload?: Uint8Array | undefined;
+  /**
+   * The finish verdict line for game tests. Finish covers every failing test
+   * and every existing test the turn changed or deleted; each needs a reason
+   * in the structured `testReasons` argument.
+   */
+  finishTestsStatus?: string | undefined;
+  /** The `test: reason` lines built from `testReasons`, shown with the verdict. */
+  finishTestsNotes?: readonly string[] | undefined;
+  /** The tests document as the turn began; changes and deletions are measured from it. */
+  finishTestsBase?: string | Uint8Array | null | undefined;
+  /** Project hosts supply the current committed tests document for every simulation. */
+  readCommittedTests?: (() => string | Uint8Array | undefined) | undefined;
   genesisComplete: boolean;
   /**
    * Full tool results evicted from the model-facing projection, retrievable by
@@ -123,6 +135,8 @@ export function createAgentSessionState(
     wordsPayload,
     objectPayload,
     testsPayload: undefined,
+    finishTestsStatus: undefined,
+    finishTestsNotes: undefined,
     genesisComplete: false,
     diagnostics: new Map<string, AgentToolResult>(),
     testEvidence: new Map<string, { outcome: unknown; result: AgentToolResult }>(),

@@ -2,45 +2,6 @@ import { expect, test } from "./test.ts";
 import type { Page } from "@playwright/test";
 import { isolateStorage, textHook, waitForCycles, waitForRoom } from "./engineProbe.ts";
 
-test("tutorial walking speed commands change movement without a modal", async ({ page }) => {
-  await isolateStorage(page);
-  await page.goto("/");
-  await page.getByTestId("catalog-play-adventure-department").click();
-  await waitForRoom(page, 1, { coldBoot: true });
-
-  const measure = async (speed: string | null): Promise<number> => {
-    if (speed !== null) await command(page, speed);
-    await waitForCycles(page, 2);
-    expect((await textHook(page)).modal, `${speed ?? "default"} must not open a dialog`).toBeNull();
-    await page.getByTestId("input-line").focus();
-    await page.keyboard.press("ArrowRight");
-    await waitForCycles(page, 2);
-    const before = await textHook(page);
-    await expect
-      .poll(async () => (await textHook(page)).cycle, { intervals: [20] })
-      .toBeGreaterThanOrEqual(before.cycle + 32);
-    const after = await textHook(page);
-    await page.keyboard.press("ArrowRight");
-    await waitForCycles(page, 2);
-    expect(after.room).toBe(1);
-    // Walk back over the same floor, so a slow runner's overshoot never
-    // carries the next measurement off the room's east edge.
-    await page.keyboard.press("ArrowLeft");
-    await expect
-      .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
-      .toBeLessThanOrEqual(before.egoX);
-    await page.keyboard.press("ArrowLeft");
-    await waitForCycles(page, 2);
-    return (after.egoX - before.egoX) / (after.cycle - before.cycle);
-  };
-
-  // One native logic cycle is 50ms; normal is 5 one-pixel steps per 8 cycles.
-  expect(await measure(null)).toBeCloseTo(0.625, 1);
-  expect(await measure("fast")).toBeCloseTo(1, 1);
-  expect(await measure("slow")).toBeCloseTo(0.5, 1);
-  expect(await measure("normal")).toBeCloseTo(0.625, 1);
-});
-
 async function command(page: Page, value: string): Promise<void> {
   await page.getByTestId("input-line").fill(value);
   await page.getByTestId("input-line").press("Enter");

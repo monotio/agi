@@ -10,7 +10,7 @@ import {
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import { openWorkspaceLogic, focusWorkspaceLogic, workspaceDocument } from "./workspaceShared.ts";
 
-test("Update and agent approval work after walking into a live-built room @webkit-desktop", async ({
+test("Update and agent approval work after walking into a live-built room", async ({
   page,
   browserName,
 }) => {

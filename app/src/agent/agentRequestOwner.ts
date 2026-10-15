@@ -1,6 +1,13 @@
+import type { AgentTestReview } from "../../../src/authoring/projectTestsMerge.ts";
+
 /** Apply is bound to the review owner captured before editor writes finish. */
 export interface ReviewOwner {
-  owner: { approve(): Promise<unknown> };
+  owner: {
+    approve(
+      keys?: undefined,
+      approval?: { shownTests?: AgentTestReview["touched"] },
+    ): Promise<unknown>;
+  };
   session: unknown;
   game: unknown;
   review: unknown;
@@ -14,10 +21,12 @@ export function captureReviewOwner(
 ): ReviewOwner {
   return { owner, session, game, review: owner.pending(), writable };
 }
+/** `shownTests` is the Tests comparison on screen at the click, captured before the writes finish. */
 export async function approveCapturedReview(
   captured: ReviewOwner,
   current: () => ReviewOwner | undefined,
   flush: () => Promise<void>,
+  shownTests?: AgentTestReview["touched"],
 ): Promise<void> {
   await flush();
   const active = current();
@@ -29,5 +38,5 @@ export async function approveCapturedReview(
     active.review !== captured.review
   )
     throw new Error("The game or review changed. Reopen the proposal to apply it.");
-  await captured.owner.approve();
+  await captured.owner.approve(undefined, shownTests ? { shownTests } : {});
 }

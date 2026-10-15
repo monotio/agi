@@ -46,7 +46,7 @@ test.afterEach(async ({ page }, info) => {
 });
 
 for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as const) {
-  test(`${action} in Create admits the next LOGIC edit and saves its History commit @webkit-desktop`, async ({
+  test(`${action} in Create admits the next LOGIC edit and saves its History commit${action === "Resume from here" ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await isolateStorage(page);
@@ -75,6 +75,27 @@ for (const action of ["Resume from here", "Undo rewind", "Undo start over"] as c
       await expect(page.getByTestId("workspace-saved")).toBeVisible();
       await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
       await page.getByTestId("workspace-show-game").click();
+    }
+    if (action === "Undo rewind") {
+      // Player rule: Pause pressed the moment Play starts the game still keeps that game for Undo
+      // rewind. The worker hears Play and Pause back to back, so Play's fresh game is paused
+      // before its first cycle, as on a busy machine.
+      await page.evaluate(() => {
+        const worker = (
+          window as unknown as { __AGI_PROJECT__: { getWorker(): Worker } }
+        ).__AGI_PROJECT__.getWorker();
+        const post = worker.postMessage;
+        const held: Parameters<Worker["postMessage"]>[] = [];
+        worker.postMessage = function (...args: Parameters<Worker["postMessage"]>) {
+          const message = args[0] as { type?: string; paused?: boolean };
+          if (held.length > 0 || message.type === "projectPlay") held.push(args);
+          else post.apply(worker, args);
+          if (message.type === "pause" && message.paused && held.length > 0) {
+            worker.postMessage = post;
+            for (const entry of held) post.apply(worker, entry);
+          }
+        } as Worker["postMessage"];
+      });
     }
     // The timeline is in Play; switching modes retains the Create session.
     await page.getByRole("radio", { name: "Play", exact: true }).click();

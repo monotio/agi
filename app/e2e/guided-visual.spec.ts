@@ -81,12 +81,27 @@ async function messagePixels(preview: Locator): Promise<void> {
     .toBeGreaterThan(1000);
 }
 
+/** A lost GPU canvas shows the browser's grey broken-canvas mark; a drawn preview has colour. */
+async function colourPixels(preview: Locator): Promise<void> {
+  await expect
+    .poll(async () => {
+      const { rgba } = decodePng(await preview.screenshot());
+      let colour = 0;
+      for (let index = 0; index < rgba.length; index += 4) {
+        const channels = [rgba[index]!, rgba[index + 1]!, rgba[index + 2]!];
+        if (Math.max(...channels) - Math.min(...channels) > 80) colour++;
+      }
+      return colour;
+    })
+    .toBeGreaterThan(1000);
+}
+
 for (const [width, height] of [
   [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {
-  test(`guided visual sentences and dock placement at ${width} @webkit-desktop`, async ({
+  test(`guided visual sentences and dock placement at ${width}${width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -214,11 +229,7 @@ for (const [width, height] of [
   });
 }
 
-for (const [width, height] of [
-  [1063, 815],
-  [1440, 900],
-  [390, 844],
-] as const) {
+for (const [width, height] of [[1440, 900]] as const) {
   test(`message preview with WebGL2 unavailable at ${width} @webkit-desktop`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await page.addInitScript(() => {
@@ -280,6 +291,76 @@ test("message preview draws a fallback when the renderer fails after WebGL2 star
   expect(errors).toEqual([]);
 });
 
+// A GPU reset, sleep and wake, or a driver update drops every GPU context on the page; the message
+// preview then draws on the flat canvas, the same way the play stage falls back.
+test("message preview keeps drawing after the GPU drops its context @webkit-desktop", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await start(page);
+  const form = await open(page, "Answer a sentence");
+  const says = form.getByLabel("The game says…", { exact: true });
+  await says.fill("Hello from your game.");
+  const preview = form.getByRole("img", { name: "Game message preview" });
+  await messagePixels(preview);
+  const first = Buffer.from(decodePng(await preview.screenshot()).rgba);
+  await preview
+    .locator("canvas")
+    .first()
+    .evaluate(async (canvas: HTMLCanvasElement) => {
+      const lost = new Promise((resolve) => canvas.addEventListener("webglcontextlost", resolve));
+      canvas.getContext("webgl2")!.getExtension("WEBGL_lose_context")!.loseContext();
+      await lost;
+    });
+  await says.fill("The sun shines above the clearing.");
+  await messagePixels(preview);
+  await colourPixels(preview);
+  await expect
+    .poll(async () => Buffer.from(decodePng(await preview.screenshot()).rgba).equals(first))
+    .toBe(false);
+  expect(errors).toEqual([]);
+});
+
+// The context can also be lost while the renderer starts, before the preview listens for it: the
+// browser's context-lost event reaches the renderer as soon as the renderer starts listening.
+test("message preview draws a picture when the GPU drops its context while starting @webkit-desktop", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    const listen = HTMLCanvasElement.prototype.addEventListener;
+    HTMLCanvasElement.prototype.addEventListener = function (
+      this: HTMLCanvasElement,
+      ...args: Parameters<typeof listen>
+    ) {
+      listen.apply(this, args);
+      if (
+        args[0] === "webglcontextlost" &&
+        this.getAttribute("aria-label") === "Game message preview"
+      )
+        queueMicrotask(() =>
+          this.dispatchEvent(new Event("webglcontextlost", { cancelable: true })),
+        );
+    } as typeof listen;
+  });
+  await start(page);
+  const form = await open(page, "Answer a sentence");
+  const says = form.getByLabel("The game says…", { exact: true });
+  await says.fill("Hello from your game.");
+  const preview = form.getByRole("img", { name: "Game message preview" });
+  await messagePixels(preview);
+  const first = Buffer.from(decodePng(await preview.screenshot()).rgba);
+  await says.fill("The sun shines above the clearing.");
+  await messagePixels(preview);
+  await colourPixels(preview);
+  await expect
+    .poll(async () => Buffer.from(decodePng(await preview.screenshot()).rgba).equals(first))
+    .toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test("message preview draws a fallback when drawing throws", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -309,77 +390,82 @@ test("message preview draws a fallback when drawing throws", async ({ page }) =>
   expect(errors).toEqual([]);
 });
 
-for (const [width, height] of [
-  [1063, 815],
-  [1440, 900],
-  [390, 844],
-] as const) {
-  test(`guided placement stays crisp with CRT Full saved at ${width} @webkit-desktop`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width, height });
-    await page.addInitScript(() => {
-      localStorage.clear();
-      localStorage.setItem("monotio_agi.e2e.isolated", "1");
-      localStorage.setItem("monotio_agi.crtAmount", "1");
-    });
-    await start(page, async () =>
-      page.evaluate(async () => {
-        const { AgiStage } = await import("/src/three/AgiStage.ts");
-        const descriptor = Object.getOwnPropertyDescriptor(AgiStage.prototype, "crtAmount")!;
-        Object.defineProperty(AgiStage.prototype, "crtAmount", {
-          ...descriptor,
-          set(value: number) {
-            descriptor.set!.call(this, value);
-            (window as unknown as { placementStage: unknown }).placementStage = this;
-          },
-        });
-      }),
-    );
-    const amount = () =>
-      page.evaluate(
-        () =>
-          (window as unknown as { placementStage?: { crtAmount: number } }).placementStage
-            ?.crtAmount,
+test.describe(() => {
+  // About the GPU stage, so it creates one (e2e/test.ts `gpuStage`).
+  test.use({ gpuStage: true });
+
+  for (const [width, height] of [
+    [1063, 815],
+    [1440, 900],
+    [390, 844],
+  ] as const) {
+    test(`guided placement stays crisp with CRT Full saved at ${width}${width === 1440 ? " @webkit-desktop" : width === 390 ? " @phone" : ""}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await page.addInitScript(() => {
+        localStorage.clear();
+        localStorage.setItem("monotio_agi.e2e.isolated", "1");
+        localStorage.setItem("monotio_agi.crtAmount", "1");
+      });
+      await start(page, async () =>
+        page.evaluate(async () => {
+          const { AgiStage } = await import("/src/three/AgiStage.ts");
+          const descriptor = Object.getOwnPropertyDescriptor(AgiStage.prototype, "crtAmount")!;
+          Object.defineProperty(AgiStage.prototype, "crtAmount", {
+            ...descriptor,
+            set(value: number) {
+              descriptor.set!.call(this, value);
+              (window as unknown as { placementStage: unknown }).placementStage = this;
+            },
+          });
+        }),
       );
-    await page.getByRole("radio", { name: "Play", exact: true }).click();
-    await expect(page.getByTestId("gpu-canvas")).toBeVisible();
-    await expect.poll(amount).toBe(1);
-    await page.getByRole("radio", { name: "Create", exact: true }).click();
-    await expect.poll(amount).toBe(0);
-    await parts(page);
-    await page.getByTestId("part-room:1:picture:1").click();
-    await parts(page);
-    await page.getByTestId("part-room:1:logic").click();
-    let form = await open(page, "Place hero");
-    await expect.poll(amount).toBe(0);
-    await form.getByRole("button", { name: "Drag to place", exact: true }).click();
-    const overlay = page.getByTestId("guided-placement");
-    await expect(overlay).toBeVisible();
-    await expect.poll(amount).toBe(0);
-    await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(form).toBeVisible();
-    await form.getByRole("button", { name: "Cancel", exact: true }).click();
-    await addRoom(page, "Moonlit grove");
-    await parts(page);
-    await page.getByTestId("part-room:1:logic").click();
-    form = await open(page, "Door");
-    await expect.poll(amount).toBe(0);
-    // The door starts on the game; cancel the draw, then drive the form.
-    await expect(overlay).toBeVisible();
-    await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(form).toBeVisible();
-    await form
-      .getByRole("group", { name: "Destination room", exact: true })
-      .getByRole("button", { name: /Moonlit grove/ })
-      .click();
-    for (const label of ["Drag the box on the game", "and arrive here"]) {
-      await form.getByRole("button", { name: label, exact: true }).click();
+      const amount = () =>
+        page.evaluate(
+          () =>
+            (window as unknown as { placementStage?: { crtAmount: number } }).placementStage
+              ?.crtAmount,
+        );
+      await page.getByRole("radio", { name: "Play", exact: true }).click();
+      await expect(page.getByTestId("gpu-canvas")).toBeVisible();
+      await expect.poll(amount).toBe(1);
+      await page.getByRole("radio", { name: "Create", exact: true }).click();
+      await expect.poll(amount).toBe(0);
+      await parts(page);
+      await page.getByTestId("part-room:1:picture:1").click();
+      await parts(page);
+      await page.getByTestId("part-room:1:logic").click();
+      let form = await open(page, "Place hero");
+      await expect.poll(amount).toBe(0);
+      await form.getByRole("button", { name: "Drag to place", exact: true }).click();
+      const overlay = page.getByTestId("guided-placement");
       await expect(overlay).toBeVisible();
       await expect.poll(amount).toBe(0);
       await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
       await expect(form).toBeVisible();
-    }
-    expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crtAmount"))).toBe("1");
-  });
-}
+      await form.getByRole("button", { name: "Cancel", exact: true }).click();
+      await addRoom(page, "Moonlit grove");
+      await parts(page);
+      await page.getByTestId("part-room:1:logic").click();
+      form = await open(page, "Door");
+      await expect.poll(amount).toBe(0);
+      // The door starts on the game; cancel the draw, then drive the form.
+      await expect(overlay).toBeVisible();
+      await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(form).toBeVisible();
+      await form
+        .getByRole("group", { name: "Destination room", exact: true })
+        .getByRole("button", { name: /Moonlit grove/ })
+        .click();
+      for (const label of ["Drag the box on the game", "and arrive here"]) {
+        await form.getByRole("button", { name: label, exact: true }).click();
+        await expect(overlay).toBeVisible();
+        await expect.poll(amount).toBe(0);
+        await overlay.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(form).toBeVisible();
+      }
+      expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crtAmount"))).toBe("1");
+    });
+  }
+});

@@ -469,17 +469,28 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
     name: "finish",
     description: toolDescription(
       "finish",
-      "Finish authoring and resume the running game. Validates first: every stored game test runs against the current resources, and a session's first finish also boots the world in simulation (ego spawn, room display, modal handling). Failure returns the verdict for repair; only a passing finish resumes play. `notes` is optional free text.",
+      "Finish authoring and resume the running game. Validates first: every game test runs as Apply would leave it, against the current resources, and a session's first finish also boots the world in simulation (ego spawn, room display, modal handling). Finish starts with the test status. testReasons needs one entry for each red test, including tests that were already red, saying why it stays red, and one for each existing test this turn changed or deleted, saying why it changed. The creator sees each entry as `test: reason`. Never weaken or delete a test on your own to make it pass: fix the game, or leave it red and say why. When the creator asks to change or delete a test, make that change; review shows it on its own line for the creator to apply.",
     ),
     parameters: parameterDescriptions("finish", {
       type: "object",
       additionalProperties: false,
       properties: {
-        notes: {
-          type: ["string", "null"],
+        testReasons: {
+          type: ["array", "null"],
+          description:
+            "One entry per red or changed test: test is its exact name, reason is a short plain sentence for the creator. Null when every test passes and no existing test changed.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              test: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["test", "reason"],
+          },
         },
       },
-      required: ["notes"],
+      required: ["testReasons"],
     }),
   },
   {

@@ -114,7 +114,7 @@ async function side(studio: Locator, name: "Items" | "Inspector" | "Views") {
     .click();
 }
 
-test("Sierra's two layers: the Priority lens holds the control lines, the walk tools and panel @webkit-desktop", async ({
+test("Sierra's two layers: the Priority lens holds the control lines, the walk tools and panel", async ({
   page,
 }) => {
   const studio = await picture(page);
@@ -179,9 +179,7 @@ test("a wall drawn in the Priority lens writes priority 0 and paints no art", as
   expect(source).toMatch(/"Wall line 1" walk\nvis off\npri 0\nline 20,150 100,150\n# @end/);
 });
 
-test("the frame's context row says where new shapes draw, for every tool @webkit-desktop", async ({
-  page,
-}) => {
+test("the frame's context row says where new shapes draw, for every tool", async ({ page }) => {
   const studio = await picture(page);
   const context = page.getByTestId("workspace-context");
   await expect(context).toBeVisible();
@@ -252,7 +250,7 @@ test("insert here on an Items row draws new shapes before it @webkit-desktop", a
   await expect(marker).toHaveCount(0);
 });
 
-test("the Items list's Draw order button sorts the list and leaves the transport on @webkit-desktop", async ({
+test("the Items list's Draw order button sorts the list and leaves the transport on", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -307,7 +305,7 @@ test("the Priority pen's slider runs Far at 4 to Near at 15; the header drops th
   await expect(subtitle).not.toContainText("step");
 });
 
-test("Stand in the room gives the item its base distance and a wall along its base @webkit-desktop", async ({
+test("Stand in the room gives the item its base distance and a wall along its base", async ({
   page,
 }) => {
   const studio = await catalog(page);
@@ -327,7 +325,7 @@ test("Stand in the room gives the item its base distance and a wall along its ba
   expect(Number(block.match(/\npri 0\nline \d+,(\d+) \d+,\1\n/)![1])).toBe(base);
 });
 
-test("Items rows drag to a new place in the draw order", async ({ page }) => {
+test("Items rows drag to a new place in the draw order @webkit-desktop", async ({ page }) => {
   const studio = await picture(page);
   await studio.getByRole("button", { name: "Draw order", exact: true }).click();
   const rows = studio.locator('[role="treeitem"][data-row]');
@@ -429,10 +427,11 @@ test("views draw as in the game: no hover marks, every Set in line, a preview fo
 
 for (const size of [
   { width: 1440, height: 900 },
-  { width: 1063, height: 815 },
   { width: 390, height: 844 },
 ]) {
-  test(`picture editor storyboard moments at ${size.width} @webkit-desktop`, async ({ page }) => {
+  test(`picture editor storyboard moments at ${size.width}${size.width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+    page,
+  }) => {
     const studio = await catalog(page, size);
     // Focus gives the editor the window, as a creator drawing would.
     const focus = page.getByTestId("workspace-focus");

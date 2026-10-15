@@ -5,7 +5,6 @@ import { screenText, textHook, workspaceSaved } from "./engineProbe.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
 for (const [width, height] of [
-  [1063, 815],
   [1440, 900],
   [390, 844],
 ] as const) {

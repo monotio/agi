@@ -180,9 +180,17 @@ export class AgiStage {
 
   private readonly stopLayoutWatch: () => void;
 
+  /** Called when the GPU drops this stage's context or device; the stage draws nothing after. */
+  onLost: (() => void) | null = null;
+
   private constructor(renderer: WebGPURenderer, isWebGpu: boolean, canvas: HTMLCanvasElement) {
     this.renderer = renderer;
     this.isWebGpu = isWebGpu;
+    const deviceLost = renderer.onDeviceLost.bind(renderer);
+    renderer.onDeviceLost = (info) => {
+      deviceLost(info);
+      if (!this.disposed) this.onLost?.();
+    };
     this.fit(canvas);
     this.observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => this.fit(canvas));
@@ -830,7 +838,16 @@ export class AgiStage {
       let renderer: WebGPURenderer | null = null;
       try {
         renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL, context });
+        // A context or device lost while the renderer starts arrives before the stage can pass
+        // it on, so it counts as a failed start and the caller shows the flat picture.
+        let lost = false;
+        const deviceLost = renderer.onDeviceLost.bind(renderer);
+        renderer.onDeviceLost = (info) => {
+          lost = true;
+          deviceLost(info);
+        };
         await renderer.init();
+        if (lost || context?.isContextLost()) throw new Error("The GPU was lost while starting.");
         const gpu =
           !forceWebGL &&
           Boolean((renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend);
@@ -925,6 +942,7 @@ export class AgiStage {
     this.picTexture?.dispose();
     this.picPriTexture?.dispose();
     this.ownerTexture?.dispose();
+    this.previewTexture?.dispose();
     this.textTexture?.dispose();
     this.geometry.dispose();
     this.flatMaterial.dispose();

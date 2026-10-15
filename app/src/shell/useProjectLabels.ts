@@ -4,8 +4,7 @@ import { projectLabelContext } from "./projectLabelContext.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 
 /** Live names for app surfaces that already belong to the open game. */
-export function useProjectLabels() {
-  const engine = useEngineApi();
+export function useProjectLabels(engine = useEngineApi()) {
   return computed(() => {
     void engine.state.patchTick;
     // Map and Create request analysis; Play headings only consume its results.

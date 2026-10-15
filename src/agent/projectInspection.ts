@@ -17,12 +17,14 @@ export function createProjectInspection(input: {
   /** Metadata belonging to this native image, independently of the current draft. */
   readonly documents: Readonly<Record<string, ProjectContent>>;
   readonly origin?: "admitted" | "live";
+  readonly readCommittedTests?: () => string | Uint8Array | undefined;
 }) {
   const profile = PROFILES[input.profileId];
   if (!profile) throw new Error(`Unknown AGI profile: ${input.profileId}`);
   const files = Object.fromEntries(
     Object.entries(input.files).map(([key, bytes]) => [key, new Uint8Array(bytes)]),
   );
+  delete files["TESTS.JSON"];
   const container = openContainer(new Map(Object.entries(files)), { profile });
   // Decode optional vocabulary independently. A damaged dictionary
   // must not prevent another resource from being inspected.
@@ -42,8 +44,9 @@ export function createProjectInspection(input: {
   const state = createAgentSessionState(container, profile, words);
   state.genesisComplete = true;
   const bindings = input.documents["bindings"];
-  const tests = input.documents["tests"];
+  const tests = input.readCommittedTests ? input.readCommittedTests() : input.documents["tests"];
   const testsFromDocuments = tests !== undefined;
+  state.readCommittedTests = input.readCommittedTests ?? (() => input.documents["tests"]);
   if (testsFromDocuments)
     state.testsPayload =
       typeof tests === "string" ? new TextEncoder().encode(tests) : new Uint8Array(tests);
@@ -69,7 +72,7 @@ export function createProjectInspection(input: {
             : key === "inventory"
               ? container.files.get("OBJECT")
               : key === "tests"
-                ? (state.testsPayload ?? container.files.get("TESTS.JSON"))
+                ? state.testsPayload
                 : undefined;
         if (content !== undefined && content !== null)
           documents[key] = typeof content === "string" ? content : content.slice();

@@ -20,6 +20,8 @@ import { createPlayHereLoader } from "../src/worker/playHereLoader.ts";
 import { workerHarness } from "./worker-ctx.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
+import { enterProjectCreate } from "../src/worker/projectAdmission.ts";
+import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 
 /** Room 1 plain; room 2 has a control-0 barrier across y=100 and an entry window. */
 function game() {
@@ -46,7 +48,7 @@ function game() {
   );
 }
 
-function harness(eager = true) {
+function harness(eager = true, progressMode?: "create") {
   const control: WorkerControl[] = [];
   let now = 0;
   const ports: WorkerPorts = {
@@ -73,7 +75,13 @@ function harness(eager = true) {
         });
     }
   };
-  send({ type: "boot", files: Object.fromEntries(game().files), words: [], rngSeed: 7 });
+  send({
+    type: "boot",
+    files: Object.fromEntries(game().files),
+    words: [],
+    rngSeed: 7,
+    ...(progressMode ? { progressMode } : {}),
+  });
   ctx.fns.stopTimers();
   const tick = (n = 1): void => {
     for (let i = 0; i < n; i++) {
@@ -156,6 +164,32 @@ test("Create visits preserve the first moment across rooms and restore it exactl
   );
   assert.deepEqual(ctx.run.engine!.captureReplayState(), replay, "transient state returns too");
   assert.equal(ctx.run.rng.word, 4321, "the random sequence resumes at the prior moment");
+});
+
+test("Back names a room the game entered: Create before the first LOGIC pass keeps the start", () => {
+  // The visit's Back action reads "Back to <room>". Choosing Play and then Create before the
+  // game's first cycle captures the start of the game, which is in no room yet: that visit
+  // offers no Back, never "Back to Room 0". One cycle later the moment is in room 1.
+  for (const cycles of [0, 1]) {
+    const { ctx, send, tick, control } = harness(true, "create");
+    tick(6);
+    send({ type: "projectPlay", id: 70 });
+    assert.equal(ctx.run.engine!.vars[0], 0, "Play resumes the start Create captured at boot");
+    tick(cycles);
+    ctx.boot.authorRooms = true;
+    enterProjectCreate(ctx, {
+      type: "projectCreate",
+      id: 71,
+      documents: writeProjectWorkspace({}),
+    });
+    tick(6);
+    send({ type: "playHere", id: 72, room: 2, x: 0, y: 0, visit: "start" });
+    const visit = control.findLast((m) => m.type === "playedHere");
+    assert.ok(visit?.type === "playedHere");
+    assert.equal(visit.ok, true, `${cycles} cycles`);
+    assert.equal(visit.room, 2);
+    assert.equal(visit.returnRoom, cycles === 0 ? undefined : 1, `${cycles} cycles`);
+  }
 });
 
 test("opening another editor of the visited room keeps its current moment", () => {

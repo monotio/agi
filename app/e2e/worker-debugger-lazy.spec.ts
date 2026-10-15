@@ -57,13 +57,15 @@ function modulesOf(url: URL): readonly string[] {
     return [];
   }
   if (path.startsWith("/@fs/")) return [relative(repository, path.slice("/@fs".length))];
-  const prebundled = path.match(/^\/node_modules\/\.vite\/deps\/([^/]+)$/)?.[1];
+  // A test server keeps its own cache per port (app/vite.config.ts).
+  const prebundled = path.match(/^\/(node_modules\/\.vite(?:-test\/[^/]+)?\/deps)\/([^/]+)$/);
   if (prebundled) {
-    const { optimized } = JSON.parse(
-      readFileSync(join(app, "node_modules", ".vite", "deps", "_metadata.json"), "utf8"),
-    ) as { optimized: Record<string, { file: string }> };
+    const [, cache, file] = prebundled;
+    const { optimized } = JSON.parse(readFileSync(join(app, cache!, "_metadata.json"), "utf8")) as {
+      optimized: Record<string, { file: string }>;
+    };
     return Object.entries(optimized)
-      .filter(([, entry]) => entry.file === prebundled)
+      .filter(([, entry]) => entry.file === file)
       .map(([id]) => `app/node_modules/${id}/`);
   }
   return [`app${path}`];
@@ -254,7 +256,7 @@ async function driveDebugger(
   );
 }
 
-test("the execution debugger loads on first use: Play never fetches it, an attach does @webkit-desktop", async ({
+test("the execution debugger loads on first use: Play never fetches it, an attach does", async ({
   page,
   baseURL,
 }) => {
@@ -384,9 +386,7 @@ test("the execution debugger loads on first use: Play never fetches it, an attac
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
 });
 
-test("Create top actions without breakpoints never fetch the debugger @webkit-desktop", async ({
-  page,
-}) => {
+test("Create top actions without breakpoints never fetch the debugger", async ({ page }) => {
   const requests: string[] = [];
   page.on("request", (request) => requests.push(request.url()));
   await isolateStorage(page);

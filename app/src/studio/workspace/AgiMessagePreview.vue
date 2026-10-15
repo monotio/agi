@@ -73,8 +73,15 @@ async function start(): Promise<void> {
       return;
     }
     stage = created;
-    if (stage) stage.crtAmount = 0;
-    else useFallback();
+    if (stage) {
+      stage.crtAmount = 0;
+      // A lost GPU context or device leaves the preview on the flat canvas, as in Play.
+      stage.onLost = () => {
+        if (stage !== created) return;
+        useFallback();
+        render();
+      };
+    } else useFallback();
   } catch {
     if (closed) return;
     useFallback();

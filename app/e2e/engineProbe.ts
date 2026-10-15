@@ -199,14 +199,16 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
 }
 
 /**
- * A cold Vite dev server transforms and serves the boot's whole module graph
- * on first request, so the first game boot of a run — and any fresh page load
- * or deep link — can sit far past the settled-state poll before room 1 shows.
+ * The Vite dev server serves code one module at a time, so the first time a page
+ * loads a module graph waits for all of it: the game boot (and any fresh page load
+ * or deep link), and each lazily imported editor (Create's workspace, Room Studio,
+ * Sprite Studio, Monaco). Under a loaded suite that can sit far past the default
+ * expect budget, so a wait that covers a first load spends this budget instead.
  */
-const COLD_BOOT_BUDGET_MS = 30_000;
+export const FIRST_LOAD_BUDGET_MS = 30_000;
 
 /**
- * Wait until the engine reports `room`. `coldBoot` spends the cold-boot
+ * Wait until the engine reports `room`. `coldBoot` spends the first-load
  * budget on a wait that covers a fresh boot; a warm room change keeps the
  * default poll budget.
  */
@@ -218,7 +220,7 @@ export async function waitForRoom(
   await expect
     .poll(
       async () => (await textHook(page)).room,
-      options?.coldBoot === true ? { timeout: COLD_BOOT_BUDGET_MS } : {},
+      options?.coldBoot === true ? { timeout: FIRST_LOAD_BUDGET_MS } : {},
     )
     .toBe(room);
 }
@@ -444,11 +446,6 @@ export async function configureAi(page: Page, configuration: AiConfiguration): P
 
 /** Open the single shared connection dialog through Settings. */
 export async function openAiSettings(page: Page): Promise<void> {
-  // AI settings stay closed while the Agent is still opening; a click then does nothing.
-  // A production build has no test hooks, so it skips this wait.
-  await expect
-    .poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy ?? false))
-    .toBe(false);
   const settings = page.getByTestId("settings-menu");
   if ((await settings.getAttribute("aria-expanded")) !== "true") await settings.click();
   await page.getByTestId("open-ai-settings").click();
@@ -595,7 +592,7 @@ export async function openWorkspacePicture(
   )
     await page.getByTestId("workspace-focus").click();
   const studio = page.getByTestId("room-studio").filter({ visible: true });
-  await expect(studio).toBeVisible();
+  await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   return studio;
 }
@@ -617,7 +614,7 @@ export async function openWorkspaceView(
   )
     await page.getByTestId("workspace-focus").click();
   const studio = page.getByTestId("sprite-studio").filter({ visible: true });
-  await expect(studio).toBeVisible();
+  await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await studio.getByTestId("sprite-stage").focus();
   return studio;
 }
@@ -840,6 +837,19 @@ export async function enterPlayMode(page: Page): Promise<void> {
   await expect(page).toHaveURL(/#play\//);
 }
 
+/**
+ * Switch a running game from Create to Play and wait for the worker's answer.
+ * Play may restart the room or boot the edited files afresh, so until that
+ * answer the play surface still shows Create's run: its input, room and text.
+ */
+export async function playFromCreate(page: Page): Promise<void> {
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  await expect(play).toHaveAttribute("aria-checked", "false");
+  await clickModeAndWait(page, "play", play);
+  await expect(play).toHaveAttribute("aria-checked", "true");
+  await expect(page).toHaveURL(/#play\//);
+}
+
 /** Seed through the production persistence boundary, so fixtures use the release contract. */
 export async function cacheGame(
   page: Page,
@@ -863,10 +873,9 @@ export async function cacheGame(
     },
   );
   expect(saved).toBe(true);
-  // The save pulled the storage modules in through a dynamic import. A reload
-  // that cancels those requests mid-flight can make WebKit fail the next
-  // page's module loads outright, so callers reload only once they settle.
-  await page.waitForLoadState("networkidle");
+  // The evaluate above awaited the dynamic imports and the write, so every module request has
+  // finished before callers reload (a reload that cancels one mid-flight can make WebKit fail
+  // the next page's module loads).
 }
 
 /** Visibility selection and measurement share one DOM read across the GPU handoff. */

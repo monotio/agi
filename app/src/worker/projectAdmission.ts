@@ -1,3 +1,4 @@
+import { openContainer } from "../../../src/container/container.ts";
 /** Complete project admission with explicit run authority, independent of debugger loading. */
 import { compileWorkingProjectImage } from "../project/projectWorkingImage.ts";
 import {
@@ -20,6 +21,7 @@ import {
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
 import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
+import { commitRoomReentry } from "./hostRequests.ts";
 import { enterCreateRun } from "./resumePoint.ts";
 import { roomResourcesChanged } from "./roomChange.ts";
 import { installProjectRestart } from "./projectRestart.ts";
@@ -684,17 +686,30 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       settleRefused("Update and launch needs room-entry admission.");
       return;
     }
-    if (msg.mode === "restart" || msg.launch) {
+    const removedCurrentRoom =
+      msg.mode === "reenter" &&
+      openContainer(engine.containerFiles, { profile: engine.profile }).getResource(
+        "logic",
+        engine.vars[0]!,
+      ) !== null &&
+      openContainer(candidate.files, { profile }).getResource("logic", engine.vars[0]!) === null;
+    if (msg.mode === "restart" || msg.launch || removedCurrentRoom) {
       let replacement;
       let launch: PreparedRoomLaunch | undefined;
       const facade = detachedHost(ctx);
       try {
-        if (msg.launch) {
-          launch = prepareRoomLaunch(ctx, msg.launch, candidate.files, profile, {
-            sources: candidate.sources,
-            sourceBindings: candidate.sourceBindings,
-            bindings: candidate.bindings,
-          });
+        if (msg.launch || removedCurrentRoom) {
+          launch = prepareRoomLaunch(
+            ctx,
+            msg.launch ?? { room: engine.vars[0]!, beginning: true },
+            candidate.files,
+            profile,
+            {
+              sources: candidate.sources,
+              sourceBindings: candidate.sourceBindings,
+              bindings: candidate.bindings,
+            },
+          );
           replacement = launch.engine;
         } else
           replacement = prepareProjectRestart(
@@ -827,56 +842,58 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       );
       return;
     }
-    let roomReentry =
+    const explicitReentry =
       msg.mode === "reenter" ||
       (msg.mode === undefined &&
         !launchMetadataOnly &&
         ctx.run.projectAdmission === lane &&
         engine.continuationPending &&
         (engine.modalKind === "print" || engine.awaitingKey));
-    // An applied change shows at once: when it touches what the room has in
-    // use, the room re-enters after the swap, journaled in the same segment.
-    // An entry already waiting to run picks up the new bytes by itself.
     const liveApply =
-      !roomReentry &&
+      !explicitReentry &&
       msg.mode === undefined &&
       !launchMetadataOnly &&
       ctx.run.projectAdmission === lane;
-    const showChange =
-      liveApply &&
-      !engine.roomEntryPending &&
-      roomResourcesChanged(engine, engine.containerFiles, candidate.files);
+    const needsReentry = liveApply && engine.previewNeedsRoomReentry(plan);
+    // Applied changes to the room's own parts show through one admitted entry.
+    // A room entry already waiting to run picks up the new bytes by itself.
+    const roomReentry =
+      explicitReentry ||
+      needsReentry ||
+      (liveApply &&
+        !engine.roomEntryPending &&
+        roomResourcesChanged(engine, engine.containerFiles, candidate.files));
+    const segment = explicitReentry || needsReentry ? "resume" : "continue";
+    const recordImage = (nativeChanged: boolean) =>
+      ctx.fns.historyRecord({
+        kind: "projectImage",
+        files: Object.fromEntries(
+          [...candidate.files].map(([name, bytes]) => [name, bytesToBase64(bytes)]),
+        ),
+        documents: admittedDocuments!,
+        documentId: documentId!,
+        nativeChanged,
+      });
     const commit = () =>
       roomReentry
-        ? engine.commitRoomReentry(plan, () => {
-            // A test recording cannot replay the new resources or the entry.
-            const recording = ctx.run.recording.recording;
-            if (recording && recording.tainted === null)
-              recording.tainted = "Game resources changed during recording.";
-            ctx.fns.historyEnd("resume");
-            ctx.fns.setKeyWaiting(false);
-            ctx.fns.abandonHostRequest();
-            ctx.fns.markReenter();
-          })
+        ? commitRoomReentry(
+            ctx,
+            engine,
+            plan,
+            segment,
+            segment === "continue"
+              ? () => {
+                  ctx.fns.debugBeforeReplace();
+                  recordImage(true);
+                }
+              : undefined,
+          )
         : engine.commitPreviewUpdate(plan, {
             // Adoption publishes sources for bytes the room answer installed.
-            // The exact native-image check above preserves its parked pass.
             sourceAuthorityChanged: sourceAuthorityChanged && !adoptingRoom && !launchMetadataOnly,
             messageWaiting: msg.mode === "keep",
           });
-    let result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
-    // A change the running room cannot take in place (a loaded VIEW's new
-    // layout, a VIEW stamped into the picture) enters the room with it
-    // instead of waiting for Re-enter room.
-    if (liveApply && result.status === "restartRequired" && result.roomReentry === true) {
-      roomReentry = true;
-      plan = engine.prepareRoomReentry(
-        candidate.profile === undefined
-          ? { files: candidate.files }
-          : { files: candidate.files, profile: candidate.profile },
-      );
-      result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
-    }
+    const result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
 
     if (result.status === "deferred") {
       // A busy boundary is a terminal, honest answer: nothing is queued,
@@ -912,15 +929,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       if (ctx.run.projectAdmission === lane)
         ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
       if (ctx.run.projectAdmission === lane && !roomReentry)
-        ctx.fns.historyRecord({
-          kind: "projectImage",
-          files: Object.fromEntries(
-            [...candidate.files].map(([name, bytes]) => [name, bytesToBase64(bytes)]),
-          ),
-          documents: admittedDocuments!,
-          documentId: documentId!,
-          nativeChanged: result.status === "committed",
-        });
+        recordImage(result.status === "committed");
       lane.sources = candidate.sources;
       lane.sourceBindings = candidate.sourceBindings;
       lane.bindings = candidate.bindings;
@@ -948,12 +957,14 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       }
     }
     if (installed && roomReentry) {
+      if (segment === "continue") {
+        ctx.fns.historyRecord({ kind: "reenter" });
+        ctx.fns.debugSessionReplaced();
+      }
       ctx.fns.noteTransition();
-      ctx.fns.historyResume();
+      if (segment === "resume") ctx.fns.historyResume();
       ctx.fns.postFrame(true);
     }
-    if (installed && showChange && !roomReentry && result.status === "committed")
-      ctx.fns.onReenter({ type: "reenter" });
     // A reload needs progress for these admitted bytes, even when the last
     // periodic checkpoint belongs to the image before the edit.
     if (ctx.run.projectAdmission === lane && result.status === "committed") ctx.fns.autosave(true);

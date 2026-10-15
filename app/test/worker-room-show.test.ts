@@ -5,6 +5,7 @@ import { createEngineHost } from "../src/worker/host.ts";
 import { createDebugController } from "../src/worker/debugController.ts";
 import { installDebugController } from "../src/worker/debugLoader.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
+import { createPlayHere } from "../src/worker/playHere.ts";
 import { projectAdmissionIdentity } from "../src/worker/projectAdmission.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -182,6 +183,49 @@ const STAMPING = (version: number, cel: number) =>
 const frame = (color: number) => ({ width: 2, height: 2, pixels: [color, color, color, color] });
 const STAMP_PIXEL = 100 * 160 + 40;
 
+test("returning to Play offers Restart when changed art cannot be redrawn", async (t) => {
+  const room =
+    "if(isset(f5)){increment(v83);}if(v80 == 0){load.pic(v0);draw.pic(v0);load.view(0);add.to.pic(0,0,0,40,100,4,0);show.pic();v80 = 1;}return;";
+  const art = (color: number) => ({
+    "picture:1": `vis ${color}\nfill 1,1\nend\n`,
+    "picture:2": "vis 3\nfill 1,1\nend\n",
+    "view:0": JSON.stringify({ loops: [{ cels: [frame(7)] }] }),
+  });
+  const other = "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}return;";
+  const first = candidate(room, other, LOGIC_0, art(1));
+  const { ctx, control, presentations, update } = await created(t, false, false, first);
+  const next = candidate(room, other, LOGIC_0, art(2));
+  const recorded = ctx.run.engine!;
+  const direct = recorded.commitRoomReentry(
+    recorded.prepareRoomReentry({ files: new Map(Object.entries(next.files)) }),
+  );
+  assert.equal(direct.status, "restartRequired");
+  assert.match(direct.reason!, /does not redraw/);
+  createPlayHere(ctx).onPlayHere({ type: "playHere", id: 2, room: 2, x: 0, y: 0, launch: {} });
+  assert.equal(ctx.run.engine!.vars[0], 2);
+  update(next, 3);
+  const temporary = ctx.run;
+  const autosaves = presentations.filter((message) => message.type === "autosave").length;
+  onWorkerMessage(ctx, { type: "projectPlay", id: 4 });
+  const reply = control.findLast((message) => message.type === "projectPlayed");
+  assert.ok(reply?.type === "projectPlayed" && !reply.ok, JSON.stringify(reply));
+  assert.match(reply.reason!, /does not redraw.*Choose Restart/);
+  assert.equal(ctx.run, temporary, "the refusal leaves the Create visit intact");
+  assert.equal(ctx.run.progress.mode, "create");
+  assert.equal(ctx.run.engine!.vars[0], 2);
+  assert.equal(
+    presentations.filter((message) => message.type === "autosave").length,
+    autosaves,
+    "the refused Play does not save a stale room",
+  );
+  onWorkerMessage(ctx, { type: "projectPlay", id: 5, restart: true });
+  assert.ok(control.findLast((message) => message.type === "projectPlayed")?.ok);
+  ctx.run.engine!.tick();
+  assert.equal(ctx.run.progress.mode, "play");
+  assert.equal(ctx.run.engine!.getPresentation().visual[161], 2);
+  assert.equal(ctx.run.engine!.getPresentation().visual[STAMP_PIXEL], 7);
+});
+
 test("Play starts its room fresh when a stamped VIEW lost the frame it showed", async (t) => {
   const art = (cels: ReturnType<typeof frame>[]) => ({
     "picture:1": "vis 1\nfill 1,1\nend\n",
@@ -352,4 +396,50 @@ test("Play starts a stamped room fresh with the debugger attached", async (t) =>
   assert.equal(reply.restartedRoom, 1);
   assert.equal(ctx.run.progress.mode, "play");
   assert.deepEqual(Object.fromEntries(ctx.run.engine!.containerFiles), next.files);
+});
+
+/** Commit an update without running a cycle after it, then ask to keep the paused game. */
+function updateThenRetain(
+  ctx: Awaited<ReturnType<typeof created>>["ctx"],
+  control: WorkerControl[],
+  next: PreviewUpdateCandidateMessage,
+  mode: "restart" | "reenter",
+) {
+  const lane = ctx.run.projectAdmission!;
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 40,
+    runToken: lane.runToken,
+    expected: projectAdmissionIdentity(ctx, lane)!,
+    candidate: next,
+    mode,
+  });
+  const result = control.findLast((m) => m.type === "previewUpdateResult");
+  assert.ok(result?.type === "previewUpdateResult" && result.status === "committed");
+  onWorkerMessage(ctx, { type: "historyRetain", id: 41 });
+  const reply = control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  return reply;
+}
+
+// Player rule: a game whose room is starting again (an applied edit) before its first cycle is
+// still starting; a rewind says so rather than keeping the game's start in its place.
+test("a room re-entry on a game that has not run yet is refused as still starting", async (t) => {
+  const { ctx, control } = await created(t, true, true);
+  onWorkerMessage(ctx, { type: "pause", paused: true });
+  assert.equal(ctx.run.engine!.completedCycleSerial, 0, "the game has not run");
+  const reply = updateThenRetain(ctx, control, candidate(ROOM(2)), "reenter");
+  assert.equal(ctx.run.engine!.roomEntryPending, true);
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "starting");
+});
+
+// Player rule: a restart that has not run its first cycle is the game's start, so a rewind keeps
+// it as that start.
+test("a restart paused before its first cycle is kept as the game's start", async (t) => {
+  const { ctx, control } = await created(t, true);
+  const reply = updateThenRetain(ctx, control, candidate(ROOM(2)), "restart");
+  assert.equal(ctx.run.engine!.completedCycleSerial, 0, "the restart has not run");
+  assert.ok(reply.boot, "the restarted game is kept");
+  assert.equal(reply.boot.image, undefined, "as a cold boot of its start");
 });

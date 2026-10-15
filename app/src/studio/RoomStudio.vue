@@ -1392,7 +1392,11 @@ function onKeyup(event: KeyboardEvent): void {
         :fold="optionsFold.level.value"
       />
       <!-- In the frame, where new shapes draw and an open path ride the context row above. -->
-      <Teleport :disabled="!active || !inWorkspace" defer to="#workspace-context-editor">
+      <Teleport
+        :disabled="!active || !workspaceEditor?.contextTarget.value"
+        defer
+        :to="workspaceEditor?.contextTarget.value"
+      >
         <StudioDrawingAt :at="position" @end="seek(total)" />
         <StudioPathBar
           v-if="tools.path.value"

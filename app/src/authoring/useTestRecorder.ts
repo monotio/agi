@@ -1,5 +1,7 @@
-import type { AgentSession } from "../agent/agentSession.ts";
-import type { LlmConfig } from "../agent/llmClient.ts";
+import type { ProjectSession } from "../project/projectSession.ts";
+import type { saveTests } from "./saveTests.ts";
+import type { runTestsInWorker } from "../studio/testsRunner.ts";
+import type { GameTestsEditOperation } from "../../../src/agent/gameTestsEdit.ts";
 import {
   buildRecordedTest,
   type AssertionSuggestion,
@@ -24,13 +26,9 @@ export interface TestRecorderOptions {
   readonly query: WorkerQueryFn;
   readonly logAgent: LogAgentFn;
   readonly getBootedGame: () => BootedGame | null;
-  readonly getOrCreateSession: (game: BootedGame, config: LlmConfig) => Promise<AgentSession>;
-  /** Store TESTS.JSON, then install it in the session and the running game (the controller's commitTestsFile). */
-  readonly commitTestsFile: (
-    game: BootedGame,
-    author: AgentSession,
-    tests: Uint8Array,
-  ) => Promise<void>;
+  readonly getProjectSession: () => ProjectSession | null;
+  /** Tests inject the same save contract without loading the browser's storage. */
+  readonly saveTests?: typeof saveTests;
   readonly flushAutosave: (waitMs?: number) => Promise<unknown>;
 }
 
@@ -44,8 +42,8 @@ export interface TestRecorderController {
     snapshot: RecordingSnapshot,
     name: string,
     selected: readonly AssertionSuggestion[],
-    config: LlmConfig,
   ): Promise<{ ok: boolean; message: string }>;
+  runTests(options?: Parameters<typeof runTestsInWorker>[1]): ReturnType<typeof runTestsInWorker>;
   reset(): void;
 }
 
@@ -147,52 +145,45 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     logAgent("log", "Game test recording discarded.");
   }
 
-  /**
-   * Store a recorded test through the SAME write path write_game_tests uses
-   * (validation, dictionary probe, TESTS.JSON serialization) on a fork of
-   * the session, then commit the file exactly like a remix: storage first,
-   * and only then the session and the running game. A refusal — a project
-   * saved elsewhere since boot — leaves both as they were and answers in
-   * the remix's own words. On an installed or catalog game this is the
-   * established remix conversion: the project becomes a writable project
-   * copy, since originals cannot store tests.
-   */
+  /** Save a recorded test as an ordinary project edit, without an AI session. */
   async function saveRecordedTest(
     snapshot: RecordingSnapshot,
     name: string,
     selected: readonly AssertionSuggestion[],
-    config: LlmConfig,
   ): Promise<{ ok: boolean; message: string }> {
     const game = options.getBootedGame();
     if (!game || !getWorker()) return { ok: false, message: "No game is running." };
     if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
-
-    const author = await options.getOrCreateSession(game, config);
-    const { executeAgentTool, forkAgentState } = await (
-      await import("../agent/authoringLoader.ts")
-    ).loadAuthoringStack();
-    const staged = forkAgentState(author.state);
-    const result = executeAgentTool(staged, "write_game_tests", {
-      mode: "merge",
-      names: null,
-      tests: [buildRecordedTest(name, snapshot, selected)],
-    });
-    if (!result.success || !staged.testsPayload)
-      return { ok: false, message: result.error ?? "The recorded test was rejected." };
     try {
-      await options.commitTestsFile(game, author, staged.testsPayload);
+      const save = options.saveTests ?? (await import("./saveTests.ts")).saveTests;
+      const op: GameTestsEditOperation = {
+        kind: "merge",
+        tests: [buildRecordedTest(name, snapshot, selected)],
+      };
+      const edited = await save(options.getProjectSession(), op, {
+        beforeCommit() {
+          if (options.getBootedGame() !== game)
+            throw new Error("The game changed while saving the recording. Try again.");
+        },
+      });
+      const message = `${edited.tests.length} game test${edited.tests.length === 1 ? "" : "s"} saved`;
+      logAgent("response", `[Record] ${message}`);
+      return { ok: true, message };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
-    await options.flushAutosave(2000);
-    logAgent("response", `[Record] ${result.message}`, {
-      tool: "write_game_tests",
-      args: { name },
-    });
-    return { ok: true, message: result.message ?? "Recorded test stored." };
+  }
+
+  /** The Tests panel runs committed documents in a disposable worker. */
+  async function runTests(runOptions?: Parameters<typeof runTestsInWorker>[1]) {
+    const project = options.getProjectSession();
+    if (!project) throw new Error("Open Create before running tests.");
+    const { runTestsInWorker } = await import("../studio/testsRunner.ts");
+    return runTestsInWorker(project, runOptions);
   }
 
   return {
+    runTests,
     startTestRecording,
     stopTestRecording,
     cancelTestRecording,
