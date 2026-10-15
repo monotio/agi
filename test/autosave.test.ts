@@ -213,6 +213,31 @@ test("restoreImage replays an autosave into a fresh engine without unwinding", (
   assert.equal(fresh.vars[0], 1);
 });
 
+test("a host image restore keeps the recorded machine vars; only the authentic restore rewrites them", () => {
+  // Player-visible rule: replaying a recorded session must reproduce the
+  // recorded state exactly — the restore tail's native machine rewrites
+  // (v22 = sound device, v26 = 3, then f12) belong to the original's
+  // save-file restore only (kq3 2.936 0x2647-0x2693), never to a history or
+  // autosave restore, or a recorded [v22,v26] silently becomes [3,3].
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  engine.vars[22] = 7;
+  engine.vars[26] = 8;
+  engine.flags[12] = 0;
+
+  const history = new Engine(buildGame(), new RecordingHost(), DICT);
+  history.restoreImage(engine.autosaveImage()!);
+  assert.equal(history.vars[22], 7, "history restore keeps the recorded v22");
+  assert.equal(history.vars[26], 8, "history restore keeps the recorded v26");
+  assert.equal(history.flags[12], 0, "history restore does not set the restored flag");
+
+  const authentic = new Engine(buildGame(), new RecordingHost(), DICT);
+  authentic.restoreImage(engine.serialize());
+  assert.equal(authentic.vars[22], 3, "the authentic restore rewrites v22 from the machine");
+  assert.equal(authentic.vars[26], 3, "the authentic restore rewrites v26");
+  assert.equal(authentic.flags[12], 1, "the authentic restore sets f12");
+});
+
 test("restoreImage reinstates the game signature from block 1", () => {
   const engine = new Engine(buildGame(), new RecordingHost(), DICT);
   engine.tick();

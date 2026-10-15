@@ -3851,12 +3851,16 @@ export class Engine {
     this.editLine = "";
     this.acceptedLine = "";
     this.controllers.fill(0);
-    // The restore tail clears controllers explicitly and rewrites the machine
-    // vars from the probe, then sets f12; f2/f4 die at the next cycle top and
-    // v19 is never written (kq3 2.936 0x2647-0x2693 / gr1 3.002.149 0x28C7 /
-    // mh1 3.002.107 0x2928).
-    this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
-    this.vars[26] = 3;
+    // The authentic restore tail clears controllers explicitly and rewrites
+    // the machine vars from the probe, then sets f12; f2/f4 die at the next
+    // cycle top and v19 is never written (kq3 2.936 0x2647-0x2693 / gr1
+    // 3.002.149 0x28C7 / mh1 3.002.107 0x2928). A host restore — history or
+    // autosave replay — reproduces the recorded state exactly instead: the
+    // rewrites would silently turn a recorded [v22,v26] into [3,3].
+    if (screen === null) {
+      this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+      this.vars[26] = 3;
+    }
 
     // 2. Reset transient caches and replay the saved sequence.
     this.replaySequence(s.logicResume, sequence, screen !== null);
