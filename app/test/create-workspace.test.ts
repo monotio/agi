@@ -213,6 +213,51 @@ test("closing the Agent restores the saved Parts setting after a resize, and a v
   assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
 });
 
+test("naming a new room keeps Parts open when the Agent stayed closed", async () => {
+  const open = ref(false);
+  const agent = ref(false);
+  const ws = createCreateWorkspace({
+    panelDock: () => undefined,
+    storage: memoryStorage(),
+    agentOpen: () => agent.value,
+    parts: { open, focus: ref(false), phone: () => true },
+  });
+  const renaming = ref<number>();
+  const scope = effectScope();
+  scope.run(() => ws.holdParts(() => renaming.value !== undefined));
+  // Rooms + opens Parts on the phone so the new room is named in place.
+  open.value = true;
+  renaming.value = 2;
+  await nextTick();
+  // Enter names the room: Parts still shows the named room.
+  renaming.value = undefined;
+  await nextTick();
+  assert.equal(open.value, true);
+  // A rename that outlives an Agent opened and closed meanwhile restores the setting when it ends.
+  renaming.value = 3;
+  agent.value = true;
+  await nextTick();
+  agent.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  renaming.value = undefined;
+  await nextTick();
+  assert.equal(open.value, false);
+  // Reopening the Agent before the rename ends cancels that pending restore.
+  open.value = true;
+  renaming.value = 4;
+  agent.value = true;
+  await nextTick();
+  agent.value = false;
+  await nextTick();
+  agent.value = true;
+  await nextTick();
+  renaming.value = undefined;
+  await nextTick();
+  assert.equal(open.value, true);
+  scope.stop();
+});
+
 test("the missing-room action starts once from the beginning without changing the room's launch preference", async () => {
   const editor = createWorkspaceEditor({} as EngineApi);
   editor.actionRoom.value = 3;

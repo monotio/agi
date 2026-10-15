@@ -143,19 +143,16 @@ for (const [width, height] of [
       await launchShot(page, `menu-${width}`, browserName);
       await page.getByRole("menuitem", { name: "From the beginning", exact: false }).click();
       await expect(page.getByRole("menu")).toBeHidden();
-      // The accessible name includes the selected launch.
-      await expect(action).toHaveAccessibleName(
-        "Restart Garden with the launch From the beginning",
-      );
-      await expect(action).toHaveText(/^Garden\s*·\s*From the beginning$/);
+      // From the beginning starts the whole game, so the action names no room.
+      await expect(action).toHaveAccessibleName("Restart from the beginning");
+      await expect(action).toHaveText("From the beginning");
       await launchShot(page, `launch-${width}`, browserName);
       expect((await textHook(page)).room).toBe(8);
+      // The choice belongs to Garden: Home keeps its own launch.
       await open(page, "part-room:1:logic");
       await expect(action).toHaveAccessibleName("Play Home");
       await open(page, "part-room:8:logic");
-      await expect(action).toHaveAccessibleName(
-        "Restart Garden with the launch From the beginning",
-      );
+      await expect(action).toHaveAccessibleName("Restart from the beginning");
     });
   });
 }

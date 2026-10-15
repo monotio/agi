@@ -28,8 +28,15 @@ export interface LaunchAction {
 
 export function launchAction(input: LaunchActionInput): LaunchAction {
   if (input.launch === "beginning" || input.beginning) {
-    const label = input.pending ? "Update and restart · From the beginning" : "From the beginning";
-    return { icon: input.pending ? "update" : "restart", text: label, launch: "", label };
+    if (!input.pending)
+      return {
+        icon: "restart",
+        text: "From the beginning",
+        launch: "",
+        label: "Restart from the beginning",
+      };
+    const label = "Update and restart · From the beginning";
+    return { icon: "update", text: label, launch: "", label };
   }
   if (input.launch === "my-game")
     return {

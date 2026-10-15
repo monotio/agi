@@ -23,10 +23,15 @@ test("the action names the room and, past Carry over, the selected Launch", () =
     launch: "Has key",
     label: "Restart Meadow with the launch Has key",
   });
-  assert.equal(
-    launchAction({ ...base, here: true, launch: "beginning", launchName: "From the beginning" })
-      .label,
-    "From the beginning",
+  // The icon shows restart; the name says so, as "Play from my game" does.
+  assert.deepEqual(
+    launchAction({ ...base, here: false, launch: "beginning", launchName: "From the beginning" }),
+    {
+      icon: "restart",
+      text: "From the beginning",
+      launch: "",
+      label: "Restart from the beginning",
+    },
   );
 });
 
