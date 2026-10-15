@@ -1106,7 +1106,7 @@ for (const size of [
       .toBe(0);
   });
 
-test("Review shows the test Apply replaces: a late same-name creator test is Before, and Apply commits the reviewed After", async ({
+test("Apply needs the test comparison seen: a late same-name creator test refuses Apply from the chat, review shows it as Before, and Apply then commits the reviewed After", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1063, height: 815 });
@@ -1142,8 +1142,15 @@ test("Review shows the test Apply replaces: a late same-name creator test is Bef
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-review")).toBeVisible();
   await expect(page.getByTestId("agent-test-change")).toHaveText(['Added test "Future"']);
-  // The creator saves a test with the same name while the review is open.
+  // The creator saves a test with the same name after returning to the chat, then applies there.
+  await page.getByRole("button", { name: "Back to chat", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await creatorSavesTests(page, [{ name: "Future", room: 9, steps: [] }]);
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-error")).toHaveText(
+    "A test in this review changed. Check the Tests comparison again, then choose Apply.",
+  );
+  await expect(page.getByTestId("agent-review")).toBeVisible();
   await expect(page.getByTestId("agent-test-change")).toHaveText(['Changed test "Future"']);
   await expect(page.getByTestId("agent-test-change-detail").getByRole("row")).toHaveText([
     /Before\s*After/,
@@ -1152,10 +1159,14 @@ test("Review shows the test Apply replaces: a late same-name creator test is Bef
     /Checks\s*Nothing checked\s*Nothing checked/,
   ]);
   await page.screenshot({ path: test.info().outputPath("late-collision-review-1063.png") });
+  const rooms = async () =>
+    (JSON.parse((await documents(page))["tests"]!).tests as { room: number }[]).map(
+      (entry) => entry.room,
+    );
+  expect(await rooms()).toEqual([9]);
   await page.getByTestId("agent-approve").click();
   await expect(page.getByTestId("agent-review")).toHaveCount(0);
-  const tests = JSON.parse((await documents(page))["tests"]!).tests as { room: number }[];
-  expect(tests.map((entry) => entry.room)).toEqual([5]);
+  expect(await rooms()).toEqual([5]);
 });
 
 for (const width of [1440, 390])

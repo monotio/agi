@@ -20,7 +20,11 @@ import { pendingReferences, removePendingReference } from "../references/referen
 import AgentReply from "./AgentReply.ts";
 import AgentResult from "./AgentResult.vue";
 import AgentReviewActions from "./AgentReviewActions.vue";
-import { borrowWorkspaceAgent, type ReplyFormatter } from "./workspaceAgent.ts";
+import {
+  AgentTestReviewChanged,
+  borrowWorkspaceAgent,
+  type ReplyFormatter,
+} from "./workspaceAgent.ts";
 import { useReadingPosition } from "../shell/useReadingPosition.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
@@ -748,10 +752,31 @@ function currentReviewOwner(): ReviewOwner | undefined {
 async function approve() {
   const captured = currentReviewOwner();
   if (!captured?.writable || !captured.review) return;
+  // Apply carries the Tests comparison on screen at the click. The chat banner
+  // and a preview of another resource show none, so they carry none.
+  const pending = agent.value?.pending();
+  const testsOnScreen =
+    pending?.messageId === resultMessageId.value &&
+    (resultResource.value === undefined || resultResource.value === "tests");
+  const shownTests = testsOnScreen ? liveTests.value?.touched : undefined;
   await action(async () => {
-    await approveCapturedReview(captured, currentReviewOwner, async () => {
-      await editor.flush.value?.();
-    });
+    try {
+      await approveCapturedReview(
+        captured,
+        currentReviewOwner,
+        async () => {
+          await editor.flush.value?.();
+        },
+        shownTests,
+      );
+    } catch (cause) {
+      // The refused comparison opens, so the next Apply carries what it shows.
+      if (cause instanceof AgentTestReviewChanged && pending) {
+        resultMessageId.value = pending.messageId;
+        resultResource.value = undefined;
+      }
+      throw cause;
+    }
     if (agent.value === captured.owner) resultMessageId.value = undefined;
   });
 }

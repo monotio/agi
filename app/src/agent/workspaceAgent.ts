@@ -108,12 +108,20 @@ export interface AgentReview {
   readonly messageId: string;
   changes(): ReturnType<ProjectProposal["changes"]>;
   stale(): boolean;
-  /** The tests comparison Apply commits now. Apply refuses once a touched test differs from the last one shown. */
+  /** The tests comparison Apply commits now, a plain read: Apply carries the `touched` part it was shown. */
   tests(): AgentTestReview | undefined;
 }
-/** A review remembers the touched definitions it last showed, so Apply commits only what the creator saw. */
-interface OwnedReview extends AgentReview {
-  shownTests: AgentTestReview["touched"] | null;
+/** Apply refused because a touched test no longer matches the comparison the creator saw. */
+export class AgentTestReviewChanged extends Error {
+  constructor() {
+    super("A test in this review changed. Check the Tests comparison again, then choose Apply.");
+  }
+}
+export interface ApproveOptions {
+  readonly automatic?: boolean;
+  readonly taskRuntime?: WorkspaceAgentRuntime;
+  /** The touched definitions of the Tests comparison on screen at the Apply click; absent when none was. */
+  readonly shownTests?: AgentTestReview["touched"];
 }
 export type ReplyFormatter = (reply: string) => {
   text: string;
@@ -368,33 +376,28 @@ export function borrowWorkspaceAgent(options: Options) {
 export function createWorkspaceAgent(options: Options) {
   const session = options.session;
   const store = session.chats();
-  let review: OwnedReview | null = null;
-  const reviews = new Map<string, OwnedReview>();
-  function ownReview(
+  let review: AgentReview | null = null;
+  const reviews = new Map<string, AgentReview>();
+  function reviewOf(
     proposal: ProjectProposal,
     chatId: string,
     messageId: string,
     stale: () => boolean,
-  ): OwnedReview {
-    const owned: OwnedReview = {
+  ): AgentReview {
+    return {
       proposal,
       chatId,
       messageId,
       changes: () => proposal.changes(),
       stale,
-      shownTests: null,
-      tests() {
-        const shown = agentTestReview(
+      tests: () =>
+        agentTestReview(
           proposal.base.documents(),
           session.model.capture().documents(),
           proposal.changes(),
           PROFILES[options.profileId],
-        );
-        owned.shownTests = shown?.touched ?? null;
-        return shown;
-      },
+        ),
     };
-    return owned;
   }
   for (const chat of store.chats) {
     const pending = chat.pendingReview;
@@ -430,7 +433,7 @@ export function createWorkspaceAgent(options: Options) {
     );
     reviews.set(
       chat.id,
-      ownReview(
+      reviewOf(
         proposal,
         chat.id,
         pending.messageId,
@@ -541,11 +544,8 @@ export function createWorkspaceAgent(options: Options) {
     activeRun?.assertActive();
     if (session.closed) throw new Error("The project session was closed.");
   }
-  async function approve(
-    keys?: readonly string[],
-    automatic = false,
-    taskRuntime?: WorkspaceAgentRuntime,
-  ) {
+  async function approve(keys?: readonly string[], approval: ApproveOptions = {}) {
+    const { automatic = false, taskRuntime } = approval;
     const approving = review;
     if (approving === null || applying) return;
     applying = true;
@@ -588,22 +588,19 @@ export function createWorkspaceAgent(options: Options) {
             "Existing test edits need creator review. Review the Tests changes, then choose Apply.",
           );
       };
-      // Apply commits the comparison the creator saw; a touched test that changed since gets shown again.
+      // Apply commits the comparison the creator saw. An Apply that carries none
+      // (the chat banner, a preview of another resource, a reload) saw what the
+      // Agent's own review implies: the touched names as they were in its base.
+      const base = approving.proposal.base.documents();
+      const profile = PROFILES[options.profileId];
+      const expectedTests =
+        approval.shownTests ?? agentTestReview(base, base, changes, profile)?.touched ?? {};
       const requireShownTests = () => {
-        const shown = approving.shownTests;
-        if (shown === null || !changes.some((change) => change.key === "tests")) return;
+        if (automatic || !changes.some((change) => change.key === "tests")) return;
         const touched =
-          agentTestReview(
-            approving.proposal.base.documents(),
-            session.model.capture().documents(),
-            changes,
-            PROFILES[options.profileId],
-          )?.touched ?? {};
-        if (sameGameTestDefinition(shown, touched)) return;
-        approving.shownTests = null;
-        throw new Error(
-          "A test in this review changed. Check the Tests comparison again, then choose Apply.",
-        );
+          agentTestReview(base, session.model.capture().documents(), changes, profile)?.touched ??
+          {};
+        if (!sameGameTestDefinition(expectedTests, touched)) throw new AgentTestReviewChanged();
       };
       let ownedCommit: string | undefined;
       let ownedParent: string | undefined;
@@ -1018,7 +1015,7 @@ export function createWorkspaceAgent(options: Options) {
         baseImage: writeProjectWorkspace(base.lastAdmissibleBuild!.documents()),
         candidate: writeProjectWorkspace(proposal.documents()),
       };
-      review = ownReview(
+      review = reviewOf(
         proposal,
         chat.id,
         messageId,
@@ -1029,7 +1026,7 @@ export function createWorkspaceAgent(options: Options) {
       assertLive();
       if ((autoApprove || automatic) && !forceReview && !review.stale()) {
         try {
-          await approve(undefined, true, capturedRuntime);
+          await approve(undefined, { automatic: true, taskRuntime: capturedRuntime });
         } catch (cause) {
           error = cause instanceof Error ? cause.message : String(cause);
           notify();
@@ -1816,7 +1813,7 @@ export function createWorkspaceAgent(options: Options) {
     },
     newChat,
     chats: () => readAgentChats(store).chats,
-    pending: (): AgentReview | null => review,
+    pending: () => review,
     get autoApprove() {
       return autoApprove;
     },
