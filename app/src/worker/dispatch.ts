@@ -474,7 +474,6 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       // A boot starts a new game, and the page clears its pause holds with it.
       ctx.livePause = false;
       replaceRun(ctx, "boot", prepared);
-      ctx.run.cycle.unstarted = !boot.restoreImage;
       if (restored) control(restored);
       ctx.fns.setKeyWaiting(engine.awaitingKey);
       // The always-on recording opens its segment once the engine is

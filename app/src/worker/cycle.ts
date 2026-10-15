@@ -59,7 +59,6 @@ export function createCycle(ctx: WorkerContext) {
     const engine = ctx.run.engine;
     if (!engine || !ctx.run.owner.active) return false;
     ctx.run.cycle.initialLogicStarted = true;
-    ctx.run.cycle.unstarted = false;
     // A suspended interaction freezes the cycle until its answer lands — the
     // gate inside tick() is the same, but skipping here keeps the recorder's
     // operation list honest: a parked tick never runs.

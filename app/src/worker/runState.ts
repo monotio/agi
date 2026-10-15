@@ -37,7 +37,6 @@ export function newRunSession(now: number): RunSession {
       lastCycleReportAt: 0,
       lastHistoryAt: 0,
       initialLogicStarted: false,
-      unstarted: false,
       pausedEntry: false,
       lastInputReady: false,
       paused: false,

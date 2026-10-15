@@ -186,12 +186,6 @@ interface CycleState {
   lastCycleReportAt: number;
   lastHistoryAt: number;
   initialLogicStarted: boolean;
-  /**
-   * The run was booted cold (no restored image, no resumed moment, no room
-   * entry owed) and no cycle has begun since. Only then is the game exactly
-   * its own start, so a cold boot record can stand in for it.
-   */
-  unstarted: boolean;
   /** A room entry that began under a pause yielded mid-pass; paused polls finish it. */
   pausedEntry: boolean;
   lastInputReady: boolean;

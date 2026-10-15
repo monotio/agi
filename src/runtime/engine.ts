@@ -910,6 +910,11 @@ export class Engine {
    * Session-local and never serialized; a fresh engine starts at zero.
    */
   private runResets = 0;
+  /**
+   * No state restored, no room entered by the host and no cycle begun since
+   * construction. Session-local and never serialized.
+   */
+  private pristine = true;
 
   constructor(
     container: GameContainer,
@@ -1832,6 +1837,15 @@ export class Engine {
    */
   get completedCycleSerial(): number {
     return this.completedCycles;
+  }
+
+  /**
+   * True until this instance restores a state, enters a room for the host or
+   * begins a cycle: the engine is still its game's cold start, the moment a
+   * boot record without an image reproduces.
+   */
+  get coldStart(): boolean {
+    return this.pristine;
   }
 
   /**
@@ -3324,6 +3338,7 @@ export class Engine {
   /** Restore host-only recording state after restoreImage; authentic save semantics stay unchanged. */
   restoreReplayState(value: unknown): void {
     this.assertExecutionBoundary();
+    this.pristine = false;
     const state = validateEngineReplayState(value);
     const views = new Map<number, AgiView>();
     for (const num of state.viewCache.loaded) {
@@ -3638,6 +3653,7 @@ export class Engine {
    */
   restoreImage(bytes: Uint8Array, options: { preservePresentation?: boolean } = {}): void {
     this.assertExecutionBoundary();
+    this.pristine = false;
     const { image, screen, presentation, continuation, amigaRegion } = decodeHostImage(bytes);
     // Run the same restore against disposable state and a silent host first.
     // This validates both packet grammar and referenced resources before the
@@ -4259,6 +4275,7 @@ export class Engine {
 
   /** One synchronous interpreter cycle (spec: top-level cycle order). */
   tick(): void {
+    this.pristine = false;
     if (this.executionFault !== null) throw this.executionFault;
     try {
       this.tickExecution();
@@ -7832,6 +7849,7 @@ export class Engine {
     // A deliberate host visit abandons the old pass before the new room runs.
     if (this.roomReentryWaiting()) this.abortInteraction();
     this.assertExecutionBoundary();
+    this.pristine = false;
     if (entry !== undefined) this.vars[V_EDGE] = entry.cameFrom?.edge ?? 0;
     try {
       this.newRoom(room);

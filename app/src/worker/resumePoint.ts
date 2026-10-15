@@ -48,12 +48,13 @@ export function prepareCreateProgress(
 }
 
 /**
- * The live game is still exactly its cold boot's start: the run was booted
- * cold (see `unstarted`) and its engine has completed no cycle by any route,
- * the cycle timer's or another's.
+ * The live game is still exactly its cold start, so a boot record without an
+ * image can stand in for it. The engine owns the fact: any restore, host room
+ * entry or begun cycle ends it, whichever path installed the engine.
  */
 export function runUnstarted(ctx: WorkerContext): boolean {
-  return ctx.run.cycle.unstarted && ctx.run.engine?.completedCycleSerial === 0;
+  const engine = ctx.run.engine;
+  return engine !== null && engine.coldStart && !engine.roomEntryPending;
 }
 
 export function enterCreateRun(ctx: WorkerContext, cold = false): void {
@@ -287,7 +288,6 @@ export function adoptResumePoint(
       initialLogicStarted: !cold,
     },
   });
-  ctx.run.cycle.unstarted = cold;
   ctx.history.resumedFrom = options.from ?? null;
   ctx.fns.setKeyWaiting(candidate.awaitingKey);
   // The owed entry is the room's next transition; the resumed segment boots

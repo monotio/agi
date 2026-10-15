@@ -505,7 +505,6 @@ export function createHostRequests(ctx: WorkerContext) {
     for (let guard = 0; ctx.run.engine.modalKind !== null && guard < 16; guard++)
       ctx.run.engine.ackPrint();
     ctx.fns.markReenter();
-    ctx.run.cycle.unstarted = false;
     try {
       ctx.run.engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
     } catch (wait) {
