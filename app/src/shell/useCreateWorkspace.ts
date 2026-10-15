@@ -18,6 +18,7 @@ import {
   type ComputedRef,
   type InjectionKey,
   type Ref,
+  onScopeDispose,
   watch,
 } from "vue";
 import type { DockSide } from "./workspaceEditor.ts";
@@ -35,8 +36,8 @@ export interface CreateWorkspace {
   readonly viewOnly: ComputedRef<boolean>;
   /** Compact desktop with the Agent open: Parts uses a temporary override. */
   readonly compactAgent: ComputedRef<boolean>;
-  /** Set while Parts holds work in progress (a room rename), so closing the Agent leaves it open. */
-  readonly partsHeld: Ref<boolean>;
+  /** Keep Parts open past the Agent closing while `active()` is true; the hold ends with the caller's scope. */
+  holdParts(active: () => boolean): void;
   toggleParts(): void;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
@@ -79,13 +80,30 @@ export function createCreateWorkspace(deps: {
   const compactAgent = computed(() => deps.compactAgent?.() ?? false);
 
   // Opening Parts beside the Agent lasts only while the Agent is open, whatever the width did meanwhile.
-  const partsHeld = ref(false);
+  const holds = ref(0);
   const agentOpen = deps.agentOpen;
   const parts = deps.parts;
   if (agentOpen && parts) {
-    watch([agentOpen, partsHeld], ([open, held]) => {
+    watch([agentOpen, () => holds.value > 0], ([open, held]) => {
       if (!open && !held) parts.open.value = false;
     });
+  }
+  function holdParts(active: () => boolean): void {
+    let held = false;
+    const release = (): void => {
+      if (held) holds.value -= 1;
+      held = false;
+    };
+    watch(
+      active,
+      (now) => {
+        if (now === held) return;
+        held = now;
+        holds.value += now ? 1 : -1;
+      },
+      { immediate: true },
+    );
+    onScopeDispose(release);
   }
 
   function persist(): void {
@@ -132,7 +150,7 @@ export function createCreateWorkspace(deps: {
     sheetOpen,
     viewOnly: computed(() => deps.viewOnly?.() ?? false),
     compactAgent,
-    partsHeld,
+    holdParts,
     toggleParts,
     toggleDock,
     showPanel,

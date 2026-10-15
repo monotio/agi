@@ -1,4 +1,4 @@
-import { nextTick, ref } from "vue";
+import { effectScope, nextTick, ref } from "vue";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkspaceEditor } from "../src/shell/workspaceEditor.ts";
@@ -163,29 +163,54 @@ test("Parts toggles temporarily beside the Agent and preserves the stored dock c
   assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
 });
 
-test("closing the Agent restores the saved Parts setting after a resize", async () => {
+test("closing the Agent restores the saved Parts setting after a resize, and a vanished rename stops holding it", async () => {
   const open = ref(false);
   const agent = ref(true);
   const compact = ref(true);
+  const storage = memoryStorage();
   const ws = createCreateWorkspace({
     panelDock: () => undefined,
-    storage: memoryStorage(),
+    storage,
     compactAgent: () => compact.value,
     agentOpen: () => agent.value,
     parts: { open, focus: ref(false), phone: () => false },
   });
+  ws.toggleDock("left");
+  const folded = storage.data.get(DOCKS_STORAGE_KEY);
+  // The component's rule: renaming a room that is still listed holds Parts.
+  const renaming = ref<number>();
+  const rooms = ref([2]);
+  const scope = effectScope();
+  scope.run(() =>
+    ws.holdParts(() => renaming.value !== undefined && rooms.value.includes(renaming.value)),
+  );
   ws.toggleParts();
   assert.equal(open.value, true);
   compact.value = false;
   await nextTick();
   assert.equal(open.value, true);
-  ws.partsHeld.value = true;
+  // Add a room, then close the Agent mid-rename: Parts stays for the naming.
+  renaming.value = 2;
   agent.value = false;
   await nextTick();
   assert.equal(open.value, true);
-  ws.partsHeld.value = false;
+  // Undo removes the room: the rename is gone and Parts follows the saved setting.
+  rooms.value = [];
   await nextTick();
   assert.equal(open.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
+  // A hold still active when the page unmounts is released as well.
+  open.value = true;
+  rooms.value = [2];
+  agent.value = true;
+  await nextTick();
+  agent.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  scope.stop();
+  await nextTick();
+  assert.equal(open.value, false);
+  assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
 });
 
 test("the missing-room action starts once from the beginning without changing the room's launch preference", async () => {

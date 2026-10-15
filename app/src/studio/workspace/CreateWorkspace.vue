@@ -388,13 +388,6 @@ function focusGameInput(): void {
 }
 /** The room whose name is being edited in place in Parts (a fresh add starts there). */
 const renamingRoom = ref<number>();
-watch(
-  renamingRoom,
-  (room) => {
-    workspace.partsHeld.value = room !== undefined;
-  },
-  { immediate: true },
-);
 /** Each page restores its own tabs; a fresh page inherits the latest list. */
 let tabsProject = "";
 let savedTabs = "";
@@ -770,6 +763,15 @@ const groups = computed(() => {
     debugging: editor.debugging.value || (debug.value?.state.breakpoints.length ?? 0) > 0,
   });
 });
+// Parts is held only while the rename form can show: the room must still be listed (Undo can remove it).
+const renameActive = computed(
+  () =>
+    renamingRoom.value !== undefined &&
+    groups.value.some((group) =>
+      group.entries.some((entry) => entry.id === `room:${renamingRoom.value}`),
+    ),
+);
+workspace.holdParts(() => renameActive.value);
 const roomThumbs = useNodeThumbs(engine.roomMap, () => engine.roomMap.graph.value.nodes);
 const thumbnails = computed<Readonly<Record<string, string>>>(() => {
   void engine.roomMap.thumbVersion.value;
