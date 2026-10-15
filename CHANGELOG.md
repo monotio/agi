@@ -39,6 +39,13 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - A dialog you reopen right away stays open.
 - When the game does not answer while the Agent opens, the notice says so and
   suggests reopening the Agent.
+- A page makes one GPU stage and reuses it, so loading games no longer leaks a
+  WebGL context each time.
+- After a lost GPU context, or with no GPU, Play and the message preview show
+  the flat picture instead of black.
+- AI settings and Connect AI work while the Agent opens.
+- Notes you type while a catalog game opens are kept.
+- The rename box takes focus, so typed keys rename the room.
 
 ## [1.2.3] - 2026-10-12
 

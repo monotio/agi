@@ -1443,14 +1443,6 @@ export class Engine {
     return this.previewBoundaryIdle() || this.roomReentryWaiting();
   }
 
-  /**
-   * Dynamic checks that can only run against live state at commit time: the
-   * picture evidence must still match what preparation fingerprinted, a
-   * changed LOGIC with real instruction differences must not resume a parked
-   * scan.start offset, a changed VIEW must preserve the live loop/cel
-   * geometry of every loaded view and bound object, and genuinely new
-   * OBJECT slots must not already carry meaningful live locations.
-   */
   /** Whether entering the room again on the staged files draws its whole picture. */
   private entryRedraws(staged: StagedPreviewUpdate): boolean {
     try {
@@ -1491,6 +1483,14 @@ export class Engine {
     }
   }
 
+  /**
+   * Dynamic checks that can only run against live state at commit time: the
+   * picture evidence must still match what preparation fingerprinted, a
+   * changed LOGIC with real instruction differences must not resume a parked
+   * scan.start offset, a changed VIEW must preserve the live loop/cel
+   * geometry of every loaded view and bound object, and genuinely new
+   * OBJECT slots must not already carry meaningful live locations.
+   */
   private previewDynamicBlock(
     staged: StagedPreviewUpdate,
     roomReentry = false,
