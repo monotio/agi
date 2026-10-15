@@ -262,21 +262,29 @@ for (const [width, height] of [
           post(message);
         };
         try {
-          await session.submit({
-            proposal: session.model.propose(session.model.capture(), "Room note", [
-              { key: "notes", content: "The player visited the garden." },
+          // A code change moves the game's revision, so progress needs a fresh checkpoint.
+          // Notes and other documents leave the revision alone and need none.
+          const capture = session.model.capture();
+          const source = String(capture.read("logic:1")!.content);
+          const result = await session.submit({
+            proposal: session.model.propose(capture, "Room message", [
+              {
+                key: "logic:1",
+                content: source.replace("accept.input();", 'accept.input(); print("Hello");'),
+              },
             ]),
-            label: "Room note",
+            label: "Room message",
             origin: "logic",
             author: "creator",
           });
+          if (result.status !== "committed") throw new Error(result.status);
           await session.flush();
           return checkpoints;
         } finally {
           worker.postMessage = post;
         }
       });
-      expect(count, "one durable edit requests one fresh progress checkpoint").toBe(1);
+      expect(count, "one committed code change requests one fresh progress checkpoint").toBe(1);
     });
     test(`Tests never block game edits: room deletion refreshes a stale tests preview${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
