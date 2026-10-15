@@ -47,7 +47,7 @@ test("movement authority is observable independently of parser availability", ()
   }
 });
 
-function game(source: string): { engine: Engine; host: Host } {
+function game(source: string, profile?: "2.917"): { engine: Engine; host: Host } {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);
   container.putResource(
@@ -56,7 +56,13 @@ function game(source: string): { engine: Engine; host: Host } {
     buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [1, 1] }] }] }),
   );
   const host = new Host();
-  return { engine: new Engine(container, host, undefined), host };
+  const engine = new Engine(
+    container,
+    host,
+    undefined,
+    profile ? { profile: PROFILES[profile] } : undefined,
+  );
+  return { engine, host };
 }
 
 test("move.obj on ego takes program control until arrival, then hands control back", () => {
@@ -215,4 +221,28 @@ test("2.089 position on a drawn object raises it above the horizon before storin
     10,
     "store-together profiles never place",
   );
+});
+
+test("unprobed profiles mirror the ego direction after the block pass", () => {
+  // The pre-logic mirror-first ordering is probed on kq3 2.936 (main cycle
+  // 0x17B-0x195, dispatcher call at 0x198) only. Elsewhere the mirror runs
+  // after the autonomous-motion/block pass: a direction pressed this cycle
+  // is not yet on the object when the block check runs, so v6 survives.
+  const { engine, host } = game(
+    `
+    if (!isset(f200)) {
+      set(f200);
+      load.view(1); animate.obj(o0); set.view(o0, 1);
+      position(o0, 94, 60); draw(o0);
+      block(50, 50, 95, 90);
+      assignn(v60, 1); step.size(o0, v60); step.time(o0, v60);
+    }
+    return;
+  `,
+    "2.917",
+  );
+  engine.tick();
+  host.keys.push(AGI_KEY.RIGHT);
+  engine.tick();
+  assert.equal(engine.vars[6], 3, "the fresh direction was never block-checked");
 });

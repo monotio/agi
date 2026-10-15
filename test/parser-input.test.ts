@@ -376,7 +376,7 @@ test("the parser stops examining the line after the tenth retained word", () => 
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: dict }).payload);
   const host = new Host();
-  const engine = new Engine(container, host, dict);
+  const engine = new Engine(container, host, dict, { profile: PROFILES["2.917"] });
   engine.tick();
   host.line = words.map(([w]) => w).join(" ") + " zzz";
   engine.tick();
@@ -385,11 +385,31 @@ test("the parser stops examining the line after the tenth retained word", () => 
   assert.equal(engine.flags[2], 1, "the capped line still counts as input");
 });
 
+test("unprobed profiles keep examining words past the tenth", () => {
+  // The tenth-word stop is probed on kq1 2.917 / kq4 3.002.086 / gr1
+  // 3.002.149 only; every other profile keeps the previous behavior — a
+  // capped retained list, but an unknown token past the cap is still
+  // examined and reported in v9.
+  const words = Array.from({ length: 11 }, (_, i) => [`w${i}`, i + 1] as [string, number]);
+  const dict = new Map<string, number>(words);
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: dict }).payload);
+  const host = new Host();
+  const engine = new Engine(container, host, dict); // 2.936: unprobed for the parser cap
+  engine.tick();
+  host.line = words.map(([w]) => w).join(" ") + " zzz";
+  engine.tick();
+  assert.equal(engine.vars[9], 11, "the twelfth token is examined and reported");
+  assert.equal(engine.parserCount, 11, "the reported unknown counts as a word");
+});
+
 test("the command line holds min(v24, 40 − strlen(s0) − prompt) characters", () => {
   // Player-visible rule: keystrokes past the cap are silently rejected; the
   // cap is min(var[24], 40 − strlen(string0) − (prompt ? 1 : 0)) with v24
   // shipped as 41 — so 40 characters with no prompt, 39 with a one-character
   // prompt (kq1 2.917 editor 0x365A-0x368C; ResetAll 0x108C sets v24 = 41).
+  // Probed on kq1 2.917 / kq4 3.002.086 / gr1 3.002.149, so these engines
+  // run the 2.917 profile.
   const type = (engine: Engine, host: Host, n: number) => {
     // Nineteen events fit a cycle's queue; the edit buffer persists.
     for (let left = n; left > 0; left -= 19) {
@@ -397,58 +417,44 @@ test("the command line holds min(v24, 40 − strlen(s0) − prompt) characters",
       engine.tick();
     }
   };
-  {
+  const boot = (source: string): { engine: Engine; host: Host } => {
+    const container = createContainer();
+    container.putResource("logic", 0, assembleLogic(source, { dictionary: DICT }).payload);
     const host = new Host();
-    const engine = new Engine(
-      (() => {
-        const c = createContainer();
-        c.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: DICT }).payload);
-        return c;
-      })(),
-      host,
-      DICT,
-    );
+    return { engine: new Engine(container, host, DICT, { profile: PROFILES["2.917"] }), host };
+  };
+  {
+    const { engine, host } = boot(ACCEPT);
     engine.tick();
     type(engine, host, 45);
     assert.equal(engine.inputEdit.length, 40, "no prompt: 40 columns");
   }
   {
-    const host = new Host();
-    const engine = new Engine(
-      (() => {
-        const c = createContainer();
-        c.putResource(
-          "logic",
-          0,
-          assembleLogic('set.cursor.char(">"); accept.input(); return;', { dictionary: DICT })
-            .payload,
-        );
-        return c;
-      })(),
-      host,
-      DICT,
-    );
+    const { engine, host } = boot('set.cursor.char(">"); accept.input(); return;');
     engine.tick();
     type(engine, host, 45);
     assert.equal(engine.inputEdit.length, 39, "a one-character prompt leaves 39");
   }
   {
-    const host = new Host();
-    const engine = new Engine(
-      (() => {
-        const c = createContainer();
-        c.putResource(
-          "logic",
-          0,
-          assembleLogic("assignn(v24, 10); accept.input(); return;", { dictionary: DICT }).payload,
-        );
-        return c;
-      })(),
-      host,
-      DICT,
-    );
+    const { engine, host } = boot("assignn(v24, 10); accept.input(); return;");
     engine.tick();
     type(engine, host, 45);
     assert.equal(engine.inputEdit.length, 10, "v24 lowers the cap");
   }
+});
+
+test("unprobed profiles keep the previous input-line capacity", () => {
+  // The original capacity formula is probed on kq1 2.917 / kq4 3.002.086 /
+  // gr1 3.002.149; every other profile caps at min(inputWidthCap ?? 39,
+  // 39 − prompt length) as before.
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: DICT }).payload);
+  const host = new Host();
+  const engine = new Engine(container, host, DICT); // 2.936: unprobed for the capacity formula
+  engine.tick();
+  for (let left = 45; left > 0; left -= 19) {
+    host.keys.push(...Array<number>(Math.min(19, left)).fill(0x61));
+    engine.tick();
+  }
+  assert.equal(engine.inputEdit.length, 39, "no prompt: the previous 39-column cap");
 });

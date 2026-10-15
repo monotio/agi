@@ -354,15 +354,6 @@ const CLOCK_WAIT_JUMPS = 1000;
  * otherwise park forever and never reach the instruction budget.
  */
 const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
-/**
- * Replay-pair capacity of a game that never calls script.size. The shipped
- * interpreter data image holds SCRIPTSIZE = 0x0032 (50 pairs) at DS+0x141 in
- * every probed build (kq3 2.936 / kq1 2.917 / gr1 3.002.149 AGIDATA.OVL
- * 0x141); the 200-pair image in the spec's 2.230 XMAS data is a game-side
- * script.size call, not the interpreter default. A game's own script.size
- * replaces it.
- */
-const DEFAULT_REPLAY_CAPACITY = 50;
 /** Pairs the host-only shadow record keeps for autosaves of a blocked script buffer. */
 const HOST_REPLAY_LIMIT = 4096;
 /** Hash basis for a frame whose logic resource is absent from the container. */
@@ -693,7 +684,7 @@ export class Engine {
   private cycleStatusSound = 0;
   private statusRefreshRequested = false;
   private inputAccepted = false;
-  private scriptCapacity = DEFAULT_REPLAY_CAPACITY;
+  private scriptCapacity: number;
   private maximumReplayPairs = 0;
   private menu: MenuHeading[] = [];
   private menuFinalized = false;
@@ -777,7 +768,7 @@ export class Engine {
   private lastComposedTraceDirty = -1;
   private lastComposedTraceVisible = false;
   /** A gated release enqueued a movement value 0 for the next input phase. */
-  private readonly inputQueue = new InputQueue();
+  private readonly inputQueue: InputQueue;
   /**
    * Saved bytecode resume offsets per logic (set.scan.start/reset.scan.start).
    * They are the source of save block 5 and are re-established by restore.
@@ -961,6 +952,8 @@ export class Engine {
     this.amigaRegion = options?.amigaRegion ?? "ntsc";
     this.profileKind = decision.kind;
     this.profileBuild = decision.build;
+    this.inputQueue = new InputQueue(this.profile.keypadWordsNormalized);
+    this.scriptCapacity = this.profile.defaultScriptBufferPairs;
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
@@ -2304,12 +2297,14 @@ export class Engine {
         const queued = this.drainDialogKey();
         if (queued !== undefined) return queued;
         const wait = this.host.waitKey;
-        // A synchronous waitKey answer is GetKey's return: normalize the
-        // keypad Enter/Escape words exactly like the drained queue does.
+        // A synchronous waitKey answer is GetKey's return: the profiles with
+        // the full-word queue normalize the keypad Enter/Escape words exactly
+        // like the drained queue does.
         if (wait)
-          return this.hostCall(pending, () =>
-            normalizeKeyWord(wait.call(this.host) ?? AGI_KEY.ESCAPE),
-          );
+          return this.hostCall(pending, () => {
+            const answer = wait.call(this.host) ?? AGI_KEY.ESCAPE;
+            return this.profile.keypadWordsNormalized ? normalizeKeyWord(answer) : answer;
+          });
         return AGI_KEY.ESCAPE;
       }
       case "list": {
@@ -2374,8 +2369,10 @@ export class Engine {
     for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
       // The selector's wait runs GetKey too, so keypad Enter/Escape words
-      // normalize here (demopac4 3.002.102 call site 0x36A7).
-      if (event.type === 1) return normalizeKeyWord(event.value);
+      // normalize here (demopac4 3.002.102 call site 0x36A7) — on the
+      // profiles whose queue keeps the full words.
+      if (event.type === 1)
+        return this.profile.keypadWordsNormalized ? normalizeKeyWord(event.value) : event.value;
       if (event.type === 2 && event.value !== 0) {
         const navigationKey = NAV_KEY_CODES[event.value];
         if (navigationKey !== undefined) return navigationKey;
@@ -2420,8 +2417,9 @@ export class Engine {
       );
       // The host's answer is GetKey's return here: ButtonToChar normalizes
       // the keypad/joystick Enter/Escape duplicates on this path too
-      // (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey 0x49D2).
-      key = normalizeKeyWord(key);
+      // (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey 0x49D2) —
+      // on the profiles whose queue keeps the full words.
+      if (this.profile.keypadWordsNormalized) key = normalizeKeyWord(key);
       const byte = key & 0xff;
       if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
         this.pendingInteraction = null;
@@ -2488,11 +2486,14 @@ export class Engine {
         break;
       }
       case "saveDialog":
-        // A delivered key answers GetKey: normalize keypad Enter/Escape like
-        // the selector's own queue drain and waitKey path do.
+        // A delivered key answers GetKey: the full-word-queue profiles
+        // normalize keypad Enter/Escape like the selector's own queue drain
+        // and waitKey path do.
         this.driveSaveDialog(
           pending,
-          pending.dialog.need?.kind === "key" && typeof answer === "number"
+          this.profile.keypadWordsNormalized &&
+            pending.dialog.need?.kind === "key" &&
+            typeof answer === "number"
             ? normalizeKeyWord(answer)
             : answer,
         );
@@ -2634,10 +2635,14 @@ export class Engine {
     // A character is accepted only while editLen < min(var[24], 40 −
     // strlen(s0) − (promptByte ≠ 0)); the open.dialogue mode substitutes 36
     // for 40 (kq1 2.917 editor 0x365A-0x368C). Excess keys are silently
-    // rejected.
-    const base =
-      (this.inputWidthCap ?? TEXT_COLS) - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
-    return Math.max(0, Math.min(this.vars[24]!, base));
+    // rejected. Probed on kq1 2.917 / kq4 3.002.086 / gr1 3.002.149; other
+    // profiles keep the previous cap.
+    if (this.profile.originalInputCapacity) {
+      const base =
+        (this.inputWidthCap ?? TEXT_COLS) - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
+      return Math.max(0, Math.min(this.vars[24]!, base));
+    }
+    return Math.min(this.inputWidthCap ?? TEXT_COLS - 1, TEXT_COLS - 1 - this.inputPrompt.length);
   }
 
   private textAttr(): number {
@@ -2706,8 +2711,10 @@ export class Engine {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
       // GetKey normalizes the keypad Enter/Escape words on every consumer of
       // this path (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey
-      // 0x49D2, which have.key 0x0C13 drains).
-      if (event.type === 1) return normalizeKeyWord(event.value);
+      // 0x49D2, which have.key 0x0C13 drains) — where the profile keeps the
+      // full words; elsewhere the queue already masked them.
+      if (event.type === 1)
+        return this.profile.keypadWordsNormalized ? normalizeKeyWord(event.value) : event.value;
     }
     return undefined;
   }
@@ -2721,9 +2728,10 @@ export class Engine {
     const byte = key & 0xff;
     // v19 receives the low byte of every type-1 event FIRST — before the
     // input-acceptance gate and before the line editor consumes Enter,
-    // Backspace or printable bytes (kq3 2.936 0x35B0; demopac4 3.002.102
-    // 0x3963; gr1 3.002.149 0x38FB).
-    this.vars[V_KEY] = byte;
+    // Backspace or printable bytes (kq3 2.936 0x35B0; pq1 2.903 START.EXE
+    // 0x35A9, sha256 db97accc…99730a7). Unprobed builds store v19 only for
+    // keys the editor did not consume.
+    if (this.profile.keyByteStoredBeforeEdit) this.vars[V_KEY] = byte;
     if (this.inputAccepted && !this.textMode) {
       if (byte === AGI_KEY.ENTER && this.editLine.length > 0) {
         this.acceptLine(this.editLine);
@@ -2740,6 +2748,7 @@ export class Engine {
         return;
       }
     }
+    if (!this.profile.keyByteStoredBeforeEdit) this.vars[V_KEY] = byte;
   }
 
   // ---------- modal windows ----------
@@ -2766,15 +2775,22 @@ export class Engine {
       case "showPri":
         // ChkAcAb accepts CR (1) or ESC (0) only; every other key keeps
         // waiting — Space is not an acknowledgement key (demopac4 3.002.102
-        // 0x4A34 / kq3 2.936 0x45F0).
-        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE) this.closeModal();
+        // 0x4A34 / kq3 2.936 0x45F0 / kq1 2.917). Unprobed builds also
+        // dismiss on Space.
+        if (
+          byte === AGI_KEY.ENTER ||
+          byte === AGI_KEY.ESCAPE ||
+          (this.profile.modalDismissalKeys === "enter-escape-space" && byte === AGI_KEY.SPACE)
+        )
+          this.closeModal();
         return;
       case "inventory":
         if (!m.interactive) {
           // The acknowledgement-only list ends on a bare WaitEvent: ANY event
           // dismisses it, including zero-low-byte extended words (demopac4
-          // 3.002.102 0x3696 / kq3 2.936 0x32E9).
-          this.closeModal();
+          // 3.002.102 0x3696 / kq3 2.936 0x32E9). Unprobed builds require a
+          // nonzero key byte.
+          if (this.profile.inventoryListEndsOnAnyEvent || byte !== 0) this.closeModal();
           return;
         }
         if (byte === AGI_KEY.ENTER) {
@@ -2807,7 +2823,11 @@ export class Engine {
     if (!m) return;
     // The non-interactive inventory's bare WaitEvent ends on ANY event,
     // navigation included (demopac4 3.002.102 0x3696).
-    if (m.kind === "inventory" && !m.interactive) {
+    if (
+      this.profile.inventoryListEndsOnAnyEvent &&
+      m.kind === "inventory" &&
+      !m.interactive
+    ) {
       this.closeModal();
       return;
     }
@@ -2927,13 +2947,18 @@ export class Engine {
    * and the delivered key resolves it through applyInteraction.
    */
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
+    // The original wording is probed on kq3 2.936 (ovl DS+0x0ADB / DS+0x5E3),
+    // mh1 3.002.107 and gr1 3.002.149; unprobed profiles keep the previous
+    // strings.
+    const original = this.profile.originalRestartRestore;
     this.emitPrint(
       action === "restart"
-        ? // Identical bytes in kq3 2.936 (ovl DS+0x0ADB), mh1 3.002.107 and
-          // gr1 3.002.149.
-          "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
-        : // kq3 2.936 ovl DS+0x5E3; same in mh1 and gr1.
-          "Press ENTER to quit.\nPress ESC to keep playing.",
+        ? original
+          ? "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
+          : "Restart the game?\nENTER: yes   ESC: continue"
+        : original
+          ? "Press ENTER to quit.\nPress ESC to keep playing."
+          : "Quit the game?\nENTER: yes   ESC: continue",
       undefined,
       true,
     );
@@ -3820,7 +3845,7 @@ export class Engine {
       : null;
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
-    this.scriptCapacity = s.replayCapacity || DEFAULT_REPLAY_CAPACITY;
+    this.scriptCapacity = s.replayCapacity || this.profile.defaultScriptBufferPairs;
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
@@ -3871,15 +3896,22 @@ export class Engine {
     this.editLine = "";
     this.acceptedLine = "";
     this.controllers.fill(0);
-    // The authentic restore tail clears controllers explicitly and rewrites
-    // the machine vars from the probe, then sets f12; f2/f4 die at the next
-    // cycle top and v19 is never written (kq3 2.936 0x2647-0x2693 / gr1
-    // 3.002.149 0x28C7 / mh1 3.002.107 0x2928). A host restore — history or
-    // autosave replay — reproduces the recorded state exactly instead: the
-    // rewrites would silently turn a recorded [v22,v26] into [3,3].
-    if (screen === null) {
-      this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
-      this.vars[26] = 3;
+    if (this.profile.originalRestartRestore) {
+      // The authentic restore tail clears controllers explicitly and rewrites
+      // the machine vars from the probe, then sets f12; f2/f4 die at the next
+      // cycle top and v19 is never written (kq3 2.936 0x2647-0x2693 / gr1
+      // 3.002.149 0x28C7 / mh1 3.002.107 0x2928). A host restore — history or
+      // autosave replay — reproduces the recorded state exactly instead: the
+      // rewrites would silently turn a recorded [v22,v26] into [3,3].
+      if (screen === null) {
+        this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+        this.vars[26] = 3;
+      }
+    } else {
+      // Unprobed profiles keep the previous tail: v19, f2 and f4 cleared.
+      this.vars[V_KEY] = 0;
+      this.flags[F_INPUT_READY] = 0;
+      this.flags[F_SAID_MATCHED] = 0;
     }
 
     // 2. Reset transient caches and replay the saved sequence.
@@ -4422,7 +4454,11 @@ export class Engine {
       while (this.modal) {
         const event = this.inputQueue.dequeue();
         if (!event) break;
-        if (this.modal.kind === "inventory" && !this.modal.interactive) {
+        if (
+          this.profile.inventoryListEndsOnAnyEvent &&
+          this.modal.kind === "inventory" &&
+          !this.modal.interactive
+        ) {
           // WaitEvent: any queued event dismisses the acknowledgement-only
           // list, controllers included (demopac4 3.002.102 0x3696).
           this.closeModal();
@@ -4516,9 +4552,12 @@ export class Engine {
     if (stage === "pre-logic") {
       // The ego↔v6 direction mirror runs before the autonomous-direction and
       // block pass: under program control v6 := ego.dir, else ego.dir := v6
-      // (kq3 2.936 main cycle 0x17B-0x195, dispatcher call at 0x198).
-      if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
-      else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
+      // (kq3 2.936 main cycle 0x17B-0x195, dispatcher call at 0x198 — probed
+      // there only; unprobed profiles mirror after the pass).
+      if (this.profile.preLogicDirectionMirror) {
+        if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
+        else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
+      }
       // Autonomous direction and rectangle transitions are visible to this
       // cycle's logic; they do not move the objects yet.
       for (const obj of this.objects) {
@@ -4538,6 +4577,10 @@ export class Engine {
             if (obj === this.objects[0]) this.vars[V_EGO_DIR] = 0;
           }
         }
+      }
+      if (!this.profile.preLogicDirectionMirror) {
+        if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
+        else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
       }
       this.cycleStatusScore = this.vars[V_SCORE]!;
       this.cycleStatusSound = this.flags[F_SOUND_ENABLED]!;
@@ -5425,7 +5468,7 @@ export class Engine {
     this.flags[F_INPUT_READY] = 0;
     this.flags[F_SAID_MATCHED] = 0;
     this.lastInputLine = line;
-    const parsed = parseSentence(line, this.dictionary);
+    const parsed = parseSentence(line, this.dictionary, this.profile.parserStopsAtTenthWord);
     this.parserCount = parsed.count;
     if (parsed.unknownPosition > 0) this.vars[V_WORDS] = parsed.unknownPosition;
     this.parsedWords = parsed.words;
@@ -6963,11 +7006,14 @@ export class Engine {
         // StopSnd runs FIRST — setting the interrupted sound's done flag —
         // then the operands are read, the new done flag resets, and only then
         // can the lookup fault (kq2 2.411 0x4FD5 / lsl1 2.440 0x5007 / xmas
-        // 2.272 0x4943).
-        this.stopSound();
-        this.flags[a(1)] = 0;
+        // 2.272 0x4943). Unprobed profiles fault on the lookup first.
+        if (this.profile.soundStopsBeforeFault) {
+          this.stopSound();
+          this.flags[a(1)] = 0;
+        }
         const soundData = this.sounds.get(a(0));
         if (!soundData) throw new Error(`sound ${a(0)} is not loaded`);
+        if (!this.profile.soundStopsBeforeFault) this.stopSound();
         this.soundPlayback = new SoundPlayback(
           this.profile,
           soundData,
@@ -6976,6 +7022,7 @@ export class Engine {
         );
         this.playingSound = a(0);
         this.soundDoneFlag = a(1);
+        if (!this.profile.soundStopsBeforeFault) this.flags[a(1)] = 0;
         this.host.playSound?.(a(0), soundData);
         return next;
       }
@@ -7265,12 +7312,14 @@ export class Engine {
         // sequence and refreshes the object update lists: RestoreAll +
         // InitScript (scriptTop := script, SCRIPTENTRIES := 0) + AllInBack
         // (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149
-        // 0x74E8).
+        // 0x74E8). Unprobed profiles store the capacity only.
         this.scriptCapacity = a(0);
-        this.replay.length = 0;
-        this.replayCheckpoint = 0;
-        for (const o of this.objects) if (o.active) this.restoreBehind(o);
-        for (const o of this.objects) if (o.active) this.stampDraw(o);
+        if (this.profile.scriptSizeResetsSequence) {
+          this.replay.length = 0;
+          this.replayCheckpoint = 0;
+          for (const o of this.objects) if (o.active) this.restoreBehind(o);
+          for (const o of this.objects) if (o.active) this.stampDraw(o);
+        }
         return next;
       }
 
@@ -7736,7 +7785,7 @@ export class Engine {
     this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
     this.replayRecording = true;
-    this.scriptCapacity = DEFAULT_REPLAY_CAPACITY;
+    this.scriptCapacity = this.profile.defaultScriptBufferPairs;
     this.maximumReplayPairs = 0;
     this.menu = [];
     this.menuFinalized = false;
@@ -7759,7 +7808,9 @@ export class Engine {
     // Input acceptance survives: ResetAll clears only vars/flags/controllers/
     // object records (kq3 2.936 0x0FA5), and the accepted prompt path redraws
     // the marker unconditionally. The edit line itself was cancelled by the
-    // prompt (gr1 3.002.149 restart 0x26E0: CancelLine … WriteCur).
+    // prompt (gr1 3.002.149 restart 0x26E0: CancelLine … WriteCur). Unprobed
+    // profiles clear input acceptance as before.
+    if (!this.profile.originalRestartRestore) this.inputAccepted = false;
     this.editLine = "";
     this.acceptedLine = "";
     this.blockRect = null;

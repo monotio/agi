@@ -3,9 +3,14 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { PROFILES, type AgiProfile } from "../src/runtime/profile.ts";
 import type { SoundOutput } from "../src/sound/sound.ts";
 
-function game(source: string, soundHost: Partial<EngineHost> = {}): Engine {
+function game(
+  source: string,
+  soundHost: Partial<EngineHost> = {},
+  profile?: AgiProfile,
+): Engine {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);
   // Channel0: duration2 tone0x8123 attenuation4; channels1..3 terminate.
@@ -14,14 +19,19 @@ function game(source: string, soundHost: Partial<EngineHost> = {}): Engine {
   ]);
   container.putResource("sound", 1, sound);
   container.putResource("sound", 2, sound);
-  return new Engine(container, {
-    print() {},
-    displayAt() {},
-    statusLine() {},
-    takeInputLine: () => null,
-    takeKeys: () => [],
-    ...soundHost,
-  });
+  return new Engine(
+    container,
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+      ...soundHost,
+    },
+    undefined,
+    profile ? { profile } : undefined,
+  );
 }
 
 test("sound starts without altering f9 and completes on sound ticks without an audio backend", () => {
@@ -173,7 +183,20 @@ test("a failing sound() stops the playing sound first and sets its done flag", (
   // setting the OLD done flag — then reads operands, resets the new flag and
   // only then can the lookup fault (kq2 2.411 0x4FD5 / lsl1 2.440 0x5007 /
   // xmas 2.272 0x4943).
-  const engine = game("set(f9); load.sound(1); sound(1, f60); sound(3, f61); return;");
+  const engine = game(
+    "set(f9); load.sound(1); sound(1, f60); sound(3, f61); return;",
+    {},
+    PROFILES["2.411"],
+  );
   assert.throws(() => engine.tick(), /sound 3 is not loaded/);
   assert.equal(engine.flags[60], 1, "the interrupted sound reports done");
+});
+
+test("unprobed profiles fault on a missing sound before stopping", () => {
+  // The StopSnd-first ordering is probed on kq2 2.411 / lsl1 2.440 / xmas
+  // 2.272 only; elsewhere the lookup faults first, leaving the playing
+  // sound's done flag untouched.
+  const engine = game("set(f9); load.sound(1); sound(1, f60); sound(3, f61); return;");
+  assert.throws(() => engine.tick(), /sound 3 is not loaded/);
+  assert.equal(engine.flags[60], 0, "the interrupted sound never reported done");
 });

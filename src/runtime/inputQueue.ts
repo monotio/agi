@@ -1,5 +1,5 @@
 /** AGI event queue, clean-room from agi-re "Event queue" and "Raw-key condition". */
-import { NAV_KEYS } from "./keys.ts";
+import { NAV_KEYS, normalizeKeyWord } from "./keys.ts";
 
 export type InputEvent = {
   type: 1 | 2 | 3;
@@ -14,6 +14,18 @@ export type InputEvent = {
 
 /** Twenty circular slots leave one empty, permitting nineteen pending events. */
 export class InputQueue {
+  private readonly keypadWords: boolean;
+
+  /**
+   * @param keypadWords the queue keeps the full 16-bit keypad Enter/Escape
+   * words and leaves normalization to the consuming GetKey path (demopac4
+   * 3.002.102 PostEvent 0x48DD / ButtonToChar 0x4A78 — probed on kq3 2.936,
+   * demopac4, mh1 3.002.107 and gr1 3.002.149); unprobed builds mask queued
+   * keys to their low byte and normalize only modal drains.
+   */
+  constructor(keypadWords: boolean) {
+    this.keypadWords = keypadWords;
+  }
   private slots: (InputEvent | undefined)[] = Array<InputEvent | undefined>(20);
   private read = 0;
   private write = 0;
@@ -29,17 +41,18 @@ export class InputQueue {
   /**
    * A key as the original's keyboard poll queues it: navigation words become
    * type-2 events, ASCII keys keep only their ASCII byte, and everything else
-   * stays a raw type-1 key. The queue stores full 16-bit words (demopac4
-   * 3.002.102 PostEvent 0x48DD): the keypad Enter/Escape duplicates
-   * 0x0101/0x0201/0x0301/0x0401 arrive whole and are normalized by the
-   * consuming GetKey path (ButtonToChar 0x4A78), never at enqueue.
+   * stays a raw type-1 key. With `keypadWords` the queue stores the keypad
+   * Enter/Escape duplicates 0x0101/0x0201/0x0301/0x0401 whole; without it
+   * they mask to their low byte like every other word.
    * Script mappings (set.key) apply only when the cycle's input phase consumes
    * the event; have.key and modal windows read it raw (docs/fidelity.md,
    * "Script key mappings and have.key").
    */
   enqueueKey(word: number): boolean {
     const full = word & 0xffff;
-    const keypad = full === 0x0101 || full === 0x0201 || full === 0x0301 || full === 0x0401;
+    const keypad =
+      this.keypadWords &&
+      (full === 0x0101 || full === 0x0201 || full === 0x0301 || full === 0x0401);
     const key = keypad ? full : word & 0xff ? word & 0xff : full;
     const navigation = NAV_KEYS[key];
     return this.enqueue(
@@ -47,9 +60,13 @@ export class InputQueue {
     );
   }
 
-  /** A raw host key delivered while a modal owns the interpreter; the modal drain normalizes keypad words. */
+  /**
+   * A raw host key delivered while a modal owns the interpreter. Modal drains
+   * normalize the keypad words on every build; with `keypadWords` the queue
+   * keeps the full word and the consumer normalizes instead.
+   */
   enqueueModalKey(word: number): boolean {
-    return this.enqueueKey(word);
+    return this.keypadWords ? this.enqueueKey(word) : this.enqueueKey(normalizeKeyWord(word));
   }
 
   dequeue(): InputEvent | undefined {

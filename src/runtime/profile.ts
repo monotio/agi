@@ -309,6 +309,50 @@ export interface AgiProfile {
   /** Actions 0xa3/0xa4 enable/clear the fixed input width, or do nothing (3.002.149). */
   readonly inputWidthActions: InputWidthActions;
   /**
+   * v19 receives the low byte of every type-1 key event BEFORE the
+   * input-acceptance gate and the line editor (kq3 2.936 0x35B0; pq1 2.903
+   * START.EXE 0x35A9, sha256 db97accc…99730a7). Unprobed builds store v19
+   * after the editor consumes the byte.
+   */
+  readonly keyByteStoredBeforeEdit: boolean;
+  /**
+   * The event queue keeps the full 16-bit keypad Enter/Escape words and every
+   * GetKey-consuming path normalizes them to their main-keyboard twins
+   * (demopac4 3.002.102 PostEvent 0x48DD / ButtonToChar 0x4A78 inside GetKey
+   * 0x49D2; kq3 2.936; mh1 3.002.107; gr1 3.002.149). Unprobed builds mask
+   * queued keys to their low byte and normalize only modal drains.
+   */
+  readonly keypadWordsNormalized: boolean;
+  /**
+   * Keys that acknowledge a print/showObj/showPri modal. "enter-escape":
+   * ChkAcAb accepts CR or ESC only (demopac4 3.002.102 0x4A34 / kq3 2.936
+   * 0x45F0 / kq1 2.917). "enter-escape-space": Space also dismisses
+   * (unprobed builds keep this previous behavior).
+   */
+  readonly modalDismissalKeys: "enter-escape" | "enter-escape-space";
+  /**
+   * The acknowledgement-only inventory list ends on a bare WaitEvent — ANY
+   * event dismisses it, including zero-low-byte extended words and
+   * navigation (demopac4 3.002.102 0x3696 / kq3 2.936 0x32E9). Unprobed
+   * builds end it on a nonzero key byte only.
+   */
+  readonly inventoryListEndsOnAnyEvent: boolean;
+  /**
+   * The word loop tests the retained-word count BEFORE each match and exits
+   * silently at ten: tokens past the tenth are never examined, so an unknown
+   * word there is not reported (kq1 2.917 Parse 0x18F4 / kq4 3.002.086
+   * 0x1BAD / gr1 3.002.149 0x1B7C). Unprobed builds keep examining (and
+   * reporting) words past the cap.
+   */
+  readonly parserStopsAtTenthWord: boolean;
+  /**
+   * The line editor accepts a character only while editLen &lt; min(v24,
+   * 40 − strlen(s0) − (promptByte ≠ 0)), open.dialogue substituting 36 for
+   * 40 (kq1 2.917 editor 0x365A-0x368C). Unprobed builds cap at
+   * min(inputWidthCap ?? 39, 39 − prompt length).
+   */
+  readonly originalInputCapacity: boolean;
+  /**
    * Action 0xa9 also clears the fixed input-width override. False in
    * 3.002.149, where there is no override to clear
    * (version_profiles.md, 3.002.149 and 3.002.102 sections).
@@ -347,6 +391,12 @@ export interface AgiProfile {
   // ---- objects and presentation ----
   /** Which loop counts receive automatic direction-based loop selection. */
   readonly directionLoops: DirectionLoopRule;
+  /**
+   * The ego↔v6 direction mirror runs BEFORE the autonomous-motion and block
+   * pass of the pre-logic phase (kq3 2.936 main cycle 0x17B-0x195, dispatcher
+   * call at 0x198). Unprobed builds mirror after that pass.
+   */
+  readonly preLogicDirectionMirror: boolean;
   /** Selection runs on every eligible pass (2.089/2.230/2.272) or only when the cadence countdown is 1. */
   readonly directionLoopTiming: DirectionLoopTiming;
   /** Position actions run the horizon/placement routine on a drawn object before storing the snapshot (2.089 only). */
@@ -380,6 +430,17 @@ export interface AgiProfile {
    */
   readonly timedPrintClearsV21: boolean;
   /**
+   * The original window-text behaviors: wrap consumes the break space and
+   * strips continuation leading spaces, an overlong message is replaced by
+   * the "Message too verbose:" notice, print.at row/col overrides are used
+   * verbatim with picTop added on both paths, the status line uses the
+   * original formats, and the window frame is the measured OpenWndw bar
+   * geometry (kq1 2.917 0x2191/0x1E0C/0x1E69/0x34BD/0x54C8 / kq3 2.936).
+   * Unprobed builds keep the previous wrap, status, print.at and frame
+   * behavior.
+   */
+  readonly originalTextWindows: boolean;
+  /**
    * A due movement proposal whose left X is exactly zero reports left-boundary
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
@@ -394,6 +455,30 @@ export interface AgiProfile {
   // ---- session, diagnostics, persistence ----
   /** Action 0x80 accepts restart without confirmation while f16 is set (false in 2.411). */
   readonly restartPromptBypassedByF16: boolean;
+  /**
+   * The original restart/restore contract: the restart/quit prompts carry
+   * the original wording, the authentic restore tail clears controllers and
+   * rewrites the machine vars without touching v19/f2/f4, and input
+   * acceptance survives restart (kq3 2.936 0x2647-0x2693/0x0FA5, ovl
+   * DS+0x0ADB/0x5E3 / mh1 3.002.107 0x2928 / gr1 3.002.149 0x28C7/0x26E0).
+   * Unprobed builds keep the previous wording and clears.
+   */
+  readonly originalRestartRestore: boolean;
+  /**
+   * Replay-pair capacity of a game that never calls script.size: the shipped
+   * interpreter data image holds SCRIPTSIZE = 0x0032 (50 pairs) at
+   * AGIDATA.OVL DS+0x141 in the probed builds (kq3 2.936 / kq1 2.917 / gr1
+   * 3.002.149); unprobed builds keep the previous 200-pair default. A game's
+   * own script.size replaces it either way.
+   */
+  readonly defaultScriptBufferPairs: number;
+  /**
+   * script.size stores the capacity, then resets the recorded pair sequence
+   * and refreshes the object update lists: RestoreAll + InitScript +
+   * AllInBack (kq3 2.936 handler 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149
+   * 0x74E8). Unprobed builds store the capacity only.
+   */
+  readonly scriptSizeResetsSequence: boolean;
   /** The heap diagnostic prints the later "rm.0, etc." line (false in 2.411/2.440). */
   readonly heapDiagnosticExtraLine: boolean;
   /** Save envelope block count: four in 2.089, five on PC and Amiga, six on the Apple IIgs build. */
@@ -404,6 +489,13 @@ export interface AgiProfile {
   // ---- sound ----
   /** Sound scheduling/output family. */
   readonly sound: SoundProfile;
+  /**
+   * sound() runs StopSnd FIRST — setting the interrupted sound's done flag —
+   * then reads the operands, resets the new done flag, and only then can the
+   * lookup fault (kq2 2.411 0x4FD5 / lsl1 2.440 0x5007 / xmas 2.272 0x4943).
+   * Unprobed builds fault on the lookup before stopping.
+   */
+  readonly soundStopsBeforeFault: boolean;
   /** Representative PC sound hardware; docs/fidelity.md "PCjr and Tandy noise". */
   readonly psgNoise: "sn76496" | "ncr8496";
   /** Decay-envelope selection for the "common" family (unused by early/booter sound). */
@@ -433,6 +525,15 @@ const BASE_2936: AgiProfile = {
   releaseGateAction: "increment",
   releaseGateClearAction: false,
   inputWidthActions: "effect",
+  // Authenticity-fix gates: every field defaults to the pre-fix behavior and
+  // only the profiles whose probes cover a behavior select it (the per-field
+  // comments name the evidence builds).
+  keyByteStoredBeforeEdit: false,
+  keypadWordsNormalized: false,
+  modalDismissalKeys: "enter-escape-space",
+  inventoryListEndsOnAnyEvent: false,
+  parserStopsAtTenthWord: false,
+  originalInputCapacity: false,
   closeWindowClearsInputWidth: true,
   priorityBaseAction: "effect",
   mousePosnAction: "noop",
@@ -442,6 +543,7 @@ const BASE_2936: AgiProfile = {
   roomAliases: null,
   wordSequenceTailTerminator: true,
   directionLoops: "four-or-more",
+  preLogicDirectionMirror: false,
   directionLoopTiming: "cadence-due",
   positionActionOrder: "store-together",
   earlierPartitionOrder: "drawing-key",
@@ -453,15 +555,20 @@ const BASE_2936: AgiProfile = {
   showPictureClearsF15: true,
   printConsumesF15: true,
   timedPrintClearsV21: true,
+  originalTextWindows: false,
   clampExactZeroLeftBoundary: false,
   pictureMaxCommand: 0xfa,
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
+  originalRestartRestore: false,
+  defaultScriptBufferPairs: 200,
+  scriptSizeResetsSequence: false,
   heapDiagnosticExtraLine: true,
   saveBlocks: 5,
   saveBlock3Xor: false,
   frameTiming: "fixed",
   sound: "common",
+  soundStopsBeforeFault: false,
   psgNoise: "ncr8496",
   soundEnvelope: "2.917",
 };
@@ -614,6 +721,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     restartPromptBypassedByF16: false, // unconditional prompt, xmas 2.272 0x2289
     heapDiagnosticExtraLine: false,
     sound: "early-2.272",
+    soundStopsBeforeFault: true, // xmas 2.272 0x4943
   },
   // version_profiles.md "AGI 2.411 profile"; conformance matrix "2.411 variant selection".
   "2.411": {
@@ -626,6 +734,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     restartPromptBypassedByF16: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.411",
+    soundStopsBeforeFault: true, // kq2 2.411 0x4FD5
     psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.440 profile"; conformance matrix "2.440 variant selection".
@@ -637,6 +746,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoops: "exact-four",
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
+    soundStopsBeforeFault: true, // lsl1 2.440 0x5007
     psgNoise: "sn76496",
   },
   // version_profiles.md "AGI 2.917 profile"; conformance matrix "2.917 variant selection".
@@ -645,8 +755,37 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     id: "2.917",
     maxAction: 0xad,
     directionLoops: "exact-four",
+    // Probed on kq1 2.917: script buffer default and script.size reset
+    // (AGIDATA.OVL DS+0x141, handler 0x70A3), ENTER/ESC-only modal dismissal,
+    // original text windows (0x2191/0x1E0C/0x1E69/0x34BD/0x54C8), parser
+    // tenth-word stop (Parse 0x18F4) and the editor capacity formula
+    // (0x365A-0x368C).
+    defaultScriptBufferPairs: 50,
+    scriptSizeResetsSequence: true,
+    modalDismissalKeys: "enter-escape",
+    originalTextWindows: true,
+    parserStopsAtTenthWord: true,
+    originalInputCapacity: true,
   },
-  "2.936": BASE_2936,
+  "2.936": {
+    ...BASE_2936,
+    // Probed on kq3 2.936: pre-logic direction mirror (main cycle
+    // 0x17B-0x195), script buffer default and script.size reset (DS+0x141,
+    // 0x716A), v19 store-first (0x35B0; pq1 2.903 START.EXE 0x35A9 agrees and
+    // falls back to this profile), keypad word queue/normalization,
+    // ENTER/ESC-only modal dismissal (0x45F0), inventory WaitEvent (0x32E9),
+    // original text windows, and the original restart/restore contract
+    // (0x2647-0x2693, 0x0FA5, ovl DS+0x0ADB/0x5E3).
+    preLogicDirectionMirror: true,
+    defaultScriptBufferPairs: 50,
+    scriptSizeResetsSequence: true,
+    keyByteStoredBeforeEdit: true,
+    keypadWordsNormalized: true,
+    modalDismissalKeys: "enter-escape",
+    inventoryListEndsOnAnyEvent: true,
+    originalTextWindows: true,
+    originalRestartRestore: true,
+  },
   // version_profiles.md "AGI 3.002.086 profile"; conformance matrix "3.002.086 variant selection".
   "3.002.086": {
     ...BASE_V3,
@@ -654,6 +793,10 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xb1,
     extraActions: "v3-086",
     clampExactZeroLeftBoundary: true,
+    // Probed on kq4 3.002.086: parser tenth-word stop (Parse 0x1BAD) and the
+    // editor capacity formula.
+    parserStopsAtTenthWord: true,
+    originalInputCapacity: true,
   },
   // version_profiles.md "AGI 3.002.102 profile"; conformance matrix "3.002.102 variant selection".
   "3.002.102": {
@@ -664,6 +807,13 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     releaseGateAction: "set",
     releaseGateClearAction: true,
     directionLoops: "four-or-more-f20",
+    // Probed on demopac4 3.002.102 and mh1 3.002.107 (promoted equivalent):
+    // keypad word queue/normalization (PostEvent 0x48DD / ButtonToChar
+    // 0x4A78), the inventory WaitEvent (0x3696) and the original
+    // restart/restore contract (mh1 0x2928).
+    keypadWordsNormalized: true,
+    inventoryListEndsOnAnyEvent: true,
+    originalRestartRestore: true,
     // MH1 3.002.107's measured envelope; the conformance matrix promotes that
     // build to this profile (docs/fidelity.md, sound player audit).
     soundEnvelope: "3.002",
@@ -684,6 +834,17 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     timedPrintClearsV21: true,
     directionLoops: "four-or-more-f20",
     roomAliases: null,
+    // Probed on gr1 3.002.149: script buffer default and script.size reset
+    // (AGIDATA.OVL DS+0x141, handler 0x74E8), keypad word
+    // queue/normalization, parser tenth-word stop (Parse 0x1B7C) and the
+    // editor capacity formula, and the original restart/restore contract
+    // (0x28C7, 0x26E0).
+    defaultScriptBufferPairs: 50,
+    scriptSizeResetsSequence: true,
+    keypadWordsNormalized: true,
+    parserStopsAtTenthWord: true,
+    originalInputCapacity: true,
+    originalRestartRestore: true,
     // GR1 3.002.149's measured envelope (docs/fidelity.md, sound player audit).
     soundEnvelope: "3.002",
   },

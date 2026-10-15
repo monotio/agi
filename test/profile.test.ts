@@ -390,9 +390,10 @@ describe("engine selects behavior by profile field", () => {
 
   test("0xa3/0xa4 fix the input width in 2.936 and do nothing in 3.002.149", () => {
     // The keystroke cap is min(v24, 40 − strlen(s0) − promptByte) with v24
-    // shipped as 41 (kq1 2.917 editor 0x365A-0x368C; ResetAll 0x108C): with
-    // no prompt marker the edit buffer holds 40 characters, and
-    // open.dialogue caps the fixed width at 36.
+    // shipped as 41 (kq1 2.917 editor 0x365A-0x368C; ResetAll 0x108C) —
+    // probed on kq1 2.917 / kq4 3.002.086 / gr1 3.002.149, so 3.002.149
+    // holds 40 characters with no prompt marker, and open.dialogue caps the
+    // fixed width at 36.
     const OPEN = "accept.input();\nopen.dialogue();\nreturn;\n";
     const wide = boot(OPEN, "3.002.149").engine;
     wide.setEditLine("x".repeat(50));
@@ -400,10 +401,12 @@ describe("engine selects behavior by profile field", () => {
     const capped = boot(OPEN).engine;
     capped.setEditLine("x".repeat(50));
     assert.equal(capped.inputEdit.length, 36);
-    // close.dialogue restores the derived width under 2.936 only.
+    // close.dialogue restores the derived width under 2.936 only — and 2.936
+    // is unprobed for the original capacity formula, so the previous
+    // 39-column cap applies.
     const closed = boot("accept.input();\nopen.dialogue();\nclose.dialogue();\nreturn;\n").engine;
     closed.setEditLine("x".repeat(50));
-    assert.equal(closed.inputEdit.length, 40);
+    assert.equal(closed.inputEdit.length, 39);
   });
 
   test("the script key map stops at the profile capacity", () => {
@@ -856,4 +859,36 @@ test("profile ids are a frozen public vocabulary", () => {
     "iigs-1.014",
   ])
     assert.equal(PROFILES[id as ProfileId]?.id, id, id);
+});
+
+test("the authenticity-fix gates select only their probed profiles", () => {
+  // Each lane behavior change runs only where its probe evidence covers the
+  // build (the per-field comments in profile.ts name the binaries and
+  // offsets); every other profile keeps the previous behavior.
+  const flags = {
+    preLogicDirectionMirror: ["2.936"],
+    defaultScriptBufferPairs: ["2.917", "2.936", "3.002.149"],
+    scriptSizeResetsSequence: ["2.917", "2.936", "3.002.149"],
+    keyByteStoredBeforeEdit: ["2.936"], // pq1 2.903 falls back to 2.936
+    keypadWordsNormalized: ["2.936", "3.002.102", "3.002.149"],
+    modalDismissalKeys: ["2.917", "2.936"],
+    inventoryListEndsOnAnyEvent: ["2.936", "3.002.102"],
+    originalTextWindows: ["2.917", "2.936"],
+    parserStopsAtTenthWord: ["2.917", "3.002.086", "3.002.149"],
+    originalInputCapacity: ["2.917", "3.002.086", "3.002.149"],
+    originalRestartRestore: ["2.936", "3.002.102", "3.002.149"],
+    soundStopsBeforeFault: ["2.272", "2.411", "2.440"],
+  } as const;
+  for (const [id, profile] of Object.entries(PROFILES)) {
+    for (const [field, probed] of Object.entries(flags)) {
+      const value = profile[field as keyof typeof profile];
+      const selected = field === "modalDismissalKeys" ? value === "enter-escape" : value === true;
+      const expected = (probed as readonly string[]).includes(id);
+      if (field === "defaultScriptBufferPairs") {
+        assert.equal(value, expected ? 50 : 200, `${id}.defaultScriptBufferPairs`);
+      } else {
+        assert.equal(selected, expected, `${id}.${field}`);
+      }
+    }
+  }
 });

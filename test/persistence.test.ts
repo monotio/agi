@@ -2240,8 +2240,8 @@ test("2.089/2.230/2.272 always show the restart confirmation, f16 or not", () =>
     engine.flags[201] = 1;
     engine.tick();
     assert.ok(
-      host.prints.some((t) => t.startsWith("Press ENTER to restart")),
-      `${profile}: the confirmation prompt shows`,
+      host.prints.some((t) => t.startsWith("Restart the game?")),
+      `${profile}: the confirmation prompt shows (previous wording — the original strings are probed on kq3 2.936 / mh1 3.002.107 / gr1 3.002.149 only)`,
     );
     assert.equal(engine.vars[100], 42, `${profile}: declined prompt keeps state`);
   }
@@ -2272,4 +2272,122 @@ test("2.089/2.230/2.272 show.mem prints no rm.0 line", () => {
     assert.ok(logs.length > 0, `${profile}: show.mem logged`);
     assert.ok(!logs.join("\n").includes("rm.0"), `${profile}: no rm.0 line`);
   }
+});
+
+// ---- Profile gating: unprobed builds keep the pre-fix behavior ----
+// The restart/restore/script-buffer behaviors above are probed on kq3 2.936,
+// kq1 2.917, mh1 3.002.107 and gr1 3.002.149 (each test names its builds);
+// profile fields select them, and every other profile runs the previous
+// behavior. 2.411 stands in for an unprobed build below.
+
+describe("unprobed profiles keep the previous restart/restore and script-buffer behavior", () => {
+  test("the restart prompt keeps the previous wording and clears input acceptance", () => {
+    // The original wording and the surviving input acceptance are probed on
+    // kq3 2.936 (ovl DS+0x0ADB, ResetAll 0x0FA5) / mh1 3.002.107 / gr1
+    // 3.002.149 only.
+    class AcceptHost extends RecordingHost {
+      keys: number[] = [];
+      waitKey(): number {
+        return 0x0d; // ENTER accepts the confirmation
+      }
+      override takeKeys(): number[] {
+        return this.keys.splice(0);
+      }
+    }
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+        if (isset(f6)) { return; }
+        if (!isset(f200)) { set(f200); accept.input(); assignn(v100, 42); }
+        if (isset(f201)) { reset(f201); restart.game(); }
+        return;
+      `,
+        { dictionary: DICT, profile: PROFILES["2.411"] },
+      ).payload,
+    );
+    const host = new AcceptHost();
+    const engine = new Engine(container, host, DICT, { profile: "2.411" });
+    host.engine = engine;
+    engine.tick();
+    host.keys.push(0x61);
+    engine.tick();
+    assert.equal(engine.inputEnabled, true);
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.ok(
+      host.prints.includes("Restart the game?\nENTER: yes   ESC: continue"),
+      `previous wording, got ${JSON.stringify(host.prints)}`,
+    );
+    assert.equal(engine.vars[100], 0, "the restart cleared the vars");
+    assert.equal(engine.inputEnabled, false, "input acceptance did not survive");
+  });
+
+  test("restore clears the key variable v19", () => {
+    // The no-v19-store restore tail is probed on kq3 2.936 (0x2647-0x2693) /
+    // gr1 3.002.149 (0x28C7) / mh1 3.002.107 (0x2928) only; elsewhere the
+    // restore clears v19, f2 and f4 as before.
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic("return;", { dictionary: DICT, profile: PROFILES["2.411"] }).payload,
+    );
+    class KeyHost extends RecordingHost {
+      keys: number[] = [];
+      override takeKeys(): number[] {
+        return this.keys.splice(0);
+      }
+    }
+    const host = new KeyHost();
+    const engine = new Engine(container, host, DICT, { profile: "2.411" });
+    host.keys.push(0x61);
+    engine.tick();
+    assert.equal(engine.vars[19], 0x61);
+    const image = engine.serialize();
+    const fresh = new Engine(container, new RecordingHost(), DICT, { profile: "2.411" });
+    fresh.restoreImage(image);
+    assert.equal(fresh.vars[19], 0, "v19 is cleared on restore");
+  });
+
+  test("the default script buffer holds 200 pairs and script.size keeps the recorded sequence", () => {
+    // SCRIPTSIZE = 50 at AGIDATA.OVL DS+0x141 and the script.size reset
+    // (handler 0x716A/0x70A3/0x74E8) are probed on kq3 2.936 / kq1 2.917 /
+    // gr1 3.002.149 only; elsewhere the previous 200-pair default stands and
+    // script.size stores the capacity without resetting.
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        "if (!isset(f200)) { set(f200); load.view(1); script.size(30); } return;",
+        { dictionary: DICT, profile: PROFILES["2.411"] },
+      ).payload,
+    );
+    container.putResource(
+      "view",
+      1,
+      buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+    );
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT, { profile: "2.411" });
+    engine.tick();
+    const replay = (engine as unknown as { replay: unknown[] }).replay;
+    assert.equal(replay.length, 1, "the recorded pair survives script.size");
+    const plain = createContainer();
+    plain.putResource(
+      "logic",
+      0,
+      assembleLogic("return;", { dictionary: DICT, profile: PROFILES["2.411"] }).payload,
+    );
+    const fresh = new Engine(plain, new RecordingHost(), DICT, { profile: "2.411" });
+    fresh.tick();
+    assert.equal(
+      decodeSave(fresh.serialize(), fresh.profile).replayCapacity,
+      200,
+      "the previous default capacity is written",
+    );
+  });
 });
