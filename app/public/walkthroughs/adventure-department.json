@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "adventure-department",
     "revision": "0461fc576fd342733d9a3484d8135e40c9b2ae0d46a43d7e7ea89e6adbbf8137"
@@ -22,7 +22,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 51,
+  "elapsedMs": 53,
   "virtualTicks": 1622,
   "cycles": 169,
   "actions": [
@@ -658,7 +658,7 @@
       0,
       0,
       0,
-      0,
+      13,
       0,
       0,
       3,
