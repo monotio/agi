@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
 import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
@@ -1192,6 +1193,7 @@ function flushTraceKeys(): void {
 }
 onBeforeUnmount(flushTraceKeys);
 function grabTrace(event: PointerEvent, kind: "move" | "scale") {
+  if (traceDrag || event.button !== 0) return;
   flushTraceKeys();
   const button = event.currentTarget as HTMLButtonElement;
   const bounds = button.parentElement!.getBoundingClientRect();
@@ -1206,7 +1208,12 @@ function grabTrace(event: PointerEvent, kind: "move" | "scale") {
   };
   button.setPointerCapture(event.pointerId);
 }
+const traceFrame = frameTask();
+onBeforeUnmount(traceFrame.cancel);
 function moveTrace(event: PointerEvent) {
+  if (traceDrag?.pointer === event.pointerId) traceFrame.schedule(() => applyTrace(event));
+}
+function applyTrace(event: PointerEvent) {
   if (!traceDrag || traceDrag.pointer !== event.pointerId) return;
   const { x, y, width, height, from, kind } = traceDrag;
   const dx = (event.clientX - x) / width;
@@ -1223,9 +1230,10 @@ function moveTrace(event: PointerEvent) {
 }
 function releaseTrace(event: PointerEvent, cancel = false) {
   if (!traceDrag || traceDrag.pointer !== event.pointerId) return;
+  traceFrame.cancel();
   if (cancel) underlay?.adjust?.(traceDrag.from, false);
   else {
-    moveTrace(event);
+    applyTrace(event);
     underlay?.adjust?.(underlay.transform ?? traceDrag.from, true);
   }
   traceDrag = null;

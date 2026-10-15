@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { throttleTask } from "../../ui/frameTask.ts";
 import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import {
@@ -347,20 +348,7 @@ function changeTrace(label: string) {
       error.value = "The trace settings could not be saved. Move the slider again to retry.";
   });
 }
-const prepared = computed(() => {
-  if (!image.value || isPicture.value) return null;
-  try {
-    return prepareImageCels(
-      image.value,
-      frames.value,
-      props.profile,
-      background.value,
-      backgroundTransparent.value,
-    );
-  } catch {
-    return null;
-  }
-});
+const prepared = shallowRef<ReturnType<typeof prepareImageCels> | null>(null);
 async function addCels() {
   if (!image.value) return;
   busy.value = true;
@@ -386,29 +374,30 @@ async function addCels() {
     busy.value = false;
   }
 }
+const livePreview = throttleTask(150);
 function stopPreview() {
+  livePreview.reset();
   if (previewing.value) engine.previewImageCels(null);
   previewing.value = false;
+}
+function postPreview() {
+  if (!previewing.value) return;
+  if (!prepared.value) return stopPreview();
+  engine.previewImageCels(
+    prepared.value.payload,
+    [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
+  );
 }
 function preview() {
   if (previewing.value) stopPreview();
   else if (prepared.value) {
-    engine.previewImageCels(
-      prepared.value.payload,
-      [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
-    );
     previewing.value = true;
+    livePreview.schedule(postPreview);
   }
 }
 watch(prepared, () => {
-  if (previewing.value) {
-    if (prepared.value)
-      engine.previewImageCels(
-        prepared.value.payload,
-        [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
-      );
-    else stopPreview();
-  }
+  if (!prepared.value) return stopPreview();
+  if (previewing.value) livePreview.schedule(postPreview);
 });
 watch(
   () => props.active,
@@ -558,6 +547,7 @@ onBeforeUnmount(() => {
       <ImageFrameSheet
         v-show="!generateOpen"
         v-model="frames"
+        @prepared="prepared = $event"
         :image="image"
         :profile="profile"
         :mirrors="mirrors"

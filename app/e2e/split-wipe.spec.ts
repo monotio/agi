@@ -5,9 +5,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 
-test.use({ headless: process.platform !== "darwin" });
-
-test("split handle drag", async ({ page }) => {
+test("split handle drag @webkit-desktop", async ({ page }) => {
   const game = createContainer();
   game.putResource(
     "picture",
@@ -62,4 +60,26 @@ test("split handle drag", async ({ page }) => {
   await expect
     .poll(async () => Number(await handle.getAttribute("aria-valuenow")))
     .toBeGreaterThan(55);
+  const settled = await handle.getAttribute("aria-valuenow");
+  const current = (await handle.boundingBox())!;
+  await page.mouse.move(current.x + current.width / 2, current.y + current.height / 2);
+  await page.mouse.down();
+  await handle.dispatchEvent("lostpointercapture", { pointerId: 1 });
+  await page.mouse.move(current.x - 100, current.y);
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute("aria-valuenow", settled!);
+  const next = (await handle.boundingBox())!;
+  await page.mouse.move(next.x + next.width / 2, next.y + next.height / 2);
+  await page.mouse.down();
+  await handle.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    element.dispatchEvent(
+      new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: rect.x - 100 }),
+    );
+    document.querySelector<HTMLButtonElement>('[data-testid="dbg-mode-visual"]')!.click();
+  });
+  await expect(handle).toHaveCount(0);
+  await page.mouse.up();
+  await page.getByTestId("dbg-mode-split").click();
+  await expect(handle).toHaveAttribute("aria-valuenow", settled!);
 });

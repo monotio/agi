@@ -6,6 +6,7 @@
  * the screen.
  */
 import "./workspace.css";
+import { frameTask } from "../../ui/frameTask.ts";
 import { computed, onBeforeUnmount, ref } from "vue";
 import {
   emptyStageBootFailure,
@@ -104,22 +105,52 @@ function reloadProject(): void {
   history.replaceState(null, "", gameHash("create", project.projectId));
   location.reload();
 }
-/** The splitter moves the shared split, so the first room opens at the same size. */
+/** Persist the shared split once, after the splitter settles. */
+const resizeFrame = frameTask();
+const draftSplit = ref<number>();
+let endResize: (() => void) | undefined;
+onBeforeUnmount(() => {
+  endResize?.();
+  resizeFrame.cancel();
+});
 function resize(event: PointerEvent): void {
+  endResize?.();
   const target = event.currentTarget as HTMLElement;
   const area = target.parentElement!.getBoundingClientRect();
   const left =
     target.parentElement!.querySelector(".parts-list")?.getBoundingClientRect().width ?? 0;
   target.setPointerCapture(event.pointerId);
-  const move = (e: PointerEvent) =>
-    editor.resize(
-      editor.stackedLayout.value
-        ? (100 * (e.clientY - area.top)) / area.height
-        : (100 * (e.clientX - area.left - left)) / (area.width - left),
+  let value = editor.effectiveSplit.value;
+  const move = (e: PointerEvent) => {
+    value = Math.max(
+      25,
+      Math.min(
+        75,
+        editor.stackedLayout.value
+          ? (100 * (e.clientY - area.top)) / area.height
+          : (100 * (e.clientX - area.left - left)) / (area.width - left),
+      ),
     );
-  const stop = () => target.removeEventListener("pointermove", move);
+    resizeFrame.schedule(() => {
+      draftSplit.value = value;
+    });
+  };
+  const stop = (event?: PointerEvent) => {
+    if (event?.type === "pointerup") move(event);
+    resizeFrame.cancel();
+    editor.resize(value);
+    draftSplit.value = undefined;
+    target.removeEventListener("pointermove", move);
+    target.removeEventListener("pointerup", stop);
+    target.removeEventListener("pointercancel", stop);
+    target.removeEventListener("lostpointercapture", stop);
+    endResize = undefined;
+  };
+  endResize = stop;
   target.addEventListener("pointermove", move);
-  target.addEventListener("lostpointercapture", stop, { once: true });
+  target.addEventListener("pointerup", stop);
+  target.addEventListener("pointercancel", stop);
+  target.addEventListener("lostpointercapture", stop);
 }
 </script>
 
@@ -141,8 +172,8 @@ function resize(event: PointerEvent): void {
         'shell-body--no-editor': editor.phoneFrame.value,
       }"
       :style="{
-        '--workspace-game': `minmax(var(--workspace-game-min), ${editor.effectiveSplit.value}fr)`,
-        '--workspace-edit': `minmax(var(--workspace-edit-min), ${100 - editor.effectiveSplit.value}fr)`,
+        '--workspace-game': `minmax(var(--workspace-game-min), ${draftSplit ?? editor.effectiveSplit.value}fr)`,
+        '--workspace-edit': `minmax(var(--workspace-edit-min), ${100 - (draftSplit ?? editor.effectiveSplit.value)}fr)`,
       }"
     >
       <PartsList

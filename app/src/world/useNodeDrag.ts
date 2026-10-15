@@ -7,6 +7,7 @@ import type { RoomMap } from "./useRoomMap.ts";
 
 export function useNodeDrag(deps: {
   map: Pick<RoomMap, "moveNode" | "previewNode">;
+  cancelPreview: (room: number, x: number, y: number) => void;
   positionOf: (room: number) => { x: number; y: number } | undefined;
   /** The user took the viewport: stop following the live room. */
   takeViewport: () => void;
@@ -14,6 +15,8 @@ export function useNodeDrag(deps: {
 }) {
   let dragging: {
     room: number;
+    pointer: number;
+    origin: { x: number; y: number };
     dx: number;
     dy: number;
     sx: number;
@@ -33,10 +36,12 @@ export function useNodeDrag(deps: {
 
   function onNodePointerDown(ev: PointerEvent, room: number): void {
     const pos = deps.positionOf(room);
-    if (!pos) return;
+    if (!pos || dragging || ev.button !== 0) return;
     const p = svgPoint(ev);
     dragging = {
       room,
+      pointer: ev.pointerId,
+      origin: { ...pos },
       dx: p.x - pos.x,
       dy: p.y - pos.y,
       sx: ev.clientX,
@@ -47,7 +52,7 @@ export function useNodeDrag(deps: {
   }
 
   function onNodePointerMove(ev: PointerEvent): void {
-    if (!dragging) return;
+    if (!dragging || dragging.pointer !== ev.pointerId) return;
     if ((ev.buttons & 1) === 0) {
       // Released outside the window: the captured pointerup never arrived.
       if (dragging.moved) {
@@ -71,12 +76,19 @@ export function useNodeDrag(deps: {
   }
 
   function onNodePointerUp(ev: PointerEvent, room: number): void {
-    if (!dragging || dragging.room !== room) return;
+    if (!dragging || dragging.room !== room || dragging.pointer !== ev.pointerId) return;
     if (dragging.moved) {
       const p = svgPoint(ev);
       deps.map.moveNode(room, p.x - dragging.dx, p.y - dragging.dy);
     }
     dragging = null;
+  }
+
+  function onNodePointerCancel(ev: PointerEvent): void {
+    if (!dragging || dragging.pointer !== ev.pointerId) return;
+    const { room, origin } = dragging;
+    dragging = null;
+    deps.cancelPreview(room, origin.x, origin.y);
   }
 
   /** Keyboard move: arrows nudge a focused node; Enter/Space select it. */
@@ -106,5 +118,11 @@ export function useNodeDrag(deps: {
     }
   }
 
-  return { onNodePointerDown, onNodePointerMove, onNodePointerUp, onNodeKeydown };
+  return {
+    onNodePointerDown,
+    onNodePointerMove,
+    onNodePointerUp,
+    onNodePointerCancel,
+    onNodeKeydown,
+  };
 }

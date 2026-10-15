@@ -150,3 +150,42 @@ test("moving onto the floor-edge barrier reports its cells; keys nudge, cycle an
   await page.getByTestId("ghost-probe-toggle").click();
   await expect(page.getByTestId("ghost-probe")).toBeVisible();
 });
+
+test("a ghost handle can disappear mid-drag and be used again @webkit-desktop", async ({
+  page,
+}) => {
+  await open(page);
+  const handle = page.getByTestId("ghost-probe-handle");
+  const readout = page.getByTestId("ghost-probe-readout").locator('[data-role="ghost-band"]');
+  const before = await readout.textContent();
+  const rect = (await handle.boundingBox())!;
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await page.mouse.down();
+  await handle.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    element.dispatchEvent(
+      new PointerEvent("pointermove", {
+        pointerId: 1,
+        clientX: rect.x + 50,
+        clientY: rect.y + 20,
+        bubbles: true,
+      }),
+    );
+    document.querySelector<HTMLButtonElement>('[data-testid="ghost-probe-toggle"]')!.click();
+  });
+  await expect(handle).toHaveCount(0);
+  await page.mouse.up();
+  await page.getByTestId("ghost-probe-toggle").click();
+  await expect(handle).toBeVisible();
+  await expect(readout).toHaveText(before!);
+  const next = (await handle.boundingBox())!;
+  await page.mouse.move(next.x + next.width / 2, next.y + next.height / 2);
+  await page.mouse.down();
+  await handle.dispatchEvent("lostpointercapture", { pointerId: 1 });
+  await page.mouse.move(next.x + 50, next.y + 20);
+  await page.mouse.up();
+  await expect(readout).toHaveText(before!);
+  await handle.focus();
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(readout).not.toHaveText(before!);
+});

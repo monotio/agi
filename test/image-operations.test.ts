@@ -263,3 +263,13 @@ test("released traces without a transform retain contain placement", () => {
   assert.equal(pixels[3], 0, "contain leaves the side margin clear");
   assert.equal(pixels[(84 * 160 + 80) * 4 + 3], 255);
 });
+
+test("preparation identifies the current pixels after an in-place image edit", () => {
+  const source = { ...image, rgba: image.rgba.slice() };
+  const frames = suggestImageFrames(source, 4);
+  const first = prepareImageCels(source, frames, PROFILES["2.936"]);
+  source.rgba[0] = 170;
+  const next = prepareImageCels(source, frames, PROFILES["2.936"]);
+  assert.notDeepEqual(next.frames[0]!.source, first.frames[0]!.source);
+  assert.equal(next.frames[0]!.source.id, sha256Hex(source.rgba));
+});

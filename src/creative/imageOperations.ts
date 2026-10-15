@@ -248,8 +248,9 @@ export function prepareImageCels(
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
+  sourceId = sha256Hex(image.rgba),
 ) {
-  const identity = { id: sha256Hex(image.rgba), incarnation: "image", revision: 0 };
+  const identity = { id: sourceId, incarnation: "image", revision: 0 };
   const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
     id: `frame-${i}`,
     source: identity,

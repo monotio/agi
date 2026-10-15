@@ -51,6 +51,9 @@ import { contentFitZoom } from "../src/studio/useStudioViewport.ts";
 
 // spriteKeys reads the event target's element type; Node has no DOM.
 globalThis.HTMLElement ??= class {} as unknown as typeof HTMLElement;
+// Unit gestures settle synchronously; individual frame tests drive the callback explicitly.
+globalThis.requestAnimationFrame ??= () => 1;
+globalThis.cancelAnimationFrame ??= () => {};
 
 const APPRENTICE = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(
   "view",
@@ -267,6 +270,37 @@ describe("useSpriteTools", () => {
     });
     return { draft, t, said, color };
   }
+
+  it("keeps every fast stroke point, previews once per frame and prepares only on release", (context) => {
+    let frame: FrameRequestCallback | undefined;
+    context.mock.method(globalThis, "requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frame = callback;
+      return 1;
+    });
+    context.mock.method(globalThis, "cancelAnimationFrame", () => {
+      frame = undefined;
+    });
+    const { draft, t } = tools();
+    const prepare = context.mock.method(draft, "moveGesture");
+    t.pressAt({ x: 0, y: 0 });
+    t.dragTo({ x: 4, y: 0 });
+    t.dragTo({ x: 4, y: 4 });
+    t.dragTo({ x: 0, y: 4 });
+    assert.equal(prepare.mock.callCount(), 0, "moving must not encode a VIEW");
+    frame!(0);
+    assert.equal(at(t.previewCel.value!, 4, 2), 4, "the frame displays the whole stroke");
+    assert.equal(prepare.mock.callCount(), 0, "the visual preview must not encode either");
+    t.release({ x: 0, y: 0 });
+    const result = celOf(draft.document.value, 2);
+    for (let i = 0; i <= 4; i++) {
+      assert.equal(at(result, i, 0), 4);
+      assert.equal(at(result, 4, i), 4);
+      assert.equal(at(result, i, 4), 4);
+      assert.equal(at(result, 0, i), 4, "release retains the last segment too");
+    }
+    assert.equal(draft.changes.value, 1);
+    assert.equal(frame, undefined);
+  });
 
   it("draws a pencil line from the keyboard: pen down, move, pen up, one step", () => {
     const { draft, t } = tools();
