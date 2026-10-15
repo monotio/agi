@@ -3,6 +3,43 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.2.4] - 2026-10-15
+
+### Added
+
+- Game tests are project documents. You can record a test and keep it without
+  an AI key, and tests travel with the project. The recorder says "8 game tests
+  saved" when it stores them.
+- Deleting a room offers "Also delete tests that use this room", checked by
+  default. The dialog names the room and says how many tests use it.
+- When the Agent finishes with failing tests, its reply names each failing or
+  changed test with a reason. A test edit you ask for is proposed for review
+  with the old and new values, and it needs your Apply.
+- Loading notes appear while a part or the project is still opening.
+
+### Changed
+
+- Tests never block a game edit. A room that tests use can be deleted, and
+  those tests fail when run.
+- Create with the Agent open is more compact. Parts folds away beside the
+  Agent and comes back when the Agent closes.
+- Notices stay up while the pointer or focus rests on them.
+- The recorder suggests clock checks unchecked.
+- Browser test runs are leaner: each test runs at the widths and in the engines
+  its rule depends on.
+
+### Fixed
+
+- Returning to Play checks changed art, and Show Room covers pictures and
+  views.
+- Deleting the room the game is in restarts the game from the beginning and
+  says so, instead of offering a restart into the deleted room.
+- Progress is kept while only chat, notes or tests are saving.
+- Closing the Agent restores your Parts setting at any width.
+- A dialog you reopen right away stays open.
+- When the game does not answer while the Agent opens, the notice says so and
+  suggests reopening the Agent.
+
 ## [1.2.3] - 2026-10-12
 
 ### Fixed
