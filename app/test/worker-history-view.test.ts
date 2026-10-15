@@ -380,6 +380,148 @@ test("Create take and restore grant the adopted engine admission and journal the
   ctx.fns.stopTimers();
 });
 
+// Player rule: a player who presses Pause the moment Play starts, then rewinds and resumes, keeps
+// the paused game. Undo rewind brings it back at its start, and it can be rewound again.
+test("a game paused before its first cycle is kept for Undo rewind, again and again", async () => {
+  const documents = {
+    "logic:0":
+      "if (v40 == 0) { load.pic(0); draw.pic(0); show.pic(); assignn(v40, 1); } increment(v41); return;",
+    "picture:0": "vis 1\nfill 1,1\nend\n",
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const h = viewHarness(openContainer(compiled.files()), {
+    projectMode: "create",
+    projectDocuments: writeProjectWorkspace(documents),
+  });
+  await h.ctx.projectLoader.loading;
+  h.ctx.fns.stopTimers();
+  const { ctx, send, tick } = h;
+  tick(12);
+  // Create began this game, so Play starts it afresh; the pause lands before its first cycle.
+  send({ type: "projectPlay", id: 1 });
+  assert.ok(h.control.findLast((m) => m.type === "projectPlayed")?.ok);
+  send({ type: "pause", paused: true });
+  const paused = ctx.run.engine!.readState();
+  assert.equal(paused.vars[40], 0, "the paused game has not started");
+
+  send({ type: "historyRetain", id: 2 });
+  const retained = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyRetained" }> =>
+      m.type === "historyRetained" && m.id === 2,
+  );
+  assert.ok(retained?.boot, "the paused game is kept");
+
+  const recording = asRecording(collectSegments(h.control));
+  send({ type: "historyViewStart", id: 3, recording, segment: 0, tick: 6 });
+  const opened = finalView(h.control, 3);
+  send({
+    type: "historyViewTake",
+    id: 4,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  assert.ok(h.control.find((m) => m.type === "historyTaken")?.ok);
+  assert.equal(ctx.run.engine!.vars[40], 1, "the rewound moment is live");
+  send({ type: "pause", paused: false });
+  tick(4);
+  send({ type: "pause", paused: true });
+
+  send({ type: "historyViewRestore", id: 5, boot: retained.boot, from: retained.from });
+  const restored = h.control.find((m) => m.type === "historyViewRestored");
+  assert.ok(restored?.type === "historyViewRestored" && restored.ok, JSON.stringify(restored));
+  assert.deepEqual(ctx.run.engine!.readState(), paused, "Undo rewind restores the paused game");
+  assert.equal(ctx.run.cycle.cycleCount, 0, "the restored game is back at its start");
+  send({ type: "historyRetain", id: 6 });
+  const again = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(again?.type === "historyRetained" && again.boot, "it can be rewound again");
+  ctx.fns.stopTimers();
+});
+
+// Player rule: a game paused after it started but before it drew its first room cannot be kept
+// yet; the refusal says the game is still starting, and a moment of play makes it keepable.
+test("a game paused before its first room draws is refused as still starting", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        "increment(v41); if (v41 > 3) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+      ],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+  );
+  const { ctx, send, tick } = h;
+  tick(1);
+  send({ type: "pause", paused: true });
+  assert.ok(ctx.run.cycle.initialLogicStarted, "the game has started");
+  assert.equal(ctx.run.engine!.readLeanState().pictureShown, false, "no room is drawn yet");
+  send({ type: "historyRetain", id: 1 });
+  const refused = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(refused?.type === "historyRetained");
+  assert.equal(refused.boot, null);
+  assert.equal(refused.reason, "starting");
+
+  send({ type: "pause", paused: false });
+  tick(6);
+  send({ type: "pause", paused: true });
+  send({ type: "historyRetain", id: 2 });
+  const kept = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(kept?.type === "historyRetained" && kept.boot, "after a moment of play it is kept");
+  assert.equal(kept.reason, undefined);
+  ctx.fns.stopTimers();
+});
+
+// Player rule: rewinding never trades a restored checkpoint for the game's start. Paused before
+// its first cycle after the restore, the checkpoint is not keepable yet and the notice says so.
+test("a restored checkpoint paused before its first cycle keeps its position", () => {
+  const game = gameContainer(
+    [
+      "increment(v41); if (v41 > 3) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+    ],
+    (c) => c.putResource("picture", 1, PICTURE_1),
+  );
+  const first = viewHarness(game);
+  first.tick(2);
+  const checkpoint = first.ctx.run.engine!.recordingImage(true);
+  assert.ok(checkpoint, "a started, undrawn moment");
+  first.ctx.fns.stopTimers();
+
+  const h = viewHarness(game, { restoreImage: bytesToBase64(checkpoint) });
+  const { ctx, send } = h;
+  send({ type: "pause", paused: true });
+  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint is live");
+  send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "starting");
+  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint keeps its position");
+  ctx.fns.stopTimers();
+});
+
+// Player rule: Pause pressed while a room is starting again (Play after a room edit) gets the
+// "still starting" notice, not a prompt that is not there.
+test("a pause during a room re-entry is refused as still starting", () => {
+  const h = viewHarness(viewGame());
+  const { ctx, send, tick } = h;
+  send({ type: "debugWrite", id: 0, flags: [[6, 1]] });
+  tick(4);
+  assert.equal(ctx.run.engine!.readLeanState().pictureShown, true, "room 1 is drawn");
+  send({ type: "pause", paused: true });
+  send({ type: "reenter" });
+  assert.equal(ctx.run.engine!.roomEntryPending, true, "the room starts on the next cycle");
+  send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "starting");
+  ctx.fns.stopTimers();
+});
+
 /** The terminal report for a request id (progress posts share it). */
 function finalView(control: WorkerControl[], id: number) {
   const reports = control.filter(

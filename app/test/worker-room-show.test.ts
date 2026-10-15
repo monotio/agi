@@ -397,3 +397,49 @@ test("Play starts a stamped room fresh with the debugger attached", async (t) =>
   assert.equal(ctx.run.progress.mode, "play");
   assert.deepEqual(Object.fromEntries(ctx.run.engine!.containerFiles), next.files);
 });
+
+/** Commit an update without running a cycle after it, then ask to keep the paused game. */
+function updateThenRetain(
+  ctx: Awaited<ReturnType<typeof created>>["ctx"],
+  control: WorkerControl[],
+  next: PreviewUpdateCandidateMessage,
+  mode: "restart" | "reenter",
+) {
+  const lane = ctx.run.projectAdmission!;
+  onWorkerMessage(ctx, {
+    type: "previewUpdate",
+    id: 40,
+    runToken: lane.runToken,
+    expected: projectAdmissionIdentity(ctx, lane)!,
+    candidate: next,
+    mode,
+  });
+  const result = control.findLast((m) => m.type === "previewUpdateResult");
+  assert.ok(result?.type === "previewUpdateResult" && result.status === "committed");
+  onWorkerMessage(ctx, { type: "historyRetain", id: 41 });
+  const reply = control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  return reply;
+}
+
+// Player rule: a game whose room is starting again (an applied edit) before its first cycle is
+// still starting; a rewind says so rather than keeping the game's start in its place.
+test("a room re-entry on a game that has not run yet is refused as still starting", async (t) => {
+  const { ctx, control } = await created(t, true, true);
+  onWorkerMessage(ctx, { type: "pause", paused: true });
+  assert.equal(ctx.run.engine!.completedCycleSerial, 0, "the game has not run");
+  const reply = updateThenRetain(ctx, control, candidate(ROOM(2)), "reenter");
+  assert.equal(ctx.run.engine!.roomEntryPending, true);
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "starting");
+});
+
+// Player rule: a restart that has not run its first cycle is the game's start, so a rewind keeps
+// it as that start.
+test("a restart paused before its first cycle is kept as the game's start", async (t) => {
+  const { ctx, control } = await created(t, true);
+  const reply = updateThenRetain(ctx, control, candidate(ROOM(2)), "restart");
+  assert.equal(ctx.run.engine!.completedCycleSerial, 0, "the restart has not run");
+  assert.ok(reply.boot, "the restarted game is kept");
+  assert.equal(reply.boot.image, undefined, "as a cold boot of its start");
+});

@@ -47,6 +47,16 @@ export function prepareCreateProgress(
   return { mode: "create", returnPoint, cycle: 0, tick: 0, room: prepared.engine.vars[0]! };
 }
 
+/**
+ * The live game is still exactly its cold start, so a boot record without an
+ * image can stand in for it. The engine owns the fact: any restore, host room
+ * entry or begun cycle ends it, whichever path installed the engine.
+ */
+export function runUnstarted(ctx: WorkerContext): boolean {
+  const engine = ctx.run.engine;
+  return engine !== null && engine.coldStart && !engine.roomEntryPending;
+}
+
 export function enterCreateRun(ctx: WorkerContext, cold = false): void {
   if (ctx.run.progress.mode === "create") return;
   const engine = ctx.run.engine;
@@ -56,17 +66,11 @@ export function enterCreateRun(ctx: WorkerContext, cold = false): void {
     (engine.hostInteractionPending && !engine.awaitingKey)
   )
     throw new Error("Finish the game's question, then open Create.");
-  // Before the first LOGIC pass the game is at its start, in no room yet. That moment keeps no
-  // image, as a Create boot does, so a visit offers Restart rather than Back to Room 0.
-  const unstarted =
-    cold ||
-    (!ctx.run.cycle.initialLogicStarted &&
-      ctx.run.cycle.cycleCount === 0 &&
-      engine.completedCycleSerial === 0);
-  const returnPoint = ctx.fns.historySnapshot(
-    cold || (!ctx.run.cycle.initialLogicStarted && ctx.run.cycle.cycleCount === 0),
-    !unstarted,
-  );
+  // Before the first LOGIC pass of a cold boot the game is at its start, in no room yet. That
+  // moment keeps no image, as a Create boot does, so a visit offers Restart rather than Back to
+  // Room 0.
+  const unstarted = cold || runUnstarted(ctx);
+  const returnPoint = ctx.fns.historySnapshot(unstarted, !unstarted);
   if (!returnPoint) throw new Error("Continue the game, then open Create.");
   if (!cold) ctx.fns.autosave(true);
   ctx.run.progress = {
@@ -213,6 +217,7 @@ export function adoptResumePoint(
     (options.returnToPlay === true &&
       boot.image !== undefined &&
       roomResourcesChanged(candidate, recordedFiles, live));
+  const cold = boot.image === undefined && !roomReentry;
   if (roomReentry) {
     if (!roomResourcesChanged(candidate, recordedFiles, live))
       throw new Error("The room's own parts did not change.");
@@ -277,9 +282,10 @@ export function adoptResumePoint(
     activate: facade.activate,
     resume: {
       boot,
-      cycle: options.cycle ?? run.cycle.cycleCount,
-      tick: options.tick ?? run.cycle.tickCount,
-      initialLogicStarted: boot.image !== undefined,
+      // A cold boot is the game's start, whichever session it replaces.
+      cycle: options.cycle ?? (cold ? 0 : run.cycle.cycleCount),
+      tick: options.tick ?? (cold ? 0 : run.cycle.tickCount),
+      initialLogicStarted: !cold,
     },
   });
   ctx.history.resumedFrom = options.from ?? null;

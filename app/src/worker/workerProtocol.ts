@@ -713,13 +713,15 @@ export type WorkerControl =
   /**
    * The parked live session's retained-original snapshot (null boot = not
    * resumable). `from` is the position the departing session sits at in its
-   * own open segment — the restore's provenance.
+   * own open segment — the restore's provenance. `reason: "starting"` marks a
+   * null boot whose only obstacle is the first room not having drawn yet.
    */
   | {
       type: "historyRetained";
       id: number;
       boot: HistoryBoot | null;
       from: { segment: string; seq: number; tick: number } | null;
+      reason?: "starting";
     }
   | {
       type: "historyTaken";
