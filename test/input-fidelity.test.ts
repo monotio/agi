@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
-import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
 import { buildObjectFile } from "../src/agent/agentState.ts";
 import { buildView } from "../src/view/view.ts";
 
@@ -491,4 +491,46 @@ test("the non-interactive inventory list dismisses on any event", () => {
   host2.keys.push(0x3b00); // F1: type-1 event with a zero low byte
   engine2.tick();
   assert.equal(engine2.modalKind, null, "an extended key dismisses the list");
+});
+
+test("a keypad Enter from the host's waitKey accepts the quit confirmation", () => {
+  // Player-visible rule: keypad Enter confirms quit exactly like the main
+  // keyboard's Enter. ButtonToChar runs inside GetKey, and a synchronous
+  // waitKey answer IS GetKey's return — the confirmation's key loop must
+  // normalize it (demopac4 3.002.102 ButtonToChar 0x4A78 in GetKey 0x49D2).
+  class KeypadHost extends Host {
+    quits = 0;
+    answers = [0x0101, 0x1b]; // keypad Enter, then Escape
+    waitKey(): number {
+      return this.answers.shift() ?? 0x1b;
+    }
+    override quit(): void {
+      this.quits++;
+    }
+  }
+  const host = new KeypadHost();
+  const engine = game("quit(0); return;", host);
+  engine.tick();
+  assert.equal(host.quits, 1, "keypad Enter confirmed the quit");
+});
+
+test("a keypad Enter delivered as the host answer accepts the quit confirmation", () => {
+  // Same rule on the suspended path: the confirmation parked on HostWait and
+  // the delivered keypad word must normalize before the accept test.
+  class SuspendedHost extends Host {
+    quits = 0;
+    waitKey(): number {
+      throw new HostWait();
+    }
+    override quit(): void {
+      this.quits++;
+    }
+  }
+  const host = new SuspendedHost();
+  const engine = game("quit(0); return;", host);
+  engine.tick();
+  assert.equal(engine.awaitingKey, true, "the confirmation parked");
+  engine.deliverHostAnswer(0x0301); // joystick-button Enter
+  engine.tick();
+  assert.equal(host.quits, 1, "the delivered keypad word confirmed the quit");
 });

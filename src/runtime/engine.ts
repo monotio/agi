@@ -2304,7 +2304,12 @@ export class Engine {
         const queued = this.drainDialogKey();
         if (queued !== undefined) return queued;
         const wait = this.host.waitKey;
-        if (wait) return this.hostCall(pending, () => wait.call(this.host) ?? AGI_KEY.ESCAPE);
+        // A synchronous waitKey answer is GetKey's return: normalize the
+        // keypad Enter/Escape words exactly like the drained queue does.
+        if (wait)
+          return this.hostCall(pending, () =>
+            normalizeKeyWord(wait.call(this.host) ?? AGI_KEY.ESCAPE),
+          );
         return AGI_KEY.ESCAPE;
       }
       case "list": {
@@ -2413,6 +2418,10 @@ export class Engine {
           ? (wait.call(this.host) ?? AGI_KEY.ESCAPE)
           : (this.host.takeKeys()[0] ?? AGI_KEY.ESCAPE),
       );
+      // The host's answer is GetKey's return here: ButtonToChar normalizes
+      // the keypad/joystick Enter/Escape duplicates on this path too
+      // (demopac4 3.002.102 ButtonToChar 0x4A78 inside GetKey 0x49D2).
+      key = normalizeKeyWord(key);
       const byte = key & 0xff;
       if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
         this.pendingInteraction = null;
@@ -2479,7 +2488,14 @@ export class Engine {
         break;
       }
       case "saveDialog":
-        this.driveSaveDialog(pending, answer);
+        // A delivered key answers GetKey: normalize keypad Enter/Escape like
+        // the selector's own queue drain and waitKey path do.
+        this.driveSaveDialog(
+          pending,
+          pending.dialog.need?.kind === "key" && typeof answer === "number"
+            ? normalizeKeyWord(answer)
+            : answer,
+        );
         break;
       case "saveDirect":
         this.pendingInteraction = null;
@@ -2831,6 +2847,7 @@ export class Engine {
     place?: { row?: number | undefined; col?: number | undefined; width?: number | undefined },
     forceAcknowledgement = false,
     pauseClock = false,
+    timed = false,
   ): void {
     this.closeWindowOnTop();
     const width = place?.width ? place.width : 30;
@@ -2856,8 +2873,11 @@ export class Engine {
         serial: ++this.modalSerialCounter,
         kind: "print",
         saved,
+        // WindowPrint's winTime: v21 half-seconds close the window, for a
+        // blocking print and for version alike; the engine-owned
+        // confirmations and the pause window wait without a timeout.
         remainingMs:
-          !forceAcknowledgement && this.vars[21] !== 0
+          (!forceAcknowledgement || timed) && this.vars[21] !== 0
             ? (this.vars[21]! * this.timing.gameSecondMs) / 2
             : null,
         pauseClock,
@@ -7118,9 +7138,13 @@ export class Engine {
         // version: the handler pushes the CONST version string and calls
         // WindowPrint — a modal window, never a write to string slot 0
         // (kq3 2.936 0x733C / kq1 2.917 0x7275 / gr1 3.002.149 0x7670).
+        // WindowPrint is the routine print calls, winTime included: v21
+        // times the window out.
         this.emitPrint(
           this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0",
           undefined,
+          true,
+          false,
           true,
         );
         return next;

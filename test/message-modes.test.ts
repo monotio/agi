@@ -90,7 +90,9 @@ test("replacing a persistent window restores the original cells when the modal c
   );
   const before = e.textCells.slice();
   e.tick();
-  assert.ok(e.textRow(3).includes("Modal."));
+  // print.at's row is relative to the display base (picTop added on the
+  // override path too), so row 2's window text lands on text row 4.
+  assert.ok(e.textRow(4).includes("Modal."));
   assert.ok(
     !Array.from({ length: 25 }, (_, row) => e.textRow(row))
       .join(" ")
@@ -197,4 +199,22 @@ test("pause remains blocking even when a game leaves output mode or a timeout en
   e.ackPrint();
   e.tick();
   assert.equal(e.vars[200], 1);
+});
+
+test("version honours the v21 timeout like any WindowPrint window", () => {
+  // Player-visible rule: v21=1 closes the version window after a half second.
+  // The 0x8d handler's WindowPrint call is the same routine print uses, with
+  // the same winTime path (kq3 2.936 0x733C; v21 clear at 0x1d80).
+  const e = game('assignn(v21,1);version();increment(v200);return;');
+  e.tick();
+  assert.equal(e.modalKind, "print");
+  assert.equal(e.vars[200], 0, "the pass is parked");
+  e.advanceClock(499);
+  e.tick();
+  assert.equal(e.modalKind, "print", "still open before the half second");
+  e.advanceClock(1);
+  assert.equal(e.modalKind, null, "the timeout closed the window");
+  assert.equal(e.vars[21], 0, "the timeout was consumed");
+  e.tick();
+  assert.equal(e.vars[200], 1, "the parked pass resumed");
 });
