@@ -268,9 +268,6 @@ function phoneLayout(event: MediaQueryListEvent): void {
   if (event.matches) editor.partsOpen.value = false;
 }
 phoneQuery.addEventListener("change", phoneLayout);
-watch(workspace.compactAgent, (compact, was) => {
-  if (was && !compact && !engine.state.powerUp.open) editor.partsOpen.value = false;
-});
 // A temporary fold never writes the saved dock setting. Opening Parts beside the Agent lasts only while the Agent is open.
 const autoFoldParts = computed(
   () => props.creating && workspace.compactAgent.value && !editor.partsOpen.value,
@@ -391,6 +388,13 @@ function focusGameInput(): void {
 }
 /** The room whose name is being edited in place in Parts (a fresh add starts there). */
 const renamingRoom = ref<number>();
+watch(
+  renamingRoom,
+  (room) => {
+    workspace.partsHeld.value = room !== undefined;
+  },
+  { immediate: true },
+);
 /** Each page restores its own tabs; a fresh page inherits the latest list. */
 let tabsProject = "";
 let savedTabs = "";

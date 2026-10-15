@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkspaceEditor } from "../src/shell/workspaceEditor.ts";
@@ -161,6 +161,31 @@ test("Parts toggles temporarily beside the Agent and preserves the stored dock c
   assert.equal(open.value, false);
   assert.equal(ws.collapsed.left, true);
   assert.equal(storage.data.get(DOCKS_STORAGE_KEY), folded);
+});
+
+test("closing the Agent restores the saved Parts setting after a resize", async () => {
+  const open = ref(false);
+  const agent = ref(true);
+  const compact = ref(true);
+  const ws = createCreateWorkspace({
+    panelDock: () => undefined,
+    storage: memoryStorage(),
+    compactAgent: () => compact.value,
+    agentOpen: () => agent.value,
+    parts: { open, focus: ref(false), phone: () => false },
+  });
+  ws.toggleParts();
+  assert.equal(open.value, true);
+  compact.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  ws.partsHeld.value = true;
+  agent.value = false;
+  await nextTick();
+  assert.equal(open.value, true);
+  ws.partsHeld.value = false;
+  await nextTick();
+  assert.equal(open.value, false);
 });
 
 test("the missing-room action starts once from the beginning without changing the room's launch preference", async () => {

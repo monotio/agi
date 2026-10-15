@@ -18,6 +18,7 @@ import {
   type ComputedRef,
   type InjectionKey,
   type Ref,
+  watch,
 } from "vue";
 import type { DockSide } from "./workspaceEditor.ts";
 
@@ -34,6 +35,8 @@ export interface CreateWorkspace {
   readonly viewOnly: ComputedRef<boolean>;
   /** Compact desktop with the Agent open: Parts uses a temporary override. */
   readonly compactAgent: ComputedRef<boolean>;
+  /** Set while Parts holds work in progress (a room rename), so closing the Agent leaves it open. */
+  readonly partsHeld: Ref<boolean>;
   toggleParts(): void;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
@@ -61,6 +64,8 @@ export function createCreateWorkspace(deps: {
   viewOnly?: () => boolean;
   storage?: StorageLike | undefined;
   compactAgent?: () => boolean;
+  /** Whether the Agent is open at any width; closing it ends a temporary Parts override. */
+  agentOpen?: () => boolean;
   parts?: {
     open: Ref<boolean>;
     focus: Ref<boolean>;
@@ -72,6 +77,16 @@ export function createCreateWorkspace(deps: {
   const collapsed = reactive(readCollapsed(storage));
   const sheetOpen = ref(false);
   const compactAgent = computed(() => deps.compactAgent?.() ?? false);
+
+  // Opening Parts beside the Agent lasts only while the Agent is open, whatever the width did meanwhile.
+  const partsHeld = ref(false);
+  const agentOpen = deps.agentOpen;
+  const parts = deps.parts;
+  if (agentOpen && parts) {
+    watch([agentOpen, partsHeld], ([open, held]) => {
+      if (!open && !held) parts.open.value = false;
+    });
+  }
 
   function persist(): void {
     try {
@@ -117,6 +132,7 @@ export function createCreateWorkspace(deps: {
     sheetOpen,
     viewOnly: computed(() => deps.viewOnly?.() ?? false),
     compactAgent,
+    partsHeld,
     toggleParts,
     toggleDock,
     showPanel,

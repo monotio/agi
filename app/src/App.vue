@@ -182,6 +182,7 @@ const workspace = createCreateWorkspace({
   viewOnly: () => phone.value,
   compactAgent: () =>
     state.powerUp.open && viewport.value.width >= 601 && viewport.value.width < 1200,
+  agentOpen: () => state.powerUp.open,
   parts: {
     open: workspaceEditor.partsOpen,
     focus: workspaceEditor.focus,
