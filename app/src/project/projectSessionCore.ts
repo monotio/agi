@@ -294,6 +294,21 @@ function createSession(
   const current = () => !disposed && (input.current?.() ?? true);
   const versions = (snapshot: ProjectSnapshot) =>
     snapshot.keys.map((key) => ({ key, version: snapshot.version(key) }));
+  function checkpointResourcesReady() {
+    const revision = model.capture().lastAdmissibleBuild!.identity.revision;
+    // Undo can return to the stored revision while a different revision is
+    // still writing. That write must settle before progress can name this body.
+    return (
+      expected.revision === revision &&
+      !autosave
+        .captures()
+        .some(
+          (capture) =>
+            !capture.acknowledged &&
+            capture.snapshot.lastAdmissibleBuild!.identity.revision !== revision,
+        )
+    );
+  }
   function notify() {
     if (disposed) return;
     input.changed?.();
@@ -310,7 +325,7 @@ function createSession(
       checkpointPending &&
       current() &&
       writeBlock === undefined &&
-      expected.revision === model.capture().lastAdmissibleBuild!.identity.revision &&
+      checkpointResourcesReady() &&
       pendingImage === undefined &&
       (pendingRestart === null ||
         (checkpointRevision !== undefined &&
@@ -771,6 +786,7 @@ function createSession(
       outcome.status !== "deferred"
     )
       return { ...outcome, diagnostics: prepared.diagnostics };
+    const hadPendingActivation = pendingRestart !== null || pendingImage !== undefined;
     if (outcome?.status === "restartRequired") pendingRestart = restartFor(outcome);
     else if (prepared.compiled !== undefined) pendingRestart = null;
     if (prepared.compiled !== undefined) {
@@ -799,16 +815,18 @@ function createSession(
         ? {}
         : { action: { direction: action.direction, target: action.target } }),
     });
-    captureSave(snapshot, outcome, preparedRoom);
-    if (pendingImage !== undefined) void retryAdmission();
-    else if (
+    if (
       (outcome?.status === "committed" || outcome?.status === "unchanged") &&
-      before.lastAdmissibleBuild!.identity.revision !==
-        snapshot.lastAdmissibleBuild!.identity.revision
+      (before.lastAdmissibleBuild!.identity.revision !==
+        snapshot.lastAdmissibleBuild!.identity.revision ||
+        hadPendingActivation ||
+        updateMode === "reenter")
     ) {
       checkpointPending = true;
       checkpointRevision = undefined;
     }
+    captureSave(snapshot, outcome, preparedRoom);
+    if (pendingImage !== undefined) void retryAdmission();
     return {
       status:
         outcome?.status === "restartRequired"
@@ -1283,7 +1301,7 @@ function createSession(
       const ready =
         current() &&
         writeBlock === undefined &&
-        expected.revision === model.capture().lastAdmissibleBuild!.identity.revision &&
+        checkpointResourcesReady() &&
         (revision === undefined
           ? pendingImage === undefined
           : revision === model.capture().lastAdmissibleBuild!.identity.revision);
@@ -1291,8 +1309,7 @@ function createSession(
         !ready &&
         current() &&
         writeBlock === undefined &&
-        (expected.revision !== model.capture().lastAdmissibleBuild!.identity.revision ||
-          pendingImage !== undefined)
+        (!checkpointResourcesReady() || pendingImage !== undefined)
       ) {
         checkpointPending = true;
         if (checkpointRevision !== model.capture().lastAdmissibleBuild!.identity.revision)

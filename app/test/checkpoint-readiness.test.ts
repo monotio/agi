@@ -484,3 +484,305 @@ for (const failed of [false, true]) {
     }
   });
 }
+
+for (const ending of ["saved", "failed", "closed", "debounced"] as const) {
+  test(`undo to stored resources waits for intervening writes (${ending})`, async () => {
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents: { "logic:0": "return;" },
+      profileId: "2.936",
+    });
+    const id = testProjectId(`checkpoint-undo-${ending}`);
+    await saveAuthoredGame(id, {
+      title: "Undo",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+    });
+    const held = (await loadAuthoredGameWithHistoryLifetime(id))!;
+    const firstEntered = Promise.withResolvers<void>();
+    const secondEntered = Promise.withResolvers<void>();
+    const firstRelease = Promise.withResolvers<void>();
+    const secondRelease = Promise.withResolvers<void>();
+    let hold = false;
+    let writes = 0;
+    let reject = ending === "failed";
+    let captures = 0;
+    const readiness: Promise<string>[] = [];
+    const session = openProjectSession({
+      data: held.data,
+      lifetime: held.lifetime!,
+      admission: {
+        runToken: `checkpoint-undo-${ending}`,
+        admit: async () => ({
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        }),
+      },
+      async write(request) {
+        if (hold) {
+          writes++;
+          if (ending !== "debounced") {
+            if (writes === 1) {
+              firstEntered.resolve();
+              await firstRelease.promise;
+            } else {
+              secondEntered.resolve();
+              await secondRelease.promise;
+              if (ending === "closed" && session.closed)
+                throw new Error("Page closed before commit");
+              if (reject) throw new Error("Undo write rejected");
+            }
+          }
+        }
+        return (await commitProject(request)).receipt;
+      },
+      checkpointReady() {
+        captures++;
+        readiness.push(session.prepareCheckpoint());
+      },
+    });
+    try {
+      await session.flush();
+      const original = session.model.capture().lastAdmissibleBuild!.identity.revision;
+      hold = true;
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Room", [
+          { key: "logic:0", content: 'display(4, 2, "New room"); return;' },
+        ]),
+        label: "Room",
+        origin: "logic",
+        author: "creator",
+      });
+      const changed = session.model.capture().lastAdmissibleBuild!.identity.revision;
+      assert.notEqual(changed, original);
+      const saving =
+        ending === "debounced"
+          ? undefined
+          : session.flush().then(
+              () => null,
+              (error: unknown) => error,
+            );
+      if (saving) await firstEntered.promise;
+      await session.undo();
+      assert.equal(session.model.capture().lastAdmissibleBuild!.identity.revision, original);
+      if (ending === "debounced") {
+        assert.equal(
+          captures,
+          1,
+          "coalescing away the intervening revision requests one checkpoint",
+        );
+        assert.equal(await session.prepareCheckpoint(original), "ready");
+        await session.flush();
+        assert.equal(writes, 1, "only the restored resource revision reaches storage");
+      } else {
+        assert.equal(
+          await session.prepareCheckpoint(original),
+          "not_ready",
+          "an in-flight different revision can still replace the body",
+        );
+        assert.equal(await session.prepareCheckpoint(), "not_ready");
+        assert.equal(
+          captures,
+          0,
+          "Undo cannot consume the owed checkpoint before its write commits",
+        );
+        firstRelease.resolve();
+        await secondEntered.promise;
+        assert.equal(
+          (await loadAuthoredGameWithHistoryLifetime(id))!.data.library!.revision,
+          changed,
+        );
+        assert.equal(await session.prepareCheckpoint(original), "not_ready");
+        if (ending === "closed") session.dispose();
+        secondRelease.resolve();
+        const error = await saving;
+        if (ending === "failed") {
+          assert.ok(error instanceof Error);
+          await assert.rejects(session.prepareCheckpoint(original), /Could not save/);
+          assert.equal(captures, 0);
+          reject = false;
+          await session.retry();
+        } else if (ending === "closed") {
+          assert.ok(error instanceof Error);
+          assert.equal(captures, 0, "closing leaves the earlier revision's checkpoint untouched");
+          assert.equal(
+            (await loadAuthoredGameWithHistoryLifetime(id))!.data.library!.revision,
+            changed,
+          );
+          return;
+        } else assert.equal(error, null);
+        assert.equal(await session.prepareCheckpoint(original), "ready");
+        assert.equal(
+          captures,
+          1,
+          "the final committed revision receives exactly one owed checkpoint",
+        );
+      }
+      assert.deepEqual(await Promise.all(readiness), ["ready"]);
+      await session.saveChats(session.chats());
+      await session.flush();
+      assert.equal(captures, 1, "later document writes cannot repeat the capture");
+    } finally {
+      firstRelease.resolve();
+      secondRelease.resolve();
+      session.dispose();
+    }
+  });
+}
+
+for (const [activation, restartRoom] of [
+  ["restartRequired", true],
+  ["deferred", true],
+  ["launch", true],
+  ["restartRequired", false],
+  ["deferred", false],
+] as const) {
+  test(`Update resolves ${activation} with one checkpoint at the same revision (restart=${restartRoom})`, async () => {
+    const starter = createStarterProject("starter");
+    const files = Object.fromEntries(starter.files());
+    const id = testProjectId(`checkpoint-activation-${activation}-${restartRoom}`);
+    await saveAuthoredGame(id, {
+      title: "Activation",
+      files,
+      words: [...starter.sources.words],
+    });
+    const held = (await loadAuthoredGameWithHistoryLifetime(id))!;
+    const boundary = Promise.withResolvers<void>();
+    const launch = { room: 1, beginning: true };
+    let captures = 0;
+    const readiness: Promise<string>[] = [];
+    const stored: Promise<boolean>[] = [];
+    const game: BootedGame = {
+      installed: false,
+      projectId: id,
+      title: "Activation",
+      files,
+      words: [...starter.sources.words],
+      revision: await gameRevision(files),
+      historyLifetime: held.lifetime!,
+    };
+    let engine: Engine;
+    const worker = {
+      postMessage(message: { type: string; id: number }) {
+        assert.equal(message.type, "flush");
+        const image = engine.autosaveImage();
+        assert.ok(image);
+        controller.handleAutosave({
+          image: bytesToBase64(image),
+          revision: game.revision,
+          cycle: 2,
+          room: engine.vars[0]!,
+        });
+        controller.handleFlushed({ id: message.id, taken: true, cycle: 2 });
+      },
+    } as unknown as Worker;
+    async function activateEngine(compiled: ReturnType<typeof compileProjectDocuments>) {
+      game.files = Object.fromEntries(compiled.files());
+      game.revision = await gameRevision(game.files);
+      engine = new Engine(
+        openContainer(new Map(Object.entries(game.files)), { profile: starter.profileId }),
+        host,
+        new Map(starter.sources.words),
+        { profile: starter.profileId },
+      );
+      for (let i = 0; i < 8 && !engine.autosaveImage(); i++) engine.tick();
+      engine.vars[80] = 42;
+    }
+    let admissions = 0;
+    const session = openProjectSession({
+      data: held.data,
+      lifetime: held.lifetime!,
+      boundary: () => boundary.promise,
+      admission: {
+        runToken: `checkpoint-activation-${activation}-${restartRoom}`,
+        admit: async (compiled) => {
+          if (++admissions > 1) {
+            await activateEngine(compiled);
+            return { status: "committed", expected: null, current: null, patchGeneration: 2 };
+          }
+          return {
+            status: activation === "deferred" ? "deferred" : "restartRequired",
+            expected: null,
+            current: null,
+            patchGeneration: 1,
+            reason: "Restart the room.",
+          };
+        },
+        reenter: async (compiled, _versions, requested) => {
+          assert.deepEqual(requested, launch);
+          await activateEngine(compiled);
+          return {
+            status: activation === "launch" ? "unchanged" : "committed",
+            expected: null,
+            current: null,
+            patchGeneration: 2,
+          };
+        },
+      },
+      write: async (request) => (await commitProject(request)).receipt,
+      checkpointReady() {
+        captures++;
+        readiness.push(session.prepareCheckpoint());
+        stored.push(controller.flushAutosave());
+      },
+    });
+    const controller = useAutosaveController({
+      state: { resumed: false },
+      getBootedGame: () => game,
+      getWorker: () => worker,
+      getRunScope: () => session.runToken,
+      async prepareCheckpoint(_game, _files, revision) {
+        return (await session.prepareCheckpoint(revision)) === "ready" ? "owned" : "not_ready";
+      },
+      logAgent() {},
+      isInstalledGame: () => false,
+      bootGame: async () => {},
+      bootAuthoredGame: async () => {},
+      configForGame: (_project, config) => config,
+      retireFailedRecovery() {},
+    });
+    try {
+      await session.flush();
+      if (activation !== "launch") {
+        await session.submit({
+          proposal: session.model.propose(session.model.capture(), "Room", [
+            { key: "logic:99", content: "return;" },
+          ]),
+          label: "Room",
+          origin: "logic",
+          author: "creator",
+        });
+        await session.flush();
+        assert.equal(session.capture().pendingAdmission, activation === "deferred");
+        assert.equal(session.pendingRestart !== null, activation === "restartRequired");
+      }
+      assert.equal(captures, 0, "no earlier refusal or activation has requested a checkpoint");
+      const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
+      const outcome = await session.update(
+        activation === "launch" ? [{ key: "notes", content: "Room launch note" }] : [],
+        restartRoom,
+        restartRoom ? launch : undefined,
+      );
+      assert.equal(outcome.status, "committed");
+      assert.equal(session.model.capture().lastAdmissibleBuild!.identity.revision, revision);
+      assert.equal(session.pendingRestart, null);
+      assert.equal(session.capture().pendingAdmission, false);
+      assert.equal(captures, 1, "paused Play receives one post-activation checkpoint request");
+      assert.deepEqual(await Promise.all(readiness), ["ready"]);
+      assert.deepEqual(await Promise.all(stored), [true]);
+      const saved = readAutosave(resolveProgressTarget(game)!.locator)!;
+      assert.ok(saved, "paused Play stores the checkpoint without another worker event");
+      engine!.restoreImage(base64ToBytes(saved.image));
+      assert.equal(engine!.vars[80], 42, "the stored image holds the post-restart state");
+      await session.flush();
+      assert.equal(captures, 1, "saving the activation documents does not repeat the capture");
+    } finally {
+      session.dispose();
+      boundary.resolve();
+      controller.drainFlushWaiters();
+      await controller.getAutosaveWrite();
+    }
+  });
+}
