@@ -7,7 +7,7 @@ import { buildZip } from "../src/archive/zip.ts";
 // A player editing an Amiga game sees the colours Play shows: Amiga colour 13
 // is nibbles d,0,f, so (221, 0, 255); the PC table's 13 is (255, 85, 255).
 // The game is an original synthetic one: a picture filled with colour 13.
-test("Studio previews an Amiga game in the colours Play draws @phone", async ({ page }) => {
+test("Studio previews an Amiga game in the colours Play draws", async ({ page }) => {
   const game = createContainer();
   game.putResource("picture", 0, Uint8Array.of(0xf0, 13, 0xf8, 0, 0, 0xff));
   game.putResource(
