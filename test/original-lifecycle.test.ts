@@ -420,12 +420,14 @@ test("F-persistence-05: Amiga confirmation gadgets are selectable at their label
     0,
     assembleLogic(
       `if (isset(f6)) { assignn(v90, 1); return; }
+       if (!isset(f200)) { set(f200); load.pic(v250); draw.pic(v250); show.pic(); }
        if (equaln(v80, 1)) { restart.game(); assignn(v81, 1); return; }
        if (equaln(v80, 2)) { quit(0); assignn(v82, 1); return; }
        return;`,
       { dictionary: new Map() },
     ).payload,
   );
+  container.putResource("picture", 0, Uint8Array.of(0xff));
   const open = (id: string, action: 1 | 2): Engine => {
     const engine = new Engine(
       container,
@@ -498,6 +500,50 @@ test("F-persistence-05: Amiga confirmation gadgets are selectable at their label
     edges(quit, `${id} Quit`, 48, 87, 13);
     edges(quit, `${id} Continue`, 192, 263, 27);
     assert.equal(quit.confirmGadgetAt(140, 96), null, `${id} between the gadgets`);
+
+    // The visible fill equals the hit rectangle: the pen shows on every
+    // pixel inside (overlay fill, or the label cell's background pen under
+    // the glyphs) and white outside.
+    for (const [engine, rects] of [
+      [restart, { 2: [88, 151], 4: [168, 223] }],
+      [quit, { 2: [48, 87], 4: [192, 263] }],
+    ] as const) {
+      const checks = (e: Engine, label: string): void => {
+        const { windowOverlay, text } = e.getPresentation();
+        const pen = (x: number, y: number): number => {
+          const o = windowOverlay[y * 320 + x]!;
+          if (o !== 0) return o - 1;
+          return text[((y >> 3) * 40 + (x >> 3)) * 2 + 1]! >> 4;
+        };
+        for (const [p, [x0, x1]] of Object.entries(rects)) {
+          const want = Number(p);
+          for (const [x, y] of [
+            [x0, 91],
+            [x1, 91],
+            [x0, 102],
+            [x1, 102],
+            [(x0 + x1) >> 1, 96],
+          ])
+            assert.equal(pen(x!, y!), want, `${label} pen ${p} inside at ${x},${y}`);
+          for (const [x, y] of [
+            [x0 - 1, 96],
+            [x1 + 1, 96],
+            [(x0 + x1) >> 1, 90],
+            [(x0 + x1) >> 1, 103],
+            [x0, 103],
+            [x1, 103],
+          ]) {
+            assert.equal(pen(x!, y!), 15, `${label} white outside at ${x},${y}`);
+            assert.equal(e.confirmGadgetAt(x!, y!), null, `${label} miss at ${x},${y}`);
+          }
+        }
+      };
+      // A parked confirmation is never a checkpoint boundary (autosaveImage
+      // refuses a suspended host request), so no restore restamps it; the
+      // fills still travel in WindowOverlay.gadgets for any restamp path.
+      checks(engine, `${id} live`);
+      assert.equal(engine.autosaveImage(), null, `${id} parked confirmation refuses a snapshot`);
+    }
 
     // The gadget answer resolves the wait exactly like its key: Restart
     // restarts, Continue resumes after the opcode.

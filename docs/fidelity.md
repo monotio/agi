@@ -2827,8 +2827,8 @@ to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`, IIgs
   `5ce3b163bd32ee02…` share h57 `6895a48299a9da74…`): with either label
   non-null the window's text rows gain 3 (`2.082` h40+0x286, `2.176`/`2.202`
   h57+0x2c8, `2.31x` h57+0x2d0). The gadget routine (`2.082`
-  h40+0x4b8..0x5ec, `2.176`/`2.202` h57+0x51c..0x66e, `2.31x`
-  h57+0x524..0x676) sets, for each of two static 44-byte `Gadget` structs,
+  h40+0x4b8..0x5f0, `2.176`/`2.202` h57+0x51c..0x692, `2.31x`
+  h57+0x524..0x69a) sets, for each of two static 44-byte `Gadget` structs,
   `Height = fontHeight + 4`, `Width = strlen(label) × fontWidth + 8`,
   `TopEdge = windowBottom − 5 − Height`, and `LeftEdge = windowLeft + 10`
   for the first label and `windowRight − 10 − Width` for the second (a lone
@@ -2849,11 +2849,14 @@ to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`, IIgs
   `amigaConfirmText` adds the three rows, `confirmGadgetAt` hit-tests the two
   rectangles (`top = y1 − 17`, 12 rows; the first from `x0 + 10`, the second
   ending at `x1 − 11`) and answers Enter for the first and Escape for the
-  second, and the label cells carry pens 15 on 2 and 15 on 4. Divergence
-  (cell surface): the engine writes the labels as 8 px cells on the window's
-  last text row, starting at the first text column and ending at the last,
-  which is 3 px below and 4 px beside the original glyphs at
-  `(LeftEdge + 4, TopEdge + 2)`, and it does not draw the 12 px filled boxes.
+  second, and draws each rectangle's fill in the window overlay
+  (`WindowOverlay.gadgets`, restamped on restore and replay) in pen 2 and
+  pen 4 with the label cells in pen 15 on that pen. Divergence (cell
+  surface): the engine writes the labels as 8 px cells on the window's last
+  text row, starting at the first text column and ending at the last, which
+  is 3 px below and 4 px beside the original glyphs at `(LeftEdge + 4,
+TopEdge + 2)`; the cell row hanging below the fill is painted white, so the
+  visible fill equals the rectangle.
 - **F-OPCORE-04-adjacent (fact; engine matches).** `ResetAll` tail (PC: `2.001`
   `0x106d..0x10fe`, `2.089` `0x0ed6..0x1002`, `2.230` `0x0e50..0x0f57`, `2.272`
   `0x0e7c..0x0f85`, `2.411` `0x0f6a..0x1086`, `2.439` `0x0f70..0x10a4`, `2.440`

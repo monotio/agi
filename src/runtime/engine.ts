@@ -98,6 +98,7 @@ import {
   stampWindow,
   stampWindowOverlayOnly,
   windowLines,
+  type GadgetFill,
   type SavedRect,
   type WindowOverlay,
 } from "./textSurface.ts";
@@ -337,6 +338,9 @@ function serializeSavedRect(saved: SavedWindow, text?: TextSurface): SerializedS
           y1: saved.window.y1,
           seq: saved.window.seq,
           ...(erased !== undefined && erased.length > 0 ? { erased: [...erased] } : {}),
+          ...(saved.window.gadgets !== undefined
+            ? { gadgets: saved.window.gadgets.map((g) => ({ ...g, label: { ...g.label } })) }
+            : {}),
         }
       : undefined;
   return {
@@ -462,6 +466,47 @@ const AMIGA_GADGET_HEIGHT = 12;
 /** Gadget width: the label in the 8 px font plus 8 (F-persistence-05). */
 function amigaGadgetWidth(label: string): number {
   return 8 * label.length + 8;
+}
+
+/**
+ * The two gadgets of an Amiga confirmation window, from the window frame
+ * (F-persistence-05-gadgets): 12 px high with their top 17 px above the
+ * frame's bottom edge; the accepting gadget starts 10 px in from the frame's
+ * left edge in pen 2, the declining one ends 10 px before its right edge in
+ * pen 4. The label cells sit on the window's last text row.
+ */
+function amigaConfirmGadgets(
+  win: WindowOverlay,
+  action: "restart" | "quit",
+): (GadgetFill & { answer: number })[] {
+  const g = AMIGA_CONFIRM_GADGETS[action];
+  const y0 = win.y1 - 5 - AMIGA_GADGET_HEIGHT;
+  const y1 = y0 + AMIGA_GADGET_HEIGHT - 1;
+  const row = win.textTop + win.textRows - 1;
+  const labelY = { y0: 8 * row, y1: 8 * row + 7 };
+  const acceptX0 = win.x0 + 10;
+  const cancelX0 = win.x1 - 10 - amigaGadgetWidth(g.cancel);
+  const cancelCol = win.textLeft + g.accept.length + g.gap;
+  return [
+    {
+      x0: acceptX0,
+      y0,
+      x1: acceptX0 + amigaGadgetWidth(g.accept) - 1,
+      y1,
+      pen: 2,
+      label: { x0: 8 * win.textLeft, x1: 8 * (win.textLeft + g.accept.length) - 1, ...labelY },
+      answer: AGI_KEY.ENTER,
+    },
+    {
+      x0: cancelX0,
+      y0,
+      x1: cancelX0 + amigaGadgetWidth(g.cancel) - 1,
+      y1,
+      pen: 4,
+      label: { x0: 8 * cancelCol, x1: 8 * (cancelCol + g.cancel.length) - 1, ...labelY },
+      answer: AGI_KEY.ESCAPE,
+    },
+  ];
 }
 
 /**
@@ -3068,13 +3113,16 @@ export class Engine {
       true,
     );
     if (original && amiga && this.modal?.kind === "print" && this.modal.saved.window) {
-      // The gadget labels carry their gadgets' pens: front pen 15 on the
-      // first gadget's fill pen 2 and the second's pen 4 (F-persistence-05).
+      // The gadget fills go into the window overlay, which every restamp
+      // (restore, replay, checkpoint) redraws; the label cells carry front
+      // pen 15 on their gadget's pen (F-persistence-05-gadgets).
       const win = this.modal.saved.window;
       const g = AMIGA_CONFIRM_GADGETS[action];
       const row = win.textTop + win.textRows - 1;
       this.text.write(row, win.textLeft, g.accept, attr(15, 2));
       this.text.write(row, win.textLeft + g.accept.length + g.gap, g.cancel, attr(15, 4));
+      win.gadgets = amigaConfirmGadgets(win, action).map(({ answer: _answer, ...fill }) => fill);
+      stampWindowOverlayOnly(this.text, win, false);
     }
     const pending: PendingInteraction = {
       kind: "confirm",
@@ -3112,13 +3160,9 @@ export class Engine {
     if (modal?.kind !== "print" || modal.serial !== pending.modalSerial) return null;
     const win = modal.saved.window;
     if (win === undefined) return null;
-    const gadgets = AMIGA_CONFIRM_GADGETS[pending.action];
-    const top = win.y1 - 5 - AMIGA_GADGET_HEIGHT;
-    if (y < top || y >= top + AMIGA_GADGET_HEIGHT) return null;
-    const acceptLeft = win.x0 + 10;
-    if (x >= acceptLeft && x < acceptLeft + amigaGadgetWidth(gadgets.accept)) return AGI_KEY.ENTER;
-    const cancelLeft = win.x1 - 10 - amigaGadgetWidth(gadgets.cancel);
-    if (x >= cancelLeft && x < cancelLeft + amigaGadgetWidth(gadgets.cancel)) return AGI_KEY.ESCAPE;
+    for (const g of amigaConfirmGadgets(win, pending.action)) {
+      if (x >= g.x0 && x <= g.x1 && y >= g.y0 && y <= g.y1) return g.answer;
+    }
     return null;
   }
 
