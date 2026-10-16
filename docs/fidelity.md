@@ -7629,9 +7629,12 @@ wrote it: picture patterns for picture drawing, cel codes for objects,
 `add.to.pic` stamps and the `show.obj` preview. The engine reproduces the
 conversion's transparency and reports each pixel's cel provenance. The
 compositor maps cel pixels through the cel table and picture pixels through
-the row patterns. Applying the row patterns to cel-mapped colours instead
-raised the CGA cross-check mismatch from 202, 30 and 22 pixels to 751, 328
-and 514. After `toggle.monitor` selects composite, new views load through
+the row patterns. Against the PQ1 2.903 `start -p -r` MAME 0.289
+`t1000sx` captures (raw 320×200 RGB, no masks), the opening, message and
+restart scenes now differ by 30, 30 and 22 pixels, all in the prompt row;
+the play areas match. Without stamp provenance the opening differed by 202
+pixels, its stamped cels drawn with picture patterns. Applying the row
+patterns to cel-mapped colours gave 751, 328 and 514. After `toggle.monitor` selects composite, new views load through
 the composite table at `AGIDATA.OVL + 0x1d3a`. That belongs to the
 composite display, so a CGA session keeps the RGB conversion and look
 until composite is implemented.
