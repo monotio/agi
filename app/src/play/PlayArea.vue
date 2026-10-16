@@ -533,6 +533,11 @@ function echoPrompt(): void {
 }
 
 function onPromptKey(ev: KeyboardEvent): void {
+  if (translatePlatformKey(ev, state.profile) === 0xff00) {
+    ev.preventDefault();
+    sendKey(0xff00);
+    return;
+  }
   const prompt = state.prompt!;
   // Native input/composition events own editable text, including Android IMEs.
   if (ev.target === inputEl.value && ev.key !== "Enter" && ev.key !== "Escape") return;
@@ -637,6 +642,10 @@ function onTouchDirection(dir: number): void {
 function onVirtualKey(code: number): void {
   resumeAudio();
   if (state.phase !== "running" || agentBlocksGame.value || composing.value) return;
+  if (code === 0xff00 && screenPresentation.value !== "pc") {
+    sendKey(code);
+    return;
+  }
   if (state.prompt) {
     const promptCode =
       code === 0x0101 || code === 0x0301

@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
-import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
+import { gameHint, isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -28,7 +28,7 @@ async function boot(page: Page, profile: string, joystick = false): Promise<void
       load.view(0); animate.obj(o0); set.view(o0,0); position(o0,80,120); draw(o0);
       assignn(v99,1); step.size(o0,v99); step.time(o0,v99); accept.input();
       set.key(0,59,1); set.key(3,0,2); set.key(24,0,3); set.key(1,4,4);
-      set.key(1,1,5); set.key(120,1,6); ${profile === "iigs-1.014" ? "set.key(13,0,5);" : ""}
+      set.key(1,1,5); set.key(120,1,6); set.key(0,60,7); ${profile === "iigs-1.014" ? "set.key(13,0,5);" : ""}
       ${joystick ? "init.joy();" : ""}
     }
     if (controller(c1)) { print("Help window"); }
@@ -37,6 +37,7 @@ async function boot(page: Page, profile: string, joystick = false): Promise<void
     if (controller(c4)) { print("Secondary action"); }
     if (controller(c5)) {display(6,0,"Primary action");}
     if (controller(c6)) {display(7,0,"Command X");}
+    if (controller(c7)) {get.string(s1,"Name?",20,0,10); if (isset(f9)) {display(8,0,"Sound on");} else {display(8,0,"Sound off");}}
     get.dir(o0,v100); display(5,0,"Direction %v100");
     return;
   `,
@@ -84,6 +85,14 @@ for (const profile of ["amiga-2.082", "amiga-2.202", "iigs-1.014"]) {
     const x = (await textHook(page)).egoX;
     await waitForCycles(page, 3);
     expect((await textHook(page)).egoX).toBe(x);
+    await page.keyboard.press("F2");
+    await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+    await input.dispatchEvent(
+      "keydown",
+      profile === "iigs-1.014" ? { key: "/", altKey: true } : { key: "Help", altKey: true },
+    );
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Sound off");
   });
 }
 
@@ -107,6 +116,11 @@ test.describe(() => {
     await pad.getByRole("combobox", { name: "Key modifier" }).selectOption("meta");
     await pad.getByRole("button", { name: "Command+X", exact: true }).tap();
     await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Command X");
+    await pad.getByRole("button", { name: "F2", exact: true }).tap();
+    await expect(await gameHint(page, "prompt-hint")).toBeVisible();
+    await pad.getByRole("button", { name: "Sound", exact: true }).tap();
+    await pad.getByRole("button", { name: "Enter", exact: true }).tap();
+    await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Sound off");
     for (const viewport of [
       { width: 390, height: 844 },
       { width: 1063, height: 815 },

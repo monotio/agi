@@ -216,11 +216,18 @@ export function useGameKeys(deps: {
     if (area()?.movementKeyDown(ev)) return;
 
     const nativeKey = translatePlatformKey(ev, state.profile);
+    // The browser edits the command draft; unbound Delete clears its selection.
+    const editingDelete =
+      ev.key === "Delete" &&
+      ev.target === area()?.inputEl &&
+      !ev.ctrlKey &&
+      !ev.altKey &&
+      !ev.metaKey;
     if (
       nativeKey !== undefined &&
       (nativeKey === 0xf500 ||
         nativeKey === 0xff00 ||
-        nativeKey >= 0x100 ||
+        (nativeKey >= 0x100 && !editingDelete) ||
         ev.ctrlKey ||
         ev.altKey ||
         ev.metaKey ||
