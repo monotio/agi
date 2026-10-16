@@ -20,6 +20,13 @@
  * unchanged. Resource removal needs an explicit per-candidate review
  * (reviewedRemovals) and an empty surviving-use inventory before Keep.
  */
+import { ProjectHistory } from "../../../src/authoring/projectHistory.ts";
+import {
+  readProjectHistory,
+  type PortableProjectHistory,
+} from "../../../src/authoring/projectHistoryCodec.ts";
+import { sealedProjectHistory } from "../../../src/authoring/projectHistoryData.ts";
+import { sha256Hex } from "../../../src/crypto.ts";
 import {
   createAuthoringState,
   validateAuthoringState,
@@ -269,6 +276,7 @@ class EditableProjectService implements EditableProject {
     EditableDocumentContent | undefined
   >;
   private readonly stored: CachedGameData;
+  private keptHistory: PortableProjectHistory | undefined;
 
   constructor(
     projectId: ProjectId,
@@ -284,6 +292,7 @@ class EditableProjectService implements EditableProject {
   ) {
     this.projectId = projectId;
     this.stored = stored;
+    this.keptHistory = stored.projectHistory;
     this.inspection = inspection;
     this.profileId = inspection.profileId;
     this.workspaceId = crypto.randomUUID();
@@ -471,6 +480,21 @@ class EditableProjectService implements EditableProject {
       generation: _generation,
       ...rest
     } = this.stored;
+    let projectHistory = this.keptHistory;
+    if (projectHistory !== undefined) {
+      const history = new ProjectHistory(
+        sha256Hex,
+        sealedProjectHistory(projectHistory, sha256Hex) ??
+          readProjectHistory(projectHistory, sha256Hex),
+      );
+      history.record(documents, {
+        label: "Update",
+        origin: "guided",
+        author: "creator",
+        time: Date.now(),
+      });
+      projectHistory = history.capturePortable();
+    }
     return {
       projectId: this.projectId,
       commitId: state.commitId,
@@ -485,6 +509,7 @@ class EditableProjectService implements EditableProject {
         words,
         authoringState: this.syncedAuthoringState(documents),
         workspace: writeProjectWorkspace(documents),
+        ...(projectHistory === undefined ? {} : { projectHistory }),
       },
     };
   }
@@ -653,6 +678,7 @@ class EditableProjectService implements EditableProject {
       if (this.draft.acknowledgeAdmittedKeep(admission)) {
         this.saved = saved;
         this.files = state.files;
+        this.keptHistory = state.request!.data.projectHistory;
       }
       return Object.freeze({
         kind: "savedOnly",

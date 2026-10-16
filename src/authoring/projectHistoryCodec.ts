@@ -11,11 +11,14 @@ import {
 } from "./projectHistoryData.ts";
 
 export const PROJECT_HISTORY_FORMAT = "monotio.agi.project-history";
+const maxCommits = 1024;
+const maxDocuments = 1031;
 export const PROJECT_HISTORY_LIMITS = Object.freeze({
-  maxCommits: 1024,
+  maxCommits,
   maxBlobs: 16384,
-  maxDocuments: 1031,
-  maxManifestEntries: 128 * 1024,
+  maxDocuments,
+  // Every retained version may contain a full manifest.
+  maxManifestEntries: maxCommits * maxDocuments,
   maxBlobBytes: 8 * 1024 * 1024,
   maxImageBlobBytes: 64 * 1024 * 1024,
   maxImageTotalBytes: 128 * 1024 * 1024,
@@ -97,11 +100,26 @@ export function checkProjectHistoryState(
   return checkedHistory({ format: PROJECT_HISTORY_FORMAT, version: 1, ...state }, digest, true);
 }
 
+/** Validate one pending append before retention removes the oldest unpinned version. */
+export function checkProjectHistoryForPruning(
+  state: ProjectHistoryState,
+  digest: ProjectDigest,
+): ProjectHistoryState {
+  return checkedHistory(
+    { format: PROJECT_HISTORY_FORMAT, version: 1, ...state },
+    digest,
+    true,
+    undefined,
+    true,
+  );
+}
+
 function checkedHistory(
   value: unknown,
   digest: ProjectDigest,
   typed: boolean,
   attachmentSize?: (hash: string) => number,
+  pendingAppend = false,
 ): ProjectHistoryState {
   const envelope = record(value);
   if (envelope["format"] !== PROJECT_HISTORY_FORMAT)
@@ -125,13 +143,19 @@ function checkedHistory(
   if (prunedParents.size !== boundaries.length) invalid("duplicate pruned parent.");
   const usedParents = new Set<string>();
   const storedCommits = envelope["commits"];
-  if (!Array.isArray(storedCommits) || storedCommits.length > PROJECT_HISTORY_LIMITS.maxCommits)
+  if (
+    !Array.isArray(storedCommits) ||
+    storedCommits.length > PROJECT_HISTORY_LIMITS.maxCommits + (pendingAppend ? 1 : 0)
+  )
     invalid("commit count exceeds the limit.");
   const images = storedCommits.some((commit) =>
     Object.keys(record(record(commit)["documents"])).some((key) => key.startsWith("attachment:")),
   );
   const storedBlobs = record(envelope["blobs"]);
-  if (Object.keys(storedBlobs).length > PROJECT_HISTORY_LIMITS.maxBlobs)
+  if (
+    Object.keys(storedBlobs).length >
+    PROJECT_HISTORY_LIMITS.maxBlobs + (pendingAppend ? maxDocuments : 0)
+  )
     invalid("blob count exceeds the limit.");
   let total = 0;
   const attachments: Record<string, string> = Object.create(null);
@@ -177,7 +201,8 @@ function checkedHistory(
     total += typeof content === "string" ? content.length * 2 : content.length;
     if (
       total >
-      (images ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes : PROJECT_HISTORY_LIMITS.maxTotalBytes)
+      (images ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes : PROJECT_HISTORY_LIMITS.maxTotalBytes) *
+        (pendingAppend ? 2 : 1)
     )
       invalid("blob payloads exceed the total limit.");
     checked.push({ key, content });
@@ -236,7 +261,7 @@ function checkedHistory(
     entries += keys.length;
     if (
       keys.length > PROJECT_HISTORY_LIMITS.maxDocuments ||
-      entries > PROJECT_HISTORY_LIMITS.maxManifestEntries
+      entries > PROJECT_HISTORY_LIMITS.maxManifestEntries + (pendingAppend ? maxDocuments : 0)
     )
       invalid("manifest exceeds the limit.");
     const documents = Object.freeze(

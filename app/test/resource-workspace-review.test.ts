@@ -444,3 +444,46 @@ test("a stale generation or a recreated lifetime still refuses and loses nothing
   assert.deepEqual(recreated.files, moved.files, "the recreated record lost nothing");
   assert.deepEqual(recreated.workspace, moved.workspace);
 });
+
+test("a resource Keep advances stored History before the next editable open", async (t) => {
+  const { ProjectHistory } = await import("../../src/authoring/projectHistory.ts");
+  const { writeProjectHistory, readProjectHistory } =
+    await import("../../src/authoring/projectHistoryCodec.ts");
+  const { sha256Hex } = await import("../../src/crypto.ts");
+  const { projectId, revision, r } = await projectRig(t, "ws-resource-history");
+  const before = (await loadAuthoredGame(projectId))!;
+  const history = new ProjectHistory(sha256Hex);
+  const initial = history.record(readProjectWorkspace(before.workspace), {
+    label: "Start",
+    origin: "template",
+    author: "creator",
+    time: 0,
+  })!;
+  assert.equal(
+    await saveAuthoredGame(projectId, {
+      ...before,
+      projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+    }),
+    true,
+  );
+  assert.equal(
+    (
+      await r.controller.commitPictureEdit({
+        pictureNumber: 1,
+        bytes: compile(PIC_EDIT),
+        source: PIC_EDIT,
+        baseRevision: revision,
+      })
+    ).status,
+    "committed",
+  );
+  const saved = (await loadAuthoredGame(projectId))!;
+  const state = readProjectHistory(saved.projectHistory, sha256Hex);
+  assert.equal(state.commits.length, 2);
+  assert.equal(state.commits[1]!.parent, initial.id);
+  assert.equal(state.blobs[state.commits[1]!.documents["picture:1"]!], PIC_EDIT);
+  assert.equal(
+    (await openEditableProject(projectId)).draft.capture().read("picture:1")!.content,
+    PIC_EDIT,
+  );
+});

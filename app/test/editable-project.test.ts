@@ -520,3 +520,34 @@ test("a manual project refuses a missing static room; an explicit generation pol
   const missingView = generatedWs.buildSelected(["logic:1"]);
   await assert.rejects(generatedWs.keepCandidate(missingView), /absent|missing|reference/i);
 });
+
+test("successive Keeps append History and retain every earlier version", async () => {
+  const { ProjectHistory } = await import("../../src/authoring/projectHistory.ts");
+  const { readProjectHistory, writeProjectHistory } =
+    await import("../../src/authoring/projectHistoryCodec.ts");
+  const { sha256Hex } = await import("../../src/crypto.ts");
+  let initial: string | null = null;
+  const id = await seedProject("kept-history", "boilerplate", (data) => {
+    const history = new ProjectHistory(sha256Hex);
+    initial = history.record(readProjectWorkspace(data.workspace), {
+      label: "Start",
+      origin: "template",
+      author: "creator",
+      time: 0,
+    })!.id;
+    data.projectHistory = writeProjectHistory(history.capture(), sha256Hex);
+  });
+  const ws = await openEditableProject(id);
+  for (const source of [ROOM1_REDRAW, ROOM1_ALT]) {
+    editSource(ws, "logic:1", source);
+    await ws.keepCandidate(ws.buildSelected(["logic:1"]));
+  }
+  const saved = await storedBody(id);
+  const state = readProjectHistory(saved.projectHistory, sha256Hex);
+  assert.equal(state.commits.length, 3);
+  assert.equal(state.commits[0]!.id, initial);
+  assert.equal(state.commits[1]!.parent, initial);
+  assert.equal(state.commits[2]!.parent, state.commits[1]!.id);
+  assert.equal(state.blobs[state.commits[1]!.documents["logic:1"]!], ROOM1_REDRAW);
+  assert.equal(state.blobs[state.commits[2]!.documents["logic:1"]!], ROOM1_ALT);
+});

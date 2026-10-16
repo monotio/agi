@@ -390,3 +390,61 @@ test("game Notes share version 1 History and remain readable with chat checkpoin
     true,
   );
 });
+
+test("recording an Update never hashes retained blob bytes or validates old commits", () => {
+  const samples: { oldBytes: number; oldCommits: number; calls: number }[] = [];
+  for (const retained of [50, 400]) {
+    let measuring = false;
+    let oldBytes = 0;
+    let oldCommits = 0;
+    let calls = 0;
+    const old = new Set<string>();
+    const digest = (bytes: Uint8Array) => {
+      if (measuring) {
+        calls++;
+        if (bytes[0] === 0 && bytes[1] === 213) oldBytes += bytes.length - 1;
+        if (old.has(sha256Hex(bytes))) oldCommits++;
+      }
+      return sha256Hex(bytes);
+    };
+    const history = new ProjectHistory(digest);
+    for (let i = 0; i < retained; i++) {
+      history.record({ "view:1": Uint8Array.of(213, i >> 8, i & 255) }, { ...meta, time: i });
+    }
+    for (const commit of history.capture().commits) old.add(commit.id);
+    measuring = true;
+    const prospective = new ProjectHistory(digest, history.capture());
+    prospective.record({ "view:1": Uint8Array.of(214, 0, 1) }, { ...meta, time: retained });
+    samples.push({ oldBytes, oldCommits, calls });
+  }
+  assert.deepEqual(
+    samples.map(({ oldBytes, oldCommits }) => ({ oldBytes, oldCommits })),
+    [
+      { oldBytes: 0, oldCommits: 0 },
+      { oldBytes: 0, oldCommits: 0 },
+    ],
+  );
+  assert.equal(samples[0]!.calls, samples[1]!.calls);
+});
+
+test("sealed snapshots keep byte ownership and preflight forks refuse stale adoption", () => {
+  const { history, model } = start();
+  history.tag("Opening", history.capture().cursor!);
+  const portable = history.capturePortable();
+  const state = history.capture();
+  assert.ok(Object.isFrozen(state.commits[0]!.changed));
+  const hash = state.commits[0]!.documents["view:1"]!;
+  (state.blobs[hash] as Uint8Array).fill(99);
+  assert.deepEqual(readProjectHistory(portable, sha256Hex).blobs[hash], Uint8Array.of(1, 2));
+  const fork = new ProjectHistory(sha256Hex, state);
+  fork.record(
+    { ...model.capture().documents(), "logic:1": "// checked\nreturn;" },
+    { ...meta, time: 1 },
+  );
+  history.acceptRecorded(fork);
+  assert.equal(history.capture().cursor, fork.capture().cursor);
+  assert.throws(() => history.acceptRecorded(fork), /stale/);
+  const decoded = readProjectHistory(portable, sha256Hex);
+  (decoded.blobs[hash] as Uint8Array).fill(88);
+  assert.deepEqual(new ProjectHistory(sha256Hex, state).capture().blobs[hash], Uint8Array.of(1, 2));
+});
