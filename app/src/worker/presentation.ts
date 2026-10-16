@@ -45,6 +45,11 @@ export function createPresentation(ctx: WorkerContext) {
     // it travels with every frame while the modal is open so layered
     // renderers can give the cel its own identifiable layer.
     const preview = ctx.run.engine.getPreviewMask();
+    // The display decides the look; CGA also needs each pixel's cel provenance.
+    const display = ctx.run.engine.pcDisplay === "cga-rgb" ? ("cga-rgb" as const) : null;
+    const region = ctx.run.engine.amigaRegion === "pal" ? ("pal" as const) : null;
+    const displayKey = `${display ?? ""}/${region ?? ""}`;
+    const cel = display ? ctx.run.engine.getCelPixels() : null;
     const objectsJson = objects ? JSON.stringify(objects) : "";
     const gadgetsJson = frame.gadgets ? JSON.stringify(frame.gadgets) : "";
     const menuJson = frame.menu ? JSON.stringify(frame.menu) : "";
@@ -64,6 +69,7 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.run.presentation.lastReleaseGate === ctx.run.engine.releaseGate &&
       objectsJson === ctx.run.presentation.lastObjectsJson &&
       ctx.run.engine.patchGeneration === ctx.run.presentation.lastPatchGen &&
+      displayKey === ctx.run.presentation.lastDisplay &&
       ctx.run.presentation.lastText !== null;
     if (same && ctx.run.presentation.lastText) {
       for (let i = 0; i < textCells.length; i++) {
@@ -128,6 +134,16 @@ export function createPresentation(ctx: WorkerContext) {
         }
       }
     }
+    if (same && (cel === null) !== (ctx.run.presentation.lastCel === null)) {
+      same = false;
+    } else if (same && cel && ctx.run.presentation.lastCel) {
+      for (let i = 0; i < cel.length; i++) {
+        if (cel[i] !== ctx.run.presentation.lastCel[i]) {
+          same = false;
+          break;
+        }
+      }
+    }
     if (same && (picture === null) !== (ctx.run.presentation.lastPicture === null)) {
       same = false;
     } else if (same && picture && ctx.run.presentation.lastPicture) {
@@ -148,6 +164,8 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.run.presentation.lastWindowOverlay = frame.windowOverlay.slice();
     ctx.run.presentation.lastOwnership = ownership ? ownership.slice() : null;
     ctx.run.presentation.lastPreview = preview ? preview.slice() : null;
+    ctx.run.presentation.lastCel = cel ? cel.slice() : null;
+    ctx.run.presentation.lastDisplay = displayKey;
     ctx.run.presentation.lastPicture = picture ? picture.visual.slice() : null;
     ctx.run.presentation.lastPicturePriority = picture ? picture.priority.slice() : null;
     ctx.run.presentation.lastObjectsJson = objectsJson;
@@ -188,6 +206,9 @@ export function createPresentation(ctx: WorkerContext) {
         ...(objects ? { objects } : {}),
         ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),
         ...(preview ? { preview } : {}),
+        ...(display ? { display } : {}),
+        ...(region ? { region } : {}),
+        ...(cel ? { cel } : {}),
       },
       [
         frame.visual.buffer,
@@ -196,6 +217,7 @@ export function createPresentation(ctx: WorkerContext) {
         windowOverlay.buffer,
         ...(ownership ? [ownership.buffer] : []),
         ...(preview ? [preview.buffer] : []),
+        ...(cel ? [cel.buffer] : []),
         ...(picture ? [picture.visual.buffer, picture.priority.buffer] : []),
       ],
     );

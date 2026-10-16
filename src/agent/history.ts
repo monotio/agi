@@ -311,6 +311,8 @@ export interface HistoryBoot {
   profile?: ProfileId;
   /** Absent uses the released NTSC timing. */
   amigaRegion?: "ntsc" | "pal";
+  /** The PC display the segment ran on (src/runtime/display.ts); absent is EGA. */
+  pcDisplay?: "cga-rgb";
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -507,6 +509,7 @@ export interface HistoryFingerprint {
  */
 export interface HistorySemanticState {
   amigaRegion?: "ntsc" | "pal";
+  pcDisplay?: "cga-rgb";
   documentId?: string;
   authorRooms?: boolean;
   dictionary?: [string, number][];
@@ -569,6 +572,7 @@ export function historyBootSemantic(
   };
   if (boot.rngPolicy !== undefined) out.rngPolicy = boot.rngPolicy;
   if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
+  if (boot.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
   if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
   if (boot.replay !== undefined) out.replay = boot.replay;
@@ -1112,6 +1116,8 @@ export function validateHistoryBoot(
     value["amigaRegion"] !== "ntsc"
   )
     fail("boot region must be ntsc or pal.");
+  if (value["pcDisplay"] !== undefined && value["pcDisplay"] !== "cga-rgb")
+    fail("boot display must be cga-rgb.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
   const out: Omit<HistoryBoot, "fingerprint"> = {
@@ -1127,6 +1133,7 @@ export function validateHistoryBoot(
     ...(value["amigaRegion"] !== undefined
       ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
       : {}),
+    ...(value["pcDisplay"] === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
     ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
     ...(value["resumedFrom"] !== undefined

@@ -9,10 +9,13 @@
  * close it. Keys pressed inside never reach the game (App.vue skips events
  * from dialogs).
  */
-import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
 import GameDownloadDialog from "../home/GameDownloadDialog.vue";
 import { useLogicFormatSettings } from "../settings/logicFormat.ts";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
+import { usePcDisplay } from "../settings/pcDisplay.ts";
+import { pcDisplaysFor } from "../../../src/runtime/display.ts";
+import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { CRT_STEPS } from "../settings/crtPreference.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -53,6 +56,14 @@ const sheet = useTemplateRef("sheet");
 const crtId = useId();
 const amigaRegionId = useId();
 const { region: amigaRegion, setRegion: setAmigaRegion } = useAmigaRegion();
+const pcDisplayId = useId();
+const { display: pcDisplay, setDisplay: setPcDisplay } = usePcDisplay();
+/** The displays the running game's build verifies; the choice shows when there are two. */
+const pcDisplays = computed(() =>
+  state.profile !== null && Object.hasOwn(PROFILES, state.profile)
+    ? pcDisplaysFor(PROFILES[state.profile as ProfileId])
+    : [],
+);
 const open = ref(false);
 /** Advanced disclosure: sound-chip emulation and diagnostics live under it. */
 const advanced = ref(false);
@@ -307,7 +318,7 @@ defineExpose({ toggle, close, open });
           :aria-expanded="advanced"
           @click="advanced = !advanced"
         >
-          <span>Advanced…<small>Sound chip emulation and diagnostics</small></span>
+          <span>Advanced…<small>Sound chip, screen and diagnostics</small></span>
           <UiIcon
             class="settings-row__chevron"
             :name="advanced ? 'chevron-up' : 'chevron-down'"
@@ -346,6 +357,20 @@ defineExpose({ toggle, close, open });
               >
                 <option value="ntsc">NTSC (US)</option>
                 <option value="pal">PAL (Europe)</option>
+              </UiSelect>
+            </span>
+          </div>
+          <div v-if="state.phase === 'running' && pcDisplays.length > 1" class="settings-row">
+            <label :for="pcDisplayId">Screen<small>Applies on the next start</small></label>
+            <span class="setting-value">
+              <UiSelect
+                :id="pcDisplayId"
+                size="sm"
+                :model-value="pcDisplay"
+                @update:model-value="setPcDisplay"
+              >
+                <option value="ega">EGA (16 colours)</option>
+                <option value="cga-rgb">CGA (4 colours)</option>
               </UiSelect>
             </span>
           </div>

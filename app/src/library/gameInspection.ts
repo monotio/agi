@@ -50,6 +50,7 @@ export async function inspectGame(game: PreviewWorkerInbound): Promise<GameInspe
     randomByte: () => 123,
   };
   const files = new Map(Object.entries(game.files));
+  // Inspection reads game state, so the default EGA display is enough.
   const engine = new Engine(
     openContainer(files, game.profile ? { profile: game.profile } : {}),
     host,

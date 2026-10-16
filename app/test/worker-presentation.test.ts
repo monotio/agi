@@ -158,12 +158,14 @@ test("profile appearances stay local to the worker while autosaves and inspectio
     (c) => c.putResource("picture", 0, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff)),
   );
   const baseFiles = Object.fromEntries(container.files);
+  // firstGlyphX is the first lit column of "A"'s top row in each look's font;
+  // the PC look recreates the BIOS graphics typeface (docs/fidelity.md).
   for (const [profile, supplied, blue, green, firstGlyphX] of [
-    ["2.936", false, 170, 170, 18],
+    ["2.936", false, 170, 170, 19],
     ["amiga-2.202", false, 255, 136, 19],
     ["iigs-1.014", true, 255, 136, 17],
     ["iigs-1.014", false, 255, 136, 18],
-    ["2.936", false, 170, 170, 18],
+    ["2.936", false, 170, 170, 19],
   ] as const) {
     const files = { ...baseFiles, ...(supplied ? { AGIFONT: iigsFontFixture() } : {}) };
     const ready = new Promise<void>((resolve) => {

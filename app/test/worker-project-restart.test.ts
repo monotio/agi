@@ -19,13 +19,19 @@ import { WorkerQueryTimeoutError } from "../src/engine/workerQueries.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import type { ProjectCommitRequest } from "../src/project/gameStorage.ts";
 import type {
+  BootMessage,
   WorkerControl,
   WorkerInbound,
   WorkerQueryFn,
   WorkerPresentation,
 } from "../src/worker/workerProtocol.ts";
 
-async function fixture(name: string, overrides: Record<string, string> = {}, opaqueView = false) {
+async function fixture(
+  name: string,
+  overrides: Record<string, string> = {},
+  opaqueView = false,
+  bootExtra: Partial<BootMessage> = {},
+) {
   const documents: Record<string, string | Uint8Array> = {
     "logic:0":
       'if (isset(f5)) { load.pic(0); draw.pic(0); show.pic(); accept.input(); } if (said("look")) { assignn(v80,42); } return;',
@@ -67,6 +73,7 @@ async function fixture(name: string, overrides: Record<string, string> = {}, opa
     progressMode: "play",
     autosaveFiles: true,
     projectDocuments: writeProjectWorkspace(documents),
+    ...bootExtra,
   });
   await ctx.projectLoader.loading;
   ctx.fns.stopTimers();
@@ -293,6 +300,24 @@ test("OBJECT removal is saved in History while the old run continues; acknowledg
       Object.fromEntries(f.ctx.run.engine!.containerFiles),
     );
     assert.equal((await f.edit("picture:0", "vis 4\nfill 1,1\nend\n")).status, "committed");
+  } finally {
+    f.session.dispose();
+    f.ctx.fns.stopTimers();
+  }
+});
+
+test("an acknowledged project restart keeps the CGA screen and starts with its v26", async () => {
+  // Player-visible rule: restarting with changes keeps the screen the player picked.
+  const f = await fixture("restart-cga", {}, false, { pcDisplay: "cga-rgb" });
+  try {
+    const old = f.ctx.run.engine!;
+    assert.equal(old.pcDisplay, "cga-rgb");
+    const outcome = await f.edit("inventory", '[{"name":"key","startingRoom":1}]');
+    assert.equal(outcome.status, "restartRequired");
+    assert.equal((await f.session.restartWithChanges())?.status, "committed");
+    assert.notEqual(f.ctx.run.engine, old);
+    assert.equal(f.ctx.run.engine!.pcDisplay, "cga-rgb");
+    assert.equal(f.ctx.run.engine!.vars[26], 1);
   } finally {
     f.session.dispose();
     f.ctx.fns.stopTimers();

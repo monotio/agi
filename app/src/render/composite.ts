@@ -84,6 +84,10 @@ export interface CompositeInput {
   visual: Uint8Array;
   /** 160x168 priority nibbles; required by the debug view modes. */
   priority?: Uint8Array | undefined;
+  /** Visible sprite ownership, needed by CGA's distinct picture and cel mappings. */
+  ownership?: Uint16Array | undefined;
+  /** Visible cel pixels without a live owner: add.to.pic stamps and show.obj previews. */
+  celPixels?: Uint8Array | undefined;
   /** 40x25 [char, attr] cells; char 0 is transparent. */
   text: Uint8Array;
   /**
@@ -280,7 +284,15 @@ export function compositeFrame(
 ): void {
   const look = input.appearance ?? PC_APPEARANCE;
   const palette = look.palette;
-  out.fill(0);
+  const background = text === "only" ? undefined : look.background;
+  if (background) {
+    for (let o = 0; o < out.length; o += 4) {
+      out[o] = background[0];
+      out[o + 1] = background[1];
+      out[o + 2] = background[2];
+      out[o + 3] = 255;
+    }
+  } else out.fill(0);
   const priority = mode === "visual" ? undefined : input.priority;
   const splitX = Math.round(Math.min(Math.max(splitAt, 0), 1) * PIC_WIDTH);
   // Picture band: each logical pixel doubled horizontally.
@@ -292,15 +304,25 @@ export function compositeFrame(
     let o = y * FRAME_WIDTH * 4;
     for (let px = 0; px < PIC_WIDTH; px++) {
       const i = src + px;
-      let [r, g, b] = palette[input.visual[i]! & 0x0f]!;
-      if (mode === "priority") {
-        [r, g, b] = palette[(priority?.[i] ?? 15) & 0x0f]!;
-      } else if (mode === "split") {
-        if (px === splitX || px === splitX + 1) {
-          r = g = b = 0xff;
-        } else if (px > splitX) {
-          [r, g, b] = palette[(priority?.[i] ?? 15) & 0x0f]!;
-        }
+      const colour =
+        mode === "priority" || (mode === "split" && px > splitX)
+          ? (priority?.[i] ?? 15) & 0x0f
+          : input.visual[i]! & 0x0f;
+      const pair = (
+        (input.celPixels?.[i] || input.ownership?.[i]) &&
+        mode !== "priority" &&
+        !(mode === "split" && px > splitX)
+          ? look.spritePairs
+          : y & 1
+            ? (look.alternatePicturePairs ?? look.picturePairs)
+            : look.picturePairs
+      )?.[colour];
+      let [r, g, b] = pair?.[0] ?? palette[colour]!;
+      let rr = pair?.[1][0] ?? r;
+      let rg = pair?.[1][1] ?? g;
+      let rb = pair?.[1][2] ?? b;
+      if (mode === "split" && (px === splitX || px === splitX + 1)) {
+        r = g = b = rr = rg = rb = 0xff;
       } else if (mode === "blend") {
         const pri = (priority?.[i] ?? 15) & 0x0f;
         const [tr, tg, tb] = PRIORITY_TINTS[pri]!;
@@ -309,14 +331,17 @@ export function compositeFrame(
         r = Math.round(r * (1 - a) + tr * a);
         g = Math.round(g * (1 - a) + tg * a);
         b = Math.round(b * (1 - a) + tb * a);
+        rr = Math.round(rr * (1 - a) + tr * a);
+        rg = Math.round(rg * (1 - a) + tg * a);
+        rb = Math.round(rb * (1 - a) + tb * a);
       }
       out[o] = r;
       out[o + 1] = g;
       out[o + 2] = b;
       out[o + 3] = 255;
-      out[o + 4] = r;
-      out[o + 5] = g;
-      out[o + 6] = b;
+      out[o + 4] = rr;
+      out[o + 5] = rg;
+      out[o + 6] = rb;
       out[o + 7] = 255;
       o += 8;
     }
@@ -340,8 +365,12 @@ export function compositeFrame(
         );
       }
       const a = input.text[at + 1]!;
-      const fg = palette[a & 0x0f]!;
-      const bg = palette[(a >> 4) & 0x0f]!;
+      // A nonzero background becomes attribute 0x8f: the driver draws a
+      // bit-inverted glyph in colour 3 (docs/fidelity.md "PC fonts and
+      // display adapters"), so strokes take the background colour.
+      const inverse = look.cgaRgb && a >> 4 !== 0;
+      const fg = palette[inverse ? 0 : a & 0x0f]!;
+      const bg = palette[inverse ? 15 : (a >> 4) & 0x0f]!;
       for (let gy = 0; gy < 8; gy++) {
         const bits = (ch <= GLYPH_CURSOR ? FONT : look.font)[ch * 8 + gy]!;
         let px = (row * 8 + gy) * FRAME_WIDTH + col * 8;

@@ -140,6 +140,7 @@ export function adoptResumePoint(
     {
       ...(profile ? { profile } : {}),
       amigaRegion: boot.amigaRegion ?? "ntsc",
+      ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
     },
   );
   if (options.currentFiles && boot.image !== undefined) {
@@ -161,6 +162,7 @@ export function adoptResumePoint(
       openContainer(recordedFiles, { profile: candidate.profile }),
       facade.host,
       new Map(),
+      // Inventory comparison only; the recorded files' display does not matter.
       { profile: candidate.profile },
     );
     if (candidate.readState().inventory.length < old.readState().inventory.length)
@@ -243,7 +245,11 @@ export function adoptResumePoint(
         openContainer(recordedFiles, { profile: candidate.profile }),
         facade.host,
         dictionary,
-        { profile: candidate.profile, amigaRegion: boot.amigaRegion ?? "ntsc" },
+        {
+          profile: candidate.profile,
+          amigaRegion: boot.amigaRegion ?? "ntsc",
+          pcDisplay: candidate.pcDisplay,
+        },
       );
       restoreOnto(candidate);
     }

@@ -1,3 +1,4 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import { connectedGamepad } from "../play/useGameKeys.ts";
 import { migrateAgentChats } from "../../../src/agent/chats.ts";
 /**
@@ -70,6 +71,8 @@ export class HistoryUnsavedError extends Error {
 
 export interface GameLifecycleOptions {
   readonly getAmigaRegion?: () => "ntsc" | "pal";
+  /** The player's PC display preference, read at each boot. */
+  readonly getPcDisplay?: () => PcDisplay;
   readonly state: EngineState;
   readonly hook: TextHook;
   readonly audio: AgiAudio | null;
@@ -203,6 +206,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     options.onAppearance?.(null);
     state.profile = null;
     hook.profile = null;
+    state.pcDisplay = "ega";
+    state.amigaRegion = "ntsc";
+    hook.pcDisplay = "ega";
     state.textMode = false;
     state.modal = null;
     state.showObjView = null;
@@ -440,6 +446,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         type: "boot",
         joystick: connectedGamepad(),
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        pcDisplay: options.getPcDisplay?.() ?? "ega",
         progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
@@ -572,6 +579,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         type: "boot",
         joystick: connectedGamepad(),
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        pcDisplay: options.getPcDisplay?.() ?? "ega",
         progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
@@ -929,6 +937,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       type: "boot",
       joystick: connectedGamepad(),
       amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+      pcDisplay: options.getPcDisplay?.() ?? "ega",
       progressMode: options.getProjectMode?.() ?? "play",
       projectMode: "create",
       sessionId: options.getSessionId(),
@@ -1159,6 +1168,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             type: "boot",
             joystick: connectedGamepad(),
             amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+            pcDisplay: options.getPcDisplay?.() ?? "ega",
             progressMode: options.getProjectMode?.() ?? "play",
             ...(options.getProjectMode?.() === "create"
               ? {

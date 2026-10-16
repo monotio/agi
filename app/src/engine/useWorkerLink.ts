@@ -392,6 +392,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         }
         if (msg.preview) latestFrame.preview = msg.preview;
         else delete latestFrame.preview;
+        if (msg.display) latestFrame.display = msg.display;
+        if (msg.region) latestFrame.region = msg.region;
+        if (msg.cel) latestFrame.cel = msg.cel;
+        state.pcDisplay = msg.display ?? "ega";
+        state.amigaRegion = msg.region ?? "ntsc";
+        hook.pcDisplay = state.pcDisplay;
         state.debugObjects = msg.objects ?? [];
         // The show.obj notice arms the preview identity; the frame's modal
         // field is authoritative for dismissal.

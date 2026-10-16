@@ -717,6 +717,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
             facade.host,
             engine.profile,
             engine.containerFiles,
+            engine.pcDisplay,
           );
       } catch (error) {
         settleRefused(error instanceof Error ? error.message : String(error));

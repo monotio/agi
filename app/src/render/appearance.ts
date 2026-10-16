@@ -14,9 +14,33 @@ import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { FONT, HAS_GLYPH } from "./font8x8.ts";
 import { EGA_PALETTE } from "./palette.ts";
 import { colourIdForProfile, colourTableForId } from "../../../src/runtime/colourTables.ts";
-import type { Appearance } from "./look.ts";
+import type { Appearance as PlatformAppearance } from "./look.ts";
 
-export type { Appearance } from "./look.ts";
+/** PC graphics drivers with a verified 320×200 presentation path. */
+export type PcDriver = "ega" | "cga-rgb" | "tandy" | "pcjr" | "mcga";
+export type Appearance = PlatformAppearance & {
+  /** CGA RGB picture colours are pairs of hardware pixels, not a palette swap. */
+  readonly picturePairs?: readonly (readonly [
+    readonly [number, number, number],
+    readonly [number, number, number],
+  ])[];
+  readonly alternatePicturePairs?: Appearance["picturePairs"];
+  readonly spritePairs?: Appearance["picturePairs"];
+  readonly cgaRgb?: boolean;
+  /** Hardware colour of screen areas nothing has drawn; transparent when absent. */
+  readonly background?: readonly [number, number, number];
+};
+
+const PC_EARLY_DISPLAYS: readonly PcDriver[] = ["ega", "cga-rgb", "tandy", "pcjr"];
+const PC_MCGA_DISPLAYS: readonly PcDriver[] = [...PC_EARLY_DISPLAYS, "mcga"];
+
+/** Available renderer choices, constrained to the selected build's drivers. */
+export function pcDisplayChoices(id?: string | null): readonly PcDriver[] {
+  if (id?.startsWith("amiga-") || id === "iigs-1.014" || id === "2.001") return [];
+  return id === "2.089" || id === "2.230" || id === "2.272" || id === "2.411" || id === "2.440"
+    ? PC_EARLY_DISPLAYS
+    : PC_MCGA_DISPLAYS;
+}
 export {
   AMIGA_DEPTH_GADGET_WIDTH,
   AMIGA_TITLE_BAR_HEIGHT,
@@ -61,8 +85,11 @@ function lookKey(id: string | null | undefined): string {
 export function appearanceForProfile(
   id?: string | null,
   files?: ReadonlyMap<string, Uint8Array> | null,
+  display: PcDriver = "ega",
 ): Appearance {
   if (id === "iigs-1.014") return iigsLook?.(files) ?? PC_APPEARANCE;
+  if (display === "cga-rgb" && pcDisplayChoices(id).includes(display))
+    return loaded.get("pc:cga-rgb") ?? PC_APPEARANCE;
   return loaded.get(lookKey(id)) ?? PC_APPEARANCE;
 }
 
@@ -70,6 +97,7 @@ export function appearanceForProfile(
 export function loadAppearance(
   id?: string | null,
   files?: ReadonlyMap<string, Uint8Array> | null,
+  display: PcDriver = "ega",
 ): Promise<Appearance> {
   if (id === "iigs-1.014") {
     if (iigsLook) return Promise.resolve(iigsLook(files));
@@ -79,14 +107,20 @@ export function loadAppearance(
     });
     return iigsLoading.then(() => iigsLook!(files));
   }
-  const key = lookKey(id);
+  const key =
+    display === "cga-rgb" && pcDisplayChoices(id).includes(display) ? "pc:cga-rgb" : lookKey(id);
   const ready = loaded.get(key);
   if (ready) return Promise.resolve(ready);
-  if (key === "pc") return Promise.resolve(PC_APPEARANCE);
+  if (key === "pc") return Promise.resolve(appearanceForProfile(id, files, display));
   let pending = loading.get(key);
   if (!pending) {
-    pending = import("./amigaAppearance.ts").then(({ amigaAppearance }) => {
-      const look = amigaAppearance(PROFILES[id as ProfileId].palette);
+    pending =
+      key === "pc:cga-rgb"
+        ? import("./cgaAppearance.ts").then(({ CGA_RGB_APPEARANCE }) => CGA_RGB_APPEARANCE)
+        : import("./amigaAppearance.ts").then(({ amigaAppearance }) =>
+            amigaAppearance(PROFILES[id as ProfileId].palette),
+          );
+    pending = pending.then((look) => {
       loaded.set(key, look);
       loading.delete(key);
       return look;

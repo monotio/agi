@@ -46,6 +46,8 @@ export interface TextHook {
   profileKind: string | null;
   /** The interpreter is parked between cycles (power-up freeze). */
   paused: boolean;
+  /** The PC display of the last presented frame. */
+  pcDisplay: string;
   /** Interpreter cycles completed; stops advancing while the world is frozen. */
   cycle: number;
   /** Frames presented on the probe canvas; ticks only after pixels are drawn. */
@@ -65,6 +67,7 @@ const EMPTY_HOOK: TextHook = {
   profile: null,
   profileKind: null,
   paused: false,
+  pcDisplay: "ega",
   cycle: 0,
   frame: 0,
   autosave: -1,

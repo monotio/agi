@@ -60,10 +60,10 @@ test("switching PC, Amiga and IIgs games keeps the look from the first picture t
     };
   });
   for (const [profile, title, blue, green, glyph] of [
-    ["2.936", "PC look", 170, 170, [false, true, true]],
+    ["2.936", "PC look", 170, 170, [false, false, true]],
     ["amiga-2.202", "Amiga look", 255, 136, [false, false, true]],
     ["iigs-1.014", "IIgs look", 255, 136, [true, false, false]],
-    ["2.936", "PC look", 170, 170, [false, true, true]],
+    ["2.936", "PC look", 170, 170, [false, false, true]],
   ] as const) {
     const expected = [
       [0, 0, blue, 255],

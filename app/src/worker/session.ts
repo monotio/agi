@@ -13,6 +13,7 @@ export function configureSessionTiming(ctx: WorkerContext): void {
   const timing = ctx.run.engine?.timing;
   if (!timing) return;
   ctx.boot.amigaRegion = ctx.run.engine!.amigaRegion;
+  ctx.boot.pcDisplay = ctx.run.engine!.pcDisplay;
   if (ctx.run.clocks.sound.hz !== timing.soundHz)
     ctx.run.clocks.sound = new SoundClock(ctx.ports.now(), timing.soundHz);
   if (ctx.run.clocks.cycle.incrementMs !== timing.timerIncrementMs)

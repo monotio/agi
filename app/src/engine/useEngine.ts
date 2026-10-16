@@ -1,3 +1,4 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import { requireProjectId } from "../../../src/gameIdentity.ts";
 import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
@@ -32,6 +33,7 @@ import { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { useAuthoringController } from "../authoring/useAuthoringController.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
+import { usePcDisplay } from "../settings/pcDisplay.ts";
 import type { AgiAudio, AudioMode } from "../audio/AgiAudio.ts";
 import {
   autosaveKey,
@@ -112,7 +114,11 @@ export function useEngine(
     pendingEditorChanges?: () => boolean;
     /** A new engine replaced the game, or the game was left: drop its picture. */
     onScreenReset?: () => void;
-    onAppearance?: (id: string | null, files?: ReadonlyMap<string, Uint8Array>) => void;
+    onAppearance?: (
+      id: string | null,
+      files?: ReadonlyMap<string, Uint8Array>,
+      pcDisplay?: PcDisplay,
+    ) => void;
   },
 ) {
   let projectMode: "create" | "play" = "play";
@@ -129,6 +135,7 @@ export function useEngine(
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
   const amigaSettings = useAmigaRegion();
+  const pcDisplaySettings = usePcDisplay();
 
   let audioLoading: Promise<AgiAudio> | undefined;
 
@@ -157,6 +164,8 @@ export function useEngine(
     agentLog: [],
     omittedLogEntries: 0,
     shake: null,
+    pcDisplay: "ega",
+    amigaRegion: "ntsc",
     prompt: null,
     soundPlaying: false,
     soundMuted: false,
@@ -264,6 +273,7 @@ export function useEngine(
     profile: null,
     profileKind: null,
     paused: false,
+    pcDisplay: "ega",
     cycle: 0,
     frame: 0,
     autosave: -1,
@@ -818,6 +828,7 @@ export function useEngine(
 
   const lifecycle = useGameLifecycle({
     getAmigaRegion: () => amigaSettings.region.value,
+    getPcDisplay: () => pcDisplaySettings.display.value,
     state,
     hook,
     get audio() {
@@ -842,7 +853,8 @@ export function useEngine(
       startOverNote.hide();
     },
     onScreenReset: () => engineOptions?.onScreenReset?.(),
-    onAppearance: (id, files) => engineOptions?.onAppearance?.(id, files),
+    onAppearance: (id, files) =>
+      engineOptions?.onAppearance?.(id, files, pcDisplaySettings.display.value),
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     pendingEditorChanges: () =>
       (engineOptions?.pendingEditorChanges?.() ?? false) ||

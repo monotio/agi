@@ -61,6 +61,8 @@ export function newRunSession(now: number): RunSession {
       lastWindowOverlay: null,
       lastOwnership: null,
       lastPreview: null,
+      lastCel: null,
+      lastDisplay: "",
       lastPicture: null,
       lastPicturePriority: null,
       lastObjectsJson: "",

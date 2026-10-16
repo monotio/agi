@@ -105,22 +105,22 @@ A note in a cell says what the evidence does not yet cover, or what the
 engine does not yet reproduce; those gaps appear again in the planned list
 below.
 
-| Aspect                        | PC                                                                                                                        | Amiga                                                                                                                           | Apple IIgs                                                                                                                                                         |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Logic and opcodes             | [binary-decoded](#original-input-menu-and-modal-handling)                                                                 | [binary-decoded](#amiga-interpreter-profiles)                                                                                   | [binary-decoded](#dispatch-bounds-fact)                                                                                                                            |
-| Pictures and priority         | [binary-decoded](#original-picture-drawing-and-fill)                                                                      | [binary-decoded](#original-picture-drawing-and-fill)                                                                            | [binary-decoded](#original-amiga-and-iigs-pattern-brushes)                                                                                                         |
-| Sprites and cels              | [binary-decoded](#original-cel-handling-and-priority-table)                                                               | [binary-decoded](#original-cel-handling-and-priority-table)                                                                     | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                        |
-| Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font is a [pixel-for-pixel recreation](#text-beyond-ascii)   | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
-| Palette and display adapters  | [binary-decoded](#original-shakescreen-and-picture-reveal) (every adapter's dispatch verified; not every adapter offered) | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
-| Screen geometry               | [binary-decoded](#original-window-and-status-line-text)                                                                   | binary-decoded, [MAME cross-checked](#amiga-screen-font-and-pointer)                                                            | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
-| Menus                         | [binary-decoded](#original-input-menu-and-modal-handling) (interaction; layout from the specification)                    | binary-decoded, [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                                                 | binary-decoded, [MAME cross-checked](#apple-iigs-presentation); native menus not yet reproduced                                                                    |
-| Save and restore dialogs      | [binary-decoded](#original-save-and-restart-audit) (files, timing and keys; selector from the specification)              | binary-decoded, [MAME cross-checked](#original-amiga-save-and-restore-dialogs)                                                  | binary-decoded, [MAME cross-checked](#original-save-file-interoperability); the Standard File window not yet reproduced                                            |
-| Keyboard                      | [binary-decoded](#original-input-menu-and-modal-handling)                                                                 | [binary-decoded](#original-input-menu-and-modal-handling)                                                                       | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                          |
-| Mouse and touch               | [binary-decoded](#original-click-to-walk) (no pointer input)                                                              | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                      | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#apple-iigs-presentation); the original pointer stays divergent                                    |
-| Joystick                      | [binary-decoded](#original-input-menu-and-modal-handling) (the 9-tick poll interval is open)                              | [binary-decoded](#original-input-menu-and-modal-handling)                                                                       | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                          |
-| Sound                         | [binary-decoded](#original-sound-player-audit), [MAME cross-checked](#original-games-through-mame-audio)                  | [binary-decoded](#original-amiga-sound-player), [MAME cross-checked](#paula-onset-and-a500-output)                              | [binary-decoded](#sound-format-fact-except-where-marked), [MAME cross-checked](#iigs-doc-pitch-volume-and-headroom)                                                |
-| Timing and cadence            | [binary-decoded](#original-scheduler-and-modal-timing)                                                                    | [binary-decoded](#amiga-timer-and-pacing), [MAME cross-checked](#paula-onset-and-a500-output)                                   | binary-decoded, [MAME cross-checked](#input-and-pacing-fact--inference)                                                                                            |
-| Picture transitions and shake | [binary-decoded](#original-shakescreen-and-picture-reveal)                                                                | binary-decoded, [MAME cross-checked](#original-picture-dissolve)                                                                | binary-decoded, [MAME cross-checked](#original-picture-dissolve)                                                                                                   |
+| Aspect                        | PC                                                                                                                      | Amiga                                                                                                                           | Apple IIgs                                                                                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Logic and opcodes             | [binary-decoded](#original-input-menu-and-modal-handling)                                                               | [binary-decoded](#amiga-interpreter-profiles)                                                                                   | [binary-decoded](#dispatch-bounds-fact)                                                                                                                            |
+| Pictures and priority         | [binary-decoded](#original-picture-drawing-and-fill)                                                                    | [binary-decoded](#original-picture-drawing-and-fill)                                                                            | [binary-decoded](#original-amiga-and-iigs-pattern-brushes)                                                                                                         |
+| Sprites and cels              | [binary-decoded](#original-cel-handling-and-priority-table)                                                             | [binary-decoded](#original-cel-handling-and-priority-table)                                                                     | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                        |
+| Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font is a [pixel-for-pixel recreation](#text-beyond-ascii) | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
+| Palette and display adapters  | [binary-decoded](#pc-fonts-and-display-adapters) (every adapter's dispatch verified; not every adapter offered)         | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
+| Screen geometry               | [binary-decoded](#original-window-and-status-line-text)                                                                 | binary-decoded, [MAME cross-checked](#amiga-screen-font-and-pointer)                                                            | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
+| Menus                         | [binary-decoded](#original-input-menu-and-modal-handling) (interaction; layout from the specification)                  | binary-decoded, [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                                                 | binary-decoded, [MAME cross-checked](#apple-iigs-presentation); native menus not yet reproduced                                                                    |
+| Save and restore dialogs      | [binary-decoded](#original-save-and-restart-audit) (files, timing and keys; selector from the specification)            | binary-decoded, [MAME cross-checked](#original-amiga-save-and-restore-dialogs)                                                  | binary-decoded, [MAME cross-checked](#original-save-file-interoperability); the Standard File window not yet reproduced                                            |
+| Keyboard                      | [binary-decoded](#original-input-menu-and-modal-handling)                                                               | [binary-decoded](#original-input-menu-and-modal-handling)                                                                       | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                          |
+| Mouse and touch               | [binary-decoded](#original-click-to-walk) (no pointer input)                                                            | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                      | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#apple-iigs-presentation); the original pointer stays divergent                                    |
+| Joystick                      | [binary-decoded](#original-input-menu-and-modal-handling) (the 9-tick poll interval is open)                            | [binary-decoded](#original-input-menu-and-modal-handling)                                                                       | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                          |
+| Sound                         | [binary-decoded](#original-sound-player-audit), [MAME cross-checked](#original-games-through-mame-audio)                | [binary-decoded](#original-amiga-sound-player), [MAME cross-checked](#paula-onset-and-a500-output)                              | [binary-decoded](#sound-format-fact-except-where-marked), [MAME cross-checked](#iigs-doc-pitch-volume-and-headroom)                                                |
+| Timing and cadence            | [binary-decoded](#original-scheduler-and-modal-timing)                                                                  | [binary-decoded](#amiga-timer-and-pacing), [MAME cross-checked](#paula-onset-and-a500-output)                                   | binary-decoded, [MAME cross-checked](#input-and-pacing-fact--inference)                                                                                            |
+| Picture transitions and shake | [binary-decoded](#original-shakescreen-and-picture-reveal)                                                              | binary-decoded, [MAME cross-checked](#original-picture-dissolve)                                                                | binary-decoded, [MAME cross-checked](#original-picture-dissolve)                                                                                                   |
 
 Touch has no column: the originals never saw it. The phone pad, the touch
 menu button and long-press gestures are the app's own additions, marked as
@@ -130,7 +130,7 @@ Planned for a later release:
 
 - Hercules and CGA composite displays (their
   [adapter routines](#original-shakescreen-and-picture-reveal) are decoded;
-  the app offers EGA only)
+  the app offers EGA and CGA RGB)
 - the Apple IIgs
   [native menus and the Standard File window](#apple-iigs-presentation)
 - resumable checkpoints taken while a native menu is open
@@ -400,12 +400,14 @@ v21 when it closes. `obj.status.v` is a real modal window, not a log line.
 
 ### Text beyond ASCII
 
-The originals drew text with each machine's own font. This project uses its own
-MIT 8×8 drawings in the same 40 × 25 character grid. `app/src/render/font8x8.ts`
-serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
+The originals drew text with each machine's own font. The PC's project table
+recreates the BIOS graphics bitmap typeface pixel for pixel, credited as a
+recreation, in the same 40 × 25 character grid (see
+[PC fonts and display adapters](#pc-fonts-and-display-adapters)).
+`app/src/render/font8x8.ts` serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
 (see [Apple IIgs presentation](#apple-iigs-presentation)). A player's IIgs `AGIFONT`, when included with their game, overrides the project
-font at runtime. No original glyphs ship with the project; a missing or invalid
-font uses the project drawings.
+font at runtime. No ROM or font file ships with the project; a missing or
+invalid game font uses the project drawings.
 
 A scan of every logic message in the catalogued releases found these
 characters outside printable ASCII, apart from line breaks:
@@ -416,8 +418,8 @@ characters outside printable ASCII, apart from line breaks:
 | 0xff                                                             | non-breaking space                | King's Quest II (PC and Amiga)                      | 15 on the PC, 16 on the Amiga                                          |
 | 0x09                                                             | tab                               | Manhunter 1, Space Quest II (PC, Amiga, Apple IIgs) | one each                                                               |
 
-The font draws the box-drawing characters in its own line style and 0xff
-as a blank. There is no evidence yet of how the originals drew a tab, so it
+The PC font recreates the code-page box characters with their two-pixel
+strokes and draws 0xff as a blank. There is no evidence yet of how the originals drew a tab, so it
 shows blank. The Amiga Gold Rush! ships the same bytes; whether its own font
 drew them as PC box drawing is unverified. Any other character a game prints
 shows blank and is reported once in the browser console.
@@ -7573,3 +7575,189 @@ Controlled file bytes and mapped-state imports are covered by the
 cadence assertions while widening each investigation. Store probe
 commands, tool versions and controlled inputs alongside private outputs; publish
 only concise findings and independently authored expected vectors.
+
+### PC fonts and display adapters
+
+**Font evidence.** PQ1 PC 2.903 (`START.EXE` SHA-256
+`db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7`),
+load-relative `0x2c4e..0x2c72`, copies eight glyph rows from
+`F000:FA6E + character × 8` into its drawing buffer. The graphics text uses
+this BIOS typeface, rather than the Tandy character-generator typeface.
+The app's `font8x8.ts` recreates the printable BIOS graphics bitmap design
+pixel for pixel in its own packed table, credited as a recreation. No ROM
+or font file ships, and neither build nor runtime reads one. The optional
+local-reference test compares codes `0x20..0x7f` against the Tandy 1000 SX
+BIOS (`8040328.u41`, reference offset `0x7a6e`); the released engine window
+and cursor aliases `0x01..0x07` retain their checkpoint-compatible masks.
+The extended box characters used by Gold Rush! are recreated with the
+PC code-page strokes, checked against the local `bigblue.chr` character
+reference (eight row banks at stride 256). This reference check establishes
+the glyph shapes; a Gold Rush! Bible-page frame comparison remains open.
+
+The aligned MAME 0.289 `t1000sx` PQ1 opening, message and restart scenes
+changed from 264 / 1,791 / 956 differing RGB pixels to 30 / 30 / 22 after
+the recreation. The status and play regions agree exactly in all three;
+the remaining differences occupy the prompt/cursor area at rows 184–191.
+These are raw 320×200 comparisons without masks or colour adjustment.
+They establish the sampled graphics typeface, not every PC adapter's font.
+
+**CGA RGB mapping.** The inspected DOS builds' CGA driver initializes BIOS
+mode 4, background colour 1 and palette 0: blue, green, red and brown.
+PQ1 2.903 `CGA_GRAF.OVL` SHA-256
+`1dce45a21dcdcc27e3fcc8c193119489d1f8cbac76f18fc8a41864fdf7caa5e5`,
+`0x00db..0x0114`, establishes those register calls. Its `0x0015..0x0036`
+returns a two-row picture pattern from `AGIDATA.OVL + 0x1d0a`, while
+`0x0037..0x00da` maps cel colours through the separate table at `0x1d4a`.
+Thus a post-process with one four-colour palette cannot reproduce it.
+The compositor accepts sprite ownership and an explicit cel-pixel mask
+for previews and persistent stamps to select the cel mapping, uses
+alternating picture rows and retains both horizontal hardware pixels.
+
+The following DOS inputs have identical sixteen three-byte picture entries
+and sixteen cel entries. Their executable/data identities are listed under
+[PC and IIgs sound streams](#pc-and-iigs-sound-streams); the table addresses below are in `AGIDATA.OVL`.
+The driver modes are confirmed by the shipped overlays' initialization paths.
+
+| Build     | Picture patterns | Cel patterns | Graphics paths                               |
+| --------- | ---------------- | ------------ | -------------------------------------------- |
+| 2.089     | `0x1786`         | `0x17c6`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.230     | `0x177a`         | `0x17ba`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.272     | `0x184a`         | `0x188a`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.411     | `0x1acb`         | `0x1b0b`     | EGA, CGA RGB/composite, PCjr/Tandy, Hercules |
+| 2.440     | `0x1b78`         | `0x1bb8`     | EGA, CGA RGB/composite, PCjr/Tandy, Hercules |
+| 2.903     | `0x1d0a`         | `0x1d4a`     | Above plus MCGA                              |
+| 2.917     | `0x1d2c`         | `0x1d6c`     | Above plus MCGA                              |
+| 2.936     | `0x1d36`         | `0x1d76`     | Above plus MCGA                              |
+| 3.002.086 | `0x1dc2`         | `0x1e02`     | Above plus MCGA                              |
+| 3.002.102 | `0x1dd2`         | `0x1e12`     | Above plus MCGA                              |
+| 3.002.107 | `0x1dd4`         | `0x1e14`     | Above plus MCGA                              |
+| 3.002.149 | `0x1b89`         | `0x1bc9`     | Above plus MCGA                              |
+
+The EGA driver requests BIOS mode `0x0d`; MCGA requests `0x13` and writes
+indices 0–15, doubling every picture pixel; PCjr/Tandy requests `0x89`.
+These paths share the sixteen digital RGB colours at the app's logical
+raster. This does not establish analogue output or every adapter's BIOS font.
+The 2.001 booter's full adapter census remains unverified here.
+
+**Text attributes.** A shared routine computes the attribute byte that text
+output hands to the BIOS from fg and bg arguments (PQ1 2.903
+`0x7729..0x77c3`). On monitor type 2 it returns `0x07` or `0x70` by whether
+fg exceeds bg. With the interpreter's text screen active (`DS:0x172b` in
+2.903, set from startup through text display and cleared when graphics
+resume) it returns `fg | bg<<4` unchanged. Otherwise a nonzero bg returns
+`0x8f`; monitor type 3 or a nonzero computer type returns fg; and computer
+type 0 on the remaining adapters maps fg through a fifteen-entry jump table:
+`0→0`, `1..3→1`, `4..6→2`, `7..8→3`, `9..11→1`, `12..14→2` and `>14→3`.
+The same grouping appears in every inspected build — 2.089 `cs:0x6dea`,
+2.230 `0x6da3`, 2.272 `0x6e3f`, 2.411 `0x74bd`, 2.439 `0x75da`, 2.440
+`0x75e2`, 2.903 `0x77a5`, 2.915 `0x77a4`, 2.917 `0x77b8`, 2.936 `0x787f`,
+3.002.086 `0x7cbe`, 3.002.102 `0x7cd6`, 3.002.107 `0x7cd6` and 3.002.149
+`0x7bb3` (executable and data identities under
+[Verified inputs](#verified-inputs)). The routine differs only in its
+Hercules branch, which the 2.089..2.272 builds lack.
+
+The character write (2.903 `0x29ef..0x2b05`) treats attribute bit 7 as a
+request in graphics mode: it copies the glyph to a one-glyph buffer and
+inverts every bit (`0x2c30`, buffer `DS:0xe7c`; INT 1Fh points there from
+startup at `0x83a1`, while EGA repoints INT 43h per write at `0x2a97`), then
+issues BIOS `AH=09h` with `BL = attribute & 0x7f`. So `0x8f` draws the
+inverted glyph in BIOS colour `0x0f` — colour 3 of the two-bit mode —
+showing background-coloured letterforms on colour-3 cells. The MAME 0.289
+`t1000sx` PQ1 status row confirms the result: 170/85/0 cells with 0/0/170
+letterforms. On EGA the same `0x8f` keeps all four colour bits, so inverted
+glyphs print colour-0 strokes on colour-15 cells.
+
+**Monitor switch.** PQ1 2.903 `0x7872..0x78ad` admits `toggle.monitor`
+only on computer type 0, outside room 0, when the monitor type is neither
+EGA (3) nor Hercules (2). The room test is `cmp byte [0x0009],0`: the
+variables start at `DS:0x0009`, as ResetAll's v20 write to `0x001d` and v26
+write to `0x0023` show, so it reads v0. It XORs the monitor type with 1 and
+reloads and redraws the picture inside a cursor save and restore: this
+exchanges composite (0) and RGB (1) on CGA. It does not change v26.
+PCjr/Tandy and MCGA computer types bypass the switch. The XOR sites are
+2.089 `0x6eb1`, 2.230 `0x6e6a`, 2.272 `0x6f06`, 2.411 `0x75ae`, 2.439
+`0x76cb`, 2.440 `0x76d3`, 2.903 `0x7896`, 2.915 `0x7895`, 2.917 `0x78a9`,
+2.936 `0x7970`, 3.002.086 `0x7daf`, 3.002.102 and 3.002.107 `0x7dc7`, and
+3.002.149 `0x7c84`. Every gate from 2.411 on has the same four tests;
+2.089..2.272 test computer type, v0 and EGA, since they have no Hercules
+driver. The engine implements the gate and the XOR and keeps the switched
+monitor type in its replay state.
+
+**Start options and v26.** From 2.411 on the start routine reads one-letter
+options: `-c` composite (0), `-r` RGB (1), `-e` EGA (3), `-h` Hercules (2),
+`-v` MCGA (4), and computer types `-p` (0), `-t` (2) and `-s` (8) (2.903
+`0x00c4..0x014a`). Without an option, detection (2.903 `0x40ab..0x41c4`)
+picks Hercules, then MCGA, then EGA, and leaves a CGA card in composite
+mode (0). 2.089..2.272 read no options and pick EGA or else 0 (2.089
+`0x3a67..0x3ab0`), so their CGA start is composite and RGB is reached only
+through `toggle.monitor`. Every CGA overlay sets background 1 and palette 0
+only when the monitor type is nonzero (`CGA_GRAF.OVL` `0x00db` from 2.411
+on, `0x00c3` in 2.089). ResetAll copies the monitor type into v26 from
+2.411 on (2.411 and 2.439 `0x104b`, 2.440 `0x1053`, 2.903 `0x1081`, 2.915,
+2.917 and 2.936 `0x1086`, 3.002.086 `0x12c5`, 3.002.102 and 3.002.107
+`0x12db`, 3.002.149 `0x1294`). The 2.903+ RestoreGame tail copies it again
+(2.903 `0x2650`, 2.915 `0x2655`, 2.917 and 2.936 `0x2657`, 3.002.086
+`0x2934`, 3.002.102 and 3.002.107 `0x294a`, 3.002.149 `0x28e9`). The
+constant 3 recorded under F-OPCORE-04-adjacent and F-persistence-03 is this
+copy on an EGA machine. The app therefore offers CGA for 2.411 and later,
+which start in RGB with `-r` and give v26 the value 1. It offers EGA alone
+for 2.001..2.272.
+
+**Cel colours.** The overlay's view conversion (`CGA_GRAF.OVL`
+`0x0037..0x00da`) runs as each view loads. It copies the cel table to a
+scratch table, then for every cel sets the scratch entry of that cel's
+transparent colour to the transparent code before converting the cel's
+runs. The entry stays set for the later cels of the same load, so a later
+cel's pixels in an earlier cel's transparent colour become transparent. A
+loop whose offset equals the previous loop's is skipped. The screen copy
+(`0x01b5..0x0214`) writes the buffer's low nibbles to video memory
+unchanged. A buffer pixel therefore keeps the code of the routine that last
+wrote it: picture patterns for picture drawing, cel codes for objects,
+`add.to.pic` stamps and the `show.obj` preview. The engine reproduces the
+conversion's transparency and reports each pixel's cel provenance. The
+compositor maps cel pixels through the cel table and picture pixels through
+the row patterns. Against the PQ1 2.903 `start -p -r` MAME 0.289
+`t1000sx` captures (raw 320×200 RGB, no masks), the opening, message and
+restart scenes now differ by 30, 30 and 22 pixels, all in the prompt row;
+the play areas match. Without stamp provenance the opening differed by 202
+pixels, its stamped cels drawn with picture patterns. Applying the row
+patterns to cel-mapped colours gave 751, 328 and 514. After `toggle.monitor` selects composite, new views load through
+the composite table at `AGIDATA.OVL + 0x1d3a`. That belongs to the
+composite display, so a CGA session keeps the RGB conversion and look
+until composite is implemented.
+
+**Display choice across sessions.** The display is a setting for the next
+start, and a resumed autosave starts with the current choice. The Amiga
+region is different: it travels with saves and autosaves because it sets
+the game clock, which the saved state depends on. The display's only trace
+in game state is v26, which the save already carries, so restoring on
+another display matches carrying a save disk to another machine.
+
+**Remaining adapter work.** Hercules is a separate monochrome raster:
+PQ1's driver programs a 720×348 display, places the 640×336 picture at
+horizontal pixel 40, and uses four pairs of dither rows per colour
+(`HGC_GRAF.OVL` `0x0099..0x0125`, data table `0x1d7c`). The game's
+`HGC_FONT` contains 128 glyphs of 16×12 pixels. The driver's custom
+INT 10h AH=9 path (`0x027b..0x02f4`) indexes `character × 24`, reads
+six pairs of words, and writes each first word to the later scanline and
+each second word to the earlier one. The status row occupies 12 scanlines;
+later text rows have two blank scanlines followed by the glyph (14 in all).
+The file must come from the player's copy when this path is implemented. Composite programs CGA control `0x1a` and
+colour `0x27` (`CGA_GRAF.OVL` `0x00f8..0x0113`); its 640-pixel signal and
+colour decoding are distinct from RGB mode. Neither path is approximated
+by a palette here.
+
+### Display geometry
+
+The active image remains 320×200 on PC, IIgs and the inspected Amiga builds.
+At the logical NTSC/EGA pixel width:height of 5:6 it has aspect 4:3. With
+PAL Amiga pixel width:height 16:15, the same 200-line active window has
+aspect 128:75; a complete 320×256 PAL field would be 4:3. The geometry
+helpers distinguish these and retain an 8:5 square-pixel option. Play
+takes the region from the running engine's frames, never from the
+next-start preference.
+
+CRT overscan, blank borders, screen position and calibration belong to the
+physical monitor. The app's optional CRT scanlines, glow and curved glass
+are display effects, rather than measurements of a particular monitor.
+Square-pixel presentation samples the bitmap with nearest-neighbour filtering.

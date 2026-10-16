@@ -1,3 +1,4 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import { newRunSession } from "./runState.ts";
 import type { PendingSentence } from "./missedSentences.ts";
@@ -96,6 +97,8 @@ interface BootState {
   /** The boot's interpreter-profile override; null detects from the files. */
   profile: ProfileId | null;
   amigaRegion: "ntsc" | "pal";
+  /** The running session's PC display; replays and replacements keep it. */
+  pcDisplay: PcDisplay;
 }
 
 /** worker/input.ts */
@@ -230,6 +233,10 @@ interface PresentationState {
   lastOwnership: Uint16Array | null;
   /** show.obj preview mask of the last published frame (null while closed). */
   lastPreview: Uint8Array | null;
+  /** Cel provenance of the last published CGA frame (null on other displays). */
+  lastCel: Uint8Array | null;
+  /** PC display and Amiga region of the last published frame, as "display/region". */
+  lastDisplay: string;
   lastPicture: Uint8Array | null;
   lastPicturePriority: Uint8Array | null;
   lastObjectsJson: string;
@@ -699,6 +706,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       currentDictionary: null,
       profile: null,
       amigaRegion: "ntsc",
+      pcDisplay: "ega",
     },
     replay: {
       replay: null,
