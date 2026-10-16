@@ -68,7 +68,7 @@ import type { ProjectHistoryState } from "../../../../src/authoring/projectHisto
 import type { ProjectSession } from "../../project/projectSession.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
-import { useStudioPaletteVars } from "../studioLook.ts";
+import { useStudioPaletteVars } from "../../render/useGameLook.ts";
 import { workspaceStudioContext } from "./studioContext.ts";
 import type { PlayHereTarget } from "../../../../src/runtime/playHere.ts";
 import type { BindingKind } from "../../../../src/agent/authoringState.ts";

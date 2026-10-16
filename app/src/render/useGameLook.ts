@@ -6,7 +6,7 @@
  * IIgs game's own font. A harness mounted without Play shows the PC look.
  */
 import { computed, onScopeDispose, watchEffect, type ComputedRef } from "vue";
-import { PC_APPEARANCE, type Appearance } from "../render/appearance.ts";
+import { PC_APPEARANCE, type Appearance } from "./appearance.ts";
 import { useOptionalPresentation } from "../play/usePresentation.ts";
 
 export type Palette = Appearance["palette"];

@@ -105,7 +105,14 @@ function onOverlayClick(ev: PointerEvent): void {
   if (!latch) return;
   // Crop the same surface the inspection sampled — the picked layer's own.
   const surface = pickVisualSource(frame, point.layerKind) ?? frame.visual;
-  const crop = cropFrameRgba(frame, point.logical.x, point.logical.y, 12, surface, presentation.appearance.palette);
+  const crop = cropFrameRgba(
+    frame,
+    point.logical.x,
+    point.logical.y,
+    12,
+    surface,
+    presentation.appearance.palette,
+  );
   picked.value = { ...latch, cropUrl: cropToDataUrl(crop.width, crop.height, crop.data) };
 }
 

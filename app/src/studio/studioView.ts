@@ -175,13 +175,7 @@ export function paintLayer(
       continue;
     }
     if (pri >= 5)
-      put(
-        out,
-        i,
-        only ? palette[pri]! : art,
-        only ? undefined : palette[pri]!,
-        DEPTH_BLEND,
-      );
+      put(out, i, only ? palette[pri]! : art, only ? undefined : palette[pri]!, DEPTH_BLEND);
     else put(out, i, only ? BLACK : art);
   }
 }

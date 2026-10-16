@@ -2,7 +2,7 @@
 import { computed, useTemplateRef, watchEffect } from "vue";
 import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import { celRgba } from "../../render/palette.ts";
-import { useStudioPalette } from "../studioLook.ts";
+import { useStudioPalette } from "../../render/useGameLook.ts";
 import {
   backdropCells,
   DEFAULT_BACKDROP,

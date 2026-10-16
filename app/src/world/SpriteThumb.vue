@@ -2,7 +2,7 @@
 import { computed, useTemplateRef, watchEffect } from "vue";
 import type { SpriteCel } from "../../../src/view/spriteDocument.ts";
 import { celRgba } from "../render/palette.ts";
-import { useStudioPalette } from "../studio/studioLook.ts";
+import { useStudioPalette } from "../render/useGameLook.ts";
 
 /**
  * One cel drawn small with AGI's 2:1 pixels at the largest whole zoom that

@@ -9,7 +9,7 @@ import { probeActor } from "../../../../src/studio/probe.ts";
 import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../../src/types.ts";
 import { forEachPaintedPixel, type ViewCel } from "../../../../src/view/view.ts";
-import { useStudioPalette } from "../studioLook.ts";
+import { useStudioPalette } from "../../render/useGameLook.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { explain } from "../studioTerms.ts";

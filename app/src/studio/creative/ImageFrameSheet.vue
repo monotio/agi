@@ -23,7 +23,7 @@ import {
 } from "../../../../src/creative/imageFrameGeometry.ts";
 import type { Rect } from "../../../../src/creative/catalog.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
-import { paletteCss, useStudioPalette } from "../studioLook.ts";
+import { paletteCss, useStudioPalette } from "../../render/useGameLook.ts";
 import UiButton from "../../ui/UiButton.vue";
 
 const props = defineProps<{
@@ -190,7 +190,10 @@ watch(
     const pixels = new ImageData(cel.width, cel.height);
     for (let i = 0; i < cel.pixels.length; i++) {
       const colour = cel.pixels[i]!;
-      pixels.data.set([...palette.value[colour]!, colour === cel.transparentColor ? 0 : 255], i * 4);
+      pixels.data.set(
+        [...palette.value[colour]!, colour === cel.transparentColor ? 0 : 255],
+        i * 4,
+      );
     }
     target.getContext("2d")!.putImageData(pixels, 0, 0);
   },
@@ -515,7 +518,10 @@ const thumbnails = computed(() => {
     const pixels = new ImageData(cel.width, cel.height);
     for (let i = 0; i < cel.pixels.length; i++) {
       const colour = cel.pixels[i]!;
-      pixels.data.set([...palette.value[colour]!, colour === cel.transparentColor ? 0 : 255], i * 4);
+      pixels.data.set(
+        [...palette.value[colour]!, colour === cel.transparentColor ? 0 : 255],
+        i * 4,
+      );
     }
     target.getContext("2d")!.putImageData(pixels, 0, 0);
     return target.toDataURL();

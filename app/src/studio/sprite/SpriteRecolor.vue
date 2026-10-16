@@ -7,7 +7,7 @@ import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import { recolorCount, recolorEdit, type RecolorEdit, type RecolorScope } from "./spriteRecolor.ts";
 import { swatchInk } from "./spriteView.ts";
-import { useStudioPalette } from "../studioLook.ts";
+import { useStudioPalette } from "../../render/useGameLook.ts";
 
 /**
  * The recolour tool's popover: one colour becomes another over this cel,
@@ -27,8 +27,8 @@ const { document, loop, cel, propagate, frozen } = defineProps<{
   frozen: boolean;
 }>();
 const emit = defineEmits<{ apply: [edit: RecolorEdit]; close: [] }>();
-const palette = useStudioPalette();
 const from = defineModel<number | null>("from", { required: true });
+const palette = useStudioPalette();
 /** The new colour; unset until one is picked. */
 const to = ref<number>();
 const scope = ref<RecolorScope>("loop");

@@ -5,7 +5,7 @@ import UiExplain from "../../ui/UiExplain.vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import { explain } from "../studioTerms.ts";
 import { swatchInk } from "./spriteView.ts";
-import { useStudioPalette } from "../studioLook.ts";
+import { useStudioPalette } from "../../render/useGameLook.ts";
 
 /**
  * The fixed AGI palette with the edited cel's transparent colour marked T,
@@ -19,8 +19,8 @@ import { useStudioPalette } from "../studioLook.ts";
  */
 const { transparent } = defineProps<{ transparent: number }>();
 const emit = defineEmits<{ erase: []; choose: [] }>();
-const palette = useStudioPalette();
 const color = defineModel<number>({ required: true });
+const palette = useStudioPalette();
 const COLOURS = Array.from({ length: 16 }, (_, index) => index);
 /** The swatch Tab lands on: the paint colour, never the transparent one. */
 const focusable = computed(() =>
@@ -93,7 +93,9 @@ function onKey(event: KeyboardEvent, value: number): void {
         @click="choose(value)"
         @keydown="onKey($event, value)"
       >
-        <span :style="{ color: swatchInk(value, palette) }">{{ value === transparent ? "T" : value }}</span>
+        <span :style="{ color: swatchInk(value, palette) }">{{
+          value === transparent ? "T" : value
+        }}</span>
       </button>
     </div>
   </section>

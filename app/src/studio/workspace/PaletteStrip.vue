@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { paletteCss, useStudioPalette } from "../studioLook.ts";
+import { paletteCss, useStudioPalette } from "../../render/useGameLook.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { paletteContext } from "../useStudioPalette.ts";
 import { CONTROL_VALUES, priorityMeaning } from "../studioView.ts";

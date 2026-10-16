@@ -7,7 +7,7 @@ import { createPresentation } from "../src/play/usePresentation.ts";
 import { cropFrameRgba } from "../src/inspector/debugView.ts";
 import { paintLayer } from "../src/studio/studioView.ts";
 import { swatchInk } from "../src/studio/sprite/spriteView.ts";
-import { paletteCss, paletteVars } from "../src/studio/studioLook.ts";
+import { paletteCss, paletteVars } from "../src/render/useGameLook.ts";
 import type { Frame } from "../src/engine/useEngine.ts";
 
 // Studio draws a game with the colours Play draws it with: a player editing an

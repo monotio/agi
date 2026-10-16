@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
-import { paletteCss, useStudioPalette } from "./studioLook.ts";
+import { paletteCss, useStudioPalette } from "../render/useGameLook.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
