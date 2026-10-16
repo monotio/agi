@@ -414,7 +414,7 @@ function queueMenuMove(point: { x: number; y: number }): void {
   });
 }
 
-/** A pointer position clamped onto the frame, so a drag past the edge still reads as outside. */
+/** A pointer position clamped onto the frame, as Intuition clamps its pointer to the screen edge. */
 function menuPoint(ev: MouseEvent): { x: number; y: number } | null {
   const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
   const rect = canvas?.getBoundingClientRect();
