@@ -948,9 +948,14 @@ test("the window frame matches each profile family's decoded pixel geometry (PC 
   assert.equal(pc2001Ov[91 * 320 + 175], 5, "pc-2.001: bottom bar y=91");
   assert.equal(pc2001Ov[92 * 320 + 177], 16, "pc-2.001: fill y1=92");
 
-  const amiga = new Engine(gameWith('print("Hi"); return;'), new Host(), DICT, {
-    profile: "amiga-2.316",
-  });
+  const amiga = new Engine(
+    gameWith('configure.screen(1, 22, 0); print("Hi"); return;'),
+    new Host(),
+    DICT,
+    {
+      profile: "amiga-2.316",
+    },
+  );
   amiga.tick();
   const amigaOv = amiga.getPresentation().windowOverlay;
   assert.equal(amigaOv[82 * 320 + 142], 16, "amiga: fill y0=82 (6px above text)");
@@ -1063,7 +1068,7 @@ test("show.obj routes through the profile window frame selector with zero legacy
     ["amiga-2.316", 20, 176],
     ["iigs-1.014", 21, 175],
   ] as const) {
-    const container = gameWith("show.obj(1); return;");
+    const container = gameWith("configure.screen(1, 22, 0); show.obj(1); return;");
     container.putResource("view", 1, viewBytes);
     const engine = new Engine(container, new Host(), DICT, { profile });
     engine.tick();

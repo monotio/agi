@@ -1684,6 +1684,7 @@ export interface HostPresentation {
   written: Uint32Array;
   seq: number;
   draws: HostDraw[];
+  titleFillSeq?: number;
 }
 
 /** A host autosave taken apart (see Engine.autosaveImage). */
@@ -1735,12 +1736,24 @@ export function encodeHostImage(
       presentation.draws.length !== HOST_DRAW_COUNT)
   )
     throw new RangeError("host autosave presentation dimensions are invalid");
+  const titleFillSeq = presentation?.titleFillSeq ?? 0;
+  if (
+    !Number.isSafeInteger(titleFillSeq) ||
+    titleFillSeq < 0 ||
+    (presentation && titleFillSeq > presentation.seq)
+  )
+    throw new RangeError("host autosave title fill sequence is invalid");
   const continuationBytes = continuation
     ? new TextEncoder().encode(JSON.stringify(continuation))
     : new Uint8Array(0);
   const timingBytes =
-    amigaRegion === "pal"
-      ? new TextEncoder().encode(JSON.stringify({ amigaRegion }))
+    amigaRegion === "pal" || titleFillSeq > 0
+      ? new TextEncoder().encode(
+          JSON.stringify({
+            ...(amigaRegion === "pal" ? { amigaRegion } : {}),
+            ...(titleFillSeq > 0 ? { titleFillSeq } : {}),
+          }),
+        )
       : new Uint8Array(0);
   const out = new Uint8Array(
     HOST_IMAGE_HEADER +
@@ -1882,12 +1895,27 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       timing === null ||
       typeof timing !== "object" ||
       Array.isArray(timing) ||
-      Object.keys(timing).length !== 1 ||
-      !("amigaRegion" in timing) ||
-      (timing.amigaRegion !== "pal" && timing.amigaRegion !== "ntsc")
+      Object.keys(timing).length === 0 ||
+      Object.keys(timing).some((k) => k !== "amigaRegion" && k !== "titleFillSeq")
     )
       throw new RangeError("host autosave region is invalid");
-    result.amigaRegion = timing.amigaRegion;
+    if ("amigaRegion" in timing) {
+      if (timing.amigaRegion !== "pal" && timing.amigaRegion !== "ntsc")
+        throw new RangeError("host autosave region is invalid");
+      result.amigaRegion = timing.amigaRegion;
+    }
+    if ("titleFillSeq" in timing) {
+      const titleFillSeq = timing.titleFillSeq;
+      if (
+        typeof titleFillSeq !== "number" ||
+        !Number.isSafeInteger(titleFillSeq) ||
+        titleFillSeq <= 0 ||
+        !result.presentation ||
+        titleFillSeq > result.presentation.seq
+      )
+        throw new RangeError("host autosave title fill sequence is invalid");
+      result.presentation.titleFillSeq = titleFillSeq;
+    }
   }
   return result;
 }

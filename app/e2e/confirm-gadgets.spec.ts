@@ -31,6 +31,7 @@ function confirmGame(): Buffer {
     assembleLogic(
       `if (!isset(f200)) {
          set(f200);
+         configure.screen(1, 22, 0);
          load.pic(v250); draw.pic(v250); show.pic();
          set.key(0, 59, 1); set.key(0, 60, 2);
          if (isset(f6)) { display(2, 0, "RESTARTED"); } else { display(2, 0, "READY"); }

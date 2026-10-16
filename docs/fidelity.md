@@ -4065,13 +4065,16 @@ leaves the cell grid alone and reports the 39-byte title through
 `getPresentation().statusBar` (null while hidden, or while the picture top
 is row 0), and the host draws the bar from it
 (`app/src/render/composite.ts`, `drawAmigaTitleBar`) with its own drawing
-of the depth gadgets. `status.line.on` and `.off` return at once while the
-`configure.screen` gate is clear (`amigaStatusAllowed`), `.off` leaves the
-configured status row alone and blacks every presentation layer in window
-rows 0..10 as the RectFill does. The top three pixels of text row 1 are
-covered by the engine's pixel overlay; glyph rows below y=10 survive. Restore
-rebuilds the status opcode gate from the saved picture top before execution
-resumes. The same routine and strings sit at `h82+0x42c` in KQ2
+of the depth gadgets. Amiga profiles initialize `displayBaseRow` (`$f8a2`) to 0
+at cold start and on an accepted `restart.game`, matching the state-hunk load
+image; `statusBarText()` and `status.line.on` / `.off` derive the gate directly
+from `displayBaseRow === 0`. `.off` leaves the configured status row alone and
+blacks every presentation layer in window rows 0..10 as the RectFill does: row
+0 turns opaque black, picture rows under the bar are zeroed, and the top three
+scanlines of text row 1 (`y = 8..10`) are stamped on `TextSurface` as
+`titleFillSeq` (kept apart from the window overlay so closing a window or
+restoring a checkpoint never wipes them, and serialized with host images while
+glyph rows below `y = 10` survive). The same routine and strings sit at `h82+0x42c` in KQ2
 and the 2.31x builds and at `h60+0x28e` (SetWindowTitles) in SQ1.
 
 **Input row (fact, all six builds).** `ShowInput` prints, in order, string

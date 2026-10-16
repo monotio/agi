@@ -420,7 +420,7 @@ test("F-persistence-05: Amiga confirmation gadgets are selectable at their label
     0,
     assembleLogic(
       `if (isset(f6)) { assignn(v90, 1); return; }
-       if (!isset(f200)) { set(f200); load.pic(v250); draw.pic(v250); show.pic(); }
+       if (!isset(f200)) { set(f200); configure.screen(1, 22, 0); load.pic(v250); draw.pic(v250); show.pic(); }
        if (equaln(v80, 1)) { restart.game(); assignn(v81, 1); return; }
        if (equaln(v80, 2)) { quit(0); assignn(v82, 1); return; }
        return;`,

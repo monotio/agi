@@ -36,7 +36,7 @@ const AMIGA: readonly ProfileId[] = [
 /** F1 asks to restart, F2 to quit (recorded keys, so a replay asks too); f6 marks the restarted pass. */
 const CONFIRM_LOGIC = `
   if (isset(f6)) { assignn(v90, 1); return; }
-  if (!isset(f200)) { set(f200); set.key(0, 59, 1); set.key(0, 60, 2); }
+  if (!isset(f200)) { set(f200); configure.screen(1, 22, 0); set.key(0, 59, 1); set.key(0, 60, 2); }
   if (controller(c1)) { restart.game(); assignn(v81, 1); return; }
   if (controller(c2)) { quit(0); assignn(v82, 1); return; }
   return;

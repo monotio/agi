@@ -431,3 +431,325 @@ test("Amiga status off erases all title pixels while retaining the text below ro
       }
   }
 });
+
+test("Amiga status state table across all six profiles: cold start, configure.screen, on/off, windows, save/restore and restart", async () => {
+  const { Engine } = await import("../../src/runtime/engine.ts");
+  const { createContainer } = await import("../../src/container/container.ts");
+  const { assembleLogic } = await import("../../src/logic/assembler.ts");
+  const { PROFILES } = await import("../../src/runtime/profile.ts");
+  const { decodeHostImage, encodeHostImage } = await import("../../src/runtime/persistence.ts");
+  const amigaProfiles = Object.values(PROFILES).filter((p) => p.presentation === "amiga");
+  assert.equal(amigaProfiles.length, 6);
+
+  const expectedTitle = "Score:5 of 42  " + " ".repeat(11) + "Sound:on " + " ".repeat(4);
+
+  for (const profile of amigaProfiles) {
+    const appearance = await loadAppearance(profile.id);
+    const logicSource = `
+      if (!isset(f200)) {
+        set(f200);
+        assignn(v3, 5);
+        assignn(v7, 42);
+        set(f9);
+        load.pic(v0);
+        draw.pic(v0);
+        show.pic();
+        set.text.attribute(15, 4);
+        display(1, 0, "MMMM");
+        display(2, 0, "KEEP");
+      }
+      if (isset(f201)) { reset(f201); status.line.on(); status.line.off(); }
+      if (isset(f202)) { reset(f202); configure.screen(0, 22, 2); status.line.on(); status.line.off(); }
+      if (isset(f203)) { reset(f203); configure.screen(2, 22, 2); status.line.on(); }
+      if (isset(f204)) { reset(f204); configure.screen(0, 22, 2); }
+      if (isset(f205)) { reset(f205); configure.screen(2, 22, 2); }
+      if (isset(f206)) { reset(f206); set.text.attribute(15, 4); display(1, 0, "MMMM"); display(2, 0, "KEEP"); status.line.off(); }
+      if (isset(f207)) { reset(f207); print("Hi"); }
+      if (isset(f208)) { reset(f208); set(f15); print("Hi"); }
+      if (isset(f209)) { reset(f209); ${profile.maxAction >= 0xa9 ? "close.window();" : 'reset(f15); print("Hi");'} }
+      if (isset(f210)) { reset(f210); restart.game(); }
+      return;
+    `;
+    const container = createContainer();
+    container.putResource("picture", 0, Uint8Array.of(0xff));
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(logicSource, { dictionary: new Map(), profile }).payload,
+    );
+
+    const makeEngine = (keys: number[] = []) =>
+      new Engine(
+        container,
+        {
+          print() {},
+          displayAt() {},
+          statusLine() {},
+          takeInputLine: () => null,
+          takeKeys: () => keys.splice(0, keys.length),
+          waitKey: () => 0x0d,
+        },
+        new Map(),
+        { profile },
+      );
+
+    // Reference frames for row 1 glyphs ("MMMM" at row 1, cols 0..3) and title bar.
+    const refSurface = new TextSurface();
+    refSurface.write(1, 0, "MMMM", attr(15, 4));
+    const glyphRefFor = (picRow: number): Uint8Array => {
+      const ref = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+      compositeFrame(
+        {
+          visual: new Uint8Array(160 * 168).fill(15),
+          priority: new Uint8Array(160 * 168),
+          text: refSurface.cells,
+          picRow,
+          statusBar: null,
+          appearance,
+        },
+        ref,
+      );
+      return ref;
+    };
+    const titleRef = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+    compositeFrame(
+      {
+        visual: new Uint8Array(160 * 168).fill(15),
+        priority: new Uint8Array(160 * 168),
+        text: refSurface.cells,
+        picRow: 2,
+        statusBar: expectedTitle,
+        appearance,
+      },
+      titleRef,
+    );
+
+    const keys: number[] = [];
+    let engine = makeEngine(keys);
+    let savedOn: Uint8Array | null = null;
+
+    type RowsMode = "unfilled" | "title" | "black";
+    const steps: {
+      name: string;
+      act: () => void;
+      statusBar: string | null;
+      rows0to10: RowsMode;
+      checkRow1Bottom: boolean;
+    }[] = [
+      {
+        name: "cold start: displayBase is 0 and status.line.on/off are gated",
+        act: () => {
+          engine.tick();
+          assert.equal(engine.displayBase, 0, `${profile.id}: cold start displayBase`);
+          engine.flags[201] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "unfilled",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "configure.screen(0, 22, 2): status.line.on/off stay gated while picTop is 0",
+        act: () => {
+          engine.flags[202] = 1;
+          engine.tick();
+          assert.equal(engine.displayBase, 0, `${profile.id}: configure.screen 0 displayBase`);
+        },
+        statusBar: null,
+        rows0to10: "unfilled",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "configure.screen(2, 22, 2) + status.line.on: title bar renders on rows 0..10",
+        act: () => {
+          engine.flags[203] = 1;
+          engine.tick();
+          assert.equal(engine.displayBase, 2, `${profile.id}: configure.screen 2 displayBase`);
+        },
+        statusBar: expectedTitle,
+        rows0to10: "title",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "configure.screen(0, 22, 2): statusBar is null while picTop is 0",
+        act: () => {
+          engine.flags[204] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "unfilled",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "configure.screen(2, 22, 2): statusBar returns when picTop is nonzero",
+        act: () => {
+          engine.flags[205] = 1;
+          engine.tick();
+          savedOn = engine.serialize();
+        },
+        statusBar: expectedTitle,
+        rows0to10: "title",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "status.line.off: blacks rows 0..10 while keeping row 1 bottom and status row 2",
+        act: () => {
+          engine.flags[206] = 1;
+          engine.tick();
+          assert.equal(
+            engine.textRow(2).slice(0, 4),
+            "KEEP",
+            `${profile.id}: status row untouched`,
+          );
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "modal print open and close: closing modal keeps rows 0..10 black",
+        act: () => {
+          engine.flags[207] = 1;
+          engine.tick();
+          assert.equal(engine.modalKind, "print", `${profile.id}: print modal opened`);
+          engine.ackPrint();
+          assert.equal(engine.modalKind, null, `${profile.id}: print modal closed`);
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "persistent window open and close: close.window keeps rows 0..10 black",
+        act: () => {
+          engine.flags[208] = 1;
+          engine.tick();
+          engine.flags[209] = 1;
+          engine.tick();
+          if (engine.modalKind === "print") engine.ackPrint();
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "autosaveImage + restoreImage: preserves erased rows 0..10 and row 1 bottom",
+        act: () => {
+          const autosave = engine.autosaveImage();
+          assert.ok(autosave, `${profile.id}: autosaveImage produced`);
+          const decoded = decodeHostImage(autosave);
+          const { titleFillSeq: _drop, ...legacyPresentation } = decoded.presentation!;
+          const legacyBytes = encodeHostImage(
+            decoded.image,
+            decoded.screen ?? [],
+            legacyPresentation,
+            decoded.continuation,
+            decoded.amigaRegion,
+          );
+          const legacyEngine = makeEngine(keys);
+          legacyEngine.restoreImage(legacyBytes);
+          assert.equal(legacyEngine.getPresentation().statusBar, null);
+          engine = makeEngine(keys);
+          engine.restoreImage(autosave);
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "recordingImage + restoreImage + restoreReplayState: preserves erased rows 0..10",
+        act: () => {
+          const rec = engine.recordingImage();
+          assert.ok(rec, `${profile.id}: recordingImage produced`);
+          const replay = engine.captureReplayState();
+          engine = makeEngine(keys);
+          engine.restoreImage(rec);
+          engine.restoreReplayState(replay);
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "serialize + restoreImage (status off): statusBar stays null and rows 0..10 black",
+        act: () => {
+          const savedOff = engine.serialize();
+          engine = makeEngine(keys);
+          engine.restoreImage(savedOff);
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: false,
+      },
+      {
+        name: "serialize + restoreImage (status on): restores title bar from saved picTop",
+        act: () => {
+          engine = makeEngine(keys);
+          engine.restoreImage(savedOn!);
+        },
+        statusBar: expectedTitle,
+        rows0to10: "title",
+        checkRow1Bottom: false,
+      },
+      {
+        name: "status.line.off after restoring status-on save: blacks rows 0..10",
+        act: () => {
+          engine.flags[206] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: true,
+      },
+      {
+        name: "restart.game: resets displayBaseRow to 0 and gates status.line.on/off again",
+        act: () => {
+          keys.push(0x0d);
+          engine.flags[210] = 1;
+          engine.tick();
+          assert.equal(engine.displayBase, 0, `${profile.id}: restart displayBase is 0`);
+          engine.flags[201] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "unfilled",
+        checkRow1Bottom: true,
+      },
+    ];
+
+    for (const step of steps) {
+      step.act();
+      const pres = engine.getPresentation();
+      assert.equal(pres.statusBar, step.statusBar, `${profile.id} [${step.name}]: statusBar`);
+      const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+      compositeFrame({ ...pres, picRow: engine.displayBase, appearance }, out);
+      const glyphRef = glyphRefFor(engine.displayBase);
+      for (let y = 0; y <= 10; y++) {
+        for (let x = 0; x < FRAME_WIDTH; x++) {
+          const expected =
+            step.rows0to10 === "black"
+              ? [0, 0, 0]
+              : step.rows0to10 === "title"
+                ? pixelAt(titleRef, x, y)
+                : pixelAt(glyphRef, x, y);
+          assert.deepEqual(
+            pixelAt(out, x, y),
+            expected,
+            `${profile.id} [${step.name}]: pixel (${x}, ${y})`,
+          );
+        }
+      }
+      if (step.checkRow1Bottom) {
+        for (let y = 11; y <= 15; y++) {
+          for (let x = 0; x < 32; x++) {
+            assert.deepEqual(
+              pixelAt(out, x, y),
+              pixelAt(glyphRef, x, y),
+              `${profile.id} [${step.name}]: row 1 bottom pixel (${x}, ${y})`,
+            );
+          }
+        }
+      }
+    }
+  }
+});

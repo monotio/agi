@@ -821,12 +821,6 @@ export class Engine {
   private textFg = 15;
   private textBg = 0;
   private displayBaseRow = 1;
-  /**
-   * The Amiga status gate: configure.screen sets it to `picTop != 0`
-   * ($6a14), and status.line.on/off return before touching anything while
-   * it is clear (docs/fidelity.md "Amiga screen, font and pointer").
-   */
-  private amigaStatusAllowed = false;
   private inputRow = 22;
   private statusRow = 0;
   /** Engine-owned text surface (spec "Text geometry and surfaces"). */
@@ -2838,31 +2832,25 @@ export class Engine {
    */
   statusBarText(): string | null {
     if (this.profile.presentation !== "amiga") return null;
-    if (!this.statusEnabled || this.textMode) return null;
+    if (!this.statusEnabled || this.textMode || this.displayBaseRow === 0) return null;
     return (this.statusText().padEnd(26) + this.soundText()).padEnd(39).slice(0, 39);
   }
 
-  /** status.line.on/off do nothing on the Amiga while the picture top is row 0 ($6a14 clear). */
+  /** status.line.on/off do nothing on the Amiga while the picture top is row 0 ($f8a2 == 0). */
   private amigaStatusGated(): boolean {
-    return this.profile.presentation === "amiga" && !this.amigaStatusAllowed;
+    return this.profile.presentation === "amiga" && this.displayBaseRow === 0;
   }
 
   /**
    * The Amiga status.line.off fills window pixels rows 0..10 with pen 0
    * after hiding the title (h82+0x590..0x5bc): text row 0 turns opaque
-   * black and the picture rows under the bar go black until the next
-   * picture draw. The configured status row is never touched.
+   * black, the top three scanlines of row 1 (y = 8..10) are blacked by
+   * `fillTitleBar()`, and the picture rows under the bar go black until the
+   * next picture draw. The configured status row is never touched.
    */
   private eraseAmigaTitleArea(): void {
     this.text.fill(0, 0, 0, TEXT_COLS - 1, 0x20, attr(0, 0));
-    // The title fill covers the top three pixels of row 1 as well. Keep
-    // its remaining glyph rows intact; later cell/picture writes erase this
-    // overlay through the ordinary text-surface write ordering.
-    const stamp = ++this.text.seq;
-    this.text.overlay.fill(1, 8 * 320, 11 * 320);
-    this.text.overlayWritten.fill(stamp, 8 * 320, 11 * 320);
-    this.text.hasOverlay = true;
-    this.text.dirty++;
+    this.text.fillTitleBar();
     // Picture rows that lie within frame rows 0..10 (160 pixels per row).
     const pictureRows = Math.max(0, Math.min(168, 11 - this.displayBaseRow * 8));
     if (pictureRows > 0) {
@@ -4022,6 +4010,7 @@ export class Engine {
         cells: this.text.cells,
         written: this.text.written,
         seq: this.text.seq,
+        ...(this.text.titleFillSeq > 0 ? { titleFillSeq: this.text.titleFillSeq } : {}),
         draws: this.objects.map(({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight }) => ({
           drawSeq,
           drawnX,
@@ -4092,7 +4081,17 @@ export class Engine {
       this.text.cells.set(presentation.cells);
       this.text.written.set(presentation.written);
       this.text.seq = presentation.seq;
+      this.text.titleFillSeq = presentation.titleFillSeq ?? 0;
       this.text.dirty++;
+      if (this.text.titleFillSeq > 0) {
+        const pictureRows = Math.max(0, Math.min(168, 11 - this.displayBaseRow * 8));
+        for (let col = 0; col < TEXT_COLS; col++) {
+          if (this.text.written[TEXT_COLS + col]! > this.text.titleFillSeq) continue;
+          for (let py = 0; py < pictureRows; py++)
+            this.surface.visual.fill(0, py * 160 + col * 4, py * 160 + col * 4 + 4);
+        }
+        this.presentationDirty = true;
+      }
       for (let i = 0; i < this.objects.length; i++)
         Object.assign(this.objects[i]!, presentation.draws[i]!);
       // Parser edits are transient, as in an authentic restore; redraw the
@@ -4172,7 +4171,6 @@ export class Engine {
     this.statusEnabled = s.statusEnabled !== 0;
     this.statusRow = s.statusRow;
     this.displayBaseRow = s.displayBaseRow;
-    this.amigaStatusAllowed = s.displayBaseRow !== 0;
     this.keyReleaseGate = s.releaseGate;
     for (let num = 0; num < this.objects.length; num++) {
       const o = this.objects[num]!;
@@ -4709,7 +4707,6 @@ export class Engine {
     if (!ownership) return cells;
     let out: Uint8Array | null = null;
     const displayTopPx = this.displayBaseRow * 8 * (TEXT_COLS * 8);
-    const overlayWritten = this.text.overlayWritten;
     for (let pixel = 0; pixel < ownership.length; pixel++) {
       const owner = ownership[pixel]!;
       if (owner === 0) continue;
@@ -4723,10 +4720,10 @@ export class Engine {
       if (windowOverlay) {
         const oIdx = displayTopPx + pixel * 2;
         if (oIdx + 1 < windowOverlay.length) {
-          if (windowOverlay[oIdx] !== 0 && overlayWritten[oIdx]! <= drawSeq) {
+          if (windowOverlay[oIdx] !== 0 && this.text.overlayStampAt(oIdx) <= drawSeq) {
             windowOverlay[oIdx] = 0;
           }
-          if (windowOverlay[oIdx + 1] !== 0 && overlayWritten[oIdx + 1]! <= drawSeq) {
+          if (windowOverlay[oIdx + 1] !== 0 && this.text.overlayStampAt(oIdx + 1) <= drawSeq) {
             windowOverlay[oIdx + 1] = 0;
           }
         }
@@ -5749,9 +5746,8 @@ export class Engine {
       this.cachedPriority.set(this.scratchPriority);
     }
 
-    const hasOverlay = this.text.hasOverlay;
+    const hasOverlay = this.text.composeOverlay(this.cachedWindowOverlay);
     if (hasOverlay) {
-      this.cachedWindowOverlay.set(this.text.overlay);
       this.cachedWindowOverlayDirty = true;
     } else if (this.cachedWindowOverlayDirty) {
       this.cachedWindowOverlay.fill(0);
@@ -7534,7 +7530,6 @@ export class Engine {
         this.displayBaseRow = a(0);
         this.inputRow = a(1);
         this.statusRow = a(2);
-        this.amigaStatusAllowed = a(0) !== 0;
         return next;
       case 0x67:
         this.display(a(0), a(1), this.message(a(2)));
@@ -8315,6 +8310,10 @@ export class Engine {
     const id = this.profile.id;
     const isAmiga = this.profile.windowFrameGeometry === "amiga";
     const isIIgs = this.profile.windowFrameGeometry === "iigs";
+    // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,
+    // which also gates status.line.on/off until configure.screen sets a
+    // nonzero picture top (docs/fidelity.md "Amiga screen, font and pointer").
+    this.displayBaseRow = this.profile.presentation === "amiga" ? 0 : 1;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[20] = isAmiga ? 5 : isIIgs ? 7 : 0;
     if (id === "2.001") {

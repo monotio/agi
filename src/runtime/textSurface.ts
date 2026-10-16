@@ -144,10 +144,18 @@ export class TextSurface {
    */
   seq = 0;
   readonly written = new Uint32Array(TEXT_COLS * TEXT_ROWS);
+  /**
+   * Write stamp of the Amiga status.line.off pen-0 RectFill(0, 0, 319, 10) over
+   * the top three scanlines (y = 8..10) of text row 1. Kept apart from
+   * `overlay` so closing a window or restoring a checkpoint never wipes it;
+   * cells on row 1 written after `titleFillSeq` uncover their columns.
+   */
+  titleFillSeq = 0;
 
   clear(): void {
     this.cells.fill(0);
     this.written.fill(0);
+    this.titleFillSeq = 0;
     if (this.hasOverlay) {
       this.overlay.fill(0);
       this.overlayWritten.fill(0);
@@ -162,6 +170,48 @@ export class TextSurface {
     this.overlayWritten.fill(0);
     this.hasOverlay = false;
     this.dirty++;
+  }
+
+  /** Stamp the Amiga status.line.off pen-0 fill across the top three scanlines of row 1 (y = 8..10). */
+  fillTitleBar(): void {
+    this.titleFillSeq = ++this.seq;
+    this.dirty++;
+  }
+
+  /**
+   * Compose the active window overlay and any uncovered Amiga title-bar fill
+   * into `target` (320x200). Returns true when any overlay pixel is active.
+   */
+  composeOverlay(target: Uint8Array): boolean {
+    if (!this.hasOverlay && this.titleFillSeq === 0) return false;
+    if (this.hasOverlay) target.set(this.overlay);
+    else target.fill(0);
+    if (this.titleFillSeq > 0) {
+      const fillSeq = this.titleFillSeq;
+      for (let col = 0; col < TEXT_COLS; col++) {
+        if (this.written[TEXT_COLS + col]! > fillSeq) continue;
+        const x0 = col * 8;
+        for (let y = 8; y <= 10; y++) {
+          const base = y * OVERLAY_WIDTH + x0;
+          for (let dx = 0; dx < 8; dx++) {
+            const idx = base + dx;
+            if (!this.hasOverlay || this.overlay[idx] === 0 || this.overlayWritten[idx]! <= fillSeq)
+              target[idx] = 1;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  /** Write stamp of the composed overlay pixel at `idx` (window border or title fill). */
+  overlayStampAt(idx: number): number {
+    const w = this.overlayWritten[idx]!;
+    if (this.titleFillSeq > w && idx >= 8 * OVERLAY_WIDTH && idx < 11 * OVERLAY_WIDTH) {
+      const col = (idx % OVERLAY_WIDTH) >> 3;
+      if (this.written[TEXT_COLS + col]! <= this.titleFillSeq) return this.titleFillSeq;
+    }
+    return w;
   }
 
   private clearCellOverlay(row: number, col: number): void {
