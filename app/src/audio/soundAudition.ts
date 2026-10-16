@@ -341,7 +341,7 @@ export class SoundAudition {
     this.audio.setPauseOwner(PAUSE_OWNER, false);
     // The adapter call is an outward seam; a superseding call owns the run.
     if (e !== this.epoch) return this.snapshot();
-    const tickMs = this.tickMs();
+    const tickMs = 1000 / this.tickHz();
     this.nextDue =
       this.scheduler.now() + (resuming ? Math.min(this.pausedCarryMs, tickMs) : tickMs);
     this.scheduleNext(e);
@@ -359,7 +359,7 @@ export class SoundAudition {
     if (this.status !== "playing") return;
     const e = this.epoch;
     this.cancelTimer();
-    const tickMs = this.tickMs();
+    const tickMs = 1000 / this.tickHz();
     this.pausedCarryMs = Math.max(0, Math.min(tickMs, this.nextDue - this.scheduler.now()));
     this.audio.setPauseOwner(PAUSE_OWNER, true);
     // The audio adapter is an outward seam: a lifecycle call made from inside
@@ -446,7 +446,7 @@ export class SoundAudition {
       this.notify();
       return this.snapshot();
     }
-    const tickMs = this.tickMs();
+    const tickMs = 1000 / this.tickHz();
     if (this.pauseRequested || !this.resumeAfterSeek) {
       this.pauseRequested = false;
       this.status = "paused";
@@ -562,10 +562,6 @@ export class SoundAudition {
     return AUDITION_TICK_HZ;
   }
 
-  private tickMs(): number {
-    return 1000 / this.tickHz();
-  }
-
   private continueRun(): Promise<AuditionSnapshot> {
     // Resume shares play()'s path: a paused run keeps position and acquires
     // the lease only when audible playback actually starts.
@@ -670,7 +666,7 @@ export class SoundAudition {
       this.finishComplete();
       return;
     }
-    const tickMs = this.tickMs();
+    const tickMs = 1000 / this.tickHz();
     if (this.pauseRequested) {
       this.pauseRequested = false;
       this.status = "paused";

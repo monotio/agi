@@ -425,6 +425,11 @@ export class AgiAudio {
         this.iigsVolume.gain.setValueAtTime((event.volume >> 4) / 15, at);
         return;
       }
+      if (event.event === "all-off") {
+        this.iigsSynth?.output(event, at);
+        this.iigsFallbackOutput(ctx, event, maxFreq, at);
+        return;
+      }
       if (this.iigsSources || event.event === "sample") {
         this.iigsSynth ??= new IigsSynth(
           ctx,

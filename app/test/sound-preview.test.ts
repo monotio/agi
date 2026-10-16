@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { AgiAudio } from "../src/audio/AgiAudio.ts";
 import { test } from "node:test";
 import type {
   AuditionLeaseAcquire,
@@ -193,7 +194,7 @@ test("Studio binds the selected project's files on every retarget, including cle
       driver: stub.driver,
       audio: {
         useGameFiles: (next: Readonly<Record<string, Uint8Array>>) => offered.push(next),
-      } as import("../src/audio/AgiAudio.ts").AgiAudio,
+      } as unknown as AgiAudio,
     }),
   });
   const target = {

@@ -641,7 +641,7 @@ it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators acr
   for (const [carrier, modulation] of [
     [sources[0]!, sources[1]!],
     [sources[2]!, sources[3]!],
-  ]) {
+  ] as const) {
     assert.equal(carrier.playbackRate.writes[1]![0], expectedRate(12));
     assert.deepEqual(carrier.playbackRate.writes.at(-1), [0, 1 / 60]);
     assert.deepEqual(modulation.starts, [1 / 60]);

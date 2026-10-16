@@ -1133,6 +1133,11 @@ describe("sound audition lifecycle", () => {
         studioIigs.sources[0]!.playbackRate.writes.length > 1,
         "Studio audition schedules TOOL025 vibrato steps on the sample",
       );
+      studioIigs.audio.output({ kind: "iigs", event: "all-off" });
+      assert.ok(
+        studioIigs.sources.every((source) => source.stopped),
+        "all-off stops standalone samples and their vibrato controls",
+      );
       await iigsAudition.audition.close();
     } finally {
       if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
