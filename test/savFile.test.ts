@@ -55,7 +55,7 @@ import { decodeSave, newSaveState, newObjectRecord } from "../src/runtime/persis
 import { importOriginalSav, exportOriginalSav } from "../src/runtime/savFile.ts";
 import type { AgiProfile } from "../src/runtime/profile.ts";
 
-function game(profile: AgiProfile, suffix = ""): Engine {
+function game(profile: AgiProfile, suffix = "", effects?: string[]): Engine {
   const container = createContainer();
   const dictionary = new Map<string, number>();
   const logic = assembleLogic(
@@ -96,13 +96,19 @@ function game(profile: AgiProfile, suffix = ""): Engine {
   metadata.set([stride, 0, 1]);
   metadata.set([stride, 0, 0], profile.inventoryHeaderBytes);
   metadata.set([107, 101, 121, 0], profile.inventoryHeaderBytes + stride);
-  container.files.set("OBJECT", metadata);
+  container.putFile("OBJECT", metadata);
   return new Engine(
     container,
     {
-      print() {},
-      displayAt() {},
-      statusLine() {},
+      print() {
+        effects?.push("print");
+      },
+      displayAt() {
+        effects?.push("display");
+      },
+      statusLine() {
+        effects?.push("status");
+      },
       takeInputLine() {
         return null;
       },
@@ -260,6 +266,18 @@ for (const capture of captures.filter((capture) => capture.kind === "game")) {
     engine.setItemLocation(0, 2);
     importOriginalSav(engine, original);
     const restored = engine.readState();
+    const expectedVars = [...state.vars];
+    const expectedFlags = [...state.flags];
+    expectedFlags[12] = 1;
+    if (profile.restoreRewritesMachineState) {
+      expectedVars[20] = 0;
+      expectedVars[22] = 3;
+      expectedVars[26] = 3;
+      expectedFlags[11] = 1;
+    }
+    assert.deepEqual(restored.vars, expectedVars);
+    assert.deepEqual(restored.flags, expectedFlags);
+    assert.deepEqual(restored.strings.slice(0, state.strings.length), state.strings);
     assert.equal(restored.vars[100], 37);
     assert.equal(restored.flags[100], 1);
     assert.equal(restored.flags[200], 1);
@@ -267,26 +285,26 @@ for (const capture of captures.filter((capture) => capture.kind === "game")) {
     assert.equal(restored.strings[0], "Hello");
     assert.equal(engine.itemLocation(0), 255);
     assert.deepEqual(
-      engine
-        .readObjects()
-        .map((o) => ({
-          num: o.num,
-          x: o.x,
-          y: o.y,
-          view: o.view,
-          motion: o.motionMode,
-          cycling: o.cycling,
-        })),
+      engine.readObjects().map((o) => ({
+        num: o.num,
+        x: o.x,
+        y: o.y,
+        view: o.view,
+        motion: o.motionMode,
+        cycling: o.cycling,
+      })),
       [{ num: 0, x: 40, y: 80, view: 3, motion: 0, cycling: true }],
     );
   });
 }
 
 test("a broken resource replay is rejected before live state or host output changes", () => {
-  const engine = game(PROFILES["2.936"]);
+  const effects: string[] = [];
+  const engine = game(PROFILES["2.936"], "", effects);
   engine.tick();
   const before = engine.serialize();
   const report = engine.readState();
+  const beforeEffects = [...effects];
   for (const pair of [
     { kind: 255, value: 0 },
     { kind: 1, value: 254 },
@@ -302,5 +320,6 @@ test("a broken resource replay is rejected before live state or host output chan
     );
     assert.deepEqual(engine.serialize(), before);
     assert.deepEqual(engine.readState(), report);
+    assert.deepEqual(effects, beforeEffects);
   }
 });

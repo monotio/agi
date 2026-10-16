@@ -108,7 +108,8 @@ interface AmigaBlock1Layout {
 
 /**
  * Positions and capacities of the Apple IIgs save (docs/fidelity.md "Apple
- * IIgs interpreter"). The envelope is six big-endian-length blocks: the
+ * IIgs interpreter"). The released envelope has six big-endian-length blocks (original files
+ * use savFile.ts): the
  * ~globals lead block, then the 0x3d0-byte main state block (both mapped
  * here, little-endian fields), the object records, the inventory payload,
  * the replay pairs and the logic-resume records.
@@ -386,7 +387,8 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     navMirror: null,
   },
   // Apple IIgs 1.014 (SQ2.SYS16): the savegameseg writer emits six
-  // big-endian-length blocks — the 0x38-byte ~globals image $010d..$0144,
+  // big-endian-length blocks in the released codec (savFile.ts converts the
+  // original little-endian envelope) — the ~globals image $010d..$0144,
   // then the 0x3d0-byte ~arrays state block mapped here: the set.game.id
   // signature @0x00, key map @0x08, strings @0xa8, vars @0x2b0, flags
   // @0x3b0 (docs/fidelity.md "Apple IIgs interpreter").
@@ -1488,7 +1490,7 @@ function decodeBlock5Native(block: Uint8Array): LogicResumeRecord[] {
 
 // ---------- envelope ----------
 
-/** Encode a save state as the real file image for the selected profile. */
+/** Encode a state in the released engine format for the selected profile. */
 export function encodeSave(state: SaveState, profile: AgiProfile): Uint8Array {
   const layout = block1Layout(profile);
   if (state.replay.length > state.replayCapacity) {
@@ -1527,7 +1529,7 @@ export function encodeSave(state: SaveState, profile: AgiProfile): Uint8Array {
 }
 
 /**
- * The Apple IIgs envelope: six blocks with big-endian lengths — the
+ * The released Apple IIgs envelope: six blocks with big-endian lengths — the
  * ~globals lead block, the state block, the little-endian object records, the raw
  * inventory, the replay pairs and the logic-resume records
  * (docs/fidelity.md "Apple IIgs interpreter").
@@ -1598,7 +1600,7 @@ function encodeSaveIigs(state: SaveState, layout: IigsBlock1Layout): Uint8Array 
   return out;
 }
 
-/** Decode a save file image written for the selected profile. */
+/** Decode a released engine save image written for the selected profile. */
 export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
   const layout = block1Layout(profile);
   if (bytes.length < SAVE_DESCRIPTION_BYTES) {
