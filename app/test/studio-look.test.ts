@@ -19,7 +19,13 @@ const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 
 function pane(colour: number, palette?: Parameters<typeof paintLayer>[4]): number[] {
   const out = new Uint8ClampedArray(CELLS * 4);
-  paintLayer("art", new Uint8Array(CELLS).fill(colour), new Uint8Array(CELLS).fill(4), out, palette);
+  paintLayer(
+    "art",
+    new Uint8Array(CELLS).fill(colour),
+    new Uint8Array(CELLS).fill(4),
+    out,
+    palette,
+  );
   return [...out.subarray(0, 4)];
 }
 
@@ -79,7 +85,8 @@ test("Studio's colour tokens carry the palette's sixteen entries", async () => {
 
 test("swatch labels stay legible on every colour of a platform table", async () => {
   const luminance = ([r, g, b]: readonly number[]): number => {
-    const lin = (c: number): number => ((c / 255) <= 0.03928 ? c / 255 / 12.92 : (((c / 255) + 0.055) / 1.055) ** 2.4);
+    const lin = (c: number): number =>
+      c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4;
     return 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
   };
   for (const id of ["amiga-2.202", "amiga-2.310", "iigs-1.014"]) {
