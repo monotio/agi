@@ -49,7 +49,7 @@ type SaveDialogPhase =
   | "none";
 
 /** A screen rectangle the Amiga dialog answers with a key when clicked (a gadget). */
-export interface SaveDialogHit {
+interface SaveDialogHit {
   x0: number;
   y0: number;
   x1: number;
@@ -58,7 +58,7 @@ export interface SaveDialogHit {
 }
 
 /** Key words the Amiga slot gadgets post: 0x0a00 + slot index, type 0x0a on the original. */
-export const SAVE_DIALOG_SLOT_KEY = 0x0a00;
+const SAVE_DIALOG_SLOT_KEY = 0x0a00;
 
 export interface SaveDialogPlatform {
   /** "amiga": the original WindowPrint dialogs; "pc": the spec-derived full-screen selector. */

@@ -6,7 +6,7 @@ export const FUNCTION_KEYS: Record<string, number> = Object.fromEntries(
   Array.from({ length: 10 }, (_, i) => [`F${i + 1}`, AGI_KEY.F1 + (i << 8)]),
 );
 /** IBM PC letter scan codes, shared with the phone's modifier key panel. */
-export const ALT_LETTER_SCANS: Record<string, number> = {
+const ALT_LETTER_SCANS: Record<string, number> = {
   A: 30,
   B: 48,
   C: 46,

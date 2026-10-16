@@ -35,12 +35,16 @@ class Host implements EngineHost {
   }
 }
 
-/** SQ2 Amiga's strip, as the fixture's logic 0 submits it (ids from the game). */
+/**
+ * SQ2 Amiga's strip, as the fixture's logic 0 submits it (ids from the game).
+ * The first picture uses overlay.pic so it shows at once: these tests are
+ * about the menu, and a drawn picture would dissolve first (f203 draws one).
+ */
 const MENU_GAME = `
   configure.screen(1, 22, 0);
   if (!isset(f200)) {
     set(f200);
-    load.pic(v250); draw.pic(v250); show.pic();
+    load.pic(v250); overlay.pic(v250); show.pic();
     set.menu("Sierra");
     set.menu.item("About SQ2", 21);
     set.menu.item("Help     ", 2);
@@ -72,6 +76,7 @@ const MENU_GAME = `
   if (controller(7)) { assignn(v100, 7); }
   if (isset(f201)) { reset(f201); print("Hello"); }
   if (isset(f202)) { reset(f202); text.screen(); }
+  if (isset(f203)) { reset(f203); draw.pic(v250); show.pic(); }
   return;
 `;
 
@@ -166,6 +171,25 @@ test("the gate: f14 on 2.176..2.333, never on 2.082; an open window or text mode
   }
   const pc = boot("2.936");
   assert.equal(pc.engine.nativeMenuAvailable, false, "PC builds open menus through menu.input");
+});
+
+test("the strip stays shut during a picture dissolve and opens once it ends (MENUVERIFY busy flag)", () => {
+  // docs/fidelity.md "Original picture dissolve", "During the dissolve": the
+  // loop's busy flag makes MENUVERIFY refuse the pull; a held button does not
+  // open the strip later.
+  const { engine } = boot();
+  engine.flags[203] = 1;
+  engine.tick();
+  assert.equal(engine.modalKind, "dissolve");
+  assert.equal(engine.nativeMenuAvailable, false);
+  assert.equal(engine.nativeMenuOpen(3, 2), false, "refused mid-dissolve");
+  assert.equal(engine.modalKind, "dissolve");
+  engine.advanceClock(794.2 - 0.01);
+  assert.equal(engine.nativeMenuOpen(3, 2), false, "refused until the last cell");
+  engine.advanceClock(0.01);
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.nativeMenuOpen(3, 2), true, "opens after the dissolve");
+  assert.equal(engine.modalKind, "menu");
 });
 
 test("holding the right button opens the strip; the pull-down follows the title under the pointer", () => {
