@@ -3785,28 +3785,42 @@ maxLength) >> 1` (`shr` = floor; slack non-negative via the verbose gate);
 
 ### Original picture drawing and fill
 
-Static disassembly of the decoded KQ3 2.936 image and the KQ4 3.002.086 code
-body; brush tables read from the hash-pinned overlays.
+Static disassembly across all 21 shipped binaries: 15 PC (`2.001..3.002.149`),
+6 Amiga (`2.082..2.333`), and Apple IIgs (`1.014`); brush tables read from the
+hash-pinned overlays and data hunks/segments.
 
-- **F-picture-01 (fact; engine matches).** PC show.pic (2.936 kq3 0x4B82 /
-  3.002.086 kq4 body 0x4FB0): `Reset(15)` (LEAVE_WIN), `CloseWindow(NULL)`,
-  `BackToScrn`, `picVisible=1`, in that order — the flag-15 clear and window
-  close exist on PC exactly as on Amiga/IIgs.
-- **F-picture-02 (fact; engine matches the modeled fill; known divergence on
-  valid input when deep flood-fill branching exceeds the original CPU stack).** Seed fill
-  (2.936 kq3 colorFill 0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose
-  pending-line stack is the CPU stack, seeded with 4×0xFFFF (`B8 FF FF 50 50
-50 50` at 0x5377), popped until start-Y == 0xFF; no SP bound — a
-  pathological fill pushes `(direction, startX, endX, startY)` words past the
-  8086 stack segment into live C stack frames, return addresses and `DS`
-  globals, whose side effects depend on the instantaneous `SS:SP` call depth and
-  hardware interrupt state rather than a deterministic game-state rule (known
-  divergence on valid input: the engine uses a heap-allocated work stack and
-  completes the fill cleanly rather than corrupting host memory). Fill with
-  visual 15 or priority 4 is dropped before the seed test
-  (`cmp byte [color],0xF / jz`, `cmp byte [pri],0x40 / jz`); visual channel
-  selected before priority (`test bh,0xF` first); seed masked pixel must equal
-  the background mask or the fill is ignored; Y test is an 8-bit `cmp al,0xA7`.
+- **F-picture-01 (fact; engine matches across all 18 profiles).** `show.pic`
+  (`0x1c`, PC `ShowPic`: `2.001` `0x6640`, `2.089` `0x6918`, `2.230` `0x68df`,
+  `2.272` `0x697b`, `2.411` `0x6b2a`, `2.439` `0x6c4c`, `2.440` `0x6bfb`,
+  `2.903` `0x6dec`, `2.915`/`2.917` `0x6dfb`, `2.936` `0x6ec3`, `3.002.086`
+  `0x7302`, `3.002.102`/`3.002.107` `0x731a`, `3.002.149` `0x7241`; Amiga:
+  `2.082` `h83+0x01d2`, `2.176..2.202` `h115+0x01e8`, `2.310..2.316`
+  `h115+0x01e8`, `2.333` `h115+0x020c`; IIgs `1.014` `seg2+0x393a` →
+  `seg2+0x39fd`): on `2.001`, `2.089`, `2.230`, `2.272`, and `amiga-2.082`,
+  `ShowPic` calls `CloseWindow(NULL)`, `BackToScrn`, and `picVisible = 1`
+  without touching flag 15 (`showPictureClearsF15: false`). On `2.411..3.002.149`,
+  `amiga-2.176..2.333`, and `iigs-1.014`, `ShowPic` calls `Reset(15)`
+  (`LEAVE_WIN`), `CloseWindow(NULL)`, `BackToScrn`, and `picVisible = 1` in that
+  order (`showPictureClearsF15: true`).
+- **F-picture-02 (fact; engine matches the modeled fill across all 18 profiles;
+  documented divergence on unusual input when deep flood-fill branching exceeds
+  the original CPU stack).** Seed fill (`colorFill`: PC `2.001` `0x4d6c`,
+  `2.089` `0x4ad4`, `2.230` `0x4a3a`, `2.272` `0x4aa6`, `2.411` `0x513d`,
+  `2.439` `0x5167`, `2.440` `0x516f`, `2.903` `0x5272`, `2.915` `0x5271`,
+  `2.917` `0x5273`, `2.936` `0x533b`, `3.002.086` `0x574f`,
+  `3.002.102`/`3.002.107` `0x5757`, `3.002.149` `0x556e`; Amiga: `2.082`
+  `h114+0x0110`, `2.176..2.202` `h152+0x073a`, `2.310..2.333` `h152+0x0728`;
+  IIgs `1.014` `main+0x04d2..0x0775`): across all 21 binaries, `colorFill` is
+  the same 4-connected scanline fill whose pending-line stack is the CPU stack,
+  seeded with `4 × 0xffff` and popped until `startY == 0xff` (`0xffff` on Amiga
+  and IIgs), with no stack-pointer bound (none of the 20 shipped games overflows
+  the stack in `colorFill`; the engine uses a heap-allocated work stack and
+  completes deep fills cleanly rather than corrupting host memory). In every
+  build, fill with visual `15` or (when visual is disabled) priority `4` is
+  dropped before the seed test; the visual channel is tested before priority
+  (`test bh,0x0f` / `andi.b #$0f` / `and #$000f` first); the seed byte masked
+  with the active channel mask must equal `0x4f & mask` or the fill is ignored;
+  and the vertical bound test is an unsigned compare against `0xa7` (`167`).
 - **F-picture-04 (fact; engine matches across all 18 profiles).** show.pri.screen
   (PC handler: `2.001` `0x69ea`, `2.089` `0x6cc9`, `2.230` `0x6c88`, `2.272`
   `0x6d24`, `2.411` `0x6f59`, `2.439` `0x70a5`, `2.440` `0x7054`, `2.903`
@@ -3817,22 +3831,74 @@ body; brush tables read from the hash-pinned overlays.
   `WaitAcAb`, sets `showPri = 0`, and calls `BackToScrn` again without calling
   `CloseWindow`. Engine: `profile.showPriScreenPreservesWindow` is `true` across
   all 18 profiles.
-- **F-picture-09 (fact; engine matches).** PC picture core (2.936 kq3 /
-  3.002.086 kq4): brush row-word tables at ovl DS+0x1629 (kq3) / DS+0x1699
-  (kq4) via 8-pointer tables DS+0x1619/0x1689 — byte-exact ROW_WORDS_V2 incl.
-  the radius-5 0x1F00 tail; kq4 radius 1 = 4000/E000/4000 (v3 center row).
-  Line core kq3 0x66E1: half-error `shr` init, 8-bit add/cmp/sub error
-  registers, `loop` on the major delta, endpoints plotted by the caller. Plot
-  offset is y*160+x with no x clamp (kq3 0x52F9) — the X=160 right-edge wrap
-  is real on PC. Pattern plotter masks radius with `and si,7` and clamps the
-  origin to 320−2r.
+- **F-picture-09 (fact; engine matches across all 18 profiles).** Picture core
+  (`clrScreen`, `plot`, `drawline`, `relativeDraw`, and `plotPattern` across all
+  21 binaries):
+  - `clrScreen(0x4f4f)` clears all `160 × 168 = 26,880` packed picture bytes to
+    `0x4f` (visual `15`, priority `4`) on every build (PC `2.001` `0x4c8d`,
+    `2.089` `0x49f5`, `2.230` `0x495b`, `2.272` `0x49c7`, `2.411` `0x5059`,
+    `2.439` `0x5083`, `2.440` `0x508b`, `2.903` `0x518e`, `2.915` `0x518d`,
+    `2.917` `0x518f`, `2.936` `0x5257`, `3.002.086` `0x566b`,
+    `3.002.102`/`3.002.107` `0x5673`, `3.002.149` `0x548a`; Amiga `2.082`
+    `h114+0x0018`, `2.176..2.202` `h152+0x0636`, `2.310..2.333` `h152+0x0624`;
+    IIgs `1.014` `main+0x0387`).
+  - `plot` indexes `y * 160 + x` linearly with no `x < 160` clamp on every
+    platform (PC `2.001` `0x4d29`, `2.089` `0x4a91`, `2.230` `0x49f7`, `2.272`
+    `0x4a63`, `2.411` `0x50fb`, `2.439` `0x5125`, `2.440` `0x512d`, `2.903`
+    `0x5230`, `2.915` `0x522f`, `2.917` `0x5231`, `2.936` `0x52f9`, `3.002.086`
+    `0x570d`, `3.002.102`/`3.002.107` `0x5715`, `3.002.149` `0x552c`; Amiga
+    `2.082` `h114+0x00d2`, `2.176..2.202` `h152+0x0700`, `2.310..2.333`
+    `h152+0x06ee`; IIgs `1.014` `main+0x048f`), so `x = 160` wraps into
+    `(0, y + 1)` across PC, Amiga, and IIgs.
+  - `drawline` initializes the minor-axis error to `major >> 1`, steps
+    `major` times while adding `dx` and `dy` to the error accumulators, and
+    overwrites `[currentX, currentY]` with `[x1, y1]` on exit. On all 15 PC
+    builds (`2.001` `0x5d7d`, `2.089` `0x5d19`, `2.230` `0x5d14`, `2.272`
+    `0x5da2`, `2.411` `0x6342`, `2.439` `0x64b1`, `2.440` `0x64b9`, `2.903`
+    `0x664a`, `2.915` `0x6649`, `2.917` `0x664b`, `2.936` `0x6724`, `3.002.086`
+    `0x6b5d`, `3.002.102`/`3.002.107` `0x6b75`, `3.002.149` `0x6a9c`), the X and
+    Y error accumulators live in 8-bit `al`/`ah` registers (`& 0xff`), so a
+    diagonal with `major > 128` wraps the minor-axis error modulo 256 while the
+    post-loop writeback restores `(x1, y1)` for the next polyline segment. On
+    all 6 Amiga builds (`2.082` `h102+0x0254`, `2.176..2.202` `h152+0x051c`,
+    `2.310..2.333` `h152+0x050a`, 68000 `add.w`/`cmp.w`/`sub.w`) and IIgs
+    `1.014` (`main+0x0de1..0x0ed9`, 65816 16-bit `adc`/`sbc`), the error
+    accumulators are 16-bit words (`& 0xffff`) and reach `(x1, y1)` without
+    modulo-256 wrap (exercised by `mh2-amiga` picture 75's `(159, 105) → (1, 0)`
+    segment).
+  - `relativeDraw` (`0xf7`) sign-magnitude decodes `(dx, dy)` in 8-bit
+    arithmetic (`(coord + delta) & 0xff`), clamps `x > 0x9f` to `159` on every
+    platform, and when `y > 0xa7` (`167`) clamps `y` to `0xa7` (`167`) on PC
+    (`2.001` `0x5cf2..0x5d3e`, `2.936` `0x6554..0x65a0`) and IIgs (`1.014`
+    `main+0x0c66..0x0cf0`), whereas all 6 Amiga builds (`2.082`
+    `h102+0x017e..0x01f3`, `2.176..2.202` `h152+0x0448..0x04bb`, `2.310..2.333`
+    `h152+0x0436..0x04a9`: `cmpi.b #$a7,d2; bls.w ...; move.b #$9f,d2`) clamp
+    `y > 0xa7` to `0x9f` (`159`).
+  - Pattern commands `0xf9`/`0xfa` (`pictureMaxCommand` and `patternProfile`):
+    PC `2.001..2.272` (`DrwPicNC` at `0x5c13`, `0x5baf`, `0x5baa`, `0x5c38`) and
+    Amiga `2.082` (`h102+0x0052`, `cmpi.b #$8,d0; bhi.b $a458`) dispatch only
+    `0xf0..0xf8` (`pictureMaxCommand: 0xf8`, `patternProfile: "none"`). PC
+    `2.411` (`0x61d8`: `0xf9` at `0x61f5`, `0xfa` at `0x625e`) dispatches
+    `0xf0..0xfa`, discards the `0xf9` mode byte, and plots single points in
+    `0xfa` (`patternProfile: "point-2.411"`). PC `2.439..2.936` (`0x6202`,
+    `0x620a`, `0x639b`, `0x639a`, `0x639c`, `0x6475`) use `ROW_WORDS_V2` with
+    `maxDoubledX = 320 - 2r` (`patternProfile: "square-r1"`), while PC
+    `3.002.086..3.002.149` (`0x68ae`, `0x68c6`, `0x67ed`) use the center-row
+    radius-1 cross `4000/e000/4000` and `maxDoubledX = 318 - 2r`
+    (`patternProfile: "center-row"`). Amiga `2.176..2.333` and IIgs `1.014`
+    pattern brushes are detailed in
+    [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes).
 - **F-picture-10 (fact; malformed-input/memory-only divergence).** Picture
-  stream termination (2.936 kq3 DrwPicNC 0x6475): the dispatch loop `lodsb; cmp
-al,0xFF; jz done; sub al,0xF0; jc top; cmp al,0xA; ja top; call [bx+tbl]`
-  carries no length register — 0xFB..0xFE are skipped, and a stream without
-  0xFF reads past the buffer into adjacent heap until an 0xFF byte. The
+  stream termination (`DrwPicNC`: PC `2.001` `0x5c13` through `3.002.149`
+  `0x67ed`, Amiga `2.082` `h102+0x0024` and `2.176..2.333` `h152+0x0024`, IIgs
+  `1.014` `main+0x0818`): in every binary, the dispatch loop reads until `0xff`
+  with no stream-length register — bytes above `pictureMaxCommand` (`0xf9..0xfe`
+  on `2.001..2.272` and `amiga-2.082`, `0xfb..0xfe` on `2.411+`,
+  `amiga-2.176+`, and `iigs-1.014`) are skipped, and a stream without `0xff`
+  reads past the buffer into adjacent memory until an `0xff` byte. Every
+  shipped picture resource in the 25 game fixtures ends with `0xff`; the
   engine's clean EOF stop only differs on malformed/truncated picture resources
-  missing their `0xFF` terminator.
+  missing their `0xff` terminator.
 
 ### Original cel handling and priority table
 
