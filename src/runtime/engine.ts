@@ -427,13 +427,11 @@ class RoomChange {
  */
 class ContinuationAbort {
   readonly resumeLogic: boolean;
-  readonly errorJump: boolean;
   /** The boundary of the operation that threw, when an observer armed it. */
   cause?: ExecutionCause;
 
-  constructor(resumeLogic = false, errorJump = false) {
+  constructor(resumeLogic = false) {
     this.resumeLogic = resumeLogic;
-    this.errorJump = errorJump;
   }
 }
 
@@ -729,7 +727,7 @@ export class Engine {
    * "Original script capacity and version handlers", F-OPCORE-07).
    */
   defaultVersionBanner(): string {
-    const version = this.profileBuild ?? this.profile.id.replace(/^(amiga|iigs)-/, "");
+    const version = (this.profileBuild ?? this.profile.id).replace(/^(amiga|iigs)-/, "");
     const suffix = this.profile.id === "2.001" ? "\n" : "";
     return `Adventure Game Interpreter\n      Version ${version}${suffix}`;
   }
@@ -1019,11 +1017,6 @@ export class Engine {
    */
   private parkedModalWait = false;
   private executionFault: unknown = null;
-  private placementStalled:
-    | { kind: "object"; index: number }
-    | { kind: "addToPic"; width: number; height: number }
-    | { kind: "error" }
-    | null = null;
   /**
    * Passes that ran their post-logic tail — the controlled-cycle completion
    * witness. Session-local and never serialized; it rises only at the end of
@@ -3671,7 +3664,6 @@ export class Engine {
       sound.restore(state.sound.playback);
     }
     this.amigaRegion = state.amigaRegion ?? "ntsc";
-    this.placementStalled = null;
     this.clockRemainderMs = state.clockRemainderMs;
     this.pictureShown = state.pictureShown;
     this.terminated = state.terminated;
@@ -4063,7 +4055,6 @@ export class Engine {
    */
   applyRestore(image: Uint8Array, screen: readonly ReplayPair[] | null = null): never {
     const s = decodeSave(image, this.profile);
-    this.placementStalled = null;
     this.saveDescription = s.description;
     this.statusRefreshRequested = false;
     this.inputQueue.clear();
@@ -4565,15 +4556,15 @@ export class Engine {
         remaining = leg;
       }
     }
-    this.placementStalled = { kind: "addToPic", width, height };
-    throw new ContinuationAbort(false);
+    return [originX, originY];
   }
 
   /**
    * A margin below four outlines a control box in the priority screen: the
    * baseline row, both side columns and a top row. The box is as tall as the
    * run of rows sharing the baseline's priority band, capped at the cel height
-   * (docs/fidelity.md, "Original add.to.pic control box"). On the top row, the
+   * (docs/fidelity.md, "Original add.to.pic control box"). On the verified PC
+   * builds with AddToPic byte packing (2.440, 2.936, 3.002.086), the top-row
    * 8086 `loop` sets CL = (width - 2) & 0xff and increments DI before each
    * write, wrapping CX for width <= 2 (F-VIEWS-12).
    */
@@ -4599,14 +4590,18 @@ export class Engine {
       stamp(right, y - up);
     }
     if (rows > 1) {
-      const cl = (cel.width - 2) & 0xff;
-      const count = cl === 0 ? 0x10000 : cl;
-      let di = ((y - rows + 1) * SCREEN_WIDTH + left) & 0xffff;
-      for (let i = 0; i < count; i++) {
-        di = (di + 1) & 0xffff;
-        if (di < this.surface.priority.length) {
-          this.surface.priority[di] = margin;
+      if (this.profile.addToPicPacking) {
+        const cl = (cel.width - 2) & 0xff;
+        const count = cl === 0 ? 0x10000 : cl;
+        let di = ((y - rows + 1) * SCREEN_WIDTH + left) & 0xffff;
+        for (let i = 0; i < count; i++) {
+          di = (di + 1) & 0xffff;
+          if (di < this.surface.priority.length) {
+            this.surface.priority[di] = margin;
+          }
         }
+      } else {
+        for (let px = left + 1; px < right; px++) stamp(px, y - rows + 1);
       }
     }
   }
@@ -4772,16 +4767,6 @@ export class Engine {
       this.clockReadPc = -1;
     }
     if (this.terminated) return;
-    if (this.placementStalled !== null) {
-      if (
-        this.placementStalled.kind === "object" &&
-        this.canPlaceObject(this.objects[this.placementStalled.index]!)
-      ) {
-        this.placementStalled = null;
-      } else {
-        return;
-      }
-    }
     // A suspended host interaction freezes the cycle until its answer lands;
     // the host's own event loop keeps serving application commands meanwhile.
     // The restore-error teardown is exempt: it waits on its error window,
@@ -4951,7 +4936,6 @@ export class Engine {
       if (stage === "reset" && this.runResetPhase()) return;
 
       // 6. Execute logic 0 (with re-entry on restart-style requests).
-      let errorJumps = 0;
       for (;;) {
         try {
           if (this.pendingLogic !== null) {
@@ -4990,7 +4974,7 @@ export class Engine {
             this.runLogicStack(frames);
           } else {
             this.clockWaitMs = 0;
-            this.runLogic0();
+            this.execute(0);
           }
           // A stop may leave nothing parked — the emptied stack's owed tail
           // sits on the phase cursor.
@@ -5003,14 +4987,6 @@ export class Engine {
             continue; // next top-level pass begins with logic 0
           }
           if (rc instanceof ContinuationAbort) {
-            if (rc.errorJump) {
-              if (++errorJumps > 1) {
-                this.placementStalled = { kind: "error" };
-                return;
-              }
-              if (this.operationUnwind(rc, { phase: "logic" }, "reset")) return;
-              continue;
-            }
             if (!rc.resumeLogic) {
               this.operationUnwind(rc, null, "reset");
               return;
@@ -5052,26 +5028,9 @@ export class Engine {
       if (!this.textMode) {
         // An open text window never suspends this update.
         // docs/fidelity.md: window-update-gate
-        try {
-          this.updateObjects();
-        } catch (rc) {
-          if (rc instanceof ContinuationAbort && rc.errorJump) {
-            try {
-              this.runLogic0();
-            } catch (rc2) {
-              if (rc2 instanceof ContinuationAbort) {
-                this.placementStalled = { kind: "error" };
-                return;
-              }
-              throw rc2;
-            }
-          } else {
-            throw rc;
-          }
-        }
+        this.updateObjects();
         this.presentationDirty = true;
         this.updateEgoVisibility();
-        if (this.placementStalled !== null) return;
       }
       if (this.observePhase("motion", { phase: "cycle-end" })) return;
       stage = "cycle-end";
@@ -5219,7 +5178,6 @@ export class Engine {
         if (obj === this.objects[0] && !obj.newlyPositioned && obj.stepSize > 0)
           this.egoMovementUpdates++;
         this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
-        if (this.placementStalled !== null) return;
         // Stationary compares against the committed saved pair, not the
         // pass-start position: reposition and cel clipping move x/y without
         // touching the pair, so such an object reads "moved" even when this
@@ -5356,7 +5314,7 @@ export class Engine {
   }
 
   private moveObject(obj: ScreenObject, step: number): void {
-    const [dx, dy] = moveObjDirectionDelta(obj.direction);
+    const [dx, dy] = directionDelta(obj.direction);
     let nx = obj.x + dx * step;
     let ny = obj.y + dy * step;
 
@@ -5382,7 +5340,7 @@ export class Engine {
     }
 
     if (this.collides(obj, nx, ny) || !this.footprintAccepts(obj, nx, ny)) {
-      this.placeObject(obj, false);
+      this.placeObject(obj);
       return;
     }
 
@@ -5415,7 +5373,9 @@ export class Engine {
   }
 
   /** First geometrically valid, collision-free footprint in the specified spiral. */
-  private placeObject(obj: ScreenObject, fromAction = true): void {
+  private placeObject(obj: ScreenObject): void {
+    // FindPosn raises an object observing the horizon to horizon + 1 before
+    // starting the spiral (docs/fidelity.md, F-motion-12).
     if (obj.observeHorizon && obj.y <= this.horizon) {
       obj.y = this.horizon + 1;
     }
@@ -5432,9 +5392,8 @@ export class Engine {
       [1, 0],
       [0, -1],
     ] as const;
-    // The furthest legal point is inside this square. When no legal footprint
-    // exists anywhere on the 160x168 surface, FindPosn's spiral never
-    // terminates; match the visible stall safely (docs/fidelity.md, F-motion-12).
+    // The furthest legal point is inside this square; an arbitrary origin must
+    // not terminate before the spiral reaches the screen.
     const radius =
       Math.max(
         Math.abs(originX),
@@ -5465,26 +5424,7 @@ export class Engine {
         remaining = leg;
       }
     }
-    this.placementStalled = { kind: "object", index: this.objects.indexOf(obj) };
-    if (fromAction) {
-      throw new ContinuationAbort(false);
-    }
-  }
-
-  private canPlaceObject(obj: ScreenObject): boolean {
-    const minY = Math.max(obj.height - 1, obj.observeHorizon ? this.horizon + 1 : 0);
-    const maxX = SCREEN_WIDTH - obj.width;
-    if (maxX < 0 || minY >= SCREEN_HEIGHT) return false;
-    for (let y = minY; y < SCREEN_HEIGHT; y++) {
-      const pri = obj.fixedPriority ? obj.priority : priorityForY(y, this.priorityBase);
-      for (let x = 0; x <= maxX; x++) {
-        if (this.collides(obj, x, y)) continue;
-        if (pri === 15) return true;
-        const controls = scanFootprint(this.surface.priority, x, y, obj.width);
-        if (footprintAccepted(controls, obj.observeBlocks, obj.waterGate)) return true;
-      }
-    }
-    return false;
+    throw new Error("no acceptable position for object");
   }
 
   /**
@@ -5535,8 +5475,6 @@ export class Engine {
    * use the four-direction table is a profile variant: the early profiles and
    * 2.917 use it for exactly four loops, 2.936/3.002.086 for four or more, and
    * 3.002.102/3.002.149 for four or more only while f20 is set above four.
-   * Indexes the contiguous twoLoop[10] / fourLoop[10] tables in AGIDATA.OVL
-   * without clamping direction > 8 (docs/fidelity.md, F-motion-07).
    */
   private selectLoop(obj: ScreenObject): void {
     if (obj.loopFixed || obj.direction === 0) return;
@@ -5544,13 +5482,17 @@ export class Engine {
     if (!view) return;
     const loops = view.loops.length;
     const d = obj.direction;
-    let target = 4;
+    let target = obj.loop;
     if (loops === 2 || loops === 3) {
-      target = PC_TWOLOOP_FOURLOOP[d] ?? 4;
+      if (d === 2 || d === 3 || d === 4) target = 0;
+      else if (d === 6 || d === 7 || d === 8) target = 1;
     } else if (loops === 4 || (loops > 4 && this.fourLoopTableApplies())) {
-      target = PC_TWOLOOP_FOURLOOP[10 + d] ?? 4;
+      if (d === 1) target = 3;
+      else if (d === 2 || d === 3 || d === 4) target = 0;
+      else if (d === 5) target = 2;
+      else if (d === 6 || d === 7 || d === 8) target = 1;
     }
-    if (target !== 4 && target !== obj.loop) this.setLoop(obj, target);
+    if (target !== obj.loop) this.setLoop(obj, target);
   }
 
   /**
@@ -5573,57 +5515,12 @@ export class Engine {
    * size. Manhunter's knife game (logic 118) depends on the survival: while
    * it waits for the barker's cel to cycle it re-selects loop 0 every cycle,
    * which a reset-to-0 would freeze forever.
-   * docs/fidelity.md: view-loop-index-retention, F-motion-16
+   * docs/fidelity.md: view-loop-index-retention
    */
   private setLoop(obj: ScreenObject, loop: number): void {
-    const view = this.views.get(obj.view);
-    if (!view) this.raiseAgiError(6, this.objects.indexOf(obj));
-    if (loop > view.loops.length) this.raiseAgiError(5, this.objects.indexOf(obj));
     obj.loop = loop;
-    if (loop === view.loops.length) {
-      const raw = this.container.getResource("view", obj.view);
-      const offPos = 5 + loop * 2;
-      const loopOffset =
-        raw && offPos + 1 < raw.length ? raw[offPos]! | (raw[offPos + 1]! << 8) : 0xffff;
-      if (raw && loopOffset < raw.length) {
-        const celCnt = raw[loopOffset]!;
-        if (obj.cel >= celCnt) obj.cel = 0;
-        if (obj.cel >= celCnt) this.raiseAgiError(8, this.objects.indexOf(obj));
-        const celOffPos = loopOffset + 1 + obj.cel * 2;
-        const celRel =
-          celOffPos + 1 < raw.length ? raw[celOffPos]! | (raw[celOffPos + 1]! << 8) : 0xffff;
-        const celPos = loopOffset + celRel;
-        if (celPos + 1 < raw.length) {
-          obj.width = raw[celPos]!;
-          obj.height = raw[celPos + 1]!;
-        }
-      } else {
-        obj.cel = 0;
-      }
-      this.clipObjectCelPosition(obj);
-      return;
-    }
     if (obj.cel >= this.celCount(obj)) obj.cel = 0;
     this.updateCelSize(obj);
-  }
-
-  private setCel(obj: ScreenObject, cel: number): void {
-    const view = this.views.get(obj.view);
-    if (!view) this.raiseAgiError(10, this.objects.indexOf(obj));
-    if (cel >= this.celCount(obj)) this.raiseAgiError(8, this.objects.indexOf(obj));
-    obj.cel = cel;
-    obj.cycleDelay = false;
-    this.updateCelSize(obj);
-  }
-
-  private raiseAgiError(errNum: number, errVal: number): never {
-    this.stopSound();
-    this.controllers.fill(0);
-    this.inputQueue.clear();
-    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
-    this.vars[17] = errNum & 0xff;
-    this.vars[18] = errVal & 0xff;
-    throw new ContinuationAbort(true, true);
   }
 
   /** Whether a view with MORE than four loops receives direction-based selection. */
@@ -5646,22 +5543,18 @@ export class Engine {
       obj.height = cel.height;
       // Binding a host checkpoint's dimensions is not a new cel selection.
       if (!clipPosition) return;
-      this.clipObjectCelPosition(obj);
-    }
-  }
-
-  private clipObjectCelPosition(obj: ScreenObject): void {
-    // Original cel selection clips only right/top overflow and suppresses
-    // the next due move. Horizon applies only after top overflow, not to
-    // every selection. docs/fidelity.md: Original complete movement and follow audit.
-    if (obj.x + obj.width > SCREEN_WIDTH) {
-      obj.x = SCREEN_WIDTH - obj.width;
-      obj.newlyPositioned = true;
-    }
-    if (obj.y < obj.height - 1) {
-      obj.y = obj.height - 1;
-      if (obj.observeHorizon && obj.y <= this.horizon) obj.y = this.horizon + 1;
-      obj.newlyPositioned = true;
+      // Original cel selection clips only right/top overflow and suppresses
+      // the next due move. Horizon applies only after top overflow, not to
+      // every selection. docs/fidelity.md: Original complete movement and follow audit.
+      if (obj.x + obj.width > SCREEN_WIDTH) {
+        obj.x = SCREEN_WIDTH - obj.width;
+        obj.newlyPositioned = true;
+      }
+      if (obj.y < obj.height - 1) {
+        obj.y = obj.height - 1;
+        if (obj.observeHorizon && obj.y <= this.horizon) obj.y = this.horizon + 1;
+        obj.newlyPositioned = true;
+      }
     }
   }
 
@@ -5956,52 +5849,13 @@ export class Engine {
     if (this.parserCount > 0) this.flags[F_INPUT_READY] = 1;
   }
 
-  private resolveWordToString(wordIndex: number): string {
-    if (wordIndex < 10) {
-      return this.parsedWordTexts[wordIndex] ?? "";
-    }
-    const isPc =
-      this.profile.windowFrameGeometry === "pc" || this.profile.windowFrameGeometry === "pc-2.001";
-    if (!isPc) return "";
-    const dgroupByte = (addr: number): number => {
-      if (addr < 2) return 0;
-      if (addr < 9) {
-        const idx = addr - 2;
-        return idx < this.signature.length ? this.signature.charCodeAt(idx) & 0xff : 0;
-      }
-      if (addr < 9 + 256) return this.vars[addr - 9]!;
-      return 0;
-    };
-    const start = this.parserCount & 0xffff;
-    const chars: number[] = [];
-    for (let i = 0; i < 39; i++) {
-      const b = dgroupByte(start + i);
-      if (b === 0) break;
-      chars.push(b);
-    }
-    return String.fromCharCode(...chars);
-  }
-
   // ---------- logic execution ----------
 
   /** Execute until return, stream end, or a modal instruction suspends the call stack. */
   execute(logicNum: number): void {
     this.assertExecutionBoundary();
     const resource = this.loadLogic(logicNum);
-    try {
-      this.runLogicStack([{ logic: logicNum, resource, pc: this.scanStart.get(logicNum) ?? 0 }]);
-    } catch (rc) {
-      if (rc instanceof ContinuationAbort && (this.placementStalled !== null || rc.errorJump)) {
-        return;
-      }
-      throw rc;
-    }
-  }
-
-  private runLogic0(): void {
-    this.assertExecutionBoundary();
-    const resource = this.loadLogic(0);
-    this.runLogicStack([{ logic: 0, resource, pc: this.scanStart.get(0) ?? 0 }]);
+    this.runLogicStack([{ logic: logicNum, resource, pc: this.scanStart.get(logicNum) ?? 0 }]);
   }
 
   private runLogicStack(frames: LogicFrame[]): void {
@@ -7190,11 +7044,17 @@ export class Engine {
         obj(0).loopFixed = false;
         return next;
       case 0x2f: {
-        this.setCel(obj(0), a(1));
+        const o = obj(0);
+        o.cel = a(1);
+        o.cycleDelay = false;
+        this.updateCelSize(o);
         return next;
       }
       case 0x30: {
-        this.setCel(obj(0), this.vars[a(1)]!);
+        const o = obj(0);
+        o.cel = this.vars[a(1)]!;
+        o.cycleDelay = false;
+        this.updateCelSize(o);
         return next;
       }
       case 0x31:
@@ -7683,19 +7543,11 @@ export class Engine {
         }
         return next;
       }
-      case 0x74: {
-        // word.to.string indexes wordPtr 0-based across all 20 profiles;
-        // wordIndex > 10 returns without modifying the destination slot,
-        // unpopulated slots 0..9 read DS:0x0000 (""), and slot 10 reads one
-        // word past wordPtr[9] (numWords -> DS:0x0000 + parserCount on PC)
+      case 0x74:
+        // word.to.string indexes wordPtr 0-based across all 20 profiles
         // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-09).
-        const dest = a(0);
-        const wordIndex = a(1);
-        if (wordIndex <= 10) {
-          this.setString(dest, this.resolveWordToString(wordIndex));
-        }
+        this.setString(a(0), this.parsedWordTexts[a(1)] ?? "");
         return next;
-      }
       case 0x89:
         // echo.line returns immediately when input is disabled; when enabled,
         // it appends PREVLINE[editLen..] onto INLINE while under the edit cap
@@ -8276,7 +8128,6 @@ export class Engine {
   }
 
   private unanimateAll(): void {
-    this.placementStalled = null;
     for (const o of this.objects) {
       o.active = false;
       o.update = false;
@@ -8296,7 +8147,6 @@ export class Engine {
     // unwinds: the reset-phase and re-entered logic observations already
     // belong to the new run.
     this.runResets++;
-    this.placementStalled = null;
     this.pendingLogic = null;
     this.pendingInteraction = null;
     this.pendingAnswer = undefined;
@@ -8746,24 +8596,4 @@ function directionDelta(dir: number): [number, number] {
     default:
       return [0, 0];
   }
-}
-
-/**
- * Contiguous `twoLoop[10]` and `fourLoop[10]` byte tables in `AGIDATA.OVL`
- * (docs/fidelity.md "Original motion and animation audit", F-motion-07).
- */
-const PC_TWOLOOP_FOURLOOP: readonly number[] = [
-  4, 4, 0, 0, 0, 4, 1, 1, 1, 0, 4, 3, 0, 0, 0, 2, 1, 1, 1, 0,
-];
-
-/**
- * Contiguous `xs[9]`, `ys[9]` and `moveObjDir[9]` word tables in `AGIDATA.OVL`
- * (docs/fidelity.md "Original motion and animation audit", F-motion-07).
- */
-const PC_XS_YS_MOVEOBJDIR: readonly number[] = [
-  0, 0, 1, 1, 1, 0, -1, -1, -1, 0, -1, -1, 0, 1, 1, 1, 0, -1, 8, 1, 2, 7, 0, 3, 6, 5, 4,
-];
-
-function moveObjDirectionDelta(dir: number): [number, number] {
-  return [PC_XS_YS_MOVEOBJDIR[dir] ?? 0, PC_XS_YS_MOVEOBJDIR[dir + 9] ?? 0];
 }

@@ -232,7 +232,7 @@ export class Simulation {
       versionString: () =>
         this.recordedCalls
           ? (this.recordedValue("version") as string)
-          : `Adventure Game Interpreter\n      Version ${state.profile.id.replace(/^(amiga|iigs)-/, "")}${state.profile.id === "2.001" ? "\n" : ""}`,
+          : this.engine.defaultVersionBanner(),
       randomByte: () =>
         this.recordedCalls ? (this.recordedValue("random") as number) : randomByte(),
       soundDevice: () => (this.recordedCalls ? (this.recordedValue("soundDevice") as number) : 1),
