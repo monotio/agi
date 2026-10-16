@@ -18,6 +18,10 @@ import { createEngineHost } from "../src/worker/host.ts";
 import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 import type { ResourceKind } from "../../src/types.ts";
 import type { ProfileId } from "../../src/runtime/profile.ts";
+import { loadAppearance } from "../src/render/appearance.ts";
+
+// bootedContext is synchronous: Amiga and IIgs boots wait for their platform look, so load it first.
+await Promise.all(["amiga-2.333", "iigs-1.014"].map((id) => loadAppearance(id)));
 
 const bootLogic = assembleLogic("return;", { dictionary: new Map() }).payload;
 const roomLogic = assembleLogic("return;", { dictionary: new Map() }).payload;

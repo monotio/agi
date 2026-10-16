@@ -1,7 +1,7 @@
 import type { Engine } from "../runtime/engine.ts";
 import { decodeSave } from "../runtime/persistence.ts";
 import { fnv1a32 } from "../runtime/hash.ts";
-import { DIRECTION_KEYS, directionForDelta } from "./gameTestSteps.ts";
+import { DIRECTION_KEYS, directionForDelta } from "../runtime/keys.ts";
 import {
   planWalk,
   validateWalk,

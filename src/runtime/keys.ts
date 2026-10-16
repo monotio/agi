@@ -140,3 +140,11 @@ export function describeKeyWord(key: number): string {
   if (key >= 33 && key <= 126) return `'${String.fromCharCode(key)}'`;
   return `0x${key.toString(16)}`;
 }
+
+/** The compass direction (1..8) for a unit step (dx, dy); 0 when there is no step. */
+export function directionForDelta(dx: number, dy: number): number {
+  if (dx === 0 && dy === 0) return 0;
+  if (dx === 0) return dy < 0 ? 1 : 5;
+  if (dx > 0) return dy < 0 ? 2 : dy === 0 ? 3 : 4;
+  return dy < 0 ? 8 : dy === 0 ? 7 : 6;
+}

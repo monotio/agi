@@ -6,7 +6,7 @@
  */
 import { assembleLogic, AssemblerError } from "./assembler.ts";
 import { commandReference } from "./commandReference.ts";
-import { quoteLogicString } from "./disassembler.ts";
+import { quoteLogicString } from "./quote.ts";
 import { analyzeLogicSyntax, scanLogicTokens, type Token } from "./syntax.ts";
 import { collectLogicResourceUses } from "./resourceUses.ts";
 import { collectLogicOperands, numberedOperandKind, BINDING_KINDS } from "./languageOperands.ts";

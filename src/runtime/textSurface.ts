@@ -122,10 +122,10 @@ export interface SavedRect {
 
 const OVERLAY_WIDTH = 320;
 const OVERLAY_HEIGHT = 200;
-export const TITLE_FILL_HEIGHT = 11;
+const TITLE_FILL_HEIGHT = 11;
 export const TITLE_FILL_PIXELS = OVERLAY_WIDTH * TITLE_FILL_HEIGHT;
-export const TITLE_PICTURE_BIT = 0x80000000;
-export const OVERLAY_PICTURE = 0xff;
+const TITLE_PICTURE_BIT = 0x80000000;
+const OVERLAY_PICTURE = 0xff;
 
 export class TextSurface {
   /** Row-major cells: [char, attr] per cell, TEXT_COLS * TEXT_ROWS pairs. */

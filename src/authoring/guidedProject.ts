@@ -23,7 +23,7 @@
 import { systemOperand } from "../logic/systemNames.ts";
 import { openContainer } from "../container/container.ts";
 import { AssemblerError } from "../logic/assembler.ts";
-import { quoteLogicString } from "../logic/disassembler.ts";
+import { quoteLogicString } from "../logic/quote.ts";
 import { matchDictionaryPhrase, parseWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture } from "../picture/renderer.ts";
 import { compilePictureSource } from "../picture/source.ts";
