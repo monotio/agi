@@ -7580,6 +7580,34 @@ These paths share the sixteen digital RGB colours at the app's logical
 raster. This does not establish analogue output or every adapter's BIOS font.
 The 2.001 booter's full adapter census remains unverified here.
 
+**Text attributes.** A shared routine computes the attribute byte that text
+output hands to the BIOS from fg and bg arguments (PQ1 2.903
+`0x7729..0x77c3`). On monitor type 2 it returns `0x07` or `0x70` by whether
+fg exceeds bg. With the interpreter's text screen active (`DS:0x172b` in
+2.903, set from startup through text display and cleared when graphics
+resume) it returns `fg | bg<<4` unchanged. Otherwise a nonzero bg returns
+`0x8f`; monitor type 3 or a nonzero computer type returns fg; and computer
+type 0 on the remaining adapters maps fg through a fifteen-entry jump table:
+`0→0`, `1..3→1`, `4..6→2`, `7..8→3`, `9..11→1`, `12..14→2` and `>14→3`.
+The same grouping appears in every inspected build — 2.089 `cs:0x6dea`,
+2.230 `0x6da3`, 2.272 `0x6e3f`, 2.411 `0x74bd`, 2.439 `0x75da`, 2.440
+`0x75e2`, 2.903 `0x77a5`, 2.915 `0x77a4`, 2.917 `0x77b8`, 2.936 `0x787f`,
+3.002.086 `0x7cbe`, 3.002.102 `0x7cd6`, 3.002.107 `0x7cd6` and 3.002.149
+`0x7bb3` (executable and data identities under
+[Verified inputs](#verified-inputs)). The routine differs only in its
+Hercules branch, which the 2.089..2.272 builds lack.
+
+The character write (2.903 `0x29ef..0x2b05`) treats attribute bit 7 as a
+request in graphics mode: it copies the glyph to a one-glyph buffer and
+inverts every bit (`0x2c30`, buffer `DS:0xe7c`; INT 1Fh points there from
+startup at `0x83a1`, while EGA repoints INT 43h per write at `0x2a97`), then
+issues BIOS `AH=09h` with `BL = attribute & 0x7f`. So `0x8f` draws the
+inverted glyph in BIOS colour `0x0f` — colour 3 of the two-bit mode —
+showing background-coloured letterforms on colour-3 cells. The MAME 0.289
+`t1000sx` PQ1 status row confirms the result: 170/85/0 cells with 0/0/170
+letterforms. On EGA the same `0x8f` keeps all four colour bits, so inverted
+glyphs print colour-0 strokes on colour-15 cells.
+
 **Monitor switch.** PQ1 2.903 `0x7872..0x78ad` admits `toggle.monitor`
 only on computer type 0, outside room 0, when the monitor type is neither
 EGA (3) nor Hercules (2). The room test is `cmp byte [0x0009],0`: the

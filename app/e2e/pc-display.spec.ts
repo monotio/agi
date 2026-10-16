@@ -171,7 +171,7 @@ for (const profile of ["2.089", "amiga-2.310"]) {
     });
     await page.goto("/");
     await uploadGame(page, profile);
-    expect((await textHook(page)).pcDisplay).toBe("ega");
+    await expect.poll(async () => (await textHook(page)).pcDisplay).toBe("ega");
     await openAdvanced(page);
     await expect(page.getByTestId("toggle-sound-mode")).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Screen" })).toHaveCount(0);

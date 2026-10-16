@@ -365,6 +365,9 @@ export function compositeFrame(
         );
       }
       const a = input.text[at + 1]!;
+      // A nonzero background becomes attribute 0x8f: the driver draws a
+      // bit-inverted glyph in colour 3 (docs/fidelity.md "PC fonts and
+      // display adapters"), so strokes take the background colour.
       const inverse = look.cgaRgb && a >> 4 !== 0;
       const fg = palette[inverse ? 0 : a & 0x0f]!;
       const bg = palette[inverse ? 15 : (a >> 4) & 0x0f]!;

@@ -17,7 +17,7 @@ import { colourIdForProfile, colourTableForId } from "../../../src/runtime/colou
 import type { Appearance as PlatformAppearance } from "./look.ts";
 
 /** PC graphics drivers with a verified 320×200 presentation path. */
-export type PcDisplay = "ega" | "cga-rgb" | "tandy" | "pcjr" | "mcga";
+export type PcDriver = "ega" | "cga-rgb" | "tandy" | "pcjr" | "mcga";
 export type Appearance = PlatformAppearance & {
   /** CGA RGB picture colours are pairs of hardware pixels, not a palette swap. */
   readonly picturePairs?: readonly (readonly [
@@ -31,11 +31,11 @@ export type Appearance = PlatformAppearance & {
   readonly background?: readonly [number, number, number];
 };
 
-const PC_EARLY_DISPLAYS: readonly PcDisplay[] = ["ega", "cga-rgb", "tandy", "pcjr"];
-const PC_MCGA_DISPLAYS: readonly PcDisplay[] = [...PC_EARLY_DISPLAYS, "mcga"];
+const PC_EARLY_DISPLAYS: readonly PcDriver[] = ["ega", "cga-rgb", "tandy", "pcjr"];
+const PC_MCGA_DISPLAYS: readonly PcDriver[] = [...PC_EARLY_DISPLAYS, "mcga"];
 
 /** Available renderer choices, constrained to the selected build's drivers. */
-export function pcDisplayChoices(id?: string | null): readonly PcDisplay[] {
+export function pcDisplayChoices(id?: string | null): readonly PcDriver[] {
   if (id?.startsWith("amiga-") || id === "iigs-1.014" || id === "2.001") return [];
   return id === "2.089" || id === "2.230" || id === "2.272" || id === "2.411" || id === "2.440"
     ? PC_EARLY_DISPLAYS
@@ -85,7 +85,7 @@ function lookKey(id: string | null | undefined): string {
 export function appearanceForProfile(
   id?: string | null,
   files?: ReadonlyMap<string, Uint8Array> | null,
-  display: PcDisplay = "ega",
+  display: PcDriver = "ega",
 ): Appearance {
   if (id === "iigs-1.014") return iigsLook?.(files) ?? PC_APPEARANCE;
   if (display === "cga-rgb" && pcDisplayChoices(id).includes(display))
@@ -97,7 +97,7 @@ export function appearanceForProfile(
 export function loadAppearance(
   id?: string | null,
   files?: ReadonlyMap<string, Uint8Array> | null,
-  display: PcDisplay = "ega",
+  display: PcDriver = "ega",
 ): Promise<Appearance> {
   if (id === "iigs-1.014") {
     if (iigsLook) return Promise.resolve(iigsLook(files));
