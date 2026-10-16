@@ -184,6 +184,11 @@ type SoundProfile =
  */
 type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
 
+/** Original presentation family a profile reproduces (`AgiProfile.presentation`). */
+export type Presentation = "pc" | "amiga" | "iigs";
+/** The build's 16-colour table (`AgiProfile.palette`). */
+export type PaletteId = "ega" | "amiga" | "amiga-2.082" | "amiga-2.31x";
+
 export type AmigaRegion = "ntsc" | "pal";
 
 /** Session timing from the fixed VBlank dividers; docs/fidelity.md "Original Amiga sound player". */
@@ -459,6 +464,26 @@ export interface AgiProfile {
    */
   readonly windowFrameGeometry: WindowFrameGeometry;
   /**
+   * Which original presentation the frame reproduces: the font, the status
+   * line's placement and the pointer (docs/fidelity.md "Amiga screen, font
+   * and pointer"). `"pc"` is the EGA text-mode look every PC build shares.
+   * `"amiga"` is the Intuition screen the six Amiga builds open: the system
+   * `topaz.font` 8×8 glyphs, the status line in the 11 px screen title bar
+   * with its depth gadgets, s0 + typed text + cursor byte on the input row,
+   * and the interpreter's own 16×16 arrow pointer. `"iigs"` is the Apple
+   * IIgs build's own look.
+   */
+  readonly presentation: Presentation;
+  /**
+   * The 16-colour table the build loads for AGI colours 0..15
+   * (docs/fidelity.md "Amiga screen, font and pointer"): `"ega"` is the PC
+   * EGA palette; the Amiga builds each carry their own 16×3 nibble table —
+   * `"amiga"` (KQ2 2.176, SQ2 2.202), `"amiga-2.082"` (SQ1, colour 13
+   * orange instead of purple) and `"amiga-2.31x"` (PQ1, GR, MH2: an
+   * EGA-like table).
+   */
+  readonly palette: PaletteId;
+  /**
    * A due movement proposal whose left X is exactly zero reports left-boundary
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
@@ -619,6 +644,8 @@ const BASE_2936: AgiProfile = {
   originalTextWindows: true,
   statusLineFormat: "common",
   windowFrameGeometry: "pc",
+  presentation: "pc",
+  palette: "ega",
   clampExactZeroLeftBoundary: false,
   addToPicPackingAndRelocation: false,
   originalCelBlitClippingAndPriorityMask: false,
@@ -738,6 +765,8 @@ const BASE_AMIGA_31X: AgiProfile = {
   directionLoops: "exact-four",
   directionLoopTiming: "cadence-due",
   windowFrameGeometry: "amiga",
+  presentation: "amiga",
+  palette: "amiga-2.31x",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
   // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
   // Fields not listed here were checked against the handlers and match the
@@ -921,6 +950,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // (docs/fidelity.md "Amiga interpreter profiles").
     movementClear: "later",
     windowFrameGeometry: "amiga",
+    presentation: "amiga",
+    palette: "amiga-2.082",
     saveBlocks: 5,
     frameTiming: "amiga-vblank",
     sound: "amiga-2.082",
@@ -962,6 +993,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     inventorySelector: true,
     timedPrintClearsV21: true,
     windowFrameGeometry: "amiga",
+    presentation: "amiga",
+    palette: "amiga",
     pictureMaxCommand: 0xfa,
     patternProfile: "short-r1",
     restartPromptBypassedByF16: true,
@@ -990,6 +1023,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     stringSlots: 13,
     directionLoops: "exact-four",
     windowFrameGeometry: "amiga",
+    presentation: "amiga",
+    palette: "amiga",
     patternProfile: "short-r1",
     restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,

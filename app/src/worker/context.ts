@@ -231,6 +231,10 @@ interface PresentationState {
   lastObjectsJson: string;
   lastPicRow: number;
   lastTextMode: boolean;
+  /** Status line shown on the last published frame. */
+  lastStatusBar: boolean | null;
+  /** Gadget labels of the last published frame, serialized; "" for none. */
+  lastGadgetsJson: string;
   lastInputEnabled: boolean;
   lastReleaseGate: number;
   lastModal: string | null;

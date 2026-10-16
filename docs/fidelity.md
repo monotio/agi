@@ -72,7 +72,8 @@ lists what remains unverified.
 - [Amiga editions](#amiga-editions): [builds and opcodes](#builds-and-opcodes),
   [object records and save games](#object-records-and-save-games),
   [click-to-walk](#click-to-walk), [motion counters](#motion-counters),
-  [pattern brushes](#pattern-brushes), [Paula sound](#paula-sound)
+  [pattern brushes](#pattern-brushes), [Paula sound](#paula-sound),
+  [screen, font and pointer](#screen-font-and-pointer)
 - [Apple IIgs edition](#apple-iigs-edition):
   [the SQ2.SYS16 interpreter](#the-sq2sys16-interpreter),
   [actions and conditions](#actions-and-conditions),
@@ -571,6 +572,31 @@ periods play at Paula's DMA limit, and period 0 counts 65,536 clocks at the
 programmed volume.
 
 **Evidence:** [Original Amiga sound player](#original-amiga-sound-player).
+
+### Screen, font and pointer
+
+Each Amiga interpreter opens its own 320×200 sixteen-colour Intuition screen
+and loads a colour table of its own: King's Quest II and Space Quest II share
+one, Space Quest I's differs in colour 13 (orange instead of purple), and the
+three 2.31x games use an EGA-like table. The profile's `palette` names the
+table and the app draws the picture, text and windows through it.
+
+Text is the system font `topaz.font` at 8 px, which the interpreter asks
+Intuition to open from the Kickstart ROM; no game disk carries a font. The app
+draws it with its own 8×8 font, redrawn to the same metrics (capitals on rows
+0..6, lowercase on rows 2..6 with descenders on row 7, an 8 px advance) and
+shapes as close as a fresh drawing allows; the ROM's glyphs are never shipped
+or read. The status line is the screen title: Kickstart draws it in an 11 px
+title bar with the screen depth gadgets at the right, which hides the top
+three picture rows while the status line is on. The input row shows string
+0, the typed text and then the cursor character. Confirmation gadgets carry
+their labels four pixels in and two down from the fill's corner. The
+interpreter also installs its own 16×16 arrow pointer from the game's
+`Pointer` file; the app shows a redrawn arrow in the same colours and hot
+spot as the browser cursor over the screen.
+
+**Evidence:**
+[Amiga screen, font and pointer](#amiga-screen-font-and-pointer).
 
 ## Apple IIgs edition
 
@@ -3909,19 +3935,21 @@ Each remaining profile field was classified against the executables' own
 handlers (static disassembly, the dispatch tables above). Values that change
 behavior were confirmed independently at the addresses given (**fact**):
 
-| Build(s)            | Field                        | Value                        | Evidence                                                                                                              |
-| ------------------- | ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 2.082               | `restartPromptBypassedByF16` | false                        | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)                    |
-| 2.082, 2.176+       | `timedPrintClearsV21`        | true                         | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)           |
-| all                 | `heapDiagnosticExtraLine`    | false                        | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable             |
-| 2.176               | `targetMotionDeferred`       | false                        | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not              |
-| 2.176               | `inventorySelector`          | true                         | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25        |
-| 2.176               | `pictureMaxCommand`          | 0xfa                         | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8            |
-| 2.176, 2.202, 2.31x | `patternProfile`             | `short-r1`, `center-row-320` | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                   |
-| all                 | `windowFrameGeometry`        | `amiga`                      | `OpenWndw` (Sierra h71+0x0, 2.176+ h97+0x0) draws inclusive `RectFill` (`8·cols+21` × `8·rows+11`) and 1-px red frame |
-| all                 | `keypadWordsNormalized`      | false                        | Intuition input events have no PC `ButtonToChar` 0x101..0x401 helper                                                  |
-| all                 | `modalDismissalKeys`         | `enter-escape`               | `ChkAcAb` (Sierra h77+0x84, 2.176+ h105+0x84) accepts only `0x0d` and `0x1b`                                          |
-| all                 | `inputLineEditCap`           | `prompt-40`                  | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`              |
+| Build(s)             | Field                        | Value                                 | Evidence                                                                                                              |
+| -------------------- | ---------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 2.082                | `restartPromptBypassedByF16` | false                                 | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)                    |
+| 2.082, 2.176+        | `timedPrintClearsV21`        | true                                  | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)           |
+| all                  | `heapDiagnosticExtraLine`    | false                                 | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable             |
+| 2.176                | `targetMotionDeferred`       | false                                 | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not              |
+| 2.176                | `inventorySelector`          | true                                  | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25        |
+| 2.176                | `pictureMaxCommand`          | 0xfa                                  | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8            |
+| 2.176, 2.202, 2.31x  | `patternProfile`             | `short-r1`, `center-row-320`          | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                   |
+| all                  | `windowFrameGeometry`        | `amiga`                               | `OpenWndw` (Sierra h71+0x0, 2.176+ h97+0x0) draws inclusive `RectFill` (`8·cols+21` × `8·rows+11`) and 1-px red frame |
+| all                  | `keypadWordsNormalized`      | false                                 | Intuition input events have no PC `ButtonToChar` 0x101..0x401 helper                                                  |
+| all                  | `modalDismissalKeys`         | `enter-escape`                        | `ChkAcAb` (Sierra h77+0x84, 2.176+ h105+0x84) accepts only `0x0d` and `0x1b`                                          |
+| all                  | `inputLineEditCap`           | `prompt-40`                           | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`              |
+| all                  | `presentation`               | `amiga`                               | [Amiga screen, font and pointer](#amiga-screen-font-and-pointer): screen title status line, ROM font, own pointer     |
+| 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                    |
 
 Fields whose slot is above a build's dispatch bound (see the table above)
 never run there: `menuInteractionGate`, `releaseGateAction`,
@@ -3953,6 +3981,116 @@ none, and on 2.31x `menuInputAction`, `releaseGateAction`,
 from GR 2.316 only in version, disk-count and game-ID strings, one init
 routine and relocations. `soundEnvelope` is inert on 2.082, whose driver has
 no envelope table.
+
+### Amiga screen, font and pointer
+
+How the six Amiga interpreters put their frame on screen, read off the
+executables of the [build table](#amiga-interpreter-profiles) (SQ2 2.202
+`557215fbbf431193…` addresses unless noted; KQ2 2.176 and the 2.31x builds
+keep the same hunk numbering, SQ1 2.082 is listed separately). Facts come
+from the binaries and the game files; what Kickstart draws on the
+interpreter's behalf is marked as such and was cross-checked on MAME 0.289
+(`a500n`, `kick13`), which emulates the chips and is not ground truth.
+
+**Screen and window (fact).** `h130+0x94` calls OpenScreen (wrapper
+`h245+0xd0`, `-$c6(a6)` on IntuitionBase `$9f50`) with the NewScreen at
+`h131+0x24`: 320×200, depth 4, DetailPen 0, BlockPen 15, Type CUSTOMSCREEN,
+Font → the TextAttr at `h131+0x0c` (`"topaz.font"` at `h131+0x00`, YSize 8,
+Style 0, Flags `FPF_ROMFONT`), DefaultTitle `"AGI screen"`. `h130+0xd8`
+opens the window of `h131+0x44` on it: 320×200, DetailPen 0, BlockPen 15,
+IDCMP `$000c2568`, Flags `$1900` (BACKDROP | BORDERLESS | ACTIVATE), no
+gadgets, no title. The interpreter never calls OpenFont, OpenDiskFont or
+SetFont (no `diskfont.library` string exists; graphics `-$48`/`-$42` are not
+called): the font is the ROM Topaz 8 Intuition opens for the screen, and no
+Amiga game disk in the fixtures carries a `fonts/` directory or `.font`
+file. Game text is drawn with `Text` (`h227+0x00`, `-$3c(a6)` on GfxBase
+`$9f54`) after `Move` to `(8·col, …)` — `h73+0x00` computes `$5bae = $5bac ×
+$9e48` with `$9e48 = 8` — so text cells are 8 px aligned, and the text rows,
+window frames and gadget rectangles of
+F-persistence-05-gadgets sit where the PC puts
+them. The 2.176+ builds share this layout (`h130+0x94`/`+0xd8`, `h131`); SQ1
+2.082 opens the same structures from `h93+0x94`/`+0xd8` with `h94`.
+
+**Palette (fact).** After OpenScreen, `h130+0x3b2..0x3ea` walks a 16-entry
+table of three words (R, G, B nibbles) at `h131+0x74` and calls SetRGB4
+(wrapper `h244+0x64`, `-$120(a6)`) for pens 0..15. The tables, as AGI
+colours 0..15 in 12-bit RGB:
+
+| Build(s)                      | Table                                                | Colours 0..15                                                     |
+| ----------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- |
+| SQ1 2.082 (`Sierra`)          | `h94+0x74` (file `0xcef0`)                           | `000 00f 080 0db c00 b7d 850 bbb 777 0bf 0e0 0fd f98 f70 ee0 fff` |
+| KQ2 2.176, SQ2 2.202          | `h131+0x74` (file `0x128fc`, `0x12958`)              | `000 00f 080 0db c00 b7d 850 bbb 777 0bf 0e0 0fd f98 d0f ee0 fff` |
+| PQ 2.310, GR 2.316, MH2 2.333 | `h131+0x74` (file `0x13346c`, `0x136720`, `0x13794`) | `000 00b 0b0 0bb b00 b0b c70 bbb 777 00f 0f0 0ff f00 f0f ff0 fff` |
+
+The loop is `h93+0x360` in SQ1 (`lea $9fec`), `h130+0x37a` in KQ2 and
+`h130+0x3b0..0x3b2` in the 2.31x builds (`lea $a5a0`/`$a6d4`/`$a6a0`). The
+2.176+ builds precede it with a check (`h130+0x370..0x3a2`) that lowercases
+the constant `"ORANGE"` and compares it with `"purple"`; the strings are
+constants, so the compare never matches and the branch that would set colour
+13 to `$f70` is dead — colour 13 is purple on every 2.176+ build and orange on
+SQ1, whose table stores `$f70` directly. The engine profile field `palette`
+names the table; the app expands each nibble to two hex digits, as the
+hardware's 4-bit DACs show them.
+
+**Status line (fact; Kickstart draws it).** The status routine `h82+0x42c`
+formats `"Score:%d of %d  "` (`h83+0x5c`) with v3 and v7 into a buffer
+(`h84+0x0a`), pads it to 39 characters, writes an optional string at column
+18 (every caller in play passes NULL) and `"Sound:%s"` (`h83+0x6d`, with
+`"on "`/`"off"` at `h83+0x76`/`+0x7a`) at column 26, then calls
+SetWindowTitles(window, -1, buffer) (`h82+0x51c`, wrapper `h245+0x174`,
+`-$114(a6)`) followed by ShowTitle(screen, TRUE) (`h82+0x526..0x530`);
+`status.line.off` runs `h82+0x56c`, ShowTitle(screen, FALSE). The status line
+is therefore the Intuition screen title, which the interpreter never draws
+itself. Kickstart 1.3 renders a screen title bar of ten rows in the block pen
+(15) with the title text in the detail pen (0) starting at (2, 1), a bottom
+line in the detail pen on row 10, and the two screen depth gadgets, 17 px
+each, at the right edge in pens 0, 1 and 2 (observed on MAME; the bar, text
+offset and gadget imagery are the ROM's, not the interpreter's). With the
+status line on, picture rows 0..2 lie under the bar. Engine: `drawStatus`
+writes the Amiga columns (0 and 26) and the host draws the bar
+(`app/src/render/composite.ts`, `drawAmigaTitleBar`) with its own drawing
+of the depth gadgets. The same routine and strings sit at `h82+0x42c` in KQ2
+and the 2.31x builds and at `h60+0x28e` (SetWindowTitles) in SQ1.
+
+**Input row (fact).** `ShowInput` (`h85+0x366`) prints, in order, string 0
+(`$f566`, formatted to width 40 by `$44fa`), the edit buffer (`$6e2c`) and
+then the cursor byte (`$6ce6`, writing `$f89a`); `set.cursor.char`
+(`h85+0x338`) stores its message's first byte in `$f89a`, and `EraseCur`
+(`h85+0x2c6`) backspaces over it. The prompt character a player sees is
+string 0 (SQ2's logic 104 sets `">"`), not the cursor byte, and the cursor
+follows the typed text. Engine: `drawInputRow` writes `s0 + edit + cursor`
+on every profile (the original PC interpreter draws the same order, as the
+PQ1 2.936 capture in the mame-diff baseline shows), and erases the cursor
+while a restart or quit confirmation is open (F-persistence-02).
+
+**Gadget labels (fact).** Each confirmation gadget's IntuiText has LeftEdge
+4 and TopEdge 2 inside the gadget (F-persistence-05-gadgets), so the label
+glyphs sit at `(x0 + 4, y0 + 2)` of the 12 px fill — three pixels above the
+cell row the engine's text surface carries them on. Engine:
+`getPresentation().gadgets` describes each fill with its label, and the
+Amiga look draws the label there, over the cells.
+
+**Pointer (fact).** `h130+0x404..0x4b2` reads `data/pointer` (`h131+0x105`):
+72 bytes of sprite data (a 16-row, 16-wide two-plane hardware sprite with
+its control words), then two signed bytes of hot-spot offset and three words
+of colour, and `h130+0x4d6..0x534` reads `data/busy` the same way, falling
+back to the pointer data. `h130+0x560` calls SetPointer(window, data, 16, 16,
+x, y) (`h130+0x594`, wrapper `h245+0x152`, `-$10e(a6)`) and SetRGB4 for pens
+17..19 with the file's colours. Every fixture's `Pointer` file ends
+`ff 00 0d22 0000 0fca`: hot spot `(-1, 0)` — the tip one pixel into the image
+— and colours `$d22`, `$000`, `$fca`; `Busy` ends `f9 f8` (hot spot
+`(-7, -8)`, its centre). The busy pointer shows during disk loads, which the
+engine has none of; the arrow is the player's cursor over the screen, drawn
+by the app as its own arrow in those colours and hot spot
+(`app/src/play/amigaPointer.ts`). SQ1 2.082 reads only `data/pointer`.
+
+**Glyph shapes (decision).** The font the player saw is Commodore's ROM
+Topaz 8. The app ships no original glyphs and never reads a ROM: its Amiga
+font (`app/src/render/fontAmiga.ts`) is a deliberate redraw to Topaz's
+metrics, so text lands on the same pixels while the strokes are this
+project's own. Against the MAME frames the remaining differences are the
+glyph interiors, the redrawn depth gadgets, the emulator's pointer parked at
+the top-left corner, and the animation phase of moving objects.
 
 ### Amiga directory absence
 

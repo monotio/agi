@@ -619,6 +619,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
           priority,
           text,
           picRow: 1,
+          statusBar: false,
           modal: null,
           textMode: false,
           inputEnabled: true,

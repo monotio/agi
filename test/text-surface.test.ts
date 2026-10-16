@@ -167,7 +167,11 @@ test("status line: score at column 1 and sound state at column 30, black on whit
   assert.ok(row(e2, 0).chars.every((c) => c === 0));
 });
 
-test("input line: prompt marker, typed keys, backspace, Enter, echo.line, cancel.line, prevent.input", () => {
+// Player-visible rule: the input row is s0, the typed text, then the cursor
+// character set.cursor.char chose — the originals print the prompt string
+// first and the cursor last (docs/fidelity.md "Amiga screen, font and
+// pointer": the Amiga ShowInput order; the PC and IIgs originals agree).
+test("input line: typed keys, cursor character, backspace, Enter, echo.line, cancel.line, prevent.input", () => {
   const host = new Host();
   const engine = new Engine(
     gameWith(`
@@ -187,12 +191,12 @@ test("input line: prompt marker, typed keys, backspace, Enter, echo.line, cancel
 
   host.keys.push(0x6c, 0x6f, 0x6f, 0x6b); // l o o k
   engine.tick();
-  assert.equal(engine.textRow(22), "_look" + spaces(35));
+  assert.equal(engine.textRow(22), "look_" + spaces(35));
   assert.equal(engine.inputEdit, "look");
 
   host.keys.push(0x08); // backspace
   engine.tick();
-  assert.equal(engine.textRow(22), "_loo" + spaces(36));
+  assert.equal(engine.textRow(22), "loo_" + spaces(36));
 
   host.keys.push(0x0d); // Enter accepts the line: parsed, row cleared
   engine.tick();
@@ -204,7 +208,7 @@ test("input line: prompt marker, typed keys, backspace, Enter, echo.line, cancel
 
   engine.flags[201] = 1; // echo.line restores the accepted line
   engine.tick();
-  assert.equal(engine.textRow(22), "_loo" + spaces(36));
+  assert.equal(engine.textRow(22), "loo_" + spaces(36));
 
   engine.flags[202] = 1; // cancel.line
   engine.tick();
@@ -215,15 +219,15 @@ test("input line: prompt marker, typed keys, backspace, Enter, echo.line, cancel
   assert.ok(row(engine, 22).chars.every((c) => c === 0));
 });
 
-test("setEditLine mirrors a host-edited line onto the input row", () => {
+test("setEditLine mirrors a host-edited line onto the input row after the s0 prompt", () => {
   const engine = new Engine(
-    gameWith('set.cursor.char(">"); accept.input(); return;'),
+    gameWith('set.string(s0, ">"); set.cursor.char("_"); accept.input(); return;'),
     new Host(),
     DICT,
   );
   engine.tick();
   engine.setEditLine("open door");
-  assert.equal(engine.textRow(22), ">open door" + spaces(30));
+  assert.equal(engine.textRow(22), ">open door_" + spaces(29));
 });
 
 test("print: solid-framed window centred in the display area, restored on acknowledgement", () => {
@@ -623,13 +627,21 @@ test("status line formatting matches the three profile families (booter-2.001, e
     " Score:5 of 42" + spaces(16) + "Sound:on" + spaces(2),
     "2.089 early status line has no trailing space padding in the format strings",
   );
-  for (const profile of ["2.230", "2.936", "amiga-2.316", "iigs-1.014"] as const) {
+  for (const profile of ["2.230", "2.936", "iigs-1.014"] as const) {
     assert.equal(
       renderRow(profile, true),
       " Score:5 of 42  " + spaces(14) + "Sound:on  ",
       `${profile} common status line`,
     );
   }
+  // The Amiga line is the 39-byte screen title: "Score:%d of %d  " from
+  // column 0 and "Sound:%s" from column 26 (docs/fidelity.md "Amiga screen,
+  // font and pointer").
+  assert.equal(
+    renderRow("amiga-2.316", true),
+    "Score:5 of 42  " + spaces(11) + "Sound:on " + spaces(5),
+    "amiga-2.316 screen title status line",
+  );
 });
 
 test("numeric message fields honor explicit zero-padded widths", () => {

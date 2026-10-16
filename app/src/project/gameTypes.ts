@@ -6,7 +6,7 @@ import type { LibraryMetadata } from "./gameMetadata.ts";
 import type { StoredReference } from "../references/referenceArt.ts";
 import type { ScreenObjectState } from "../../../src/runtime/engine.ts";
 import { projectId } from "../../../src/gameIdentity.ts";
-import { cellChar } from "../../../src/runtime/textSurface.ts";
+import { cellChar, type GadgetLabel } from "../../../src/runtime/textSurface.ts";
 import { detectKnownGameByHashes } from "../../../src/games/knownGames.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { GameIdentity, ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
@@ -238,6 +238,10 @@ export interface Frame {
   windowOverlay?: Uint8Array | undefined;
   /** Text row where picture row 0 is presented. */
   picRow: number;
+  /** The status line is shown; the Amiga look draws it as the screen title bar. */
+  statusBar?: boolean;
+  /** An open confirmation window's gadgets, whose labels the Amiga look draws off the grid. */
+  gadgets?: GadgetLabel[];
   /** Interpreter cycle this frame completed, when the worker reports it. */
   cycle?: number;
   /** Container patch revision at capture; part of the frame's identity. */

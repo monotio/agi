@@ -1,4 +1,5 @@
 import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
+import type { GadgetLabel } from "../../../src/runtime/textSurface.ts";
 import type { RoomLaunchRequest } from "./roomLaunch.ts";
 import type { HostRngState } from "../../../src/runtime/rng.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
@@ -912,6 +913,10 @@ export type WorkerPresentation =
       text: Uint8Array;
       windowOverlay?: Uint8Array;
       picRow: number;
+      /** The status line is shown (the Amiga look draws it as the title bar). */
+      statusBar: boolean;
+      /** An open confirmation window's gadgets with their off-grid labels. */
+      gadgets?: GadgetLabel[];
       modal: string | null;
       textMode: boolean;
       inputEnabled: boolean;

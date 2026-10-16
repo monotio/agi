@@ -24,6 +24,7 @@ import { useShellBridge } from "../shell/shellBridge.ts";
 import { crtFramePoint } from "../three/crtAmount.ts";
 import { stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
+import { amigaPointerCursor } from "./amigaPointer.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
 import { pcKey, movementDirection } from "./gameControls.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
@@ -58,6 +59,12 @@ const {
 } = engine;
 const presentation = usePresentation();
 const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
+// The frame is drawn with the running profile's colours, font and layout.
+watch(
+  () => state.profile,
+  (id) => presentation.setProfile(id),
+  { immediate: true },
+);
 const bridge = useShellBridge();
 const agentBlocksGame = computed(
   () =>
@@ -175,6 +182,18 @@ const stageStyle = computed(() => {
   if (props.touchControls || !box || box.width <= 0 || box.height <= 0) return undefined;
   const ratio = props.originalAspect ? 4 / 3 : FRAME_WIDTH / FRAME_HEIGHT;
   return { "--game-width": `${stageScreenWidth(box.width, box.height, ratio)}px` };
+});
+/**
+ * The Amiga interpreter shows its own arrow pointer over the game; the
+ * browser's cursor takes that shape over the screen, scaled with it
+ * (docs/fidelity.md "Amiga screen, font and pointer").
+ */
+const screenCursor = computed(() => {
+  const profile = state.profile;
+  if (profile === null || !Object.hasOwn(PROFILES, profile)) return undefined;
+  if (PROFILES[profile as ProfileId].presentation !== "amiga") return undefined;
+  const width = parseFloat(stageStyle.value?.["--game-width"] ?? "");
+  return amigaPointerCursor(width > 0 ? width / FRAME_WIDTH : 3);
 });
 const inputLine = ref("");
 const promptLine = ref("");
@@ -732,6 +751,7 @@ defineExpose({
           shake: state.shake,
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"
+        :style="screenCursor ? { cursor: screenCursor } : undefined"
         @click="onScreenClick"
         @contextmenu="onScreenContextMenu"
         @pointerdown="onScreenPointerDown"

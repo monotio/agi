@@ -99,6 +99,7 @@ import {
   stampWindowOverlayOnly,
   windowLines,
   type GadgetFill,
+  type GadgetLabel,
   type SavedRect,
   type WindowOverlay,
 } from "./textSurface.ts";
@@ -811,6 +812,8 @@ export class Engine {
   private blockRect: { left: number; top: number; right: number; bottom: number } | null = null;
   private textMode = false;
   private inputPrompt = "";
+  /** EraseCur ran for an open confirmation prompt; WriteCur follows when it closes (F-persistence-02). */
+  private cursorErased = false;
   private textFg = 15;
   private textBg = 0;
   private displayBaseRow = 1;
@@ -2787,7 +2790,12 @@ export class Engine {
     if (!this.statusEnabled || this.textMode) return;
     const a = attr(0, 15);
     this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
-    this.text.write(this.statusRow, 1, this.statusText(), a);
+    // The Amiga line is the screen title: "Score:%d of %d  " from column 0
+    // and "Sound:%s" from column 26 of the 39-byte title, which the host
+    // draws in the title bar (docs/fidelity.md "Amiga screen, font and
+    // pointer"); the PC and IIgs lines start at columns 1 and 30.
+    const amiga = this.profile.presentation === "amiga";
+    this.text.write(this.statusRow, amiga ? 0 : 1, this.statusText(), a);
     // "Sound:%s" with space-padded "on " on every profile except 2.089, whose
     // data segment stores unpadded "on\0" (docs/fidelity.md "Original window
     // and status-line text").
@@ -2795,7 +2803,7 @@ export class Engine {
       this.profile.originalTextWindows && this.profile.statusLineFormat !== "early-2.089";
     this.text.write(
       this.statusRow,
-      30,
+      amiga ? 26 : 30,
       paddedSound
         ? `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`
         : `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`,
@@ -2820,7 +2828,13 @@ export class Engine {
     }
   }
 
-  /** Input row: prompt marker, then the edit buffer (spec "Text geometry"). */
+  /**
+   * Input row: the prompt string s0, the edit buffer, then the cursor byte
+   * set.cursor.char chose (spec "Text geometry"; docs/fidelity.md "Amiga
+   * screen, font and pointer": the Amiga ShowInput prints s0, the typed text
+   * and the cursor byte in that order, and the original PC and IIgs
+   * interpreters draw the same line).
+   */
   private drawInputRow(): void {
     if (this.textMode) return;
     if (!this.inputAccepted) {
@@ -2829,7 +2843,8 @@ export class Engine {
     }
     const a = this.textAttr();
     this.text.fill(this.inputRow, 0, this.inputRow, TEXT_COLS - 1, 0x20, a);
-    this.text.write(this.inputRow, 0, this.inputPrompt + this.editLine, a);
+    const cursor = this.cursorErased ? "" : this.inputPrompt;
+    this.text.write(this.inputRow, 0, this.strings[0] + this.editLine + cursor, a);
   }
 
   private acceptLine(line: string): void {
@@ -2982,6 +2997,10 @@ export class Engine {
       this.vars[21] = 0;
     if (m.kind === "print" || m.kind === "showObj") this.text.clearWindowOverlay();
     if (m.kind !== "showPri") this.text.restore(m.saved);
+    if (m.kind === "print" && this.cursorErased) {
+      this.cursorErased = false;
+      this.drawInputRow();
+    }
     if (m.kind === "menu") {
       this.menuRequested = false;
       this.drawStatus();
@@ -3101,6 +3120,11 @@ export class Engine {
     // F-persistence-02, F-persistence-05).
     const original = this.profile.originalRestartRestore;
     const amiga = this.profile.windowFrameGeometry === "amiga";
+    // Every build calls EraseCur before the prompt and WriteCur after it
+    // closes (F-persistence-02), so the cursor character leaves the input
+    // row while the window is up.
+    this.cursorErased = true;
+    this.drawInputRow();
     this.emitPrint(
       action === "restart"
         ? original
@@ -5707,20 +5731,57 @@ export class Engine {
     };
   }
 
-  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
+  /**
+   * Pixels and text from one completed composition; buffers may be
+   * transferred by the host. `statusBar` says whether the status line is
+   * shown (the Amiga host draws it as the screen title bar), and `gadgets`
+   * lists an open confirmation window's gadgets with their labels, which
+   * the Amiga host draws off the cell grid.
+   */
   getPresentation(): {
     visual: Uint8Array;
     priority: Uint8Array;
     text: Uint8Array;
     windowOverlay: Uint8Array;
+    statusBar: boolean;
+    gadgets?: GadgetLabel[];
   } {
     this.ensurePresentationCurrent();
+    const gadgets = this.presentationGadgets();
     return {
       visual: this.cachedVisual.slice(),
       priority: this.cachedPriority.slice(),
       text: this.cachedText.slice(),
       windowOverlay: this.cachedWindowOverlay.slice(),
+      statusBar: this.statusEnabled && !this.textMode,
+      ...(gadgets ? { gadgets } : {}),
     };
+  }
+
+  /**
+   * The open confirmation window's gadgets as the presentation draws them:
+   * each fill with its label read back from the label cells, placed four
+   * pixels in and two down from the fill's corner (F-persistence-05-gadgets).
+   */
+  private presentationGadgets(): GadgetLabel[] | undefined {
+    const win = this.modal?.kind === "print" ? this.modal.saved.window : undefined;
+    if (win?.gadgets === undefined) return undefined;
+    return win.gadgets.map((g) => {
+      const row = g.label.y0 >> 3;
+      let text = "";
+      for (let col = g.label.x0 >> 3; col <= g.label.x1 >> 3; col++)
+        text += String.fromCharCode(this.text.charAt(row, col) || 0x20);
+      return {
+        x0: g.x0,
+        y0: g.y0,
+        x1: g.x1,
+        y1: g.y1,
+        pen: g.pen,
+        text,
+        textX: g.x0 + 4,
+        textY: g.y0 + 2,
+      };
+    });
   }
 
   /**

@@ -60,6 +60,23 @@ export interface GadgetFill {
   };
 }
 
+/**
+ * A gadget as the presentation draws it: the inclusive fill rectangle in
+ * `pen`, and its label in pen 15 at a pixel position the original chose
+ * off the cell grid (Intuition IntuiText LeftEdge 4, TopEdge 2 inside the
+ * gadget; docs/fidelity.md F-persistence-05-gadgets).
+ */
+export interface GadgetLabel {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+  readonly pen: number;
+  readonly text: string;
+  readonly textX: number;
+  readonly textY: number;
+}
+
 export interface WindowOverlay {
   readonly geometry: WindowFrameGeometry;
   readonly textTop: number;

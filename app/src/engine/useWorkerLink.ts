@@ -372,6 +372,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           text: msg.text,
           windowOverlay: msg.windowOverlay,
           picRow: msg.picRow,
+          statusBar: msg.statusBar,
+          ...(msg.gadgets ? { gadgets: msg.gadgets } : {}),
           cycle: msg.cycle,
           patchGeneration: msg.patchGeneration,
         };

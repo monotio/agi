@@ -2157,13 +2157,14 @@ describe("original restart/restore audit", () => {
       engine.tick();
       host.keys.push(0x61, 0x62);
       engine.tick();
-      assert.equal(engine.textRow(22), "ab" + " ".repeat(38));
+      // The row is the s0 prompt ("KEEP") then the typed text.
+      assert.equal(engine.textRow(22), "KEEPab" + " ".repeat(34));
       engine.flags[201] = 1;
       engine.tick();
       assert.equal(engine.flags[6], 0, `${profile}: the restart was declined`);
       assert.equal(
         engine.textRow(22),
-        "ab" + " ".repeat(38),
+        "KEEPab" + " ".repeat(34),
         `${profile}: the typed row survived the declined prompt`,
       );
     }

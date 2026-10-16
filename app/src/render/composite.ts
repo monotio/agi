@@ -7,10 +7,23 @@
  * Both presentation paths draw this same frame: the three.js stage uploads
  * it as a texture, the Canvas2D fallback (and the Playwright pixel probe)
  * putImageData it.
+ *
+ * The profile's `Appearance` supplies the colours and the font, and on the
+ * Amiga the two things its screen draws outside the cell grid: the status
+ * line in the screen title bar and the confirmation gadgets' labels
+ * (docs/fidelity.md "Amiga screen, font and pointer").
  */
-import { EGA_PALETTE } from "./palette.ts";
-import { FONT, HAS_GLYPH } from "./font8x8.ts";
-import { TEXT_COLS, TEXT_ROWS } from "../../../src/runtime/textSurface.ts";
+import {
+  AMIGA_DEPTH_GADGETS,
+  AMIGA_DEPTH_GADGET_WIDTH,
+  AMIGA_TITLE_BAR_HEIGHT,
+  AMIGA_TITLE_BAR_ROWS,
+  AMIGA_TITLE_TEXT_X,
+  AMIGA_TITLE_TEXT_Y,
+  PC_APPEARANCE,
+  type Appearance,
+} from "./appearance.ts";
+import { TEXT_COLS, TEXT_ROWS, type GadgetLabel } from "../../../src/runtime/textSurface.ts";
 
 /** Codes already reported as missing from the font, once per page. */
 const reportedGlyphs = new Uint8Array(256);
@@ -67,6 +80,94 @@ export interface CompositeInput {
   windowOverlay?: Uint8Array | undefined;
   /** Text row at which picture row 0 is presented (configure.screen). */
   picRow: number;
+  /** Colours, font and platform layout; the PC look when omitted. */
+  appearance?: Appearance | undefined;
+  /**
+   * Whether the status line is shown. On the Amiga layout it is the screen
+   * title bar over rows 0..10, drawn from text row 0's cells.
+   */
+  statusBar?: boolean | undefined;
+  /** Gadgets whose labels sit off the cell grid (the Amiga layout draws them). */
+  gadgets?: readonly GadgetLabel[] | undefined;
+}
+
+/** Paint the font's lit pixels of `ch` at a frame position in one colour. */
+function drawGlyph(
+  out: Uint8ClampedArray | Uint8Array,
+  look: Appearance,
+  ch: number,
+  x0: number,
+  y0: number,
+  fg: readonly [number, number, number],
+): void {
+  for (let gy = 0; gy < 8; gy++) {
+    const y = y0 + gy;
+    if (y < 0 || y >= FRAME_HEIGHT) continue;
+    const bits = look.font[ch * 8 + gy]!;
+    for (let gx = 0; gx < 8; gx++) {
+      const x = x0 + gx;
+      if (x < 0 || x >= FRAME_WIDTH || !(bits & (0x80 >> gx))) continue;
+      const o = (y * FRAME_WIDTH + x) * 4;
+      out[o] = fg[0];
+      out[o + 1] = fg[1];
+      out[o + 2] = fg[2];
+      out[o + 3] = 255;
+    }
+  }
+}
+
+/** Fill an inclusive frame rectangle, clipped to the frame. */
+function fillRect(
+  out: Uint8ClampedArray | Uint8Array,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  c: readonly [number, number, number],
+): void {
+  for (let y = Math.max(0, y0); y <= Math.min(FRAME_HEIGHT - 1, y1); y++) {
+    let o = (y * FRAME_WIDTH + Math.max(0, x0)) * 4;
+    for (let x = Math.max(0, x0); x <= Math.min(FRAME_WIDTH - 1, x1); x++) {
+      out[o] = c[0];
+      out[o + 1] = c[1];
+      out[o + 2] = c[2];
+      out[o + 3] = 255;
+      o += 4;
+    }
+  }
+}
+
+/**
+ * The Amiga screen title bar: rows 0..9 in pen 15 with the status cells'
+ * glyphs at (2, 1), the depth gadgets at the right edge and the pen 0 line
+ * on row 10 (docs/fidelity.md "Amiga screen, font and pointer").
+ */
+function drawAmigaTitleBar(
+  out: Uint8ClampedArray | Uint8Array,
+  look: Appearance,
+  text: Uint8Array,
+): void {
+  fillRect(out, 0, 0, FRAME_WIDTH - 1, AMIGA_TITLE_BAR_ROWS - 1, look.palette[15]!);
+  const line = AMIGA_TITLE_BAR_HEIGHT - 1;
+  fillRect(out, 0, line, FRAME_WIDTH - 1, line, look.palette[0]!);
+  for (let col = 0; col < TEXT_COLS; col++) {
+    const ch = text[col * 2]!;
+    if (ch === 0) continue;
+    const fg = look.palette[text[col * 2 + 1]! & 0x0f]!;
+    drawGlyph(out, look, ch, AMIGA_TITLE_TEXT_X + col * 8, AMIGA_TITLE_TEXT_Y, fg);
+  }
+  const gx0 = FRAME_WIDTH - 2 * AMIGA_DEPTH_GADGET_WIDTH;
+  for (let y = 0; y < AMIGA_TITLE_BAR_ROWS; y++) {
+    let o = (y * FRAME_WIDTH + gx0) * 4;
+    for (let x = 0; x < 2 * AMIGA_DEPTH_GADGET_WIDTH; x++) {
+      const c = look.palette[AMIGA_DEPTH_GADGETS[y * 2 * AMIGA_DEPTH_GADGET_WIDTH + x]!]!;
+      out[o] = c[0];
+      out[o + 1] = c[1];
+      out[o + 2] = c[2];
+      out[o + 3] = 255;
+      o += 4;
+    }
+  }
 }
 
 /**
@@ -84,6 +185,8 @@ export function compositeFrame(
   splitAt = 0.5,
   text: "compose" | "skip" | "only" = "compose",
 ): void {
+  const look = input.appearance ?? PC_APPEARANCE;
+  const palette = look.palette;
   out.fill(0);
   const priority = mode === "visual" ? undefined : input.priority;
   const splitX = Math.round(Math.min(Math.max(splitAt, 0), 1) * PIC_WIDTH);
@@ -96,14 +199,14 @@ export function compositeFrame(
     let o = y * FRAME_WIDTH * 4;
     for (let px = 0; px < PIC_WIDTH; px++) {
       const i = src + px;
-      let [r, g, b] = EGA_PALETTE[input.visual[i]! & 0x0f]!;
+      let [r, g, b] = palette[input.visual[i]! & 0x0f]!;
       if (mode === "priority") {
-        [r, g, b] = EGA_PALETTE[(priority?.[i] ?? 15) & 0x0f]!;
+        [r, g, b] = palette[(priority?.[i] ?? 15) & 0x0f]!;
       } else if (mode === "split") {
         if (px === splitX || px === splitX + 1) {
           r = g = b = 0xff;
         } else if (px > splitX) {
-          [r, g, b] = EGA_PALETTE[(priority?.[i] ?? 15) & 0x0f]!;
+          [r, g, b] = palette[(priority?.[i] ?? 15) & 0x0f]!;
         }
       } else if (mode === "blend") {
         const pri = (priority?.[i] ?? 15) & 0x0f;
@@ -125,14 +228,17 @@ export function compositeFrame(
       o += 8;
     }
   }
+  if (text === "skip") return;
   // Opaque text cells on top. In "only" mode the picture stayed transparent,
   // so written cells (window backgrounds included) are the sole opaque pixels.
-  for (let row = 0; text !== "skip" && row < TEXT_ROWS; row++) {
+  // The Amiga title bar takes row 0's cells for itself.
+  const amigaTitle = look.layout === "amiga" && input.statusBar === true;
+  for (let row = amigaTitle ? 1 : 0; row < TEXT_ROWS; row++) {
     for (let col = 0; col < TEXT_COLS; col++) {
       const at = (row * TEXT_COLS + col) * 2;
       const ch = input.text[at]!;
       if (ch === 0) continue;
-      if (!HAS_GLYPH[ch] && !reportedGlyphs[ch]) {
+      if (!look.hasGlyph[ch] && !reportedGlyphs[ch]) {
         // A translated or fan game can print codes past ASCII; say so
         // rather than leave a silent blank.
         reportedGlyphs[ch] = 1;
@@ -141,10 +247,10 @@ export function compositeFrame(
         );
       }
       const a = input.text[at + 1]!;
-      const fg = EGA_PALETTE[a & 0x0f]!;
-      const bg = EGA_PALETTE[(a >> 4) & 0x0f]!;
+      const fg = palette[a & 0x0f]!;
+      const bg = palette[(a >> 4) & 0x0f]!;
       for (let gy = 0; gy < 8; gy++) {
-        const bits = FONT[ch * 8 + gy]!;
+        const bits = look.font[ch * 8 + gy]!;
         let o = ((row * 8 + gy) * FRAME_WIDTH + col * 8) * 4;
         for (let gx = 0; gx < 8; gx++) {
           const c = bits & (0x80 >> gx) ? fg : bg;
@@ -159,12 +265,12 @@ export function compositeFrame(
   }
   // Sub-cell window border overlay painted into the window's outer margin
   // (excluding interior text cells and any cells written after the window).
-  if (text !== "skip" && input.windowOverlay) {
+  if (input.windowOverlay) {
     const overlay = input.windowOverlay;
     for (let i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++) {
       const v = overlay[i]!;
       if (v === 0) continue;
-      const c = EGA_PALETTE[(v - 1) & 0x0f]!;
+      const c = palette[(v - 1) & 0x0f]!;
       const o = i * 4;
       out[o] = c[0];
       out[o + 1] = c[1];
@@ -172,4 +278,14 @@ export function compositeFrame(
       out[o + 3] = 255;
     }
   }
+  // Gadgets are filled rectangles whose labels sit where the original put
+  // them, off the cell grid; the label cells underneath are covered.
+  if (look.layout === "amiga" && input.gadgets) {
+    for (const g of input.gadgets) {
+      fillRect(out, g.x0, g.y0, g.x1, g.y1, palette[g.pen & 0x0f]!);
+      for (let i = 0; i < g.text.length; i++)
+        drawGlyph(out, look, g.text.charCodeAt(i) & 0xff, g.textX + 8 * i, g.textY, palette[15]!);
+    }
+  }
+  if (amigaTitle) drawAmigaTitleBar(out, look, input.text);
 }

@@ -13,6 +13,7 @@ import {
   compositeFrame,
   type ScreenViewMode,
 } from "../render/composite.ts";
+import { PC_APPEARANCE, appearanceForProfile, type Appearance } from "../render/appearance.ts";
 import type { DebugViewMode } from "../inspector/debugView.ts";
 import type { Frame } from "../engine/useEngine.ts";
 
@@ -27,6 +28,8 @@ export function createPresentation() {
   let stage: AgiStage | null = null;
   let crtAmount = 1;
   const lastFrame = shallowRef<Frame | null>(null);
+  /** The running profile's colours, font and layout. */
+  let appearance: Appearance = PC_APPEARANCE;
   /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
   const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
   /** Text-only composite feeding the exploded view's front plane. */
@@ -60,6 +63,11 @@ export function createPresentation() {
     // Explode needs the text surface as its own texture: baked into the frame
     // it would smear across every depth band a dialog happens to cover.
     const exploded = mode === "explode" && stage !== null;
+    const look = {
+      appearance,
+      statusBar: frame.statusBar,
+      gadgets: frame.gadgets,
+    };
     compositeFrame(
       {
         visual: frame.visual,
@@ -67,6 +75,7 @@ export function createPresentation() {
         text: textOverride ?? frame.text,
         windowOverlay: frame.windowOverlay,
         picRow: frame.picRow,
+        ...look,
       },
       composed,
       compositeMode,
@@ -81,6 +90,7 @@ export function createPresentation() {
           text: textOverride ?? frame.text,
           windowOverlay: frame.windowOverlay,
           picRow: frame.picRow,
+          ...look,
         },
         composedText,
         "visual",
@@ -94,7 +104,13 @@ export function createPresentation() {
       const picVisual = frame.picVisual ?? frame.visual;
       const picPriority = frame.picPriority ?? frame.priority;
       compositeFrame(
-        { visual: picVisual, priority: picPriority, text: frame.text, picRow: frame.picRow },
+        {
+          visual: picVisual,
+          priority: picPriority,
+          text: frame.text,
+          picRow: frame.picRow,
+          appearance,
+        },
         composedPic,
         "visual",
         0.5,
@@ -152,6 +168,14 @@ export function createPresentation() {
   /** Re-composite the last frame after a dock view change. */
   function repaint(): void {
     if (lastFrame.value) renderFrameNow(lastFrame.value);
+  }
+
+  /** Draw with the running profile's look; the next frame and any repaint use it. */
+  function setProfile(id: string | null): void {
+    const next = appearanceForProfile(id);
+    if (next === appearance) return;
+    appearance = next;
+    repaint();
   }
 
   /** Re-composite with a text overlay (the live prompt echo). */
@@ -296,6 +320,7 @@ export function createPresentation() {
     splitAt,
     present,
     repaint,
+    setProfile,
     presentWithText,
     setCrtAmount,
     setAttention,

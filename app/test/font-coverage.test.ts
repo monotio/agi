@@ -5,6 +5,8 @@ import { parseLogicResource } from "../../src/logic/resource.ts";
 import { fixtureSkip } from "../../test/fixtures.ts";
 import { loadGame } from "../../test/game-fixture.ts";
 import { HAS_GLYPH } from "../src/render/font8x8.ts";
+import { AMIGA_HAS_GLYPH } from "../src/render/fontAmiga.ts";
+import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 
 /**
  * Every character a catalogued game's messages print has a glyph in the 8×8
@@ -19,6 +21,12 @@ for (const game of KNOWN_GAMES.filter((entry) => !entry.builtin)) {
   test(`${game.alias}: the font draws every character its messages print`, (t) => {
     if (missing) return t.skip(missing);
     const { container } = loadGame(game.alias, { checkVolumes: "shipped" });
+    // An Amiga game draws through the Amiga font (docs/fidelity.md "Amiga
+    // screen, font and pointer").
+    const amiga =
+      Object.hasOwn(PROFILES, game.profile) &&
+      PROFILES[game.profile as ProfileId].presentation === "amiga";
+    const drawn = amiga ? AMIGA_HAS_GLYPH : HAS_GLYPH;
     const undrawn = new Set<string>();
     for (let num = 0; num < 256; num++) {
       let payload: Uint8Array | null;
@@ -31,7 +39,7 @@ for (const game of KNOWN_GAMES.filter((entry) => !entry.builtin)) {
       for (const message of parseLogicResource(payload).messages)
         for (const ch of message ?? "") {
           const code = ch.charCodeAt(0);
-          if (!NOT_DRAWN.has(code) && !HAS_GLYPH[code])
+          if (!NOT_DRAWN.has(code) && !drawn[code])
             undrawn.add(`0x${code.toString(16)} in logic ${num}`);
         }
     }
