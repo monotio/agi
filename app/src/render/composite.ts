@@ -76,6 +76,8 @@ export interface CompositeInput {
   visual: Uint8Array;
   /** 160x168 priority nibbles; required by the debug view modes. */
   priority?: Uint8Array | undefined;
+  /** Visible sprite ownership, needed by CGA's distinct picture and cel mappings. */
+  ownership?: Uint16Array | undefined;
   /** 40x25 [char, attr] cells; char 0 is transparent. */
   text: Uint8Array;
   /**
@@ -206,15 +208,20 @@ export function compositeFrame(
     let o = y * FRAME_WIDTH * 4;
     for (let px = 0; px < PIC_WIDTH; px++) {
       const i = src + px;
-      let [r, g, b] = palette[input.visual[i]! & 0x0f]!;
-      if (mode === "priority") {
-        [r, g, b] = palette[(priority?.[i] ?? 15) & 0x0f]!;
-      } else if (mode === "split") {
-        if (px === splitX || px === splitX + 1) {
-          r = g = b = 0xff;
-        } else if (px > splitX) {
-          [r, g, b] = palette[(priority?.[i] ?? 15) & 0x0f]!;
-        }
+      const colour =
+        mode === "priority" || (mode === "split" && px > splitX)
+          ? (priority?.[i] ?? 15) & 0x0f
+          : input.visual[i]! & 0x0f;
+      const pair = (
+        input.ownership?.[i] && mode !== "priority" && !(mode === "split" && px > splitX)
+          ? look.spritePairs
+          : y & 1
+            ? (look.alternatePicturePairs ?? look.picturePairs)
+            : look.picturePairs
+      )?.[colour];
+      let [r, g, b] = pair?.[0] ?? palette[colour]!;
+      if (mode === "split" && (px === splitX || px === splitX + 1)) {
+        r = g = b = 0xff;
       } else if (mode === "blend") {
         const pri = (priority?.[i] ?? 15) & 0x0f;
         const [tr, tg, tb] = PRIORITY_TINTS[pri]!;
@@ -228,9 +235,13 @@ export function compositeFrame(
       out[o + 1] = g;
       out[o + 2] = b;
       out[o + 3] = 255;
-      out[o + 4] = r;
-      out[o + 5] = g;
-      out[o + 6] = b;
+      const right =
+        pair && mode !== "blend" && !(mode === "split" && (px === splitX || px === splitX + 1))
+          ? pair[1]
+          : null;
+      out[o + 4] = right?.[0] ?? r;
+      out[o + 5] = right?.[1] ?? g;
+      out[o + 6] = right?.[2] ?? b;
       out[o + 7] = 255;
       o += 8;
     }
@@ -254,8 +265,9 @@ export function compositeFrame(
         );
       }
       const a = input.text[at + 1]!;
-      const fg = palette[a & 0x0f]!;
-      const bg = palette[(a >> 4) & 0x0f]!;
+      const inverse = look.cgaRgb && a >> 4 !== 0;
+      const fg = palette[inverse ? 0 : a & 0x0f]!;
+      const bg = palette[inverse ? 15 : (a >> 4) & 0x0f]!;
       for (let gy = 0; gy < 8; gy++) {
         const bits = (ch <= GLYPH_CURSOR ? FONT : look.font)[ch * 8 + gy]!;
         let px = (row * 8 + gy) * FRAME_WIDTH + col * 8;

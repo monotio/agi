@@ -6587,7 +6587,7 @@ only concise findings and independently authored expected vectors.
 
 ### PC fonts and display adapters
 
-**Font evidence.** PQ1 PC 2.936 (`START.EXE` SHA-256
+**Font evidence.** PQ1 PC 2.903 (`START.EXE` SHA-256
 `db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7`),
 load-relative `0x2c4e..0x2c72`, copies eight glyph rows from
 `F000:FA6E + character × 8` into its drawing buffer. The graphics text uses
@@ -6605,3 +6605,75 @@ the recreation. The status and play regions agree exactly in all three;
 the remaining differences occupy the prompt/cursor area at rows 184–191.
 These are raw 320×200 comparisons without masks or colour adjustment.
 They establish the sampled graphics typeface, not every PC adapter's font.
+
+**CGA RGB mapping.** The inspected DOS builds' CGA driver initializes BIOS
+mode 4, background colour 1 and palette 0: blue, green, red and brown.
+PQ1 2.903 `CGA_GRAF.OVL` SHA-256
+`1dce45a21dcdcc27e3fcc8c193119489d1f8cbac76f18fc8a41864fdf7caa5e5`,
+`0x00db..0x0114`, establishes those register calls. Its `0x0015..0x0036`
+returns a two-row picture pattern from `AGIDATA.OVL + 0x1d0a`, while
+`0x0037..0x00da` maps cel colours through the separate table at `0x1d4a`.
+Thus a post-process with one four-colour palette cannot reproduce it.
+The compositor accepts sprite ownership to select the cel mapping, uses
+alternating picture rows and retains both horizontal hardware pixels.
+
+The following DOS inputs have identical sixteen three-byte picture entries
+and sixteen cel entries. Their executable/data identities are listed under
+[PC sound](#pc-sound); the table addresses below are in `AGIDATA.OVL`.
+The driver modes are confirmed by the shipped overlays' initialization paths.
+
+| Build     | Picture patterns | Cel patterns | Graphics paths                               |
+| --------- | ---------------- | ------------ | -------------------------------------------- |
+| 2.089     | `0x1786`         | `0x17c6`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.230     | `0x177a`         | `0x17ba`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.272     | `0x184a`         | `0x188a`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.411     | `0x1acb`         | `0x1b0b`     | EGA, CGA RGB/composite, PCjr/Tandy, Hercules |
+| 2.440     | `0x1b78`         | `0x1bb8`     | EGA, CGA RGB/composite, PCjr/Tandy, Hercules |
+| 2.903     | `0x1d0a`         | `0x1d4a`     | Above plus MCGA                              |
+| 2.917     | `0x1d2c`         | `0x1d6c`     | Above plus MCGA                              |
+| 2.936     | `0x1d36`         | `0x1d76`     | Above plus MCGA                              |
+| 3.002.086 | `0x1dc2`         | `0x1e02`     | Above plus MCGA                              |
+| 3.002.102 | `0x1dd2`         | `0x1e12`     | Above plus MCGA                              |
+| 3.002.107 | `0x1dd4`         | `0x1e14`     | Above plus MCGA                              |
+| 3.002.149 | `0x1b89`         | `0x1bc9`     | Above plus MCGA                              |
+
+The EGA driver requests BIOS mode `0x0d`; MCGA requests `0x13` and writes
+indices 0–15, doubling every picture pixel; PCjr/Tandy requests `0x89`.
+These paths share the sixteen digital RGB colours at the app's logical
+raster. This does not establish analogue output or every adapter's BIOS font.
+The 2.001 booter's full adapter census remains unverified here.
+
+**Monitor switch.** PQ1 2.903 `0x7872..0x78ad` admits `toggle.monitor`
+only on computer type 0, outside text mode, when the monitor type is neither
+EGA (3) nor Hercules (2). It XORs monitor type with 1 and reloads/redraws the
+picture: this exchanges composite (0) and RGB (1) on CGA. It does not change
+v26, which startup copied at `0x1081..0x1084`. PCjr/Tandy and MCGA computer
+types bypass the switch. Equivalent XOR sites are 2.089 `0x6eb1`, 2.230
+`0x6e6a`, 2.272 `0x6f06`, 2.411 `0x75ae`, 2.440 `0x76cb`, 2.917 `0x78a9`
+and 2.936 `0x7970`. The engine's opcode remains a no-op; compositor support
+alone does not close this behavior or install a player setting.
+
+**Remaining adapter work.** Hercules is a separate monochrome raster:
+PQ1's driver programs a 720×348 display, places the 640×336 picture at
+horizontal pixel 40, and uses four pairs of dither rows per colour
+(`HGC_GRAF.OVL` `0x0099..0x0125`, data table `0x1d7c`). The game's
+`HGC_FONT` is a 3,072-byte 8×12 strike and must come from the player's files
+when this path is implemented. Composite programs CGA control `0x1a` and
+colour `0x27` (`CGA_GRAF.OVL` `0x00f8..0x0113`); its 640-pixel signal and
+colour decoding are distinct from RGB mode. Neither path is approximated
+by a palette here. CGA RGB also needs the original drawing provenance for
+cels baked by `add.to.pic`, beyond the animated-sprite ownership input.
+
+### Display geometry
+
+The active image remains 320×200 on PC, IIgs and the inspected Amiga builds.
+At the logical NTSC/EGA pixel width:height of 5:6 it has aspect 4:3. With
+PAL Amiga pixel width:height 16:15, the same 200-line active window has
+aspect 128:75; a complete 320×256 PAL field would be 4:3. The geometry
+helpers distinguish these and retain an 8:5 square-pixel option. The PAL
+helper still needs wiring to the running region in the Play layout.
+
+CRT overscan, blank borders, screen position and calibration belong to the
+physical monitor. The app's optional CRT scanlines, glow and curved glass
+are display effects, rather than measurements of a particular monitor.
+Square-pixel presentation samples the bitmap with nearest-neighbour filtering.
