@@ -1918,6 +1918,12 @@ export class Engine {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
   }
 
+  /** A shake or picture dissolve holds the pass; the clock ends it, not the player. */
+  get clockModalOpen(): boolean {
+    const kind = this.modal?.kind;
+    return kind === "shake" || kind === "dissolve";
+  }
+
   /**
    * Explicit pause and save selectors freeze timer/pacing counters; ordinary
    * modals do not. The 2.001 booter's save selectors leave the pause word

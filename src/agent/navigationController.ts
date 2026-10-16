@@ -214,7 +214,8 @@ export class NavigationController {
             `Expected ${this.goal.kind === "exit" ? this.goal.room : this.startRoom}, observed room ${engine.vars[0]}.`,
           );
     }
-    if (engine.modalKind !== null || engine.continuationPending)
+    // A shake or picture dissolve ends on the clock; the walk resumes after it.
+    if (!engine.clockModalOpen && (engine.modalKind !== null || engine.continuationPending))
       return this.finish("needs_input", inputReason(engine.modalKind));
     if (
       this.goal.kind === "position" &&

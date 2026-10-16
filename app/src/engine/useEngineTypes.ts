@@ -54,7 +54,23 @@ export function freshHistoryView(): HistoryViewUiState {
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind =
-  "print" | "inventory" | "menu" | "showObj" | "showPri" | "shake" | "save" | "restore";
+  | "print"
+  | "inventory"
+  | "menu"
+  | "showObj"
+  | "showPri"
+  | "shake"
+  | "dissolve"
+  | "save"
+  | "restore";
+
+/**
+ * A shake or a picture dissolve holds the game for a moment and reads no
+ * input; keys typed meanwhile wait for the game. Nothing asks the player to act.
+ */
+export function modalWaitsOnClock(modal: ModalKind | null): boolean {
+  return modal === "shake" || modal === "dissolve";
+}
 
 /** Test/debug hook mirrored onto window.__AGI_TEXT__ every frame. */
 export interface TextHook {

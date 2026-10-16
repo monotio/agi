@@ -389,9 +389,13 @@ export class Speedrun {
   dismiss(): void {
     for (let n = 0; this.engine.modalKind !== null || this.engine.continuationPending; n++) {
       assert.ok(n < 100, `Unsettled modal: ${this.state().text}`);
-      if (this.engine.modalKind === "shake") {
-        // A shake reads no keys and ends on the clock, as for a player.
-        for (let t = 0; this.engine.modalKind === "shake"; t++) {
+      if (this.engine.modalKind === "shake" || this.engine.modalKind === "dissolve") {
+        // A shake or dissolve reads no keys and ends on the clock, as for a player.
+        for (
+          let t = 0;
+          this.engine.modalKind === "shake" || this.engine.modalKind === "dissolve";
+          t++
+        ) {
           assert.ok(t < 60 * 600, "A shake outlasted ten minutes");
           this.advance();
         }

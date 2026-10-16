@@ -26,6 +26,7 @@ import { stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 import { amigaPointerCursor } from "./amigaPointer.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
+import { modalWaitsOnClock } from "../engine/useEngineTypes.ts";
 import { movementDirection } from "./gameControls.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import {
@@ -1040,7 +1041,11 @@ defineExpose({
               >
                 Arrows to select · Enter to choose · Esc to return
               </p>
-              <p v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
+              <p
+                v-else-if="state.modal !== null && !modalWaitsOnClock(state.modal)"
+                class="caption"
+                data-testid="modal-hint"
+              >
                 A message is open: press Enter to continue
               </p>
               <p v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">

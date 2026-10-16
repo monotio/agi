@@ -1047,7 +1047,7 @@ export function playtestRoom(
       for (let cycle = 0; cycle < ticks; cycle++) {
         if (until !== null && untilMet(engine, until)) break;
         if (action === "wait") {
-          if (engine.modalKind)
+          if (engine.modalKind && !engine.clockModalOpen)
             throw new SimulationStop(
               `steps[${index}]: the ${engine.modalKind} modal pauses animation. Add an enter action before waiting to observe animation. Completed ${cycle} of ${ticks} requested cycles.`,
               "needs_input",
