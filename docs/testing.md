@@ -402,7 +402,10 @@ job. Main builds and publishes each checked commit. See
 Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
 handling, held-key release ordering and modal input. Save-selector tests cover
 twelve slots, descriptions, cancellation, overwrite confirmation, signature
-filtering and failure outcomes. Per-game browser storage stands in for the DOS
+filtering and failure outcomes; on the Amiga profiles they pin the original
+slot, describe and confirm windows with their gadgets, and
+`test/native-menu.test.ts` pins the Intuition menu strip's gate, geometry and
+controller delivery. Per-game browser storage stands in for the DOS
 drive/path interface; exact platform dialog presentation and the completion of
 every game/version are not established by these checks.
 

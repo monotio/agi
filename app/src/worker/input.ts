@@ -217,6 +217,23 @@ export function createInput(ctx: WorkerContext) {
       deliverQueuedKey();
       return;
     }
+    // The Amiga describe window waits on the host's description prompt; a
+    // click on its Cancel gadget withdraws that prompt and cancels the save,
+    // as the gadget does on the original.
+    if (
+      engine.hostInteraction?.kind === "saveDialog" &&
+      engine.hostInteraction.dialog.need?.kind === "describe" &&
+      engine.awaitingHostAnswer
+    ) {
+      if (engine.pointerKeyAt(x, y) !== AGI_KEY.ESCAPE) return;
+      ctx.fns.historyRecord({ kind: "click", x, y });
+      setKeyWaiting(false);
+      ctx.fns.abandonHostRequest();
+      engine.deliverHostAnswer(null);
+      ctx.fns.tickEngine();
+      ctx.fns.postFrame();
+      return;
+    }
     if (engine.awaitingHostAnswer) return;
     if (engine.modalKind !== null || engine.textModeActive || engine.profile.clickMove === "none") {
       if (engine.pointerKeyAt(x, y) === null) return;

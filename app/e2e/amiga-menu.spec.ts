@@ -166,9 +166,9 @@ test("releasing off the strip cancels, and the strip stays shut once the game cl
   await waitForCycles(page, 2);
   expect(await row(page, 3)).not.toContain("PICKED");
   // The help names the right button only while the game offers its menu.
-  await page.getByRole("button", { name: "Game keys" }).click();
+  await page.getByTestId("game-keys").click();
+  await expect(page.getByTestId("game-key-help")).toBeVisible();
   await expect(page.getByText("Hold the right mouse button for the game menu")).toBeVisible();
-  await page.keyboard.press("Escape");
   await page.locator(".screen").click();
   await page.keyboard.press("F2");
   await expect.poll(() => row(page, 4)).toContain("MENU OFF");
@@ -177,7 +177,8 @@ test("releasing off the strip cancels, and the strip stays shut once the game cl
   await waitForCycles(page, 2);
   expect(await modal(page)).toBeNull();
   await page.mouse.up({ button: "right" });
-  await page.getByRole("button", { name: "Game keys" }).click();
+  await page.getByTestId("game-keys").click();
+  await expect(page.getByTestId("game-key-help")).toBeVisible();
   await expect(page.getByText("Hold the right mouse button for the game menu")).toHaveCount(0);
 });
 
@@ -189,7 +190,8 @@ test("the Amiga save dialog shows the original slot window and its Cancel gadget
   await page.keyboard.press("F1");
   await expect.poll(() => modal(page)).toBe("save");
   await expect.poll(() => row(page, 2)).toContain("Select the slot in which you wish");
-  expect(await row(page, 5)).toContain("»-");
+  // The text hook shows the 0xbb pointer glyph as "#".
+  expect(await row(page, 5)).toContain("#-");
   // The OK gadget fill (pen 2) and the Cancel gadget fill (pen 4) sit on the gadget rows.
   await expect.poll(() => framePixel(page, 30, 150)).toEqual([0, 136, 0]);
   await expect.poll(() => framePixel(page, 267, 150)).toEqual([204, 0, 0]);
@@ -288,11 +290,13 @@ test.describe(() => {
     await pad.getByRole("button", { name: "F1", exact: true }).tap();
     await expect.poll(() => modal(page)).toBe("save");
     await page.screenshot({ path: test.info().outputPath("save-dialog-390.png") });
-    // Tapping slot 3's line moves the pointer there; Cancel closes without a write.
+    // Tapping a slot line selects it, like the original's line gadgets: the
+    // describe window opens; its Cancel gadget (x 224..279, y 107..118) closes
+    // the dialog without a write.
     const slot3 = await framePoint(page, 100, 7 * 8 + 4);
     await page.touchscreen.tap(slot3.x, slot3.y);
-    await expect.poll(() => row(page, 7)).toContain("»-");
-    const cancel = await framePoint(page, SAVE_CANCEL.x, SAVE_CANCEL.y);
+    await expect.poll(() => row(page, 8)).toContain("How would you like to describe");
+    const cancel = await framePoint(page, 250, 112);
     await page.touchscreen.tap(cancel.x, cancel.y);
     await expect.poll(() => modal(page)).toBeNull();
     await expect.poll(() => row(page, 3)).toContain("SAVE DONE");

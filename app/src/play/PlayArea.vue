@@ -562,6 +562,9 @@ function onScreenClick(ev: MouseEvent): void {
     }
   }
   if (state.prompt) {
+    // The Amiga describe window's Cancel gadget stays clickable under the
+    // description prompt; the worker decides whether the click hit it.
+    if (amigaDialogOpen.value && state.prompt.kind === "saveDescription") sendScreenClick(ev);
     inputEl.value?.focus({ preventScroll: true });
     return;
   }
