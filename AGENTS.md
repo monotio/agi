@@ -221,6 +221,12 @@ computer details, personal paths, collection inventories, investigation dates an
 of tracked files, commit messages, issues and pull requests, and use portable fixture placeholders
 in examples. Public attribution, historical release dates and synthetic test data stay.
 
+Posts, release notes and other promotion may show a few frames of a commercial game as comparison
+or commentary, such as the original interpreter beside this engine on the same scene. Capture them
+from your own copies, credit the game and its rights holder on the image, and say the project is not
+affiliated with them. They never serve as a logo or the main image of a paid ad. Never share or point
+to game files, disk images or ROMs, and keep these images out of the repository.
+
 ## Working together
 
 - The working tree may be shared, so preserve other people's changes: no `git stash`, `git reset`,
