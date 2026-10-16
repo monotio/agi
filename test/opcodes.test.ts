@@ -754,11 +754,7 @@ test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing
       1,
       `${id}: relocated control box at (156,3)`,
     );
-    assert.equal(
-      engine.surface.priority[80 * 160 + 20],
-      5,
-      `${id}: packed 0x45 > 0x3f skips box`,
-    );
+    assert.equal(engine.surface.priority[80 * 160 + 20], 5, `${id}: packed 0x45 > 0x3f skips box`);
   }
 });
 
