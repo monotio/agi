@@ -348,7 +348,7 @@ function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
 }
 
-/** Right-click offers the current room's actions while Create is armed; Amiga Play maps right double-click to 0x0401. */
+/** Right-click offers the current room's actions while Create is armed; Amiga Play gets its right button. */
 function onScreenContextMenu(ev: MouseEvent): void {
   if (roomMenuArmed.value) {
     const room = engine.roomMap?.currentRoom.value ?? null;
@@ -357,24 +357,32 @@ function onScreenContextMenu(ev: MouseEvent): void {
     gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
     return;
   }
+  if (screenPresentation.value === "amiga") onAmigaRightButton(ev);
+}
+
+/**
+ * The Amiga right mouse button (docs/fidelity.md "Original click-to-walk"):
+ * a double click outside text windows posts 0x0401. Native menus on the
+ * right button belong here too.
+ */
+function onAmigaRightButton(ev: MouseEvent): void {
   if (
-    screenPresentation.value === "amiga" &&
-    state.phase === "running" &&
-    !state.walkthrough.active &&
-    !state.historyView.active &&
-    !state.paused &&
-    !agentBlocksGame.value &&
-    state.modal === null &&
-    !state.prompt
-  ) {
-    ev.preventDefault();
-    const now = performance.now();
-    if (now - amigaRightClickAt <= 500) {
-      amigaRightClickAt = -1000;
-      sendKey(0x0401, undefined, true);
-    } else {
-      amigaRightClickAt = now;
-    }
+    state.phase !== "running" ||
+    state.walkthrough.active ||
+    state.historyView.active ||
+    state.paused ||
+    agentBlocksGame.value ||
+    state.modal !== null ||
+    state.prompt
+  )
+    return;
+  ev.preventDefault();
+  const now = performance.now();
+  if (now - amigaRightClickAt <= 500) {
+    amigaRightClickAt = -1000;
+    sendKey(0x0401, undefined, true);
+  } else {
+    amigaRightClickAt = now;
   }
 }
 
