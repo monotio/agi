@@ -19,6 +19,7 @@ import { useStudioPalette } from "../studioLook.ts";
  */
 const { transparent } = defineProps<{ transparent: number }>();
 const emit = defineEmits<{ erase: []; choose: [] }>();
+const palette = useStudioPalette();
 const color = defineModel<number>({ required: true });
 const COLOURS = Array.from({ length: 16 }, (_, index) => index);
 /** The swatch Tab lands on: the paint colour, never the transparent one. */

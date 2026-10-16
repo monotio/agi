@@ -27,6 +27,7 @@ const { document, loop, cel, propagate, frozen } = defineProps<{
   frozen: boolean;
 }>();
 const emit = defineEmits<{ apply: [edit: RecolorEdit]; close: [] }>();
+const palette = useStudioPalette();
 const from = defineModel<number | null>("from", { required: true });
 /** The new colour; unset until one is picked. */
 const to = ref<number>();

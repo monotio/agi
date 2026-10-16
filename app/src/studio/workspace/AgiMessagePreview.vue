@@ -100,6 +100,7 @@ onMounted(() => {
   visibility.observe(preview.value!);
 });
 watch(() => text, render);
+watch(() => presentation.look.value, render);
 onBeforeUnmount(() => {
   closed = true;
   visibility?.disconnect();
