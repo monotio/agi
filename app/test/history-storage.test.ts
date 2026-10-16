@@ -1296,4 +1296,3 @@ test("upgrading a released v1 or v2 recording on append preserves segment versio
     assert.equal(afterAppend?.segments[1]?.version, undefined);
   }
 });
-
