@@ -2843,20 +2843,11 @@ export class Engine {
 
   /**
    * The Amiga status.line.off fills window pixels rows 0..10 with pen 0
-   * after hiding the title (h82+0x590..0x5bc): text row 0 turns opaque
-   * black, the top three scanlines of row 1 (y = 8..10) are blacked by
-   * `fillTitleBar()`, and the picture rows under the bar go black until the
-   * next picture draw. The configured status row is never touched.
+   * after hiding the title (h82+0x590..0x5bc). The configured status row
+   * is never touched.
    */
   private eraseAmigaTitleArea(): void {
-    this.text.fill(0, 0, 0, TEXT_COLS - 1, 0x20, attr(0, 0));
     this.text.fillTitleBar();
-    // Picture rows that lie within frame rows 0..10 (160 pixels per row).
-    const pictureRows = Math.max(0, Math.min(168, 11 - this.displayBaseRow * 8));
-    if (pictureRows > 0) {
-      this.surface.visual.fill(0, 0, pictureRows * 160);
-      this.presentationDirty = true;
-    }
   }
 
   private statusText(): string {
@@ -3153,6 +3144,7 @@ export class Engine {
     if (!this.profile.showPriScreenPreservesWindow) {
       this.closeWindowOnTop();
     }
+    this.text.clearPictureTitleFill(this.displayBaseRow);
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showPri" });
     this.host.showPriScreen?.();
   }
@@ -4010,7 +4002,9 @@ export class Engine {
         cells: this.text.cells,
         written: this.text.written,
         seq: this.text.seq,
-        ...(this.text.titleFillSeq > 0 ? { titleFillSeq: this.text.titleFillSeq } : {}),
+        ...(this.text.hasTitleFill && this.text.titleFill.some((s) => s !== 0)
+          ? { titleFill: this.text.titleFill.slice() }
+          : {}),
         draws: this.objects.map(({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight }) => ({
           drawSeq,
           drawnX,
@@ -4081,17 +4075,7 @@ export class Engine {
       this.text.cells.set(presentation.cells);
       this.text.written.set(presentation.written);
       this.text.seq = presentation.seq;
-      this.text.titleFillSeq = presentation.titleFillSeq ?? 0;
-      this.text.dirty++;
-      if (this.text.titleFillSeq > 0) {
-        const pictureRows = Math.max(0, Math.min(168, 11 - this.displayBaseRow * 8));
-        for (let col = 0; col < TEXT_COLS; col++) {
-          if (this.text.written[TEXT_COLS + col]! > this.text.titleFillSeq) continue;
-          for (let py = 0; py < pictureRows; py++)
-            this.surface.visual.fill(0, py * 160 + col * 4, py * 160 + col * 4 + 4);
-        }
-        this.presentationDirty = true;
-      }
+      this.text.restoreTitleFill(presentation.titleFill);
       for (let i = 0; i < this.objects.length; i++)
         Object.assign(this.objects[i]!, presentation.draws[i]!);
       // Parser edits are transient, as in an authentic restore; redraw the
@@ -4642,8 +4626,11 @@ export class Engine {
     const left = x;
     const right = x + cel.width - 1;
     const stamp = (px: number, py: number): void => {
-      if (px >= 0 && px < SCREEN_WIDTH && py >= 0)
-        this.surface.priority[py * SCREEN_WIDTH + px] = margin;
+      if (px >= 0 && px < SCREEN_WIDTH && py >= 0) {
+        const pixel = py * SCREEN_WIDTH + px;
+        this.surface.priority[pixel] = margin;
+        this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow);
+      }
     };
     for (let px = left; px <= right; px++) stamp(px, y);
     for (let up = 1; up < rows; up++) {
@@ -6949,8 +6936,10 @@ export class Engine {
           ? captureWindowErased(this.text, window.window)
           : undefined;
         // Presenting the picture repaints its band; text there is gone.
-        if (!this.textMode)
+        if (!this.textMode) {
           this.text.fill(this.displayBaseRow, 0, this.displayBaseRow + 20, TEXT_COLS - 1, 0, 0);
+          this.text.clearPictureTitleFill(this.displayBaseRow);
+        }
         if (visibleWindow) {
           this.text.restore(visibleWindow);
           if (window?.window) {
@@ -8082,6 +8071,7 @@ export class Engine {
   private drawPicture(num: number): void {
     this.surface.reset();
     renderPicture(this.picturePayload(num), this.surface, { profile: this.profile });
+    this.text.clearPictureTitleFill(this.displayBaseRow);
     this.pictureShown = false;
     this.lastPicture = num;
     this.presentationDirty = true;
@@ -8089,7 +8079,16 @@ export class Engine {
 
   /** overlay.pic: decode over the logical picture without clearing it first. */
   private overlayPicture(num: number): void {
-    renderPicture(this.picturePayload(num), this.surface, { overlay: true, profile: this.profile });
+    renderPicture(this.picturePayload(num), this.surface, {
+      overlay: true,
+      profile: this.profile,
+      ...(this.text.hasOverlay || this.text.hasTitleFill
+        ? {
+            onCellWrite: (pixel: number) =>
+              this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow),
+          }
+        : {}),
+    });
     this.lastPicture = num;
     this.presentationDirty = true;
   }
@@ -8313,7 +8312,7 @@ export class Engine {
     // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,
     // which also gates status.line.on/off until configure.screen sets a
     // nonzero picture top (docs/fidelity.md "Amiga screen, font and pointer").
-    this.displayBaseRow = this.profile.presentation === "amiga" ? 0 : 1;
+    if (this.profile.presentation === "amiga") this.displayBaseRow = 0;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[20] = isAmiga ? 5 : isIIgs ? 7 : 0;
     if (id === "2.001") {

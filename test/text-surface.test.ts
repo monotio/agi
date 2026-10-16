@@ -323,15 +323,11 @@ test("Amiga status line: gated by the picture top, off leaves the status row alo
   assert.equal(off.getPresentation().statusBar, null, "the title is hidden");
   assert.equal(off.textRow(2).slice(0, 4), "KEEP", "the configured status row survives");
   assert.ok(
-    row(off, 0).chars.every((c) => c === 0x20) && row(off, 0).attrs.every((a) => a === 0),
-    "row 0 is opaque black",
-  );
-  assert.ok(
     off
       .getPresentation()
-      .visual.subarray(0, 3 * 160)
-      .every((p) => p === 0),
-    "picture rows 0..2 under the bar are black",
+      .windowOverlay.subarray(0, 11 * 320)
+      .every((p) => p === 1),
+    "window rows 0..10 under the bar are painted pen 0",
   );
   const on = amigaEngine(
     "configure.screen(1, 22, 0); assignn(v3, 5); assignn(v7, 42); status.line.on(); return;",

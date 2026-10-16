@@ -24,7 +24,7 @@
 
 import type { AgiProfile, ProfileId } from "./profile.ts";
 import { validateContinuation, type ParkedContinuation } from "./replayState.ts";
-import { TEXT_COLS, TEXT_ROWS } from "./textSurface.ts";
+import { TEXT_COLS, TEXT_ROWS, TITLE_FILL_PIXELS } from "./textSurface.ts";
 
 /** Bytes of the leading description header (spec "Save-file envelope"). */
 export const SAVE_DESCRIPTION_BYTES = 31;
@@ -1684,7 +1684,7 @@ export interface HostPresentation {
   written: Uint32Array;
   seq: number;
   draws: HostDraw[];
-  titleFillSeq?: number;
+  titleFill?: Uint32Array;
 }
 
 /** A host autosave taken apart (see Engine.autosaveImage). */
@@ -1736,22 +1736,34 @@ export function encodeHostImage(
       presentation.draws.length !== HOST_DRAW_COUNT)
   )
     throw new RangeError("host autosave presentation dimensions are invalid");
-  const titleFillSeq = presentation?.titleFillSeq ?? 0;
-  if (
-    !Number.isSafeInteger(titleFillSeq) ||
-    titleFillSeq < 0 ||
-    (presentation && titleFillSeq > presentation.seq)
-  )
-    throw new RangeError("host autosave title fill sequence is invalid");
+  let titleFillRuns: number[] | undefined;
+  if (presentation?.titleFill !== undefined) {
+    const tf = presentation.titleFill;
+    if (tf.length !== TITLE_FILL_PIXELS)
+      throw new RangeError("host autosave title fill dimensions are invalid");
+    let hasNonZero = false;
+    const runs: number[] = [];
+    for (let i = 0; i < tf.length;) {
+      const s = tf[i]!;
+      if (s > presentation.seq)
+        throw new RangeError("host autosave title fill stamp exceeds its sequence");
+      if (s !== 0) hasNonZero = true;
+      let count = 1;
+      while (i + count < tf.length && tf[i + count] === s) count++;
+      runs.push(s, count);
+      i += count;
+    }
+    if (hasNonZero) titleFillRuns = runs;
+  }
   const continuationBytes = continuation
     ? new TextEncoder().encode(JSON.stringify(continuation))
     : new Uint8Array(0);
   const timingBytes =
-    amigaRegion === "pal" || titleFillSeq > 0
+    amigaRegion === "pal" || titleFillRuns !== undefined
       ? new TextEncoder().encode(
           JSON.stringify({
             ...(amigaRegion === "pal" ? { amigaRegion } : {}),
-            ...(titleFillSeq > 0 ? { titleFillSeq } : {}),
+            ...(titleFillRuns !== undefined ? { titleFill: titleFillRuns } : {}),
           }),
         )
       : new Uint8Array(0);
@@ -1896,7 +1908,7 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       typeof timing !== "object" ||
       Array.isArray(timing) ||
       Object.keys(timing).length === 0 ||
-      Object.keys(timing).some((k) => k !== "amigaRegion" && k !== "titleFillSeq")
+      Object.keys(timing).some((k) => k !== "amigaRegion" && k !== "titleFill")
     )
       throw new RangeError("host autosave region is invalid");
     if ("amigaRegion" in timing) {
@@ -1904,17 +1916,36 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
         throw new RangeError("host autosave region is invalid");
       result.amigaRegion = timing.amigaRegion;
     }
-    if ("titleFillSeq" in timing) {
-      const titleFillSeq = timing.titleFillSeq;
-      if (
-        typeof titleFillSeq !== "number" ||
-        !Number.isSafeInteger(titleFillSeq) ||
-        titleFillSeq <= 0 ||
-        !result.presentation ||
-        titleFillSeq > result.presentation.seq
-      )
-        throw new RangeError("host autosave title fill sequence is invalid");
-      result.presentation.titleFillSeq = titleFillSeq;
+    if ("titleFill" in timing) {
+      const runs = timing.titleFill;
+      if (!Array.isArray(runs) || runs.length < 2 || runs.length % 2 !== 0 || !result.presentation)
+        throw new RangeError("host autosave title fill is invalid");
+      const titleFill = new Uint32Array(TITLE_FILL_PIXELS);
+      let pos = 0;
+      let hasNonZero = false;
+      for (let i = 0; i < runs.length; i += 2) {
+        const stamp: unknown = runs[i];
+        const count: unknown = runs[i + 1];
+        if (
+          typeof stamp !== "number" ||
+          !Number.isSafeInteger(stamp) ||
+          stamp < 0 ||
+          stamp > result.presentation.seq ||
+          typeof count !== "number" ||
+          !Number.isSafeInteger(count) ||
+          count <= 0 ||
+          pos + count > TITLE_FILL_PIXELS
+        )
+          throw new RangeError("host autosave title fill is invalid");
+        if (stamp > 0) {
+          titleFill.fill(stamp, pos, pos + count);
+          hasNonZero = true;
+        }
+        pos += count;
+      }
+      if (pos !== TITLE_FILL_PIXELS || !hasNonZero)
+        throw new RangeError("host autosave title fill is invalid");
+      result.presentation.titleFill = titleFill;
     }
   }
   return result;

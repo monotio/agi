@@ -432,19 +432,24 @@ test("Amiga status off erases all title pixels while retaining the text below ro
   }
 });
 
-test("Amiga status state table across all six profiles: cold start, configure.screen, on/off, windows, save/restore and restart", async () => {
+test("Amiga status state table across all six profiles: cold start, configure.screen, on/off, windows, save/restore and restart", async (t) => {
   const { Engine } = await import("../../src/runtime/engine.ts");
   const { createContainer } = await import("../../src/container/container.ts");
   const { assembleLogic } = await import("../../src/logic/assembler.ts");
   const { PROFILES } = await import("../../src/runtime/profile.ts");
   const { decodeHostImage, encodeHostImage } = await import("../../src/runtime/persistence.ts");
+  const { buildView } = await import("../../src/view/view.ts");
   const amigaProfiles = Object.values(PROFILES).filter((p) => p.presentation === "amiga");
   assert.equal(amigaProfiles.length, 6);
 
   const expectedTitle = "Score:5 of 42  " + " ".repeat(11) + "Sound:on " + " ".repeat(4);
+  const onePixelBlueView = buildView({
+    loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }],
+  });
 
   for (const profile of amigaProfiles) {
     const appearance = await loadAppearance(profile.id);
+    const blueRgb = [...appearance.palette[1]!];
     const logicSource = `
       if (!isset(f200)) {
         set(f200);
@@ -468,10 +473,17 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       if (isset(f208)) { reset(f208); set(f15); print("Hi"); }
       if (isset(f209)) { reset(f209); ${profile.maxAction >= 0xa9 ? "close.window();" : 'reset(f15); print("Hi");'} }
       if (isset(f210)) { reset(f210); restart.game(); }
+      if (isset(f211)) { reset(f211); configure.screen(1, 22, 2); status.line.off(); show.pic(); }
+      if (isset(f212)) { reset(f212); configure.screen(2, 22, 2); status.line.off(); configure.screen(0, 22, 2); }
+      if (isset(f213)) { reset(f213); show.pic(); }
+      if (isset(f214)) { reset(f214); configure.screen(1, 22, 2); status.line.off(); load.view(0); add.to.pic(0, 0, 0, 0, 0, 15, 4); }
+      if (isset(f215)) { reset(f215); animate.obj(o0); load.view(0); set.view(o0, 0); set.priority(o0, 15); ignore.horizon(o0); position(o0, 2, 0); draw(o0); }
+      if (isset(f216)) { reset(f216); erase(o0); }
       return;
     `;
     const container = createContainer();
     container.putResource("picture", 0, Uint8Array.of(0xff));
+    container.putResource("view", 0, onePixelBlueView);
     container.putResource(
       "logic",
       0,
@@ -492,6 +504,31 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         new Map(),
         { profile },
       );
+
+    const composeEngine = (eng: InstanceType<typeof Engine>): Uint8Array => {
+      const pres = eng.getPresentation();
+      const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+      compositeFrame({ ...pres, picRow: eng.displayBase, appearance }, out);
+      return out;
+    };
+
+    const cloneViaAutosave = (eng: InstanceType<typeof Engine>): InstanceType<typeof Engine> => {
+      const bytes = eng.autosaveImage();
+      assert.ok(bytes, `${profile.id}: autosaveImage produced`);
+      const restored = makeEngine(keys);
+      restored.restoreImage(bytes);
+      return restored;
+    };
+
+    const cloneViaRecording = (eng: InstanceType<typeof Engine>): InstanceType<typeof Engine> => {
+      const bytes = eng.recordingImage();
+      assert.ok(bytes, `${profile.id}: recordingImage produced`);
+      const replay = eng.captureReplayState();
+      const restored = makeEngine(keys);
+      restored.restoreImage(bytes);
+      restored.restoreReplayState(replay);
+      return restored;
+    };
 
     // Reference frames for row 1 glyphs ("MMMM" at row 1, cols 0..3) and title bar.
     const refSurface = new TextSurface();
@@ -528,13 +565,64 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
     let engine = makeEngine(keys);
     let savedOn: Uint8Array | null = null;
 
-    type RowsMode = "unfilled" | "title" | "black";
+    type RowsMode =
+      "unfilled" | "title" | "black" | "white" | "showPicTop1" | "addToPicBlue00" | "spriteBlue20";
+    const expectedPixelFor = (
+      mode: RowsMode,
+      x: number,
+      y: number,
+      glyphRef: Uint8Array,
+    ): number[] => {
+      switch (mode) {
+        case "black":
+          return [0, 0, 0];
+        case "white":
+          return [255, 255, 255];
+        case "title":
+          return pixelAt(titleRef, x, y);
+        case "unfilled":
+          return pixelAt(glyphRef, x, y);
+        case "showPicTop1":
+          return y < 8 ? [0, 0, 0] : [255, 255, 255];
+        case "addToPicBlue00":
+          return y === 8 && (x === 0 || x === 1) ? blueRgb : [0, 0, 0];
+        case "spriteBlue20":
+          return y === 8 && (x === 0 || x === 1 || x === 4 || x === 5) ? blueRgb : [0, 0, 0];
+      }
+    };
+
+    const assertRows0to10 = (
+      out: Uint8Array,
+      mode: RowsMode,
+      glyphRef: Uint8Array,
+      label: string,
+      reference?: Uint8Array,
+    ) => {
+      for (let y = 0; y <= 10; y++) {
+        for (let x = 0; x < FRAME_WIDTH; x++) {
+          if (reference) {
+            assert.deepEqual(
+              pixelAt(out, x, y),
+              pixelAt(reference, x, y),
+              `${profile.id} [${label} vs uninterrupted]: pixel (${x}, ${y})`,
+            );
+          }
+          assert.deepEqual(
+            pixelAt(out, x, y),
+            expectedPixelFor(mode, x, y, glyphRef),
+            `${profile.id} [${label}]: pixel (${x}, ${y})`,
+          );
+        }
+      }
+    };
+
     const steps: {
       name: string;
       act: () => void;
       statusBar: string | null;
       rows0to10: RowsMode;
       checkRow1Bottom: boolean;
+      compareCheckpoints?: boolean;
     }[] = [
       {
         name: "cold start: displayBase is 0 and status.line.on/off are gated",
@@ -638,7 +726,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           const autosave = engine.autosaveImage();
           assert.ok(autosave, `${profile.id}: autosaveImage produced`);
           const decoded = decodeHostImage(autosave);
-          const { titleFillSeq: _drop, ...legacyPresentation } = decoded.presentation!;
+          const { titleFill: _dropFill, ...legacyPresentation } = decoded.presentation!;
           const legacyBytes = encodeHostImage(
             decoded.image,
             decoded.screen ?? [],
@@ -671,8 +759,129 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         checkRow1Bottom: true,
       },
       {
+        name: "show.pic after fill (picTop 1, white pic): supersedes y=8..10 while y=0..7 stays black, directly and after checkpoint restore",
+        act: () => {
+          engine.flags[211] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "showPicTop1",
+        checkRow1Bottom: false,
+        compareCheckpoints: true,
+      },
+      {
+        name: "configure.screen 2 then 0 around fill: rows 0..10 stay black before show.pic, directly and after checkpoint restore",
+        act: () => {
+          engine.flags[212] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "black",
+        checkRow1Bottom: false,
+        compareCheckpoints: true,
+      },
+      {
+        name: "configure.screen 2 then 0 around fill, then show.pic: uninterrupted and checkpoint-restored both paint rows 0..10 white",
+        act: () => {
+          const fromAutosave = cloneViaAutosave(engine);
+          const fromRecording = cloneViaRecording(engine);
+          engine.flags[213] = 1;
+          engine.tick();
+          fromAutosave.flags[213] = 1;
+          fromAutosave.tick();
+          fromRecording.flags[213] = 1;
+          fromRecording.tick();
+          const uninterruptedOut = composeEngine(engine);
+          const glyphRef = glyphRefFor(engine.displayBase);
+          assertRows0to10(
+            composeEngine(fromAutosave),
+            "white",
+            glyphRef,
+            "configure 2->0 autosave then show.pic",
+            uninterruptedOut,
+          );
+          assertRows0to10(
+            composeEngine(fromRecording),
+            "white",
+            glyphRef,
+            "configure 2->0 recording then show.pic",
+            uninterruptedOut,
+          );
+        },
+        statusBar: null,
+        rows0to10: "white",
+        checkRow1Bottom: false,
+        compareCheckpoints: true,
+      },
+      {
+        name: "add.to.pic 1px blue cel at (0,0) after fill: paints (0,8)..(1,8) blue over fill, directly and after checkpoint restore",
+        act: () => {
+          engine.flags[214] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "addToPicBlue00",
+        checkRow1Bottom: false,
+        compareCheckpoints: true,
+      },
+      {
+        name: "further sprite draw and erase after checkpoint restore over add.to.pic and fill",
+        act: () => {
+          const fromAutosave = cloneViaAutosave(engine);
+          const fromRecording = cloneViaRecording(engine);
+          for (const eng of [engine, fromAutosave, fromRecording]) {
+            eng.flags[215] = 1;
+            eng.tick();
+          }
+          const drawnRef = composeEngine(engine);
+          const glyphRef = glyphRefFor(engine.displayBase);
+          assertRows0to10(drawnRef, "spriteBlue20", glyphRef, "sprite drawn uninterrupted");
+          assertRows0to10(
+            composeEngine(fromAutosave),
+            "spriteBlue20",
+            glyphRef,
+            "sprite drawn after autosave restore",
+            drawnRef,
+          );
+          assertRows0to10(
+            composeEngine(fromRecording),
+            "spriteBlue20",
+            glyphRef,
+            "sprite drawn after recording restore",
+            drawnRef,
+          );
+          for (const eng of [engine, fromAutosave, fromRecording]) {
+            eng.flags[216] = 1;
+            eng.tick();
+          }
+          const erasedRef = composeEngine(engine);
+          assertRows0to10(
+            composeEngine(fromAutosave),
+            "addToPicBlue00",
+            glyphRef,
+            "sprite erased after autosave restore",
+            erasedRef,
+          );
+          assertRows0to10(
+            composeEngine(fromRecording),
+            "addToPicBlue00",
+            glyphRef,
+            "sprite erased after recording restore",
+            erasedRef,
+          );
+        },
+        statusBar: null,
+        rows0to10: "addToPicBlue00",
+        checkRow1Bottom: false,
+        compareCheckpoints: true,
+      },
+      {
         name: "serialize + restoreImage (status off): statusBar stays null and rows 0..10 black",
         act: () => {
+          engine.flags[205] = 1;
+          engine.tick();
+          engine.flags[206] = 1;
+          engine.tick();
           const savedOff = engine.serialize();
           engine = makeEngine(keys);
           engine.restoreImage(savedOff);
@@ -718,38 +927,85 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
     ];
 
     for (const step of steps) {
-      step.act();
-      const pres = engine.getPresentation();
-      assert.equal(pres.statusBar, step.statusBar, `${profile.id} [${step.name}]: statusBar`);
-      const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
-      compositeFrame({ ...pres, picRow: engine.displayBase, appearance }, out);
-      const glyphRef = glyphRefFor(engine.displayBase);
-      for (let y = 0; y <= 10; y++) {
-        for (let x = 0; x < FRAME_WIDTH; x++) {
-          const expected =
-            step.rows0to10 === "black"
-              ? [0, 0, 0]
-              : step.rows0to10 === "title"
-                ? pixelAt(titleRef, x, y)
-                : pixelAt(glyphRef, x, y);
-          assert.deepEqual(
-            pixelAt(out, x, y),
-            expected,
-            `${profile.id} [${step.name}]: pixel (${x}, ${y})`,
-          );
+      await t.test(`${profile.id}: ${step.name}`, () => {
+        step.act();
+        const pres = engine.getPresentation();
+        assert.equal(pres.statusBar, step.statusBar, `${profile.id} [${step.name}]: statusBar`);
+        const out = composeEngine(engine);
+        const glyphRef = glyphRefFor(engine.displayBase);
+        assertRows0to10(out, step.rows0to10, glyphRef, step.name);
+        if (step.compareCheckpoints) {
+          const autoOut = composeEngine(cloneViaAutosave(engine));
+          const recOut = composeEngine(cloneViaRecording(engine));
+          assertRows0to10(autoOut, step.rows0to10, glyphRef, `${step.name} (autosave)`, out);
+          assertRows0to10(recOut, step.rows0to10, glyphRef, `${step.name} (recording)`, out);
         }
-      }
-      if (step.checkRow1Bottom) {
-        for (let y = 11; y <= 15; y++) {
-          for (let x = 0; x < 32; x++) {
-            assert.deepEqual(
-              pixelAt(out, x, y),
-              pixelAt(glyphRef, x, y),
-              `${profile.id} [${step.name}]: row 1 bottom pixel (${x}, ${y})`,
-            );
+        if (step.checkRow1Bottom) {
+          for (let y = 11; y <= 15; y++) {
+            for (let x = 0; x < 32; x++) {
+              assert.deepEqual(
+                pixelAt(out, x, y),
+                pixelAt(glyphRef, x, y),
+                `${profile.id} [${step.name}]: row 1 bottom pixel (${x}, ${y})`,
+              );
+            }
           }
         }
-      }
+      });
     }
+  }
+});
+
+test("accepted restart.game preserves picture top on PC 2.936 and IIgs 1.014 while resetting Amiga to 0", async () => {
+  const { Engine } = await import("../../src/runtime/engine.ts");
+  const { createContainer } = await import("../../src/container/container.ts");
+  const { assembleLogic } = await import("../../src/logic/assembler.ts");
+  const { PROFILES } = await import("../../src/runtime/profile.ts");
+  for (const [profileId, expectedAfterRestart] of [
+    ["2.936", 2],
+    ["iigs-1.014", 2],
+    ["amiga-2.202", 0],
+  ] as const) {
+    const profile = PROFILES[profileId]!;
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+        if (isset(f6)) { return; }
+        if (!isset(f200)) {
+          set(f200);
+          configure.screen(2, 22, 2);
+          return;
+        }
+        restart.game();
+        return;
+        `,
+        { dictionary: new Map(), profile },
+      ).payload,
+    );
+    const keys = [0x0d];
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => keys.splice(0, keys.length),
+        waitKey: () => 0x0d,
+      },
+      new Map(),
+      { profile },
+    );
+    engine.tick();
+    assert.equal(engine.displayBase, 2, `${profileId}: configured displayBase is 2`);
+    engine.tick();
+    assert.equal(
+      engine.displayBase,
+      expectedAfterRestart,
+      `${profileId}: displayBase after accepted restart.game`,
+    );
   }
 });

@@ -4069,12 +4069,13 @@ of the depth gadgets. Amiga profiles initialize `displayBaseRow` (`$f8a2`) to 0
 at cold start and on an accepted `restart.game`, matching the state-hunk load
 image; `statusBarText()` and `status.line.on` / `.off` derive the gate directly
 from `displayBaseRow === 0`. `.off` leaves the configured status row alone and
-blacks every presentation layer in window rows 0..10 as the RectFill does: row
-0 turns opaque black, picture rows under the bar are zeroed, and the top three
-scanlines of text row 1 (`y = 8..10`) are stamped on `TextSurface` as
-`titleFillSeq` (kept apart from the window overlay so closing a window or
-restoring a checkpoint never wipes them, and serialized with host images while
-glyph rows below `y = 10` survive). The same routine and strings sit at `h82+0x42c` in KQ2
+stamps the 320×11 window pixels of rows 0..10 (`titleFill` on `TextSurface`)
+with the current draw sequence in pen 0 (`windowOverlay` value 1), so every
+later picture (`show.pic`, `draw.pic`, `overlay.pic`), priority
+(`show.pri.screen`), `add.to.pic`, sprite, text or window write to those
+pixels compares stamps or clears the entries it covers, and the stamps are
+serialized with host images so checkpoint restore reproduces an uninterrupted
+run. The same routine and strings sit at `h82+0x42c` in KQ2
 and the 2.31x builds and at `h60+0x28e` (SetWindowTitles) in SQ1.
 
 **Input row (fact, all six builds).** `ShowInput` prints, in order, string

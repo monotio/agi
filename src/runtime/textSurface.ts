@@ -122,6 +122,8 @@ export interface SavedRect {
 
 const OVERLAY_WIDTH = 320;
 const OVERLAY_HEIGHT = 200;
+export const TITLE_FILL_HEIGHT = 11;
+export const TITLE_FILL_PIXELS = OVERLAY_WIDTH * TITLE_FILL_HEIGHT;
 
 export class TextSurface {
   /** Row-major cells: [char, attr] per cell, TEXT_COLS * TEXT_ROWS pairs. */
@@ -145,17 +147,22 @@ export class TextSurface {
   seq = 0;
   readonly written = new Uint32Array(TEXT_COLS * TEXT_ROWS);
   /**
-   * Write stamp of the Amiga status.line.off pen-0 RectFill(0, 0, 319, 10) over
-   * the top three scanlines (y = 8..10) of text row 1. Kept apart from
-   * `overlay` so closing a window or restoring a checkpoint never wipes it;
-   * cells on row 1 written after `titleFillSeq` uncover their columns.
+   * Per-pixel write stamps of the Amiga status.line.off pen-0 RectFill(0, 0, 319, 10)
+   * across window rows 0..10 (320 * 11 = 3,520 pixels). Kept apart from
+   * `overlay` so closing a window never wipes it; every later picture,
+   * priority, sprite, text or window write compares stamps or clears the
+   * pixels it paints over.
    */
-  titleFillSeq = 0;
+  readonly titleFill = new Uint32Array(TITLE_FILL_PIXELS);
+  hasTitleFill = false;
 
   clear(): void {
     this.cells.fill(0);
     this.written.fill(0);
-    this.titleFillSeq = 0;
+    if (this.hasTitleFill) {
+      this.titleFill.fill(0);
+      this.hasTitleFill = false;
+    }
     if (this.hasOverlay) {
       this.overlay.fill(0);
       this.overlayWritten.fill(0);
@@ -172,9 +179,40 @@ export class TextSurface {
     this.dirty++;
   }
 
-  /** Stamp the Amiga status.line.off pen-0 fill across the top three scanlines of row 1 (y = 8..10). */
+  /** Stamp the Amiga status.line.off pen-0 fill across window rows 0..10 (y = 0..10, x = 0..319). */
   fillTitleBar(): void {
-    this.titleFillSeq = ++this.seq;
+    const stamp = ++this.seq;
+    this.titleFill.fill(stamp);
+    this.hasTitleFill = true;
+    this.cells.fill(0, 0, TEXT_COLS * 2);
+    this.written.fill(0, 0, TEXT_COLS);
+    if (this.hasOverlay) {
+      this.overlay.fill(0, 0, TITLE_FILL_PIXELS);
+      this.overlayWritten.fill(0, 0, TITLE_FILL_PIXELS);
+    }
+    this.dirty++;
+  }
+
+  /** Drop any title-fill pixels covered by a full picture blit at `baseRow`. */
+  clearPictureTitleFill(baseRow: number): void {
+    if (!this.hasTitleFill) return;
+    const y0 = Math.max(0, baseRow * 8);
+    const y1 = Math.min(TITLE_FILL_HEIGHT, baseRow * 8 + 168);
+    if (y0 >= y1) return;
+    this.titleFill.fill(0, y0 * OVERLAY_WIDTH, y1 * OVERLAY_WIDTH);
+    if (!this.titleFill.some((s) => s !== 0)) this.hasTitleFill = false;
+    this.dirty++;
+  }
+
+  /** Replace the title-fill stamp array from a host checkpoint. */
+  restoreTitleFill(stamps?: Uint32Array): void {
+    if (stamps && stamps.some((s) => s !== 0)) {
+      this.titleFill.set(stamps);
+      this.hasTitleFill = true;
+    } else {
+      this.titleFill.fill(0);
+      this.hasTitleFill = false;
+    }
     this.dirty++;
   }
 
@@ -183,20 +221,25 @@ export class TextSurface {
    * into `target` (320x200). Returns true when any overlay pixel is active.
    */
   composeOverlay(target: Uint8Array): boolean {
-    if (!this.hasOverlay && this.titleFillSeq === 0) return false;
+    if (!this.hasOverlay && !this.hasTitleFill) return false;
     if (this.hasOverlay) target.set(this.overlay);
     else target.fill(0);
-    if (this.titleFillSeq > 0) {
-      const fillSeq = this.titleFillSeq;
-      for (let col = 0; col < TEXT_COLS; col++) {
-        if (this.written[TEXT_COLS + col]! > fillSeq) continue;
-        const x0 = col * 8;
-        for (let y = 8; y <= 10; y++) {
-          const base = y * OVERLAY_WIDTH + x0;
+    if (this.hasTitleFill) {
+      for (let y = 0; y < TITLE_FILL_HEIGHT; y++) {
+        const row = y >> 3;
+        const rowBase = y * OVERLAY_WIDTH;
+        const cellRowBase = row * TEXT_COLS;
+        for (let col = 0; col < TEXT_COLS; col++) {
+          const cell = cellRowBase + col;
+          const cellStamp = this.cells[cell * 2] !== 0 ? this.written[cell]! : 0;
+          const x0 = rowBase + col * 8;
           for (let dx = 0; dx < 8; dx++) {
-            const idx = base + dx;
-            if (!this.hasOverlay || this.overlay[idx] === 0 || this.overlayWritten[idx]! <= fillSeq)
-              target[idx] = 1;
+            const idx = x0 + dx;
+            const fillStamp = this.titleFill[idx]!;
+            if (fillStamp === 0 || cellStamp >= fillStamp) continue;
+            const winStamp =
+              this.hasOverlay && this.overlay[idx] !== 0 ? this.overlayWritten[idx]! : 0;
+            if (fillStamp > winStamp) target[idx] = 1;
           }
         }
       }
@@ -207,9 +250,9 @@ export class TextSurface {
   /** Write stamp of the composed overlay pixel at `idx` (window border or title fill). */
   overlayStampAt(idx: number): number {
     const w = this.overlayWritten[idx]!;
-    if (this.titleFillSeq > w && idx >= 8 * OVERLAY_WIDTH && idx < 11 * OVERLAY_WIDTH) {
-      const col = (idx % OVERLAY_WIDTH) >> 3;
-      if (this.written[TEXT_COLS + col]! <= this.titleFillSeq) return this.titleFillSeq;
+    if (this.hasTitleFill && idx < TITLE_FILL_PIXELS) {
+      const f = this.titleFill[idx]!;
+      if (f > w) return f;
     }
     return w;
   }
@@ -222,6 +265,19 @@ export class TextSurface {
       for (let dx = 0; dx < 8; dx++) {
         this.overlay[base + dx] = 0;
         this.overlayWritten[base + dx] = 0;
+      }
+    }
+  }
+
+  private clearCellTitleFillBefore(row: number, col: number, stamp: number): void {
+    const y0 = row * 8;
+    if (y0 >= TITLE_FILL_HEIGHT) return;
+    const y1 = Math.min(TITLE_FILL_HEIGHT, y0 + 8);
+    const x0 = col * 8;
+    for (let y = y0; y < y1; y++) {
+      const base = y * OVERLAY_WIDTH + x0;
+      for (let dx = 0; dx < 8; dx++) {
+        if (this.titleFill[base + dx]! < stamp) this.titleFill[base + dx] = 0;
       }
     }
   }
@@ -272,29 +328,44 @@ export class TextSurface {
     for (const i of indices) {
       if (i < 0 || i >= TEXT_COLS * TEXT_ROWS) continue;
       if (this.cells[i * 2] === 0) continue;
+      const cellStamp = this.written[i]!;
       this.cells[i * 2] = 0;
       this.cells[i * 2 + 1] = 0;
       this.written[i] = 0;
+      if (this.hasTitleFill && i < TEXT_COLS * 2) {
+        this.clearCellTitleFillBefore((i / TEXT_COLS) | 0, i % TEXT_COLS, cellStamp);
+      }
       changed = true;
     }
     if (changed) this.dirty++;
   }
 
-  /** Drop the two 320x200 window-overlay pixels covered by a painted 160x168 picture pixel. */
+  /** Drop the two 320x200 window-overlay or title-fill pixels covered by a painted 160x168 picture pixel. */
   dropPicturePixelOverlay(pixel: number, baseRow: number): void {
-    if (!this.hasOverlay) return;
+    if (!this.hasOverlay && !this.hasTitleFill) return;
     const oIdx = baseRow * 8 * OVERLAY_WIDTH + pixel * 2;
-    if (oIdx < 0 || oIdx + 1 >= this.overlay.length) return;
     let changed = false;
-    if (this.overlay[oIdx] !== 0) {
-      this.overlay[oIdx] = 0;
-      this.overlayWritten[oIdx] = 0;
-      changed = true;
+    if (this.hasOverlay && oIdx >= 0 && oIdx + 1 < this.overlay.length) {
+      if (this.overlay[oIdx] !== 0) {
+        this.overlay[oIdx] = 0;
+        this.overlayWritten[oIdx] = 0;
+        changed = true;
+      }
+      if (this.overlay[oIdx + 1] !== 0) {
+        this.overlay[oIdx + 1] = 0;
+        this.overlayWritten[oIdx + 1] = 0;
+        changed = true;
+      }
     }
-    if (this.overlay[oIdx + 1] !== 0) {
-      this.overlay[oIdx + 1] = 0;
-      this.overlayWritten[oIdx + 1] = 0;
-      changed = true;
+    if (this.hasTitleFill && oIdx >= 0 && oIdx + 1 < TITLE_FILL_PIXELS) {
+      if (this.titleFill[oIdx] !== 0) {
+        this.titleFill[oIdx] = 0;
+        changed = true;
+      }
+      if (this.titleFill[oIdx + 1] !== 0) {
+        this.titleFill[oIdx + 1] = 0;
+        changed = true;
+      }
     }
     if (changed) this.dirty++;
   }
@@ -322,13 +393,15 @@ export class TextSurface {
       for (let c = c0; c <= c1; c++) {
         const i = r * TEXT_COLS + c;
         if (this.written[i]! <= since || this.cells[i * 2] === 0) continue;
+        const cellStamp = this.written[i]!;
         this.cells[i * 2] = 0;
         this.cells[i * 2 + 1] = 0;
         this.written[i] = 0;
+        if (this.hasTitleFill && r < 2) this.clearCellTitleFillBefore(r, c, cellStamp);
         changed = true;
       }
     }
-    if (this.hasOverlay) {
+    if (this.hasOverlay || this.hasTitleFill) {
       const px0 = Math.max(0, x0 * 2);
       const px1 = Math.min(OVERLAY_WIDTH - 1, x1 * 2 + 1);
       const py0 = Math.max(0, baseRow * 8 + y0);
@@ -337,10 +410,15 @@ export class TextSurface {
         const rowBase = py * OVERLAY_WIDTH;
         for (let px = px0; px <= px1; px++) {
           const idx = rowBase + px;
-          if (this.overlayWritten[idx]! <= since || this.overlay[idx] === 0) continue;
-          this.overlay[idx] = 0;
-          this.overlayWritten[idx] = 0;
-          changed = true;
+          if (this.hasOverlay && this.overlayWritten[idx]! > since && this.overlay[idx] !== 0) {
+            this.overlay[idx] = 0;
+            this.overlayWritten[idx] = 0;
+            changed = true;
+          }
+          if (this.hasTitleFill && idx < TITLE_FILL_PIXELS && this.titleFill[idx]! > since) {
+            this.titleFill[idx] = 0;
+            changed = true;
+          }
         }
       }
     }
