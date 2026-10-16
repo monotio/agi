@@ -239,13 +239,13 @@ it("2.001 uses the first payload byte as the row period and never writes it to t
   // [122e] = byte[payload]; the row cursor [122a] starts one byte later.
   // 0x7482..0x748e: the tick countdown [1230] starts at 0, so row 0 plays on
   // tick 1, then reloads from the period; exhaustion (0x7473) is checked first.
-  // PSG device 1, period 3: rows at ticks 1 and 4, the last row completes.
+  // PSG device 1, period 3: rows at ticks 1 and 4, cleanup and completion at tick 5.
   const psg = new SoundPlayback(
     detectProfile(new Map(), "2.001"),
     Uint8Array.of(3, 0x80, 0x02, 0, 0x9f, 0),
     1,
   );
-  assert.equal(psg.durationTicks, 4);
+  assert.equal(psg.durationTicks, 5);
   assert.deepEqual(psg.tick(true, 0), {
     outputs: [{ kind: "psg", bytes: [0x80, 0x02] }],
     complete: false,
@@ -253,10 +253,12 @@ it("2.001 uses the first payload byte as the row period and never writes it to t
   for (let tick = 2; tick <= 3; tick++)
     assert.deepEqual(psg.tick(true, 0), { outputs: [], complete: false });
   assert.deepEqual(psg.tick(true, 0), {
-    outputs: [
-      { kind: "psg", bytes: [0x9f] },
-      { kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] },
-    ],
+    outputs: [{ kind: "psg", bytes: [0x9f] }],
+    complete: false,
+  });
+  // Cleanup 0x7473 -> 0x4b96 runs on the next tick, before the countdown.
+  assert.deepEqual(psg.tick(true, 0), {
+    outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
     complete: true,
   });
   // A zero period on the chip path counts as one tick (dec to -1 passes jng).
@@ -266,7 +268,8 @@ it("2.001 uses the first payload byte as the row period and never writes it to t
     1,
   );
   assert.deepEqual(zero.tick(true, 0).outputs, [{ kind: "psg", bytes: [0x80, 0x02] }]);
-  assert.deepEqual(zero.tick(true, 0).outputs[0], { kind: "psg", bytes: [0x84] });
+  assert.deepEqual(zero.tick(true, 0).outputs, [{ kind: "psg", bytes: [0x84] }]);
+  assert.equal(zero.tick(true, 0).complete, true);
   // Speaker device 0, period 2: 81 23 -> 6732 at tick 1, 80 00 -> off at
   // tick 3, exhaustion is seen at tick 4 regardless of the countdown.
   const speaker = new SoundPlayback(

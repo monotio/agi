@@ -640,12 +640,8 @@ export class SoundPlayback {
       };
       this.rows = rows;
       const step = Math.max(period, 1);
-      this.durationTicks =
-        rows.length === 0
-          ? this.single
-            ? 1
-            : 0
-          : 1 + (rows.length - 1) * step + (this.single ? 1 : 0);
+      // The last row is followed by one cleanup tick on both devices.
+      this.durationTicks = rows.length === 0 ? 1 : 2 + (rows.length - 1) * step;
       this.channels = [
         {
           notes: rows.map(() => placeholder),
@@ -753,7 +749,6 @@ export class SoundPlayback {
         else if (--channel.countdown <= 0) {
           channel.countdown = this.rowPeriod;
           row = this.rows[channel.cursor++];
-          if (!this.single && channel.cursor >= this.rows.length) channel.terminated = true;
         }
         if (row !== undefined && this.single && enabled) {
           for (let i = 0; i < row.length; i++) {

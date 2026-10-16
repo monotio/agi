@@ -637,17 +637,19 @@ describe("pc booter 2.001 row streams", () => {
     const profile = detectProfile(new Map(), "2.001");
     const payload = Uint8Array.of(1, 0x80, 0x02, 0, 0, 0x9f, 0);
     const sound = new SoundPlayback(profile, payload, 1);
-    assert.equal(sound.durationTicks, 3);
+    assert.equal(sound.durationTicks, 4);
     assert.deepEqual(sound.tick(true, 0), {
       outputs: [{ kind: "psg", bytes: [0x80, 0x02] }],
       complete: false,
     });
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(true, 0), {
-      outputs: [
-        { kind: "psg", bytes: [0x9f] },
-        { kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] },
-      ],
+      outputs: [{ kind: "psg", bytes: [0x9f] }],
+      complete: false,
+    });
+    // The exhaustion check (0x7473) runs on the tick after the last row.
+    assert.deepEqual(sound.tick(true, 0), {
+      outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
       complete: true,
     });
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
@@ -662,6 +664,7 @@ describe("pc booter 2.001 row streams", () => {
     // path (0x747C → 0x4B96).
     const profile = detectProfile(new Map(), "2.001");
     const sound = new SoundPlayback(profile, Uint8Array.of(1, 0x80, 0x02, 0, 0x9f, 0), 1);
+    assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(false, 0), {
       outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
@@ -723,6 +726,7 @@ describe("pc booter 2.001 row streams", () => {
     const restored = new SoundPlayback(profile, payload, 1);
     restored.restore(sound.snapshot());
     assert.deepEqual(bytes(restored.tick(true, 0).outputs), [0x84]);
+    assert.equal(restored.tick(true, 0).complete, false);
     assert.equal(restored.tick(true, 0).complete, true);
   });
 });
