@@ -111,17 +111,17 @@ if (!isset(f202)) {
 }
 if (isset(input_received) && !isset(input_handled) && !isset(f202)) {
   if (greatern(parser_status, 0)) {
-    if (equaln(parser_status, 1)) { word.to.string(s11, 1); }
-    if (equaln(parser_status, 2)) { word.to.string(s11, 2); }
-    if (equaln(parser_status, 3)) { word.to.string(s11, 3); }
-    if (equaln(parser_status, 4)) { word.to.string(s11, 4); }
-    if (equaln(parser_status, 5)) { word.to.string(s11, 5); }
-    if (equaln(parser_status, 6)) { word.to.string(s11, 6); }
-    if (equaln(parser_status, 7)) { word.to.string(s11, 7); }
-    if (equaln(parser_status, 8)) { word.to.string(s11, 8); }
-    if (equaln(parser_status, 9)) { word.to.string(s11, 9); }
-    if (equaln(parser_status, 10)) { word.to.string(s11, 10); }
-    if (equaln(parser_status, 11)) { word.to.string(s11, 11); }
+    if (equaln(parser_status, 1)) { word.to.string(s11, 0); }
+    if (equaln(parser_status, 2)) { word.to.string(s11, 1); }
+    if (equaln(parser_status, 3)) { word.to.string(s11, 2); }
+    if (equaln(parser_status, 4)) { word.to.string(s11, 3); }
+    if (equaln(parser_status, 5)) { word.to.string(s11, 4); }
+    if (equaln(parser_status, 6)) { word.to.string(s11, 5); }
+    if (equaln(parser_status, 7)) { word.to.string(s11, 6); }
+    if (equaln(parser_status, 8)) { word.to.string(s11, 7); }
+    if (equaln(parser_status, 9)) { word.to.string(s11, 8); }
+    if (equaln(parser_status, 10)) { word.to.string(s11, 9); }
+    if (equaln(parser_status, 11)) { word.to.string(s11, 10); }
     print("I don't know the word \\"%s11\\".");
   } else {
     print("I don't understand that.");

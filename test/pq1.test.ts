@@ -12,8 +12,8 @@ import { fixtureDir, fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Optional Police Quest 2.903 fixture tests. This build uses the v2
- * container fallback profile, 2.936. Fixture names resolve case-insensitively.
+ * Optional Police Quest 2.903 fixture tests. Build 2.903 maps to the 2.917
+ * profile via EQUIVALENT_BUILDS. Fixture names resolve case-insensitively.
  */
 const GAME_ALIAS = "pq1";
 const TARGET_HASH = KNOWN_GAME_HASH.PQ1;
@@ -45,14 +45,14 @@ test(
 );
 
 test(
-  `${GAME_ALIAS}: v2 split container, 2.936 profile by container shape, resource census`,
+  `${GAME_ALIAS}: v2 split container, 2.917 profile from 2.903 binary, resource census`,
   { skip },
   () => {
     const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
     assert.deepEqual(detectContainerFormat(files), { kind: "v2-split", prefix: "" });
     assert.equal(detectVersionString(files), "2.903");
     const profile = detectProfile(files);
-    assert.equal(profile.id, "2.936");
+    assert.equal(profile.id, "2.917");
     const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
     for (let n = 0; n < 256; n++) {
       const logic = container.getResource("logic", n);

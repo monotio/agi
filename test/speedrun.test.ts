@@ -138,7 +138,12 @@ test("every shipped walkthrough binds its bundle revision and builtin fixture ha
   for (const file of files) {
     const path = join(dir, file);
     const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    assert.equal(raw["schema"], "monotio.agi.walkthrough.v1", `${file} schema`);
+    // The reader accepts both schemas (artifact.ts): tapes recorded before
+    // the v2 writer stay v1; regenerated tapes carry v2.
+    assert.ok(
+      ["monotio.agi.walkthrough.v1", "monotio.agi.walkthrough.v2"].includes(String(raw["schema"])),
+      `${file} schema`,
+    );
     const identity = raw["identity"] as Record<string, unknown> | undefined;
     assert.match(
       String(identity?.["revision"]),

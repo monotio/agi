@@ -47,7 +47,8 @@ function boot(profile: ProfileId, after = "") {
   const source = `
     if (!isset(f200)) {
       set(f200);
-      load.pic(v250); draw.pic(v250); show.pic();
+      configure.screen(1, 22, 0);
+      load.pic(v250); overlay.pic(v250); show.pic();
       animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
       assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
     }

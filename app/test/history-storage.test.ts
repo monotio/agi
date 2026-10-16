@@ -1118,8 +1118,8 @@ test("eviction deletes an evicted segment's batch records and its private blob",
   assert.equal(recording?.segments[0]?.boot.files["VOL.0"], "e2==");
 });
 
-test("history uses v2 and refuses unsupported or obsolete storage without rewriting", async () => {
-  assert.equal(HISTORY_FORMAT_VERSION, 2);
+test("history uses v3 and refuses unsupported or obsolete storage without rewriting", async () => {
+  assert.equal(HISTORY_FORMAT_VERSION, 3);
   for (const kind of ["envelope", "recording", "profile", "missing-directory"]) {
     const target = installedTarget(`tape-store-refuse-${kind}`);
     const key = target.locator;
@@ -1241,4 +1241,58 @@ test("evicted final-batch resends deduplicate without acknowledging uncommitted 
     false,
     "boot resend cannot resurrect a retained-away segment",
   );
+});
+
+test("upgrading a released v1 or v2 recording on append preserves segment version provenance", async () => {
+  for (const releasedVersion of [1, 2] as const) {
+    const target = installedTarget(`tape-store-upgrade-v${releasedVersion}`);
+    const key = target.locator;
+    assert.equal(
+      await importGameHistory(
+        target,
+        {
+          recording: {
+            version: releasedVersion,
+            identity: target.identity,
+            profile: "2.936",
+            resourceSet: "rev-1",
+            startedAt: 100,
+            segments: [
+              {
+                id: "s-released.1",
+                boot: BOOT,
+                anchors: [],
+                events: [],
+                marks: [],
+                sync: [],
+              },
+            ],
+          },
+        },
+        INSTALLED_EPOCH,
+      ),
+      true,
+    );
+    const beforeAppend = await loadGameHistory(key);
+    assert.equal(beforeAppend?.version, releasedVersion);
+    assert.equal(beforeAppend?.segments[0]?.version, undefined);
+
+    // Appending a new segment upgrades the enclosing header to HISTORY_FORMAT_VERSION
+    // while stamping the earlier segment's original version provenance.
+    assert.equal(
+      await appendHistoryBatch(
+        target,
+        { ...batch(1), segment: "s-current.2", boot: BOOT },
+        "2.936",
+        INSTALLED_EPOCH,
+      ),
+      true,
+    );
+    const afterAppend = await loadGameHistory(key);
+    assert.equal(afterAppend?.version, HISTORY_FORMAT_VERSION);
+    assert.equal(afterAppend?.segments[0]?.id, "s-released.1");
+    assert.equal(afterAppend?.segments[0]?.version, releasedVersion);
+    assert.equal(afterAppend?.segments[1]?.id, "s-current.2");
+    assert.equal(afterAppend?.segments[1]?.version, undefined);
+  }
 });

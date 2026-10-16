@@ -3,11 +3,8 @@ import { DEFAULT_V2_PROFILE, type AgiProfile } from "../../../../src/runtime/pro
 import { expandProjectLogic } from "../../../../src/authoring/projectLogic.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import { parseLogicSyntax, type TestExpr, type Stmt } from "../../../../src/logic/syntax.ts";
-import {
-  quoteLogicString,
-  disassembleLogic,
-  disassembleLogicWarnings,
-} from "../../../../src/logic/disassembler.ts";
+import { quoteLogicString } from "../../../../src/logic/quote.ts";
+import { disassembleLogic, disassembleLogicWarnings } from "../../../../src/logic/disassembler.ts";
 import { parseSentence } from "../../../../src/runtime/parser.ts";
 import type { ProjectChange, ProjectContent } from "../../../../src/authoring/projectContent.ts";
 
@@ -196,7 +193,13 @@ export function sentenceOutcomes(
   profile: AgiProfile = DEFAULT_V2_PROFILE,
 ): SentenceOutcome[] {
   const dictionary = new Map(entries);
-  const parsed = parseSentence(line, dictionary);
+  const parsed = parseSentence(
+    line,
+    dictionary,
+    profile.parserStopsAtTenthWord,
+    profile.parserDefaultsLoneAAndI,
+    profile.parserStripsPunctuation,
+  );
   const result: SentenceOutcome[] = [];
   const state: ParseState = { consumed: false, ready: parsed.count > 0 };
   const running = new Set<number>();

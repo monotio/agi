@@ -24,6 +24,12 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.run.presentation.lastInputEdit = ctx.run.engine.inputEdit;
       ctx.ports.presentation({ type: "inputEdit", text: ctx.run.presentation.lastInputEdit });
     }
+    const shake = ctx.run.engine.shakeFrame;
+    const shakeKey = JSON.stringify(shake);
+    if (shakeKey !== ctx.run.presentation.lastShake) {
+      ctx.run.presentation.lastShake = shakeKey;
+      ctx.ports.presentation({ type: "shake", shake });
+    }
     const frame = ctx.run.engine.getPresentation();
     if (capture) captureFrame(frame);
     if (ctx.run.engine === ctx.imagePreviewEngine)
@@ -39,7 +45,15 @@ export function createPresentation(ctx: WorkerContext) {
     // it travels with every frame while the modal is open so layered
     // renderers can give the cel its own identifiable layer.
     const preview = ctx.run.engine.getPreviewMask();
+    // The display decides the look; CGA also needs each pixel's cel provenance.
+    const display = ctx.run.engine.pcDisplay === "cga-rgb" ? ("cga-rgb" as const) : null;
+    const region = ctx.run.engine.amigaRegion === "pal" ? ("pal" as const) : null;
+    const displayKey = `${display ?? ""}/${region ?? ""}`;
+    const cel = display ? ctx.run.engine.getCelPixels() : null;
     const objectsJson = objects ? JSON.stringify(objects) : "";
+    const gadgetsJson = frame.gadgets ? JSON.stringify(frame.gadgets) : "";
+    const menuJson = frame.menu ? JSON.stringify(frame.menu) : "";
+    const menuAvailable = ctx.run.engine.nativeMenuAvailable;
     // Repeated display/trace opcodes can mark text dirty without changing a cell.
     // Sending those frames floods software GPU renderers and delays user input.
     let same =
@@ -47,10 +61,15 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.run.presentation.lastModal === modal &&
       ctx.run.presentation.lastPicRow === ctx.run.engine.displayBase &&
       ctx.run.presentation.lastTextMode === ctx.run.engine.textModeActive &&
+      ctx.run.presentation.lastStatusBar === frame.statusBar &&
+      ctx.run.presentation.lastGadgetsJson === gadgetsJson &&
+      ctx.run.presentation.lastMenuJson === menuJson &&
+      ctx.run.presentation.lastMenuAvailable === menuAvailable &&
       ctx.run.presentation.lastInputEnabled === ctx.run.engine.inputEnabled &&
       ctx.run.presentation.lastReleaseGate === ctx.run.engine.releaseGate &&
       objectsJson === ctx.run.presentation.lastObjectsJson &&
       ctx.run.engine.patchGeneration === ctx.run.presentation.lastPatchGen &&
+      displayKey === ctx.run.presentation.lastDisplay &&
       ctx.run.presentation.lastText !== null;
     if (same && ctx.run.presentation.lastText) {
       for (let i = 0; i < textCells.length; i++) {
@@ -59,6 +78,16 @@ export function createPresentation(ctx: WorkerContext) {
           break;
         }
       }
+    }
+    if (same && ctx.run.presentation.lastWindowOverlay) {
+      for (let i = 0; i < frame.windowOverlay.length; i++) {
+        if (frame.windowOverlay[i] !== ctx.run.presentation.lastWindowOverlay[i]) {
+          same = false;
+          break;
+        }
+      }
+    } else if (!ctx.run.presentation.lastWindowOverlay) {
+      same = false;
     }
     if (same && ctx.run.presentation.lastVisual) {
       for (let i = 0; i < frame.visual.length; i++) {
@@ -105,6 +134,16 @@ export function createPresentation(ctx: WorkerContext) {
         }
       }
     }
+    if (same && (cel === null) !== (ctx.run.presentation.lastCel === null)) {
+      same = false;
+    } else if (same && cel && ctx.run.presentation.lastCel) {
+      for (let i = 0; i < cel.length; i++) {
+        if (cel[i] !== ctx.run.presentation.lastCel[i]) {
+          same = false;
+          break;
+        }
+      }
+    }
     if (same && (picture === null) !== (ctx.run.presentation.lastPicture === null)) {
       same = false;
     } else if (same && picture && ctx.run.presentation.lastPicture) {
@@ -122,26 +161,39 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.run.presentation.lastVisual = frame.visual.slice(); // retained copy, never transferred
     ctx.run.presentation.lastPriority = frame.priority.slice();
     ctx.run.presentation.lastText = textCells.slice();
+    ctx.run.presentation.lastWindowOverlay = frame.windowOverlay.slice();
     ctx.run.presentation.lastOwnership = ownership ? ownership.slice() : null;
     ctx.run.presentation.lastPreview = preview ? preview.slice() : null;
+    ctx.run.presentation.lastCel = cel ? cel.slice() : null;
+    ctx.run.presentation.lastDisplay = displayKey;
     ctx.run.presentation.lastPicture = picture ? picture.visual.slice() : null;
     ctx.run.presentation.lastPicturePriority = picture ? picture.priority.slice() : null;
     ctx.run.presentation.lastObjectsJson = objectsJson;
     ctx.run.presentation.lastPicRow = ctx.run.engine.displayBase;
     ctx.run.presentation.lastTextMode = ctx.run.engine.textModeActive;
+    ctx.run.presentation.lastStatusBar = frame.statusBar;
+    ctx.run.presentation.lastGadgetsJson = gadgetsJson;
+    ctx.run.presentation.lastMenuJson = menuJson;
+    ctx.run.presentation.lastMenuAvailable = menuAvailable;
     ctx.run.presentation.lastInputEnabled = ctx.run.engine.inputEnabled;
     ctx.run.cycle.lastInputReady = ctx.run.cycle.initialLogicStarted;
     ctx.run.presentation.lastReleaseGate = ctx.run.engine.releaseGate;
     ctx.run.presentation.lastModal = modal;
     ctx.run.presentation.lastPatchGen = ctx.run.engine.patchGeneration;
     const text = textCells.slice();
+    const windowOverlay = frame.windowOverlay.slice();
     ctx.ports.presentation(
       {
         type: "frame",
         visual: frame.visual,
         priority: frame.priority,
         text,
+        windowOverlay,
         picRow: ctx.run.engine.displayBase,
+        statusBar: frame.statusBar,
+        ...(frame.gadgets ? { gadgets: frame.gadgets } : {}),
+        ...(frame.menu ? { menu: frame.menu } : {}),
+        menuAvailable,
         modal,
         textMode: ctx.run.engine.textModeActive,
         inputEnabled: ctx.run.engine.inputEnabled,
@@ -154,13 +206,18 @@ export function createPresentation(ctx: WorkerContext) {
         ...(objects ? { objects } : {}),
         ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),
         ...(preview ? { preview } : {}),
+        ...(display ? { display } : {}),
+        ...(region ? { region } : {}),
+        ...(cel ? { cel } : {}),
       },
       [
         frame.visual.buffer,
         frame.priority.buffer,
         text.buffer,
+        windowOverlay.buffer,
         ...(ownership ? [ownership.buffer] : []),
         ...(preview ? [preview.buffer] : []),
+        ...(cel ? [cel.buffer] : []),
         ...(picture ? [picture.visual.buffer, picture.priority.buffer] : []),
       ],
     );
@@ -227,6 +284,7 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.replay.isSeeking = false;
       ctx.run.presentation.lastVisual = null;
       ctx.run.presentation.lastText = null;
+      ctx.run.presentation.lastWindowOverlay = null;
       postFrame();
     }
   }

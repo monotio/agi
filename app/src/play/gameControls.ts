@@ -6,7 +6,7 @@ export const FUNCTION_KEYS: Record<string, number> = Object.fromEntries(
   Array.from({ length: 10 }, (_, i) => [`F${i + 1}`, AGI_KEY.F1 + (i << 8)]),
 );
 /** IBM PC letter scan codes, shared with the phone's modifier key panel. */
-export const ALT_LETTER_SCANS: Record<string, number> = {
+const ALT_LETTER_SCANS: Record<string, number> = {
   A: 30,
   B: 48,
   C: 46,
@@ -55,24 +55,6 @@ const KEY_NAMES: Record<number, string> = {
   [AGI_KEY.DELETE]: "Delete",
 };
 
-const KEY_EVENTS: Record<string, number> = {
-  Backspace: AGI_KEY.BACKSPACE,
-  Tab: AGI_KEY.TAB,
-  Enter: AGI_KEY.ENTER,
-  Escape: AGI_KEY.ESCAPE,
-  Home: AGI_KEY.HOME,
-  ArrowUp: AGI_KEY.UP,
-  PageUp: AGI_KEY.PAGE_UP,
-  ArrowLeft: AGI_KEY.LEFT,
-  ArrowRight: AGI_KEY.RIGHT,
-  End: AGI_KEY.END,
-  ArrowDown: AGI_KEY.DOWN,
-  PageDown: AGI_KEY.PAGE_DOWN,
-  Insert: AGI_KEY.INSERT,
-  Delete: AGI_KEY.DELETE,
-  ScrollLock: 0x4600,
-};
-
 const MOVEMENT_KEYS: Record<string, number> = {
   ArrowUp: 1,
   PageUp: 2,
@@ -119,28 +101,6 @@ export function movementDirection(event: KeyboardEvent): number | undefined {
   return undefined;
 }
 
-/** IBM PC key words shared by physical and on-screen input. */
-export function pcKey(event: KeyboardEvent): number | undefined {
-  if (event.metaKey || event.isComposing) return undefined;
-  // AltGr is native text entry. It must not trigger the unrelated Alt key.
-  if (event.altKey && event.ctrlKey) return undefined;
-  if (event.altKey) {
-    const scan = ALT_LETTER_SCANS[event.key.toUpperCase()];
-    return scan === undefined ? undefined : scan << 8;
-  }
-  if (event.ctrlKey)
-    return /^[a-z]$/i.test(event.key) ? event.key.toUpperCase().charCodeAt(0) - 64 : undefined;
-  // Modified extended keys have distinct PC words; never alias them to bare keys.
-  if (event.shiftKey && event.key.length !== 1) return undefined;
-  return (
-    FUNCTION_KEYS[event.key] ??
-    KEY_EVENTS[event.key] ??
-    (event.key.length === 1 && event.key.charCodeAt(0) <= 0x7f
-      ? event.key.charCodeAt(0)
-      : undefined)
-  );
-}
-
 export function gameShortcuts(bindings: GameControlBinding[]) {
   return bindings.map((binding) => {
     const key = binding.key;
@@ -171,13 +131,4 @@ export function gameShortcuts(bindings: GameControlBinding[]) {
       heading: [...new Set(binding.menuItems.map((item) => item.heading.trim()))].join(" / "),
     };
   });
-}
-
-/** Only configured modifier/character shortcuts take precedence over normal text input. */
-export function registeredKey(
-  event: KeyboardEvent,
-  bindings: GameControlBinding[],
-): number | undefined {
-  const key = pcKey(event);
-  return bindings.some((binding) => binding.key === key) ? key : undefined;
 }

@@ -1,3 +1,4 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import { requireProjectId } from "../../../src/gameIdentity.ts";
 import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
@@ -27,11 +28,12 @@ import {
   useWalkthroughController,
   createInitialWalkthroughState,
 } from "../walkthrough/useWalkthroughController.ts";
-import { useInputController } from "../play/useInputController.ts";
+import { useInputController, type MenuOp } from "../play/useInputController.ts";
 import { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { useAuthoringController } from "../authoring/useAuthoringController.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
+import { usePcDisplay } from "../settings/pcDisplay.ts";
 import type { AgiAudio, AudioMode } from "../audio/AgiAudio.ts";
 import {
   autosaveKey,
@@ -66,7 +68,7 @@ import { discoverInstalledGames } from "../library/gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
 import type { useHistoryController } from "../history/useHistoryController.ts";
 import type { useHistoryView } from "../history/useHistoryView.ts";
-import { freshHistoryView } from "./useEngineTypes.ts";
+import { freshHistoryView, modalWaitsOnClock } from "./useEngineTypes.ts";
 import { useStartOverNote } from "../history/useStartOverNote.ts";
 import type { TransportModel } from "../history/useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
@@ -112,6 +114,11 @@ export function useEngine(
     pendingEditorChanges?: () => boolean;
     /** A new engine replaced the game, or the game was left: drop its picture. */
     onScreenReset?: () => void;
+    onAppearance?: (
+      id: string | null,
+      files?: ReadonlyMap<string, Uint8Array>,
+      pcDisplay?: PcDisplay,
+    ) => void;
   },
 ) {
   let projectMode: "create" | "play" = "play";
@@ -128,6 +135,7 @@ export function useEngine(
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
   const amigaSettings = useAmigaRegion();
+  const pcDisplaySettings = usePcDisplay();
 
   let audioLoading: Promise<AgiAudio> | undefined;
 
@@ -140,6 +148,7 @@ export function useEngine(
     inputEnabled: false,
     inputReady: false,
     holdToMove: false,
+    menuAvailable: false,
     waitingForKey: false,
     gameEdit: null,
     phase: "idle",
@@ -154,7 +163,9 @@ export function useEngine(
     profileKind: null,
     agentLog: [],
     omittedLogEntries: 0,
-    shake: false,
+    shake: null,
+    pcDisplay: "ega",
+    amigaRegion: "ntsc",
     prompt: null,
     soundPlaying: false,
     soundMuted: false,
@@ -263,6 +274,7 @@ export function useEngine(
     profile: null,
     profileKind: null,
     paused: false,
+    pcDisplay: "ega",
     cycle: 0,
     frame: 0,
     autosave: -1,
@@ -328,7 +340,7 @@ export function useEngine(
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
-  const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
+  const { sendInput, sendEdit, sendDirection, sendKey, sendClick, sendMenu, sendJoystick } = input;
   const startOverNote = useStartOverNote(state);
 
   let executionDebug: ReturnType<typeof createExecutionDebugLink> | undefined;
@@ -836,6 +848,7 @@ export function useEngine(
 
   const lifecycle = useGameLifecycle({
     getAmigaRegion: () => amigaSettings.region.value,
+    getPcDisplay: () => pcDisplaySettings.display.value,
     state,
     hook,
     get audio() {
@@ -860,6 +873,8 @@ export function useEngine(
       startOverNote.hide();
     },
     onScreenReset: () => engineOptions?.onScreenReset?.(),
+    onAppearance: (id, files) =>
+      engineOptions?.onAppearance?.(id, files, pcDisplaySettings.display.value),
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     pendingEditorChanges: () =>
       (engineOptions?.pendingEditorChanges?.() ?? false) ||
@@ -932,10 +947,16 @@ export function useEngine(
     state.installedGames = await discoverInstalledGames();
   }
 
-  /** Acknowledge the engine's open modal (click path); the worker resumes ticking. */
-  function dismissModal(): void {
-    if (state.modal === null) return;
-    link.getWorker()?.postMessage({ type: "dismissPrint" } satisfies WorkerInbound);
+  /**
+   * A tap on the engine's open modal; the worker resumes ticking. With the
+   * tap's screen pixel, an Amiga confirmation gadget under it is selected.
+   */
+  function dismissModal(point?: { x: number; y: number }): void {
+    // The original reads no input while it shakes the screen or dissolves a picture in.
+    if (state.modal === null || modalWaitsOnClock(state.modal)) return;
+    link
+      .getWorker()
+      ?.postMessage({ type: "dismissPrint", ...(point ?? {}) } satisfies WorkerInbound);
   }
 
   /** Player submitted (or cancelled) the blocking prompt modal. */
@@ -1637,13 +1658,18 @@ export function useEngine(
       startOverNote.noteInput();
       sendDirection(dir, sessionId);
     },
-    sendKey: (code: number, sessionId?: number) => {
+    sendKey: (code: number, sessionId?: number, pointer?: boolean) => {
       startOverNote.noteInput();
-      sendKey(code, sessionId);
+      sendKey(code, sessionId, pointer);
     },
+    sendJoystick,
     sendClick: (x: number, y: number, sessionId?: number) => {
       startOverNote.noteInput();
       sendClick(x, y, sessionId);
+    },
+    sendMenu: (op: MenuOp, x: number, y: number, sticky?: boolean) => {
+      startOverNote.noteInput();
+      sendMenu(op, x, y, sticky);
     },
     dismissModal,
     submitPrompt,

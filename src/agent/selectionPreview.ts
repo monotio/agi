@@ -6,7 +6,8 @@
  * them.
  */
 
-import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import { encodePngRgb } from "../picture/png.ts";
+import { EGA_TABLE, type ColourTable } from "../runtime/colourTables.ts";
 import type { CellBox } from "../studio/editValidation.ts";
 import type { SpriteCel } from "../view/spriteDocument.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
@@ -41,7 +42,11 @@ interface Planes {
  * 320x168 (every logical pixel two image pixels wide). The diff panel shows
  * changed cells in magenta over the dimmed result.
  */
-export function pictureAssistPreviewPng(before: Planes, after: Planes): Uint8Array {
+export function pictureAssistPreviewPng(
+  before: Planes,
+  after: Planes,
+  palette: ColourTable = EGA_TABLE,
+): Uint8Array {
   const panel = SCREEN_WIDTH * 2;
   const width = panel * 3;
   const height = SCREEN_HEIGHT * 2;
@@ -58,8 +63,8 @@ export function pictureAssistPreviewPng(before: Planes, after: Planes): Uint8Arr
     for (let y = 0; y < SCREEN_HEIGHT; y++)
       for (let x = 0; x < SCREEN_WIDTH; x++) {
         const i = y * SCREEN_WIDTH + x;
-        const was = EGA_RGB[before[plane][i]! & 0x0f]!;
-        const now = EGA_RGB[after[plane][i]! & 0x0f]!;
+        const was = palette[before[plane][i]! & 0x0f]!;
+        const now = palette[after[plane][i]! & 0x0f]!;
         put(0, row, x, y, was);
         put(1, row, x, y, now);
         put(2, row, x, y, before[plane][i] === after[plane][i] ? dim(now) : CHANGED);
@@ -83,7 +88,12 @@ export function cropScale(box: CellBox): number {
  * comparison panels (visual, priority, overlay) of `pictureComparisonPng`:
  * (box width x scale x 6) by (box height x scale).
  */
-export function pictureCropPng(planes: Planes, box: CellBox, scale: number): Uint8Array {
+export function pictureCropPng(
+  planes: Planes,
+  box: CellBox,
+  scale: number,
+  palette: ColourTable = EGA_TABLE,
+): Uint8Array {
   const w = (box.x1 - box.x0 + 1) * scale;
   const h = (box.y1 - box.y0 + 1) * scale;
   const visual = new Uint8Array(w * h);
@@ -95,15 +105,19 @@ export function pictureCropPng(planes: Planes, box: CellBox, scale: number): Uin
       visual[y * w + x] = planes.visual[source]!;
       priority[y * w + x] = planes.priority[source]!;
     }
-  return pictureComparisonPng(visual, priority, { width: w, height: h });
+  return pictureComparisonPng(visual, priority, { width: w, height: h }, palette);
 }
 
 /** The whole visual plane at 320x168 with the cells of `area` tinted magenta. */
-export function pictureOverviewPng(visual: Uint8Array, area: Uint8Array): Uint8Array {
+export function pictureOverviewPng(
+  visual: Uint8Array,
+  area: Uint8Array,
+  palette: ColourTable = EGA_TABLE,
+): Uint8Array {
   const width = SCREEN_WIDTH * 2;
   const rgb = new Uint8Array(width * SCREEN_HEIGHT * 3);
   for (let i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-    const colour = EGA_RGB[visual[i]! & 0x0f]!;
+    const colour = palette[visual[i]! & 0x0f]!;
     const shown = area[i] === 1 ? blend(colour, CHANGED) : colour;
     rgb.set(shown, i * 6);
     rgb.set(shown, i * 6 + 3);
@@ -142,7 +156,11 @@ function pixelOf(cel: SpriteCel | undefined, x: number, y: number): number | nul
  * otherwise one tile of `after`. Tiles are `spriteTileSize` with a
  * TILE_GAP-pixel gutter; transparency is dark grey.
  */
-export function spriteSheetPng(pairs: readonly CelPair[], compare: boolean): Uint8Array {
+export function spriteSheetPng(
+  pairs: readonly CelPair[],
+  compare: boolean,
+  palette: ColourTable = EGA_TABLE,
+): Uint8Array {
   const tile = spriteTileSize(pairs);
   const columns = compare ? 3 : 1;
   const width = columns * tile.width + (columns - 1) * TILE_GAP;
@@ -158,10 +176,10 @@ export function spriteSheetPng(pairs: readonly CelPair[], compare: boolean): Uin
           const was = pixelOf(pair.before, x, y);
           const now = pixelOf(pair.after, x, y);
           let colour: Rgb | null;
-          if (!compare || column === 1) colour = now === null ? null : EGA_RGB[now]!;
-          else if (column === 0) colour = was === null ? null : EGA_RGB[was]!;
+          if (!compare || column === 1) colour = now === null ? null : palette[now]!;
+          else if (column === 0) colour = was === null ? null : palette[was]!;
           else if (was !== now) colour = CHANGED;
-          else colour = now === null ? null : dim(EGA_RGB[now]!);
+          else colour = now === null ? null : dim(palette[now]!);
           if (colour === null) continue;
           const left = column * (tile.width + TILE_GAP) + x * 2 * tile.scale;
           const top = row * (tile.height + TILE_GAP) + y * tile.scale;

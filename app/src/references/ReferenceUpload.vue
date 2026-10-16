@@ -12,7 +12,8 @@ import { decodeReferenceFile } from "./referenceDecode.ts";
 import { ROOM_REFERENCE_ASPECT, type DecodedImage, type StoredReference } from "./referenceArt.ts";
 import type { SheetFacing } from "../../../src/view/characterSheet.ts";
 import { viewFeedback } from "../../../src/agent/viewFeedback.ts";
-import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
+import { DEFAULT_V2_PROFILE, PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
+import { useOptionalPresentation } from "../play/usePresentation.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShell } from "../shell/useShell.ts";
@@ -62,6 +63,12 @@ const characterViewNum = 0;
 
 const suppliedFacings = computed(() => FACINGS.filter((f) => facingFiles[f] !== null));
 
+const presentation = useOptionalPresentation();
+/** The running game's profile, so the preview shows the colours the game shows. */
+function gameProfile() {
+  const id = presentation?.profileId.value;
+  return id && Object.hasOwn(PROFILES, id) ? PROFILES[id as ProfileId] : DEFAULT_V2_PROFILE;
+}
 const stagedPreview = computed(() => {
   const staged = attached.value?.staged;
   if (!staged) return null;
@@ -72,7 +79,7 @@ const stagedPreview = computed(() => {
           .split("")
           .map((c) => c.charCodeAt(0)),
       ),
-      DEFAULT_V2_PROFILE,
+      gameProfile(),
       staged.num,
     );
     return `data:image/png;base64,${bytesToBase64(preview.png)}`;

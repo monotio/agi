@@ -153,16 +153,34 @@ export function parseSound(payload: Uint8Array): AgiSound {
   return decodeSound(payload, 4, false);
 }
 /**
- * PC booter 2.001 sound payload (docs/fidelity.md pc-booter-sound-rows): rows
- * of raw SN76489 register writes, each row terminated by a zero byte, one row
- * per sound tick. A row of no writes (two adjacent terminators) skips its
- * tick. A trailing row without a terminator still plays.
+ * PC booter 2.001 row period (docs/fidelity.md pc-booter-sound-rows): the
+ * payload's first byte, read by the start routine at 0x7408 and never sent to
+ * the device. An empty payload has no period byte and plays as period 1.
  */
-export function booterSoundRows(payload: Uint8Array): readonly (readonly number[])[] {
+export function booterSoundPeriod(payload: Uint8Array): number {
+  return payload.length === 0 ? 1 : payload[0]!;
+}
+
+/**
+ * PC booter 2.001 sound payload (docs/fidelity.md pc-booter-sound-rows): a row
+ * period byte, then rows of raw SN76489 register writes, each row terminated
+ * by a zero byte, one row per `period` sound ticks. A row of no writes (two
+ * adjacent terminators) skips its slot. A trailing row without a terminator
+ * still plays. Speaker decoding consumes tone pairs together, including a zero
+ * continuation byte. This returns the rows after the period byte.
+ */
+export function booterSoundRows(
+  payload: Uint8Array,
+  speaker = false,
+): readonly (readonly number[])[] {
   const rows: number[][] = [];
+  payload = payload.subarray(1);
   let start = 0;
   for (let i = 0; i < payload.length; i++) {
-    if (payload[i] !== 0) continue;
+    if (payload[i] !== 0) {
+      if (speaker && (payload[i]! & 0x90) === 0x80) i++;
+      continue;
+    }
     rows.push([...payload.subarray(start, i)]);
     start = i + 1;
   }
@@ -314,7 +332,7 @@ export type IigsOutput =
       /** The program of the channel's last program change, or -1 for the default instrument. */
       program: number;
     }
-  | { kind: "iigs"; event: "note-off"; voice: number }
+  | { kind: "iigs"; event: "note-off"; voice: number; channel?: number; note?: number }
   | { kind: "iigs"; event: "volume"; channel: number; volume: number }
   | {
       kind: "iigs";
@@ -327,7 +345,8 @@ export type IigsOutput =
        */
       data: Uint8Array;
     }
-  | { kind: "iigs"; event: "all-off" };
+  | { kind: "iigs"; event: "all-off" }
+  | { kind: "iigs"; event: "system-volume"; volume: number };
 
 interface PlaybackChannel {
   notes: readonly SoundNote[];
@@ -403,8 +422,10 @@ function decodeIigsStream(payload: Uint8Array, onWarning?: (m: string) => void):
   const noteOff = (note: number): void => {
     const list = sounding[channel]!;
     const at = list.findIndex((entry) => entry.note === note);
+    // Unmatched requests cannot occur in the native slot table either.
+    // Keep their suppression: released replay cursors index this event list.
     if (at < 0) return;
-    emit({ kind: "iigs", event: "note-off", voice: list[at]!.voice });
+    emit({ kind: "iigs", event: "note-off", voice: list[at]!.voice, channel, note });
     list.splice(at, 1);
   };
 
@@ -534,6 +555,8 @@ export class SoundPlayback {
    * carries one placeholder per row purely to bound the recorded cursor.
    */
   private readonly rows: readonly (readonly number[])[] | null;
+  /** Booter row period in ticks (0x122e); the countdown lives in channel 0. */
+  private readonly rowPeriod: number;
   /**
    * IIgs stream events per channel; the notes array carries one placeholder
    * per event purely to bound the recorded cursor, like the booter rows.
@@ -566,14 +589,11 @@ export class SoundPlayback {
         : profile.soundEnvelope === "3.002"
           ? V3_ENVELOPE_TABLE
           : DEFAULT_ENVELOPE_TABLE;
-    // The booter payload is already raw chip writes; there is no speaker rendition.
     this.single =
-      profile.sound === "booter-2.001" ||
-      profile.sound === "amiga" ||
-      profile.sound === "amiga-2.082" ||
-      profile.sound === "iigs"
+      profile.sound === "amiga" || profile.sound === "amiga-2.082" || profile.sound === "iigs"
         ? false
         : this.device === 0 || (profile.sound === "common" && this.device === 8);
+    this.rowPeriod = 1;
     if (profile.sound === "iigs") {
       const decoded = decodeIigs(payload, onWarning);
       const placeholder: SoundNote = {
@@ -604,7 +624,11 @@ export class SoundPlayback {
     }
     this.iigsEvents = null;
     if (profile.sound === "booter-2.001") {
-      const rows = booterSoundRows(payload);
+      const period = booterSoundPeriod(payload);
+      // Speaker start (0x7408..0x7440): period zero cleans up at once and
+      // never activates; the chip path runs a zero period as one tick.
+      const rows = this.single && period === 0 ? [] : booterSoundRows(payload, this.single);
+      this.rowPeriod = period;
       const placeholder: SoundNote = {
         tone: 0,
         control: 0,
@@ -615,12 +639,14 @@ export class SoundPlayback {
         volume: 0,
       };
       this.rows = rows;
-      this.durationTicks = rows.length;
+      const step = Math.max(period, 1);
+      // The last row is followed by one cleanup tick on both devices.
+      this.durationTicks = rows.length === 0 ? 1 : 2 + (rows.length - 1) * step;
       this.channels = [
         {
           notes: rows.map(() => placeholder),
           cursor: 0,
-          countdown: 1,
+          countdown: 0,
           terminated: false,
           base: 15,
           envelopeIndex: -1,
@@ -689,11 +715,16 @@ export class SoundPlayback {
 
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {
     if (!this.active) return { outputs: [], complete: true };
-    if (!enabled) return { outputs: this.stop(), complete: true };
+    // The booter's flag-9 gate sits inside its per-write chip routine
+    // (docs/fidelity.md "Wave-3 booter sound verdict", F-sound-02): with f9
+    // clear the row cursor and countdown still advance and the done flag fires
+    // only at payload exhaustion.
+    if (!enabled && this.rows === null) return { outputs: this.stop(), complete: true };
     // The IIgs fade watchdog runs before the per-family stream work in the
     // original's heartbeat: pace zero completes the armed sound immediately;
     // each pace expiry checks the stepped budget before decrementing it, so
     // a fresh 0xff budget completes on the sixteenth expiry.
+    const outputs: SoundOutput[] = [];
     const fade = this.iigsFade;
     if (fade !== null) {
       if (fade.pace === 0) return { outputs: this.stop(), complete: true };
@@ -701,24 +732,46 @@ export class SoundPlayback {
         fade.countdown = fade.pace;
         if (fade.budget < 0x10) return { outputs: this.stop(), complete: true };
         fade.budget -= 0x10;
+        outputs.push({ kind: "iigs", event: "system-volume", volume: fade.budget });
       }
     }
-    const outputs: SoundOutput[] = [];
     adjustment &= 255;
     if (this.rows) {
-      // One zero-terminated row per tick; completion is payload exhaustion.
+      // One row per tick. The speaker reader checks exhaustion on its next
+      // entry (docs/fidelity.md "2.001 speaker row execution").
       const channel = this.channels[0]!;
       if (!channel.terminated) {
-        const row = this.rows[channel.cursor++];
-        if (row === undefined || channel.cursor >= this.rows.length) channel.terminated = true;
-        if (row !== undefined && row.length > 0)
+        // Exhaustion is checked before the period countdown (0x7473), the
+        // countdown reloads from the row period (0x748b), and the first
+        // tick reads a zero countdown, so row 0 plays on tick 1.
+        let row: readonly number[] | undefined;
+        if (channel.cursor >= this.rows.length) channel.terminated = true;
+        else if (--channel.countdown <= 0) {
+          channel.countdown = this.rowPeriod;
+          row = this.rows[channel.cursor++];
+        }
+        if (row !== undefined && this.single && enabled) {
+          for (let i = 0; i < row.length; i++) {
+            const byte = row[i]!;
+            const selector = byte & 0xf0;
+            if (selector === 0x80) {
+              const divisor = 12 * ((byte & 15) | (((row[++i] ?? 0) & 63) << 4));
+              outputs.push({ kind: "speaker", divisor: divisor === 0 ? null : divisor });
+            } else if (selector === 0x90) {
+              if (byte === 0x9f) outputs.push({ kind: "speaker", divisor: null });
+            } else if ((byte & 0x90) === 0x80) i++;
+          }
+        } else if (row !== undefined && row.length > 0 && enabled)
           outputs.push({
             kind: "psg",
             bytes: row,
             ...(row.some((byte) => (byte & 0xf0) === 0xe0) ? { chip: this.profile.psgNoise } : {}),
           });
       }
-      if (channel.terminated) outputs.push(...this.stop());
+      if (channel.terminated) {
+        const stopped = this.stop();
+        if (!this.single || enabled) outputs.push(...stopped);
+      }
       return { outputs, complete: !this.active };
     }
     if (this.iigsEvents) {
@@ -765,9 +818,8 @@ export class SoundPlayback {
         }
         channel.countdown = note.duration;
         channel.base = note.attenuation;
-        // SQ1 h138 0xe8ca..0xe8f8: attenuation minus v23, floored at 0
-        // (`cmp.l d1,d0; bls` zeroes it when v23 >= attenuation), then
-        // ((15 - it) << 6) / 15 — v23 raises the volume.
+        // Attenuation minus v23, floored at 0, then ((15 - it) << 6) / 15 —
+        // v23 raises the volume (docs/fidelity.md "Original Amiga sound player").
         const attenuation = note.attenuation > adjustment ? note.attenuation - adjustment : 0;
         outputs.push({
           kind: "paula",
@@ -810,8 +862,8 @@ export class SoundPlayback {
             channel.envelopeIndex = -1;
             channel.base = channel.envelopeValue;
           } else {
-            // GR h197 0xf494..0xf4a6: base + delta clamped to 0..15, so
-            // KQ2's signed attack saturates at attenuation 0.
+            // Base + delta clamped to 0..15, so KQ2's signed attack saturates
+            // at attenuation 0 (docs/fidelity.md "Original Amiga sound player").
             channel.envelopeValue = Math.max(0, Math.min(15, channel.base + delta));
           }
         }
@@ -843,7 +895,26 @@ export class SoundPlayback {
         if (!note) {
           channel.terminated = true;
           channel.base = 15;
-          if (!this.single) outputs.push({ kind: "psg", bytes: [selector | 15] });
+          if (!this.single) {
+            // Early players run the saved silent note through PlayNote;
+            // common players only update attenuation. See PC sound streams.
+            if (this.profile.sound !== "common") {
+              const high = (selector | 15) & 0xef;
+              outputs.push({
+                kind: "psg",
+                bytes: this.profile.sound === "early-2.440" && index === 3 ? [high] : [high, 0],
+                ...(index === 3 ? { chip: this.profile.psgNoise } : {}),
+              });
+            }
+            outputs.push({
+              kind: "psg",
+              bytes: [
+                this.profile.sound === "common"
+                  ? selector | 15
+                  : this.earlyControl(selector | 15, adjustment),
+              ],
+            });
+          }
           continue;
         }
         channel.countdown = note.duration;
@@ -851,7 +922,11 @@ export class SoundPlayback {
         if (this.single) {
           outputs.push({
             kind: "speaker",
-            divisor: note.attenuation === 15 ? null : 12 * note.freqDivisor,
+            divisor: (
+              this.profile.sound === "common" ? note.attenuation === 15 : note.control === 0x9f
+            )
+              ? null
+              : 12 * note.freqDivisor,
           });
           continue;
         }
@@ -861,24 +936,15 @@ export class SoundPlayback {
           this.profile.sound === "early-2.089" ||
           this.profile.sound === "early-2.272" ||
           this.profile.sound === "early-2.411";
-        // Rest notes (tone == 0) suppress frequency divisor commands (docs/fidelity.md: SN76489 attenuation latching and rest notes).
-        if (note.tone !== 0) {
-          outputs.push({
-            kind: "psg",
-            bytes: !earlyBoth && (high & 0xe0) === 0xe0 ? [high] : [high, low],
-            ...((high & 0xf0) === 0xe0 ? { chip: this.profile.psgNoise } : {}),
-          });
-        }
+        // Zero-tone rests still write both bytes. The previously latched
+        // PSG register decides their effect (docs/fidelity.md, PC sound streams).
+        outputs.push({
+          kind: "psg",
+          bytes: !earlyBoth && (high & 0xe0) === 0xe0 ? [high] : [high, low],
+          ...((high & 0xf0) === 0xe0 ? { chip: this.profile.psgNoise } : {}),
+        });
         if (this.profile.sound !== "common") {
-          let control = note.control;
-          if (this.profile.sound === "early-2.089" || this.profile.sound === "early-2.272") {
-            if (this.device === 2 && (control & 15) < 8) control += 3;
-            if (this.profile.sound === "early-2.272") {
-              control = (control + adjustment) & 255;
-              if (control < 128 && control > 15) control = 15;
-            }
-          } else control = (control & 0xf0) | Math.min(15, (control & 15) + adjustment);
-          outputs.push({ kind: "psg", bytes: [control] });
+          outputs.push({ kind: "psg", bytes: [this.earlyControl(note.control, adjustment)] });
           continue;
         }
         if (index < 3) channel.envelopeIndex = 0;
@@ -915,14 +981,41 @@ export class SoundPlayback {
     return { outputs, complete: !this.active };
   }
 
+  /** The early driver's PlayNote conversion, also used for its saved terminators. */
+  private earlyControl(original: number, adjustment: number): number {
+    let control = original;
+    // ConvertTDVolume on machType 2 (Tandy): any attenuation latch —
+    // (b & 0x90) == 0x90 covers every channel's selector, not just
+    // channel 2 — whose low nibble is below 8 gains 3 before the v23
+    // clamp (docs/fidelity.md "Wave-3 sound verdicts", F-sound-01).
+    if (this.device === 2 && (control & 0x90) === 0x90 && (control & 15) < 8)
+      control = (control & 0xf0) | ((control & 15) + 3);
+    if (this.profile.sound === "early-2.272") {
+      control = (control + adjustment) & 255;
+      if (control < 128 && control > 15) control = 15;
+    } else if (this.profile.sound === "early-2.411" || this.profile.sound === "early-2.440") {
+      let sum = ((control & 15) + adjustment) & 255;
+      if (sum < 128 && sum > 15) sum = 15;
+      control = (control & 0xf0) | sum;
+    }
+    return control;
+  }
+
   stop(): SoundOutput[] {
     if (!this.active) return [];
     this.active = false;
     // The original's completion path also disarms the watchdog ($df = 0xffff)
     // and restores the latched volume; the volume side is a native GS call.
+    const faded = this.iigsFade !== null;
     this.iigsFade = null;
     // The cleanup's AllNotesOff silences every generator.
-    if (this.iigsEvents) return [{ kind: "iigs", event: "all-off" }];
+    if (this.iigsEvents)
+      return [
+        { kind: "iigs", event: "all-off" },
+        ...(faded
+          ? [{ kind: "iigs" as const, event: "system-volume" as const, volume: 0xff }]
+          : []),
+      ];
     if (this.profile.sound === "amiga" || this.profile.sound === "amiga-2.082")
       return this.channels.map((_, channel) => ({
         kind: "paula" as const,

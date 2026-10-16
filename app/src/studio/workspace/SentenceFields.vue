@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, watch } from "vue";
+import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { parseSentence } from "../../../../src/runtime/parser.ts";
 import AgiMessagePreview from "./AgiMessagePreview.vue";
 import UiButton from "../../ui/UiButton.vue";
 const {
   words,
+  profile,
   reply = true,
   disabled = false,
 } = defineProps<{
   words: readonly (readonly [string, number])[];
+  profile: AgiProfile;
   reply?: boolean;
   disabled?: boolean;
 }>();
@@ -20,7 +23,13 @@ watch(command, () => {
 });
 const check = computed(() => {
   const dictionary = new Map(words);
-  const primary = parseSentence(command.value, dictionary);
+  const primary = parseSentence(
+    command.value,
+    dictionary,
+    profile.parserStopsAtTenthWord,
+    profile.parserDefaultsLoneAAndI,
+    profile.parserStripsPunctuation,
+  );
   if (primary.unknownPosition || !primary.words.length)
     return { answers: [], misses: [], offer: "" };
   const kept = primary.tokens
@@ -36,11 +45,28 @@ const check = computed(() => {
       ...also.value,
     ]),
   ];
-  const patterns = [primary, ...also.value.map((sentence) => parseSentence(sentence, dictionary))];
+  const patterns = [
+    primary,
+    ...also.value.map((sentence) =>
+      parseSentence(
+        sentence,
+        dictionary,
+        profile.parserStopsAtTenthWord,
+        profile.parserDefaultsLoneAAndI,
+        profile.parserStripsPunctuation,
+      ),
+    ),
+  ];
   const answers: string[] = [];
   const misses: string[] = [];
   for (const example of examples) {
-    const parsed = parseSentence(example, dictionary);
+    const parsed = parseSentence(
+      example,
+      dictionary,
+      profile.parserStopsAtTenthWord,
+      profile.parserDefaultsLoneAAndI,
+      profile.parserStripsPunctuation,
+    );
     const matches =
       !parsed.unknownPosition &&
       patterns.some(

@@ -400,7 +400,7 @@ class ConcurrencyConflictError extends Error {
   }
 }
 
-class ProjectExistsError extends Error {
+export class ProjectExistsError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ProjectExistsError";
@@ -1527,6 +1527,7 @@ export function saveAuthoredGameCapture(
       if (savedHistory !== undefined) captured.projectHistory = savedHistory;
       return { data: captured, lifetime };
     } catch (error) {
+      if (options?.requireNew && error instanceof ProjectExistsError) throw error;
       console.error("Project storage failed:", error);
       return null;
     }

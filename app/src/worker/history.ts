@@ -270,6 +270,9 @@ export function createHistory(ctx: WorkerContext) {
       inputQueue: [...ctx.run.input.keyQueue],
       directionQueue: [...ctx.run.input.deferredMovement],
       inputLines: [...ctx.run.input.inputBuffer],
+      ...(ctx.run.input.joystickObserved
+        ? { joystick: ctx.run.input.joystick === null ? null : { ...ctx.run.input.joystick } }
+        : {}),
       // Omitted while empty: a click-free session's fingerprint is unchanged.
       ...(ctx.run.input.clickQueue.length > 0
         ? { clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
@@ -579,6 +582,7 @@ export function createHistory(ctx: WorkerContext) {
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
       ...(ctx.run.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
+      ...(ctx.run.engine?.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       rng: ctx.run.rng.word,
       ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
@@ -654,6 +658,7 @@ export function createHistory(ctx: WorkerContext) {
       authorRooms: ctx.boot.authorRooms,
       profile: engine.profile.id,
       ...(ctx.run.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
+      ...(ctx.run.engine?.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(image
         ? { image: bytesToBase64(image), replay: engine.captureReplayState(allowUndrawn) }
         : {}),
@@ -661,6 +666,9 @@ export function createHistory(ctx: WorkerContext) {
       inputQueue: [...ctx.run.input.keyQueue],
       directionQueue: [...ctx.run.input.deferredMovement],
       inputLines: [...ctx.run.input.inputBuffer],
+      ...(ctx.run.input.joystickObserved
+        ? { joystick: ctx.run.input.joystick === null ? null : { ...ctx.run.input.joystick } }
+        : {}),
       ...(ctx.run.input.clickQueue.length > 0
         ? { clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),

@@ -138,7 +138,8 @@ for (const kind of ["speaker", "psg", "paula", "iigs"] as const) {
         "volume writes share the register tick independently of sample reload",
       );
     if (kind === "iigs") {
-      assert.equal(gains[1]!.gain.values.at(-1)![1], gains[2]!.gain.values.at(-1)![1]);
+      // Master and system-volume buses precede the two note gains.
+      assert.equal(gains[2]!.gain.values.at(-1)![1], gains[3]!.gain.values.at(-1)![1]);
     }
     ctx.currentTime += 2;
     audio.outputTick({ stream: "song", tick: 2, outputs: events, complete: false });

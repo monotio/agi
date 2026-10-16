@@ -74,3 +74,37 @@ test("a new game screen never shows the previous game's picture", async () => {
   presentation.present(blue);
   assert.deepEqual(next.pixel(0, 8), EGA_PALETTE[1]);
 });
+
+test("PC, Amiga and player-font IIgs games keep their look from the first frame on each switch", async () => {
+  const { loadAppearance } = await import("../src/render/appearance.ts");
+  const { iigsFontFixture } = await import("./iigsFontFixture.ts");
+  const presentation = createPresentation();
+  const screen = flatCanvas();
+  presentation.canvasEl.value = screen.canvas;
+  const files = new Map([["AGIFONT", iigsFontFixture()]]);
+  for (const id of ["2.936", "amiga-2.202", "iigs-1.014", "amiga-2.082", "2.936"]) {
+    const look = await loadAppearance(id, files);
+    presentation.forgetFrame();
+    presentation.setProfile(id, files);
+    const frame = greenRoom();
+    frame.text[0] = 65;
+    frame.text[1] = 0x21;
+    presentation.present(frame);
+    assert.deepEqual(screen.pixel(0, 8), look.palette[2], `${id} first picture`);
+    for (let x = 0; x < 8; x++) {
+      assert.deepEqual(
+        screen.pixel(x, 0),
+        look.palette[look.font[65 * 8]! & (0x80 >> x) ? 1 : 2],
+        `${id} glyph pixel ${x}`,
+      );
+    }
+    await Promise.resolve();
+    presentation.repaint();
+    assert.deepEqual(screen.pixel(0, 8), look.palette[2], `${id} after async repaint`);
+  }
+  presentation.setProfile("amiga-2.202", files);
+  presentation.setProfile("iigs-1.014", files);
+  await Promise.resolve();
+  presentation.present(greenRoom());
+  assert.deepEqual(screen.pixel(0, 8), [0, 136, 0], "late Amiga result cannot replace IIgs");
+});

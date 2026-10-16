@@ -1,5 +1,5 @@
 /**
- * Authentic AGI save-file envelope, clean-room from Peter Kelly's agi-re behavioral
+ * Released engine save-file envelope, clean-room from Peter Kelly's agi-re behavioral
  * specification: "Rooms, Replay, and Persistence" (save-file envelope, the
  * per-profile block-1 partitions, the block-2 object record, block-3 inventory
  * payload, block-4 replay-pair storage, block-5 logic-resume grammar, and the
@@ -8,7 +8,10 @@
  * The engine owns game state; this module owns bytes. It has no dependency on
  * the engine, on Node, or on the browser: `encodeSave` turns a portable
  * `SaveState` into the real file image and `decodeSave` turns an image back,
- * preserving every reserved byte the file supplied.
+ * preserving reserved state bytes. Original interpreter files use savFile.ts:
+ * the released codec retains its PC flag/mode packing, 2.230 block count,
+ * Amiga v3 inventory treatment and IIgs envelope byte order for archive readers.
+ * See docs/fidelity.md "Original save-file interoperability".
  *
  * Framing (spec "Save-file envelope"):
  *
@@ -23,8 +26,13 @@
  */
 
 import type { AgiProfile, ProfileId } from "./profile.ts";
-import { validateContinuation, type ParkedContinuation } from "./replayState.ts";
-import { TEXT_COLS, TEXT_ROWS } from "./textSurface.ts";
+import {
+  validateContinuation,
+  validateJoystickState,
+  type JoystickReplayState,
+  type ParkedContinuation,
+} from "./replayState.ts";
+import { TEXT_COLS, TEXT_ROWS, TITLE_FILL_PIXELS } from "./textSurface.ts";
 
 /** Bytes of the leading description header (spec "Save-file envelope"). */
 export const SAVE_DESCRIPTION_BYTES = 31;
@@ -105,7 +113,8 @@ interface AmigaBlock1Layout {
 
 /**
  * Positions and capacities of the Apple IIgs save (docs/fidelity.md "Apple
- * IIgs interpreter"). The envelope is six big-endian-length blocks: the
+ * IIgs interpreter"). The released envelope has six big-endian-length blocks (original files
+ * use savFile.ts): the
  * ~globals lead block, then the 0x3d0-byte main state block (both mapped
  * here, little-endian fields), the object records, the inventory payload,
  * the replay pairs and the logic-resume records.
@@ -383,7 +392,8 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     navMirror: null,
   },
   // Apple IIgs 1.014 (SQ2.SYS16): the savegameseg writer emits six
-  // big-endian-length blocks — the 0x38-byte ~globals image $010d..$0144,
+  // big-endian-length blocks in the released codec (savFile.ts converts the
+  // original little-endian envelope) — the ~globals image $010d..$0144,
   // then the 0x3d0-byte ~arrays state block mapped here: the set.game.id
   // signature @0x00, key map @0x08, strings @0xa8, vars @0x2b0, flags
   // @0x3b0 (docs/fidelity.md "Apple IIgs interpreter").
@@ -1485,7 +1495,7 @@ function decodeBlock5Native(block: Uint8Array): LogicResumeRecord[] {
 
 // ---------- envelope ----------
 
-/** Encode a save state as the real file image for the selected profile. */
+/** Encode a state in the released engine format for the selected profile. */
 export function encodeSave(state: SaveState, profile: AgiProfile): Uint8Array {
   const layout = block1Layout(profile);
   if (state.replay.length > state.replayCapacity) {
@@ -1524,7 +1534,7 @@ export function encodeSave(state: SaveState, profile: AgiProfile): Uint8Array {
 }
 
 /**
- * The Apple IIgs envelope: six blocks with big-endian lengths — the
+ * The released Apple IIgs envelope: six blocks with big-endian lengths — the
  * ~globals lead block, the state block, the little-endian object records, the raw
  * inventory, the replay pairs and the logic-resume records
  * (docs/fidelity.md "Apple IIgs interpreter").
@@ -1595,7 +1605,7 @@ function encodeSaveIigs(state: SaveState, layout: IigsBlock1Layout): Uint8Array 
   return out;
 }
 
-/** Decode a save file image written for the selected profile. */
+/** Decode a released engine save image written for the selected profile. */
 export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
   const layout = block1Layout(profile);
   if (bytes.length < SAVE_DESCRIPTION_BYTES) {
@@ -1662,7 +1672,8 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
  * so even a description containing the marker cannot identify a bare save.
  */
 const HOST_IMAGE_MAGIC = "MONOTIO AUTOSAVE".padEnd(SAVE_DESCRIPTION_BYTES + 2, "\xff");
-const HOST_IMAGE_VERSION = 1;
+const HOST_IMAGE_VERSION = 2;
+const HOST_IMAGE_READ_VERSIONS: readonly number[] = [1, HOST_IMAGE_VERSION];
 const HOST_IMAGE_HEADER = HOST_IMAGE_MAGIC.length + 1 + 4;
 
 const HOST_TEXT_CELLS = TEXT_COLS * TEXT_ROWS;
@@ -1679,10 +1690,12 @@ interface HostDraw {
 
 /** Host-only text and draw ages; these never enter an authentic save.game file. */
 export interface HostPresentation {
+  joystick?: JoystickReplayState;
   cells: Uint8Array;
   written: Uint32Array;
   seq: number;
   draws: HostDraw[];
+  titleFill?: Uint32Array;
 }
 
 /** A host autosave taken apart (see Engine.autosaveImage). */
@@ -1734,12 +1747,40 @@ export function encodeHostImage(
       presentation.draws.length !== HOST_DRAW_COUNT)
   )
     throw new RangeError("host autosave presentation dimensions are invalid");
+  let titleFillRuns: number[] | undefined;
+  if (presentation?.titleFill !== undefined) {
+    const tf = presentation.titleFill;
+    if (tf.length !== TITLE_FILL_PIXELS)
+      throw new RangeError("host autosave title fill dimensions are invalid");
+    let hasNonZero = false;
+    const runs: number[] = [];
+    for (let i = 0; i < tf.length;) {
+      const s = tf[i]!;
+      const stamp = s & 0x7fffffff;
+      if (stamp > presentation.seq || (s !== 0 && stamp === 0))
+        throw new RangeError("host autosave title fill stamp exceeds its sequence");
+      if (s !== 0) hasNonZero = true;
+      let count = 1;
+      while (i + count < tf.length && tf[i + count] === s) count++;
+      runs.push(s, count);
+      i += count;
+    }
+    if (hasNonZero) titleFillRuns = runs;
+  }
   const continuationBytes = continuation
     ? new TextEncoder().encode(JSON.stringify(continuation))
     : new Uint8Array(0);
   const timingBytes =
-    amigaRegion === "pal"
-      ? new TextEncoder().encode(JSON.stringify({ amigaRegion }))
+    amigaRegion === "pal" || titleFillRuns !== undefined || presentation?.joystick !== undefined
+      ? new TextEncoder().encode(
+          JSON.stringify({
+            ...(amigaRegion === "pal" ? { amigaRegion } : {}),
+            ...(titleFillRuns !== undefined ? { titleFill: titleFillRuns } : {}),
+            ...(presentation?.joystick !== undefined
+              ? { joystick: validateJoystickState(presentation.joystick) }
+              : {}),
+          }),
+        )
       : new Uint8Array(0);
   const out = new Uint8Array(
     HOST_IMAGE_HEADER +
@@ -1799,7 +1840,7 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
   if (bytes.length < HOST_IMAGE_HEADER)
     throw new RangeError("host autosave ends before its image length");
   const version = bytes[HOST_IMAGE_MAGIC.length]!;
-  if (version !== HOST_IMAGE_VERSION)
+  if (!HOST_IMAGE_READ_VERSIONS.includes(version))
     throw new RangeError(`unsupported host autosave version ${version}`);
   const imageLength = u32(bytes, HOST_IMAGE_MAGIC.length + 1);
   const countAt = HOST_IMAGE_HEADER + imageLength;
@@ -1868,7 +1909,7 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       throw new RangeError("host autosave continuation is not valid JSON");
     }
     try {
-      result.continuation = validateContinuation(parsed);
+      result.continuation = validateContinuation(parsed, { allowWindow: version >= 2 });
     } catch (error) {
       throw new RangeError(`host autosave continuation is invalid: ${(error as Error).message}`, {
         cause: error,
@@ -1881,14 +1922,81 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       timing === null ||
       typeof timing !== "object" ||
       Array.isArray(timing) ||
-      Object.keys(timing).length !== 1 ||
-      !("amigaRegion" in timing) ||
-      (timing.amigaRegion !== "pal" && timing.amigaRegion !== "ntsc")
+      Object.keys(timing).length === 0 ||
+      Object.keys(timing).some((k) => k !== "amigaRegion" && k !== "titleFill" && k !== "joystick")
     )
       throw new RangeError("host autosave region is invalid");
-    result.amigaRegion = timing.amigaRegion;
+    if ("amigaRegion" in timing) {
+      if (timing.amigaRegion !== "pal" && timing.amigaRegion !== "ntsc")
+        throw new RangeError("host autosave region is invalid");
+      result.amigaRegion = timing.amigaRegion;
+    }
+    if ("joystick" in timing) {
+      if (!result.presentation)
+        throw new RangeError("host autosave joystick requires presentation");
+      const state = validateJoystickState(timing.joystick);
+      if (
+        state.calibration !== null &&
+        result.continuation?.modals[state.calibration]?.kind !== "print"
+      )
+        throw new RangeError("host autosave joystick calibration is missing its window");
+      result.presentation.joystick = state;
+    }
+    if ("titleFill" in timing) {
+      const runs = timing.titleFill;
+      if (!Array.isArray(runs) || runs.length < 2 || runs.length % 2 !== 0 || !result.presentation)
+        throw new RangeError("host autosave title fill is invalid");
+      const titleFill = new Uint32Array(TITLE_FILL_PIXELS);
+      let pos = 0;
+      let hasNonZero = false;
+      for (let i = 0; i < runs.length; i += 2) {
+        const raw: unknown = runs[i];
+        const count: unknown = runs[i + 1];
+        if (
+          typeof raw !== "number" ||
+          !Number.isSafeInteger(raw) ||
+          raw < 0 ||
+          raw > 0xffffffff ||
+          typeof count !== "number" ||
+          !Number.isSafeInteger(count) ||
+          count <= 0 ||
+          pos + count > TITLE_FILL_PIXELS
+        )
+          throw new RangeError("host autosave title fill is invalid");
+        const stamp = (raw >>> 0) & 0x7fffffff;
+        if (stamp > result.presentation.seq || (raw !== 0 && stamp === 0))
+          throw new RangeError("host autosave title fill is invalid");
+        if (raw > 0) {
+          titleFill.fill(raw >>> 0, pos, pos + count);
+          hasNonZero = true;
+        }
+        pos += count;
+      }
+      if (pos !== TITLE_FILL_PIXELS || !hasNonZero)
+        throw new RangeError("host autosave title fill is invalid");
+      result.presentation.titleFill = titleFill;
+    }
   }
   return result;
+}
+
+/**
+ * Re-stamp a current host image with the released version-1 header byte when
+ * its continuation carries no v2-only fields (`saved.window`), so a scratch
+ * replay can verify a released anchor's or boot's semantic fingerprint
+ * against the restored engine state without mutating the stored recording.
+ */
+export function asReleasedHostImage(bytes: Uint8Array): Uint8Array | null {
+  try {
+    if (bytes.length < HOST_IMAGE_HEADER || bytes[HOST_IMAGE_MAGIC.length] !== HOST_IMAGE_VERSION)
+      return null;
+    const copy = bytes.slice();
+    copy[HOST_IMAGE_MAGIC.length] = 1;
+    decodeHostImage(copy);
+    return copy;
+  } catch {
+    return null;
+  }
 }
 
 /**

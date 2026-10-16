@@ -29,7 +29,8 @@ export interface ProbeInput {
   /** The room's set.pri.base value when known; 48 otherwise. */
   priorityBase?: number | undefined;
   /** Builds whose set.pri.base is a stub keep the default base. */
-  profile: Pick<AgiProfile, "priorityBaseAction">;
+  profile: Pick<AgiProfile, "priorityBaseAction"> &
+    Partial<Pick<AgiProfile, "originalCelBlitClippingAndPriorityMask" | "presentation">>;
 }
 
 interface ProbeCell {
@@ -74,18 +75,39 @@ export function probeActor(input: ProbeInput): ProbeResult {
   const base = input.profile.priorityBaseAction === "effect" ? (input.priorityBase ?? 48) : 48;
   const bandPriority = priorityForY(baselineY, base);
   const drawPriority = input.priority === "band" ? bandPriority : input.priority;
+  const clipMask = input.profile.originalCelBlitClippingAndPriorityMask ?? false;
+  const fallbackPri =
+    input.profile.presentation !== undefined && input.profile.presentation !== "pc" ? 4 : null;
 
   const cells = SCREEN_WIDTH * SCREEN_HEIGHT;
   const drawnMask = new Uint8Array(cells);
   const hiddenMask = new Uint8Array(cells);
-  forEachPaintedPixel(picture, cel, x, baselineY, drawPriority, (cell) => {
-    drawnMask[cell] = 1;
-  });
+  forEachPaintedPixel(
+    picture,
+    cel,
+    x,
+    baselineY,
+    drawPriority,
+    (cell) => {
+      drawnMask[cell] = 1;
+    },
+    clipMask,
+    fallbackPri,
+  );
   // At priority 15 no comparison value exceeds the drawing priority, so this
   // visits every opaque cell the blit places.
-  forEachPaintedPixel(picture, cel, x, baselineY, 15, (cell) => {
-    if (drawnMask[cell] === 0) hiddenMask[cell] = 1;
-  });
+  forEachPaintedPixel(
+    picture,
+    cel,
+    x,
+    baselineY,
+    15,
+    (cell) => {
+      if (drawnMask[cell] === 0) hiddenMask[cell] = 1;
+    },
+    clipMask,
+    fallbackPri,
+  );
 
   const byValue: ProbeCell[][] = [[], [], [], []];
   const onSurface = baselineY >= 0 && baselineY < SCREEN_HEIGHT;

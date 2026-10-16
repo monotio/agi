@@ -41,7 +41,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           "Arrow keys or the numpad walk your hero; press the same direction again to stop. On a phone, the on-screen pad does the same.",
           "Everything else is typed, the way it was in the eighties: LOOK, GET LAMP, OPEN DOOR, TALK TO GUARD. Press Enter to send.",
-          "On the Amiga and Apple IIgs editions, a click on the screen walks the hero there, just like the originals.",
+          "On the Amiga and Apple IIgs editions, a click on the screen walks the hero there.",
         ],
         action: { kind: "controls", label: "Show this game's controls" },
       },
@@ -76,8 +76,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "screen",
         title: "The screen",
         body: [
-          "AGI games drew 320 × 200 pixels, and a monitor of the day stretched them to fill a 4:3 screen, so each pixel stood a little taller than wide. Original 4:3 in Settings shows them that way; turn it off for square pixels. Either way the game itself is unchanged.",
-          "Game text uses this project's own 8 × 8 font in the originals' character grid. It draws English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank.",
+          "AGI games draw 320 × 200 pixels. Original 4:3 in Settings stretches them to a 4:3 screen, so each pixel stands a little taller than wide. Turn it off for square pixels. The game itself stays the same.",
+          "Game text uses this project's own 8 × 8 font in the originals' character grid, a pixel-for-pixel recreation of the original typeface. It draws English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank.",
         ],
       },
       {
@@ -346,9 +346,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     topics: [
       {
         id: "authentic",
-        title: "Authentic by design",
+        title: "Compared with originals",
         body: [
-          "AGI IS HERE is an independent interpreter checked against the original Sierra interpreters on PC, Amiga and Apple IIgs, down to their timing quirks. The project's fidelity notes record the evidence, with addresses and hashes.",
+          "AGI IS HERE is an independent interpreter. Its behavior is checked against original Sierra interpreters on PC, Amiga and Apple IIgs, and against recorded runs in an emulator. The fidelity notes keep a coverage table of the evidence behind each part of a game on each machine, and the gaps that remain.",
         ],
       },
       {

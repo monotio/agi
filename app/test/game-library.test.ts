@@ -43,7 +43,7 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-installIndexedDbFixture();
+const records = installIndexedDbFixture();
 
 function game(
   source = 'display(5, 2, "Hello apprentice"); accept.input(); return;',
@@ -146,17 +146,17 @@ test("folder and ZIP resource identity is independent of path, case and entry or
   );
 });
 
-test("opening inspection captures real text and rejects missing boot resources and runaway logic", () => {
+test("opening inspection captures real text and rejects missing boot resources and runaway logic", async () => {
   const opened = readGameFiles(new Map(Object.entries(game())));
-  const result = inspectGame(opened);
+  const result = await inspectGame(opened);
   assert.equal(result.status, "ready");
   assert.ok(result.rows.join(" ").includes("Hello apprentice"));
   assert.equal(result.rgba.length, 320 * 200 * 4);
-  assert.throws(
+  await assert.rejects(
     () => inspectGame(readGameFiles(new Map(Object.entries(game("call(99); return;"))))),
     /logic.*99/i,
   );
-  assert.throws(
+  await assert.rejects(
     () => inspectGame(readGameFiles(new Map(Object.entries(game("loop: goto loop;"))))),
     /budget/i,
   );
@@ -1064,4 +1064,94 @@ test("interpreter executables stay in the playable file set so detection can rea
     ".COM",
   ])
     assert.equal(isPlayableFileName(name), false, name);
+});
+
+test("optional game fonts survive import, captured builds, remix and both exports without changing revision", async (t) => {
+  installLocalStorage(t);
+  const { captureProjectBuild } = await import("../../src/authoring/projectBuild.ts");
+  const base = game('display(4, 1, "Font auxiliary"); return;');
+  const font = Uint8Array.of(1, 2, 3);
+  const files = { ...base, AgiFont: font };
+  assert.equal(await gameRevision(files), await gameRevision(base));
+  const opened = readGameFiles(new Map(Object.entries(files)));
+  assert.deepEqual(opened.files["AGIFONT"], font);
+  const build = captureProjectBuild({
+    files: opened.files,
+    profileId: "2.936",
+    sources: {},
+    bindings: {},
+  });
+  assert.deepEqual(build.files().get("AGIFONT"), font);
+  const id = await addLibraryGame(opened, "Font auxiliary", "zip", opening);
+  t.after(() => clearCachedGame(id));
+  const remixId = await copyLibraryGame(id);
+  t.after(() => clearCachedGame(remixId));
+  const remix = (await loadAuthoredGame(remixId))!;
+  assert.deepEqual(remix.files["AGIFONT"], font);
+  for (const zip of [buildPublicGameZip(remix), await buildProjectZip(remix)]) {
+    assert.deepEqual((await readGameZip(zip)).files["AGIFONT"], font);
+  }
+});
+
+test("re-importing the same resources with a different optional font preserves both copies", async (t) => {
+  installLocalStorage(t);
+  const base = game('display(4, 1, "Auxiliary editions"); return;');
+  const plain = readGameFiles(new Map(Object.entries(base)));
+  const withFont = readGameFiles(new Map(Object.entries({ ...base, AGIFONT: Uint8Array.of(9) })));
+  const plainId = await addLibraryGame(plain, "Plain", "zip", opening);
+  t.after(() => clearCachedGame(plainId));
+  const fontId = await addLibraryGame(withFont, "Font", "zip", opening);
+  t.after(() => clearCachedGame(fontId));
+  assert.notEqual(plainId, fontId);
+  assert.deepEqual((await loadAuthoredGame(fontId))!.files["AGIFONT"], Uint8Array.of(9));
+  assert.equal(await addLibraryGame(withFont, "Font again", "zip", opening), fontId);
+  assert.equal(await addLibraryGame(plain, "Plain again", "zip", opening), plainId);
+});
+
+test("folder and ZIP imports drop optional fonts over 64 KiB and retain the game", async () => {
+  for (const size of [65_536, 65_537]) {
+    const files = { ...game(), AGIFONT: new Uint8Array(size) };
+    const folder = readGameFiles(new Map(Object.entries(files)));
+    const zip = await readGameZip(buildPublicGameZip({ title: "Font bound", files }));
+    for (const opened of [folder, zip]) {
+      assert.ok(opened.files["WORDS.TOK"]);
+      assert.equal(opened.files["AGIFONT"]?.length, size === 65_536 ? size : undefined);
+    }
+  }
+});
+
+test("a second tab claiming the id after import preflight keeps its font and gets an independent edition", async (t) => {
+  installLocalStorage(t);
+  const files = game('display(5, 2, "Claimed in another tab"); return;');
+  const first = await addLibraryGame(
+    { files: { ...files, AGIFONT: Uint8Array.of(7, 8) }, words: [] },
+    "First tab",
+    "zip",
+    opening,
+  );
+  const committed = structuredClone(records.get(first));
+  assert.ok(committed);
+  await clearCachedGame(first);
+  const rawGet = records.get.bind(records);
+  let claimed = false;
+  t.after(() => {
+    records.get = rawGet;
+  });
+  // The read returns the old empty slot. Before the importing tab writes,
+  // another tab commits its own edition to that slot.
+  records.get = (key) => {
+    if (key === first && !claimed) {
+      claimed = true;
+      records.set(first, committed);
+      return undefined;
+    }
+    return rawGet(key);
+  };
+  const second = await addLibraryGame({ files, words: [] }, "Second tab", "zip", opening);
+  assert.ok(claimed);
+  assert.notEqual(second, first, "the losing allocator must choose a suffix");
+  assert.deepEqual((await loadAuthoredGame(first))?.files["AGIFONT"], Uint8Array.of(7, 8));
+  assert.equal((await loadAuthoredGame(second))?.files["AGIFONT"], undefined);
+  await clearCachedGame(first);
+  await clearCachedGame(second);
 });

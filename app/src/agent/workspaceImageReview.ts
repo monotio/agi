@@ -1,7 +1,7 @@
 /** PICTURE tracing uses the same white paper and native marks as the editor. */
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import { readImageReferences, imageTraceUnderlay } from "../../../src/creative/imageOperations.ts";
-import { EGA_RGB } from "../../../src/picture/png.ts";
+import { EGA_TABLE, type ColourTable } from "../../../src/runtime/colourTables.ts";
 type Documents = Readonly<Record<string, ProjectContent>>;
 
 export function imageReviewTargets(before: Documents, after: Documents): string[] {
@@ -16,11 +16,12 @@ export function pictureReviewPixels(
   visual: Uint8Array,
   documents: Documents,
   target: string,
+  palette: ColourTable = EGA_TABLE,
 ): Uint8Array {
-  const underlay = imageTraceUnderlay(documents, target);
+  const underlay = imageTraceUnderlay(documents, target, palette);
   const rgba = new Uint8Array(320 * 168 * 4);
   for (let i = 0; i < visual.length; i++) {
-    const colour = EGA_RGB[visual[i]! & 15]!;
+    const colour = palette[visual[i]! & 15]!;
     // Behind the art only the white paper shows the image; over it, every pixel does.
     const shown = underlay !== null && (!underlay.behindArt || visual[i] === 15);
     const alpha = shown ? (underlay.opacity * underlay.pixels[i * 4 + 3]!) / 255 : 0;

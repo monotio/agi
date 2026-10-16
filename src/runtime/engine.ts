@@ -28,6 +28,7 @@ import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
+import { cgaRgbViewPayload, effectivePcDisplay, MONITOR_TYPE, type PcDisplay } from "./display.ts";
 import {
   detectProfile,
   detectProfileDecision,
@@ -41,11 +42,21 @@ import { TraceWindow } from "./trace.ts";
 import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
 import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
-import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
+import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, hasKeypadStop, normalizeKeyWord } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
+import { iigsShakeColour, shakePlan, type ShakeFrame } from "./shake.ts";
+import {
+  applyDissolve,
+  dissolveOrder,
+  dissolveRun,
+  dissolveSteps,
+  packDissolveFrame,
+  unpackDissolveFrame,
+} from "./dissolve.ts";
 import {
   validateEngineReplayState,
+  type JoystickReplayState,
   type EngineReplayState,
   type ParkedContinuation,
   type SerializedSavedRect,
@@ -56,7 +67,17 @@ import {
   type SaveDialog,
   type SaveDialogNeed,
   type SaveSlot,
+  closeSaveDialogSurface,
+  saveDialogPointerKey,
 } from "./saveDialog.ts";
+import {
+  intuitionItemAt,
+  intuitionMenuChrome,
+  intuitionPulldown,
+  intuitionTitleAt,
+  intuitionTitles,
+  type NativeMenuChrome,
+} from "./nativeMenu.ts";
 import {
   newScreenObject,
   packObjectState,
@@ -92,10 +113,16 @@ import {
   TEXT_ROWS,
   TextSurface,
   attr,
+  captureWindowErased,
   drawWindow,
-  placeWindow,
-  wrapLines,
+  placePrintWindow,
+  stampWindow,
+  stampWindowOverlayOnly,
+  windowLines,
+  type GadgetFill,
+  type GadgetLabel,
   type SavedRect,
+  type WindowOverlay,
 } from "./textSurface.ts";
 import type {
   ExecutionCause,
@@ -179,14 +206,17 @@ export interface EngineHost {
    */
   takePointerClicks?(): readonly (readonly [number, number])[];
   /**
+   * Current joystick/gamepad sample ({ x, y } in any consistent axis scale, or
+   * x = 0 / y = 0 / null when no joystick is connected, plus button1/button2).
+   */
+  sampleJoystick?(): { x: number; y: number; button1?: boolean; button2?: boolean } | null;
+  /**
    * Optional host preparation before a room transition changes any state.
    * The host may synchronously supply missing resources. False cancels the
    * transition; ordinary interpreters omit this hook entirely.
    */
   prepareRoom?(room: number, from: number): boolean;
 
-  /** shake.screen: shake the visible display `count` times. */
-  shakeScreen?(count: number): void;
   /** show.obj / show.obj.v: modal view preview; dismissal acks via ackPrint(). */
   showObj?(viewNum: number): void;
   /** show.pri.screen: modal priority-surface view; dismissal acks via ackPrint(). */
@@ -218,7 +248,7 @@ export interface EngineHost {
   restoreGame?(slot?: number): Uint8Array | null;
   /** log / show.mem: diagnostic text sink (LOGFILE semantics). */
   logText?(text: string): void;
-  /** version: interpreter name/version, stored into string slot 0. */
+  /** version: interpreter name/version, displayed modally. */
   versionString?(): string;
   /** Notification that a resource started; soundOutput owns its timed output. */
   playSound?(soundNum: number, payload: Uint8Array): void;
@@ -297,8 +327,22 @@ export interface EngineMenuState {
   requested: boolean;
 }
 
+type SavedWindow = SavedRect & { window?: WindowOverlay | undefined };
+
+/**
+ * The Amiga strip while it is open: the title whose pull-down shows, the
+ * highlighted item, and whether the host keeps it open without the button
+ * (touch and keyboard access; docs/fidelity.md "Original Amiga menu strip
+ * and pull-downs").
+ */
+export interface NativeMenuState {
+  heading: number | null;
+  item: number | null;
+  sticky: boolean;
+}
+
 type Modal = { serial: number } & (
-  | { kind: "print"; saved: SavedRect; remainingMs: number | null; pauseClock: boolean }
+  | { kind: "print"; saved: SavedWindow; remainingMs: number | null; pauseClock: boolean }
   | {
       kind: "inventory";
       saved: SavedRect;
@@ -307,12 +351,58 @@ type Modal = { serial: number } & (
       selected: number;
       interactive: boolean;
     }
-  | { kind: "menu"; saved: SavedRect }
-  | { kind: "showObj"; saved: SavedRect; view: number }
+  | { kind: "menu"; saved: SavedRect; native?: NativeMenuState }
+  | { kind: "showObj"; saved: SavedWindow; view: number }
   | { kind: "showPri" }
+  | {
+      kind: "shake";
+      /** Steps still to show, the current one included. */
+      steps: number;
+      /** Index of the current step. */
+      step: number;
+      /** Time into a fixed-length step (PC EGA). */
+      elapsedMs: number;
+      /** IIgs colour table for the current step. */
+      palette: number[] | null;
+    }
+  | {
+      kind: "dissolve";
+      /** Time into the dissolve. */
+      elapsedMs: number;
+      durationMs: number;
+      /** Whether picture rows 0 and 1 are left out of the order. */
+      skipRows: boolean;
+      /** The screen the dissolve started from, 160x168 colours. */
+      from: Uint8Array;
+      /** Register states finished, as the presentation shows them. */
+      steps: number;
+    }
 );
 
-function serializeSavedRect(saved: SavedRect): SerializedSavedRect {
+function serializeSavedRect(saved: SavedWindow, text?: TextSurface): SerializedSavedRect {
+  const erased =
+    saved.window !== undefined && text !== undefined
+      ? captureWindowErased(text, saved.window)
+      : saved.window?.erased;
+  const window: WindowOverlay | undefined =
+    saved.window !== undefined
+      ? {
+          geometry: saved.window.geometry,
+          textTop: saved.window.textTop,
+          textLeft: saved.window.textLeft,
+          textRows: saved.window.textRows,
+          textCols: saved.window.textCols,
+          x0: saved.window.x0,
+          y0: saved.window.y0,
+          x1: saved.window.x1,
+          y1: saved.window.y1,
+          seq: saved.window.seq,
+          ...(erased !== undefined && erased.length > 0 ? { erased: [...erased] } : {}),
+          ...(saved.window.gadgets !== undefined
+            ? { gadgets: saved.window.gadgets.map((g) => ({ ...g, label: { ...g.label } })) }
+            : {}),
+        }
+      : undefined;
   return {
     written: Array.from(saved.written),
     top: saved.top,
@@ -320,10 +410,11 @@ function serializeSavedRect(saved: SavedRect): SerializedSavedRect {
     bottom: saved.bottom,
     right: saved.right,
     cells: Array.from(saved.cells),
+    ...(window !== undefined ? { window } : {}),
   };
 }
 
-function deserializeSavedRect(saved: SerializedSavedRect): SavedRect {
+function deserializeSavedRect(saved: SerializedSavedRect): SavedWindow {
   return {
     written: Uint32Array.from(saved.written),
     top: saved.top,
@@ -331,6 +422,14 @@ function deserializeSavedRect(saved: SerializedSavedRect): SavedRect {
     bottom: saved.bottom,
     right: saved.right,
     cells: Uint8Array.from(saved.cells),
+    ...(saved.window !== undefined
+      ? {
+          window: {
+            ...saved.window,
+            ...(saved.window.erased !== undefined ? { erased: [...saved.window.erased] } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -354,14 +453,6 @@ const CLOCK_WAIT_JUMPS = 1000;
  * otherwise park forever and never reach the instruction budget.
  */
 const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
-/**
- * Replay-pair capacity of a game that never calls script.size. The
- * interpreters always hold a configured capacity (the save layout has no
- * unconfigured state) and the spec's 2.230 XMAS data carries 200 pairs; the
- * shipped default itself is undocumented, so 200 stands until the binaries
- * settle it. A game's own script.size replaces it.
- */
-const DEFAULT_REPLAY_CAPACITY = 200;
 /** Pairs the host-only shadow record keeps for autosaves of a blocked script buffer. */
 const HOST_REPLAY_LIMIT = 4096;
 /** Hash basis for a frame whose logic resource is absent from the container. */
@@ -402,6 +493,80 @@ class ContinuationAbort {
   constructor(resumeLogic = false) {
     this.resumeLogic = resumeLogic;
   }
+}
+
+/**
+ * Amiga restart/quit confirmations (docs/fidelity.md F-persistence-05): the
+ * prompt and the two Intuition gadget labels every Amiga build 2.082..2.333
+ * passes to WindowPrint, the accepting gadget first. `gap` is the blank
+ * columns between the labels on the engine's gadget line.
+ */
+const AMIGA_CONFIRM_GADGETS: Record<
+  "restart" | "quit",
+  { prompt: string; accept: string; cancel: string; gap: number }
+> = {
+  restart: { prompt: "Restart the game?", accept: "Restart", cancel: "Cancel", gap: 4 },
+  quit: { prompt: "Quit the game, or continue?", accept: "Quit", cancel: "Continue", gap: 15 },
+};
+
+/**
+ * The Amiga confirmation window's text. WindowPrint adds three rows to the
+ * message when it has gadget labels and draws the gadgets in that space; the
+ * engine's cell surface carries the labels on the last of those rows, which
+ * the 12 px gadget boxes overlap most (F-persistence-05).
+ */
+function amigaConfirmText(action: "restart" | "quit"): string {
+  const g = AMIGA_CONFIRM_GADGETS[action];
+  return `${g.prompt}\n\n\n${g.accept}${" ".repeat(g.gap)}${g.cancel}`;
+}
+
+/** Gadget height: the 8 px font plus 4 (F-persistence-05). */
+const AMIGA_GADGET_HEIGHT = 12;
+
+/** Gadget width: the label in the 8 px font plus 8 (F-persistence-05). */
+function amigaGadgetWidth(label: string): number {
+  return 8 * label.length + 8;
+}
+
+/**
+ * The two gadgets of an Amiga confirmation window, from the window frame
+ * (F-persistence-05-gadgets): 12 px high with their top 17 px above the
+ * frame's bottom edge; the accepting gadget starts 10 px in from the frame's
+ * left edge in pen 2, the declining one ends 10 px before its right edge in
+ * pen 4. The label cells sit on the window's last text row.
+ */
+function amigaConfirmGadgets(
+  win: WindowOverlay,
+  action: "restart" | "quit",
+): (GadgetFill & { answer: number })[] {
+  const g = AMIGA_CONFIRM_GADGETS[action];
+  const y0 = win.y1 - 5 - AMIGA_GADGET_HEIGHT;
+  const y1 = y0 + AMIGA_GADGET_HEIGHT - 1;
+  const row = win.textTop + win.textRows - 1;
+  const labelY = { y0: 8 * row, y1: 8 * row + 7 };
+  const acceptX0 = win.x0 + 10;
+  const cancelX0 = win.x1 - 10 - amigaGadgetWidth(g.cancel);
+  const cancelCol = win.textLeft + g.accept.length + g.gap;
+  return [
+    {
+      x0: acceptX0,
+      y0,
+      x1: acceptX0 + amigaGadgetWidth(g.accept) - 1,
+      y1,
+      pen: 2,
+      label: { x0: 8 * win.textLeft, x1: 8 * (win.textLeft + g.accept.length) - 1, ...labelY },
+      answer: AGI_KEY.ENTER,
+    },
+    {
+      x0: cancelX0,
+      y0,
+      x1: cancelX0 + amigaGadgetWidth(g.cancel) - 1,
+      y1,
+      pen: 4,
+      label: { x0: 8 * cancelCol, x1: 8 * (cancelCol + g.cancel.length) - 1, ...labelY },
+      answer: AGI_KEY.ESCAPE,
+    },
+  ];
 }
 
 /**
@@ -598,6 +763,19 @@ export class Engine {
   /** Selected interpreter profile: the single source of version-variant behavior. */
   readonly profile: AgiProfile;
   private sessionAmigaRegion: AmigaRegion = "ntsc";
+  /**
+   * The PC display adapter this session runs on, fixed at construction like
+   * the hardware (src/runtime/display.ts). EGA unless the profile verifies CGA.
+   */
+  readonly pcDisplay: PcDisplay;
+  /**
+   * The original's monitor type: EGA 3, CGA RGB 1, composite 0. ResetAll and
+   * the 2.903+ restore tail copy it into v26; toggle.monitor flips it on CGA
+   * (docs/fidelity.md "PC fonts and display adapters").
+   */
+  private monitorType: number;
+  /** add.to.pic pixels on the picture surface: CGA shows them with the cel table. */
+  private readonly stampMask = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
 
   get amigaRegion(): AmigaRegion {
     return this.sessionAmigaRegion;
@@ -615,6 +793,17 @@ export class Engine {
   readonly profileKind: ProfileDetectionKind;
   /** The interpreter build the identification named; null when unidentified. */
   readonly profileBuild: string | null;
+
+  /**
+   * The exact CONST versionMsg string action 0x8d (version) passes to
+   * WindowPrint in the shipped interpreter binary (docs/fidelity.md
+   * "Original script capacity and version handlers", F-OPCORE-07).
+   */
+  defaultVersionBanner(): string {
+    const version = (this.profileBuild ?? this.profile.id).replace(/^(amiga|iigs)-/, "");
+    const suffix = this.profile.id === "2.001" ? "\n" : "";
+    return `Adventure Game Interpreter\n      Version ${version}${suffix}`;
+  }
   readonly controllers = new Uint8Array(256);
   readonly surface: PictureSurface = createPictureSurface();
 
@@ -647,6 +836,8 @@ export class Engine {
   horizon = 36;
   /** Priority bands are independent of the movement horizon and are not saved. */
   private priorityBase = 48;
+  /** True until set.pri.base rebuilds the priority table; selects PriToY's form. */
+  private defaultPriTable = true;
 
   private readonly logics = new Map<number, LogicResource>();
   private readonly pictures = new Set<number>();
@@ -685,6 +876,18 @@ export class Engine {
    */
   private conditionReplayUntil = -1;
   private pictureShown = false;
+  /**
+   * The Amiga/IIgs show.pic mode flag (`h117+0x12`, IIgs `$1608`): zero at
+   * load and after draw.pic, so show.pic dissolves; overlay.pic sets it and
+   * show.pic copies at once (docs/fidelity.md "Original picture dissolve").
+   */
+  private pictureRevealInstant = false;
+  /** The screen before this pass's draw.pic, kept for the dissolve to start from. */
+  private dissolveFrom: Uint8Array | null = null;
+  /** A picture has reached the screen since boot; before that the screen is black. */
+  private screenShown = false;
+  /** restore.game's dissolve is running; logic 0 re-enters once it ends. */
+  private restoreRevealOwed = false;
   private terminated = false;
   private statusEnabled = false;
   /** Cycle-entry status values survive a modal suspension of the logic stack. */
@@ -692,16 +895,26 @@ export class Engine {
   private cycleStatusSound = 0;
   private statusRefreshRequested = false;
   private inputAccepted = false;
-  private scriptCapacity = DEFAULT_REPLAY_CAPACITY;
+  private scriptCapacity: number;
   private maximumReplayPairs = 0;
   private menu: MenuHeading[] = [];
   private menuFinalized = false;
   private menuHeading = 0;
   private menuRequested = false;
-  private menuInteractionGate = 0;
+  // The menu-interaction gate (action 0xb1) is a word that ships 1 in the
+  // data image and is never re-initialized — not even by restart, whose
+  // ResetAll clears only vars/flags/controllers/object records
+  // (docs/fidelity.md "Original input, menu and modal handling", F-IN-04).
+  private menuInteractionGate = 1;
   private blockRect: { left: number; top: number; right: number; bottom: number } | null = null;
   private textMode = false;
   private inputPrompt = "";
+  /**
+   * EraseCur ran for an open confirmation prompt; WriteCur follows when it
+   * closes (F-persistence-02). Transient: every path that abandons or
+   * replaces the interpreter state clears it.
+   */
+  private cursorErased = false;
   private textFg = 15;
   private textBg = 0;
   private displayBaseRow = 1;
@@ -737,7 +950,7 @@ export class Engine {
   /** Instance counter stamped on each pushed modal: identity for story-pause beats. */
   private modalSerialCounter = 0;
   /** f15 output mode keeps a window visible without suspending execution. */
-  private persistentWindow: SavedRect | null = null;
+  private persistentWindow: SavedWindow | null = null;
   /** Menu selection carried into the next cycle's input phase as a mapped event. */
   private pendingController: number | null = null;
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
@@ -756,6 +969,30 @@ export class Engine {
    * later click's target and never cleared.
    */
   readonly clickMoveNudge: [number, number] = [0, 0];
+  /** Joystick polling enabled (on at boot on Amiga via InitEvents -> InitJoy; calibrated by init.joy on PC/IIgs). */
+  private joyEnabled = false;
+  private joyObserved = false;
+  /**
+   * init.joy found no host sample on PC or IIgs. Browsers reveal a Gamepad
+   * only after its first button press, so the first sample brings the stick
+   * online at its nominal center (docs/fidelity.md F-IN-17).
+   */
+  private joyInitPending = false;
+  private joyClockMs = 0;
+  /** Modal serial of an active init.joy (0x8b) calibration prompt on PC or IIgs. */
+  private joyCalibratingModalSerial: number | null = null;
+  private joyXMin = -0.5;
+  private joyXMax = 0.5;
+  private joyYMin = -0.5;
+  private joyYMax = 0.5;
+  private lastJoyDir = 0;
+  private readonly joyButtons: [
+    { state: 0 | 1 | 2 | 3; deadline: number },
+    { state: 0 | 1 | 2 | 3; deadline: number },
+  ] = [
+    { state: 0, deadline: 0 },
+    { state: 0, deadline: 0 },
+  ];
   /** Scratch arrays and cached composition for presentation and ego visibility. */
   private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
@@ -765,6 +1002,8 @@ export class Engine {
   private readonly cachedVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedPriority = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedText = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
+  private readonly cachedWindowOverlay = new Uint8Array(TEXT_COLS * 8 * TEXT_ROWS * 8);
+  private cachedWindowOverlayDirty = false;
   private cachedEgoVisible = false;
   private presentationDirty = true;
   private lastComposedTextDirty = -1;
@@ -772,7 +1011,7 @@ export class Engine {
   private lastComposedTraceDirty = -1;
   private lastComposedTraceVisible = false;
   /** A gated release enqueued a movement value 0 for the next input phase. */
-  private readonly inputQueue = new InputQueue();
+  private readonly inputQueue: InputQueue;
   /**
    * Saved bytecode resume offsets per logic (set.scan.start/reset.scan.start).
    * They are the source of save block 5 and are re-established by restore.
@@ -800,6 +1039,8 @@ export class Engine {
   private replayRecording = true;
   /** Engine timing accumulator serialized as the save's timer tick count. */
   private timerTicks = 0;
+  /** 2.001 ticks since the last UpdateClock (DS 0x1228, outside the save block). */
+  private booterClockPhase = 0;
   private clockRemainderMs = 0;
   /** Most recently prepared picture number (save block 1). */
   private lastPicture = 0;
@@ -808,6 +1049,8 @@ export class Engine {
   /** Last selected/entered save description; set.simple copies at most 31 bytes. */
   private saveDescription = "";
   private saveDialogMode: "save" | "restore" | null = null;
+  /** The live selector while one is open, for its gadgets and clicks (synchronous hosts included). */
+  private saveDialog: SaveDialog | null = null;
   /**
    * Object-0/global-direction coupling selector (save block 1): player.control
    * couples object 0 to the global direction byte, program.control decouples it.
@@ -923,6 +1166,7 @@ export class Engine {
     options?: {
       restarted?: boolean;
       amigaRegion?: AmigaRegion;
+      pcDisplay?: PcDisplay;
       profile?: ProfileId | AgiProfile;
       instructionBudget?: number;
       executionBudgetPolicy?: ExecutionBudgetPolicy;
@@ -954,22 +1198,20 @@ export class Engine {
     const decision = detectProfileDecision(container.files, options?.profile);
     this.profile = decision.profile;
     this.amigaRegion = options?.amigaRegion ?? "ntsc";
+    this.pcDisplay = effectivePcDisplay(this.profile, options?.pcDisplay);
+    this.monitorType = MONITOR_TYPE[this.pcDisplay];
     this.profileKind = decision.kind;
     this.profileBuild = decision.build;
+    this.inputQueue = new InputQueue(this.profile.keypadWordsNormalized);
+    this.scriptCapacity = this.profile.defaultScriptBufferPairs;
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
     this.strings = Array.from({ length: layoutStringTotal(bank) }, () => "");
-    this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
-    this.vars[24] = 41;
-    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
-    this.vars[26] = 3; // EGA presentation on the PC-compatible platform (v20 = 0).
+    this.applyResetAllDefaults();
     // Original game-state startup defaults; hosts may apply sound preference.
     // docs/fidelity.md: Original save and restart audit.
     this.flags[F_SOUND_ENABLED] = 1;
-    // On cold boot, f5 (F_NEW_ROOM) is set for the initial room 0;
-    // f6 (F_RESTART) is only set on restart (options.restarted or restart.game).
-    this.flags[F_NEW_ROOM] = 1;
     if (options?.restarted) {
       this.flags[F_RESTART] = 1;
     }
@@ -1472,7 +1714,7 @@ export class Engine {
           takeKeys: () => [],
         },
         this.dictionary,
-        { profile: this.profile, amigaRegion: this.amigaRegion },
+        { profile: this.profile, amigaRegion: this.amigaRegion, pcDisplay: this.pcDisplay },
       );
       // Never call the live prepareRoom hook from a speculative entry: it
       // may start authoring or write resources. An entry that needs a missing
@@ -1589,7 +1831,10 @@ export class Engine {
       } else if (change.kind === "view") {
         const parsed = staged.viewParses.get(change.num);
         if (parsed !== undefined && this.views.has(change.num)) {
-          this.views.set(change.num, parsed);
+          this.views.set(
+            change.num,
+            this.pcDisplay === "cga-rgb" ? this.parseLoadedView(change.newPayload) : parsed,
+          );
           this.presentationDirty = true;
         }
       } else if (change.kind === "sound") {
@@ -1608,6 +1853,8 @@ export class Engine {
     }
     if (staged.surface !== null) {
       this.surface.visual.set(staged.surface.visual);
+      // A recomposed picture carries no add.to.pic stamps (previewPictureComposition.ts).
+      this.stampMask.fill(0);
       this.surface.priority.set(staged.surface.priority);
       this.presentationDirty = true;
     }
@@ -1651,11 +1898,17 @@ export class Engine {
   /**
    * Host acknowledged the open modal (Enter/Esc/click). For a print window
    * this restores the covered cells; for an interactive inventory it is the
-   * cancel path (v25 = 0xff); for a menu it closes without selection.
+   * cancel path (v25 = 0xff); for a menu it closes without selection. A
+   * shake or a dissolve ignores the player's keys, so only a host override
+   * ends it early.
    */
   ackPrint(): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     if (!this.modal) return;
+    if (this.modal.serial === this.joyCalibratingModalSerial) {
+      this.modalKey(AGI_KEY.ENTER);
+      return;
+    }
     if (this.modal.kind === "inventory" && this.modal.interactive)
       this.vars[V_SELECTED_ITEM] = 0xff;
     this.closeModal();
@@ -1713,10 +1966,36 @@ export class Engine {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
   }
 
-  /** Explicit pause and save selectors freeze timer/pacing counters; ordinary modals do not. */
+  /** A shake or picture dissolve holds the pass; the clock ends it, not the player. */
+  get clockModalOpen(): boolean {
+    const kind = this.modal?.kind;
+    return kind === "shake" || kind === "dissolve";
+  }
+
+  /**
+   * Explicit pause and save selectors freeze timer/pacing counters; ordinary
+   * modals do not. The 2.001 booter's save selectors leave the pause word
+   * alone (docs/fidelity.md "PC booter clock").
+   */
   get timerPaused(): boolean {
     const modal = this.modal;
-    return this.saveDialogMode !== null || (modal?.kind === "print" && modal.pauseClock);
+    return (
+      (this.saveDialogMode !== null && this.profile.frameTiming !== "booter-int1c") ||
+      (modal?.kind === "print" && modal.pauseClock) ||
+      // MENUVERIFY sets the freeze flag and the timer returns before the
+      // game clock and pacing while it is set (docs/fidelity.md "Original
+      // native menu dispatch").
+      (modal?.kind === "menu" && modal.native !== undefined)
+    );
+  }
+
+  /**
+   * Timer increments the pacing counter needs before it admits a logic pass:
+   * v10 on PC and Amiga, v10 + 1 on the IIgs (`profile.pacingAdmission`).
+   */
+  get pacingDelay(): number {
+    const delay = this.vars[10]!;
+    return this.profile.pacingAdmission === "exceeds-v10" ? delay + 1 : delay;
   }
 
   /** Instance serial of the open modal: rises on every push, so back-to-back windows differ. */
@@ -2231,17 +2510,25 @@ export class Engine {
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     if (pending?.kind === "saveDialog") {
-      pending.dialog.text.restore(pending.dialog.saved);
+      closeSaveDialogSurface(pending.dialog);
       this.saveDialogMode = null;
+      this.saveDialog = null;
     }
-    if (pending?.kind === "confirm" && this.modal?.serial === pending.modalSerial)
-      this.closeModal();
+    if (pending?.kind === "confirm") {
+      if (this.modal?.serial === pending.modalSerial) this.closeModal();
+    }
     if (pending !== null || roomWait) this.pendingLogic = null;
     if (roomWait) {
       while (this.modal !== null) this.closeModal();
       this.cycleCursor = null;
+      this.restoreRevealOwed = false;
       this.parkedModalWait = false;
       this.parkedClockWait = false;
+    }
+    // An abandoned confirmation's erased cursor comes back with the row.
+    if (this.cursorErased) {
+      this.cursorErased = false;
+      this.drawInputRow();
     }
   }
 
@@ -2279,6 +2566,7 @@ export class Engine {
       if (step.done) {
         this.pendingInteraction = null;
         this.saveDialogMode = null;
+        this.saveDialog = null;
         this.controllers.fill(0);
         if (pending.mode === "restore" && step.image !== null) this.beginRestore(step.image);
         return;
@@ -2299,7 +2587,13 @@ export class Engine {
         const queued = this.drainDialogKey();
         if (queued !== undefined) return queued;
         const wait = this.host.waitKey;
-        if (wait) return this.hostCall(pending, () => wait.call(this.host) ?? AGI_KEY.ESCAPE);
+        // A synchronous answer crosses the same native GetKey normalization
+        // as a queued or delivered answer (F-IN-04).
+        if (wait)
+          return this.hostCall(pending, () => {
+            const answer = wait.call(this.host) ?? AGI_KEY.ESCAPE;
+            return normalizeKeyWord(answer, this.profile.presentation);
+          });
         return AGI_KEY.ESCAPE;
       }
       case "list": {
@@ -2361,9 +2655,10 @@ export class Engine {
    * navigation event answers. Returns undefined when nothing is queued.
    */
   private drainDialogKey(): number | undefined {
-    for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
+    this.queueHostKeys(true);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) return event.value;
+      // The selector's wait uses the platform's GetKey normalization (F-IN-04).
+      if (event.type === 1) return normalizeKeyWord(event.value, this.profile.presentation);
       if (event.type === 2 && event.value !== 0) {
         const navigationKey = NAV_KEY_CODES[event.value];
         if (navigationKey !== undefined) return navigationKey;
@@ -2378,7 +2673,7 @@ export class Engine {
    */
   private beginRestore(image: Uint8Array): void {
     try {
-      this.applyRestore(image);
+      this.applyRestore(image, null, true);
     } catch (error) {
       if (error instanceof ContinuationAbort) throw error;
       // Block-read/decode failure is fatal only after its error dialog. The
@@ -2406,6 +2701,10 @@ export class Engine {
           ? (wait.call(this.host) ?? AGI_KEY.ESCAPE)
           : (this.host.takeKeys()[0] ?? AGI_KEY.ESCAPE),
       );
+      // The host's answer is GetKey's return here: ButtonToChar normalizes
+      // the keypad/joystick Enter/Escape words across all twenty builds
+      // (docs/fidelity.md "Original input, menu and modal handling", F-IN-04).
+      key = normalizeKeyWord(key, this.profile.presentation);
       const byte = key & 0xff;
       if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
         this.pendingInteraction = null;
@@ -2472,7 +2771,13 @@ export class Engine {
         break;
       }
       case "saveDialog":
-        this.driveSaveDialog(pending, answer);
+        // Delivered selector keys cross the same native GetKey normalization.
+        this.driveSaveDialog(
+          pending,
+          pending.dialog.need?.kind === "key" && typeof answer === "number"
+            ? normalizeKeyWord(answer, this.profile.presentation)
+            : answer,
+        );
         break;
       case "saveDirect":
         this.pendingInteraction = null;
@@ -2517,6 +2822,7 @@ export class Engine {
     const top = this.modal;
     if (top && (top.kind === "print" || top.kind === "showObj")) this.closeModal();
     if (this.persistentWindow) {
+      this.text.clearWindowOverlay();
       this.text.restore(this.persistentWindow);
       this.persistentWindow = null;
     }
@@ -2568,7 +2874,7 @@ export class Engine {
   releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     if (eligible) {
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+      this.queueHostKeys(false);
       this.inputQueue.enqueue({ type: 2, value: 0 });
     }
   }
@@ -2608,7 +2914,29 @@ export class Engine {
   }
 
   private inputCapacity(): number {
-    return Math.min(this.inputWidthCap ?? TEXT_COLS - 1, TEXT_COLS - 1 - this.inputPrompt.length);
+    // Line-editor character-acceptance cap from the binary disassembly
+    // (docs/fidelity.md "Original input, menu and modal handling"). Excess keys
+    // are silently rejected.
+    if (!this.profile.originalInputCapacity) {
+      return Math.min(this.inputWidthCap ?? TEXT_COLS - 1, TEXT_COLS - 1 - this.inputPrompt.length);
+    }
+    switch (this.profile.inputLineEditCap) {
+      case "early-35":
+        // PC 2.001, 2.089 and 2.230 compare editLen against literal 0x23 (35)
+        // directly; ResetAll leaves v24 at 0 on these builds (F-Parser-05).
+        return 35;
+      case "iigs-39":
+        return Math.max(0, Math.min(this.vars[24]!, 39 - this.strings[0]!.length));
+      case "prompt-40": {
+        const base = TEXT_COLS - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
+        return Math.max(0, Math.min(this.vars[24]!, base));
+      }
+      case "dialogue-36": {
+        const base =
+          (this.inputWidthCap ?? TEXT_COLS) - this.strings[0]!.length - (this.inputPrompt ? 1 : 0);
+        return Math.max(0, Math.min(this.vars[24]!, base));
+      }
+    }
   }
 
   private textAttr(): number {
@@ -2628,26 +2956,85 @@ export class Engine {
   /** Status line: score at column 1, sound state at column 30, black on white. */
   private drawStatus(): void {
     if (!this.statusEnabled || this.textMode) return;
-    const a = attr(0, 15);
-    this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
-    this.text.write(this.statusRow, 1, this.statusText(), a);
-    this.text.write(
-      this.statusRow,
-      30,
-      `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`,
-      a,
-    );
+    // The Amiga line is the screen title, which the interpreter hands to
+    // Intuition and never draws into the play surface; the configured status
+    // row is stored and never read (docs/fidelity.md "Amiga screen, font and
+    // pointer"). The host reads it from `getPresentation().statusBar`.
+    if (this.profile.presentation !== "amiga") {
+      const a = attr(0, 15);
+      this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
+      this.text.write(this.statusRow, 1, this.statusText(), a);
+      this.text.write(this.statusRow, 30, this.soundText(), a);
+    }
     this.statusRefreshRequested = false;
     this.host.statusLine(this.statusText());
+  }
+
+  /**
+   * "Sound:%s" with space-padded "on " on every profile except 2.089, whose
+   * data segment stores unpadded "on\0" (docs/fidelity.md "Original window
+   * and status-line text").
+   */
+  private soundText(): string {
+    const paddedSound =
+      this.profile.originalTextWindows && this.profile.statusLineFormat !== "early-2.089";
+    return paddedSound
+      ? `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`
+      : `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`;
+  }
+
+  /**
+   * The Amiga screen title while the status line shows, or null: the status
+   * routine formats "Score:%d of %d  " at column 0 and "Sound:%s" at column
+   * 26 of a 39-byte title (docs/fidelity.md "Amiga screen, font and
+   * pointer").
+   */
+  statusBarText(): string | null {
+    if (this.profile.presentation !== "amiga") return null;
+    // Intuition's strip replaces the screen title while a menu is held.
+    if (this.modal?.kind === "menu" && this.modal.native) return null;
+    if (!this.statusEnabled || this.textMode || this.amigaStatusGated()) return null;
+    return (this.statusText().padEnd(26) + this.soundText()).padEnd(39).slice(0, 39);
+  }
+
+  /**
+   * Amiga 2.176 through 2.333 gate status.line.on/off and status-bar drawing on
+   * a positive picture top ($f8a2 != 0); Amiga 2.082 has no picture-top gate.
+   */
+  private amigaStatusGated(): boolean {
+    return this.profile.statusLineGate !== "unconditional" && this.displayBaseRow === 0;
+  }
+
+  /**
+   * The Amiga status.line.off fills window pixels rows 0..10 with pen 0
+   * after hiding the title (h82+0x590..0x5bc). The configured status row
+   * is never touched.
+   */
+  private eraseAmigaTitleArea(): void {
+    this.text.fillTitleBar();
   }
 
   private statusText(): string {
     // Supplemental variable contract: AGI specs §3.3 identifies v7 as maximum score.
     // https://www.agidev.com/articles/agispec/agispecs-3.html
-    return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
+    // docs/fidelity.md "Original window and status-line text".
+    if (!this.profile.originalTextWindows) return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
+    switch (this.profile.statusLineFormat) {
+      case "booter-2.001":
+        return `Score:${this.vars[V_SCORE]}  `;
+      case "early-2.089":
+        return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}`;
+      case "common":
+        return `Score:${this.vars[V_SCORE]} of ${this.vars[7]}  `;
+    }
   }
 
-  /** Input row: prompt marker, then the edit buffer (spec "Text geometry"). */
+  /**
+   * Input row, in the profile's `inputLineOrder`: the Amiga ShowInput prints
+   * string 0, the typed text and then the cursor byte (docs/fidelity.md
+   * "Amiga screen, font and pointer"); the other profiles keep the cursor
+   * byte before the typed text (spec "Text geometry").
+   */
   private drawInputRow(): void {
     if (this.textMode) return;
     if (!this.inputAccepted) {
@@ -2656,7 +3043,12 @@ export class Engine {
     }
     const a = this.textAttr();
     this.text.fill(this.inputRow, 0, this.inputRow, TEXT_COLS - 1, 0x20, a);
-    this.text.write(this.inputRow, 0, this.inputPrompt + this.editLine, a);
+    const cursor = this.cursorErased ? "" : this.inputPrompt;
+    const line =
+      this.profile.inputLineOrder === "prompt-edit-cursor"
+        ? this.strings[0] + this.editLine + cursor
+        : cursor + this.editLine;
+    this.text.write(this.inputRow, 0, line, a);
   }
 
   private acceptLine(line: string): void {
@@ -2670,9 +3062,28 @@ export class Engine {
    * have.key discards navigation/status events and preserves the unread
    * suffix. It applies no script mapping: a mapped key is raw here.
    */
+  /** Apply a native keyboard switch before a host queues or delivers a key (F-IN-16). */
+  consumePlatformKey(key: number): boolean {
+    if (key !== 0xff00 || this.profile.presentation === "pc") return false;
+    this.setSoundEnabled(this.flags[F_SOUND_ENABLED] === 0);
+    return true;
+  }
+
+  private queueHostKeys(modal: boolean): void {
+    for (const key of this.host.takeKeys()) {
+      if (this.consumePlatformKey(key)) continue;
+      if (key === 0xf500 && !hasKeypadStop(this.profile.id)) continue;
+      if (modal) this.inputQueue.enqueueModalKey(key);
+      else this.inputQueue.enqueueKey(key);
+    }
+  }
+
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) return event.value;
+      // GetKey normalizes the keypad/joystick button words across all twenty
+      // builds via ButtonToChar (docs/fidelity.md "Original input, menu and
+      // modal handling", F-IN-04).
+      if (event.type === 1) return normalizeKeyWord(event.value, this.profile.presentation);
     }
     return undefined;
   }
@@ -2683,7 +3094,20 @@ export class Engine {
       if (this.trace.active || this.flags[10] !== 0) this.trace.setActive(!this.trace.active);
       return;
     }
+    // On Apple IIgs 1.014 (seg2+0x1638..0x165e), GetUserInput rewrites unmapped
+    // type-1 words 0x0101 and 0x0201 to 0x000d (CR) before storing v19
+    // and calling EditLine. Native sound switches are consumed before PostEvent.
+    if (this.profile.presentation === "iigs") {
+      if (key === 0x0101 || key === 0x0201) {
+        key = AGI_KEY.ENTER;
+      }
+    }
     const byte = key & 0xff;
+    // v19 receives the low byte of every type-1 event FIRST — before the
+    // input-acceptance gate and before the line editor consumes Enter,
+    // Backspace or printable bytes (docs/fidelity.md "Original input, menu and
+    // modal handling").
+    if (this.profile.keyByteStoredBeforeEdit) this.vars[V_KEY] = byte;
     if (this.inputAccepted && !this.textMode) {
       if (byte === AGI_KEY.ENTER && this.editLine.length > 0) {
         this.acceptLine(this.editLine);
@@ -2700,7 +3124,7 @@ export class Engine {
         return;
       }
     }
-    this.vars[V_KEY] = byte;
+    if (!this.profile.keyByteStoredBeforeEdit) this.vars[V_KEY] = byte;
   }
 
   // ---------- modal windows ----------
@@ -2714,7 +3138,12 @@ export class Engine {
     }
     const m = this.modal;
     if (!m) return;
-    key = normalizeModalKey(key);
+    const rawKey = key & 0xffff;
+    key = normalizeKeyWord(rawKey, this.profile.presentation);
+    if (m.kind === "print" && m.serial === this.joyCalibratingModalSerial) {
+      this.resolveJoyCalibrationModal(rawKey, key & 0xff);
+      return;
+    }
     const nav = NAV_KEYS[key];
     if (nav !== undefined) {
       this.modalNavigate(nav);
@@ -2725,12 +3154,22 @@ export class Engine {
       case "print":
       case "showObj":
       case "showPri":
-        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || byte === AGI_KEY.SPACE)
+        // ChkAcAb accepts CR (1) or ESC (0) only; every other key keeps
+        // waiting — Space is not an acknowledgement key (docs/fidelity.md
+        // "Original input, menu and modal handling").
+        if (
+          byte === AGI_KEY.ENTER ||
+          byte === AGI_KEY.ESCAPE ||
+          (this.profile.modalDismissalKeys === "enter-escape-space" && byte === AGI_KEY.SPACE)
+        )
           this.closeModal();
         return;
       case "inventory":
         if (!m.interactive) {
-          if (byte !== 0) this.closeModal();
+          // The acknowledgement-only list ends on a bare WaitEvent: ANY event
+          // dismisses it, including zero-low-byte extended words
+          // (docs/fidelity.md "Original input, menu and modal handling").
+          if (this.profile.inventoryListEndsOnAnyEvent || byte !== 0) this.closeModal();
           return;
         }
         if (byte === AGI_KEY.ENTER) {
@@ -2742,6 +3181,11 @@ export class Engine {
         }
         return;
       case "menu":
+        if (m.native) {
+          if (byte === AGI_KEY.ENTER) this.nativeMenuSelect(m.native);
+          else if (byte === AGI_KEY.ESCAPE) this.closeModal();
+          return;
+        }
         if (byte === AGI_KEY.ENTER) {
           const heading = this.menu[this.menuHeading]!;
           const item = heading.items[heading.current];
@@ -2761,6 +3205,19 @@ export class Engine {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     const m = this.modal;
     if (!m) return;
+    // A shake or dissolve reads no input: the press waits in the queue for the next pass.
+    if (m.kind === "shake" || m.kind === "dissolve") {
+      const word = NAV_KEY_CODES[value];
+      if (word !== undefined) this.inputQueue.enqueueKey(word);
+      return;
+    }
+    // The non-interactive inventory's bare WaitEvent ends on ANY event,
+    // navigation included (docs/fidelity.md "Original input, menu and modal
+    // handling", F-IN-01).
+    if (this.profile.inventoryListEndsOnAnyEvent && m.kind === "inventory" && !m.interactive) {
+      this.closeModal();
+      return;
+    }
     if (m.kind === "inventory" && m.interactive && m.items.length > 0) {
       const n = m.items.length;
       if (value === 1 || value === 7) m.selected = (m.selected - 1 + n) % n;
@@ -2770,17 +3227,27 @@ export class Engine {
       this.drawInventory(m);
       return;
     }
-    if (m.kind === "menu") this.menuNavigate(value);
+    if (m.kind === "menu") {
+      if (m.native) this.nativeMenuNavigate(m.native, value);
+      else this.menuNavigate(value);
+    }
   }
 
   private closeModal(): void {
     const m = this.modals.pop();
     if (!m) return;
+    if (m.serial === this.joyCalibratingModalSerial) this.joyCalibratingModalSerial = null;
     // A timed print zeroes v21 when its window closes, by timeout or key.
     // docs/fidelity.md: print-handler-output-modes
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
       this.vars[21] = 0;
-    if (m.kind !== "showPri") this.text.restore(m.saved);
+    if (m.kind === "print" || m.kind === "showObj") this.text.clearWindowOverlay();
+    if (m.kind === "dissolve") this.presentationDirty = true;
+    else if (m.kind !== "showPri" && m.kind !== "shake") this.text.restore(m.saved);
+    if (m.kind === "print" && this.cursorErased) {
+      this.cursorErased = false;
+      this.drawInputRow();
+    }
     if (m.kind === "menu") {
       this.menuRequested = false;
       this.drawStatus();
@@ -2797,18 +3264,29 @@ export class Engine {
     place?: { row?: number | undefined; col?: number | undefined; width?: number | undefined },
     forceAcknowledgement = false,
     pauseClock = false,
+    timed = false,
   ): void {
     this.closeWindowOnTop();
     const width = place?.width ? place.width : 30;
-    const lines = wrapLines(text, width);
-    const box = placeWindow(lines, this.displayBaseRow, place);
-    const saved = this.text.save(
-      box.top,
-      box.left,
-      box.top + box.rows - 1,
-      box.left + box.cols - 1,
+    // windowLines applies the overlong-message recovery: more than 19
+    // formatted lines substitutes "Message too verbose:" quoting the first
+    // 20 characters (docs/fidelity.md "Original window and status-line text").
+    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
+    const lines = windowLines(text, width, maxLines);
+    const win = placePrintWindow(
+      lines,
+      this.displayBaseRow,
+      this.profile.windowFrameGeometry,
+      place,
     );
-    drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
+    const saved: SavedWindow = this.text.save(
+      win.textTop,
+      win.textLeft,
+      win.textTop + win.textRows - 1,
+      win.textLeft + win.textCols - 1,
+    );
+    saved.window = win;
+    stampWindow(this.text, win, lines, attr(0, 15));
     if (!forceAcknowledgement && this.flags[15] !== 0) {
       // A print that opens a non-blocking window consumes f15 as it returns.
       // docs/fidelity.md: print-handler-output-modes
@@ -2819,8 +3297,11 @@ export class Engine {
         serial: ++this.modalSerialCounter,
         kind: "print",
         saved,
+        // WindowPrint's winTime: v21 half-seconds close the window, for a
+        // blocking print and for version alike; the engine-owned
+        // confirmations and the pause window wait without a timeout.
         remainingMs:
-          !forceAcknowledgement && this.vars[21] !== 0
+          (!forceAcknowledgement || timed) && this.vars[21] !== 0
             ? (this.vars[21]! * this.timing.gameSecondMs) / 2
             : null,
         pauseClock,
@@ -2845,21 +3326,48 @@ export class Engine {
     }
     // The description goes through the same message box as print, so %v, %s
     // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
-    const lines = wrapLines(this.expandMessage(view.description ?? ""), 30);
-    const box = placeWindow(lines, this.displayBaseRow, { row: this.displayBaseRow + 1 });
-    const saved = this.text.save(
-      box.top,
-      box.left,
-      box.top + box.rows - 1,
-      box.left + box.cols - 1,
+    // On verified 2.936, when vdesc == 0, ShowObj computes viewPtr + 0 without
+    // testing for a zero offset and formats the NUL-terminated bytes starting
+    // at byte 0 of the view header (docs/fidelity.md, F-VIEWS-11).
+    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
+    let rawDescription = view.description;
+    if (rawDescription === undefined) {
+      const raw = this.profile.showObjUncheckedDescOffset
+        ? this.container.getResource("view", viewNum)
+        : null;
+      if (raw) {
+        const nul = raw.indexOf(0);
+        const slice = nul < 0 ? raw : raw.subarray(0, nul);
+        rawDescription = String.fromCharCode(...slice);
+      } else {
+        rawDescription = "";
+      }
+    }
+    const lines = windowLines(this.expandMessage(rawDescription), 30, maxLines);
+    const win = placePrintWindow(lines, this.displayBaseRow, this.profile.windowFrameGeometry, {
+      row: 2,
+    });
+    const saved: SavedWindow = this.text.save(
+      win.textTop,
+      win.textLeft,
+      win.textTop + win.textRows - 1,
+      win.textLeft + win.textCols - 1,
     );
-    drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
+    saved.window = win;
+    stampWindow(this.text, win, lines, attr(0, 15));
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showObj", saved, view: viewNum });
     this.host.showObj?.(viewNum);
   }
 
   private showPriScreen(): void {
-    this.closeWindowOnTop();
+    // Verified on 2.936 and 3.002.086: show.pri.screen sets showPri=1, blits the
+    // priority screen, waits on ChkAcAb, and restores the visual screen without
+    // calling CloseWindow (docs/fidelity.md "Original picture drawing and fill",
+    // F-picture-04).
+    if (!this.profile.showPriScreenPreservesWindow) {
+      this.closeWindowOnTop();
+    }
+    this.text.clearPictureTitleFill(this.displayBaseRow);
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showPri" });
     this.host.showPriScreen?.();
   }
@@ -2870,11 +3378,46 @@ export class Engine {
    * and the delivered key resolves it through applyInteraction.
    */
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
+    // Original restart/quit prompt wording; CancelLine runs only on the
+    // accepted restart branch, so declining preserves editLine across all
+    // profiles (docs/fidelity.md "Wave-3 persistence verdicts",
+    // F-persistence-02, F-persistence-05).
+    const original = this.profile.originalRestartRestore;
+    const amiga = this.profile.windowFrameGeometry === "amiga";
+    // The Amiga builds call EraseCur before the prompt and WriteCur
+    // unconditionally after it closes (F-persistence-02), so the cursor
+    // character leaves the input row while the window is up.
+    if (this.profile.confirmCursor === "erased") {
+      this.cursorErased = true;
+      this.drawInputRow();
+    }
     this.emitPrint(
-      `${action === "restart" ? "Restart" : "Quit"} the game?\nENTER: yes   ESC: continue`,
+      action === "restart"
+        ? original
+          ? amiga
+            ? amigaConfirmText("restart")
+            : "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
+          : "Restart the game?\nENTER: yes   ESC: continue"
+        : original
+          ? amiga
+            ? amigaConfirmText("quit")
+            : "Press ENTER to quit.\nPress ESC to keep playing."
+          : "Quit the game?\nENTER: yes   ESC: continue",
       undefined,
       true,
     );
+    if (original && amiga && this.modal?.kind === "print" && this.modal.saved.window) {
+      // The gadget fills go into the window overlay, which every restamp
+      // (restore, replay, checkpoint) redraws; the label cells carry front
+      // pen 15 on their gadget's pen (F-persistence-05-gadgets).
+      const win = this.modal.saved.window;
+      const g = AMIGA_CONFIRM_GADGETS[action];
+      const row = win.textTop + win.textRows - 1;
+      this.text.write(row, win.textLeft, g.accept, attr(15, 2));
+      this.text.write(row, win.textLeft + g.accept.length + g.gap, g.cancel, attr(15, 4));
+      win.gadgets = amigaConfirmGadgets(win, action).map(({ answer: _answer, ...fill }) => fill);
+      stampWindowOverlayOnly(this.text, win, false);
+    }
     const pending: PendingInteraction = {
       kind: "confirm",
       next,
@@ -2886,8 +3429,370 @@ export class Engine {
     } finally {
       // The window survives a suspension (the game waits visibly) but not a
       // synchronous resolution or a real failure.
-      if (this.pendingInteraction === null && this.modal?.serial === pending.modalSerial)
-        this.closeModal();
+      if (this.pendingInteraction === null) {
+        if (this.modal?.serial === pending.modalSerial) this.closeModal();
+      }
+    }
+  }
+
+  /**
+   * The gadget under screen pixel (x, y) of the parked Amiga confirmation,
+   * as the answer its wait takes: Enter for the accepting gadget (Restart,
+   * Quit), Escape for the declining one (Cancel, Continue), or null when no
+   * confirmation waits, the profile's prompt has no gadgets, or the point
+   * misses both. The boxes are the original WindowPrint's gadget rectangles
+   * (docs/fidelity.md F-persistence-05, all six Amiga builds): 12 px high,
+   * `8 * label length + 8` wide, their top 17 px above the window frame's
+   * bottom edge, the first 10 px in from the frame's left edge and the
+   * second ending 10 px before its right edge.
+   */
+  confirmGadgetAt(x: number, y: number): number | null {
+    const pending = this.pendingInteraction;
+    if (pending?.kind !== "confirm" || this.profile.windowFrameGeometry !== "amiga") return null;
+    if (!this.profile.originalRestartRestore) return null;
+    const modal = this.modal;
+    if (modal?.kind !== "print" || modal.serial !== pending.modalSerial) return null;
+    const win = modal.saved.window;
+    if (win === undefined) return null;
+    for (const g of amigaConfirmGadgets(win, pending.action)) {
+      if (x >= g.x0 && x <= g.x1 && y >= g.y0 && y <= g.y1) return g.answer;
+    }
+    return null;
+  }
+
+  /**
+   * Whether pixel (x, y) lies inside an unlabeled print/show.obj window's
+   * clickable frame on Amiga (gadget_1 in AddWindowGadgets: h40+0x43a /
+   * h57+0x4a6, [win.x0..win.x1] x [win.y0..win.y1]) or Apple IIgs 1.014
+   * ($000e1f at seg3+0xe87..0xeb9: [$15f2..$15f6] x [$15f4..$15f8], where
+   * $15f6 = win.x1 + 1 and $15f8 = win.y1 + 1).
+   */
+  private windowHitAt(win: WindowOverlay | undefined, x: number, y: number): boolean {
+    if (win === undefined) return false;
+    if (this.profile.windowFrameGeometry === "amiga") {
+      return x >= win.x0 && x <= win.x1 && y >= win.y0 && y <= win.y1;
+    }
+    if (this.profile.windowFrameGeometry === "iigs") {
+      return x >= win.x0 && x <= win.x1 + 1 && y >= win.y0 && y <= win.y1 + 1;
+    }
+    return false;
+  }
+
+  /**
+   * The key word a left-button click at screen pixel (x, y) produces when a
+   * modal window, persistent f15 window, confirmation dialog or text screen is
+   * active on Amiga or Apple IIgs, or null when the click produces no key:
+   * - Amiga confirmation dialog: Restart/Quit -> Enter, Cancel/Continue -> Esc.
+   * - Unlabeled print or show.obj modal (or persistent f15 window): clicking
+   *   inside the window frame returns Enter (0x0d); clicking outside returns null.
+   * - Text screens return Enter on Amiga 2.082 and Apple IIgs 1.014; priority
+   *   screens never do (F-IN-11).
+   */
+  pointerKeyAt(x: number, y: number): number | null {
+    if (this.profile.clickMove === "none") return null;
+    if (this.pendingInteraction?.kind === "confirm") return this.confirmGadgetAt(x, y);
+    // The Amiga save dialog's gadgets: OK/Save/Restore post Enter, Cancel
+    // posts Escape, and each slot line's invisible gadget posts its slot.
+    if (this.saveDialog !== null) return saveDialogPointerKey(this.saveDialog, x, y);
+    const modal = this.modal;
+    if (modal !== null) {
+      if (
+        (modal.kind === "print" || modal.kind === "showObj") &&
+        modal.serial !== this.joyCalibratingModalSerial
+      ) {
+        return this.windowHitAt(modal.saved.window, x, y) ? AGI_KEY.ENTER : null;
+      }
+      return null;
+    }
+    if (this.textMode) {
+      if (this.profile.id === "amiga-2.082" || this.profile.id === "iigs-1.014") {
+        return AGI_KEY.ENTER;
+      }
+      return null;
+    }
+    if (this.persistentWindow !== null && this.windowHitAt(this.persistentWindow.window, x, y)) {
+      return AGI_KEY.ENTER;
+    }
+    return null;
+  }
+
+  /**
+   * Amiga IDCMP MENUUP (0xe9) right-button double-click (docs/fidelity.md
+   * "Original click-to-walk"): posts type-1 word 0x0401 unless a text window
+   * is open; text mode does not gate it. Engine modals count as open windows.
+   */
+  get pointerRightDoubleClickAllowed(): boolean {
+    return (
+      this.profile.presentation === "amiga" && this.modal === null && this.persistentWindow === null
+    );
+  }
+
+  /**
+   * Engine-level form of the right double-click, used by tests. The app does
+   * not call it: PlayArea's `onAmigaRightButton` pairs the clicks and sends
+   * key 0x0401 with `pointer: true`, and the worker (`onKey` in
+   * app/src/worker/input.ts) admits it only while
+   * `pointerRightDoubleClickAllowed` holds. Native right-button work (menus)
+   * belongs on that path.
+   */
+  pointerRightDoubleClick(): boolean {
+    return this.pointerRightDoubleClickAllowed && this.inputQueue.enqueueKey(0x0401);
+  }
+
+  /** Releasing browser input ownership stops the stick without firing a button action. */
+  cancelJoystickInput(): void {
+    if (this.lastJoyDir !== 0) {
+      // GetKey discards direction events. Ownership cleanup must also stop
+      // the current heading when the parked pass resumes without an input phase.
+      this.vars[V_EGO_DIR] = 0;
+      this.inputQueue.enqueue({ type: 2, value: 0 });
+    }
+    this.lastJoyDir = 0;
+    this.joyButtons[0] = { state: 0, deadline: 0 };
+    this.joyButtons[1] = { state: 0, deadline: 0 };
+  }
+
+  /**
+   * Action 0x8b `init.joy`:
+   * - Amiga (2.082 h108+0x0, 2.176..2.333 h145+0x0): digital joystick via
+   *   gameport.device; opens no calibration window and enables polling.
+   * - PC (2.001..3.002.149, e.g. 3.002.149 0x64be) and Apple IIgs 1.014
+   *   (main+0x1cff): reads joystick axes; if disconnected (null or x==0 || y==0),
+   *   disables joystick polling and returns without opening a window. Otherwise
+   *   opens the platform's calibration prompt modal.
+   */
+  private joystickState(): JoystickReplayState | undefined {
+    if (!this.joyObserved) return undefined;
+    return {
+      enabled: this.joyEnabled,
+      clockMs: this.joyClockMs,
+      thresholds: [this.joyXMin, this.joyXMax, this.joyYMin, this.joyYMax],
+      direction: this.lastJoyDir,
+      buttons: this.joyButtons.map((b) => ({ ...b })),
+      ...(this.joyInitPending ? { pendingInit: true as const } : {}),
+      calibration:
+        this.joyCalibratingModalSerial === null
+          ? null
+          : this.modals.findIndex((m) => m.serial === this.joyCalibratingModalSerial),
+    };
+  }
+
+  private restoreJoystickState(state: JoystickReplayState | undefined): void {
+    this.joyObserved = state !== undefined;
+    this.joyEnabled = state?.enabled ?? this.profile.presentation === "amiga";
+    this.joyClockMs = state?.clockMs ?? 0;
+    this.joyXMin = state?.thresholds[0] ?? -0.5;
+    this.joyXMax = state?.thresholds[1] ?? 0.5;
+    this.joyYMin = state?.thresholds[2] ?? -0.5;
+    this.joyYMax = state?.thresholds[3] ?? 0.5;
+    this.lastJoyDir = state?.direction ?? 0;
+    this.joyInitPending = state?.pendingInit === true;
+    this.joyButtons[0] = state ? { ...state.buttons[0]! } : { state: 0, deadline: 0 };
+    this.joyButtons[1] = state ? { ...state.buttons[1]! } : { state: 0, deadline: 0 };
+    this.joyCalibratingModalSerial =
+      state?.calibration === null || state === undefined
+        ? null
+        : (this.modals[state.calibration]?.serial ?? null);
+  }
+
+  /** Poll the native input service independently of game-selected logic pacing. */
+  pollJoystickInput(): void {
+    const sample = this.host.sampleJoystick?.() ?? null;
+    // Ownership loss must cancel held input even while a modal freezes time.
+    if (sample === null) {
+      if (this.joyObserved) this.cancelJoystickInput();
+      return;
+    }
+    if (this.stopLatch !== null || this.timerPaused) return;
+    this.pollJoystick(sample);
+  }
+
+  /** Poll while GetKey is parked and consume each generated raw event once. */
+  pollJoystickKey(): number | undefined {
+    if (this.stopLatch !== null) return undefined;
+    this.pollJoystick();
+    return this.pollRawKey();
+  }
+
+  private initJoy(): void {
+    this.lastJoyDir = 0;
+    this.joyButtons[0] = { state: 0, deadline: 0 };
+    this.joyButtons[1] = { state: 0, deadline: 0 };
+    if (this.profile.presentation === "amiga") {
+      this.joyEnabled = true;
+      return;
+    }
+    const sample = this.host.sampleJoystick?.() ?? null;
+    // An unseen pad keeps native state from here so a checkpoint carries the
+    // pending calibration.
+    this.joyObserved = true;
+    this.joyInitPending = sample === null;
+    if (sample === null || sample.x === 0 || sample.y === 0) {
+      this.joyEnabled = false;
+      this.inputQueue.clear();
+      return;
+    }
+    const prompt =
+      this.profile.presentation === "iigs" ||
+      this.profile.inputLineEditCap === "early-35" ||
+      this.profile.id === "2.272"
+        ? "If you have a joystick, please center it\nand press one of the buttons.\n\nOtherwise, press any key to continue."
+        : "Please center your joystick.\n\nPress ENTER when it is\ncentered.\n\nPress ESC if you do not wish\nto use the joystick.";
+    this.emitPrint(prompt, undefined, true);
+    this.joyCalibratingModalSerial = this.modal?.serial ?? null;
+  }
+
+  private resolveJoyCalibrationModal(rawKey: number, byte: number): void {
+    const isIIgs = this.profile.presentation === "iigs";
+    if (isIIgs) {
+      // The IIgs waits on its keyboard latch or either fire button; every
+      // keyboard key accepts calibration (F-IN-17).
+      const sample = this.host.sampleJoystick?.();
+      if (sample === null || sample === undefined) return;
+      this.calibrateJoystick(sample.x, sample.y);
+      this.joyButtons[0].state = sample.button1 || sample.button2 ? 1 : 0;
+      this.joyCalibratingModalSerial = null;
+      this.closeModal();
+      this.inputQueue.clear();
+      return;
+    }
+    const earlyPC = this.profile.inputLineEditCap === "early-35" || this.profile.id === "2.272";
+    const fireWord = rawKey >= 0x0101 && rawKey <= 0x0401 && (rawKey & 0xff) === 1;
+    if (earlyPC ? fireWord : byte === AGI_KEY.ENTER) {
+      const sample = this.host.sampleJoystick?.();
+      this.calibrateJoystick(
+        sample && sample.x !== 0 ? sample.x : 100,
+        sample && sample.y !== 0 ? sample.y : 100,
+      );
+      this.joyCalibratingModalSerial = null;
+      this.closeModal();
+      this.inputQueue.clear();
+    } else if (earlyPC || byte === AGI_KEY.ESCAPE) {
+      this.joyEnabled = false;
+      this.joyCalibratingModalSerial = null;
+      this.closeModal();
+      this.inputQueue.clear();
+    }
+  }
+
+  /** Accept a center: PC halves it, the IIgs uses its two shifts (F-IN-17). */
+  private calibrateJoystick(cx: number, cy: number): void {
+    if (this.profile.presentation === "iigs") {
+      this.joyXMin = Math.trunc(cx / 4);
+      this.joyXMax = cx + Math.trunc(cx / 2) + Math.trunc(cx / 4);
+      this.joyYMin = Math.trunc(cy / 4);
+      this.joyYMax = cy + Math.trunc(cy / 2) + Math.trunc(cy / 4);
+    } else {
+      this.joyXMin = cx - Math.trunc(cx / 2);
+      this.joyXMax = Math.trunc((3 * cx) / 2);
+      this.joyYMin = cy - Math.trunc(cy / 2);
+      this.joyYMax = Math.trunc((3 * cy) / 2);
+    }
+    this.joyEnabled = true;
+    this.joyInitPending = false;
+  }
+
+  private pollJoystick(sample = this.host.sampleJoystick?.() ?? null): void {
+    if (sample === null) {
+      if (this.joyObserved) this.cancelJoystickInput();
+      return;
+    }
+    this.joyObserved = true;
+    if (this.modal !== null && this.modal.serial === this.joyCalibratingModalSerial) {
+      if (
+        this.profile.presentation === "iigs" ||
+        this.profile.inputLineEditCap === "early-35" ||
+        this.profile.id === "2.272"
+      ) {
+        if (sample.button1 || sample.button2) this.inputQueue.enqueueModalKey(0x0101);
+      } else {
+        if (this.joyButtons[0].state === 1 && !sample.button1)
+          this.inputQueue.enqueueModalKey(0x0101);
+        if (this.joyButtons[1].state === 1 && !sample.button2)
+          this.inputQueue.enqueueModalKey(0x0201);
+        this.joyButtons[0].state = sample.button1 ? 1 : 0;
+        this.joyButtons[1].state = sample.button2 ? 1 : 0;
+      }
+      return;
+    }
+    // Browser axes are normalized, so 128 is the stick's true center.
+    if (this.joyInitPending) this.calibrateJoystick(128, 128);
+    if (!this.joyEnabled) return;
+    const isAmiga = this.profile.presentation === "amiga";
+    const isIIgs = this.profile.presentation === "iigs";
+    const dx = isAmiga
+      ? sample.x < -0.5
+        ? -1
+        : sample.x > 0.5
+          ? 1
+          : 0
+      : sample.x < this.joyXMin
+        ? -1
+        : sample.x > this.joyXMax
+          ? 1
+          : 0;
+    const dy = isAmiga
+      ? sample.y < -0.5
+        ? -1
+        : sample.y > 0.5
+          ? 1
+          : 0
+      : sample.y < this.joyYMin
+        ? -1
+        : sample.y > this.joyYMax
+          ? 1
+          : 0;
+    const dirTable = [8, 1, 2, 7, 0, 3, 6, 5, 4] as const;
+    const dir = dirTable[(dy + 1) * 3 + (dx + 1)]!;
+    if (dir !== this.lastJoyDir) {
+      this.lastJoyDir = dir;
+      this.inputQueue.enqueue({ type: 2, value: dir });
+    }
+    if (isIIgs) {
+      const pressed = Boolean(sample.button1 || sample.button2);
+      if (pressed && this.joyButtons[0].state === 0) {
+        this.joyButtons[0].state = 1;
+        this.inputQueue.enqueue({ type: 1, value: AGI_KEY.ENTER });
+      } else if (!pressed && this.joyButtons[0].state !== 0) {
+        this.joyButtons[0].state = 0;
+      }
+      return;
+    }
+    for (let i = 0 as 0 | 1; i < 2; i = (i + 1) as 0 | 1) {
+      if (isAmiga && i === 1) break;
+      const pressed = i === 0 ? Boolean(sample.button1) : Boolean(sample.button2);
+      const singleWord = i === 0 ? 0x0101 : 0x0201;
+      const doubleWord = isAmiga ? 0x0401 : i === 0 ? 0x0301 : 0x0401;
+      const b = this.joyButtons[i];
+      if (b.state === 0) {
+        if (pressed) b.state = 1;
+      } else if (b.state === 1) {
+        if (!pressed) {
+          if (this.flags[8] === 0) {
+            b.state = 0;
+            this.inputQueue.enqueue({ type: 1, value: singleWord });
+          } else {
+            b.state = 2;
+            b.deadline =
+              this.joyClockMs +
+              // v15 counts timer increments: the interpreter's 20 Hz clock,
+              // or BIOS 18.2 Hz ticks on the 2.001 booter (F-IN-17).
+              this.vars[15]! * this.timing.timerIncrementMs;
+          }
+        }
+      } else if (b.state === 2) {
+        if (this.joyClockMs >= b.deadline) {
+          b.state = 0;
+          this.inputQueue.enqueue({ type: 1, value: singleWord });
+        } else if (pressed) {
+          b.state = 3;
+        }
+      } else if (b.state === 3) {
+        if (!pressed) {
+          b.state = 0;
+          this.inputQueue.enqueue({ type: 1, value: doubleWord });
+        }
+      }
     }
   }
 
@@ -2904,8 +3809,15 @@ export class Engine {
         this.text,
         this.signature,
         this.host.promptSaveDescription !== undefined,
+        {
+          platform: this.profile.presentation === "amiga" ? "amiga" : "pc",
+          displayBase: this.displayBaseRow,
+          gameId: this.signature,
+          cursor: this.inputPrompt.charCodeAt(0) || 0x5f,
+        },
       ),
     };
+    this.saveDialog = pending.dialog;
     try {
       this.driveSaveDialog(pending, undefined);
     } finally {
@@ -2913,6 +3825,7 @@ export class Engine {
       // any other exit clears it.
       if (this.pendingInteraction !== pending) {
         this.saveDialogMode = null;
+        this.saveDialog = null;
         this.controllers.fill(0);
       }
     }
@@ -3100,16 +4013,16 @@ export class Engine {
     const n = heading.items.length;
     switch (value) {
       case 1:
-        heading.current = (heading.current - 1 + n) % n;
+        if (n > 0) heading.current = (heading.current - 1 + n) % n;
         break;
       case 2:
-        heading.current = 0;
+        if (n > 0) heading.current = 0;
         break;
       case 4:
-        heading.current = n - 1;
+        if (n > 0) heading.current = n - 1;
         break;
       case 5:
-        heading.current = (heading.current + 1) % n;
+        if (n > 0) heading.current = (heading.current + 1) % n;
         break;
       case 3:
         this.menuHeading = this.nextEnabledHeading(this.menuHeading, 1);
@@ -3118,10 +4031,16 @@ export class Engine {
         this.menuHeading = this.nextEnabledHeading(this.menuHeading, -1);
         break;
       case 6:
-        this.menuHeading = this.nextEnabledHeading(0, -1);
+        // Verified on 2.936: DoMenu End (value 6) loads menuBase->prev unconditionally (F-IN-15).
+        this.menuHeading = this.profile.menuHomeEndUnconditional
+          ? this.menu.length - 1
+          : this.nextEnabledHeading(0, -1);
         break;
       case 8:
-        this.menuHeading = this.nextEnabledHeading(this.menu.length - 1, 1);
+        // Verified on 2.936: DoMenu Home (value 8) loads menuBase unconditionally (F-IN-15).
+        this.menuHeading = this.profile.menuHomeEndUnconditional
+          ? 0
+          : this.nextEnabledHeading(this.menu.length - 1, 1);
         break;
     }
     this.drawMenu();
@@ -3135,6 +4054,185 @@ export class Engine {
       if (this.menu[idx]!.enabled) return idx;
     }
     return from;
+  }
+
+  // ---- Amiga native menu (docs/fidelity.md "Original native menu dispatch") ----
+
+  /**
+   * MENUHOT's verify: the strip opens when the interpreter has submitted a
+   * menu, no dialog or picture transfer holds the inhibitor, the screen is
+   * not in text mode and, on 2.176..2.333, f14 is set. The engine's parked
+   * host waits count as the inhibitor too, so no menu opens over a request
+   * in flight.
+   */
+  get nativeMenuAvailable(): boolean {
+    if (this.profile.nativeMenu !== "intuition" || !this.menuFinalized) return false;
+    if (this.terminated || this.stopLatch !== null || this.executionFault !== null) return false;
+    if (this.modal !== null || this.pendingInteraction !== null) return false;
+    if (this.saveDialogMode !== null || this.textMode) return false;
+    if (this.profile.nativeMenuF14Gate && this.flags[14] === 0) return false;
+    return true;
+  }
+
+  private get nativeMenuModal(): (Modal & { kind: "menu"; native: NativeMenuState }) | null {
+    const m = this.modal;
+    return m?.kind === "menu" && m.native
+      ? (m as Modal & { kind: "menu"; native: NativeMenuState })
+      : null;
+  }
+
+  /** The open strip as the host paints it, or undefined while no native menu is open. */
+  private nativeMenuChrome(): NativeMenuChrome | undefined {
+    const m = this.nativeMenuModal;
+    if (!m) return undefined;
+    return intuitionMenuChrome(this.menu, m.native.heading, m.native.item);
+  }
+
+  /**
+   * The right button went down at screen pixel (x, y): open the strip with
+   * the pull-down of the title under the pointer. A sticky open (host
+   * access: a touch long-press or the Menu button) starts on the first
+   * enabled heading and stays open until a tap or key ends it.
+   */
+  nativeMenuOpen(x: number, y: number, sticky = false): boolean {
+    if (!this.nativeMenuAvailable) return false;
+    let heading = intuitionTitleAt(intuitionTitles(this.menu), x, y);
+    if (heading !== null && !this.menu[heading]!.enabled) heading = null;
+    if (sticky && heading === null) {
+      const first = this.menu.findIndex((h) => h.enabled);
+      heading = first < 0 ? null : first;
+    }
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "menu",
+      saved: this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1),
+      native: { heading, item: null, sticky },
+    });
+    this.presentationDirty = true;
+    return true;
+  }
+
+  /** The pointer moved while the button is held; true when the highlight changed. */
+  nativeMenuMove(x: number, y: number): boolean {
+    const m = this.nativeMenuModal;
+    if (!m) return false;
+    const n = m.native;
+    const title = intuitionTitleAt(intuitionTitles(this.menu), x, y);
+    let heading = n.heading;
+    let item: number | null;
+    if (title !== null && this.menu[title]!.enabled) {
+      heading = title;
+      item = null;
+    } else {
+      item = heading === null ? null : intuitionItemAt(intuitionPulldown(this.menu, heading), x, y);
+    }
+    if (heading === n.heading && item === n.item) return false;
+    n.heading = heading;
+    n.item = item;
+    this.presentationDirty = true;
+    return true;
+  }
+
+  /**
+   * The right button came up: the enabled item under the pointer is
+   * selected, anything else cancels. A sticky menu ignores the release.
+   */
+  nativeMenuRelease(x: number, y: number): boolean {
+    const m = this.nativeMenuModal;
+    if (!m || m.native.sticky) return false;
+    this.nativeMenuMove(x, y);
+    if (m.native.item !== null) this.nativeMenuSelect(m.native);
+    else this.closeModal();
+    return true;
+  }
+
+  /** Host access: a tap on a sticky menu switches titles, selects an item or cancels. */
+  nativeMenuTap(x: number, y: number): boolean {
+    const m = this.nativeMenuModal;
+    if (!m) return false;
+    const title = intuitionTitleAt(intuitionTitles(this.menu), x, y);
+    if (title !== null && this.menu[title]!.enabled) {
+      m.native.heading = title;
+      m.native.item = null;
+      this.presentationDirty = true;
+      return true;
+    }
+    const item =
+      m.native.heading === null
+        ? null
+        : intuitionItemAt(intuitionPulldown(this.menu, m.native.heading), x, y);
+    if (item !== null) {
+      m.native.item = item;
+      this.nativeMenuSelect(m.native);
+    } else this.closeModal();
+    return true;
+  }
+
+  /** One recorded strip event, as the worker, the history replay and the tape deliver it. */
+  nativeMenuEvent(
+    op: "open" | "move" | "release" | "tap" | "cancel",
+    x: number,
+    y: number,
+    sticky = false,
+  ): boolean {
+    switch (op) {
+      case "open":
+        return this.nativeMenuOpen(x, y, sticky);
+      case "move":
+        return this.nativeMenuMove(x, y);
+      case "release":
+        return this.nativeMenuRelease(x, y);
+      case "tap":
+        return this.nativeMenuTap(x, y);
+      case "cancel":
+        return this.nativeMenuCancel();
+    }
+  }
+
+  /** Close the strip without a selection (host access: Esc, or the game losing the pointer). */
+  nativeMenuCancel(): boolean {
+    if (!this.nativeMenuModal) return false;
+    this.closeModal();
+    return true;
+  }
+
+  /**
+   * MENUPICK: the item's status byte is sign-extended and enqueued as a
+   * type-3 event. Statuses 0..127 set their controller at the next input
+   * phase; 128..255 write before the controller table on the original and
+   * set nothing here (docs/fidelity.md "Original native menu dispatch").
+   */
+  private nativeMenuSelect(n: NativeMenuState): void {
+    const item =
+      n.heading === null || n.item === null ? undefined : this.menu[n.heading]?.items[n.item];
+    if (!item || !item.enabled) return;
+    if (item.id < 128) this.pendingController = item.id;
+    this.closeModal();
+  }
+
+  /** Host access: arrow keys on a sticky menu move like the PC menu. */
+  private nativeMenuNavigate(n: NativeMenuState, value: number): void {
+    if (!n.sticky) return;
+    const items = n.heading === null ? [] : this.menu[n.heading]!.items;
+    const count = items.length;
+    switch (value) {
+      case 1:
+        if (count > 0) n.item = n.item === null ? count - 1 : (n.item + count - 1) % count;
+        break;
+      case 5:
+        if (count > 0) n.item = n.item === null ? 0 : (n.item + 1) % count;
+        break;
+      case 3:
+      case 7: {
+        const from = n.heading ?? (value === 3 ? this.menu.length - 1 : 0);
+        n.heading = this.nextEnabledHeading(from, value === 3 ? 1 : -1);
+        n.item = null;
+        break;
+      }
+      default:
+        return;
+    }
+    this.presentationDirty = true;
   }
 
   /**
@@ -3292,8 +4390,19 @@ export class Engine {
   }
 
   private replayState(continuation = this.captureContinuation()): EngineReplayState {
+    const joystick = this.joystickState();
+    if (joystick && continuation === null) joystick.calibration = null;
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
+      ...(this.monitorType === MONITOR_TYPE[this.pcDisplay]
+        ? {}
+        : { monitorType: this.monitorType }),
+      ...(this.defaultPriTable ? {} : { priorityTableRebuilt: true as const }),
+      ...(this.booterClockPhase === 0 ? {} : { booterClockPhase: this.booterClockPhase }),
+      ...(this.profile.showPictureReveal === "instant"
+        ? {}
+        : { pictureRevealInstant: this.pictureRevealInstant }),
+      ...(joystick ? { joystick } : {}),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -3344,7 +4453,7 @@ export class Engine {
     for (const num of state.viewCache.loaded) {
       const payload = this.container.getResource("view", num);
       if (!payload) throw new Error("Recorded view resource is missing.");
-      views.set(num, parseView(payload, this.profile));
+      views.set(num, this.parseLoadedView(payload));
     }
     let sound: SoundPlayback | null = null;
     if (state.sound) {
@@ -3354,11 +4463,22 @@ export class Engine {
       sound.restore(state.sound.playback);
     }
     this.amigaRegion = state.amigaRegion ?? "ntsc";
+    // toggle.monitor flips only a CGA card between RGB and composite.
+    this.monitorType =
+      this.pcDisplay === "cga-rgb" && (state.monitorType === 0 || state.monitorType === 1)
+        ? state.monitorType
+        : MONITOR_TYPE[this.pcDisplay];
     this.clockRemainderMs = state.clockRemainderMs;
     this.pictureShown = state.pictureShown;
     this.terminated = state.terminated;
     this.statusRefreshRequested = state.statusRefreshRequested;
     this.priorityBase = state.priorityBase;
+    this.defaultPriTable = state.priorityTableRebuilt !== true;
+    this.booterClockPhase = state.booterClockPhase ?? 0;
+    if (state.pictureRevealInstant !== undefined)
+      this.pictureRevealInstant = state.pictureRevealInstant;
+    this.restoreRevealOwed = false;
+    this.dissolveFrom = null;
     this.vars[V_KEY] = state.key;
     this.flags[1] = state.egoHidden;
     this.flags[F_INPUT_READY] = state.inputReady;
@@ -3373,9 +4493,11 @@ export class Engine {
     this.inputWidthCap = state.inputWidthCap;
     this.pendingController = state.pendingController;
     this.pendingInteraction = null;
+    this.cursorErased = false;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;
+    this.saveDialog = null;
     this.inputQueue.clear();
     for (const event of state.inputQueue) this.inputQueue.enqueue(event);
     this.menu = state.menu;
@@ -3408,6 +4530,7 @@ export class Engine {
       this.pendingAnswer = undefined;
       this.conditionReplayUntil = -1;
     } else this.restoreContinuation(continuation);
+    this.restoreJoystickState(state.joystick);
     this.presentationDirty = true;
   }
 
@@ -3443,7 +4566,7 @@ export class Engine {
           case "print":
             return {
               kind: "print",
-              saved: serializeSavedRect(m.saved),
+              saved: serializeSavedRect(m.saved, this.text),
               remainingMs: m.remainingMs,
               pauseClock: m.pauseClock,
             };
@@ -3457,15 +4580,37 @@ export class Engine {
               interactive: m.interactive,
             };
           case "menu":
-            return { kind: "menu", saved: serializeSavedRect(m.saved) };
+            return {
+              kind: "menu",
+              saved: serializeSavedRect(m.saved),
+              ...(m.native ? { native: { ...m.native } } : {}),
+            };
           case "showObj":
-            return { kind: "showObj", saved: serializeSavedRect(m.saved), view: m.view };
+            return { kind: "showObj", saved: serializeSavedRect(m.saved, this.text), view: m.view };
           case "showPri":
             return { kind: "showPri" };
+          case "shake":
+            return {
+              kind: "shake",
+              steps: m.steps,
+              step: m.step,
+              elapsedMs: m.elapsedMs,
+              palette: m.palette === null ? null : [...m.palette],
+            };
+          case "dissolve":
+            return {
+              kind: "dissolve",
+              elapsedMs: m.elapsedMs,
+              durationMs: m.durationMs,
+              skipRows: m.skipRows,
+              from: packDissolveFrame(m.from),
+            };
         }
       }),
       persistentWindow:
-        this.persistentWindow === null ? null : serializeSavedRect(this.persistentWindow),
+        this.persistentWindow === null
+          ? null
+          : serializeSavedRect(this.persistentWindow, this.text),
       keyWait:
         this.pendingInteraction?.kind === "key"
           ? {
@@ -3502,6 +4647,7 @@ export class Engine {
       // The peel only makes sense when the snapshot's surface — window drawn
       // and all — was restored; preservePresentation replays repaint anyway.
       if (!peel) return;
+      this.text.clearWindowOverlay();
       for (let i = continuation.modals.length - 1; i >= 0; i--) {
         const m = continuation.modals[i]!;
         if ("saved" in m) this.text.restore(deserializeSavedRect(m.saved));
@@ -3510,6 +4656,7 @@ export class Engine {
         this.text.restore(deserializeSavedRect(continuation.persistentWindow));
       return;
     }
+    this.text.clearWindowOverlay();
     this.pendingLogic = continuation.frames.map((frame) => ({
       logic: frame.logic,
       resource: this.loadLogic(frame.logic),
@@ -3518,15 +4665,21 @@ export class Engine {
     for (const m of continuation.modals) {
       const serial = ++this.modalSerialCounter;
       switch (m.kind) {
-        case "print":
+        case "print": {
+          const saved = deserializeSavedRect(m.saved);
+          if (saved.window !== undefined) {
+            stampWindowOverlayOnly(this.text, saved.window, true);
+            delete saved.window.erased;
+          }
           this.modals.push({
             serial,
             kind: "print",
-            saved: deserializeSavedRect(m.saved),
+            saved,
             remainingMs: m.remainingMs,
             pauseClock: m.pauseClock,
           });
           break;
+        }
         case "inventory":
           this.modals.push({
             serial,
@@ -3539,25 +4692,63 @@ export class Engine {
           });
           break;
         case "menu":
-          this.modals.push({ serial, kind: "menu", saved: deserializeSavedRect(m.saved) });
+          this.modals.push({
+            serial,
+            kind: "menu",
+            saved: deserializeSavedRect(m.saved),
+            ...(m.native ? { native: { ...m.native } } : {}),
+          });
           break;
-        case "showObj":
+        case "showObj": {
+          const saved = deserializeSavedRect(m.saved);
+          if (saved.window !== undefined) {
+            stampWindowOverlayOnly(this.text, saved.window, true);
+            delete saved.window.erased;
+          }
           this.modals.push({
             serial,
             kind: "showObj",
-            saved: deserializeSavedRect(m.saved),
+            saved,
             view: m.view,
           });
           break;
+        }
         case "showPri":
           this.modals.push({ serial, kind: "showPri" });
           break;
+        case "shake":
+          this.modals.push({
+            serial,
+            kind: "shake",
+            steps: m.steps,
+            step: m.step,
+            elapsedMs: m.elapsedMs,
+            palette: m.palette === null ? null : [...m.palette],
+          });
+          break;
+        case "dissolve":
+          this.modals.push({
+            serial,
+            kind: "dissolve",
+            elapsedMs: m.elapsedMs,
+            durationMs: m.durationMs,
+            skipRows: m.skipRows,
+            from: unpackDissolveFrame(m.from),
+            steps: dissolveSteps(m.elapsedMs, m.durationMs),
+          });
+          break;
       }
     }
-    this.persistentWindow =
-      continuation.persistentWindow === null
-        ? null
-        : deserializeSavedRect(continuation.persistentWindow);
+    if (continuation.persistentWindow === null) {
+      this.persistentWindow = null;
+    } else {
+      const saved = deserializeSavedRect(continuation.persistentWindow);
+      if (saved.window !== undefined) {
+        stampWindowOverlayOnly(this.text, saved.window, true);
+        delete saved.window.erased;
+      }
+      this.persistentWindow = saved;
+    }
     if (continuation.keyWait !== null) {
       this.conditionOutcomes.clear();
       for (const [pc, outcome] of continuation.keyWait.outcomes)
@@ -3624,9 +4815,13 @@ export class Engine {
       this.serialize(),
       this.hostReplay,
       {
+        ...(this.joystickState() ? { joystick: this.joystickState()! } : {}),
         cells: this.text.cells,
         written: this.text.written,
         seq: this.text.seq,
+        ...(this.text.hasTitleFill && this.text.titleFill.some((s) => s !== 0)
+          ? { titleFill: this.text.titleFill.slice() }
+          : {}),
         draws: this.objects.map(({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight }) => ({
           drawSeq,
           drawnX,
@@ -3672,7 +4867,7 @@ export class Engine {
         },
       },
       this.dictionary,
-      { profile: this.profile },
+      { profile: this.profile, pcDisplay: this.pcDisplay },
     );
     try {
       candidate.applyRestore(image, screen);
@@ -3697,7 +4892,7 @@ export class Engine {
       this.text.cells.set(presentation.cells);
       this.text.written.set(presentation.written);
       this.text.seq = presentation.seq;
-      this.text.dirty++;
+      this.text.restoreTitleFill(presentation.titleFill);
       for (let i = 0; i < this.objects.length; i++)
         Object.assign(this.objects[i]!, presentation.draws[i]!);
       // Parser edits are transient, as in an authentic restore; redraw the
@@ -3711,6 +4906,9 @@ export class Engine {
     // The parked pass restores after presentation: a patch-mismatched
     // continuation peels its windows back onto the snapshot's surface.
     if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
+    this.restoreJoystickState(presentation?.joystick);
+    this.restoreRevealOwed = false;
+    this.screenShown = true;
   }
 
   /**
@@ -3720,10 +4918,21 @@ export class Engine {
    * presentation, then abort the current continuation. The room's logic is NOT
    * re-run: the screen comes from the replay sequence, not from room re-entry.
    * A host resume passes the autosave's screen sequence to rebuild from.
+   * restore.game itself (`reveal`) ends in the Amiga/IIgs dissolve, from the
+   * screen the restore found to the restored one.
    */
-  applyRestore(image: Uint8Array, screen: readonly ReplayPair[] | null = null): never {
+  applyRestore(
+    image: Uint8Array,
+    screen: readonly ReplayPair[] | null = null,
+    reveal = false,
+  ): never {
     const s = decodeSave(image, this.profile);
+    const revealFrom =
+      reveal && this.profile.showPictureReveal !== "instant" ? this.composedVisual() : null;
     this.saveDescription = s.description;
+    // A confirmation the restore replaces took its erased cursor with it;
+    // the input row redraws below with the cursor back.
+    this.cursorErased = false;
     this.statusRefreshRequested = false;
     this.inputQueue.clear();
     this.pendingController = null;
@@ -3737,6 +4946,7 @@ export class Engine {
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;
+    this.saveDialog = null;
     this.stopSound();
 
     // 1. Scalar, signature, parser, object, inventory, replay, logic-resume,
@@ -3758,7 +4968,7 @@ export class Engine {
       : null;
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
-    this.scriptCapacity = s.replayCapacity || DEFAULT_REPLAY_CAPACITY;
+    this.scriptCapacity = s.replayCapacity || this.profile.defaultScriptBufferPairs;
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
@@ -3809,9 +5019,28 @@ export class Engine {
     this.editLine = "";
     this.acceptedLine = "";
     this.controllers.fill(0);
-    this.vars[V_KEY] = 0;
-    this.flags[F_INPUT_READY] = 0;
-    this.flags[F_SAID_MATCHED] = 0;
+    if (this.profile.originalRestartRestore) {
+      // The authentic restore tail clears controllers explicitly, rewrites the
+      // machine vars on builds whose RestoreGame does so (PC 2.903..3.002.149),
+      // and sets f12; f2/f4 die at the next cycle top and v19 is never written
+      // (docs/fidelity.md "Wave-3 persistence verdicts", F-persistence-03). A
+      // host restore — history or autosave replay — reproduces the recorded
+      // state exactly instead.
+      if (screen === null && this.profile.restoreRewritesMachineState) {
+        this.vars[20] = 0;
+        this.vars[26] = this.monitorType;
+        if ((this.host.soundDevice?.() ?? 1) === 0) {
+          this.vars[22] = 1;
+        } else {
+          this.vars[22] = 3;
+          this.flags[11] = 1;
+        }
+      }
+    } else {
+      this.vars[V_KEY] = 0;
+      this.flags[F_INPUT_READY] = 0;
+      this.flags[F_SAID_MATCHED] = 0;
+    }
 
     // 2. Reset transient caches and replay the saved sequence.
     this.replaySequence(s.logicResume, sequence, screen !== null);
@@ -3829,6 +5058,8 @@ export class Engine {
       this.drawInputRow();
     }
     this.host.clearText?.();
+    this.dissolveFrom = null;
+    if (revealFrom !== null) this.startDissolve(revealFrom);
 
     // 4. Abort the current continuation and re-enter logic in this cycle.
     throw new ContinuationAbort(true);
@@ -3866,6 +5097,7 @@ export class Engine {
       if (globalScanStart !== undefined) this.scanStart.set(0, globalScanStart);
     }
     this.surface.reset();
+    this.stampMask.fill(0);
     this.pictureShown = false;
 
     const recording = this.replayRecording;
@@ -4020,12 +5252,15 @@ export class Engine {
       this.yieldedExecution
     )
       return;
+    if (this.joyObserved) this.joyClockMs += milliseconds;
     const modal = this.modal;
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {
         modal.remainingMs -= milliseconds;
         if (modal.remainingMs <= 1e-7) this.closeModal();
       }
+      if (modal.kind === "shake") this.advanceShake(milliseconds);
+      if (modal.kind === "dissolve") this.advanceDissolve(modal, milliseconds);
       // Modal presentation suspends scripts, not timer counters. Explicit
       // pause and save selectors are handled by timerPaused above.
       // docs/fidelity.md: original-scheduler-and-modal-timing
@@ -4033,6 +5268,11 @@ export class Engine {
     // A suspended host interaction is a genuine wait, not a clock busy-loop.
     if (modal === null && this.pendingLogic !== null && this.pendingInteraction === null)
       this.clockWaitMs += milliseconds;
+    if (this.profile.frameTiming === "booter-int1c") {
+      this.advanceBooterClock(milliseconds);
+      this.observePhase("clock", null);
+      return;
+    }
     const elapsed = this.clockRemainderMs + milliseconds;
     const secondMs = this.timing.gameSecondMs;
     let seconds = Math.floor((elapsed + 1e-7) / secondMs);
@@ -4055,6 +5295,133 @@ export class Engine {
     // One call is one clock phase: the elapsed advance completes, then a
     // requested stop latches before anything else can run.
     this.observePhase("clock", null);
+  }
+
+  /**
+   * shake.screen (docs/fidelity.md "Original shake.screen and picture reveal"): the action parks
+   * the pass on a shake modal that the clock ends; sound and the game clock
+   * keep running and keys wait. An operand of 0 makes the original loop
+   * 65,536 times (hours); the engine skips it as a divergence on unusual input.
+   */
+  private startShake(count: number): void {
+    if (count === 0) return;
+    const plan = shakePlan(this.profile);
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "shake",
+      steps: count * plan.stepsPerUnit,
+      step: 0,
+      elapsedMs: 0,
+      palette: plan.randomPalette ? this.shakePalette() : null,
+    });
+  }
+
+  /** Sixteen IIgs colours from sixteen draws of the game RNG (shakeseg+0x003c). */
+  private shakePalette(): number[] {
+    return Array.from({ length: 16 }, () => iigsShakeColour(this.randomByte()));
+  }
+
+  /**
+   * Advance the open shake by elapsed time. Tick-timed steps end where the
+   * timer increments: `clockRemainderMs` still holds the phase before this
+   * advance, so the crossings are counted from it.
+   */
+  private advanceShake(milliseconds: number): void {
+    const m = this.modal;
+    if (m?.kind !== "shake") return;
+    const plan = shakePlan(this.profile);
+    let ends: number;
+    if (plan.stepMs !== null) {
+      m.elapsedMs += milliseconds;
+      ends = Math.floor((m.elapsedMs + 1e-7) / plan.stepMs);
+      m.elapsedMs -= ends * plan.stepMs;
+    } else {
+      const tickMs = this.timing.timerIncrementMs;
+      const phase = this.clockRemainderMs % tickMs;
+      ends = Math.floor((phase + milliseconds + 1e-7) / tickMs);
+    }
+    while (ends-- > 0) {
+      m.step++;
+      if (m.step >= m.steps) {
+        this.closeModal();
+        return;
+      }
+      if (plan.randomPalette) m.palette = this.shakePalette();
+    }
+  }
+
+  /**
+   * Start the picture dissolve when the profile has one (docs/fidelity.md
+   * "Original picture dissolve"): the pass parks on a modal that the clock
+   * ends, like a shake. `from` is the screen it starts from; the presentation
+   * shows it in every cell the register has not reached.
+   */
+  private startDissolve(from: Uint8Array | null): void {
+    const run = dissolveRun(
+      this.profile.showPictureReveal,
+      { displayBaseRow: this.displayBaseRow, statusEnabled: this.statusEnabled },
+      this.amigaRegion,
+    );
+    if (run === null) return;
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "dissolve",
+      elapsedMs: 0,
+      durationMs: run.durationMs,
+      skipRows: run.skipRows,
+      from: from ?? this.composedVisual(),
+      steps: 0,
+    });
+  }
+
+  /** What the screen shows now: the composed frame, or black before any picture. */
+  private composedVisual(): Uint8Array {
+    if (!this.screenShown) return new Uint8Array(SCREEN_WIDTH * 168);
+    this.ensurePresentationCurrent();
+    return this.cachedVisual.slice();
+  }
+
+  private advanceDissolve(m: Extract<Modal, { kind: "dissolve" }>, milliseconds: number): void {
+    m.elapsedMs += milliseconds;
+    const steps = dissolveSteps(m.elapsedMs, m.durationMs);
+    if (steps !== m.steps) {
+      m.steps = steps;
+      this.presentationDirty = true;
+    }
+    if (m.elapsedMs >= m.durationMs - 1e-7) this.closeModal();
+  }
+
+  /** The open shake's display, or null when no shake is running. */
+  get shakeFrame(): ShakeFrame | null {
+    const m = this.modal;
+    if (m?.kind !== "shake") return null;
+    const [dx, dy] = shakePlan(this.profile).offsets[
+      m.step % shakePlan(this.profile).offsets.length
+    ]!;
+    return { dx, dy, palette: m.palette };
+  }
+
+  /**
+   * 2.001 TimerInt (docs/fidelity.md "PC booter clock"): every unpaused BIOS
+   * tick advances the 32-bit tick count, and every 18th tick UpdateClock
+   * rewrites v11..v14 from it as s = floor((ticks * 10 mod 2^32) / 182)
+   * seconds, overwriting whatever the script stored there.
+   */
+  private advanceBooterClock(milliseconds: number): void {
+    const tickMs = this.timing.timerIncrementMs;
+    const elapsed = this.clockRemainderMs + milliseconds;
+    let ticks = Math.floor((elapsed + 1e-7) / tickMs);
+    this.clockRemainderMs = Math.max(0, elapsed - ticks * tickMs);
+    while (ticks-- > 0) {
+      this.timerTicks = (this.timerTicks + 1) >>> 0;
+      if (++this.booterClockPhase < 18) continue;
+      this.booterClockPhase = 0;
+      const s = Math.floor(((this.timerTicks * 10) % 2 ** 32) / 182);
+      this.vars[11] = s % 60;
+      this.vars[12] = Math.floor(s / 60) % 60;
+      this.vars[13] = Math.floor(s / 3600) % 24;
+      this.vars[14] = Math.floor(s / 86400) & 0xff;
+    }
   }
 
   /** Advance one independent sound heartbeat, including during modal waits. */
@@ -4127,30 +5494,97 @@ export class Engine {
     const view = this.loadView(viewNum);
     const c = selectViewCel(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
-    // The cel paints into the picture for good, text included, but only where
-    // its opaque pixels land and the priority screen lets them (the demo
-    // pack's menu paints rows 0..9 black, then add.to.pic's its cards on top).
-    // A priority operand whose low nibble is zero takes the baseline's band
-    // (docs/fidelity.md, "Original add.to.pic control box").
+    // Verified on 2.936 and 3.002.086: AddToPic stores x/y into a scratch entry
+    // with pri=15, IGNRHRZ and IGNROBJS and runs FindPosn before objinpic
+    // (docs/fidelity.md, F-VIEWS-03). Verified on 2.440, 2.936 and 3.002.086:
+    // AddToPic packs (margin << 4) | priority into a byte, auto-derives priority
+    // when the low nibble is 0, and gates the control box on packed <= 0x3f
+    // (docs/fidelity.md "Original add.to.pic control box", F-VIEWS-04, F-VIEWS-09).
+    if (this.profile.addToPicRelocation) {
+      [x, y] = this.relocateAddToPic(x, y, c.width, c.height);
+    }
+    const usePacking = this.profile.addToPicPacking;
+    let packed = (priority & 0xff) | ((margin & 0x0f) << 4);
+    if ((packed & 0x0f) === 0 && this.profile.addToPicBandForZeroPriority) {
+      packed |= priorityForY(y, this.priorityBase) & 0x0f;
+    }
+    const drawPriority = usePacking
+      ? packed & 0x0f
+      : (priority & 0x0f) === 0 && this.profile.addToPicBandForZeroPriority
+        ? priorityForY(y, this.priorityBase)
+        : priority;
     const covered = new Set<number>();
     drawCel(this.surface, c, x, y, {
-      priority: (priority & 0x0f) === 0 ? priorityForY(y, this.priorityBase) : priority,
+      priority: drawPriority,
+      clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
+      controlScanFallbackPriority: this.profile.presentation === "pc" ? null : 4,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
+        this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow);
+        this.stampMask[pixel] = 1;
       },
     });
     this.text.dropCells(covered);
-    if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) this.stampControlBox(x, y, c, margin);
+    const boxMargin = usePacking ? (packed >> 4) & 0x0f : margin;
+    const drawBox = usePacking ? packed <= 0x3f : margin < 4;
+    if (drawBox && y >= 0 && y < SCREEN_HEIGHT) {
+      this.stampControlBox(x, y, c, boxMargin);
+    }
     this.presentationDirty = true;
+  }
+
+  /**
+   * FindPosn spiral for add.to.pic's scratch animation entry (pri=15,
+   * IGNRHRZ, IGNROBJS: only screen bounds are tested; docs/fidelity.md,
+   * F-VIEWS-03).
+   */
+  private relocateAddToPic(x: number, y: number, width: number, height: number): [number, number] {
+    if (x >= 0 && x + width <= SCREEN_WIDTH && y >= height - 1 && y < SCREEN_HEIGHT) {
+      return [x, y];
+    }
+    const originX = x;
+    const originY = y;
+    let leg = 1;
+    let remaining = 1;
+    let direction = 0;
+    const deltas = [
+      [-1, 0],
+      [0, 1],
+      [1, 0],
+      [0, -1],
+    ] as const;
+    const radius =
+      Math.max(
+        Math.abs(originX),
+        Math.abs(originX - 159),
+        Math.abs(originY),
+        Math.abs(originY - 167),
+      ) + 1;
+    const limit = (radius * 2 + 1) ** 2;
+    for (let i = 0; i < limit; i++) {
+      if (x >= 0 && x + width <= SCREEN_WIDTH && y >= height - 1 && y < SCREEN_HEIGHT) {
+        return [x, y];
+      }
+      x += deltas[direction]![0];
+      y += deltas[direction]![1];
+      if (--remaining === 0) {
+        direction = (direction + 1) % 4;
+        if (direction === 0 || direction === 2) leg++;
+        remaining = leg;
+      }
+    }
+    return [originX, originY];
   }
 
   /**
    * A margin below four outlines a control box in the priority screen: the
    * baseline row, both side columns and a top row. The box is as tall as the
    * run of rows sharing the baseline's priority band, capped at the cel height
-   * (docs/fidelity.md, "Original add.to.pic control box"). The original's
-   * unbounded top-row loop for cels narrower than three pixels is not modelled.
+   * (docs/fidelity.md, "Original add.to.pic control box"). On PC builds, the
+   * top-row 8086 `loop` sets CL = (width - 2) & 0xff and increments DI before
+   * each write, wrapping CX for width <= 2 (F-VIEWS-12); 68000 Amiga (`bmi`)
+   * and 65816 IIgs (`bmi`) skip the top inner span when width <= 2.
    */
   private stampControlBox(
     x: number,
@@ -4165,15 +5599,32 @@ export class Engine {
     const left = x;
     const right = x + cel.width - 1;
     const stamp = (px: number, py: number): void => {
-      if (px >= 0 && px < SCREEN_WIDTH && py >= 0)
-        this.surface.priority[py * SCREEN_WIDTH + px] = margin;
+      if (px >= 0 && px < SCREEN_WIDTH && py >= 0) {
+        const pixel = py * SCREEN_WIDTH + px;
+        this.surface.priority[pixel] = margin;
+        this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow);
+      }
     };
     for (let px = left; px <= right; px++) stamp(px, y);
     for (let up = 1; up < rows; up++) {
       stamp(left, y - up);
       stamp(right, y - up);
     }
-    if (rows > 1) for (let px = left + 1; px < right; px++) stamp(px, y - rows + 1);
+    if (rows > 1) {
+      if (this.profile.addToPicPacking && this.profile.presentation === "pc") {
+        const cl = (cel.width - 2) & 0xff;
+        const count = cl === 0 ? 0x10000 : cl;
+        let di = ((y - rows + 1) * SCREEN_WIDTH + left) & 0xffff;
+        for (let i = 0; i < count; i++) {
+          di = (di + 1) & 0xffff;
+          if (di < this.surface.priority.length) {
+            this.surface.priority[di] = margin;
+          }
+        }
+      } else {
+        for (let px = left + 1; px < right; px++) stamp(px, y - rows + 1);
+      }
+    }
   }
 
   /**
@@ -4224,23 +5675,33 @@ export class Engine {
   private hideTextUnderSprites(
     ownership: Uint16Array | null,
     sprites: readonly ScreenObject[],
+    windowOverlay?: Uint8Array,
   ): Uint8Array {
     const cells = this.text.cells;
     if (!ownership) return cells;
     let out: Uint8Array | null = null;
+    const displayTopPx = this.displayBaseRow * 8 * (TEXT_COLS * 8);
     for (let pixel = 0; pixel < ownership.length; pixel++) {
       const owner = ownership[pixel]!;
       if (owner === 0) continue;
+      const drawSeq = sprites[owner - 1]!.drawSeq;
       const index = this.textCellUnder(pixel);
-      if (
-        index < 0 ||
-        cells[index * 2] === 0 ||
-        this.text.written[index]! > sprites[owner - 1]!.drawSeq
-      )
-        continue;
-      out ??= cells.slice();
-      out[index * 2] = 0;
-      out[index * 2 + 1] = 0;
+      if (index >= 0 && this.text.written[index]! <= drawSeq && (out ?? cells)[index * 2] !== 0) {
+        out ??= cells.slice();
+        out[index * 2] = 0;
+        out[index * 2 + 1] = 0;
+      }
+      if (windowOverlay) {
+        const oIdx = displayTopPx + pixel * 2;
+        if (oIdx + 1 < windowOverlay.length) {
+          if (windowOverlay[oIdx] !== 0 && this.text.overlayStampAt(oIdx) <= drawSeq) {
+            windowOverlay[oIdx] = 0;
+          }
+          if (windowOverlay[oIdx + 1] !== 0 && this.text.overlayStampAt(oIdx + 1) <= drawSeq) {
+            windowOverlay[oIdx + 1] = 0;
+          }
+        }
+      }
     }
     return out ?? cells;
   }
@@ -4346,13 +5807,35 @@ export class Engine {
       }
       return;
     }
+    // A shake or dissolve blocks the interpreter without reading input; it
+    // ends on the clock. A debugger cursor parked behind it waits too.
+    if (this.modal?.kind === "shake" || this.modal?.kind === "dissolve") {
+      this.cycleCursor = cursor;
+      return;
+    }
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
       // Modal Enter/Escape are raw controls, even when a script binds them.
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
+      this.queueHostKeys(true);
+      for (const [x, y] of this.host.takePointerClicks?.() ?? []) {
+        const key = this.pointerKeyAt(x, y);
+        if (key !== null) this.inputQueue.enqueueModalKey(key);
+      }
+      this.pollJoystick();
       while (this.modal) {
         const event = this.inputQueue.dequeue();
         if (!event) break;
+        if (
+          this.profile.inventoryListEndsOnAnyEvent &&
+          this.modal.kind === "inventory" &&
+          !this.modal.interactive
+        ) {
+          // WaitEvent: any queued event dismisses the acknowledgement-only
+          // list, controllers included (docs/fidelity.md "Original input,
+          // menu and modal handling", F-IN-01).
+          this.closeModal();
+          continue;
+        }
         if (event.type === 2) this.modalNavigate(event.value);
         else if (event.type === 1) this.modalKey(event.value);
       }
@@ -4366,15 +5849,22 @@ export class Engine {
 
     // The pass is a phase sequence; a debugger stop between phases parks the
     // owed remainder on the session-local cycle cursor and resumes here.
+    // restore.game's dissolve ended: the restore's logic 0 re-entry is owed.
     let stage: CycleCursor["phase"] | "entry" =
       cursor?.phase ??
-      (this.pendingLogic === null && !this.hostRoomEntryPending ? "entry" : "logic");
+      (this.restoreRevealOwed
+        ? "reset"
+        : this.pendingLogic === null && !this.hostRoomEntryPending
+          ? "entry"
+          : "logic");
     this.hostRoomEntryPending = false;
+    this.restoreRevealOwed = false;
 
     if (stage === "entry") {
       this.presentationDirty = true;
       // The timer tick accumulator serialized as the save's tick count.
-      this.timerTicks = (this.timerTicks + 1) >>> 0;
+      if (this.profile.frameTiming !== "booter-int1c")
+        this.timerTicks = (this.timerTicks + 1) >>> 0;
       // 2. Clear transient mapped events, f2, f4.
       this.controllers.fill(0);
       this.flags[F_INPUT_READY] = 0;
@@ -4394,7 +5884,8 @@ export class Engine {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
         this.pendingController = null;
       }
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+      this.queueHostKeys(false);
+      this.pollJoystick();
       // The original's message pump starts a click-move as the click arrives;
       // a direction event it queued alongside still cancels it below.
       for (const [x, y] of this.host.takePointerClicks?.() ?? []) this.pointerClick(x, y);
@@ -4402,10 +5893,11 @@ export class Engine {
         if (event.type === 2) {
           this.vars[V_EGO_DIR] = this.vars[V_EGO_DIR] === event.value ? 0 : event.value;
           // The original's direction-event case forces ego's motion mode to
-          // normal while the player controls movement, so scripted motion
-          // carried across new.room ends on the next direction input
-          // (docs/fidelity.md, "Original new.room sequence").
-          if (this.directionCoupling !== 0) this.objects[0]!.motionMode = MOTION_NORMAL;
+          // normal while the player controls movement on 2.272+, Amiga and
+          // IIgs, while 2.001..2.230 omit the motionMode clear
+          // (docs/fidelity.md "Original input, menu and modal handling", F-IN-01).
+          if (this.directionCoupling !== 0 && this.profile.inputLineEditCap !== "early-35")
+            this.objects[0]!.motionMode = MOTION_NORMAL;
         } else if (event.type === 3) this.controllers[event.value] = 1;
         else {
           // Script key mappings apply here, and only here (docs/fidelity.md,
@@ -4419,8 +5911,16 @@ export class Engine {
       if (line !== null && this.inputAccepted) this.acceptLine(line);
       let menuOpened = false;
       if (this.menuRequested) {
-        this.menuRequested = false;
-        menuOpened = this.openMenu();
+        // The v3 gate is tested at the head of DoMenu, and the gated exit
+        // leaves the request word set: a gated request pends until allow.menu
+        // re-enables it (docs/fidelity.md "Original input, menu and modal
+        // handling", F-IN-04).
+        if (this.profile.menuInteractionGate && this.menuInteractionGate === 0) {
+          menuOpened = false;
+        } else {
+          this.menuRequested = false;
+          menuOpened = this.openMenu();
+        }
       }
       // An opened menu abandons the rest of this pass, so a stop here owes no
       // phase remainder — the modal wait keeps the pass parked, and the next
@@ -4431,6 +5931,14 @@ export class Engine {
     }
 
     if (stage === "pre-logic") {
+      // The ego↔v6 direction mirror runs before the autonomous-direction and
+      // block pass on PC 2.411..3.002.149, Amiga 2.176..2.333, and IIgs 1.014,
+      // and after that pass on PC 2.001..2.272 and Amiga 2.082
+      // (docs/fidelity.md "Original input, menu and modal handling").
+      if (this.profile.preLogicDirectionMirror) {
+        if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
+        else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
+      }
       // Autonomous direction and rectangle transitions are visible to this
       // cycle's logic; they do not move the objects yet.
       for (const obj of this.objects) {
@@ -4451,8 +5959,10 @@ export class Engine {
           }
         }
       }
-      if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
-      else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
+      if (!this.profile.preLogicDirectionMirror) {
+        if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
+        else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
+      }
       this.cycleStatusScore = this.vars[V_SCORE]!;
       this.cycleStatusSound = this.flags[F_SOUND_ENABLED]!;
       if (this.observePhase("pre-logic", { phase: "logic" })) return;
@@ -4522,6 +6032,14 @@ export class Engine {
               return;
             }
             if (this.operationUnwind(rc, { phase: "reset" }, "reset")) return;
+            // The original dissolves the restored picture before it re-enters
+            // logic 0 (docs/fidelity.md "Original picture dissolve").
+            // (The pass entry returned early while a dissolve was open; the
+            // restore opened this one since.)
+            if ((this.modal as Modal | null)?.kind === "dissolve") {
+              this.restoreRevealOwed = true;
+              return;
+            }
             if (this.runResetPhase()) return;
             continue;
           }
@@ -4562,6 +6080,8 @@ export class Engine {
         this.presentationDirty = true;
         this.updateEgoVisibility();
       }
+      // This pass's frame is on screen now; a later draw.pic captures it afresh.
+      this.dissolveFrom = null;
       if (this.observePhase("motion", { phase: "cycle-end" })) return;
       stage = "cycle-end";
     }
@@ -4643,6 +6163,12 @@ export class Engine {
    * on the play area's rows. Targets are words: nothing clamps them.
    */
   private pointerClick(x: number, y: number): void {
+    const key = this.pointerKeyAt(x, y);
+    if (key !== null) {
+      this.inputQueue.enqueueKey(key);
+      return;
+    }
+    if (this.textMode) return;
     const rule = this.profile.clickMove;
     if (rule === "none") return;
     if (rule === "iigs" && y < 8) return;
@@ -4651,6 +6177,8 @@ export class Engine {
       this.pointerX = x & 0xffff;
       this.pointerY = y & 0xffff;
     }
+    // An Amiga print window blocks walking; the IIgs f15 window does not
+    // (docs/fidelity.md "Original click-to-walk").
     if (rule !== "iigs" && this.persistentWindow !== null) return;
     if (this.directionCoupling === 0) return;
     const ego = this.objects[0]!;
@@ -4904,8 +6432,13 @@ export class Engine {
 
   /** First geometrically valid, collision-free footprint in the specified spiral. */
   private placeObject(obj: ScreenObject): void {
+    // FindPosn raises an object observing the horizon to horizon + 1 before
+    // starting the spiral (docs/fidelity.md, F-motion-12).
+    if (obj.observeHorizon && obj.y <= this.horizon) {
+      obj.y = this.horizon + 1;
+    }
     let x = obj.x;
-    let y = obj.observeHorizon ? Math.max(obj.y, this.horizon + 1) : obj.y;
+    let y = obj.y;
     const originX = x;
     const originY = y;
     let leg = 1;
@@ -4917,8 +6450,8 @@ export class Engine {
       [1, 0],
       [0, -1],
     ] as const;
-    // The furthest legal point is inside this square. Valid game state
-    // supplies an acceptable candidate; an impossible room fails explicitly.
+    // The furthest legal point is inside this square; an arbitrary origin must
+    // not terminate before the spiral reaches the screen.
     const radius =
       Math.max(
         Math.abs(originX),
@@ -5007,17 +6540,17 @@ export class Engine {
     if (!view) return;
     const loops = view.loops.length;
     const d = obj.direction;
-    let target = -1;
+    let target = obj.loop;
     if (loops === 2 || loops === 3) {
-      if (d >= 2 && d <= 4) target = 0;
-      else if (d >= 6 && d <= 8) target = 1;
+      if (d === 2 || d === 3 || d === 4) target = 0;
+      else if (d === 6 || d === 7 || d === 8) target = 1;
     } else if (loops === 4 || (loops > 4 && this.fourLoopTableApplies())) {
-      if (d >= 2 && d <= 4) target = 0;
-      else if (d >= 6 && d <= 8) target = 1;
+      if (d === 1) target = 3;
+      else if (d === 2 || d === 3 || d === 4) target = 0;
       else if (d === 5) target = 2;
-      else if (d === 1) target = 3;
+      else if (d === 6 || d === 7 || d === 8) target = 1;
     }
-    if (target >= 0 && target < loops && target !== obj.loop) this.setLoop(obj, target);
+    if (target !== obj.loop) this.setLoop(obj, target);
   }
 
   /**
@@ -5161,6 +6694,25 @@ export class Engine {
   }
 
   /**
+   * PriToY: the sort key MakeObjList gives a fixed-priority object
+   * (docs/fidelity.md F-VIEWS-06). With the default table, the key is the
+   * signed word (pri - 5) * 12 + 48, so fixed priority 0 gives -12 and sorts
+   * first. After set.pri.base rebuilds the table, the scan starts at
+   * `profile.priorityTableScanStart`: 168 reads the zero byte past the
+   * 168-entry table and returns 168 for every pri > 0; 167 returns the lowest
+   * row whose band is below pri. Fixed priority 0 returns -1; the 167-start
+   * builds have no lower bound there and never return (a documented divergence
+   * on unusual input).
+   */
+  private priToY(pri: number): number {
+    if (this.defaultPriTable) return (pri - 5) * 12 + 48;
+    if (pri === 0) return -1;
+    let y = this.profile.priorityTableScanStart;
+    while (y >= 0 && (y >= SCREEN_HEIGHT ? 0 : priorityForY(y, this.priorityBase)) >= pri) y--;
+    return y;
+  }
+
+  /**
    * Composite the presentable frame into reusable scratch buffers and update
    * the cached presentation product.
    */
@@ -5177,7 +6729,8 @@ export class Engine {
     };
 
     // Stable sorting retains object-number order for equal drawing keys.
-    // Positive fixed priorities sort after every baseline in the table mode.
+    // Fixed priorities map through PriToY (default closed form before
+    // set.pri.base, table scan after).
     // Entries carry the object number so the ownership channel records an
     // identity the host can match against readObjects(), not a sort position.
     const active = this.objects
@@ -5187,18 +6740,25 @@ export class Engine {
         if (a.o.earlierPartition !== b.o.earlierPartition) return a.o.earlierPartition ? -1 : 1;
         if (a.o.earlierPartition && this.profile.earlierPartitionOrder === "object-number")
           return 0;
-        const aKey = a.o.fixedPriority ? (a.o.priority === 0 ? -1 : SCREEN_HEIGHT) : a.o.y;
-        const bKey = b.o.fixedPriority ? (b.o.priority === 0 ? -1 : SCREEN_HEIGHT) : b.o.y;
+        const aKey = a.o.fixedPriority ? this.priToY(a.o.priority) : a.o.y;
+        const bKey = b.o.fixedPriority ? this.priToY(b.o.priority) : b.o.y;
         return aKey - bKey;
       });
 
+    const controlScanFallbackPriority = this.profile.presentation === "pc" ? null : 4;
     for (const { o, num } of active) {
       const view = this.views.get(o.view);
-      const cel = view && readViewCel(view, o.loop, o.cel);
+      const cel =
+        view &&
+        (this.profile.packedViewLoopHeader
+          ? readViewCel(view, o.loop, o.cel)
+          : selectViewCel(view, o.loop, o.cel));
       if (!cel) continue;
       const pri = o.fixedPriority ? o.priority : priorityForY(o.y, this.priorityBase);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
+        clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
+        controlScanFallbackPriority,
         onPixel: (index: number) => {
           this.scratchOwnership[index] = num + 1;
         },
@@ -5212,12 +6772,24 @@ export class Engine {
       const view = this.views.get(this.modal.view);
       const cel = view && readViewCel(view, 0, 0);
       if (cel)
-        drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, {
+        drawCel(frame, cel, Math.trunc((SCREEN_WIDTH - 1 - cel.width) / 2), SCREEN_HEIGHT - 1, {
           priority: 15,
+          clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
+          controlScanFallbackPriority,
           onPixel: (index: number) => {
             this.scratchPreview[index] = 1;
           },
         });
+    }
+
+    if (this.modal?.kind === "dissolve") {
+      const m = this.modal;
+      applyDissolve(
+        this.scratchVisual,
+        m.from,
+        dissolveOrder(this.profile.showPictureReveal, m.skipRows),
+        m.steps,
+      );
     }
 
     if (this.modal?.kind === "showPri") {
@@ -5228,8 +6800,21 @@ export class Engine {
       this.cachedPriority.set(this.scratchPriority);
     }
 
+    const hasOverlay = this.text.composeOverlay(this.cachedWindowOverlay);
+    if (hasOverlay) {
+      this.cachedWindowOverlayDirty = true;
+    } else if (this.cachedWindowOverlayDirty) {
+      this.cachedWindowOverlay.fill(0);
+      this.cachedWindowOverlayDirty = false;
+    }
     const ownership = !this.textMode ? this.scratchOwnership : null;
-    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, this.objects));
+    const text = this.mergeTraceText(
+      this.hideTextUnderSprites(
+        ownership,
+        this.objects,
+        hasOverlay ? this.cachedWindowOverlay : undefined,
+      ),
+    );
     this.cachedText.set(text);
     this.lastComposedTextDirty = this.text.dirty;
     this.lastComposedModal = this.modal;
@@ -5264,14 +6849,64 @@ export class Engine {
     };
   }
 
-  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
-  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
+  /**
+   * Pixels and text from one completed composition; buffers may be
+   * transferred by the host. `statusBar` is the Amiga screen title while
+   * the status line shows (the host draws it as the title bar), and `gadgets`
+   * lists an open confirmation window's gadgets with their labels, which
+   * the Amiga host draws off the cell grid.
+   */
+  getPresentation(): {
+    visual: Uint8Array;
+    priority: Uint8Array;
+    text: Uint8Array;
+    windowOverlay: Uint8Array;
+    statusBar: string | null;
+    gadgets?: GadgetLabel[];
+    /** The open Amiga menu strip and pull-down, drawn by the host over everything. */
+    menu?: NativeMenuChrome;
+  } {
     this.ensurePresentationCurrent();
+    const gadgets = this.presentationGadgets();
+    const menu = this.nativeMenuChrome();
     return {
       visual: this.cachedVisual.slice(),
       priority: this.cachedPriority.slice(),
       text: this.cachedText.slice(),
+      windowOverlay: this.cachedWindowOverlay.slice(),
+      statusBar: this.statusBarText(),
+      ...(gadgets ? { gadgets } : {}),
+      ...(menu ? { menu } : {}),
     };
+  }
+
+  /**
+   * The open confirmation window's gadgets as the presentation draws them:
+   * each fill with its label read back from the label cells, placed four
+   * pixels in and two down from the fill's corner (F-persistence-05-gadgets).
+   */
+  private presentationGadgets(): GadgetLabel[] | undefined {
+    const win =
+      this.modal?.kind === "print"
+        ? this.modal.saved.window
+        : (this.saveDialog?.window ?? undefined);
+    if (win?.gadgets === undefined) return undefined;
+    return win.gadgets.map((g) => {
+      const row = g.label.y0 >> 3;
+      let text = "";
+      for (let col = g.label.x0 >> 3; col <= g.label.x1 >> 3; col++)
+        text += String.fromCharCode(this.text.charAt(row, col) || 0x20);
+      return {
+        x0: g.x0,
+        y0: g.y0,
+        x1: g.x1,
+        y1: g.y1,
+        pen: g.pen,
+        text,
+        textX: g.x0 + 4,
+        textY: g.y0 + 2,
+      };
+    });
   }
 
   /**
@@ -5291,6 +6926,25 @@ export class Engine {
   getPreviewMask(): Uint8Array | null {
     this.ensurePresentationCurrent();
     return this.modal?.kind === "showObj" ? this.scratchPreview.slice() : null;
+  }
+
+  /**
+   * Per-pixel cel provenance of the composed frame: 1 where a cel drew the
+   * visible pixel (a screen object, an add.to.pic stamp or the show.obj
+   * preview), 0 where the picture did. The CGA driver gives cels their own
+   * colour table (docs/fidelity.md "PC fonts and display adapters"). Fresh
+   * copy — the host may transfer it.
+   */
+  getCelPixels(): Uint8Array {
+    this.ensurePresentationCurrent();
+    const out = this.stampMask.slice();
+    const ownership = this.scratchOwnership;
+    for (let i = 0; i < out.length; i++) if (ownership[i] !== 0) out[i] = 1;
+    if (this.modal?.kind === "showObj") {
+      const preview = this.scratchPreview;
+      for (let i = 0; i < out.length; i++) if (preview[i] !== 0) out[i] = 1;
+    }
+    return out;
   }
 
   /**
@@ -5339,7 +6993,13 @@ export class Engine {
     this.flags[F_INPUT_READY] = 0;
     this.flags[F_SAID_MATCHED] = 0;
     this.lastInputLine = line;
-    const parsed = parseSentence(line, this.dictionary);
+    const parsed = parseSentence(
+      line,
+      this.dictionary,
+      this.profile.parserStopsAtTenthWord,
+      this.profile.parserDefaultsLoneAAndI,
+      this.profile.parserStripsPunctuation,
+    );
     this.parserCount = parsed.count;
     if (parsed.unknownPosition > 0) this.vars[V_WORDS] = parsed.unknownPosition;
     this.parsedWords = parsed.words;
@@ -6024,7 +7684,7 @@ export class Engine {
         // gets a synthesized Enter after a bounded number of polls so a
         // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
-        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+        this.queueHostKeys(false);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey;
         if (pressed === undefined) {
@@ -6357,6 +8017,9 @@ export class Engine {
       }
       case 0x19: {
         const num = this.vars[a(0)]!;
+        // The screen keeps the old picture until show.pic; a dissolve starts from it.
+        if (this.profile.showPictureReveal !== "instant" && this.dissolveFrom === null)
+          this.dissolveFrom = this.composedVisual();
         this.drawPicture(num);
         this.record(REPLAY_DRAW_PICTURE, num);
         return next;
@@ -6371,10 +8034,27 @@ export class Engine {
         const visibleWindow = window
           ? this.text.save(window.top, window.left, window.bottom, window.right)
           : null;
+        const windowErased = window?.window
+          ? captureWindowErased(this.text, window.window)
+          : undefined;
         // Presenting the picture repaints its band; text there is gone.
-        if (!this.textMode)
+        if (!this.textMode) {
           this.text.fill(this.displayBaseRow, 0, this.displayBaseRow + 20, TEXT_COLS - 1, 0, 0);
-        if (visibleWindow) this.text.restore(visibleWindow);
+          this.text.clearPictureTitleFill(this.displayBaseRow);
+        }
+        if (visibleWindow) {
+          this.text.restore(visibleWindow);
+          if (window?.window) {
+            stampWindowOverlayOnly(
+              this.text,
+              windowErased ? { ...window.window, erased: windowErased } : window.window,
+              false,
+            );
+          }
+        }
+        if (!this.pictureRevealInstant) this.startDissolve(this.dissolveFrom);
+        this.dissolveFrom = null;
+        this.screenShown = true;
         return next;
       }
       case 0x1b: {
@@ -6463,18 +8143,28 @@ export class Engine {
         return next;
       }
       // position and position.v write the coordinates and their saved pair;
-      // the originals leave the newly-positioned bit to the reposition family
-      // (docs/fidelity.md, "Original position handlers").
+      // the originals leave the newly-positioned bit to the reposition family.
+      // 2.001 and 2.089 run the horizon/placement routine when the object is
+      // DRAWN, then snapshot the saved pair from the possibly-adjusted
+      // coordinates (docs/fidelity.md "Original position handlers", F-motion-02).
       case 0x25: {
         const o = obj(0);
-        o.x = o.prevX = a(1);
-        o.y = o.prevY = a(2);
+        o.x = a(1);
+        o.y = a(2);
+        if (this.profile.positionActionOrder === "place-when-drawn" && o.active)
+          this.placeObject(o);
+        o.prevX = o.x;
+        o.prevY = o.y;
         return next;
       }
       case 0x26: {
         const o = obj(0);
-        o.x = o.prevX = this.vars[a(1)]!;
-        o.y = o.prevY = this.vars[a(2)]!;
+        o.x = this.vars[a(1)]!;
+        o.y = this.vars[a(2)]!;
+        if (this.profile.positionActionOrder === "place-when-drawn" && o.active)
+          this.placeObject(o);
+        o.prevX = o.x;
+        o.prevY = o.y;
         return next;
       }
       case 0x27: {
@@ -6861,9 +8551,17 @@ export class Engine {
         return next;
       }
       case 0x63: {
+        // StopSnd runs FIRST — setting the interrupted sound's done flag —
+        // then the operands are read, the new done flag resets, and only then
+        // can the lookup fault (all 20 shipped profiles: docs/fidelity.md,
+        // "Wave-3 sound verdicts").
+        if (this.profile.soundStopsBeforeFault) {
+          this.stopSound();
+          this.flags[a(1)] = 0;
+        }
         const soundData = this.sounds.get(a(0));
         if (!soundData) throw new Error(`sound ${a(0)} is not loaded`);
-        this.stopSound();
+        if (!this.profile.soundStopsBeforeFault) this.stopSound();
         this.soundPlayback = new SoundPlayback(
           this.profile,
           soundData,
@@ -6872,7 +8570,7 @@ export class Engine {
         );
         this.playingSound = a(0);
         this.soundDoneFlag = a(1);
-        this.flags[a(1)] = 0;
+        if (!this.profile.soundStopsBeforeFault) this.flags[a(1)] = 0;
         this.host.playSound?.(a(0), soundData);
         return next;
       }
@@ -6920,7 +8618,7 @@ export class Engine {
         this.textBg = a(1);
         return next;
       case 0x6e:
-        this.host.shakeScreen?.call(this.host, a(0));
+        this.startShake(a(0));
         return next;
       case 0x6f:
         this.displayBaseRow = a(0);
@@ -6931,12 +8629,17 @@ export class Engine {
         this.display(a(0), a(1), this.message(a(2)));
         return next;
       case 0x70:
+        if (this.amigaStatusGated()) return next;
         this.statusEnabled = true;
         this.drawStatus();
         return next;
       case 0x71:
+        if (this.amigaStatusGated()) return next;
+        if (this.profile.statusLineGate === "pic-top-and-enabled" && !this.statusEnabled)
+          return next;
         this.statusEnabled = false;
-        this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0, 0);
+        if (this.profile.presentation === "amiga") this.eraseAmigaTitleArea();
+        else this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0, 0);
         this.host.statusLine("");
         return next;
       case 0x72:
@@ -7011,30 +8714,57 @@ export class Engine {
         }
         return next;
       }
-      case 0x74: {
-        // word.to.string copies the parsed token TEXT (spec: parser results),
-        // not the dictionary id — "what is your name?" depends on it.
-        this.setString(a(0), this.parsedWordTexts[a(1) - 1] ?? "");
+      case 0x74:
+        // word.to.string indexes wordPtr 0-based across all 20 profiles
+        // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-09).
+        this.setString(a(0), this.parsedWordTexts[a(1)] ?? "");
         return next;
-      }
       case 0x89:
-        this.editLine = this.acceptedLine.slice(0, this.inputCapacity());
-        this.drawInputRow();
+        // echo.line returns immediately when input is disabled; when enabled,
+        // it appends PREVLINE[editLen..] onto INLINE while under the edit cap
+        // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-13).
+        if (this.inputAccepted) {
+          const cap = this.inputCapacity();
+          if (this.editLine.length < this.acceptedLine.length && this.editLine.length < cap) {
+            this.editLine += this.acceptedLine.slice(this.editLine.length, cap);
+          }
+          this.drawInputRow();
+        }
         return next;
       case 0x8a:
         this.editLine = "";
         this.drawInputRow();
         return next;
       case 0x8b:
-        /* init.joy: joystick calibration; no joystick in this target */ return next;
-      // toggle.monitor: spec places the alternate display mode outside the
-      // full-EGA target this engine implements.
+        this.initJoy();
+        return next;
+      // toggle.monitor: on a PC CGA card outside room 0 the original flips the
+      // monitor type between RGB (1) and composite (0); EGA and Hercules
+      // ignore it and v26 keeps its value (docs/fidelity.md "PC fonts and
+      // display adapters"). Amiga and IIgs keep their no-op.
       case 0x8c:
+        if (
+          this.profile.presentation === "pc" &&
+          this.vars[0] !== 0 &&
+          this.monitorType !== 3 &&
+          this.monitorType !== 2
+        ) {
+          this.monitorType ^= 1;
+          this.presentationDirty = true;
+        }
         return next;
       case 0x8d: {
-        this.strings[0] = (this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0").slice(
-          0,
-          39,
+        // version: the handler pushes the CONST version string and calls
+        // WindowPrint — a modal window, never a write to string slot 0
+        // (docs/fidelity.md "Original script capacity and version handlers",
+        // F-OPCORE-07). WindowPrint is the routine print calls, winTime
+        // included: v21 times the window out.
+        this.emitPrint(
+          this.host.versionString?.call(this.host) ?? this.defaultVersionBanner(),
+          undefined,
+          true,
+          false,
+          true,
         );
         return next;
       }
@@ -7127,10 +8857,10 @@ export class Engine {
       case 0x84: {
         // Player coupling; the direction byte is left alone. The DOS and
         // Amiga 2.082 handlers end object 0's autonomous motion outright; the
-        // inspected later Amiga handlers (2.176 through 2.333) return early
-        // when player control is already selected, so the motion word clears
-        // only on the program→player transition (docs/fidelity.md, "Original
-        // player.control handler").
+        // later Amiga handlers (2.176 through 2.333) and Apple IIgs 1.014
+        // return early when player control is already selected, so the motion
+        // word clears only on the program→player transition (docs/fidelity.md,
+        // "Original player.control handler").
         const wasProgramControl = this.directionCoupling === 0;
         this.directionCoupling = 1;
         if (this.profile.playerControlMotionClear === "always" || wasProgramControl)
@@ -7149,9 +8879,20 @@ export class Engine {
         }
         this.confirmSessionAction("quit", next);
         return next;
-      case 0x8e:
+      case 0x8e: {
+        // script.size stores the capacity, then resets the recorded pair
+        // sequence and refreshes the object update lists (all 20 shipped
+        // profiles: docs/fidelity.md, "Original script capacity and version
+        // handlers", F-timing-02).
         this.scriptCapacity = a(0);
+        if (this.profile.scriptSizeResetsSequence) {
+          this.replay.length = 0;
+          this.replayCheckpoint = 0;
+          for (const o of this.objects) if (o.active) this.restoreBehind(o);
+          for (const o of this.objects) if (o.active) this.stampDraw(o);
+        }
         return next;
+      }
 
       // menus
       // Menu construction exists only in the "full" profiles: 2.272 parses the
@@ -7182,20 +8923,23 @@ export class Engine {
         // menu.input: the v3 profiles add a separate menu-interaction gate set
         // by action 0xb1 (profile.menuInteractionGate); the v2 profiles gate on
         // f14 alone. On Amiga the slot is the stub routine (menuInputAction).
+        // The request itself tests f14 only; the gate is consulted at menu-open
+        // time with the request still pending (docs/fidelity.md "Original
+        // input, menu and modal handling", F-IN-04).
         if (
           this.profile.menuInputAction === "effect" &&
           this.profile.menuActions === "full" &&
-          this.flags[F_MENU_ENABLED] !== 0 &&
-          (!this.profile.menuInteractionGate || this.menuInteractionGate !== 0)
+          this.flags[F_MENU_ENABLED] !== 0
         ) {
           this.menuRequested = true;
         }
         return next;
       case 0x8f: {
         if (this.profile.action0x8f === "max-drawn-objects") {
-          // In 2.001 (load-module 0x0284), action 0x8f is max.drawn.objects(count):
-          // sets the capacity of the animated/drawn object table. In 2.089+, this
-          // was moved to the third byte of the OBJECT header and 0x8f became set.game.id.
+          // In 2.001, action 0x8f is max.drawn.objects(count): sets the capacity
+          // of the animated/drawn object table (docs/fidelity.md "PC booter
+          // action 0x8f (max.drawn.objects)"). In 2.089+, this was moved to the
+          // third byte of the OBJECT header and 0x8f became set.game.id.
           const count = a(0);
           this.maxDrawnObjectsCount = count;
           if (this.inventoryMetaCache) {
@@ -7269,7 +9013,10 @@ export class Engine {
         // the IIgs the slot is discard.sound (docs/fidelity.md "Apple IIgs
         // sound discard").
         if (this.profile.extraActions === "iigs") this.discardSoundRecorded(a(0));
-        else if (this.profile.priorityBaseAction === "effect") this.priorityBase = a(0);
+        else if (this.profile.priorityBaseAction === "effect") {
+          this.priorityBase = a(0);
+          this.defaultPriTable = false;
+        }
         return next;
       case 0xaf:
         // On the IIgs this slot is fade.sound: it arms the heartbeat
@@ -7389,13 +9136,17 @@ export class Engine {
     this.sounds.clear();
     for (const num of this.logics.keys()) if (num !== 0) this.logics.delete(num);
     for (const num of this.scanStart.keys()) if (num !== 0) this.scanStart.delete(num);
-    // The original object loop writes flags &= ~0x41; flags |= 0x10: drawn and
-    // animated membership clear, but every record rejoins the updating
-    // partition (docs/fidelity.md "Original new.room sequence").
+    // Verified on 2.936 and 3.002.149: the object loop writes flags &= ~0x41;
+    // flags |= 0x10 so drawn and animated membership clear, every record
+    // rejoins the updating partition, and newlyPositioned (0x0400) and
+    // cycleDelay (0x1000) are preserved (docs/fidelity.md "Original new.room
+    // sequence", F-motion-10).
     for (const o of this.objects) {
       o.stepSize = o.stepTime = o.stepCount = o.cycleTime = o.cycleCount = 1;
-      o.newlyPositioned = false;
-      o.cycleDelay = false;
+      if (!this.profile.newRoomPreservesReposAndCycleDelay) {
+        o.newlyPositioned = false;
+        o.cycleDelay = false;
+      }
       o.earlierPartition = false;
     }
     this.unanimateAll();
@@ -7440,15 +9191,40 @@ export class Engine {
   /** draw.pic: clear logical picture state, then decode the loaded picture. */
   private drawPicture(num: number): void {
     this.surface.reset();
+    this.stampMask.fill(0);
     renderPicture(this.picturePayload(num), this.surface, { profile: this.profile });
+    this.text.clearPictureTitleFill(this.displayBaseRow);
     this.pictureShown = false;
+    this.pictureRevealInstant = false;
     this.lastPicture = num;
     this.presentationDirty = true;
   }
 
   /** overlay.pic: decode over the logical picture without clearing it first. */
   private overlayPicture(num: number): void {
-    renderPicture(this.picturePayload(num), this.surface, { overlay: true, profile: this.profile });
+    const stamp = this.text.hasTitleFill ? ++this.text.seq : 0;
+    // Picture pixels drawn over a stamp show the picture colours again.
+    const owner = this.stampMask.includes(1)
+      ? {
+          visual: new Int32Array(SCREEN_WIDTH * SCREEN_HEIGHT).fill(-1),
+          priority: new Int32Array(SCREEN_WIDTH * SCREEN_HEIGHT).fill(-1),
+        }
+      : undefined;
+    renderPicture(this.picturePayload(num), this.surface, {
+      overlay: true,
+      profile: this.profile,
+      ...(owner ? { owner } : {}),
+      ...(this.text.hasOverlay || this.text.hasTitleFill
+        ? {
+            onCellWrite: (pixel: number) =>
+              this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow, stamp),
+          }
+        : {}),
+    });
+    if (owner)
+      for (let i = 0; i < owner.visual.length; i++)
+        if (owner.visual[i]! >= 0) this.stampMask[i] = 0;
+    this.pictureRevealInstant = true;
     this.lastPicture = num;
     this.presentationDirty = true;
   }
@@ -7536,12 +9312,25 @@ export class Engine {
     return payload;
   }
 
+  /**
+   * A view as the interpreter holds it after loading. The CGA driver converts
+   * each view as it loads (src/runtime/display.ts). The composite table that
+   * applies after toggle.monitor arrives with the composite display, so a CGA
+   * session keeps the RGB conversion.
+   */
+  private parseLoadedView(payload: Uint8Array): AgiView {
+    return parseView(
+      this.pcDisplay === "cga-rgb" ? cgaRgbViewPayload(payload) : payload,
+      this.profile,
+    );
+  }
+
   private loadView(num: number): AgiView {
     const cached = this.views.get(num);
     if (cached) return cached;
     const payload = this.container.getResource("view", num);
     if (!payload) throw new Error(`view resource ${num} not in container`);
-    const view = parseView(payload, this.profile);
+    const view = this.parseLoadedView(payload);
     this.views.set(num, view);
     if (!this.viewOrder.includes(num)) this.viewOrder.push(num);
     return view;
@@ -7584,9 +9373,11 @@ export class Engine {
     this.runResets++;
     this.pendingLogic = null;
     this.pendingInteraction = null;
+    this.cursorErased = false;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;
+    this.saveDialog = null;
     const soundEnabled = this.flags[F_SOUND_ENABLED]!;
     this.playingSound = null;
     this.soundDoneFlag = null;
@@ -7595,11 +9386,8 @@ export class Engine {
     this.host.stopSound?.();
 
     this.vars.fill(0);
-    this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
-    this.vars[24] = 41;
-    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
-    this.vars[26] = 3;
     this.flags.fill(0);
+    this.applyResetAllDefaults();
     this.controllers.fill(0);
     this.logics.clear();
     this.pictures.clear();
@@ -7612,13 +9400,12 @@ export class Engine {
     this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
     this.replayRecording = true;
-    this.scriptCapacity = DEFAULT_REPLAY_CAPACITY;
+    this.scriptCapacity = this.profile.defaultScriptBufferPairs;
     this.maximumReplayPairs = 0;
     this.menu = [];
     this.menuFinalized = false;
     this.menuHeading = 0;
     this.menuRequested = false;
-    this.menuInteractionGate = 0;
     this.pendingController = null;
     this.parsedWords = [];
     this.parsedWordTexts = [];
@@ -7633,17 +9420,23 @@ export class Engine {
     this.textMode = false;
     this.statusEnabled = false;
     this.statusRefreshRequested = false;
-    this.inputAccepted = false;
+    // Input acceptance survives: ResetAll clears only vars/flags/controllers/
+    // object records, while the accepted restart branch runs CancelLine and
+    // redraws the marker (docs/fidelity.md "Wave-3 persistence verdicts",
+    // F-persistence-01, F-persistence-02).
+    if (!this.profile.originalRestartRestore) this.inputAccepted = false;
     this.editLine = "";
     this.acceptedLine = "";
     this.blockRect = null;
     this.horizon = 36;
     this.priorityBase = 48;
+    this.defaultPriTable = true;
     this.lastPicture = 0;
     this.keyReleaseGate = 0;
     this.inputQueue.clear();
     this.inputWidthCap = null;
     this.surface.reset();
+    this.stampMask.fill(0);
     this.pictureShown = false;
     this.text.clear();
     this.presentationDirty = true;
@@ -7653,11 +9446,59 @@ export class Engine {
     this.haveKeyPolls = 0;
 
     this.flags[F_SOUND_ENABLED] = soundEnabled;
-    this.flags[F_NEW_ROOM] = 1;
     this.flags[F_RESTART] = 1;
     this.restartPending = true;
     this.trace.setActive(false);
     if (this.trace.logic !== null) this.loadLogic(this.trace.logic);
+  }
+
+  /**
+   * Apply the binary's ResetAll variable and flag writes shared by cold
+   * startup and accepted restart (docs/fidelity.md "Wave-3 persistence
+   * verdicts", F-OPCORE-04-adjacent).
+   */
+  private applyResetAllDefaults(): void {
+    const id = this.profile.id;
+    const isAmiga = this.profile.windowFrameGeometry === "amiga";
+    const isIIgs = this.profile.windowFrameGeometry === "iigs";
+    if (!this.restartPending) {
+      this.joyEnabled = isAmiga;
+      this.joyInitPending = false;
+    }
+    this.joyCalibratingModalSerial = null;
+    this.lastJoyDir = 0;
+    // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,
+    // which also gates status.line.on/off until configure.screen sets a
+    // nonzero picture top (docs/fidelity.md "Amiga screen, font and pointer").
+    if (this.profile.presentation === "amiga") this.displayBaseRow = 0;
+    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
+    this.vars[20] = isAmiga ? 5 : isIIgs ? 7 : 0;
+    if (id === "2.001") {
+      this.vars[22] = 0;
+      this.flags[11] = 0;
+    } else if (id === "2.230" || id === "2.272" || id === "2.411" || isAmiga || isIIgs) {
+      this.vars[22] = 3;
+      this.flags[11] = 1;
+    } else {
+      const soundOn = (this.host.soundDevice?.() ?? 1) !== 0;
+      this.vars[22] = soundOn ? 3 : 1;
+      this.flags[11] = soundOn ? 1 : 0;
+    }
+    this.vars[24] = this.profile.inputLineEditCap === "early-35" ? 0 : isIIgs ? 40 : 41;
+    // PC 2.411+ copies the monitor type; 2.001..2.272 leave v26 at 0
+    // (docs/fidelity.md "PC fonts and display adapters").
+    this.vars[26] =
+      id === "2.001" ||
+      id === "2.089" ||
+      id === "2.230" ||
+      id === "2.272" ||
+      id === "amiga-2.082" ||
+      isIIgs
+        ? 0
+        : this.profile.presentation === "pc"
+          ? this.monitorType
+          : 3;
+    this.flags[F_NEW_ROOM] = 1;
   }
 
   // ---------- host inspection (live patching / agent perception) ----------
@@ -7859,6 +9700,8 @@ export class Engine {
     this.runRoomPhase(room, entry);
     this.messageUpdatePending = false;
     this.hostRoomEntryPending = true;
+    // The visit replaces a restore whose logic 0 re-entry still waited.
+    this.restoreRevealOwed = false;
   }
 
   private applyRoomEntry(entry: RoomEntryState): void {

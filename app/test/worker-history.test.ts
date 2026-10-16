@@ -313,6 +313,242 @@ test("a recorded live session replays from its boot to the same observed state",
   );
 });
 
+test("released combined-digest sync marks replay unverified, however their fields drift", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
+  const { send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(4);
+  const segment = collectSegments(h.control)[0]!;
+  assert.ok(segment.sync.length >= 1, "the session recorded sync marks");
+  assert.ok(
+    segment.sync.every(
+      (m) => m.state !== undefined && m.text !== undefined && typeof m.digest === "string",
+    ),
+    "current recordings write the split digests alongside the combined digest",
+  );
+
+  // The released shape: a combined digest only. Released v1–v2 tapes replay
+  // without verification — the released build's legitimately-different
+  // behavior (e.g. the version() modal) can move any field, so a released
+  // tape can never set outcome.diverged.
+  const legacy: HistorySegment = {
+    ...segment,
+    sync: segment.sync.map(({ seq, tick, cycle, room, score, patchGeneration, modal }) => ({
+      seq,
+      tick,
+      cycle,
+      digest: "00000000",
+      room,
+      score,
+      patchGeneration,
+      modal,
+    })),
+  };
+  const replayed = replayHistorySegment(legacy);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "a released tape never diverges on its combined digest");
+  assert.equal(replayed.applied, segment.events.length);
+
+  // The drift astra reproduced on a released 1.0 recording: every field the
+  // old replay policy compared has legitimately moved — replay still cannot
+  // diverge on a combined-digest mark.
+  const drifted: HistorySegment = {
+    ...legacy,
+    sync: legacy.sync.map((m, i) =>
+      i === 0
+        ? {
+            ...m,
+            room: m.room + 1,
+            score: m.score + 1,
+            patchGeneration: m.patchGeneration + 1,
+            modal: m.modal === null ? "print" : null,
+          }
+        : m,
+    ),
+  };
+  const driftReplay = replayHistorySegment(drifted);
+  assert.equal(driftReplay.error, null);
+  assert.equal(
+    driftReplay.diverged,
+    null,
+    "drifted room, score, patchGeneration and modal cannot diverge a released mark",
+  );
+  assert.equal(driftReplay.applied, segment.events.length);
+});
+
+test("a released tape of the version() logic does not diverge on the fixed modal behavior", () => {
+  // Astra's released-1.0 recording: logic
+  // `if (!isset(f200)) { set(f200); version(); } return;` reported
+  // "recording diverges here" at tick 20 — the released build recorded
+  // modal null where the version()-modal fix now legitimately shows "print".
+  // The same condition, staged so a current recording can carry it: the
+  // modal parks the cycle mid-pass, so version() must fire after the room
+  // entry anchored — a recorded debugWrite flips f200 once the anchor sits.
+  const h = historyHarness(
+    gameContainer(
+      [
+        `if (!isset(f201)) { set(f201); new.room(1); }
+         if (isset(f200)) { reset(f200); version(); }
+         if (v0 > 0) { call.v(v0); } return;`,
+        `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+      ],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+    { rngSeed: 0x5eed },
+  );
+  const { ctx, send, tick } = h;
+  tick(6);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(30);
+  // The modal parks every cycle from here on, so no anchor closes the open
+  // batch on its own — flush to collect the debugWrite with the segment.
+  ctx.fns.historyFlush("flush");
+  const segment = collectSegments(h.control)[0]!;
+  assert.equal(segment.events.length, 1, "the debugWrite made the tape");
+  assert.ok(segment.sync.length >= 1, "the session recorded sync marks");
+  assert.equal(ctx.run.engine?.modalKind, "print", "the version() modal is open live");
+  // The released build's marks — cycles still running, modal still null —
+  // have no current counterpart past the modal's tick: the modal pauses the
+  // interpreter, so a current recording never marks while it is open. Keep
+  // the pre-modal marks and place the tick-20 mark exactly as released
+  // wrote it; the released shape carries the combined digest only.
+  const releasedMark = (m: HistorySegment["sync"][number]) => ({
+    seq: m.seq,
+    tick: m.tick,
+    cycle: m.cycle,
+    digest: "00000000",
+    room: m.room,
+    score: m.score,
+    patchGeneration: m.patchGeneration,
+    modal: null,
+  });
+  const boot = segment.sync[0]!;
+  const released: HistorySegment = {
+    ...segment,
+    sync: [
+      ...segment.sync.filter((m) => m.modal === null).map(releasedMark),
+      {
+        seq: segment.events.length,
+        tick: 20,
+        cycle: 20,
+        digest: "00000000",
+        room: boot.room,
+        score: boot.score,
+        patchGeneration: boot.patchGeneration,
+        modal: null,
+      },
+    ],
+  };
+  const replayed = replayHistorySegment(released);
+  assert.equal(replayed.error, null);
+  assert.equal(
+    replayed.ctx.run.engine?.modalKind,
+    "print",
+    "replay still reaches the legitimately-different modal",
+  );
+  assert.equal(replayed.diverged, null, "the released tape replays unverified");
+  assert.equal(replayed.applied, segment.events.length);
+});
+
+test("a released tape whose later events are stranded by the v19 ordering reports compatibility, never divergence", () => {
+  // Astra's repro: under the released consume-first input ordering, typing 'A'
+  // (code 65) while accept.input() was active went into the input line without
+  // setting v19, so `if (v19 == 65) { quit(1); }` did not terminate and a later
+  // key 'B' at tick 18 was recorded. Under the authentic store-first ordering,
+  // v19 is set to 65 before the input line consumes the key, so quit(1)
+  // terminates at tick 7 and 'B' at tick 18 is unreachable.
+  const h = historyHarness(
+    gameContainer(
+      [
+        `if (!isset(f201)) { set(f201); new.room(1); }
+         accept.input();
+         if (v19 == 65) { quit(1); }
+         if (v0 > 0) { call.v(v0); } return;`,
+        `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+      ],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+    { rngSeed: 0x5eed },
+  );
+  const { ctx, send, tick } = h;
+  tick(6);
+  ctx.fns.historyFlush("flush");
+  const base = collectSegments(h.control)[0]!;
+  const released: HistorySegment = {
+    ...base,
+    events: [
+      { seq: 0, tick: 6, cycle: 6, cause: { kind: "key", code: 65 } },
+      { seq: 1, tick: 18, cycle: 18, cause: { kind: "key", code: 66 } },
+    ],
+    sync: base.sync.map(({ seq, tick, cycle, room, score, patchGeneration, modal }) => ({
+      seq,
+      tick,
+      cycle,
+      digest: "00000000",
+      room,
+      score,
+      patchGeneration,
+      modal,
+    })),
+    end: { seq: 2, tick: 24, cycle: 24, reason: "quit" },
+  };
+  const replayed = replayHistorySegment(released);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "a released tape never claims verified divergence");
+  assert.ok(replayed.incompatible !== null, "the unreachable tail is noted as incompatible");
+  assert.equal(replayed.incompatible.at.tick, 18);
+  assert.match(replayed.incompatible.detail, /engine terminated/);
+
+  send({ type: "pause", paused: true });
+  send({
+    type: "historyViewStart",
+    id: 77,
+    recording: {
+      version: 2,
+      identity: { project: "p" as never, revision: "r" as never },
+      profile: "2.936",
+      resourceSet: released.boot.resourceSet,
+      startedAt: 0,
+      segments: [released],
+    },
+    segment: 0,
+    tick: 24,
+  });
+  const viewReply = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyView" }> =>
+      m.type === "historyView" && m.id === 77 && m.final,
+  );
+  assert.ok(viewReply);
+  assert.equal(viewReply.diverged, null);
+  assert.equal(viewReply.incompatible?.at.tick, 18);
+  assert.equal(viewReply.canResume, false);
+});
+
+test("split-digest sync marks verify the state and text digests separately", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 0x5eed });
+  const { send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(4);
+  const segment = collectSegments(h.control)[0]!;
+  const flip = (value: string): string => (value[0] === "0" ? "1" : "0") + value.slice(1);
+
+  const corruptState: HistorySegment = {
+    ...segment,
+    sync: segment.sync.map((m, i) => (i === 0 ? { ...m, state: flip(m.state!) } : m)),
+  };
+  const stateReplay = replayHistorySegment(corruptState);
+  assert.match(stateReplay.diverged?.detail ?? "", /state digest/);
+
+  const corruptText: HistorySegment = {
+    ...segment,
+    sync: segment.sync.map((m, i) => (i === 0 ? { ...m, text: flip(m.text!) } : m)),
+  };
+  const textReplay = replayHistorySegment(corruptText);
+  assert.match(textReplay.diverged?.detail ?? "", /text digest/);
+});
+
 test("replay from a later anchor reaches the same observed state", () => {
   const h = historyHarness(historyGame(), { rngSeed: 77 });
   const { ctx, send, tick } = h;

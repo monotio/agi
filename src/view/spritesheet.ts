@@ -78,11 +78,17 @@ export const EGA_PALETTE: readonly (readonly [number, number, number])[] = [
  * (2,4,3 on R,G,B — a cheap stand-in for luminance sensitivity). Ties resolve
  * to the lower index, so the mapping is total and deterministic.
  */
-export function nearestEgaIndex(r: number, g: number, b: number): number {
+export function nearestEgaIndex(
+  r: number,
+  g: number,
+  b: number,
+  /** The sixteen colours the game shows for each index; EGA unless a platform look says otherwise. */
+  palette: readonly (readonly [number, number, number])[] = EGA_PALETTE,
+): number {
   let best = 0;
   let bestDistance = Infinity;
-  for (let i = 0; i < EGA_PALETTE.length; i++) {
-    const [pr, pg, pb] = EGA_PALETTE[i]!;
+  for (let i = 0; i < palette.length; i++) {
+    const [pr, pg, pb] = palette[i]!;
     const dr = r - pr;
     const dg = g - pg;
     const db = b - pb;
@@ -104,6 +110,8 @@ export interface QuantizeOptions {
   keyColor?: readonly [number, number, number] | null | undefined;
   /** Alpha below this value is transparent. Default 128. */
   alphaThreshold?: number | undefined;
+  /** Colours to match against, as the game shows indices 0..15; default EGA. */
+  palette?: readonly (readonly [number, number, number])[] | undefined;
 }
 
 export interface EgaSheet {
@@ -153,13 +161,13 @@ export function quantizeToEga(
   for (let i = 0; i < count; i++) {
     const o = i * 4;
     opaque[i] = rgba[o + 3]! >= alphaThreshold ? 1 : 0;
-    pixels[i] = nearestEgaIndex(rgba[o]!, rgba[o + 1]!, rgba[o + 2]!);
+    pixels[i] = nearestEgaIndex(rgba[o]!, rgba[o + 1]!, rgba[o + 2]!, opts?.palette);
   }
 
   let keyIndex: number | null;
   if (opts && "keyColor" in opts && opts.keyColor !== undefined) {
     const key = opts.keyColor;
-    keyIndex = key === null ? null : nearestEgaIndex(key[0], key[1], key[2]);
+    keyIndex = key === null ? null : nearestEgaIndex(key[0], key[1], key[2], opts.palette);
   } else {
     keyIndex = detectBorderKey(pixels, opaque, width, height);
   }

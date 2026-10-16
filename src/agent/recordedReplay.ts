@@ -1,18 +1,24 @@
+import type { JoystickSample } from "../runtime/keys.ts";
 /** Exact host/interpreter operation tape. Authored step ticks keep their existing meaning. */
 import { validateEngineReplayState, type EngineReplayState } from "../runtime/replayState.ts";
 
 export type RecordedHostCall =
   | ["clock", number]
+  | ["keyResume", 1]
+  | ["soundEnabled", 0 | 1]
   | ["keys", number[]]
+  | ["joystick", JoystickSample | null]
   | ["clicks", [number, number][]]
   | ["line", string | null]
   | ["random" | "number" | "waitKey" | "soundDevice", number]
   | ["string" | "version", string];
 export type RecordedOperation =
-  | ["tick" | "release", RecordedHostCall[]]
+  | ["tick" | "release" | "joystick", RecordedHostCall[]]
   | ["clock", number]
   | ["edit", string]
   | ["navigate" | "soundEnabled", number]
+  /** An Amiga menu strip event: op, screen x, screen y, sticky (0/1). */
+  | ["menu", [string, number, number, number]]
   | ["ack"];
 export interface RecordedReplay {
   state: EngineReplayState;
@@ -51,8 +57,13 @@ export class OperationRecorder {
     this.operations.push(operation);
   }
   clock(): void {
-    if (this.calls) this.host(["clock", 1]);
+    if (this.calls || this.openCalls) this.host(["clock", 1]);
     else this.record(["clock", 1]);
+  }
+  /** Native switches during a parked tick precede its eventual key answer. */
+  recordSound(enabled: boolean): void {
+    if (this.calls || this.openCalls) this.host(["soundEnabled", enabled ? 1 : 0]);
+    else this.record(["soundEnabled", enabled ? 1 : 0]);
   }
   host(call: RecordedHostCall): void {
     const target = this.calls ?? this.openCalls;
@@ -65,7 +76,22 @@ export class OperationRecorder {
     }
     target.push(call);
   }
-  run(kind: "tick" | "release", run: () => void): void {
+  run(kind: "tick" | "release" | "joystick", run: () => void): void {
+    if (this.calls !== null) {
+      run();
+      return;
+    }
+    if (kind === "joystick" && this.openCalls !== null) {
+      // A cancellation while a host answer is pending precedes that answer.
+      // Keep the tick open: this input poll does not resume its logic pass.
+      this.calls = this.openCalls;
+      try {
+        run();
+      } finally {
+        this.calls = null;
+      }
+      return;
+    }
     if (kind === "tick" && this.openCalls !== null) {
       // Resumption of a tick parked on a host answer: keep collecting into
       // the operation it started rather than opening a second tick.
@@ -119,6 +145,10 @@ function host(value: unknown): RecordedHostCall {
   const v = tuple(value);
   if (v.length !== 2) throw new Error("Recorded host call requires a value.");
   switch (v[0]) {
+    case "soundEnabled":
+      return ["soundEnabled", integer(v[1], 0, 1) as 0 | 1];
+    case "keyResume":
+      return ["keyResume", integer(v[1], 1, 1) as 1];
     case "clock":
       return ["clock", integer(v[1], 1, 60000)];
     case "keys":
@@ -136,6 +166,30 @@ function host(value: unknown): RecordedHostCall {
           return [integer(p[0], 0, 319), integer(p[1], 0, 199)];
         }),
       ];
+    case "joystick": {
+      if (v[1] === null) return ["joystick", null];
+      if (typeof v[1] !== "object" || Array.isArray(v[1]))
+        throw new Error("Recorded joystick sample is invalid.");
+      const s = v[1] as Record<string, unknown>;
+      if (
+        Object.keys(s).some((k) => !["x", "y", "button1", "button2"].includes(k)) ||
+        typeof s["x"] !== "number" ||
+        !Number.isFinite(s["x"]) ||
+        s["x"] < -1 ||
+        s["x"] > 65535 ||
+        typeof s["y"] !== "number" ||
+        !Number.isFinite(s["y"]) ||
+        s["y"] < -1 ||
+        s["y"] > 65535 ||
+        (s["button1"] !== undefined && typeof s["button1"] !== "boolean") ||
+        (s["button2"] !== undefined && typeof s["button2"] !== "boolean")
+      )
+        throw new Error("Recorded joystick sample is invalid.");
+      return [
+        "joystick",
+        { x: s["x"], y: s["y"], button1: s["button1"] === true, button2: s["button2"] === true },
+      ];
+    }
     case "line":
       return ["line", v[1] === null ? null : string(v[1])];
     case "string":
@@ -179,7 +233,15 @@ export function validateRecordedReplay(value: unknown): RecordedReplay {
     if (v[0] === "edit") return ["edit", string(v[1])];
     if (v[0] === "soundEnabled") return ["soundEnabled", integer(v[1], 0, 1)];
     if (v[0] === "navigate") return ["navigate", integer(v[1], 1, 8)];
-    if (v[0] === "tick" || v[0] === "release") {
+    if (v[0] === "menu") {
+      const m = tuple(v[1]);
+      if (m.length !== 4) throw new Error("Recorded menu event requires op, x, y and sticky.");
+      const op = string(m[0]);
+      if (!["open", "move", "release", "tap", "cancel"].includes(op))
+        throw new Error("Recorded menu op is invalid.");
+      return ["menu", [op, integer(m[1], -1, 319), integer(m[2], -1, 199), integer(m[3], 0, 1)]];
+    }
+    if (v[0] === "tick" || v[0] === "release" || v[0] === "joystick") {
       if (!Array.isArray(v[1]) || v[1].length > 60000)
         throw new Error("Recorded tick has too many host calls.");
       if (v[0] === "tick") ticks++;
@@ -209,7 +271,7 @@ export function decodeRecordedReplay(text: string): RecordedReplay {
 export function recordedPlayerInputs(replay: RecordedReplay): number {
   let inputs = 0;
   for (const operation of replay.operations) {
-    if (operation[0] === "navigate" || operation[0] === "ack") inputs++;
+    if (operation[0] === "navigate" || operation[0] === "ack" || operation[0] === "menu") inputs++;
     if (operation[0] !== "tick" && operation[0] !== "release") continue;
     for (const call of operation[1]) {
       if (call[0] === "line") inputs += call[1] === null ? 0 : 1;

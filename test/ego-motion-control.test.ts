@@ -7,7 +7,7 @@ import { AGI_KEY } from "../src/runtime/keys.ts";
 import { buildView } from "../src/view/view.ts";
 import { MOTION_MOVE_OBJ, MOTION_NORMAL } from "../src/runtime/screenObject.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
-import { PROFILES } from "../src/runtime/profile.ts";
+import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 
 /** The object-0 coupling selector as the save image records it: 1 = player control. */
 function coupling(engine: Engine): number {
@@ -47,7 +47,7 @@ test("movement authority is observable independently of parser availability", ()
   }
 });
 
-function game(source: string): { engine: Engine; host: Host } {
+function game(source: string, profile?: ProfileId): { engine: Engine; host: Host } {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);
   container.putResource(
@@ -56,7 +56,13 @@ function game(source: string): { engine: Engine; host: Host } {
     buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [1, 1] }] }] }),
   );
   const host = new Host();
-  return { engine: new Engine(container, host, undefined), host };
+  const engine = new Engine(
+    container,
+    host,
+    undefined,
+    profile ? { profile: PROFILES[profile] } : undefined,
+  );
+  return { engine, host };
 }
 
 test("move.obj on ego takes program control until arrival, then hands control back", () => {
@@ -148,4 +154,104 @@ test("player.control stops object 0's targeted motion and keeps its direction", 
   const x = ego.x;
   engine.tick();
   assert.equal(ego.x, x, "no further steps toward the abandoned target");
+});
+
+test("a fresh player direction meets the block check in the same cycle", () => {
+  // Player-visible rule: the ego↔v6 direction mirror runs BEFORE the
+  // autonomous-direction/block pass, so a direction pressed this cycle is
+  // stopped at a block boundary immediately instead of stepping inside.
+  // kq3 2.936 main cycle 0x150: v6 := ego.dir / ego.dir := v6 at 0x17B-0x195
+  // precedes the GetObjDirs dispatcher call at 0x198 (routine 0x644).
+  const { engine, host } = game(`
+    if (!isset(f200)) {
+      set(f200);
+      load.view(1); animate.obj(o0); set.view(o0, 1);
+      position(o0, 94, 60); draw(o0);
+      block(50, 50, 95, 90);
+      assignn(v60, 1); step.size(o0, v60); step.time(o0, v60);
+    }
+    return;
+  `);
+  engine.tick();
+  host.keys.push(AGI_KEY.RIGHT);
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(engine.vars[6], 0, "the blocked direction is cancelled");
+  assert.equal(ego.x, 94, "ego never steps inside the block");
+});
+
+test("2.089 position on a drawn object raises it above the horizon before storing the snapshot", () => {
+  // Player-visible rule: on 2.089, position() on a DRAWN object runs the
+  // horizon/placement routine, so an object positioned onto or above the
+  // horizon is raised to horizon+1 first; an undrawn object is stored
+  // verbatim. 2.230+ store the coordinates untouched (sq1 2.089 Position
+  // 0x7141: store x/y, test the DRAWN flag (flags&1), call 0x515C — the
+  // horizon raise, then the placement spiral — and only then snapshot prev
+  // from the adjusted coordinates; contrast xmas 2.230 0x70FA
+  // store-together, no call).
+  const run = (profile: "2.089" | "2.936", setup: string) => {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `load.view(1); animate.obj(o1); set.view(o1, 1); position(o1, 8, 96);
+         ${setup} position(o1, 20, 10); return;`,
+        { dictionary: new Map(), profile: PROFILES[profile] },
+      ).payload,
+    );
+    container.putResource(
+      "view",
+      1,
+      buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+    );
+    const engine = new Engine(container, new Host(), undefined, { profile });
+    engine.tick();
+    return engine.screenObjects[1]!.y;
+  };
+  assert.equal(run("2.089", "draw(o1); stop.update(o1);"), 37, "drawn: raised above horizon 36");
+  assert.equal(
+    run("2.089", "draw(o1); stop.update(o1); ignore.horizon(o1);"),
+    10,
+    "drawn with ignore.horizon: stored verbatim",
+  );
+  assert.equal(run("2.089", ""), 10, "undrawn: stored verbatim");
+  assert.equal(
+    run("2.936", "draw(o1); stop.update(o1);"),
+    10,
+    "store-together profiles never place",
+  );
+});
+
+test("early profiles (2.001..2.272, amiga-2.082) mirror the ego direction after the block pass; 2.411+ mirror before", () => {
+  // In PC 2.001..2.272 (kq2boot 0x01C3..0x01DC, sq1 0x018F..0x01AA) and
+  // Amiga 2.082 (0x000284..0x0002AA), GetObjDirs / ChkBlock runs BEFORE the
+  // ego.dir <-> var[6] mirror, so a direction pressed this cycle is not yet on
+  // the object when the block check runs and v6 survives into logic 0. From PC
+  // 2.411+ (kq2 0x0181..0x019E, kq1 2.917 0x0179..0x0196), Amiga 2.176+ and
+  // IIgs 1.014, the mirror runs before GetObjDirs and cancels v6 immediately.
+  const source = `
+    if (!isset(f200)) {
+      set(f200);
+      load.view(1); animate.obj(o0); set.view(o0, 1);
+      position(o0, 94, 60); draw(o0);
+      block(50, 50, 95, 90);
+      assignn(v60, 1); step.size(o0, v60); step.time(o0, v60);
+    }
+    return;
+  `;
+  for (const profile of ["2.089", "amiga-2.082"] as const) {
+    const { engine, host } = game(source, profile);
+    engine.tick();
+    host.keys.push(AGI_KEY.RIGHT);
+    engine.tick();
+    assert.equal(engine.vars[6], 3, `${profile}: fresh direction was mirrored after ChkBlock`);
+  }
+  for (const profile of ["2.411", "2.917", "amiga-2.316", "iigs-1.014"] as const) {
+    const { engine, host } = game(source, profile);
+    engine.tick();
+    host.keys.push(AGI_KEY.RIGHT);
+    engine.tick();
+    assert.equal(engine.vars[6], 0, `${profile}: fresh direction met ChkBlock and was cancelled`);
+  }
 });

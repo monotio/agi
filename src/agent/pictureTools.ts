@@ -18,6 +18,7 @@ import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 import { editableSource, sourceContextRevision } from "./authoringTools.ts";
 import { applyEdit } from "../studio/editOperations.ts";
 import { parsePictureDocument, serializePictureDocument } from "../studio/pictureDocument.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 const MAX_SHAPES = 128;
 const MAX_VERTICES_PER_SHAPE = 64;
@@ -309,7 +310,12 @@ export function executePictureTool(
       horizon: DEFAULT_HORIZON,
       commandCount: compiled.commandCount,
     });
-    const png = pictureComparisonPng(surface.visual, surface.priority);
+    const png = pictureComparisonPng(
+      surface.visual,
+      surface.priority,
+      undefined,
+      colourTableForProfile(state.profile),
+    );
     state.container.putResource("picture", room, compiled.bytes);
     state.sources.pictures.set(room, source);
     const revision = resourceCacheHint(compiled.bytes);

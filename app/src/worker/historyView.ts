@@ -62,9 +62,11 @@ export function createHistoryView(
         drive !== null &&
         engine !== null &&
         drive.diverged === null &&
+        drive.incompatible === null &&
         drive.error === null &&
         engine.recordingImage() !== null,
       diverged: drive?.diverged ?? null,
+      ...(drive?.incompatible ? { incompatible: drive.incompatible } : {}),
       error: drive?.error ?? null,
     };
   }
@@ -127,6 +129,7 @@ export function createHistoryView(
     }
     const drive = createDrive(segment, createContext, {
       ...(anchorIdx !== undefined ? { anchor: anchorIdx } : {}),
+      ...(ctx.view.recording !== null ? { recordingVersion: ctx.view.recording.version } : {}),
       ports: {
         // Scratch host requests resolve from the recorded answers, never the
         // host; only a real engine fault surfaces.
@@ -222,8 +225,10 @@ export function createHistoryView(
         while (!preview.halted && !presented) {
           preview.step();
           const engine = preview.ctx.run.engine;
+          // A first picture that dissolves in presents once it has.
           presented =
             engine !== null &&
+            engine.modalKind !== "dissolve" &&
             (engine.readLeanState().pictureShown ||
               engine.textModeActive ||
               engine.modalKind !== null);
@@ -438,6 +443,12 @@ export function createHistoryView(
       refuse(`the recording diverged: ${drive.diverged.detail}`);
       return;
     }
+    if (drive.incompatible !== null) {
+      refuse(
+        `this earlier recording ended before the selected moment: ${drive.incompatible.detail}`,
+      );
+      return;
+    }
     if (drive.error !== null) {
       refuse(drive.error);
       return;
@@ -462,12 +473,19 @@ export function createHistoryView(
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
       ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),
+      ...(engine.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       image: bytesToBase64(image),
       replay: engine.captureReplayState(),
       menus: engine.readMenuState(),
       inputQueue: [...scratch.run.input.keyQueue],
       directionQueue: [...scratch.run.input.deferredMovement],
       inputLines: [...scratch.run.input.inputBuffer],
+      ...(scratch.run.input.joystickObserved
+        ? {
+            joystick:
+              scratch.run.input.joystick === null ? null : { ...scratch.run.input.joystick },
+          }
+        : {}),
       ...(scratch.run.input.clickQueue.length > 0
         ? { clickQueue: scratch.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),

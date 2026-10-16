@@ -1,0 +1,244 @@
+{
+  "fixture": "sq2-amiga",
+  "profile": "amiga-2.202",
+  "machine": "a500n",
+  "bios": "kick13",
+  "media": [
+    {
+      "slot": "-flop1",
+      "sha256": "e46084876466879600fbde240a512dcd23b10e23058c680151d7f0e608dee4c4"
+    }
+  ],
+  "crop": {
+    "x": 74,
+    "y": 46,
+    "width": 640,
+    "height": 400
+  },
+  "seconds": 196,
+  "seed": 7531,
+  "steps": [
+    {
+      "at": 50,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 20000
+      }
+    },
+    {
+      "at": 65,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 1000
+      }
+    },
+    {
+      "at": 80,
+      "capture": "orbital",
+      "engine": {
+        "text": "Orbital Station 4",
+        "modal": "print",
+        "maxMs": 20000
+      }
+    },
+    {
+      "at": 85,
+      "key": "Enter"
+    },
+    {
+      "at": 100,
+      "capture": "chapter",
+      "engine": {
+        "text": "As we begin",
+        "modal": "print"
+      }
+    },
+    {
+      "at": 105,
+      "key": "Enter"
+    },
+    {
+      "at": 120,
+      "capture": "beep",
+      "engine": {
+        "text": "A beep emanates",
+        "modal": "print"
+      }
+    },
+    {
+      "at": 125,
+      "key": "Enter"
+    },
+    {
+      "at": 140,
+      "capture": "message",
+      "engine": {
+        "text": "The broom floats",
+        "modal": "print"
+      }
+    },
+    {
+      "at": 145,
+      "key": "Enter"
+    },
+    {
+      "at": 160,
+      "capture": "opening",
+      "engine": {
+        "advanceMs": 1000,
+        "modal": null
+      }
+    },
+    {
+      "at": 161,
+      "key": "Left",
+      "fields": ["Cursor Left"]
+    },
+    {
+      "at": 162.5,
+      "capture": "walk-1",
+      "engine": {
+        "advanceMs": 1300
+      }
+    },
+    {
+      "at": 164.0,
+      "capture": "walk-2",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 165.5,
+      "capture": "walk-3",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 167.0,
+      "capture": "walk-4",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 168.5,
+      "capture": "walk-5",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 170.0,
+      "capture": "walk-6",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 171.5,
+      "capture": "walk-7",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 173.0,
+      "capture": "walk-8",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 174.5,
+      "capture": "walk-9",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 176.0,
+      "capture": "walk-10",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 177.5,
+      "capture": "walk-11",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 179.0,
+      "capture": "walk-12",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 180.5,
+      "capture": "walk-13",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 182.0,
+      "capture": "walk-14",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 183.5,
+      "capture": "walk-15",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 185.0,
+      "capture": "walk-16",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 186.5,
+      "capture": "walk-17",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 188.0,
+      "capture": "walk-18",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 189.5,
+      "capture": "walk-19",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 191.0,
+      "capture": "walk-20",
+      "engine": {
+        "advanceMs": 1500
+      }
+    }
+  ],
+  "boot": [
+    {
+      "at": 35,
+      "text": "{ENTER}"
+    }
+  ]
+}

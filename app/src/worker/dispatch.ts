@@ -4,6 +4,8 @@
  * fake-port context. engine.worker.ts owns the ports that stamp sessionId
  * and suppress presentation while seeking; this module only sees ctx.
  */
+import { appearanceForProfile, loadAppearance } from "../render/appearance.ts";
+import { detectProfile } from "../../../src/runtime/profile.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
@@ -46,6 +48,39 @@ function debugLoadGate(ctx: WorkerContext, msg: WorkerInbound): boolean {
 }
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
+  if (ctx.appearanceLoading) {
+    ctx.appearanceLoading.queue.push(msg);
+    return;
+  }
+  if (msg.type === "boot") {
+    try {
+      const files = new Map(Object.entries(msg.files));
+      const profile = detectProfile(files, msg.profile);
+      if (
+        (profile.presentation === "amiga" || profile.presentation === "iigs") &&
+        appearanceForProfile(profile.id, files).layout !== profile.presentation
+      ) {
+        const pending = { queue: [msg] };
+        ctx.appearanceLoading = pending;
+        void loadAppearance(profile.id, files)
+          .then(() => {
+            ctx.appearanceLoading = undefined;
+            for (const held of pending.queue) onWorkerMessage(ctx, held);
+          })
+          .catch((error: unknown) => {
+            ctx.appearanceLoading = undefined;
+            ctx.ports.control({
+              type: "error",
+              message: `Game appearance failed to load: ${String(error)}`,
+            });
+          });
+        return;
+      }
+    } catch (error) {
+      ctx.ports.control({ type: "error", message: String(error) });
+      return;
+    }
+  }
   if (msg.type === "playOwner") {
     const epoch = msg.epoch ?? ctx.run.owner.epoch;
     if (
@@ -56,6 +91,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       (epoch === ctx.run.owner.epoch && msg.generation < ctx.run.owner.generation)
     )
       return;
+    if (!msg.active) ctx.fns.onJoystick({ type: "joystick", sample: null });
     ctx.run.owner.active = msg.active;
     ctx.run.owner.generation = msg.generation;
     ctx.run.owner.epoch = epoch;
@@ -404,9 +440,12 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         {
           ...(boot.profile ? { profile: boot.profile } : {}),
           amigaRegion: boot.amigaRegion ?? "ntsc",
+          ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
         },
       );
       engine.flags[9] = 1;
+      // Amiga boots wait at the command boundary above; resolve player fonts for this engine too.
+      void loadAppearance(engine.profile.id, engine.containerFiles);
       let restored: Extract<WorkerControl, { type: "restored" }> | undefined;
       if (boot.restoreImage) {
         try {
@@ -480,6 +519,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       // restored: the boot record carries the image the session resumed
       // from.
       ctx.fns.historyBoot(boot);
+      if (boot.joystick !== undefined && boot.joystick !== null)
+        ctx.fns.onJoystick({ type: "joystick", sample: boot.joystick });
       if (!ctx.replay.replay) ctx.fns.startTimers();
       control({
         type: "booted",
@@ -670,15 +711,23 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "dismissPrint") {
-      ctx.fns.onDismissPrint();
+      ctx.fns.onDismissPrint(msg);
       return;
     }
     if (msg.type === "key") {
       ctx.fns.onKey(msg);
       return;
     }
+    if (msg.type === "joystick") {
+      ctx.fns.onJoystick(msg);
+      return;
+    }
     if (msg.type === "click") {
       ctx.fns.onClick(msg);
+      return;
+    }
+    if (msg.type === "menu") {
+      ctx.fns.onMenu(msg);
       return;
     }
     if (msg.type === "direction") {

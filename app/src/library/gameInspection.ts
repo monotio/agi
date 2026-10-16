@@ -1,6 +1,7 @@
 import { Engine, type EngineHost } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { compositeFrame } from "../render/composite.ts";
+import { loadAppearance } from "../render/appearance.ts";
 import {
   detectProfileDecision,
   type ProfileDetectionKind,
@@ -30,7 +31,7 @@ export type PreviewWorkerOutbound = { result: GameInspection } | { error: string
 class PreviewInput extends Error {}
 
 /** A disposable interpreter, with no authoring, persistence, audio or network capabilities. */
-export function inspectGame(game: PreviewWorkerInbound): GameInspection {
+export async function inspectGame(game: PreviewWorkerInbound): Promise<GameInspection> {
   const stop = (): never => {
     throw new PreviewInput();
   };
@@ -49,6 +50,7 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
     randomByte: () => 123,
   };
   const files = new Map(Object.entries(game.files));
+  // Inspection reads game state, so the default EGA display is enough.
   const engine = new Engine(
     openContainer(files, game.profile ? { profile: game.profile } : {}),
     host,
@@ -66,11 +68,12 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
       engine.tick();
       const state = engine.readState();
       visible = state.pictureShown || engine.textCells.some((b, i) => i % 2 === 0 && b > 32);
-      if (engine.modalKind) {
+      // An Amiga/IIgs picture dissolve ends on the clock; the opening is the picture after it.
+      if (engine.modalKind && !engine.clockModalOpen) {
         needsInput = true;
         break;
       }
-      if (tick >= 3 && visible) break;
+      if (tick >= 3 && visible && !engine.clockModalOpen) break;
       engine.advanceClock(50);
     }
   } catch (error) {
@@ -81,7 +84,15 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
   const presentation = engine.getPresentation();
   const rgba = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
-    { visual: presentation.visual, text: presentation.text, picRow: engine.displayBase },
+    {
+      visual: presentation.visual,
+      text: presentation.text,
+      windowOverlay: presentation.windowOverlay,
+      picRow: engine.displayBase,
+      appearance: await loadAppearance(engine.profile.id, engine.containerFiles),
+      statusBar: presentation.statusBar,
+      gadgets: presentation.gadgets,
+    },
     rgba,
   );
   return {

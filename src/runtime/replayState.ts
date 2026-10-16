@@ -1,10 +1,13 @@
 /** Host recording state deliberately excluded from authentic save.game images. */
 import type { InputEvent } from "./inputQueue.ts";
+import type { WindowFrameGeometry, WindowOverlay, GadgetFill } from "./textSurface.ts";
 
 /**
  * A modal's covered cells, serialized. `cells` are the row-major [char, attr]
  * pairs of the inclusive rect; `written` its per-cell write stamps — together
- * they restore both the text and its age under sprites.
+ * they restore both the text and its age under sprites. `window` optionally
+ * carries the active window's sub-cell pixel frame metadata so a resumed
+ * continuation re-stamps its authentic border.
  */
 export interface SerializedSavedRect {
   written: number[];
@@ -13,6 +16,7 @@ export interface SerializedSavedRect {
   bottom: number;
   right: number;
   cells: number[];
+  window?: WindowOverlay | undefined;
 }
 
 /** A parked modal window; fresh serials are assigned on restore. */
@@ -26,9 +30,23 @@ type SerializedModal =
       selected: number;
       interactive: boolean;
     }
-  | { kind: "menu"; saved: SerializedSavedRect }
+  | {
+      kind: "menu";
+      saved: SerializedSavedRect;
+      /** The Amiga strip's open title, item and host-held mode; absent for the PC menu. */
+      native?: { heading: number | null; item: number | null; sticky: boolean };
+    }
   | { kind: "showObj"; saved: SerializedSavedRect; view: number }
-  | { kind: "showPri" };
+  | { kind: "showPri" }
+  | { kind: "shake"; steps: number; step: number; elapsedMs: number; palette: number[] | null }
+  | {
+      kind: "dissolve";
+      elapsedMs: number;
+      durationMs: number;
+      skipRows: boolean;
+      /** The screen it started from: 26,880 hex digits, one colour a pixel. */
+      from: string;
+    };
 
 /**
  * A logic pass parked at a resumable boundary — an open window or a have.key
@@ -64,8 +82,72 @@ export interface PlaybackState {
     envelopeValue: number;
   }[];
 }
+/** Optional native joystick service state; omission is the released disconnected host. */
+export interface JoystickReplayState {
+  enabled: boolean;
+  clockMs: number;
+  thresholds: number[];
+  direction: number;
+  buttons: { state: 0 | 1 | 2 | 3; deadline: number }[];
+  calibration: number | null;
+  /** init.joy found no pad; the first sample brings it online (optional). */
+  pendingInit?: true;
+}
+
+export function validateJoystickState(value: unknown): JoystickReplayState {
+  const pending =
+    value !== null && typeof value === "object" && Object.hasOwn(value, "pendingInit");
+  const s = record(value, [
+    "enabled",
+    "clockMs",
+    "thresholds",
+    "direction",
+    "buttons",
+    "calibration",
+    ...(pending ? ["pendingInit"] : []),
+  ]);
+  if (pending && s["pendingInit"] !== true) throw new Error("Replay joystick state is invalid.");
+  const thresholds = array(s["thresholds"], 4, (v) => number(v, -65535, 131070, false));
+  const buttons = array(s["buttons"], 2, (v) => {
+    const b = record(v, ["state", "deadline"]);
+    return {
+      state: number(b["state"], 0, 3) as 0 | 1 | 2 | 3,
+      deadline: number(b["deadline"], 0, Number.MAX_SAFE_INTEGER, false),
+    };
+  });
+  if (
+    thresholds.length !== 4 ||
+    buttons.length !== 2 ||
+    thresholds[0]! > thresholds[1]! ||
+    thresholds[2]! > thresholds[3]!
+  )
+    throw new Error("Replay joystick state is inconsistent.");
+  return {
+    enabled: bool(s["enabled"]),
+    clockMs: number(s["clockMs"], 0, Number.MAX_SAFE_INTEGER, false),
+    thresholds,
+    direction: number(s["direction"], 0, 8),
+    buttons,
+    calibration: s["calibration"] === null ? null : number(s["calibration"], 0, 63),
+    ...(pending ? { pendingInit: true as const } : {}),
+  };
+}
+
 export interface EngineReplayState {
+  joystick?: JoystickReplayState;
   amigaRegion?: "ntsc" | "pal";
+  /** The PC monitor type after toggle.monitor changed it (src/runtime/display.ts). */
+  monitorType?: number;
+  /** Present once set.pri.base has replaced the default priority table (PriToY). */
+  priorityTableRebuilt?: true;
+  /** 2.001 ticks since the last clock refresh, when nonzero. */
+  booterClockPhase?: number;
+  /**
+   * Amiga/IIgs: overlay.pic set the show.pic mode flag, so the next show.pic
+   * copies at once (docs/fidelity.md "Original picture dissolve"). Older
+   * states omit it and keep what the image's picture replay left.
+   */
+  pictureRevealInstant?: boolean;
   clockRemainderMs: number;
   pictureShown: boolean;
   terminated: boolean;
@@ -144,8 +226,27 @@ function array<T>(value: unknown, max: number, parse: (v: unknown) => T): T[] {
     throw new Error("Replay state array is too long.");
   return value.map(parse);
 }
-function savedRect(value: unknown): SerializedSavedRect {
-  const s = record(value, ["written", "top", "left", "bottom", "right", "cells"]);
+function gadgetFill(value: unknown): GadgetFill {
+  const g = record(value, ["x0", "y0", "x1", "y1", "pen", "label"]);
+  const label = record(g["label"], ["x0", "y0", "x1", "y1"]);
+  const px = (v: unknown): number => number(v, -8192, 8192);
+  return {
+    x0: px(g["x0"]),
+    y0: px(g["y0"]),
+    x1: px(g["x1"]),
+    y1: px(g["y1"]),
+    pen: number(g["pen"], 0, 15),
+    label: { x0: px(label["x0"]), y0: px(label["y0"]), x1: px(label["x1"]), y1: px(label["y1"]) },
+  };
+}
+function savedRect(value: unknown, options?: { allowWindow?: boolean }): SerializedSavedRect {
+  const hasWindow = value !== null && typeof value === "object" && Object.hasOwn(value, "window");
+  const s = record(
+    value,
+    hasWindow
+      ? ["written", "top", "left", "bottom", "right", "cells", "window"]
+      : ["written", "top", "left", "bottom", "right", "cells"],
+  );
   const top = number(s["top"], 0, 24);
   const left = number(s["left"], 0, 39);
   const bottom = number(s["bottom"], 0, 24);
@@ -156,10 +257,68 @@ function savedRect(value: unknown): SerializedSavedRect {
   const written = array(s["written"], 25 * 40, (v) => number(v, 0, 4294967295));
   if (cells.length !== w * h * 2 || written.length !== w * h)
     throw new Error("Replay state saved rect dimensions are invalid.");
-  return { written, top, left, bottom, right, cells };
+  let window: WindowOverlay | undefined;
+  if (hasWindow && s["window"] !== undefined) {
+    if (options?.allowWindow === false)
+      throw new Error(
+        "Replay state saved.window requires recording version 3 or host image version 2.",
+      );
+    const hasErased =
+      s["window"] !== null &&
+      typeof s["window"] === "object" &&
+      Object.hasOwn(s["window"], "erased");
+    const hasGadgets =
+      s["window"] !== null &&
+      typeof s["window"] === "object" &&
+      Object.hasOwn(s["window"], "gadgets");
+    const win = record(s["window"], [
+      "geometry",
+      "textTop",
+      "textLeft",
+      "textRows",
+      "textCols",
+      "x0",
+      "y0",
+      "x1",
+      "y1",
+      "seq",
+      ...(hasErased ? ["erased"] : []),
+      ...(hasGadgets ? ["gadgets"] : []),
+    ]);
+    const geometry = win["geometry"];
+    if (geometry !== "pc-2.001" && geometry !== "pc" && geometry !== "amiga" && geometry !== "iigs")
+      throw new Error("Replay state window geometry is invalid.");
+    const erased =
+      hasErased && win["erased"] !== undefined
+        ? array(win["erased"], 320 * 200, (v) => number(v, 0, 320 * 200 - 1))
+        : undefined;
+    window = {
+      geometry: geometry as WindowFrameGeometry,
+      textTop: number(win["textTop"], -1024, 1024),
+      textLeft: number(win["textLeft"], -1024, 1024),
+      textRows: number(win["textRows"], 0, 256),
+      textCols: number(win["textCols"], 0, 256),
+      x0: number(win["x0"], -8192, 8192),
+      y0: number(win["y0"], -8192, 8192),
+      x1: number(win["x1"], -8192, 8192),
+      y1: number(win["y1"], -8192, 8192),
+      seq: number(win["seq"], 0, 0xffffffff),
+      ...(erased !== undefined ? { erased } : {}),
+      ...(win["gadgets"] !== undefined ? { gadgets: array(win["gadgets"], 8, gadgetFill) } : {}),
+    };
+  }
+  return {
+    written,
+    top,
+    left,
+    bottom,
+    right,
+    cells,
+    ...(window !== undefined ? { window } : {}),
+  };
 }
 
-function serializedModal(value: unknown): SerializedModal {
+function serializedModal(value: unknown, options?: { allowWindow?: boolean }): SerializedModal {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Replay state requires an object.");
   const kind = (value as Record<string, unknown>)["kind"];
@@ -168,7 +327,7 @@ function serializedModal(value: unknown): SerializedModal {
       const m = record(value, ["kind", "saved", "remainingMs", "pauseClock"]);
       return {
         kind,
-        saved: savedRect(m["saved"]),
+        saved: savedRect(m["saved"], options),
         pauseClock: bool(m["pauseClock"]),
         remainingMs:
           m["remainingMs"] === null ? null : number(m["remainingMs"], 0, 0xffffffff, false),
@@ -178,7 +337,7 @@ function serializedModal(value: unknown): SerializedModal {
       const m = record(value, ["kind", "saved", "items", "slots", "selected", "interactive"]);
       return {
         kind,
-        saved: savedRect(m["saved"]),
+        saved: savedRect(m["saved"], options),
         items: array(m["items"], 255, (v) => {
           const item = record(v, ["num", "name"]);
           return { num: number(item["num"], 0, 255), name: text(item["name"]) };
@@ -192,23 +351,66 @@ function serializedModal(value: unknown): SerializedModal {
       };
     }
     case "menu": {
-      const m = record(value, ["kind", "saved"]);
-      return { kind, saved: savedRect(m["saved"]) };
+      const hasNative = Object.hasOwn(value, "native");
+      const m = record(value, hasNative ? ["kind", "saved", "native"] : ["kind", "saved"]);
+      if (!hasNative) return { kind, saved: savedRect(m["saved"], options) };
+      const n = record(m["native"], ["heading", "item", "sticky"]);
+      return {
+        kind,
+        saved: savedRect(m["saved"], options),
+        native: {
+          heading: nullable(n["heading"]),
+          item: nullable(n["item"]),
+          sticky: bool(n["sticky"]),
+        },
+      };
     }
     case "showObj": {
       const m = record(value, ["kind", "saved", "view"]);
-      return { kind, saved: savedRect(m["saved"]), view: number(m["view"], 0, 255) };
+      return { kind, saved: savedRect(m["saved"], options), view: number(m["view"], 0, 255) };
     }
     case "showPri":
       record(value, ["kind"]);
       return { kind };
+    case "shake": {
+      const m = record(value, ["kind", "steps", "step", "elapsedMs", "palette"]);
+      const steps = number(m["steps"], 1, 255 * 8);
+      const step = number(m["step"], 0, steps - 1);
+      const palette =
+        m["palette"] === null ? null : array(m["palette"], 16, (v) => number(v, 0, 0xfff));
+      if (palette !== null && palette.length !== 16)
+        throw new Error("Replay shake palette needs sixteen colours.");
+      return {
+        kind,
+        steps,
+        step,
+        elapsedMs: number(m["elapsedMs"], 0, 1000, false),
+        palette,
+      };
+    }
+    case "dissolve": {
+      const m = record(value, ["kind", "elapsedMs", "durationMs", "skipRows", "from"]);
+      const durationMs = number(m["durationMs"], 1, 2000, false);
+      if (typeof m["from"] !== "string" || !/^[0-9a-f]{26880}$/.test(m["from"]))
+        throw new Error("Replay dissolve frame is invalid.");
+      return {
+        kind,
+        elapsedMs: number(m["elapsedMs"], 0, durationMs, false),
+        durationMs,
+        skipRows: bool(m["skipRows"]),
+        from: m["from"],
+      };
+    }
     default:
       throw new Error("Replay state has an unknown modal kind.");
   }
 }
 
 /** Validate a serialized parked pass, or null for a non-parked snapshot. */
-export function validateContinuation(value: unknown): ParkedContinuation | null {
+export function validateContinuation(
+  value: unknown,
+  options?: { allowWindow?: boolean },
+): ParkedContinuation | null {
   if (value === null) return null;
   const s = record(value, ["frames", "modals", "persistentWindow", "keyWait"]);
   let keyWait: ParkedContinuation["keyWait"] = null;
@@ -233,8 +435,9 @@ export function validateContinuation(value: unknown): ParkedContinuation | null 
         hash: number(f["hash"], 0, 0xffffffff),
       };
     }),
-    modals: array(s["modals"], 8, serializedModal),
-    persistentWindow: s["persistentWindow"] === null ? null : savedRect(s["persistentWindow"]),
+    modals: array(s["modals"], 8, (v) => serializedModal(v, options)),
+    persistentWindow:
+      s["persistentWindow"] === null ? null : savedRect(s["persistentWindow"], options),
     keyWait,
   };
 }
@@ -276,7 +479,10 @@ export function validatePlaybackState(value: unknown): PlaybackState {
     }),
   };
 }
-export function validateEngineReplayState(value: unknown): EngineReplayState {
+export function validateEngineReplayState(
+  value: unknown,
+  options?: { allowWindow?: boolean },
+): EngineReplayState {
   const fields = [
     "clockRemainderMs",
     "pictureShown",
@@ -308,9 +514,18 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     "patchGeneration",
     "continuation",
   ];
-  const hasRegion =
-    value !== null && typeof value === "object" && Object.hasOwn(value, "amigaRegion");
-  const s = record(value, hasRegion ? [...fields, "amigaRegion"] : fields);
+  const optional = [
+    "amigaRegion",
+    "monitorType",
+    "priorityTableRebuilt",
+    "booterClockPhase",
+    "pictureRevealInstant",
+    "joystick",
+  ].filter((key) => value !== null && typeof value === "object" && Object.hasOwn(value, key));
+  const s = record(value, [...fields, ...optional]);
+  const hasJoystick = optional.includes("joystick");
+  if (s["priorityTableRebuilt"] !== undefined && s["priorityTableRebuilt"] !== true)
+    throw new Error("Replay priority table marker must be true.");
   if (s["amigaRegion"] !== undefined && s["amigaRegion"] !== "pal" && s["amigaRegion"] !== "ntsc")
     throw new Error("Replay region must be ntsc or pal.");
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
@@ -341,8 +556,21 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
       playback: validatePlaybackState(a["playback"]),
     };
   }
+  const continuation = validateContinuation(s["continuation"], options);
+  const joystick = hasJoystick ? validateJoystickState(s["joystick"]) : undefined;
+  if (joystick?.calibration != null && continuation?.modals[joystick.calibration]?.kind !== "print")
+    throw new Error("Replay joystick calibration is missing its window.");
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
+    ...(s["monitorType"] !== undefined ? { monitorType: number(s["monitorType"], 0, 4) } : {}),
+    ...(s["priorityTableRebuilt"] === true ? { priorityTableRebuilt: true as const } : {}),
+    ...(s["booterClockPhase"] !== undefined
+      ? { booterClockPhase: number(s["booterClockPhase"], 1, 17) }
+      : {}),
+    ...(s["pictureRevealInstant"] !== undefined
+      ? { pictureRevealInstant: bool(s["pictureRevealInstant"]) }
+      : {}),
+    ...(joystick ? { joystick } : {}),
     clockRemainderMs: number(
       s["clockRemainderMs"],
       0,
@@ -372,7 +600,7 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
         v,
         o.mapOnConsume === undefined ? ["type", "value"] : ["type", "value", "mapOnConsume"],
       );
-      const type = number(o.type, 1, 3) as 1 | 2 | 3;
+      const type = number(o.type, 1, 3) as 1 | 3 | 2;
       if (o.mapOnConsume !== undefined && o.mapOnConsume !== true)
         throw new Error("Invalid replay input mapping.");
       return {
@@ -405,6 +633,6 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     gameSignature,
     sound,
     patchGeneration: number(s["patchGeneration"], 0, 0xffffffff),
-    continuation: validateContinuation(s["continuation"]),
+    continuation,
   };
 }

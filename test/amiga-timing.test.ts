@@ -13,26 +13,40 @@ const host = {
   takeInputLine: () => null,
 };
 
-for (const region of ["ntsc", "pal"] as const) {
-  test(`Amiga ${region}: 3 frames per pacing increment and 60 frames per game second`, () => {
-    const engine = new Engine(createContainer(), host, undefined, {
-      profile: "amiga-2.310",
-      amigaRegion: region,
-    });
-    const hz = region === "pal" ? 50 : 60;
-    const cycle = new CycleClock(0, engine.timing.timerIncrementMs);
-    let callbacks = 0;
-    for (let frame = 1; frame <= 59; frame++) {
-      const now = (frame * 1000) / hz;
-      if (cycle.poll(now, 1)) callbacks++;
+const AMIGA_PROFILES = [
+  "amiga-2.082",
+  "amiga-2.176",
+  "amiga-2.202",
+  "amiga-2.310",
+  "amiga-2.316",
+  "amiga-2.333",
+] as const;
+
+for (const profile of AMIGA_PROFILES) {
+  for (const region of ["ntsc", "pal"] as const) {
+    test(`${profile} ${region}: 3 frames per pacing increment and 60 frames per game second`, () => {
+      const engine = new Engine(createContainer(), host, undefined, {
+        profile,
+        amigaRegion: region,
+      });
+      const hz = region === "pal" ? 50 : 60;
+      assert.equal(engine.timing.soundHz, hz);
+      assert.equal(engine.timing.timerIncrementMs, 3000 / hz);
+      assert.equal(engine.timing.gameSecondMs, 60000 / hz);
+      const cycle = new CycleClock(0, engine.timing.timerIncrementMs);
+      let callbacks = 0;
+      for (let frame = 1; frame <= 59; frame++) {
+        const now = (frame * 1000) / hz;
+        if (cycle.poll(now, 1)) callbacks++;
+        engine.advanceClock(1000 / hz);
+      }
+      assert.equal(callbacks, 19);
+      assert.equal(engine.vars[11], 0);
       engine.advanceClock(1000 / hz);
-    }
-    assert.equal(callbacks, 19);
-    assert.equal(engine.vars[11], 0);
-    engine.advanceClock(1000 / hz);
-    assert.equal(engine.vars[11], 1);
-    assert.equal(cycle.poll((60 * 1000) / hz, 1), true);
-  });
+      assert.equal(engine.vars[11], 1);
+      assert.equal(cycle.poll((60 * 1000) / hz, 1), true);
+    });
+  }
 }
 
 test("PAL preference leaves PC and IIgs timing at 60 Hz", () => {

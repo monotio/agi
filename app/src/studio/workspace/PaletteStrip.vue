@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { EGA_PALETTE } from "../../render/palette.ts";
+import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { paletteContext } from "../useStudioPalette.ts";
 import { CONTROL_VALUES, priorityMeaning } from "../studioView.ts";
@@ -14,6 +14,7 @@ const {
   disabled?: boolean;
 }>();
 const emit = defineEmits<{ choose: [value: number] }>();
+const palette = useGamePalette();
 const state = computed(() => context ?? { action: "draw", lens: "art" });
 /**
  * Visual offers the 16 colours. Priority offers the four control lines
@@ -83,7 +84,7 @@ function key(event: KeyboardEvent, index: number): void {
         :class="{ 'is-band-start': state.lens !== 'art' && option.value === 4 }"
         :style="
           state.lens === 'art'
-            ? { background: `rgb(${EGA_PALETTE[option.colour]!.join(',')})` }
+            ? { background: paletteCss(palette, option.colour) }
             : { '--mark': `var(--agi-${option.colour})` }
         "
         @click="emit('choose', option.value)"

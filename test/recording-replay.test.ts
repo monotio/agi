@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Engine } from "../src/runtime/engine.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
-import { openContainer } from "../src/container/container.ts";
+import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
 test("recording restoration preserves discarded view caches instead of reviving object references", () => {
@@ -594,6 +594,7 @@ import { Simulation } from "../src/agent/playtest.ts";
 import type { RecordedOperation } from "../src/agent/recordedReplay.ts";
 import {
   HISTORY_FORMAT_VERSION,
+  computeSyncMark,
   validateHistoryRecording,
   stampBoot,
 } from "../src/agent/history.ts";
@@ -651,7 +652,7 @@ test("a recorded click batch replays through the tape host into click-move", () 
     assembleLogic(
       `if (!isset(f200)) {
          set(f200);
-         load.pic(v250); draw.pic(v250); show.pic();
+         load.pic(v250); overlay.pic(v250); show.pic();
          animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
          assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
        }
@@ -787,7 +788,7 @@ test("a PAL recorded setup keeps its timing in the operation tape and authored t
     "logic",
     0,
     assembleLogic(
-      "assignn(v10,1); assignn(v0,1); load.pic(v0); draw.pic(v0); show.pic(); return;",
+      "assignn(v10,1); assignn(v0,1); load.pic(v0); overlay.pic(v0); show.pic(); return;",
       { dictionary: new Map() },
     ).payload,
   );
@@ -813,4 +814,191 @@ test("a PAL recorded setup keeps its timing in the operation tape and authored t
     true,
     String(result.error ?? result.message ?? JSON.stringify(result.details)),
   );
+});
+
+test("a game without script.size faults on the 51st recorded pair", () => {
+  // Player-visible rule: the interpreter's shipped script buffer holds 50
+  // recorded resource pairs, so a game that never calls script.size faults
+  // when it records the 51st. The interpreter data image ships SCRIPTSIZE =
+  // 0x0032 (50) at DS+0x141 (kq3 2.936 / kq1 2.917 / gr1 3.002.149
+  // AGIDATA.OVL 0x141); 200-pair images are game-side script.size calls.
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`${"load.view(1);".repeat(51)} return;`, { dictionary: new Map() }).payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  assert.throws(() => engine.tick(), /50-pair capacity/);
+});
+
+test("script.size still replaces the shipped 50-pair default", () => {
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`script.size(60); ${"load.view(1);".repeat(51)} return;`, {
+      dictionary: new Map(),
+    }).payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+});
+
+test("script.size drops the recorded pairs it already holds", () => {
+  // Player-visible rule: script.size starts the recorded resource sequence
+  // over, so pairs recorded before it no longer count against the new
+  // capacity. The 0x8e handler stores SCRIPTSIZE then runs RestoreAll +
+  // InitScript (scriptTop := script, SCRIPTENTRIES := 0) + AllInBack
+  // (kq3 2.936 0x716A / kq1 2.917 0x70A3 / gr1 3.002.149 0x74E8).
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `load.view(1); load.view(1); script.size(3); load.view(1); load.view(1); load.view(1); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+});
+
+test("script.size redraws every drawn object over text written since its draw", () => {
+  // Player-visible rule: script.size refreshes the update lists, so a drawn
+  // cel's saved background is restored and text printed over the cel since
+  // its draw disappears even while the object is not updating (RestoreAll +
+  // AllInBack, kq3 2.936 0x716A).
+  const container = createContainer();
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `load.view(1); animate.obj(1); set.view(1,1); position(1,8,96); draw(1);
+       stop.update(1); display(13,2,"X"); script.size(50); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+  assert.notEqual(engine.textRow(13).charAt(2), "X");
+});
+
+test("sync marks require the combined digest and admit the optional split state and text digests as a pair", () => {
+  const recording = (sync: unknown[]) => ({
+    version: HISTORY_FORMAT_VERSION,
+    identity: {
+      project: requireProjectId("sync-history"),
+      revision: requireResourceRevision("0".repeat(64)),
+    },
+    profile: "amiga-2.316",
+    resourceSet: "rev-1",
+    startedAt: 0,
+    segments: [
+      {
+        id: "s.1",
+        boot: stampBoot({
+          files: { "VOL.0": "eA==" },
+          dictionary: [],
+          authorRooms: false,
+          rng: 1,
+          soundDevice: 1,
+          resourceSet: "rev-1",
+          requestSerial: 0,
+        }),
+        anchors: [],
+        events: [],
+        marks: [],
+        sync,
+      },
+    ],
+  });
+  const base = { seq: 0, tick: 0, cycle: 0, room: 1, score: 0, patchGeneration: 0, modal: null };
+  // The released version-1/version-2 shape round-trips with its combined digest kept.
+  assert.deepEqual(
+    validateHistoryRecording(recording([{ ...base, digest: "c2c5e065" }])).segments[0]!.sync[0],
+    { ...base, digest: "c2c5e065" },
+  );
+  // The current shape keeps the combined digest for released 1.2.4 readers and adds state + text.
+  assert.deepEqual(
+    validateHistoryRecording(
+      recording([{ ...base, digest: "c2c5e065", state: "aaaaaaaa", text: "bbbbbbbb" }]),
+    ).segments[0]!.sync[0],
+    { ...base, digest: "c2c5e065", state: "aaaaaaaa", text: "bbbbbbbb" },
+  );
+  // Missing digest or an incomplete state/text pair is rejected.
+  assert.throws(() => validateHistoryRecording(recording([base])), /sync digest/);
+  assert.throws(
+    () => validateHistoryRecording(recording([{ ...base, state: "aaaaaaaa", text: "bbbbbbbb" }])),
+    /sync digest/,
+  );
+  assert.throws(
+    () => validateHistoryRecording(recording([{ ...base, digest: "c2c5e065", state: "aaaaaaaa" }])),
+    /both state and text digests or neither/,
+  );
+  assert.throws(
+    () => validateHistoryRecording(recording([{ ...base, digest: "c2c5e065", text: "bbbbbbbb" }])),
+    /both state and text digests or neither/,
+  );
+});
+
+test("the sync mark records the combined digest alongside the split state and text digests", () => {
+  const source = (text: string) => ({
+    vars: [1, 2, 3],
+    flags: [0, 1],
+    readObjects: () => [{ num: 0, x: 10, y: 20 }],
+    textRow: (row: number) => (row === 0 ? text : ""),
+    patchGeneration: 0,
+    modalKind: null,
+  });
+  const a = computeSyncMark(source("hello"), 0, 0, 0);
+  const b = computeSyncMark(source("world"), 0, 0, 0);
+  assert.equal(a.state, b.state, "a text-only change leaves the state digest");
+  assert.notEqual(a.text, b.text, "a text change moves the text digest");
+  assert.equal(typeof a.digest, "string", "current recordings still carry the combined digest");
+  assert.notEqual(a.digest, b.digest, "the combined digest also reflects the text change");
 });

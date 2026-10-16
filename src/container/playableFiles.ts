@@ -43,7 +43,7 @@ function isInterpreterFileName(name: string): boolean {
 /**
  * The canonical playable file set: directory and volume files, vocabulary and
  * objects, interpreter executables and the IIgs wavetable. A Game export
- * ships exactly these, and they alone define the resource revision.
+ * ships these plus optional auxiliary files; only these define the resource revision.
  */
 export function isPlayableFileName(name: string): boolean {
   return (
@@ -51,6 +51,11 @@ export function isPlayableFileName(name: string): boolean {
     name.toUpperCase() === IIGS_WAVETABLE ||
     isInterpreterFileName(name)
   );
+}
+
+/** Optional game-owned presentation data, preserved separately from resource identity. */
+export function isAuxiliaryFileName(name: string): boolean {
+  return name.toUpperCase() === "AGIFONT";
 }
 
 /**
@@ -63,6 +68,6 @@ export function isPlayableFileName(name: string): boolean {
 export function canonicalResourceName(name: string): string {
   const upper = name.toUpperCase();
   if (upper === "DIRS") return "DIR";
-  if (upper === "TESTS.JSON" || isPlayableFileName(name)) return upper;
+  if (upper === "TESTS.JSON" || isPlayableFileName(name) || isAuxiliaryFileName(name)) return upper;
   return name;
 }

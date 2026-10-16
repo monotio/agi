@@ -32,8 +32,8 @@ test("moving a crop reuses the image hash and prepares the exact settled cel", (
     loop: 0,
   });
   const sourceId = sha256Hex(image.rgba);
-  prepareImageCels(image, [frame(0)], PROFILES["2.936"], null, true, sourceId);
-  const settled = prepareImageCels(image, [frame(1)], PROFILES["2.936"], null, true, sourceId);
+  prepareImageCels(image, [frame(0)], PROFILES["2.936"], null, true, { sourceId });
+  const settled = prepareImageCels(image, [frame(1)], PROFILES["2.936"], null, true, { sourceId });
   assert.equal(hashes, 1);
   assert.deepEqual([...settled.input.loops[0]!.cels![0]!.pixels], [2]);
   const fresh = prepareImageCels(

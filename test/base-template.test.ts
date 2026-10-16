@@ -296,7 +296,7 @@ const EXPECTED_LOGIC0_CODE: number[] = [
   0x00,
   0x74,
   0x0b,
-  0x01,
+  0x00,
   0xff,
   0x01,
   0x09,
@@ -306,27 +306,27 @@ const EXPECTED_LOGIC0_CODE: number[] = [
   0x00,
   0x74,
   0x0b,
+  0x01,
+  0xff,
+  0x01,
+  0x09,
+  0x03,
+  0xff,
+  0x03,
+  0x00,
+  0x74,
+  0x0b,
   0x02,
   0xff,
   0x01,
   0x09,
-  0x03,
-  0xff,
-  0x03,
-  0x00,
-  0x74,
-  0x0b,
-  0x03,
-  0xff,
-  0x01,
-  0x09,
   0x04,
   0xff,
   0x03,
   0x00,
   0x74,
   0x0b,
-  0x04,
+  0x03,
   0xff,
   0x01,
   0x09,
@@ -336,27 +336,27 @@ const EXPECTED_LOGIC0_CODE: number[] = [
   0x00,
   0x74,
   0x0b,
+  0x04,
+  0xff,
+  0x01,
+  0x09,
+  0x06,
+  0xff,
+  0x03,
+  0x00,
+  0x74,
+  0x0b,
   0x05,
   0xff,
   0x01,
   0x09,
-  0x06,
-  0xff,
-  0x03,
-  0x00,
-  0x74,
-  0x0b,
-  0x06,
-  0xff,
-  0x01,
-  0x09,
   0x07,
   0xff,
   0x03,
   0x00,
   0x74,
   0x0b,
-  0x07,
+  0x06,
   0xff,
   0x01,
   0x09,
@@ -366,11 +366,21 @@ const EXPECTED_LOGIC0_CODE: number[] = [
   0x00,
   0x74,
   0x0b,
+  0x07,
+  0xff,
+  0x01,
+  0x09,
+  0x09,
+  0xff,
+  0x03,
+  0x00,
+  0x74,
+  0x0b,
   0x08,
   0xff,
   0x01,
   0x09,
-  0x09,
+  0x0a,
   0xff,
   0x03,
   0x00,
@@ -380,23 +390,13 @@ const EXPECTED_LOGIC0_CODE: number[] = [
   0xff,
   0x01,
   0x09,
-  0x0a,
-  0xff,
-  0x03,
-  0x00,
-  0x74,
-  0x0b,
-  0x0a,
-  0xff,
-  0x01,
-  0x09,
   0x0b,
   0xff,
   0x03,
   0x00,
   0x74,
   0x0b,
-  0x0b,
+  0x0a,
   0x65,
   0x13, // print(m19) "I don't know the word ..."
   0xfe,
@@ -983,7 +983,7 @@ describe("base template engine behaviour", () => {
     const { engine, host } = templateEngine();
     tick(engine, 4);
     assert.equal(engine.readState().room, 1);
-    assert.match(engine.textRow(0), /Score: 0 of 0/);
+    assert.match(engine.textRow(0), /Score:0 of 0 {2}/);
     assert.match(engine.textRow(0), /Sound:on/);
     host.keys.push(0x1b); // ESC
     tick(engine, 2);
@@ -1097,7 +1097,7 @@ describe("base template engine behaviour", () => {
     host.keys.push(0x0d); // ENTER -> quit confirmation prompt
     tick(engine);
     assert.equal(engine.modalKind, "print");
-    assert.match(surfaceRows(engine).join("\n"), /Quit the game\?/);
+    assert.match(surfaceRows(engine).join("\n"), /Press ENTER to quit\./);
   });
 
   test("declining the quit confirmation returns to the box still dead", () => {
@@ -1110,7 +1110,7 @@ describe("base template engine behaviour", () => {
     tick(engine, 2);
     host.keys.push(0x33); // '3' -> Quit directly
     tick(engine);
-    assert.match(surfaceRows(engine).join("\n"), /Quit the game\?/);
+    assert.match(surfaceRows(engine).join("\n"), /Press ENTER to quit\./);
     engine.deliverHostAnswer(27); // ESC declines
     tick(engine, 2);
     assert.equal(engine.readState().terminated, false);

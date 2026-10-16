@@ -158,6 +158,13 @@ export interface ViewPreparationRecipe {
   /** The sources this recipe reads; each must match a supplied raster exactly. */
   readonly sources: readonly SourceIdentity[];
   readonly palette: string;
+  /**
+   * The colours the game shows for indices 0..15 that sources were matched
+   * against. Absent means EGA, so recipes written before this field keep
+   * reproducing their exact bytes. Any other id needs its table passed to
+   * `prepareView` as data.
+   */
+  readonly paletteId?: string | undefined;
   readonly mask: ViewRecipeMask;
   readonly frames: readonly ViewRecipeFrame[];
   readonly loops: readonly ViewRecipeLoop[];
@@ -322,6 +329,8 @@ export function prepareView(
   rasters: readonly SourceRaster[],
   recipe: ViewPreparationRecipe,
   profile: AgiProfile,
+  /** Tables for the recipe's `paletteId` when it is not EGA, keyed by id. */
+  palettes: Readonly<Record<string, readonly (readonly [number, number, number])[]>> = {},
 ): PreparedView {
   // ---- Phase 1: recipe shape, pinned algorithms and static native bounds ----
   if (recipe === null || typeof recipe !== "object") fail("recipe must be an object");
@@ -342,6 +351,13 @@ export function prepareView(
   }
   if (recipe.palette !== "ega-weighted-243-v1") {
     fail(`unsupported palette "${String(recipe.palette)}" (expected "ega-weighted-243-v1")`);
+  }
+
+  let palette: readonly (readonly [number, number, number])[] | undefined;
+  if (recipe.paletteId !== undefined && recipe.paletteId !== "ega") {
+    palette = Object.hasOwn(palettes, recipe.paletteId) ? palettes[recipe.paletteId] : undefined;
+    if (palette === undefined || palette.length !== 16)
+      fail(`recipe.paletteId "${recipe.paletteId}" has no sixteen-colour table`);
   }
 
   const maskSpec = recipe.mask;
@@ -367,7 +383,7 @@ export function prepareView(
       fail("mask.key.rgb must be three integers 0..255");
     }
     keyColor = [rgb[0]!, rgb[1]!, rgb[2]!];
-    keyIndex = nearestEgaIndex(rgb[0]!, rgb[1]!, rgb[2]!);
+    keyIndex = nearestEgaIndex(rgb[0]!, rgb[1]!, rgb[2]!, palette);
   }
 
   if (!Array.isArray(recipe.sources)) fail("recipe.sources must be an array");
@@ -650,7 +666,7 @@ export function prepareView(
   const frames: PreparedFrame[] = [];
   const sheetFrames: SheetFrame[] = [];
   for (const { spec: frame, raster } of resolvedFrames) {
-    const prepared = prepareFrame(frame, raster, alphaThreshold, keyIndex, keyColor);
+    const prepared = prepareFrame(frame, raster, alphaThreshold, keyIndex, keyColor, palette);
     if (referencedFrames.has(frameIndexById.get(frame.id)!) && prepared.transparentIndex === null) {
       fail(
         `frame "${frame.id}" uses all 16 EGA colours in opaque pixels; no index remains ` +
@@ -722,6 +738,7 @@ function prepareFrame(
   alphaThreshold: number,
   keyIndex: number | null,
   keyColor: readonly [number, number, number] | null,
+  palette: readonly (readonly [number, number, number])[] | undefined,
 ): PreparedFrame {
   const { x: rx, y: ry, width: sw, height: sh } = frame.region;
   const ow = frame.outputWidth;
@@ -738,7 +755,7 @@ function prepareFrame(
   const isOpaque = (offset: number): boolean =>
     rgba[offset + 3]! >= alphaThreshold &&
     (keyIndex === null ||
-      nearestEgaIndex(rgba[offset]!, rgba[offset + 1]!, rgba[offset + 2]!) !== keyIndex);
+      nearestEgaIndex(rgba[offset]!, rgba[offset + 1]!, rgba[offset + 2]!, palette) !== keyIndex);
 
   const belowBaseline: { opaque: number; transparent: number } = { opaque: 0, transparent: 0 };
   const outsideCanvas: { opaque: number; transparent: number } = { opaque: 0, transparent: 0 };
@@ -797,7 +814,7 @@ function prepareFrame(
 
   // Border-key detection is always off for this path: new imports erase only
   // by alpha plus an explicit key, never by the old quantizer's border guess.
-  const sheet = quantizeToEga(canvas, ow, oh, { alphaThreshold, keyColor });
+  const sheet = quantizeToEga(canvas, ow, oh, { alphaThreshold, keyColor, palette });
 
   // Padding is not source data: a threshold of 0 must not turn it into art.
   for (let i = 0; i < ow * oh; i++) {

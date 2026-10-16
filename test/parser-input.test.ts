@@ -364,3 +364,385 @@ describe("have.key blocking wait", () => {
     assert.equal(engine.vars[100], 1);
   });
 });
+
+test("the parser stops examining the line after the tenth retained word", () => {
+  // Player-visible rule: an eleventh word is never looked at — an unknown
+  // token past the cap is not reported (v9 stays 0) and no eleventh word
+  // text exists. The word loop tests i >= 10 BEFORE each Match call and
+  // exits silently across all 18 profiles (kq2boot 2.001 0x10B2 .. gr1
+  // 3.002.149 0x1B7C, Amiga 2.082..2.333, IIgs 1.014); WORDS/WORDPTR are
+  // 10-slot arrays zeroed at entry.
+  const words = Array.from({ length: 11 }, (_, i) => [`w${i}`, i + 1] as [string, number]);
+  const dict = new Map<string, number>(words);
+  for (const profile of [
+    "2.089",
+    "2.917",
+    "2.936",
+    "3.002.149",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(ACCEPT, { dictionary: dict, profile: PROFILES[profile] }).payload,
+    );
+    const host = new Host();
+    const engine = new Engine(container, host, dict, { profile: PROFILES[profile] });
+    engine.tick();
+    host.line = words.map(([w]) => w).join(" ") + " zzz";
+    engine.tick();
+    assert.equal(engine.vars[9], 0, `${profile}: the twelfth token is never examined`);
+    assert.equal(engine.parserCount, 10, `${profile}: capped at 10 parsed words`);
+    assert.equal(engine.flags[2], 1, `${profile}: the capped line still counts as input`);
+  }
+});
+
+test("the command line honors the four profile-specific inputLineEditCap formulas", () => {
+  // Player-visible rule: keystrokes past the profile's edit cap are silently
+  // rejected:
+  // - "early-35" (PC 2.001..2.230): min(v24, 35)
+  // - "prompt-40" (PC 2.272, 3.002.149, Amiga 2.082..2.333): min(v24, 40 - strlen(s0) - (prompt ? 1 : 0))
+  // - "dialogue-36" (PC 2.411..3.002.107): min(v24, (dialogueOpen ? 36 : 40) - strlen(s0) - (prompt ? 1 : 0))
+  // - "iigs-39" (IIgs 1.014): min(v24, 39 - strlen(s0))
+  const type = (engine: Engine, host: Host, n: number) => {
+    for (let left = n; left > 0; left -= 19) {
+      host.keys.push(...Array<number>(Math.min(19, left)).fill(0x61));
+      engine.tick();
+    }
+  };
+  const measure = (
+    profile: "2.089" | "2.272" | "2.917" | "2.936" | "3.002.149" | "amiga-2.316" | "iigs-1.014",
+    source: string,
+  ): number => {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    const host = new Host();
+    const engine = new Engine(container, host, DICT, { profile: PROFILES[profile] });
+    engine.tick();
+    type(engine, host, 45);
+    return engine.inputEdit.length;
+  };
+
+  // "early-35": fixed literal 35 (2.001 0x3176, 2.089 0x3114, 2.230 0x305a), ignores v24 (which starts at 0)
+  assert.equal(measure("2.089", ACCEPT), 35, "2.089 no prompt: 35 columns (even with v24=0)");
+  assert.equal(
+    measure("2.089", 'set.cursor.char(">"); accept.input(); return;'),
+    35,
+    "2.089 with prompt: still 35",
+  );
+  assert.equal(
+    measure("2.089", "assignn(v24, 10); accept.input(); return;"),
+    35,
+    "2.089: EditLine compares against literal 0x23 and ignores v24",
+  );
+
+  // "prompt-40": 40 with no prompt, 39 with prompt, unaffected by open.dialogue (where opcode 0x99 exists)
+  for (const profile of ["2.272", "3.002.149", "amiga-2.316"] as const) {
+    assert.equal(measure(profile, ACCEPT), 40, `${profile} no prompt: 40 columns`);
+    assert.equal(
+      measure(profile, 'set.cursor.char(">"); accept.input(); return;'),
+      39,
+      `${profile} one-char prompt: 39 columns`,
+    );
+    if (profile !== "2.272") {
+      assert.equal(
+        measure(profile, "open.dialogue(); accept.input(); return;"),
+        40,
+        `${profile} open.dialogue does not lower the base from 40`,
+      );
+    }
+  }
+
+  // "dialogue-36": 40 normally, 39 with prompt, 36 under open.dialogue (35 with prompt)
+  for (const profile of ["2.917", "2.936"] as const) {
+    assert.equal(measure(profile, ACCEPT), 40, `${profile} no prompt: 40 columns`);
+    assert.equal(
+      measure(profile, 'set.cursor.char(">"); accept.input(); return;'),
+      39,
+      `${profile} one-char prompt: 39 columns`,
+    );
+    assert.equal(
+      measure(profile, "open.dialogue(); accept.input(); return;"),
+      36,
+      `${profile} open.dialogue lowers base to 36`,
+    );
+    assert.equal(
+      measure(profile, 'open.dialogue(); set.cursor.char(">"); accept.input(); return;'),
+      35,
+      `${profile} open.dialogue + prompt leaves 35`,
+    );
+    assert.equal(
+      measure(profile, "assignn(v24, 10); accept.input(); return;"),
+      10,
+      `${profile} v24 lowers the cap`,
+    );
+  }
+
+  // "iigs-39": 39 - strlen(s0), unaffected by cursor char
+  assert.equal(measure("iigs-1.014", ACCEPT), 39, "iigs-1.014 no prompt: 39 columns");
+  assert.equal(
+    measure("iigs-1.014", 'set.cursor.char(">"); accept.input(); return;'),
+    39,
+    "iigs-1.014 with cursor char: still 39",
+  );
+  assert.equal(
+    measure("iigs-1.014", 'set.string(s0, ">> "); accept.input(); return;'),
+    36,
+    "iigs-1.014 subtracts strlen(s0) from 39",
+  );
+});
+
+test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based while %w remains 1-based", () => {
+  for (const profile of [
+    "2.089",
+    "2.411",
+    "2.936",
+    "3.002.149",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `accept.input();
+         if (isset(f2)) {
+           set.string(s3, "NONEMPTY");
+           set.string(s4, "NONEMPTY");
+           set.string(s5, "NONEMPTY");
+           word.to.string(s1, 0);
+           word.to.string(s2, 1);
+           word.to.string(s3, 2);
+           word.to.string(s4, 10);
+           word.to.string(s5, 14);
+           set.string(s0, "%w1-%w2");
+         }
+         return;`,
+        { dictionary: DICT, profile: PROFILES[profile] },
+      ).payload,
+    );
+    const host = new Host();
+    const engine = new Engine(container, host, DICT, { profile: PROFILES[profile] });
+    engine.tick();
+    host.line = "open door";
+    engine.tick();
+    assert.equal(engine.strings[1], "open", `${profile}: slot 0 is the first token`);
+    assert.equal(engine.strings[2], "door", `${profile}: slot 1 is the second token`);
+    assert.equal(engine.strings[3], "", `${profile}: slot 2 past count is empty`);
+    assert.equal(engine.strings[4], "", `${profile}: slot 10 clears to empty`);
+    assert.equal(engine.strings[5], "", `${profile}: slot 14 clears to empty`);
+    assert.equal(engine.strings[0], "open-door", `${profile}: %w1 and %w2 remain 1-based`);
+  }
+});
+
+test("F-Parser-07: lone 'a' and 'i' default to group 0 on the 19 verified profiles and are overridden by explicit dictionary entries", () => {
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const run = (line: string, dict: ReadonlyMap<string, number> = DICT) => {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(ACCEPT, { dictionary: dict, profile }).payload,
+      );
+      const host = new Host();
+      const engine = new Engine(container, host, dict, { profile });
+      engine.tick();
+      host.line = line;
+      engine.tick();
+      return {
+        words: [...engine.parsedWords],
+        texts: [...engine.parsedWordTexts],
+        v9: engine.vars[9],
+        f2: engine.flags[2],
+      };
+    };
+
+    if (id === "2.001") {
+      const res = run("open a door");
+      assert.deepEqual(res.words, [11, 0], `${id}: 'a' is unknown when absent from dictionary`);
+      assert.deepEqual(res.texts, ["open", "a"], `${id}: texts stop at unknown 'a'`);
+      assert.equal(res.v9, 2, `${id}: v9 names position 2`);
+      continue;
+    }
+
+    const skippedA = run("open a door");
+    assert.deepEqual(skippedA.words, [11, 13], `${id}: lone 'a' defaults to group 0 (skipped)`);
+    assert.deepEqual(skippedA.texts, ["open", "door"], `${id}: skipped 'a' leaves open door`);
+    assert.equal(skippedA.v9, 0, `${id}: no unknown word for lone 'a'`);
+    assert.equal(skippedA.f2, 1, `${id}: f2 set`);
+
+    const skippedI = run("i look");
+    assert.deepEqual(skippedI.words, [14], `${id}: lone 'i' defaults to group 0 (skipped)`);
+    assert.deepEqual(skippedI.texts, ["look"], `${id}: skipped 'i' leaves look`);
+    assert.equal(skippedI.v9, 0, `${id}: no unknown word for lone 'i'`);
+
+    const multiChar = run("an door");
+    assert.deepEqual(multiChar.words, [0], `${id}: 'an' is not a lone 'a'`);
+    assert.equal(multiChar.v9, 1, `${id}: 'an' is unknown at position 1`);
+
+    const explicitDict = new Map([...DICT, ["i", 50], ["a door", 60]]);
+    const explicitI = run("i look", explicitDict);
+    assert.deepEqual(
+      explicitI.words,
+      [50, 14],
+      `${id}: explicit dictionary entry overrides lone 'i'`,
+    );
+    assert.deepEqual(explicitI.texts, ["i", "look"]);
+
+    const explicitPhrase = run("open a door", explicitDict);
+    assert.deepEqual(
+      explicitPhrase.words,
+      [11, 60],
+      `${id}: longer phrase starting with 'a ' overrides lone 'a' default`,
+    );
+    assert.deepEqual(explicitPhrase.texts, ["open", "a door"]);
+  }
+});
+
+test("F-Parser-10: 2.001 collapses spaces only while 2.089+ strip/split punctuation, and lowercasing folds only ASCII A-Z across all 20 profiles", () => {
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const runLine = (line: string) => {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(ACCEPT, { dictionary: DICT, profile }).payload,
+      );
+      const host = new Host();
+      const engine = new Engine(container, host, DICT, { profile });
+      engine.tick();
+      host.line = line;
+      engine.tick();
+      return {
+        words: [...engine.parsedWords],
+        texts: [...engine.parsedWordTexts],
+        v9: engine.vars[9],
+        f2: engine.flags[2],
+      };
+    };
+
+    // 0xC0 (\u00c0) is outside 0x41..0x5A and must remain 0xC0 (\u00c0), not \u00e0.
+    const highByte = runLine("\u00c0BC");
+    assert.deepEqual(highByte.texts, ["\u00c0bc"], `${id}: folds only ASCII A-Z`);
+    assert.equal(highByte.texts[0]!.charCodeAt(0), 0xc0, `${id}: preserves 0xC0`);
+    assert.equal(highByte.v9, 1, `${id}: non-a..z initial is unknown`);
+
+    // Space collapsing and ASCII case folding apply on every profile.
+    const spaced = runLine("  OPEN   THE   DOOR  ");
+    assert.deepEqual(spaced.words, [11, 13], `${id}: collapses spaces and folds A-Z`);
+    assert.deepEqual(spaced.texts, ["open", "door"]);
+    assert.equal(spaced.v9, 0);
+    assert.equal(spaced.f2, 1);
+
+    const bang = runLine("look!");
+    const apostrophe = runLine("don't");
+    const separated = runLine("open,the.door?");
+    if (id === "2.001") {
+      // 2.001 MakeLine (0x1901) collapses spaces only and FindWord (0x1961) requires
+      // space or NUL after a match, so punctuation stays attached and fails to match.
+      assert.deepEqual(bang.words, [0], `${id}: 'look!' is unknown`);
+      assert.deepEqual(bang.texts, ["look!"], `${id}: preserves '!'`);
+      assert.equal(bang.v9, 1, `${id}: 'look!' sets v9=1`);
+      assert.equal(bang.f2, 1);
+
+      assert.deepEqual(apostrophe.words, [0], `${id}: "don't" keeps apostrophe and is unknown`);
+      assert.deepEqual(apostrophe.texts, ["don't"]);
+      assert.equal(apostrophe.v9, 1);
+
+      assert.deepEqual(separated.words, [0], `${id}: "open,the.door?" stays one token`);
+      assert.deepEqual(separated.texts, ["open,the.door?"]);
+      assert.equal(separated.v9, 1);
+    } else {
+      assert.deepEqual(bang.words, [14], `${id}: strips trailing '!'`);
+      assert.deepEqual(bang.texts, ["look"]);
+      assert.equal(bang.v9, 0);
+
+      assert.deepEqual(apostrophe.words, [10], `${id}: drops apostrophe inside word`);
+      assert.deepEqual(apostrophe.texts, ["dont"]);
+      assert.equal(apostrophe.v9, 0);
+
+      assert.deepEqual(separated.words, [11, 13], `${id}: splits on , . ?`);
+      assert.deepEqual(separated.texts, ["open", "door"]);
+      assert.equal(separated.v9, 0);
+    }
+  }
+});
+
+test("F-Parser-13: echo.line is a no-op before Enter and appends the suffix of lastLine after Enter", () => {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); accept.input(); }
+       if (isset(f201)) { reset(f201); echo.line(); }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const host = new Host();
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+
+  // Before any Enter has been accepted, echo.line is a no-op even if editLine is empty.
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "");
+
+  // Type "look" and press Enter so acceptedLine becomes "look".
+  host.keys.push(0x6c, 0x6f, 0x6f, 0x6b, 0x0d);
+  engine.tick();
+  assert.equal(engine.lastInputLine, "look");
+  assert.equal(engine.inputEdit, "");
+
+  // Type "xy" (length 2 < "look".length 4), then run echo.line(): appends "look".slice(2) = "ok" -> "xyok".
+  host.keys.push(0x78, 0x79);
+  engine.tick();
+  assert.equal(engine.inputEdit, "xy");
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "xyok");
+
+  // Running echo.line() again when editLine.length >= acceptedLine.length leaves editLine unchanged.
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "xyok");
+
+  // Press Enter on "xyok" so acceptedLine is 4 chars, then type 3 chars "abc".
+  host.keys.push(0x0d, 0x61, 0x62, 0x63);
+  engine.tick();
+  assert.equal(engine.lastInputLine, "xyok");
+  assert.equal(engine.inputEdit, "abc");
+
+  // Lowering v24 (max input length) below already-typed length must never delete typed characters.
+  engine.vars[24] = 2;
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "abc");
+
+  // Growing the prompt (s0) so remaining row capacity is < 3 must also never delete typed characters.
+  engine.vars[24] = 40;
+  engine.strings[0] = ">".repeat(38);
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "abc");
+
+  // Raising capacity to 3 while 1 char "z" is typed appends only the 2 chars that fit ("z" + "yo" = "zyo").
+  engine.strings[0] = "";
+  engine.vars[24] = 3;
+  host.keys.push(0x08, 0x08, 0x08, 0x7a);
+  engine.tick();
+  assert.equal(engine.inputEdit, "z");
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "zyo");
+});

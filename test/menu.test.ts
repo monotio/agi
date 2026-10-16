@@ -4,6 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { TEXT_COLS, attr } from "../src/runtime/textSurface.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
 
 /**
  * Menu bar and pulldown interaction (spec "Menu construction" and "Menu
@@ -110,11 +111,24 @@ test("menu.input opens the bar and the root heading's pulldown at the next input
   assert.equal(engine.textRow(0), " File Empty Game" + spaces(24));
   assert.deepEqual(attrs(engine, 0, 1, 5), Array(4).fill(SELECTED), "root heading highlighted");
   assert.deepEqual(attrs(engine, 0, 6, 11), Array(5).fill(BAR));
-  // Pulldown: box from column 0, width 4 + border.
+  // Pulldown: box from column 0, width 4 + the frame (the original's
+  // OpenWndw draws a fill plus four 1-pixel edge bars, no corner glyphs —
+  // kq1 2.917 0x54C8). Frame cells are edge glyphs whose masks carry the
+  // measured 1-pixel bar in the foreground over the fill colour.
+  const FRAME = attr(0, 15);
+  assert.ok(
+    attrs(engine, 1, 0, 6).every((a) => a === FRAME),
+    "top edge cells",
+  );
   assert.equal(engine.textRow(1), "######" + spaces(34));
   assert.equal(engine.textRow(2), "#Save#" + spaces(34));
   assert.equal(engine.textRow(3), "#Quit#" + spaces(34));
-  assert.equal(engine.textRow(4), "######" + spaces(34));
+  assert.ok(
+    attrs(engine, 4, 0, 6).every((a) => a === FRAME),
+    "bottom edge cells",
+  );
+  assert.equal(attrs(engine, 2, 0, 1)[0], FRAME);
+  assert.equal(attrs(engine, 2, 5, 6)[0], FRAME);
   assert.deepEqual(attrs(engine, 2, 1, 5), Array(4).fill(SELECTED), "first item selected");
   assert.deepEqual(attrs(engine, 3, 1, 5), Array(4).fill(BAR));
 });
@@ -132,9 +146,7 @@ test("item and heading navigation: circular items, disabled headings skipped, it
   engine.modalNavigate(3); // next enabled heading skips "Empty" -> Game
   assert.deepEqual(attrs(engine, 0, 12, 16), Array(4).fill(SELECTED));
   assert.deepEqual(attrs(engine, 0, 1, 5), Array(4).fill(BAR));
-  assert.equal(engine.textRow(1), spaces(11) + "######" + spaces(23));
   assert.equal(engine.textRow(2), spaces(11) + "#Look#" + spaces(23));
-  assert.equal(engine.textRow(3), spaces(11) + "######" + spaces(23));
 
   engine.modalNavigate(7); // previous enabled heading -> File, Quit still current
   assert.deepEqual(attrs(engine, 3, 1, 5), Array(4).fill(SELECTED));
@@ -160,7 +172,7 @@ test("Enter selects an enabled item as a mapped event visible to the next cycle'
   assert.equal(engine.textRow(1), spaces(40), "pulldown restored");
   assert.equal(
     engine.textRow(0),
-    " Score: 0 of 0" + spaces(16) + "Sound:on  ",
+    " Score:0 of 0  " + spaces(15) + "Sound:on  ",
     "status line redrawn",
   );
   engine.tick(); // the input phase delivers controller 2 to logic 0
@@ -192,4 +204,64 @@ test("menu.input is ignored while f14 is clear", () => {
   engine.flags[14] = 0;
   openMenu(engine);
   assert.equal(engine.modalKind, null);
+});
+
+function bootV3(source: string): { engine: Engine; host: Host } {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(source, { dictionary: DICT, profile: PROFILES["3.002.149"] }).payload,
+  );
+  const host = new Host();
+  return {
+    engine: new Engine(container, host, DICT, { profile: "3.002.149" }),
+    host,
+  };
+}
+
+test("v3 menu.input opens without allow.menu: the interaction gate ships 1", () => {
+  // Player-visible rule: a v3 game that never calls allow.menu still opens
+  // its menu — the gate word ships 1 in the data image and nothing resets it
+  // (mh1 3.002.107 ovl DS+0x5E3 = 01 00; gr1 3.002.149 ovl DS+0x403 = 01 00;
+  // no shipped gr1/mh1/demopac4 logic calls allow.menu).
+  const { engine } = bootV3(`
+    if (!isset(f200)) {
+      set(f200); set.menu("File"); set.menu.item("Save", 1); submit.menu(); set(f14);
+    }
+    if (isset(f201)) { reset(f201); menu.input(); }
+    return;
+  `);
+  engine.tick();
+  engine.flags[201] = 1;
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.modalKind, "menu");
+});
+
+test("a gated menu request pends and opens when allow.menu re-enables it", () => {
+  // Player-visible rule: allow.menu(0) does not cancel a requested menu; the
+  // request waits and the menu opens on a later input phase once the gate is
+  // nonzero again. menu.input tests f14 only and sets the request word; the
+  // gate is consulted at the head of DoMenu and the gated exit leaves the
+  // request set (mh1 3.002.107 0x9859 / 0x9895-0x989C; the request word's
+  // only clear is the menu-close path 0x993F).
+  const { engine } = bootV3(`
+    if (!isset(f200)) {
+      set(f200); set.menu("File"); set.menu.item("Save", 1); submit.menu(); set(f14);
+    }
+    if (isset(f201)) { reset(f201); allow.menu(0); menu.input(); }
+    if (isset(f202)) { reset(f202); allow.menu(1); }
+    return;
+  `);
+  engine.tick();
+  engine.flags[201] = 1;
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.modalKind, null, "the gate holds the menu closed");
+  engine.flags[202] = 1;
+  engine.tick(); // allow.menu(1) lands in the logic phase, after that input phase
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.modalKind, "menu", "the pending request opens once ungated");
 });

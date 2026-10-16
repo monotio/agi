@@ -213,6 +213,81 @@ test("restoreImage replays an autosave into a fresh engine without unwinding", (
   assert.equal(fresh.vars[0], 1);
 });
 
+test("a host image restore keeps the recorded machine vars; only the authentic restore rewrites them per profile", () => {
+  // Player-visible rule: replaying a recorded session must reproduce the
+  // recorded state exactly — the restore tail's native machine rewrites
+  // (v20 = 0, v26 = 3, v22 = 1 on 1-voice or v22 = 3 + f11 = 1 on 3-voice,
+  // then f12) belong to the original's save-file restore on PC 2.903..3.002.149
+  // only (kq3 2.936 0x2651-0x267b, gr1 3.002.149 0x28e3-0x290d; docs/fidelity.md
+  // F-persistence-03), never to a history/autosave restore and never on earlier
+  // PC (2.001..2.440), Amiga (2.082..2.333), or IIgs (1.014) builds whose
+  // RestoreGame leaves the saved v20/v22/v26/f11 intact.
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  engine.vars[20] = 7;
+  engine.vars[22] = 7;
+  engine.vars[26] = 8;
+  engine.flags[11] = 0;
+  engine.flags[12] = 0;
+
+  const history = new Engine(buildGame(), new RecordingHost(), DICT);
+  history.restoreImage(engine.autosaveImage()!);
+  assert.equal(history.vars[20], 7, "history restore keeps the recorded v20");
+  assert.equal(history.vars[22], 7, "history restore keeps the recorded v22");
+  assert.equal(history.vars[26], 8, "history restore keeps the recorded v26");
+  assert.equal(history.flags[11], 0, "history restore keeps the recorded f11");
+  assert.equal(history.flags[12], 0, "history restore does not set the restored flag");
+
+  for (const profile of ["2.936", "3.002.149"] as const) {
+    const src = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    src.tick();
+    src.vars[20] = 7;
+    src.vars[22] = 7;
+    src.vars[26] = 8;
+    src.flags[11] = 0;
+    const saveBytes = src.serialize();
+
+    const authentic3Voice = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    authentic3Voice.restoreImage(saveBytes);
+    assert.equal(authentic3Voice.vars[20], 0, `${profile}: authentic restore rewrites v20 to 0`);
+    assert.equal(authentic3Voice.vars[22], 3, `${profile}: authentic restore rewrites v22 to 3`);
+    assert.equal(authentic3Voice.vars[26], 3, `${profile}: authentic restore rewrites v26 to 3`);
+    assert.equal(authentic3Voice.flags[11], 1, `${profile}: authentic 3-voice restore sets f11`);
+    assert.equal(authentic3Voice.flags[12], 1, `${profile}: authentic restore sets f12`);
+
+    const host1Voice = new RecordingHost();
+    (host1Voice as EngineHost).soundDevice = () => 0;
+    src.flags[11] = 1;
+    const saveBytesWithF11 = src.serialize();
+    const authentic1Voice = new Engine(buildGame(), host1Voice, DICT, { profile });
+    authentic1Voice.restoreImage(saveBytesWithF11);
+    assert.equal(authentic1Voice.vars[20], 0, `${profile} (1-voice): rewrites v20 to 0`);
+    assert.equal(authentic1Voice.vars[22], 1, `${profile} (1-voice): rewrites v22 to 1`);
+    assert.equal(authentic1Voice.vars[26], 3, `${profile} (1-voice): rewrites v26 to 3`);
+    assert.equal(
+      authentic1Voice.flags[11],
+      1,
+      `${profile} (1-voice): does not clear f11 from the save file`,
+    );
+  }
+
+  for (const profile of ["2.089", "2.440", "amiga-2.316", "iigs-1.014"] as const) {
+    const src = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    src.tick();
+    src.vars[20] = 7;
+    src.vars[22] = 9;
+    src.vars[26] = 8;
+    src.flags[11] = 0;
+    const dst = new Engine(buildGame(), new RecordingHost(), DICT, { profile });
+    dst.restoreImage(src.serialize());
+    assert.equal(dst.vars[20], 7, `${profile}: RestoreGame preserves saved v20`);
+    assert.equal(dst.vars[22], 9, `${profile}: RestoreGame preserves saved v22`);
+    assert.equal(dst.vars[26], 8, `${profile}: RestoreGame preserves saved v26`);
+    assert.equal(dst.flags[11], 0, `${profile}: RestoreGame preserves saved f11`);
+    assert.equal(dst.flags[12], 1, `${profile}: RestoreGame still sets f12`);
+  }
+});
+
 test("restoreImage reinstates the game signature from block 1", () => {
   const engine = new Engine(buildGame(), new RecordingHost(), DICT);
   engine.tick();
@@ -346,7 +421,7 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   const authentic = engine.serialize();
   const saved = decodeSave(authentic, engine.profile);
   assert.equal(saved.replayActive, 0, "f7 kept the game's own sequence empty");
-  assert.equal(saved.replayCapacity, 200, "the default script buffer");
+  assert.equal(saved.replayCapacity, 50, "the default script buffer");
   const autosave = engine.autosaveImage();
   assert.ok(autosave);
   const { image, screen } = decodeHostImage(autosave);
@@ -375,7 +450,7 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   );
   const resumed = decodeSave(fresh.serialize(), fresh.profile);
   assert.equal(resumed.replayActive, 0, "save.game after the resume writes the game's sequence");
-  assert.equal(resumed.replayCapacity, 200, "...at the game's capacity");
+  assert.equal(resumed.replayCapacity, 50, "...at the game's capacity");
   // The next autosave still rebuilds the room: the sequence became the shadow.
   const again = decodeHostImage(fresh.autosaveImage()!);
   assert.deepEqual(again.screen, screen);
@@ -447,7 +522,7 @@ test("a bare save described with the envelope's words is still a save", () => {
   // Framing reaches beyond the description into the first block length.
   const envelope = encodeHostImage(image, [{ kind: 2, value: 1 }]);
   assert.deepEqual([...envelope.subarray(31, 33)], [0xff, 0xff]);
-  assert.equal(envelope[33], 1);
+  assert.equal(envelope[33], 2);
   assert.deepEqual(decodeHostImage(envelope), { image, screen: [{ kind: 2, value: 1 }] });
 });
 
@@ -530,7 +605,7 @@ test("bare save descriptions cannot collide with host autosave framing", () => {
   }
 });
 
-for (const version of [0, 2, 3, 255]) {
+for (const version of [0, 3, 4, 255]) {
   test(`host autosave version ${version} is rejected without rewriting bytes or engine state`, () => {
     const engine = new Engine(buildGame(), new RecordingHost(), DICT);
     engine.tick();
@@ -546,6 +621,67 @@ for (const version of [0, 2, 3, 255]) {
     assert.deepEqual(engine.serialize(), state);
   });
 }
+
+test("host autosave stamps version 2, migrates version 1 without window, rejects window in version 1, and 1.2.4 rejects version 2 by version", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  const v2Image = engine.autosaveImage()!;
+  assert.equal(v2Image[33], 2);
+
+  // Released 1.2.4 decodeHostImage version gate (bytes[33] !== 1) rejects v2 cleanly without rewriting bytes.
+  function released124HostGate(bytes: Uint8Array): void {
+    if (bytes[33] !== 1) {
+      throw new Error(`Restore image has unsupported host autosave version ${bytes[33]!}`);
+    }
+  }
+  const beforeV2 = v2Image.slice();
+  assert.throws(() => released124HostGate(v2Image), /unsupported host autosave version 2/);
+  assert.deepEqual(v2Image, beforeV2);
+
+  // Released version 1 image (without saved.window) still decodes and restores under the new reader.
+  const v1Image = v2Image.slice();
+  v1Image[33] = 1;
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(v1Image);
+  assert.deepEqual(fresh.surface.visual, engine.surface.visual);
+
+  // Version 2 admits a continuation carrying saved.window; version 1 rejects it.
+  const withWindow = encodeHostImage(engine.serialize(), [], undefined, {
+    frames: [],
+    modals: [],
+    persistentWindow: {
+      written: new Array<number>(30).fill(1),
+      top: 9,
+      left: 5,
+      bottom: 11,
+      right: 14,
+      cells: new Array<number>(60).fill(0x20),
+      window: {
+        geometry: "pc",
+        textTop: 10,
+        textLeft: 6,
+        textRows: 1,
+        textCols: 8,
+        x0: 40,
+        y0: 72,
+        x1: 120,
+        y1: 96,
+        seq: 1,
+      },
+    },
+    keyWait: null,
+  });
+  assert.equal(withWindow[33], 2);
+  assert.ok(decodeHostImage(withWindow).continuation?.persistentWindow?.window);
+  const v1Smuggled = withWindow.slice();
+  v1Smuggled[33] = 1;
+  const beforeSmuggled = v1Smuggled.slice();
+  assert.throws(
+    () => decodeHostImage(v1Smuggled),
+    /\.window requires recording version 3 or host image version 2/,
+  );
+  assert.deepEqual(v1Smuggled, beforeSmuggled);
+});
 
 test("host autosaves require the current continuation framing", () => {
   const envelope = encodeHostImage(new Uint8Array([1, 2]), []);

@@ -7,8 +7,9 @@
  * stored resources or persisted project state.
  */
 
-import { SoundPlayback, booterSoundRows } from "../../../src/sound/sound.ts";
+import { SoundPlayback, booterSoundPeriod, booterSoundRows } from "../../../src/sound/sound.ts";
 import { PROFILES, type AgiProfile, type ProfileId } from "../../../src/runtime/profile.ts";
+import { readAmigaRegion } from "../settings/amigaRegion.ts";
 import type { AgiAudio } from "./AgiAudio.ts";
 
 export const AUDITION_TICK_HZ = 60;
@@ -115,10 +116,14 @@ function laneControlOf(family: RenderFamily): AuditionLaneControls {
   return "unsupported";
 }
 
-/** The header-declared extent: summed lane durations, word 0 as 65,536. */
+/**
+ * The header-declared span: summed lane durations, word 0 as 65,536. For booter
+ * rows it is rows x max(period, 1), not the playback extent (no cleanup tick).
+ */
 function authoredExtent(payload: Uint8Array, family: RenderFamily): number | null {
   if (family === "iigs") return null;
-  if (family === "booter") return booterSoundRows(payload).length;
+  if (family === "booter")
+    return booterSoundRows(payload).length * Math.max(booterSoundPeriod(payload), 1);
   if (payload.length < 8) return null;
   let max = 0;
   for (let ch = 0; ch < 4; ch++) {
@@ -187,6 +192,7 @@ export class SoundAudition {
   /** Interpreter ticks the playback/renderer pair have executed together. */
   private ticksRun = 0;
   private stream = 0;
+  private amigaRegion: "pal" | "ntsc" = "ntsc";
 
   private timer: unknown = null;
   /** Scheduler time at which the next tick is due. */
@@ -248,6 +254,7 @@ export class SoundAudition {
     this.payload = payload;
     this.profile = profile;
     this.family = renderFamily(profile, device);
+    this.captureAmigaRegion();
     this.target = {
       projectId: offered.projectId,
       workspaceId: offered.workspaceId ?? null,
@@ -288,6 +295,7 @@ export class SoundAudition {
     if (!resuming) {
       // A fresh run starts from a clean renderer and a fresh playback.
       this.resetRenderer();
+      this.captureAmigaRegion();
       this.playback = this.newPlayback();
       this.ticksRun = 0;
       this.completed = false;
@@ -338,8 +346,9 @@ export class SoundAudition {
     this.audio.setPauseOwner(PAUSE_OWNER, false);
     // The adapter call is an outward seam; a superseding call owns the run.
     if (e !== this.epoch) return this.snapshot();
+    const tickMs = 1000 / this.tickHz();
     this.nextDue =
-      this.scheduler.now() + (resuming ? Math.min(this.pausedCarryMs, TICK_MS) : TICK_MS);
+      this.scheduler.now() + (resuming ? Math.min(this.pausedCarryMs, tickMs) : tickMs);
     this.scheduleNext(e);
     this.notify();
     return this.snapshot();
@@ -355,7 +364,8 @@ export class SoundAudition {
     if (this.status !== "playing") return;
     const e = this.epoch;
     this.cancelTimer();
-    this.pausedCarryMs = Math.max(0, Math.min(TICK_MS, this.nextDue - this.scheduler.now()));
+    const tickMs = 1000 / this.tickHz();
+    this.pausedCarryMs = Math.max(0, Math.min(tickMs, this.nextDue - this.scheduler.now()));
     this.audio.setPauseOwner(PAUSE_OWNER, true);
     // The audio adapter is an outward seam: a lifecycle call made from inside
     // it supersedes this pause and already published its own state.
@@ -441,14 +451,15 @@ export class SoundAudition {
       this.notify();
       return this.snapshot();
     }
+    const tickMs = 1000 / this.tickHz();
     if (this.pauseRequested || !this.resumeAfterSeek) {
       this.pauseRequested = false;
       this.status = "paused";
-      this.pausedCarryMs = TICK_MS;
+      this.pausedCarryMs = tickMs;
       this.audio.setPauseOwner(PAUSE_OWNER, true);
     } else {
       this.status = "playing";
-      this.nextDue = this.scheduler.now() + TICK_MS;
+      this.nextDue = this.scheduler.now() + tickMs;
       this.scheduleNext(e);
     }
     this.notify();
@@ -542,6 +553,15 @@ export class SoundAudition {
 
   // ---- transport internals ----
 
+  private captureAmigaRegion(): void {
+    this.amigaRegion = readAmigaRegion();
+  }
+
+  private tickHz(): number {
+    if (this.family === "paula" && this.amigaRegion === "pal") return 50;
+    return AUDITION_TICK_HZ;
+  }
+
   private continueRun(): Promise<AuditionSnapshot> {
     // Resume shares play()'s path: a paused run keeps position and acquires
     // the lease only when audible playback actually starts.
@@ -564,7 +584,9 @@ export class SoundAudition {
     this.timer = null;
     if (this.closedFlag || e !== this.epoch || this.status !== "playing" || !this.playback) return;
     const playback = this.playback;
-    const overdue = Math.floor((this.scheduler.now() - this.nextDue) / TICK_MS);
+    const tickHz = this.tickHz();
+    const tickMs = 1000 / tickHz;
+    const overdue = Math.floor((this.scheduler.now() - this.nextDue) / tickMs);
     if (overdue > REBASE_TICKS) {
       this.underrunTicks += overdue;
       if (this.family === "iigs") {
@@ -601,6 +623,7 @@ export class SoundAudition {
         this.audio.outputTick({
           stream: `audition:${this.stream}`,
           tick: this.ticksRun,
+          ...(this.family === "paula" ? { hz: tickHz, amigaRegion: this.amigaRegion } : {}),
           outputs: result.outputs,
           complete: result.complete,
         });
@@ -621,7 +644,7 @@ export class SoundAudition {
     }
     // The ticks applied late this wake count as underrun, never as accuracy.
     if (overdue > 0) this.underrunTicks += Math.min(ran, overdue);
-    this.nextDue += ran * TICK_MS;
+    this.nextDue += ran * tickMs;
     if (this.completed) {
       this.finishComplete();
       return;
@@ -643,14 +666,15 @@ export class SoundAudition {
       this.finishComplete();
       return;
     }
+    const tickMs = 1000 / this.tickHz();
     if (this.pauseRequested) {
       this.pauseRequested = false;
       this.status = "paused";
-      this.pausedCarryMs = TICK_MS;
+      this.pausedCarryMs = tickMs;
       this.audio.setPauseOwner(PAUSE_OWNER, true);
     } else {
       this.status = "playing";
-      this.nextDue = this.scheduler.now() + TICK_MS;
+      this.nextDue = this.scheduler.now() + tickMs;
       this.scheduleNext(e);
     }
     this.notify();

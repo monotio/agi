@@ -171,3 +171,153 @@ describe("view byte strings", () => {
     assert.throws(() => views.buildView({ loops, description: "one\0two" }), /zero/);
   });
 });
+
+// Five loop entries share one mutable, mirrorable packed loop. The encoded
+// rows are [1,2,0] and [3,4,0]; every offset and pixel is hand-computed.
+function fiveSharedLoops(header: number, control = 0): Uint8Array {
+  return new Uint8Array([
+    0,
+    0,
+    5,
+    0,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    header,
+    5,
+    0,
+    11,
+    0,
+    3,
+    1,
+    control,
+    0x11,
+    0x21,
+    0,
+    3,
+    1,
+    control,
+    0x31,
+    0x41,
+    0,
+  ]);
+}
+
+describe("2.230 packed orientation writeback", () => {
+  it("re-mirrors a loop whose index exceeds the packed 2-bit orientation", () => {
+    // Player-visible rule: set.loop(o, 4) on a mutable mirrorable shared loop
+    // mirrors the cels EVERY time — the writeback's orientation field holds
+    // only (loop<<4) & 0x30 while the equal-test compares the full index
+    // (xmas 2.230 _SetLoop 0x3545-0x357C: and 0xffcf / or (loop<<4) / byte
+    // store).
+    const view = views.parseView(fiveSharedLoops(0xc2), PROFILES["2.230"]);
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [0, 2, 1],
+      "first selection mirrors",
+    );
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [1, 2, 0],
+      "the repeat selection mirrors again",
+    );
+    // A loop inside the 2-bit range still mirrors only on a real change.
+    assert.deepEqual([...views.selectViewCel(view, 1, 0)!.pixels], [0, 2, 1]);
+    assert.deepEqual(
+      [...views.selectViewCel(view, 1, 0)!.pixels],
+      [0, 2, 1],
+      "no re-mirror within range",
+    );
+  });
+
+  it("sets the mirrorable bit when an out-of-range index writes back, mirroring the NEXT selection", () => {
+    // Player-visible rule: set.loop(o, 4) on a mutable but initially
+    // non-mirrorable loop does NOT mirror — but the unmasked writeback
+    // (header & 0xCF) | (4<<4) sets bit 0x40 (0x82 → 0xC2), so the next
+    // selection mirrors (xmas 2.230 _SetLoop 0x356A-0x357C: mov ax,[bp+0xa];
+    // shl ax,4 — no mask — then and 0xffcf / or / byte store).
+    const view = views.parseView(fiveSharedLoops(0x82), PROFILES["2.230"]);
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [1, 2, 0],
+      "0x40 clear at test time: the first selection does not mirror",
+    );
+    assert.deepEqual(
+      [...views.selectViewCel(view, 4, 0)!.pixels],
+      [0, 2, 1],
+      "the writeback armed 0x40: the repeat selection mirrors",
+    );
+    assert.deepEqual(
+      [...views.selectViewCel(view, 1, 0)!.pixels],
+      [1, 2, 0],
+      "an in-range change mirrors as well",
+    );
+  });
+});
+
+describe("per-cel MirrorCell orientation mask across profiles (F-VIEWS-01)", () => {
+  it("never mirrors on 2.001 and 2.089 where neither MirrorLoop nor MirrorCell exists", () => {
+    for (const id of ["2.001", "2.089"] as const) {
+      const view = views.parseView(fiveSharedLoops(2, 0x80), PROFILES[id]);
+      assert.deepEqual([...views.selectViewCel(view, 1, 0)!.pixels], [1, 2, 0], id);
+      assert.deepEqual([...views.selectViewCel(view, 4, 0)!.pixels], [1, 2, 0], id);
+    }
+  });
+
+  it("uses 2-bit loop mask (0x30) on 2.272..2.440 and amiga-2.082..2.310, re-mirroring loop >= 4 every selection", () => {
+    for (const id of [
+      "2.272",
+      "2.411",
+      "2.440",
+      "amiga-2.082",
+      "amiga-2.176",
+      "amiga-2.202",
+      "amiga-2.310",
+    ] as const) {
+      const view = views.parseView(fiveSharedLoops(2, 0x80), PROFILES[id]);
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [0, 2, 1],
+        `${id}: first selection at loop 4 mirrors`,
+      );
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [1, 2, 0],
+        `${id}: repeat selection at loop 4 mirrors again because (4 & 3) != 4`,
+      );
+    }
+  });
+
+  it("uses 3-bit loop mask (0x70) on 2.917..3.002.149, amiga-2.316..2.333, and iigs-1.014, keeping loop 4..7 stable", () => {
+    for (const id of [
+      "2.917",
+      "2.936",
+      "3.002.086",
+      "3.002.102",
+      "3.002.149",
+      "amiga-2.316",
+      "amiga-2.333",
+      "iigs-1.014",
+    ] as const) {
+      const view = views.parseView(fiveSharedLoops(2, 0x80), PROFILES[id]);
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [0, 2, 1],
+        `${id}: first selection at loop 4 mirrors`,
+      );
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [0, 2, 1],
+        `${id}: repeat selection at loop 4 stays mirrored`,
+      );
+    }
+  });
+});

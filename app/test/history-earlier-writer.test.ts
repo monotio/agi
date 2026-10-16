@@ -12,6 +12,11 @@ import { gameContainer } from "./worker-ctx.ts";
 import { readHistoryArchive, historyArchiveData } from "../src/archive/historyArchive.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 
+/**
+ * The boot the earlier writers stamped. Their engine showed every picture at
+ * once; an instant-reveal profile keeps the replay state they captured (the
+ * Amiga dissolve of docs/fidelity.md "Original picture dissolve" came later).
+ */
 function boot(region: "ntsc" | "pal") {
   const container = gameContainer(["load.pic(v0);draw.pic(v0);show.pic();return;"], (c) =>
     c.putResource("picture", 0, Uint8Array.of(0xff)),
@@ -30,7 +35,7 @@ function boot(region: "ntsc" | "pal") {
       },
     },
     new Map(),
-    { profile: PROFILES["amiga-2.082"] },
+    { profile: { ...PROFILES["amiga-2.082"], showPictureReveal: "instant" } },
   );
   engine.amigaRegion = region;
   engine.tick();

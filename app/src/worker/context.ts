@@ -1,3 +1,5 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
+import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import { newRunSession } from "./runState.ts";
 import type { PendingSentence } from "./missedSentences.ts";
 /**
@@ -95,6 +97,8 @@ interface BootState {
   /** The boot's interpreter-profile override; null detects from the files. */
   profile: ProfileId | null;
   amigaRegion: "ntsc" | "pal";
+  /** The running session's PC display; replays and replacements keep it. */
+  pcDisplay: PcDisplay;
 }
 
 /** worker/input.ts */
@@ -108,6 +112,8 @@ interface InputState {
   inputBuffer: string[];
   /** Pointer clicks awaiting the next input phase's takePointerClicks drain. */
   clickQueue: [number, number][];
+  joystick: JoystickSample | null;
+  joystickObserved: boolean;
   /** The suspended interaction waits on a player key, not a host request. */
   keyWaiting: boolean;
 }
@@ -170,6 +176,7 @@ export interface ReplaySnapshot {
   deferredMovement: number[];
   inputBuffer: string[];
   clickQueue: [number, number][];
+  joystick?: JoystickSample | null;
   requestSerial: number;
   clock: ReturnType<CycleClock["snapshot"]>;
   soundRemainder: number;
@@ -222,14 +229,26 @@ interface PresentationState {
   lastVisual: Uint8Array | null;
   lastPriority: Uint8Array | null;
   lastText: Uint8Array | null;
+  lastWindowOverlay: Uint8Array | null;
   lastOwnership: Uint16Array | null;
   /** show.obj preview mask of the last published frame (null while closed). */
   lastPreview: Uint8Array | null;
+  /** Cel provenance of the last published CGA frame (null on other displays). */
+  lastCel: Uint8Array | null;
+  /** PC display and Amiga region of the last published frame, as "display/region". */
+  lastDisplay: string;
   lastPicture: Uint8Array | null;
   lastPicturePriority: Uint8Array | null;
   lastObjectsJson: string;
   lastPicRow: number;
   lastTextMode: boolean;
+  /** Amiga title of the last published frame (null when hidden; undefined before the first). */
+  lastStatusBar: string | null | undefined;
+  /** Gadget labels of the last published frame, serialized; "" for none. */
+  lastGadgetsJson: string;
+  /** The Amiga strip of the last published frame, serialized; "" for none. */
+  lastMenuJson: string;
+  lastMenuAvailable: boolean;
   lastInputEnabled: boolean;
   lastReleaseGate: number;
   lastModal: string | null;
@@ -237,6 +256,8 @@ interface PresentationState {
   lastPatchGen: number;
   lastControls: string;
   lastInputEdit: string;
+  /** Last shake step posted, as its JSON, so only changes cross the port. */
+  lastShake: string;
   lastSoundEnabled: boolean | null;
 }
 
@@ -417,9 +438,12 @@ export interface WorkerFns {
   onKey(msg: Inbound<"key">): void;
   onDirection(msg: Inbound<"direction">): void;
   onClick(msg: Inbound<"click">): void;
+  onMenu(msg: Inbound<"menu">): void;
+  onJoystick(msg: Inbound<"joystick">): void;
+  pollJoystickInput(): void;
   onInput(msg: Inbound<"input">): void;
   onEdit(msg: Inbound<"edit">): void;
-  onDismissPrint(): void;
+  onDismissPrint(msg?: Inbound<"dismissPrint">): void;
   // hostRequests.ts
   postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never;
   settleHostRequest(outstanding: { op: string; authoring: boolean }): void;
@@ -616,6 +640,7 @@ export interface RunSession {
 }
 
 export interface WorkerContext {
+  appearanceLoading?: { queue: WorkerInbound[] } | undefined;
   imagePreviewEngine?: Engine | undefined;
   imageHeroPreview?:
     ((frame: ReturnType<Engine["getPresentation"]>, cycle: number) => void) | undefined;
@@ -681,6 +706,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       currentDictionary: null,
       profile: null,
       amigaRegion: "ntsc",
+      pcDisplay: "ega",
     },
     replay: {
       replay: null,

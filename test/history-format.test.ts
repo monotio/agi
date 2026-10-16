@@ -13,6 +13,7 @@ import { test } from "node:test";
 import {
   HISTORY_FORMAT_READ_VERSIONS,
   HISTORY_FORMAT_VERSION,
+  stampAnchor,
   stampBoot,
   historyBootSemantic,
   historyFingerprint,
@@ -66,9 +67,9 @@ function endedRecording(version: unknown, reasons: { event?: unknown; end?: unkn
   };
 }
 
-test("the writer stamps version 2; the reader accepts versions 1 and 2", () => {
-  assert.equal(HISTORY_FORMAT_VERSION, 2);
-  assert.deepEqual(HISTORY_FORMAT_READ_VERSIONS, [1, 2]);
+test("the writer stamps version 3; the reader accepts versions 1, 2 and 3", () => {
+  assert.equal(HISTORY_FORMAT_VERSION, 3);
+  assert.deepEqual(HISTORY_FORMAT_READ_VERSIONS, [1, 2, 3]);
 });
 
 test("a version 1 recording validates unchanged and keeps its own version stamp", () => {
@@ -89,15 +90,24 @@ test("a version 2 recording validates and keeps its own version stamp", () => {
   assert.equal(JSON.stringify(recording), JSON.stringify(input));
 });
 
-test("version 2 admits the debugger end reason in the event stream and the segment end", () => {
-  const recording = validateHistoryRecording(
-    endedRecording(2, { event: "debugger", end: "debugger" }),
-  );
-  assert.deepEqual(recording.segments[0]?.events[0]?.cause, {
-    kind: "end",
-    reason: "debugger",
-  });
-  assert.equal(recording.segments[0]?.end?.reason, "debugger");
+test("a version 3 recording validates and keeps its own version stamp", () => {
+  const input = endedRecording(3, { event: "debugger", end: "debugger" });
+  const recording = validateHistoryRecording(input);
+  assert.equal(recording.version, 3);
+  assert.equal(JSON.stringify(recording), JSON.stringify(input));
+});
+
+test("versions 2 and 3 admit the debugger end reason in the event stream and the segment end", () => {
+  for (const version of [2, 3]) {
+    const recording = validateHistoryRecording(
+      endedRecording(version, { event: "debugger", end: "debugger" }),
+    );
+    assert.deepEqual(recording.segments[0]?.events[0]?.cause, {
+      kind: "end",
+      reason: "debugger",
+    });
+    assert.equal(recording.segments[0]?.end?.reason, "debugger");
+  }
 });
 
 test("version 1 rejects the debugger reason in the event stream and the segment end", () => {
@@ -112,17 +122,21 @@ test("version 1 rejects the debugger reason in the event stream and the segment 
   }
 });
 
-test("version 2 still admits every released end reason", () => {
+test("versions 2 and 3 still admit every released end reason", () => {
   const released: HistoryEndReason[] = ["boot", "walkthrough", "resume", "quit", "budget", "eject"];
-  for (const reason of released) {
-    const recording = validateHistoryRecording(endedRecording(2, { event: reason, end: reason }));
-    assert.equal(recording.segments[0]?.end?.reason, reason);
-    assert.deepEqual(recording.segments[0]?.events[0]?.cause, { kind: "end", reason });
+  for (const version of [2, 3]) {
+    for (const reason of released) {
+      const recording = validateHistoryRecording(
+        endedRecording(version, { event: reason, end: reason }),
+      );
+      assert.equal(recording.segments[0]?.end?.reason, reason);
+      assert.deepEqual(recording.segments[0]?.events[0]?.cause, { kind: "end", reason });
+    }
   }
 });
 
-test("both versions reject a reason no contract knows", () => {
-  for (const version of [1, 2]) {
+test("all supported versions reject a reason no contract knows", () => {
+  for (const version of [1, 2, 3]) {
     assert.throws(
       () => validateHistoryRecording(endedRecording(version, { end: "hibernate" })),
       /end reason is invalid/,
@@ -131,7 +145,7 @@ test("both versions reject a reason no contract knows", () => {
 });
 
 test("an unknown recording version is refused without rewriting the record", () => {
-  for (const version of [0, 3, 4, -1, 1.5, "2", null, undefined]) {
+  for (const version of [0, 4, 5, -1, 1.5, "2", null, undefined]) {
     const input = endedRecording(version, {});
     const before = structuredClone(input);
     assert.throws(() => validateHistoryRecording(input), /unsupported version/);
@@ -139,12 +153,160 @@ test("an unknown recording version is refused without rewriting the record", () 
   }
 });
 
-test("atomic project images are admitted only by recording version 2", () => {
+test("atomic project images are admitted by recording versions 2 and 3 and refused by version 1", () => {
   const input = JSON.parse(
     readFileSync(new URL("./formats/history-v2-project-image.json", import.meta.url), "utf8"),
   ) as ReturnType<typeof endedRecording>;
   assert.throws(() => validateHistoryRecording({ ...input, version: 1 }));
   assert.equal(validateHistoryRecording(input).segments[0]!.events[0]!.cause.kind, "projectImage");
+  assert.equal(
+    validateHistoryRecording({ ...input, version: 3 }).segments[0]!.events[0]!.cause.kind,
+    "projectImage",
+  );
+});
+
+test("a complete window-bearing recording is accepted in v3, rejected in v1/v2, and rejected by the 1.2.4 version gate without mutation", () => {
+  const savedWindow = {
+    geometry: "pc" as const,
+    textTop: 10,
+    textLeft: 6,
+    textRows: 1,
+    textCols: 8,
+    x0: 40,
+    y0: 72,
+    x1: 120,
+    y1: 96,
+    seq: 1,
+    erased: [0, 1],
+  };
+  const savedRectWithWindow = {
+    written: new Array<number>(30).fill(1),
+    top: 9,
+    left: 5,
+    bottom: 11,
+    right: 14,
+    cells: new Array<number>(60).fill(0x20),
+    window: savedWindow,
+  };
+  const parkedModal = {
+    kind: "print" as const,
+    saved: savedRectWithWindow,
+    remainingMs: null,
+    pauseClock: true,
+  };
+  const replayWithWindow = {
+    clockRemainderMs: 0,
+    pictureShown: true,
+    terminated: false,
+    statusRefreshRequested: false,
+    priorityBase: 48,
+    key: 0,
+    egoHidden: 0,
+    inputReady: 0,
+    saidMatched: 0,
+    controllers: new Array<number>(256).fill(0),
+    parsedWords: [],
+    parsedWordTexts: [],
+    parserCount: 0,
+    lastInputLine: "",
+    editLine: "",
+    acceptedLine: "",
+    inputWidthCap: null,
+    pendingController: null,
+    inputQueue: [],
+    menu: [],
+    menuFinalized: false,
+    menuHeading: 0,
+    menuRequested: false,
+    objectExtras: Array.from({ length: 256 }, () => ({ priority: 0 })),
+    viewCache: { loaded: [], order: [] },
+    gameSignature: "",
+    sound: null,
+    patchGeneration: 0,
+    continuation: {
+      frames: [{ logic: 0, pc: 0, hash: 0 }],
+      modals: [parkedModal],
+      persistentWindow: { ...savedRectWithWindow },
+      keyWait: null,
+    },
+  };
+  const stampedBoot = stampBoot({
+    ...BOOT,
+    replay: replayWithWindow,
+  });
+  const stampedAnchor = stampAnchor({
+    seq: 0,
+    tick: 1,
+    cycle: 1,
+    reason: "autosave",
+    image: "eA==",
+    replay: replayWithWindow,
+    inputQueue: [],
+    directionQueue: [],
+    inputLines: [],
+    requestSerial: 0,
+    rng: 7,
+    clock: { remainder: 0, increments: 0, paused: false },
+    soundDevice: 1,
+    resourceSet: "rev-1",
+    patchGeneration: 0,
+  });
+  const v3WindowRecording = {
+    version: 3,
+    identity: IDENTITY,
+    profile: "2.936",
+    resourceSet: "rev-1",
+    startedAt: 42,
+    segments: [
+      {
+        id: "s1",
+        boot: stampedBoot,
+        anchors: [stampedAnchor],
+        events: [],
+        marks: [],
+        sync: [],
+      },
+    ],
+  };
+
+  // Released 1.2.4 reader version check (accepts only versions 1 and 2):
+  // rejects version 3 cleanly by version before inspecting any nested field.
+  function released124VersionGate(value: unknown): void {
+    const s = value as Record<string, unknown>;
+    const version = s["version"];
+    if (version !== 1 && version !== 2) {
+      throw new Error(`History recording has unsupported version ${String(version)}.`);
+    }
+  }
+  const before124 = structuredClone(v3WindowRecording);
+  assert.throws(() => released124VersionGate(v3WindowRecording), /unsupported version 3/);
+  assert.deepEqual(v3WindowRecording, before124, "1.2.4 reader check must not mutate input");
+
+  // New v3 reader accepts the complete window-bearing recording and preserves saved.window.
+  const validated = validateHistoryRecording(v3WindowRecording);
+  assert.equal(validated.version, 3);
+  assert.deepEqual(
+    validated.segments[0]?.boot.replay?.continuation?.modals[0] &&
+      "saved" in validated.segments[0].boot.replay.continuation.modals[0]
+      ? validated.segments[0].boot.replay.continuation.modals[0].saved.window
+      : null,
+    savedWindow,
+  );
+  assert.deepEqual(
+    validated.segments[0]?.anchors[0]?.replay.continuation?.persistentWindow?.window,
+    savedWindow,
+  );
+
+  // Versions 1 and 2 reject saved.window in boot or anchor replay state.
+  for (const oldVersion of [1, 2]) {
+    const smuggled = structuredClone({ ...v3WindowRecording, version: oldVersion });
+    const beforeSmuggled = structuredClone(smuggled);
+    assert.throws(
+      () => validateHistoryRecording(smuggled),
+      /\.window requires recording version 3/,
+    );
+    assert.deepEqual(smuggled, beforeSmuggled);
+  }
 });
 
 test("boot fingerprints distinguish PAL while preserving every NTSC semantic value", () => {
@@ -154,7 +316,7 @@ test("boot fingerprints distinguish PAL while preserving every NTSC semantic val
   assert.deepEqual(stampBoot({ ...BOOT, amigaRegion: "ntsc" }).fingerprint, BOOT.fingerprint);
   assert.deepEqual(stampBoot(BOOT).fingerprint, historyFingerprint(legacy));
   assert.notDeepEqual(stampBoot({ ...BOOT, amigaRegion: "pal" }).fingerprint, BOOT.fingerprint);
-  const recording = endedRecording(2);
+  const recording = endedRecording(3);
   recording.segments[0]!.boot = { ...BOOT, amigaRegion: "pal" };
   assert.throws(() => validateHistoryRecording(recording), /fingerprint/);
 });

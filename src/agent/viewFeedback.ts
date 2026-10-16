@@ -1,12 +1,16 @@
 /** Bounded visual feedback from the compiled sprite resource. */
 import { parseView, selectViewCel } from "../view/view.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
-import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import { encodePngRgb } from "../picture/png.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 const TILE_WIDTH = 80;
 const TILE_HEIGHT = 64;
 const MAX_FRAMES = 32;
-const PREVIEW_PALETTE = [...EGA_RGB, [38, 43, 50], [49, 55, 63]] as const;
+const PREVIEW_EXTRA = [
+  [38, 43, 50],
+  [49, 55, 63],
+] as const;
 
 function sampleIndices(count: number, limit: number): number[] {
   const size = Math.min(count, limit);
@@ -66,7 +70,9 @@ export function viewFeedback(payload: Uint8Array, profile: AgiProfile, num: numb
     }
   }
   const rgb = new Uint8Array(width * height * 3);
-  for (let i = 0; i < surface.length; i++) rgb.set(PREVIEW_PALETTE[surface[i]!]!, i * 3);
+  // Colours are the ones the game shows for this profile; 16 and 17 are the checkerboard.
+  const palette = [...colourTableForProfile(profile), ...PREVIEW_EXTRA];
+  for (let i = 0; i < surface.length; i++) rgb.set(palette[surface[i]!]!, i * 3);
   return {
     png: encodePngRgb(width, height, rgb),
     caption: `View ${num}: ${frames.length} of ${totalFrames} cels, rendered from compiled bytes. Tiles left to right, top to bottom: ${frames.map(({ loop, cel }) => `L${loop} C${cel}`).join(", ")}. ${directionGuide}${animationGuide}Checkerboard is transparency; feet share a baseline in each tile. AGI pixels are twice as wide as tall. Inspect silhouette, colors, mirrored directions and animation consistency; revise only specific defects.`,

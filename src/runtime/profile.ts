@@ -17,6 +17,7 @@ import {
 } from "../container/playableFiles.ts";
 import { sha256Hex } from "../crypto.ts";
 import { detectKnownGameByHashes, type KnownAgiGame } from "../games/knownGames.ts";
+import type { WindowFrameGeometry } from "./textSurface.ts";
 
 /** Identifier of a promoted profile. */
 export type ProfileId =
@@ -130,7 +131,7 @@ type DirectionLoopRule = "exact-four" | "four-or-more" | "four-or-more-f20";
 type DirectionLoopTiming = "every-pass" | "cadence-due";
 
 /** Position actions 0x25/0x26 ordering (conformance matrix, "Position and composition"). */
-type PositionActionOrder = "erase-then-store" | "store-together";
+type PositionActionOrder = "place-when-drawn" | "store-together";
 
 /** Ordering within the earlier-drawn partition (object_behavior "Drawing order and refresh"). */
 type PartitionOrder = "object-number" | "drawing-key";
@@ -183,16 +184,50 @@ type SoundProfile =
  */
 type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
 
+/** Original presentation family a profile reproduces (`AgiProfile.presentation`). */
+export type Presentation = "pc" | "amiga" | "iigs";
+/** The build's 16-colour table (`AgiProfile.palette`). */
+export type PaletteId = "ega" | "amiga" | "amiga-2.082" | "amiga-2.31x";
+
 export type AmigaRegion = "ntsc" | "pal";
 
-/** Session timing from the fixed VBlank dividers; docs/fidelity.md "Original Amiga sound player". */
+/** BIOS PIT channel 0 at its power-on divisor 65536: 1,193,182 / 65,536 Hz. */
+const BIOS_TICK_MS = 65_536_000 / 1_193_182;
+
+/**
+ * Session timing from the hardware interrupt dividers (docs/fidelity.md
+ * "Original scheduler and modal timing", "Original Amiga sound player"):
+ * - `"booter-int1c"` (PC 2.001): hooks BIOS INT 1Ch without reprogramming
+ *   PIT channel 0, so sound rows, pacing and the clock count 18.2065 Hz
+ *   ticks; the clock refreshes v11..v14 from the tick count every 18 ticks,
+ *   so one game second is 18.2 ticks.
+ * - `"amiga-vblank"` (Amiga 2.082..2.333): VERTB interrupt runs sound every
+ *   VBlank (60 Hz NTSC / 50 Hz PAL) and timer/pacing every 3rd VBlank
+ *   (20 Hz NTSC / 16.67 Hz PAL, 20 timer ticks per game second).
+ * - `"fixed"` (PC 2.089..3.002.149 PIT 60 Hz / 3 = 20 Hz, IIgs 1.014
+ *   SetHeartBeat 60 Hz / 3 = 20 Hz): 60 Hz sound, 50 ms timer increments,
+ *   1000 ms game seconds.
+ */
 export function interpreterTiming(profile: AgiProfile, region: AmigaRegion = "ntsc") {
+  if (profile.frameTiming === "booter-int1c") {
+    return {
+      soundHz: 1000 / BIOS_TICK_MS,
+      timerIncrementMs: BIOS_TICK_MS,
+      gameSecondMs: (BIOS_TICK_MS * 182) / 10,
+    };
+  }
   const soundHz = profile.frameTiming === "amiga-vblank" && region === "pal" ? 50 : 60;
   return { soundHz, timerIncrementMs: 3000 / soundHz, gameSecondMs: 60000 / soundHz };
 }
 
 export interface AgiProfile {
-  readonly frameTiming: "fixed" | "amiga-vblank";
+  readonly frameTiming: "fixed" | "booter-int1c" | "amiga-vblank";
+  /**
+   * When the pacing counter admits a logic pass: once it reaches v10 (PC and
+   * Amiga), or once it exceeds v10 (IIgs 1.014 loops while v10 >= counter),
+   * so the IIgs waits v10 + 1 timer ticks (docs/fidelity.md "Input and pacing").
+   */
+  readonly pacingAdmission: "reaches-v10" | "exceeds-v10";
   /** Promoted profile identifier, e.g. "2.936". */
   readonly id: ProfileId;
 
@@ -284,6 +319,18 @@ export interface AgiProfile {
    * profiles have no such gate (conformance matrix, "Menu interaction gate").
    */
   readonly menuInteractionGate: boolean;
+  /**
+   * The native menu strip the player opens outside the script: "intuition"
+   * on the Amiga builds (right mouse button, pull-downs built from
+   * set.menu / set.menu.item), "none" where menus open through menu.input
+   * (docs/fidelity.md "Original native menu dispatch").
+   */
+  readonly nativeMenu: "none" | "intuition";
+  /**
+   * Whether the native menu's verify step also requires f14: 2.176..2.333
+   * do; 2.082 checks the dialog inhibitor and text mode only.
+   */
+  readonly nativeMenuF14Gate: boolean;
 
   // ---- runtime state ----
   /**
@@ -308,6 +355,70 @@ export interface AgiProfile {
   readonly releaseGateClearAction: boolean;
   /** Actions 0xa3/0xa4 enable/clear the fixed input width, or do nothing (3.002.149). */
   readonly inputWidthActions: InputWidthActions;
+  /**
+   * v19 receives the low byte of every type-1 key event BEFORE the
+   * input-acceptance gate and the line editor across every shipped PC, Amiga,
+   * and IIgs interpreter (docs/fidelity.md "Original input, menu and modal
+   * handling").
+   */
+  readonly keyByteStoredBeforeEdit: boolean;
+  /**
+   * The event queue keeps the full 16-bit keypad Enter/Escape words and every
+   * GetKey-consuming path normalizes them to their main-keyboard twins
+   * (docs/fidelity.md "Original input, menu and modal handling").
+   */
+  readonly keypadWordsNormalized: boolean;
+  /**
+   * Keys that acknowledge a print/showObj/showPri modal. "enter-escape":
+   * ChkAcAb accepts CR or ESC only across every shipped PC, Amiga, and IIgs
+   * interpreter (docs/fidelity.md "Original input, menu and modal handling").
+   */
+  readonly modalDismissalKeys: "enter-escape" | "enter-escape-space";
+  /**
+   * The acknowledgement-only inventory list ends on a bare WaitEvent — ANY
+   * event dismisses it, including zero-low-byte extended words and
+   * navigation (docs/fidelity.md "Original input, menu and modal handling").
+   */
+  readonly inventoryListEndsOnAnyEvent: boolean;
+  /**
+   * The word loop tests the retained-word count BEFORE each match and exits
+   * silently at ten: tokens past the tenth are never examined, so an unknown
+   * word there is not reported (docs/fidelity.md "Wave-3 parser verdicts").
+   */
+  readonly parserStopsAtTenthWord: boolean;
+  /**
+   * Match initializes wordLen = 1 and wordNum = 0 for a single-letter token
+   * 'a' or 'i' before scanning the dictionary section, so lone 'a' and 'i'
+   * default to group 0 (ignored) when absent from WORDS.TOK while an explicit
+   * dictionary entry still overrides it: true across every PC, Amiga and IIgs
+   * profile except 2.001 (docs/fidelity.md "Wave-3 parser verdicts", F-Parser-07).
+   */
+  readonly parserDefaultsLoneAAndI: boolean;
+  /**
+   * MakeLine classifies ",.?!();:[]{}" as word separators and drops "'`-\""
+   * without splitting across PC 2.089..3.002.149, Amiga 2.082..2.333, and IIgs
+   * 1.014; on PC 2.001 MakeLine (0x1901) collapses space runs only and FindWord
+   * (0x1961) requires a space or NUL after a match (docs/fidelity.md "Wave-4
+   * parser verdicts", F-Parser-10).
+   */
+  readonly parserStripsPunctuation: boolean;
+  /**
+   * Whether the line editor uses the original interpreter capacity formula
+   * modeled by `inputLineEditCap` (docs/fidelity.md "Original input, menu and
+   * modal handling").
+   */
+  readonly originalInputCapacity: boolean;
+  /**
+   * Exact line-editor character-cap formula from the binary disassembly
+   * (docs/fidelity.md "Original input, menu and modal handling"):
+   * - `"early-35"`: `35` (PC 2.001..2.230).
+   * - `"prompt-40"`: `min(v24, 40 - strlen(s0) - (promptByte !== 0 ? 1 : 0))`
+   *   (PC 2.272, 3.002.149, Amiga 2.082..2.333).
+   * - `"dialogue-36"`: `min(v24, (dialogueOpen ? 36 : 40) - strlen(s0) - (promptByte !== 0 ? 1 : 0))`
+   *   (PC 2.411..3.002.107).
+   * - `"iigs-39"`: `min(v24, 39 - strlen(s0))` (IIgs 1.014).
+   */
+  readonly inputLineEditCap: "early-35" | "prompt-40" | "dialogue-36" | "iigs-39";
   /**
    * Action 0xa9 also clears the fixed input-width override. False in
    * 3.002.149, where there is no override to clear
@@ -347,14 +458,36 @@ export interface AgiProfile {
   // ---- objects and presentation ----
   /** Which loop counts receive automatic direction-based loop selection. */
   readonly directionLoops: DirectionLoopRule;
+  /**
+   * Whether the ego↔v6 direction mirror runs BEFORE the autonomous-motion and
+   * block pass of the pre-logic phase (PC 2.411..3.002.149, Amiga 2.176..2.333,
+   * IIgs 1.014) or AFTER that pass (PC 2.001..2.272, Amiga 2.082)
+   * (docs/fidelity.md "Original input, menu and modal handling").
+   */
+  readonly preLogicDirectionMirror: boolean;
   /** Selection runs on every eligible pass (2.089/2.230/2.272) or only when the cadence countdown is 1. */
   readonly directionLoopTiming: DirectionLoopTiming;
-  /** Position actions erase drawn state before storing the snapshot (2.089 only). */
+  /** Position actions run the horizon/placement routine on a drawn object before storing the snapshot (2.001 and 2.089). */
   readonly positionActionOrder: PositionActionOrder;
   /** Earlier-drawn partition ordering; 2.089 uses object number, everything else the drawing key. */
   readonly earlierPartitionOrder: PartitionOrder;
   /** Packed loop-header orientation/mirroring nibble; unique to 2.230 (conformance matrix, "View loop encoding"). */
   readonly packedViewLoopHeader: boolean;
+  /**
+   * Bitmask for the stored loop-index field in `MirrorCell` (`(cel[2] >> 4) & mask`):
+   * - `0`: no loop or cel mirroring exists (`2.001`, `2.089`).
+   * - `3`: 2-bit loop orientation (`0x30`, `2.230`, `2.272..2.440`, `amiga-2.082..2.310`).
+   * - `7`: 3-bit loop orientation (`0x70`, `2.903..3.002.149`, `amiga-2.316..2.333`, `iigs-1.014`).
+   * (docs/fidelity.md "Original cel handling and priority table", F-VIEWS-01).
+   */
+  readonly celMirrorLoopMask: 0 | 3 | 7;
+  /**
+   * First row PriToY reads once set.pri.base has replaced the default table:
+   * 168 (one past the table, a zero byte) on 2.936 and 3.002.086, 167 on
+   * 3.002.102 and later (docs/fidelity.md F-VIEWS-06). Builds whose
+   * set.pri.base is a stub never leave the closed form.
+   */
+  readonly priorityTableScanStart: 167 | 168;
   /**
    * Object-distance action 0x45 saturates at 254 (later PC and Amiga), at 255
    * on the IIgs — where a far object reads like an undrawn one — or wraps its
@@ -380,10 +513,145 @@ export interface AgiProfile {
    */
   readonly timedPrintClearsV21: boolean;
   /**
+   * The original window-text behaviors: wrap consumes the break space and
+   * strips continuation leading spaces, an overlong message is replaced by
+   * the "Message too verbose:" notice, print.at row/col overrides are used
+   * verbatim with picTop added on both paths, the status line uses the
+   * profile's `statusLineFormat`, and the window frame uses the profile's
+   * `windowFrameGeometry` (docs/fidelity.md "Original window and status-line
+   * text").
+   */
+  readonly originalTextWindows: boolean;
+  /**
+   * Status-line formatting variant (docs/fidelity.md "Original window and
+   * status-line text"):
+   * - `"booter-2.001"`: col 1 `"Score:%d  "`, col 30 `"Sound:%s"`, `"on "`/`"off"`.
+   * - `"early-2.089"`: col 1 `"Score:%d of %d"`, col 30 `"Sound:%s"`, `"on"`/`"off"`.
+   * - `"common"`: col 1 `"Score:%d of %d  "`, col 30 `"Sound:%s"`, `"on "`/`"off"`.
+   */
+  readonly statusLineFormat: "booter-2.001" | "early-2.089" | "common";
+  /**
+   * Pixel-exact OpenWndw frame geometry (docs/fidelity.md "Original window and
+   * status-line text").
+   */
+  readonly windowFrameGeometry: WindowFrameGeometry;
+  /**
+   * Which original presentation the frame reproduces: the font, the status
+   * line's placement and the pointer (docs/fidelity.md "Amiga screen, font
+   * and pointer"). `"pc"` is the EGA text-mode look every PC build shares.
+   * `"amiga"` is the Intuition screen the six Amiga builds open: the system
+   * `topaz.font` 8×8 glyphs, the status line in the 11 px screen title bar
+   * with its depth gadgets, s0 + typed text + cursor byte on the input row,
+   * and the interpreter's own 16×16 arrow pointer. `"iigs"` is the Apple
+   * IIgs build's own look.
+   */
+  readonly presentation: Presentation;
+  /**
+   * The 16-colour table the build loads for AGI colours 0..15
+   * (docs/fidelity.md "Amiga screen, font and pointer"): `"ega"` is the PC
+   * EGA palette; the Amiga builds each carry their own 16×3 nibble table —
+   * `"amiga"` (KQ2 2.176, SQ2 2.202), `"amiga-2.082"` (SQ1, colour 13
+   * orange instead of purple) and `"amiga-2.31x"` (PQ1, GR, MH2: an
+   * EGA-like table).
+   */
+  readonly palette: PaletteId;
+  /**
+   * What the input row shows (docs/fidelity.md "Amiga screen, font and
+   * pointer"). `"prompt-edit-cursor"`: string 0, the typed text, then the
+   * cursor byte from set.cursor.char — the order every Amiga build's
+   * ShowInput prints (SQ2 h85+0x366 and its siblings). `"cursor-first"`: the
+   * engine's earlier model, the cursor byte before the typed text and no
+   * string 0, kept on the builds whose input routine has not been read.
+   */
+  readonly inputLineOrder: "cursor-first" | "prompt-edit-cursor";
+  /**
+   * Whether the cursor byte leaves the input row while a restart or quit
+   * confirmation is open: `"erased"` on the Amiga builds, whose RestartGame
+   * calls EraseCur before the prompt and WriteCur unconditionally after it
+   * (F-persistence-02); `"kept"` elsewhere until each build's cursor
+   * handling is modelled.
+   */
+  readonly confirmCursor: "kept" | "erased";
+  /**
+   * Gate on actions 0x70/0x71 (`status.line.on` / `status.line.off`) and the
+   * Amiga screen title bar (docs/fidelity.md "Amiga screen, font and pointer"):
+   * - `"unconditional"`: PC, IIgs, and Amiga 2.082 (`h60+0x2ba`/`+0x2d2`), which
+   *   execute both handlers and show the title bar regardless of picture top or
+   *   prior status state.
+   * - `"pic-top"`: Amiga 2.176 and 2.202 (`h82+0x548`/`+0x56c`), which test
+   *   `$6a14` (`displayBaseRow !== 0`) and suppress the title bar while the
+   *   picture top is row 0.
+   * - `"pic-top-and-enabled"`: Amiga 2.310, 2.316 and 2.333 (`h82+0x580` tests
+   *   the status-enabled longword at `h206+0x400`), which also return early from
+   *   `status.line.off` when the status line is already off.
+   */
+  readonly statusLineGate: "unconditional" | "pic-top" | "pic-top-and-enabled";
+  /**
+   * How `show.pic` presents a picture after `draw.pic` (docs/fidelity.md
+   * "Original picture dissolve"); after `overlay.pic` every build copies it
+   * at once. `"instant"`: PC, and Amiga 2.333, whose mode string is patched
+   * to "blit" (`h116+0x0`). The others block the pass for a dissolve that
+   * also ends restore.game: `"amiga-2.082"` always skips picture rows 0..1
+   * (`h154+0x2c0`); `"amiga-pic-top"` (2.176, 2.202, `h215+0x2e0`) skips them
+   * while the picture starts below row 0; `"amiga-pic-top-and-status"` (2.310,
+   * 2.316, `h215+0x300`) only while the status line is on as well; `"iigs"`
+   * (`main+0x0f53`) copies all 168 rows.
+   */
+  readonly showPictureReveal:
+    "instant" | "amiga-2.082" | "amiga-pic-top" | "amiga-pic-top-and-status" | "iigs";
+  /**
    * A due movement proposal whose left X is exactly zero reports left-boundary
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
   readonly clampExactZeroLeftBoundary: boolean;
+  /**
+   * Whether add.to.pic packs (margin << 4) | priority into a byte and gates
+   * the control box on packed <= 0x3f (PC and Amiga builds checked;
+   * docs/fidelity.md "Original add.to.pic control box", F-VIEWS-04, F-VIEWS-09).
+   */
+  readonly addToPicPacking: boolean;
+  /**
+   * Whether ObjInPic replaces a zero priority nibble with the baseline's band
+   * (`pri_tbl[y]`) before drawing: 2.089 and later, Amiga and IIgs. The 2.001
+   * ObjInPic (`0x532a`) calls InsertObj directly, so priority 0 draws as 0
+   * (docs/fidelity.md F-VIEWS-04).
+   */
+  readonly addToPicBandForZeroPriority: boolean;
+  /**
+   * Whether add.to.pic runs the scratch-entry FindPosn relocation spiral before
+   * objinpic (verified across all 18 profiles; docs/fidelity.md, F-VIEWS-03).
+   */
+  readonly addToPicRelocation: boolean;
+  /**
+   * Whether the cel blit clips negative-top and right-edge rows/columns in
+   * place without shifting left and masks priority to its low nibble (verified
+   * across all 18 profiles; docs/fidelity.md, F-VIEWS-05, F-VIEWS-07).
+   */
+  readonly originalCelBlitClippingAndPriorityMask: boolean;
+  /**
+   * Whether new.room's object reset preserves newlyPositioned (0x0400) and
+   * cycleDelay (0x1000) across room transitions (verified across all 18
+   * profiles; docs/fidelity.md, F-motion-10).
+   */
+  readonly newRoomPreservesReposAndCycleDelay: boolean;
+  /**
+   * Whether menu Home and End load the first/last menu heading unconditionally
+   * without scanning for an enabled item (verified on 2.936; docs/fidelity.md,
+   * F-IN-15).
+   */
+  readonly menuHomeEndUnconditional: boolean;
+  /**
+   * Whether show.pri.screen preserves an open text window across the priority
+   * screen modal (verified across all 18 profiles; docs/fidelity.md,
+   * F-picture-04).
+   */
+  readonly showPriScreenPreservesWindow: boolean;
+  /**
+   * Whether show.obj on a descriptionless view (vdesc == 0) formats the raw
+   * view header bytes from offset 0 (verified across all 18 profiles;
+   * docs/fidelity.md, F-VIEWS-11).
+   */
+  readonly showObjUncheckedDescOffset: boolean;
 
   // ---- pictures ----
   /** Highest dispatched picture command byte: 0xf8 in the early profiles, 0xfa later. */
@@ -392,9 +660,47 @@ export interface AgiProfile {
   readonly patternProfile: PatternProfile;
 
   // ---- session, diagnostics, persistence ----
-  /** Action 0x80 accepts restart without confirmation while f16 is set (false in 2.411). */
+  /** Action 0x80 accepts restart without confirmation while f16 is set (false in 2.001..2.411 and Amiga 2.082). */
   readonly restartPromptBypassedByF16: boolean;
-  /** The heap diagnostic prints the later "rm.0, etc." line (false in 2.411/2.440). */
+  /**
+   * The original restart/restore contract: the restart/quit prompts carry
+   * the original wording, the authentic restore tail clears controllers and
+   * leaves v19/f2/f4 untouched, and input acceptance survives restart
+   * (docs/fidelity.md "Wave-3 persistence verdicts").
+   */
+  readonly originalRestartRestore: boolean;
+  /**
+   * Whether the authentic RestoreGame tail rewrites v20, v26, v22 and
+   * conditional f11 after reading the save blocks: true in PC 2.903..3.002.149
+   * and false in PC 2.001..2.440, Amiga 2.082..2.333, and IIgs 1.014, where
+   * the save file's machine variables remain untouched (docs/fidelity.md
+   * "Wave-3 persistence verdicts", F-persistence-03).
+   */
+  readonly restoreRewritesMachineState: boolean;
+  /**
+   * Whether the restart prompt saves CursorState before EraseCur and restores
+   * cursor visibility on cancel only when it was visible on entry: true in PC
+   * v3 (3.002.086..3.002.149) and false in PC v2, Amiga, and IIgs. In all
+   * builds CancelLine runs only on the accepted branch, so a declined restart
+   * preserves the typed command line across every profile (docs/fidelity.md
+   * "Wave-3 persistence verdicts", F-persistence-02).
+   */
+  readonly restartCursorMemory: boolean;
+  /**
+   * Replay-pair capacity of a game that never calls script.size: the shipped
+   * interpreter data image holds SCRIPTSIZE = 0x0032 (50 pairs) across every
+   * PC, Amiga, and IIgs build (docs/fidelity.md "Original script capacity and
+   * version handlers"). A game's own script.size replaces it.
+   */
+  readonly defaultScriptBufferPairs: number;
+  /**
+   * script.size stores the capacity, then resets the recorded pair sequence
+   * and refreshes the object update lists: RestoreAll + InitScript +
+   * AllInBack across every PC, Amiga, and IIgs build (docs/fidelity.md
+   * "Original script capacity and version handlers").
+   */
+  readonly scriptSizeResetsSequence: boolean;
+  /** The heap diagnostic prints the later "rm.0, etc." line (PC 2.903..3.002.149 only). */
   readonly heapDiagnosticExtraLine: boolean;
   /** Save envelope block count: four in 2.089, five on PC and Amiga, six on the Apple IIgs build. */
   readonly saveBlocks: 4 | 5 | 6;
@@ -404,6 +710,13 @@ export interface AgiProfile {
   // ---- sound ----
   /** Sound scheduling/output family. */
   readonly sound: SoundProfile;
+  /**
+   * sound() runs StopSnd FIRST — setting the interrupted sound's done flag —
+   * then reads the operands, resets the new done flag, and only then can the
+   * lookup fault across every PC, Amiga, and IIgs build (docs/fidelity.md
+   * "Wave-3 sound verdicts").
+   */
+  readonly soundStopsBeforeFault: boolean;
   /** Representative PC sound hardware; docs/fidelity.md "PCjr and Tandy noise". */
   readonly psgNoise: "sn76496" | "ncr8496";
   /** Decay-envelope selection for the "common" family (unused by early/booter sound). */
@@ -428,11 +741,22 @@ const BASE_2936: AgiProfile = {
   menuActions: "full",
   menuInputAction: "effect",
   menuInteractionGate: false,
+  nativeMenu: "none",
+  nativeMenuF14Gate: false,
   stringSlots: 12,
   keyMapCapacity: 39,
   releaseGateAction: "increment",
   releaseGateClearAction: false,
   inputWidthActions: "effect",
+  keyByteStoredBeforeEdit: true,
+  keypadWordsNormalized: true,
+  modalDismissalKeys: "enter-escape",
+  inventoryListEndsOnAnyEvent: true,
+  parserStopsAtTenthWord: true,
+  parserDefaultsLoneAAndI: true,
+  parserStripsPunctuation: true,
+  originalInputCapacity: true,
+  inputLineEditCap: "dialogue-36",
   closeWindowClearsInputWidth: true,
   priorityBaseAction: "effect",
   mousePosnAction: "noop",
@@ -442,10 +766,13 @@ const BASE_2936: AgiProfile = {
   roomAliases: null,
   wordSequenceTailTerminator: true,
   directionLoops: "four-or-more",
+  preLogicDirectionMirror: true,
   directionLoopTiming: "cadence-due",
   positionActionOrder: "store-together",
   earlierPartitionOrder: "drawing-key",
   packedViewLoopHeader: false,
+  celMirrorLoopMask: 7,
+  priorityTableScanStart: 168,
   objectDistanceCap: 254,
   targetMotionDeferred: false,
   movementClear: "later",
@@ -453,20 +780,44 @@ const BASE_2936: AgiProfile = {
   showPictureClearsF15: true,
   printConsumesF15: true,
   timedPrintClearsV21: true,
+  originalTextWindows: true,
+  statusLineFormat: "common",
+  windowFrameGeometry: "pc",
+  presentation: "pc",
+  palette: "ega",
+  inputLineOrder: "cursor-first",
+  confirmCursor: "kept",
+  statusLineGate: "unconditional",
+  showPictureReveal: "instant",
   clampExactZeroLeftBoundary: false,
+  addToPicPacking: true,
+  addToPicBandForZeroPriority: true,
+  addToPicRelocation: true,
+  originalCelBlitClippingAndPriorityMask: true,
+  newRoomPreservesReposAndCycleDelay: true,
+  menuHomeEndUnconditional: false,
+  showPriScreenPreservesWindow: true,
+  showObjUncheckedDescOffset: true,
   pictureMaxCommand: 0xfa,
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
+  originalRestartRestore: true,
+  restoreRewritesMachineState: true,
+  restartCursorMemory: false,
+  defaultScriptBufferPairs: 50,
+  scriptSizeResetsSequence: true,
   heapDiagnosticExtraLine: true,
   saveBlocks: 5,
   saveBlock3Xor: false,
   frameTiming: "fixed",
+  pacingAdmission: "reaches-v10",
   sound: "common",
+  soundStopsBeforeFault: true,
   psgNoise: "ncr8496",
   soundEnvelope: "2.917",
 };
 
-/** Early split-container shape shared by 2.089, 2.230 and 2.272. */
+/** Early split-container shape shared by 2.001, 2.089, 2.230 and 2.272. */
 const BASE_EARLY: AgiProfile = {
   ...BASE_2936,
   inventoryMetadataEncrypted: false,
@@ -476,8 +827,11 @@ const BASE_EARLY: AgiProfile = {
   menuActions: "none",
   stringSlots: 6,
   releaseGateAction: "unavailable",
+  inputLineEditCap: "early-35",
   directionLoops: "exact-four",
+  preLogicDirectionMirror: false,
   directionLoopTiming: "every-pass",
+  celMirrorLoopMask: 3,
   objectDistanceCap: null,
   targetMotionDeferred: true,
   movementClear: "early",
@@ -487,6 +841,9 @@ const BASE_EARLY: AgiProfile = {
   timedPrintClearsV21: false,
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
+  restartPromptBypassedByF16: false,
+  restoreRewritesMachineState: false,
+  heapDiagnosticExtraLine: false,
   sound: "early-2.089",
   psgNoise: "sn76496",
 };
@@ -499,6 +856,7 @@ const BASE_V3: AgiProfile = {
   directoryAbsence: "exact-fff",
   menuInteractionGate: true,
   patternProfile: "v3-center-row",
+  restartCursorMemory: true,
   saveBlock3Xor: true,
 };
 
@@ -542,9 +900,13 @@ const BASE_AMIGA_31X: AgiProfile = {
   releaseGateAction: "noop",
   releaseGateClearAction: false,
   inputWidthActions: "noop",
+  keypadWordsNormalized: false,
+  inputLineEditCap: "prompt-40",
   closeWindowClearsInputWidth: false,
   menuInputAction: "noop",
   menuInteractionGate: false,
+  nativeMenu: "intuition",
+  nativeMenuF14Gate: true,
   priorityBaseAction: "noop",
   mousePosnAction: "write-pointer",
   clickMove: "amiga-2.31x",
@@ -552,10 +914,19 @@ const BASE_AMIGA_31X: AgiProfile = {
   playerControlMotionClear: "on-control-transition",
   directionLoops: "exact-four",
   directionLoopTiming: "cadence-due",
+  windowFrameGeometry: "amiga",
+  presentation: "amiga",
+  palette: "amiga-2.31x",
+  inputLineOrder: "prompt-edit-cursor",
+  confirmCursor: "erased",
+  statusLineGate: "pic-top-and-enabled",
+  showPictureReveal: "amiga-pic-top-and-status",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
   // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
   // Fields not listed here were checked against the handlers and match the
   // base; docs/fidelity.md "Amiga profile fields verified from the handlers".
+  restoreRewritesMachineState: false,
+  restartCursorMemory: false,
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
   heapDiagnosticExtraLine: false,
@@ -567,17 +938,24 @@ const BASE_AMIGA_31X: AgiProfile = {
 
 export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // PC booter 2.001: no promoted spec profile exists (the catalog starts at
-  // 2.089). Evidence-backed fields only; every other field inherits the
-  // earliest documented contract and is listed as unverified in
+  // 2.089); every field is verified against the 2.001 booter disk image in
   // docs/fidelity.md (pc-booter-2001-profile).
   "2.001": {
     ...BASE_EARLY,
     id: "2.001",
+    frameTiming: "booter-int1c",
     // The booter dispatch is bounded at 0x90, below the later 2.089 bound.
     // docs/fidelity.md: PC booter action 0x8f (max.drawn.objects).
     maxAction: 0x90,
     inventoryHeaderBytes: 2,
     action0x8f: "max-drawn-objects",
+    addToPicBandForZeroPriority: false,
+    parserDefaultsLoneAAndI: false,
+    parserStripsPunctuation: false,
+    positionActionOrder: "place-when-drawn",
+    celMirrorLoopMask: 0,
+    statusLineFormat: "booter-2.001",
+    windowFrameGeometry: "pc-2.001",
     sound: "booter-2.001",
   },
   // version_profiles.md "AGI 2.089 profile"; conformance matrix "2.089 variant selection".
@@ -585,8 +963,10 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_EARLY,
     id: "2.089",
     wordSequenceTailTerminator: false,
-    positionActionOrder: "erase-then-store",
+    positionActionOrder: "place-when-drawn",
     earlierPartitionOrder: "object-number",
+    celMirrorLoopMask: 0,
+    statusLineFormat: "early-2.089",
     saveBlocks: 4,
   },
   // version_profiles.md "AGI 2.230 profile"; conformance matrix "2.230 variant selection".
@@ -603,6 +983,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitOperandBytes: 1,
     exitAlwaysImmediate: false,
     menuActions: "stub",
+    inputLineEditCap: "prompt-40",
     movementClear: "later",
     sound: "early-2.272",
   },
@@ -613,8 +994,10 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     releaseGateAction: "unavailable",
     directionLoops: "exact-four",
+    celMirrorLoopMask: 3,
     patternProfile: "point-2.411",
     restartPromptBypassedByF16: false,
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.411",
     psgNoise: "sn76496",
@@ -626,6 +1009,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     releaseGateAction: "unavailable",
     directionLoops: "exact-four",
+    celMirrorLoopMask: 3,
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
     psgNoise: "sn76496",
@@ -637,7 +1022,10 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xad,
     directionLoops: "exact-four",
   },
-  "2.936": BASE_2936,
+  "2.936": {
+    ...BASE_2936,
+    menuHomeEndUnconditional: true,
+  },
   // version_profiles.md "AGI 3.002.086 profile"; conformance matrix "3.002.086 variant selection".
   "3.002.086": {
     ...BASE_V3,
@@ -655,6 +1043,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     releaseGateAction: "set",
     releaseGateClearAction: true,
     directionLoops: "four-or-more-f20",
+    priorityTableScanStart: 167,
     // MH1 3.002.107's measured envelope; the conformance matrix promotes that
     // build to this profile (docs/fidelity.md, sound player audit).
     soundEnvelope: "3.002",
@@ -664,11 +1053,13 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_V3,
     id: "3.002.149",
     maxAction: 0xb5,
+    priorityTableScanStart: 167,
     extraActions: "v3-full",
     keyMapCapacity: 49,
     releaseGateAction: "set",
     releaseGateClearAction: true,
     inputWidthActions: "noop",
+    inputLineEditCap: "prompt-40",
     closeWindowClearsInputWidth: false,
     // docs/fidelity.md: print-handler-output-modes.
     printConsumesF15: true,
@@ -709,10 +1100,20 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitAlwaysImmediate: false,
     menuActions: "full",
     menuInputAction: "noop",
+    nativeMenu: "intuition",
+    nativeMenuF14Gate: false,
+    keypadWordsNormalized: false,
+    inputLineEditCap: "prompt-40",
     keyMapCapacity: 40,
     // Sierra's stop.motion clears the motion word like the later builds
     // (docs/fidelity.md "Amiga interpreter profiles").
     movementClear: "later",
+    windowFrameGeometry: "amiga",
+    presentation: "amiga",
+    showPictureReveal: "amiga-2.082",
+    palette: "amiga-2.082",
+    inputLineOrder: "prompt-edit-cursor",
+    confirmCursor: "erased",
     saveBlocks: 5,
     frameTiming: "amiga-vblank",
     sound: "amiga-2.082",
@@ -734,9 +1135,14 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitAlwaysImmediate: false,
     menuActions: "full",
     menuInputAction: "noop",
+    nativeMenu: "intuition",
+    nativeMenuF14Gate: true,
     inputWidthActions: "noop",
+    keypadWordsNormalized: false,
+    inputLineEditCap: "prompt-40",
     inventoryMetadataEncrypted: true,
     stringSlots: 13,
+    preLogicDirectionMirror: true,
     directionLoopTiming: "cadence-due",
     // KQ2's distance, stop.motion, show.pic and print worker share the later
     // behavior, verified on the executable (docs/fidelity.md).
@@ -750,8 +1156,16 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     targetMotionDeferred: false,
     inventorySelector: true,
     timedPrintClearsV21: true,
+    windowFrameGeometry: "amiga",
+    presentation: "amiga",
+    palette: "amiga",
+    inputLineOrder: "prompt-edit-cursor",
+    confirmCursor: "erased",
+    statusLineGate: "pic-top",
+    showPictureReveal: "amiga-pic-top",
     pictureMaxCommand: 0xfa,
     patternProfile: "short-r1",
+    restartPromptBypassedByF16: true,
     heapDiagnosticExtraLine: false,
     saveBlocks: 5,
     frameTiming: "amiga-vblank",
@@ -771,10 +1185,23 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     motionCounters: "word",
     playerControlMotionClear: "on-control-transition",
     menuInputAction: "noop",
+    nativeMenu: "intuition",
+    nativeMenuF14Gate: true,
     inputWidthActions: "noop",
+    keypadWordsNormalized: false,
+    inputLineEditCap: "prompt-40",
     stringSlots: 13,
     directionLoops: "exact-four",
+    celMirrorLoopMask: 3,
+    windowFrameGeometry: "amiga",
+    presentation: "amiga",
+    palette: "amiga",
+    inputLineOrder: "prompt-edit-cursor",
+    confirmCursor: "erased",
+    statusLineGate: "pic-top",
+    showPictureReveal: "amiga-pic-top",
     patternProfile: "short-r1",
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     frameTiming: "amiga-vblank",
     sound: "amiga",
@@ -782,9 +1209,10 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   },
   // Amiga "PQ" 2.310 / "GR" 2.316 / "MH2" 2.333: the shared 2.31x generation
   // (BASE_AMIGA_31X above; docs/fidelity.md "Amiga interpreter profiles").
-  "amiga-2.310": { ...BASE_AMIGA_31X, id: "amiga-2.310" },
+  "amiga-2.310": { ...BASE_AMIGA_31X, id: "amiga-2.310", celMirrorLoopMask: 3 },
   "amiga-2.316": { ...BASE_AMIGA_31X, id: "amiga-2.316" },
-  "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333" },
+  // 2.333 keeps the 2.31x dissolve code, but its mode string reads "blit".
+  "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333", showPictureReveal: "instant" },
   // Apple IIgs "SQ2.SYS16" 1.014 (SQ2 IIgs; docs/fidelity.md "Apple IIgs
   // interpreter"). The executable's action and condition dispatchers bound at
   // 0xb1 and 0x13. The relocated action table ends at 0xb0: its 0xaf/0xb0
@@ -801,24 +1229,32 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // 2.936 contract.
   "iigs-1.014": {
     ...BASE_2936,
+    pacingAdmission: "exceeds-v10",
     // Fields not listed here were checked against the handlers and match
     // the 2.936 contract; docs/fidelity.md "IIgs profile fields verified
     // from the handlers".
     id: "iigs-1.014",
+    presentation: "iigs",
+    showPictureReveal: "iigs",
     maxAction: 0xb1,
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",
     clickMove: "iigs",
     motionCounters: "word",
+    playerControlMotionClear: "on-control-transition",
     // menu.input and the input-width pair are stubs; slot 0xae is the sound
     // discard, not set.pri.base; distance saturates at 255; the plotter keeps
     // the 320 limit with the center-row cross; show.mem has no "rm.0" line
     // (docs/fidelity.md "IIgs profile fields verified from the handlers").
     menuInputAction: "noop",
     inputWidthActions: "noop",
+    keypadWordsNormalized: false,
+    inputLineEditCap: "iigs-39",
     priorityBaseAction: "noop",
     objectDistanceCap: 255,
+    windowFrameGeometry: "iigs",
     patternProfile: "center-row-320",
+    restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     extraActions: "iigs",
     stringSlots: 13,
@@ -837,11 +1273,14 @@ export const DEFAULT_V2_PROFILE = PROFILES["2.936"];
 const DEFAULT_V3_PROFILE = PROFILES["3.002.149"];
 
 /**
- * Observed builds that the specification states select a promoted profile:
- * 2.915 and the second 2.917 build select 2.917, 2.439 selects 2.440, and
- * 3.002.107 selects 3.002.102 (version_profiles.md, per-profile paragraphs).
+ * Observed builds that select an identical promoted profile:
+ * 2.903 (`start.exe` sha256 `db97accc...`) and 2.915 (`AGI` sha256 `6ee9d44b...`)
+ * match 2.917 across all 18 conditions, 174 actions (0x00..0xad), and engine
+ * tables (docs/fidelity.md); 2.439 selects 2.440; 3.002.107 selects 3.002.102
+ * (version_profiles.md, per-profile paragraphs).
  */
 export const EQUIVALENT_BUILDS: Readonly<Record<string, ProfileId>> = {
+  "2.903": "2.917",
   "2.915": "2.917",
   "2.439": "2.440",
   "3.002.107": "3.002.102",

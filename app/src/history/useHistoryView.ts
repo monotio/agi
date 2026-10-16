@@ -469,6 +469,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
     v.score = msg.score;
     v.canResume = msg.canResume;
     v.diverged = msg.diverged ? { tick: msg.diverged.at.tick, detail: msg.diverged.detail } : null;
+    v.incompatible = msg.incompatible
+      ? { tick: msg.incompatible.at.tick, detail: msg.incompatible.detail }
+      : null;
     if (msg.error !== null) v.error = msg.error;
   }
 
@@ -615,7 +618,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     playAfterSeek = null;
     if (!play || v.error !== "") return;
     if (!v.active) resumeLive();
-    else if (v.diverged === null) {
+    else if (v.diverged === null && v.incompatible === null) {
       v.watching = true;
       playHistory();
     }
@@ -944,7 +947,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
     try {
       const reply = await deps.query("historyViewAdvance", { ticks }, 30_000);
       applyReport(reply);
-      if (reply.diverged !== null || reply.error !== null) {
+      if (
+        reply.diverged !== null ||
+        (reply.incompatible ?? null) !== null ||
+        reply.error !== null
+      ) {
         stop();
         return;
       }
@@ -1220,7 +1227,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     keepDeparting = true,
   ): Promise<void> {
     const v = view();
-    if (!v.active || !v.canResume || v.diverged !== null) return;
+    if (!v.active || !v.canResume || v.diverged !== null || v.incompatible !== null) return;
     const game = deps.getBootedGame();
     if (!game || recording === null) return;
     const target = resolveProgressTarget(game);
@@ -1382,6 +1389,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const refuse = (reason: string): false => {
       closeHistory();
       v.diverged = null;
+      v.incompatible = null;
       v.error = explain(reason);
       if (play) resumeLive();
       return false;
@@ -1405,7 +1413,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (!stillOwned(owner)) return false;
     if (!v.active) return false;
     if (v.error !== "") return refuse(v.error);
-    if (v.diverged !== null)
+    if (v.diverged !== null || v.incompatible !== null)
       return refuse("the earlier session's recording can't be replayed to its end.");
     if (!v.canResume) return refuse("the earlier session ended at a moment that can't be resumed.");
     await resumeFromHere("Undo start over", false);
@@ -1572,7 +1580,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           label: "Resume from here",
           title: "Play on from this moment; the current session stays as a branch",
           aria: "Resume from here",
-          disabled: !v.canResume || v.diverged !== null || v.seeking,
+          disabled: !v.canResume || v.diverged !== null || v.incompatible !== null || v.seeking,
           run: () => void resumeFromHere(),
         };
       if (v.parked)
@@ -1701,6 +1709,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
           testid: "history-diverged",
           text: "This moment can't be restored: the recording diverges here.",
           details: v.diverged.detail,
+        });
+      if (v.incompatible !== null)
+        errors.push({
+          testid: "history-incompatible",
+          text: "This earlier recording ended before this moment.",
+          details: v.incompatible.detail,
         });
       return errors;
     },

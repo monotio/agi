@@ -70,8 +70,8 @@ export class CycleClock {
    */
   poll(now: number, delay: number, paused = false): boolean {
     if (!Number.isFinite(now)) throw new Error("Cycle clock time must be finite.");
-    if (!Number.isInteger(delay) || delay < 0 || delay > 255)
-      throw new Error("Cycle delay must be an integer from 0 to 255.");
+    if (!Number.isInteger(delay) || delay < 0 || delay > 256)
+      throw new Error("Cycle delay must be an integer from 0 to 256.");
     if (paused || this.paused) {
       this.freeze(now);
       this.remainder = 0;

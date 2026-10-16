@@ -12,6 +12,7 @@ import type {
   TraceRecord,
 } from "../../../src/runtime/engine.ts";
 import type { AudioMode } from "../audio/AgiAudio.ts";
+import type { ShakeFrame } from "../../../src/runtime/shake.ts";
 import type { RoomTransitionNotice } from "../worker/workerProtocol.ts";
 import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
@@ -46,12 +47,30 @@ export function freshHistoryView(): HistoryViewUiState {
     pendingSwaps: 0,
     dropped: 0,
     diverged: null,
+    incompatible: null,
     error: "",
   };
 }
 
 /** Engine modal kinds (the engine draws them on its text surface). */
-export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
+export type ModalKind =
+  | "print"
+  | "inventory"
+  | "menu"
+  | "showObj"
+  | "showPri"
+  | "shake"
+  | "dissolve"
+  | "save"
+  | "restore";
+
+/**
+ * A shake or a picture dissolve holds the game for a moment and reads no
+ * input; keys typed meanwhile wait for the game. Nothing asks the player to act.
+ */
+export function modalWaitsOnClock(modal: ModalKind | null): boolean {
+  return modal === "shake" || modal === "dissolve";
+}
 
 /** Test/debug hook mirrored onto window.__AGI_TEXT__ every frame. */
 export interface TextHook {
@@ -64,6 +83,8 @@ export interface TextHook {
   profileKind?: ProfileDetectionKind | null;
   /** The interpreter is parked between cycles (remix freeze). */
   paused: boolean;
+  /** The PC display of the last presented frame. */
+  pcDisplay?: "ega" | "cga-rgb";
   /** Interpreter cycles completed since boot; stops advancing while paused. */
   cycle: number;
   /**
@@ -134,6 +155,7 @@ export interface HistoryViewUiState {
   /** Segments the retention bound evicted before this tape was opened. */
   dropped: number;
   diverged: { tick: number; detail: string } | null;
+  incompatible: { tick: number; detail: string } | null;
   error: string;
 }
 
@@ -152,6 +174,8 @@ export interface EngineState {
   /** The worker has started logic and published its input mode. */
   inputReady: boolean;
   holdToMove: boolean;
+  /** The Amiga menu strip can open now; the play UI offers its touch and help access. */
+  menuAvailable: boolean;
   waitingForKey: boolean;
   gameEdit: { text: string } | null;
   phase: "idle" | "loading" | "running" | "error";
@@ -181,8 +205,12 @@ export interface EngineState {
   /** Debug screen: live agent activity (requests, responses, patches). */
   agentLog: AgentLogEntry[];
   omittedLogEntries?: number;
-  /** True while a shake.screen effect is animating. */
-  shake: boolean;
+  /** The running shake.screen step: display offset and IIgs colours. */
+  shake: ShakeFrame | null;
+  /** The PC display the running engine uses, from its frames. */
+  pcDisplay: "ega" | "cga-rgb";
+  /** The running Amiga region, from the engine's frames; the stage aspect follows it. */
+  amigaRegion: "ntsc" | "pal";
   /** Active blocking prompt (0x76 get.num / 0x73 get.string), if any. */
   prompt: PromptState | null;
   /** Active sound playback state */

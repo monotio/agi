@@ -92,6 +92,7 @@ function createCommandProbe(session: AgentSessionState) {
       return taken;
     },
   };
+  // Game tests check game logic, which runs the same on the default EGA display.
   const engine = new Engine(container, host, dictionary, { profile: session.profile });
   engine.tick();
   return (command: string): string | null => {

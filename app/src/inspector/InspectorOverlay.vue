@@ -19,7 +19,7 @@ import {
   pickVisualSource,
   type PickPoint,
 } from "./debugView.ts";
-import { EGA_PALETTE } from "../render/palette.ts";
+import type { Appearance } from "../render/appearance.ts";
 import { useInspector } from "./useInspector.ts";
 
 const { state } = useEngineApi();
@@ -105,7 +105,14 @@ function onOverlayClick(ev: PointerEvent): void {
   if (!latch) return;
   // Crop the same surface the inspection sampled — the picked layer's own.
   const surface = pickVisualSource(frame, point.layerKind) ?? frame.visual;
-  const crop = cropFrameRgba(frame, point.logical.x, point.logical.y, 12, surface);
+  const crop = cropFrameRgba(
+    frame,
+    point.logical.x,
+    point.logical.y,
+    12,
+    surface,
+    presentation.appearance.palette,
+  );
   picked.value = { ...latch, cropUrl: cropToDataUrl(crop.width, crop.height, crop.data) };
 }
 
@@ -124,21 +131,23 @@ const DIR_DELTA: [number, number][] = [
 ];
 
 /** An AGI palette colour at `alpha`, for the canvas. */
-function agi(index: number, alpha = 1): string {
-  const [r, g, b] = EGA_PALETTE[index]!;
+function agi(palette: Appearance["palette"], index: number, alpha = 1): string {
+  const [r, g, b] = palette[index]!;
   return `rgb(${r} ${g} ${b} / ${alpha})`;
 }
 
 /** Mark colours are the AGI palette's own (marks annotate game pixels): cyan, magenta, yellow, green, white. */
-const MARK = {
-  horizon: agi(11, 0.65),
-  base: agi(13, 0.55),
-  box: agi(11, 0.9),
-  hot: agi(14),
-  heading: agi(10),
-  tether: agi(15, 0.45),
-  hover: agi(15, 0.7),
-} as const;
+function markColours(palette: Appearance["palette"]) {
+  return {
+    horizon: agi(palette, 11, 0.65),
+    base: agi(palette, 13, 0.55),
+    box: agi(palette, 11, 0.9),
+    hot: agi(palette, 14),
+    heading: agi(palette, 10),
+    tether: agi(palette, 15, 0.45),
+    hover: agi(palette, 15, 0.7),
+  } as const;
+}
 
 /** The move-target line is no game colour: the warn token, read once. */
 let targetInk: string | undefined;
@@ -146,6 +155,7 @@ const targetColour = (): string =>
   (targetInk ??= getComputedStyle(document.documentElement).getPropertyValue("--warn").trim());
 
 function drawOverlay(): void {
+  const MARK = markColours(presentation.appearance.palette);
   const c = overlayCanvas.value;
   const ctx = c?.getContext("2d");
   if (!c || !ctx) return;
@@ -274,7 +284,7 @@ function drawOverlay(): void {
   }
 }
 
-watch([debugFrame, overlayOn, inspectArmed, picked, hover, report], drawOverlay);
+watch([debugFrame, overlayOn, inspectArmed, picked, hover, report, presentation.look], drawOverlay);
 
 // While exploded, the camera keeps easing toward the pointer — redraw every
 // frame so projected marks track the parallax instead of lagging behind.

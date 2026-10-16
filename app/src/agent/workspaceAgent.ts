@@ -56,6 +56,7 @@ import { validateToolArguments } from "../../../src/agent/schemaValidate.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
 import type { ImageFrame } from "../../../src/creative/imageOperations.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
+import { colourIdForProfile, colourTableForProfile } from "../../../src/runtime/colourTables.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { disassemblePicture } from "../../../src/picture/source.ts";
@@ -1322,6 +1323,12 @@ export function createWorkspaceAgent(options: Options) {
                           ? operations.suggestImageFrames(image)
                           : (call.input["frames"] as ImageFrame[]),
                         PROFILES[profileId]!,
+                        undefined,
+                        undefined,
+                        {
+                          id: colourIdForProfile(PROFILES[profileId]!),
+                          table: colourTableForProfile(PROFILES[profileId]!),
+                        },
                       );
                 for (const change of changes) combined.set(change.key, change);
                 // Validate before publishing any staged state. Later tools read

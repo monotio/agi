@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { PROFILES, type AgiProfile } from "../src/runtime/profile.ts";
 import type { SoundOutput } from "../src/sound/sound.ts";
 
-function game(source: string, soundHost: Partial<EngineHost> = {}): Engine {
+function game(source: string, soundHost: Partial<EngineHost> = {}, profile?: AgiProfile): Engine {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);
   // Channel0: duration2 tone0x8123 attenuation4; channels1..3 terminate.
@@ -14,14 +15,19 @@ function game(source: string, soundHost: Partial<EngineHost> = {}): Engine {
   ]);
   container.putResource("sound", 1, sound);
   container.putResource("sound", 2, sound);
-  return new Engine(container, {
-    print() {},
-    displayAt() {},
-    statusLine() {},
-    takeInputLine: () => null,
-    takeKeys: () => [],
-    ...soundHost,
-  });
+  return new Engine(
+    container,
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+      ...soundHost,
+    },
+    undefined,
+    profile ? { profile } : undefined,
+  );
 }
 
 test("sound starts without altering f9 and completes on sound ticks without an audio backend", () => {
@@ -165,4 +171,28 @@ test("a damaged sound completes its flag and the game continues after playback",
   assert.equal(engine.flags[60], 1);
   assert.equal(engine.vars[61], 42);
   assert.ok(logs.some((line) => line.includes("Sound 1") && line.includes("channel")));
+});
+
+test("a failing sound() stops the playing sound first and sets its done flag across all profile families", () => {
+  // Player-visible rule: a bad sound number leaves the previous tune stopped
+  // (done flag set), not playing on. The 0x63 handler runs StopSnd first —
+  // setting the OLD done flag — then reads operands, resets the new flag and
+  // only then can the lookup fault across all 18 profiles (kq2boot 2.001
+  // 0x3A21 .. gr1 3.002.149 0x59EC, Amiga 2.082..2.333, IIgs 1.014).
+  for (const profile of [
+    "2.089",
+    "2.411",
+    "2.936",
+    "3.002.149",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const engine = game(
+      "set(f9); load.sound(1); sound(1, f60); sound(3, f61); return;",
+      {},
+      PROFILES[profile],
+    );
+    assert.throws(() => engine.tick(), /sound 3 is not loaded/);
+    assert.equal(engine.flags[60], 1, `${profile}: the interrupted sound reports done`);
+  }
 });

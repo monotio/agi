@@ -2019,12 +2019,24 @@ function becomeWhitey(run: Speedrun): void {
   run.command("bleach hair");
   assert.equal(e.vars[224], 2, "bleach worked in");
   run.command("rinse hair");
+  // The m36 mirror message is a modal window; dismissing it with ENTER is
+  // authentic: 2.903's ChkAcAb accepts CR/ESC only (start.exe 0x45EF), and
+  // ENTER's v19 byte (13) also clears logic 0's input-pending f110.
   run.wait(
     () => e.vars[35] === 8 && e.movementControlEnabled,
     "a blond stranger in the mirror",
     1200,
   );
   score(run, 216, "hair bleached");
+  // Logic 0 runs the bleach countdown in v140: each second with no pending
+  // input (f110 clear) it decrements, and at v140 == 1 it sets f138, which
+  // logic 5 turns into +3 points and the m36 mirror message. Any key byte
+  // stored in v19 sets f110 and pauses the countdown — and v19 := key ahead
+  // of EditLine is authentic on PQ1 2.903 (start.exe 0x35A9 `mov [0x1c],al`,
+  // before inputAccepted at 0x35AC and the EditLine call at 0x35C3) — so
+  // typing while v140 == 1 keeps f138 being set and re-awards +3 per second.
+  // Let the countdown lapse to 0 before typing again.
+  run.wait(() => e.vars[140] === 0, "bleach countdown lapses", 1200);
   run.command("turn off");
   run.wait(() => e.flags[70] === 0, "shower off", 120);
   go(run, { x0: 84, x1: 97, y0: 132, y1: 140 });
@@ -2223,7 +2235,13 @@ function playPoker(run: Speedrun, label: string, midway?: string): void {
       if ((stage === 2 || stage === 5) && myTurn) turn = `${v[172]}:${stage}:${v[234]}`;
       // The dealer's left acts in the same pass that opens a betting round.
       else if ((stage === 1 || stage === 4) && dealing) turn = `${v[172]}:${stage}`;
-      else if (stage === 3 && myTurn) turn = `${v[172]}:draw`;
+      // Logic 75 skips the draw in a single pass when three players folded
+      // (`if (equaln(v233, 3))` jumps stage 3 straight to the showdown), but
+      // the poll can catch that transient with v235 still on our seat — and
+      // every answer queued for a prompt that never comes desyncs the FIFO
+      // against the real get.num prompts for the rest of the session. Mirror
+      // the game's own condition so phantom discards are never queued.
+      else if (stage === 3 && myTurn && v[233] !== 3) turn = `${v[172]}:draw`;
     }
     if (turn !== "" && turn !== answeredTurn) {
       answeredTurn = turn;
@@ -2347,7 +2365,7 @@ function collectTransmitter(run: Speedrun): void {
   go(run, { x0: detective.x + 8, x1: detective.x + 12, y0: detective.y - 2, y1: detective.y + 2 });
   run.take("get transmitter", ITEM.transmitter);
   score(run, 242, "wired for sound");
-  run.verify("Collected the pen transmitter from the backup team", { room: 67, score: 242 });
+  run.checkpoint("Collected the pen transmitter from the backup team", { room: 67, score: 242 });
 }
 
 /** The password gets Whitey into the private game, where Frank turns out to be Jessie Bains. */

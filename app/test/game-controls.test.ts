@@ -1,11 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  gameShortcuts,
-  movementDirection,
-  pcKey,
-  registeredKey,
-} from "../src/play/gameControls.ts";
+import { gameShortcuts, movementDirection } from "../src/play/gameControls.ts";
+import { nativeGameKey } from "../src/play/useGameKeys.ts";
+import { translatePlatformKey } from "../../src/runtime/keys.ts";
+
+const pcKey = (event: KeyboardEvent) => translatePlatformKey(event, "2.936");
 
 function key(key: string, modifiers: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -86,7 +85,8 @@ test("composition and native browser shortcuts are not converted to unrelated AG
   assert.equal(pcKey(key("a", { metaKey: true })), undefined);
   assert.equal(pcKey(key("Tab", { shiftKey: true })), undefined);
   assert.equal(pcKey(key("ArrowLeft", { shiftKey: true })), undefined);
-  assert.equal(pcKey(key("F1", { shiftKey: true })), undefined);
+  // Shift+F1 is its own BIOS word (0x5400), never an alias of F1.
+  assert.equal(pcKey(key("F1", { shiftKey: true })), 0x5400);
   assert.equal(pcKey(key("q", { ctrlKey: true, altKey: true })), undefined);
   assert.equal(pcKey(key("€")), undefined);
 });
@@ -100,8 +100,14 @@ test("all registered Alt letters have discoverable phone key labels", () => {
     disabled: false,
     heading: "",
   });
-  assert.equal(
-    registeredKey(key("q", { altKey: true }), [{ key: 0x1000, controller: 2, menuItems: [] }]),
-    0x1000,
-  );
+  assert.equal(nativeGameKey(key("q", { altKey: true }), "2.936", [{ key: 0x1000 }]), 0x1000);
+});
+
+test("the Command key stays with the browser unless the game binds its word", () => {
+  // F-IN-16: Amiga+X is 0x0178; no shipped game binds an Amiga-qualified word.
+  const commandX = key("x", { metaKey: true, code: "KeyX" });
+  assert.equal(translatePlatformKey(commandX, "amiga-2.202"), 0x0178);
+  assert.equal(nativeGameKey(commandX, "amiga-2.202", []), undefined);
+  assert.equal(nativeGameKey(commandX, "amiga-2.202", [{ key: 0x0178 }]), 0x0178);
+  assert.equal(nativeGameKey(key("v", { metaKey: true }), "2.936", [{ key: 0x76 }]), undefined);
 });

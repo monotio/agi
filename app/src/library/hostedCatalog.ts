@@ -1,6 +1,11 @@
+import { MAX_AUXILIARY_BYTES } from "../archive/gameZipLimits.ts";
 import type { GameCatalogEntry } from "./gameCatalog.ts";
 import type { OpenedGame } from "../archive/gameZip.ts";
-import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
+import {
+  canonicalResourceName,
+  isPlayableFileName,
+  isAuxiliaryFileName,
+} from "../../../src/container/playableFiles.ts";
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
@@ -66,7 +71,10 @@ export function readHostedCatalogManifest(raw: unknown, manifestUrl: URL): Hoste
         throw new Error("Hosted catalog file name is invalid.");
       // The playable set a Game export ships, plus its metadata.
       const canonical = canonicalResourceName(file.toUpperCase());
-      if ((!isPlayableFileName(file) && canonical !== "GAME.JSON") || names.has(canonical))
+      if (
+        (!isPlayableFileName(file) && !isAuxiliaryFileName(file) && canonical !== "GAME.JSON") ||
+        names.has(canonical)
+      )
         throw new Error("Hosted catalog file list contains an unsafe or duplicate file.");
       names.add(canonical);
       return file;
@@ -151,6 +159,7 @@ function catalogEntry(
         const bytes = await fetchFile(url, fetchImpl);
         total += bytes.length;
         if (total > MAX_GAME_BYTES) throw new Error("Hosted game exceeds the 256 MB total limit.");
+        if (isAuxiliaryFileName(name) && bytes.length > MAX_AUXILIARY_BYTES) continue;
         files.set(name, bytes);
       }
       // The archive reader loads with the entry's load action, not the

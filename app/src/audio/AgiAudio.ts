@@ -41,6 +41,20 @@ export type AudioMode = "tandy" | "pc-speaker";
 /** Keep the DAC level flat through each shift interval during resampling. */
 const PSG_HOLD_FRAMES = 32;
 
+const EMPTY_IIGS_BANK: IigsSources["bank"] = {
+  programs: [],
+  defaultInstrument: {
+    envelope: Array.from({ length: 8 }, () => ({ breakpoint: 0, increment: 0 })),
+    releaseSegment: 0,
+    priorityIncrement: 0,
+    pitchBendRange: 0,
+    vibratoDepth: 0,
+    vibratoSpeed: 0,
+    a: [],
+    b: [],
+  },
+};
+
 export class AgiAudio {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -76,6 +90,7 @@ export class AgiAudio {
   /** The game's DOC RAM and instrument bank, when its files carry them. */
   private iigsSources: IigsSources | null = null;
   private iigsSynth: IigsSynth | null = null;
+  private iigsVolume: GainNode | null = null;
   /** Fallback voices without the bank: one triangle per sounding note. */
   private iigsFallback = new Map<
     number,
@@ -400,8 +415,27 @@ export class AgiAudio {
     this.playing = true;
     const maxFreq = (ctx.sampleRate || 48000) / 2;
     if (event.kind === "iigs") {
-      if (this.iigsSources) {
-        this.iigsSynth ??= new IigsSynth(ctx, this.masterGain!, this.iigsSources);
+      if (!this.iigsVolume) {
+        this.iigsVolume = ctx.createGain();
+        this.iigsVolume.connect(this.masterGain!);
+        this.activeNodes.push(this.iigsVolume);
+      }
+      if (event.event === "system-volume") {
+        // ROM 01 FF:420a..4216 writes the upper nibble to the system DAC.
+        this.iigsVolume.gain.setValueAtTime((event.volume >> 4) / 15, at);
+        return;
+      }
+      if (event.event === "all-off") {
+        this.iigsSynth?.output(event, at);
+        this.iigsFallbackOutput(ctx, event, maxFreq, at);
+        return;
+      }
+      if (this.iigsSources || event.event === "sample") {
+        this.iigsSynth ??= new IigsSynth(
+          ctx,
+          this.iigsVolume,
+          this.iigsSources ?? { doc: new Uint8Array(0x10000), bank: EMPTY_IIGS_BANK },
+        );
         this.iigsSynth.output(event, at);
       } else this.iigsFallbackOutput(ctx, event, maxFreq, at);
       return;
@@ -488,7 +522,7 @@ export class AgiAudio {
     if (!this.channelGains.length) this.createChannels(ctx, event.kind === "speaker" ? 1 : 4);
     if (event.kind === "speaker") {
       const divisor = event.divisor;
-      const rawFreq = divisor ? 1193180 / divisor : 0;
+      const rawFreq = divisor === null ? 0 : 1193180 / (divisor || 65536);
       this.oscillators[0]!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
       this.setLaneGain(0, divisor === null ? 0 : 0.4, at);
       return;
@@ -580,6 +614,10 @@ export class AgiAudio {
       this.stopSource(node, at);
       if (!scheduled) node.disconnect();
     }
+    const detach = (): void => {
+      for (const node of graph) node.disconnect();
+      this.retiredGraphs.delete(graph);
+    };
     if (scheduled && graph.length > 0) {
       this.retiredGraphs.add(graph);
       // The last sounding source owns cleanup; an earlier note-off cannot
@@ -587,11 +625,7 @@ export class AgiAudio {
       const sources = graph.filter((node) => node.stop && !this.dormantPaula.has(node));
       sources.sort((a, b) => (this.sourceStops.get(b) ?? 0) - (this.sourceStops.get(a) ?? 0));
       const source = sources[0] as AudioScheduledSourceNode | undefined;
-      if (source)
-        source.onended = () => {
-          for (const node of graph) node.disconnect();
-          this.retiredGraphs.delete(graph);
-        };
+      if (source) source.onended = detach;
     }
     this.activeNodes = [];
     this.channelGains = [];
@@ -603,7 +637,9 @@ export class AgiAudio {
     this.paulaPendingStops = [];
     this.paulaClocks = [];
     this.paulaPeriods = [];
-    this.iigsSynth?.stop(at);
+    this.iigsSynth?.dispose(at ?? this.ctx?.currentTime ?? 0, detach);
+    this.iigsSynth = null;
+    this.iigsVolume = null;
     this.iigsFallback.clear();
     this.divisors.fill(0);
     this.latchedRegister = 0;
@@ -692,7 +728,7 @@ export class AgiAudio {
     } else if (event.event === "note-on") {
       const gain = ctx.createGain();
       gain.gain.setValueAtTime((event.volume / 127) * 0.3, at);
-      gain.connect(this.masterGain!);
+      gain.connect(this.iigsVolume!);
       const osc = ctx.createOscillator();
       osc.type = "triangle";
       osc.frequency.setValueAtTime(Math.min(maxFreq, 440 * 2 ** ((event.note - 69) / 12)), at);

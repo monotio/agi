@@ -122,6 +122,20 @@ export function detectImageBackground(
   const rgb = key.split(",").map(Number);
   return [rgb[0]!, rgb[1]!, rgb[2]!];
 }
+/** A game's colour table with the id a preparation recipe records for it. */
+export interface GamePaletteLook {
+  readonly id: string;
+  readonly table: readonly (readonly [number, number, number])[];
+}
+
+/** Optional inputs to {@link prepareImageCels} beyond the image, frames and profile. */
+export interface PrepareImageCelsOptions {
+  /** The prepared raster's identity; defaults to a hash of its pixels. */
+  readonly sourceId?: string | undefined;
+  /** The game's colour table and its identity; colours are matched to it. EGA when omitted. */
+  readonly look?: GamePaletteLook | undefined;
+}
+
 /** One scale for both axes, rounded to native cel pixels. */
 export function scaleImageFrame(region: Rect, requestedHeight: number) {
   const scale =
@@ -248,8 +262,10 @@ export function prepareImageCels(
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
-  sourceId = sha256Hex(image.rgba),
+  options?: PrepareImageCelsOptions,
 ) {
+  const sourceId = options?.sourceId ?? sha256Hex(image.rgba);
+  const look = options?.look;
   const identity = { id: sourceId, incarnation: "image", revision: 0 };
   const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
     id: `frame-${i}`,
@@ -278,6 +294,7 @@ export function prepareImageCels(
       algorithm: "manual-view-preparation-v1",
       sources: [identity],
       palette: "ega-weighted-243-v1",
+      ...(look && look.id !== "ega" ? { paletteId: look.id } : {}),
       mask: {
         alphaThreshold: transparent ? 128 : 0,
         key: !transparent || background === null ? null : { mode: "ega-index-v1", rgb: background },
@@ -289,6 +306,7 @@ export function prepareImageCels(
       })),
     },
     profile,
+    look && look.id !== "ega" ? { [look.id]: look.table } : {},
   );
 }
 /** Append all selected frames and their attachment atomically, preserving existing cels. */
@@ -300,6 +318,7 @@ export function makeCelsChanges(
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
+  look?: GamePaletteLook,
 ): readonly ProjectChange[] {
   if (!/^view:(0|[1-9]\d{0,2})$/.test(target) || Number(target.slice(5)) > 255)
     throw new Error("Choose a VIEW target.");
@@ -320,7 +339,7 @@ export function makeCelsChanges(
             })) ?? [],
           ...(parsed?.description ? { description: parsed.description } : {}),
         };
-  const prepared = prepareImageCels(image, frames, profile, background, transparent);
+  const prepared = prepareImageCels(image, frames, profile, background, transparent, { look });
   const loops = input.loops.map((loop) => ({ ...loop, cels: [...(loop.cels ?? [])] }));
   const destinations = [...new Set(frames.map((f) => f.loop))].sort((a, b) => a - b);
   for (const [i, destination] of destinations.entries()) {
@@ -356,6 +375,8 @@ export function makeCelsChanges(
 export function prepareTracePixels(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
   transform: TraceTransform = { x: 0, y: 0, scale: 1 },
+  /** The game's colours for indices 0..15; EGA when omitted. */
+  palette?: readonly (readonly [number, number, number])[],
 ): Uint8Array {
   const factor = Math.max(320 / image.width, 168 / image.height) * transform.scale;
   const pixels = new Uint8Array(160 * 168 * 4);
@@ -368,13 +389,14 @@ export function prepareTracePixels(
         pixels.set(image.rgba.subarray(source, source + 4), (y * 160 + x) * 4);
       }
     }
-  return snapImageToEga(pixels);
+  return snapImageToEga(pixels, palette);
 }
 
 /** Rebuild a saved tracing underlay from its immutable decoded raster. */
 export function imageTraceUnderlay(
   documents: Documents,
   target: string,
+  palette?: readonly (readonly [number, number, number])[],
 ): { pixels: Uint8Array; opacity: number; behindArt: boolean; transform: TraceTransform } | null {
   const references = readImageReferences(documents),
     trace = references.traces[target];
@@ -388,7 +410,7 @@ export function imageTraceUnderlay(
       Math.max(320 / image.width, 168 / image.height),
   };
   return {
-    pixels: prepareTracePixels(image, transform),
+    pixels: prepareTracePixels(image, transform, palette),
     opacity: trace.opacity,
     behindArt: trace.behindArt ?? false,
     transform,

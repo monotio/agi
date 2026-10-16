@@ -3,6 +3,7 @@
  * functions of the worker context — importable under Node.
  */
 import { createProgressPreview, isBlackFrame } from "../saves/progressPreview.ts";
+import { appearanceForProfile } from "../render/appearance.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import type { WorkerPresentation } from "./workerProtocol.ts";
@@ -73,10 +74,16 @@ export function createAutosave(ctx: WorkerContext) {
     };
     try {
       const presentation = ctx.run.engine.getPresentation();
+      // The thumbnail is the frame as the player sees it: the profile's look
+      // (preloaded when the run started) with its title bar and gadgets.
       const frame = {
+        appearance: appearanceForProfile(ctx.run.engine.profile.id, ctx.run.engine.containerFiles),
         visual: presentation.visual,
         text: presentation.text,
+        windowOverlay: presentation.windowOverlay,
         picRow: ctx.run.engine.displayBase,
+        statusBar: presentation.statusBar,
+        gadgets: presentation.gadgets,
       };
       // A black screen leaves the card's previous picture in place.
       if (!isBlackFrame(frame)) msg.preview = createProgressPreview(frame);

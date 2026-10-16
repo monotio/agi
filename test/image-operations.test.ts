@@ -273,3 +273,90 @@ test("preparation identifies the current pixels after an in-place image edit", (
   assert.notDeepEqual(next.frames[0]!.source, first.frames[0]!.source);
   assert.equal(next.frames[0]!.source.id, sha256Hex(source.rgba));
 });
+
+// An imported picture is matched to the colours the game shows, because those
+// are what a player sees for each index. Hand-computed with the weighted
+// 2,4,3 distance: (221, 0, 255) is nearest EGA 5 (170, 0, 170) but Amiga 13
+// (d0f = 221, 0, 255); (0, 187, 255) is nearest EGA 3 (0, 170, 170) but Amiga 9 (0bf).
+test("view import quantises to the running game's palette and records which", async () => {
+  const { colourIdForProfile, colourTableForProfile } =
+    await import("../src/runtime/colourTables.ts");
+  const source = {
+    ...image,
+    width: 3,
+    height: 1,
+    rgba: Uint8Array.of(221, 0, 255, 255, 0, 187, 255, 255, 255, 255, 255, 255),
+  };
+  const frames = [{ region: { x: 0, y: 0, width: 3, height: 1 }, width: 3, height: 1, loop: 0 }];
+  const amiga = PROFILES["amiga-2.202"];
+  const look = { id: colourIdForProfile(amiga), table: colourTableForProfile(amiga) };
+  assert.equal(look.id, "amiga");
+  const ega = prepareImageCels(source, frames, amiga, null, false).input.loops[0]!.cels![0]!;
+  assert.deepEqual([...ega.pixels], [5, 3, 15]);
+  const prepared = prepareImageCels(source, frames, amiga, null, false, { look });
+  assert.deepEqual([...prepared.input.loops[0]!.cels![0]!.pixels], [13, 9, 15]);
+});
+
+test("an EGA look and no look build the same view bytes", async () => {
+  const source = {
+    ...image,
+    width: 3,
+    height: 1,
+    rgba: Uint8Array.of(0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 255),
+  };
+  const frames = [{ region: { x: 0, y: 0, width: 3, height: 1 }, width: 3, height: 1, loop: 0 }];
+  const { EGA_TABLE } = await import("../src/runtime/colourTables.ts");
+  const plain = prepareImageCels(source, frames, PROFILES["2.936"], [255, 255, 255]);
+  const withEga = prepareImageCels(source, frames, PROFILES["2.936"], [255, 255, 255], true, {
+    look: { id: "ega", table: EGA_TABLE },
+  });
+  assert.deepEqual([...withEga.payload], [...plain.payload]);
+});
+
+test("a recipe naming a palette needs its table, and one without a name is EGA", async () => {
+  const { prepareView } = await import("../src/view/preparation.ts");
+  const { readCreativePreparation } = await import("../src/creative/catalog.ts");
+  const { AMIGA_TABLE } = await import("../src/runtime/colourTables.ts");
+  const identity = { id: "px", incarnation: "image", revision: 0 };
+  const recipe = {
+    format: "agi.preparation",
+    version: 1,
+    kind: "view",
+    algorithm: "manual-view-preparation-v1",
+    sources: [identity],
+    palette: "ega-weighted-243-v1",
+    mask: { alphaThreshold: 128, key: null },
+    frames: [
+      {
+        id: "f",
+        source: identity,
+        region: { x: 0, y: 0, width: 1, height: 1 },
+        outputWidth: 1,
+        outputHeight: 1,
+        sourceAnchor: { x: 0, baselineEdgeY: 1 },
+        outputAnchorX: 0,
+        sample: "nearest-centre-v1",
+        allowCropBelowBaseline: false,
+        allowCropOutsideCanvas: false,
+      },
+    ],
+    loops: [{ id: "l", frameIds: ["f"] }],
+  };
+  const raster = [{ identity, width: 1, height: 1, rgba: Uint8Array.of(221, 0, 255, 255) }];
+  const profile = PROFILES["amiga-2.202"];
+  // Stored form: the field is optional, and a recipe without it still reads exactly as before.
+  assert.equal("paletteId" in readCreativePreparation(recipe), false);
+  const named = readCreativePreparation({ ...recipe, paletteId: "amiga" });
+  assert.equal((named as { paletteId?: string }).paletteId, "amiga");
+  assert.throws(() => readCreativePreparation({ ...recipe, paletteId: "" }), /paletteId/);
+  // Replay: the named palette decides the index; without its table the recipe is refused.
+  const replay = prepareView(raster, { ...recipe, paletteId: "amiga" } as never, profile, {
+    amiga: AMIGA_TABLE,
+  });
+  assert.equal(replay.frames[0]!.pixels[0], 13);
+  assert.throws(
+    () => prepareView(raster, { ...recipe, paletteId: "amiga" } as never, profile),
+    /paletteId/,
+  );
+  assert.equal(prepareView(raster, recipe as never, profile).frames[0]!.pixels[0], 5);
+});
