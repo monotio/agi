@@ -1055,7 +1055,7 @@ describe("sound audition lifecycle", () => {
     assert.deepEqual(seen, expected);
   });
 
-  it("matches Play's Amiga clock region and IIgs sample/bank rendering in a private Studio AgiAudio", async () => {
+  it("matches Play's Amiga clock region and renders standalone IIgs samples in Studio", async () => {
     const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
     const store = new Map<string, string>([["monotio_agi.amigaRegion", "pal"]]);
     Object.defineProperty(globalThis, "localStorage", {
@@ -1084,6 +1084,20 @@ describe("sound audition lifecycle", () => {
       assert.equal(amigaAudition.audition.snapshot().positionTicks, 1);
       // Divisor 200 -> period 4 * 200 = 800; PAL clock 3,546,895 Hz.
       assert.equal(studioAmiga.sources[0]!.playbackRate.value, ((3546895 / 800) * 32) / 48000);
+      store.set("monotio_agi.amigaRegion", "ntsc");
+      amigaAudition.scheduler.advance(TICK_MS);
+      assert.equal(
+        amigaAudition.audition.snapshot().positionTicks,
+        1,
+        "a setting change applies on the next start",
+      );
+      amigaAudition.scheduler.advance(20 - TICK_MS);
+      assert.equal(amigaAudition.audition.snapshot().positionTicks, 2);
+      amigaAudition.audition.stop();
+      await amigaAudition.audition.play();
+      amigaAudition.scheduler.advance(TICK_MS);
+      assert.equal(amigaAudition.audition.snapshot().positionTicks, 1);
+      assert.equal(studioAmiga.sources.at(-4)!.playbackRate.value, ((3579545 / 800) * 32) / 48000);
       await amigaAudition.audition.close();
 
       // Type-1 IIgs sampled sound with vibratoDepth=66, vibratoSpeed=25 on its embedded instrument.
@@ -1110,7 +1124,11 @@ describe("sound audition lifecycle", () => {
       iigsAudition.audition.setTarget(target(samplePayload, { profileId: "iigs-1.014" }));
       await iigsAudition.audition.play();
       iigsAudition.scheduler.advance(TICK_MS);
-      assert.equal(studioIigs.sources.length, 1, "Studio audition renders the IIgs sample buffer");
+      assert.equal(
+        studioIigs.sources.length,
+        2,
+        "Studio audition renders the sample and vibrato control",
+      );
       assert.ok(
         studioIigs.sources[0]!.playbackRate.writes.length > 1,
         "Studio audition schedules TOOL025 vibrato steps on the sample",

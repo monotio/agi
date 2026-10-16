@@ -638,10 +638,39 @@ it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators acr
     [7 / 60, 0],
     [9 / 60, -12],
   ];
-  for (const source of [sources[0]!, sources[1]!]) {
-    assert.deepEqual(
-      source.playbackRate.writes.slice(0, 6),
-      expectedOffsets.map(([at, offset]) => [expectedRate(offset), at]),
-    );
+  for (const [carrier, modulation] of [
+    [sources[0]!, sources[1]!],
+    [sources[2]!, sources[3]!],
+  ]) {
+    assert.equal(carrier.playbackRate.writes[1]![0], expectedRate(12));
+    assert.deepEqual(carrier.playbackRate.writes.at(-1), [0, 1 / 60]);
+    assert.deepEqual(modulation.starts, [1 / 60]);
+    for (const [i, [, offset]] of expectedOffsets.slice(1).entries())
+      assert.equal(modulation.buffer!.data[i * 1470], Math.fround(expectedRate(offset)));
+    assert.deepEqual(modulation.stops, [], "NoteOff keeps the same vibrato cycle");
   }
+});
+
+it("sustained vibrato loops through phase wrap beyond ten seconds and stops with its voice", () => {
+  const { ctx, sources } = fakeContext();
+  const instrument: IigsInstrument = { ...INSTRUMENT, vibratoDepth: 66, vibratoSpeed: 25 };
+  const instance = new IigsSynth(ctx as unknown as BaseAudioContext, {} as AudioNode, {
+    doc: new Uint8Array(0x10000).fill(0x90),
+    bank: { programs: [instrument], defaultInstrument: instrument },
+  });
+  instance.output(
+    { kind: "iigs", event: "note-on", voice: 0, channel: 0, note: 50, volume: 127, program: 0 },
+    0,
+  );
+  const modulation = sources.find((source) => source.starts[0] === 1 / 60);
+  assert.ok(modulation, "a looping control signal continues without a scheduling deadline");
+  assert.equal(modulation.loop, true);
+  assert.equal(
+    modulation.buffer!.data.length,
+    256 * 1470,
+    "speed 25 returns to the same phase after 256 updates",
+  );
+  assert.notEqual(modulation.buffer!.data[0], modulation.buffer!.data[4 * 1470]);
+  instance.stop(12);
+  assert.equal(modulation.stops.at(-1), 12);
 });

@@ -187,6 +187,7 @@ export class SoundAudition {
   /** Interpreter ticks the playback/renderer pair have executed together. */
   private ticksRun = 0;
   private stream = 0;
+  private amigaRegion: "pal" | "ntsc" = "ntsc";
 
   private timer: unknown = null;
   /** Scheduler time at which the next tick is due. */
@@ -248,6 +249,7 @@ export class SoundAudition {
     this.payload = payload;
     this.profile = profile;
     this.family = renderFamily(profile, device);
+    this.captureAmigaRegion();
     this.target = {
       projectId: offered.projectId,
       workspaceId: offered.workspaceId ?? null,
@@ -288,6 +290,7 @@ export class SoundAudition {
     if (!resuming) {
       // A fresh run starts from a clean renderer and a fresh playback.
       this.resetRenderer();
+      this.captureAmigaRegion();
       this.playback = this.newPlayback();
       this.ticksRun = 0;
       this.completed = false;
@@ -545,14 +548,17 @@ export class SoundAudition {
 
   // ---- transport internals ----
 
-  private tickHz(): number {
-    if (this.family === "paula") {
-      try {
-        if (globalThis.localStorage?.getItem("monotio_agi.amigaRegion") === "pal") return 50;
-      } catch {
-        /* Default NTSC 60 Hz when localStorage is unavailable. */
-      }
+  private captureAmigaRegion(): void {
+    try {
+      this.amigaRegion =
+        globalThis.localStorage?.getItem("monotio_agi.amigaRegion") === "pal" ? "pal" : "ntsc";
+    } catch {
+      this.amigaRegion = "ntsc";
     }
+  }
+
+  private tickHz(): number {
+    if (this.family === "paula" && this.amigaRegion === "pal") return 50;
     return AUDITION_TICK_HZ;
   }
 
@@ -621,7 +627,7 @@ export class SoundAudition {
         this.audio.outputTick({
           stream: `audition:${this.stream}`,
           tick: this.ticksRun,
-          ...(this.family === "paula" && tickHz === 50 ? { hz: 50, amigaRegion: "pal" } : {}),
+          ...(this.family === "paula" ? { hz: tickHz, amigaRegion: this.amigaRegion } : {}),
           outputs: result.outputs,
           complete: result.complete,
         });

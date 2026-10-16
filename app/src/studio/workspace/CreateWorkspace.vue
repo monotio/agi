@@ -2875,6 +2875,7 @@ onBeforeUnmount(() => {
         :thumbnails
         :views="viewThumbnails"
         :sounds="guidedSounds"
+        :game-files="files"
         :new-room="() => guidedAction({ kind: 'add-room', title: '' }, { stay: true })"
         @add="guidedAction"
       />
@@ -3102,6 +3103,7 @@ onBeforeUnmount(() => {
         :bytes="soundBytes(key)"
         :tempo="soundTempo(key)"
         :sounds="guidedSounds"
+        :game-files="files"
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="(bytes, tempo) => editSound(key, bytes, tempo)"

@@ -31,6 +31,7 @@ const props = defineProps<{
   thumbnails: Readonly<Record<string, string>>;
   views: Readonly<Record<string, Uint8Array>>;
   sounds: readonly NamedSound[];
+  gameFiles?: ReadonlyMap<string, Uint8Array>;
   /** Add the next room, as Rooms + does, and answer its number. */
   newRoom?: () => Promise<number | undefined>;
 }>();
@@ -391,6 +392,7 @@ function add(): void {
         v-if="kind === 'play-sound'"
         v-model="soundChoice"
         :sounds
+        :game-files="gameFiles"
         :profile-id
         :disabled="busy"
       />

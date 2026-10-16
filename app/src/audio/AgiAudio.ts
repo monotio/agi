@@ -41,16 +41,6 @@ export type AudioMode = "tandy" | "pc-speaker";
 /** Keep the DAC level flat through each shift interval during resampling. */
 const PSG_HOLD_FRAMES = 32;
 
-let sharedIigsSources: IigsSources | null = null;
-
-function defaultAmigaRegion(): AmigaRegion {
-  try {
-    return globalThis.localStorage?.getItem("monotio_agi.amigaRegion") === "pal" ? "pal" : "ntsc";
-  } catch {
-    return "ntsc";
-  }
-}
-
 const EMPTY_IIGS_BANK: IigsSources["bank"] = {
   programs: [],
   defaultInstrument: {
@@ -95,12 +85,10 @@ export class AgiAudio {
   private paulaPendingStops: (AudioBufferSourceNode | undefined)[] = [];
   private paulaClocks: PaulaClock[] = [];
   private amigaRegion: AmigaRegion = "ntsc";
-  private hasOwnAmigaRegion = false;
   private readonly dormantPaula = new WeakSet<object>();
   private paulaPeriods: (number | null)[] = [];
   /** The game's DOC RAM and instrument bank, when its files carry them. */
   private iigsSources: IigsSources | null = null;
-  private hasOwnIigsSources = false;
   private iigsSynth: IigsSynth | null = null;
   private iigsVolume: GainNode | null = null;
   /** Fallback voices without the bank: one triangle per sounding note. */
@@ -143,12 +131,7 @@ export class AgiAudio {
     contextFactory?: () => AudioContext;
   }) {
     this.contextFactory = options?.contextFactory;
-    if (options?.amigaRegion !== undefined) {
-      this.hasOwnAmigaRegion = true;
-      this.amigaRegion = options.amigaRegion;
-    } else {
-      this.amigaRegion = defaultAmigaRegion();
-    }
+    this.amigaRegion = options?.amigaRegion ?? "ntsc";
     if (options?.mode) this.mode = options.mode;
     if (options?.volume !== undefined) this.volume = Math.max(0, Math.min(1, options.volume));
     if (options?.muted !== undefined) this.muted = options.muted;
@@ -156,11 +139,6 @@ export class AgiAudio {
 
   /** Change the colour clock on active voices, keeping DMA and game state. */
   setAmigaRegion(region: AmigaRegion): void {
-    this.hasOwnAmigaRegion = true;
-    this.applyAmigaRegion(region);
-  }
-
-  private applyAmigaRegion(region: AmigaRegion): void {
     if (region === this.amigaRegion) return;
     this.amigaRegion = region;
     const ctx = this.ctx;
@@ -447,12 +425,6 @@ export class AgiAudio {
         this.iigsVolume.gain.setValueAtTime((event.volume >> 4) / 15, at);
         return;
       }
-      if (!this.iigsSources && !this.hasOwnIigsSources && sharedIigsSources) {
-        this.iigsSources = {
-          doc: sharedIigsSources.doc.slice(),
-          bank: sharedIigsSources.bank,
-        };
-      }
       if (this.iigsSources || event.event === "sample") {
         this.iigsSynth ??= new IigsSynth(
           ctx,
@@ -464,10 +436,6 @@ export class AgiAudio {
       return;
     }
     if (event.kind === "paula") {
-      if (!this.hasOwnAmigaRegion) {
-        const region = defaultAmigaRegion();
-        if (this.amigaRegion !== region) this.applyAmigaRegion(region);
-      }
       if (!this.paulaSources.length) this.createPaulaChannels(ctx, event.driver === "2.082");
       const channel = event.channel & 3;
       const clock = this.paulaClocks[channel]!;
@@ -772,14 +740,12 @@ export class AgiAudio {
   useGameFiles(files: Readonly<Record<string, Uint8Array>>): void {
     this.iigsSynth?.stop();
     this.iigsSynth = null;
-    this.hasOwnIigsSources = true;
     this.iigsSources = iigsSources(files);
-    sharedIigsSources = this.iigsSources;
   }
 
   /** Whether IIgs sound renders the game's own instruments. */
   get iigsInstruments(): boolean {
-    return (this.iigsSources ?? (!this.hasOwnIigsSources ? sharedIigsSources : null)) !== null;
+    return this.iigsSources !== null;
   }
 
   private createChannels(ctx: AudioContext, count: number): void {

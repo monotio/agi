@@ -155,10 +155,6 @@ interface Voice {
   readonly volume: GainNode;
   readonly envelope: GainNode;
   readonly sources: AudioBufferSourceNode[];
-  readonly oscillators: readonly { source: AudioBufferSourceNode; wave: IigsWave; carry: number }[];
-  readonly noteStarted: number;
-  vibratoPhase: number;
-  vibratoTick: number;
   started: number;
   volumeLevel: number;
   readonly ended: Set<AudioBufferSourceNode>;
@@ -166,8 +162,6 @@ interface Voice {
 
 /** The rate the wave buffers are built at; playbackRate supplies the pitch. */
 const BUFFER_RATE = 44100;
-/** Bound pre-scheduled vibrato steps on sustained or slow-decay contours. */
-const MAX_VIBRATO_SECONDS = 10;
 
 export class IigsSynth {
   private readonly voices = new Map<number, Voice>();
@@ -320,7 +314,6 @@ export class IigsSynth {
     envelope.connect(volumeGain);
     volumeGain.connect(this.destination);
     const sources: AudioBufferSourceNode[] = [];
-    const oscillators: { source: AudioBufferSourceNode; wave: IigsWave; carry: number }[] = [];
     const waves = [waveFor(instrument.a, semitone), waveFor(instrument.b, semitone)];
     const a = waves[0];
     const pitchCarry = a && semitone * 256 + (a.relPitch & 0xffff) > 0xffff ? 1 : 0;
@@ -335,14 +328,45 @@ export class IigsSynth {
       // (swap's A/B hand-off is not modelled). A zero byte halts either.
       source.loop = !table.halts && ((wave.docMode >> 1) & 3) !== 1;
       const carry = half === 0 ? 0 : pitchCarry;
-      if (!hasVibrato) {
-        const byteRate = iigsByteRate(semitone, wave, carry);
-        source.playbackRate.setValueAtTime(byteRate / BUFFER_RATE, now);
-      }
+      const byteRate = iigsByteRate(semitone, wave, carry);
+      source.playbackRate.setValueAtTime(byteRate / BUFFER_RATE, now);
       source.connect(envelope);
       source.start(now);
       sources.push(source);
-      oscillators.push({ source, wave, carry });
+      if (hasVibrato) {
+        const initial = vibratoStep(0, instrument.vibratoSpeed, instrument.vibratoDepth);
+        source.playbackRate.setValueAtTime(
+          iigsByteRate(semitone, wave, carry + initial.offset) / BUFFER_RATE,
+          now,
+        );
+        // AudioParam sums its intrinsic value and connected controls. Hold
+        // NoteOn's first step until the first odd heartbeat, then loop the
+        // complete integer phase cycle. No timers or duration cap are needed.
+        const firstHeartbeat = now + 1 / UPDATE_HZ;
+        source.playbackRate.setValueAtTime(0, firstHeartbeat);
+        const offsets: number[] = [];
+        let phase = initial.phase;
+        do {
+          const step = vibratoStep(phase, instrument.vibratoSpeed, instrument.vibratoDepth);
+          phase = step.phase;
+          offsets.push(step.offset);
+        } while (phase !== initial.phase);
+        const framesPerStep = (BUFFER_RATE * 2) / UPDATE_HZ;
+        const buffer = this.ctx.createBuffer(1, offsets.length * framesPerStep, BUFFER_RATE);
+        const data = buffer.getChannelData(0);
+        for (const [i, offset] of offsets.entries())
+          data.fill(
+            iigsByteRate(semitone, wave, carry + offset) / BUFFER_RATE,
+            i * framesPerStep,
+            (i + 1) * framesPerStep,
+          );
+        const modulation = this.ctx.createBufferSource();
+        modulation.buffer = buffer;
+        modulation.loop = true;
+        modulation.connect(source.playbackRate);
+        modulation.start(firstHeartbeat);
+        sources.push(modulation);
+      }
     }
     const { points, levels, sustained, duration } = envelopePoints(instrument, 0, 0);
     const voice: Voice = {
@@ -357,10 +381,6 @@ export class IigsSynth {
       volume: volumeGain,
       envelope,
       sources,
-      oscillators,
-      noteStarted: now,
-      vibratoPhase: 0,
-      vibratoTick: 0,
       started: now,
       volumeLevel: volume,
       ended: new Set(),
@@ -376,7 +396,6 @@ export class IigsSynth {
       };
     envelope.gain.setValueAtTime(0, now);
     this.schedule(voice, now, points);
-    this.scheduleVibrato(voice);
     // Keep loop sources available behind the DOC-volume gate: NoteOff can
     // replace a finite contour with a longer or sustaining release. The
     // next allocation or transport stop retires these bounded generators.
@@ -404,28 +423,6 @@ export class IigsSynth {
     voice.envelope.gain.cancelScheduledValues(now);
     voice.endsAt = sustained ? Infinity : now + duration;
     this.schedule(voice, now, points);
-    this.scheduleVibrato(voice);
-  }
-
-  /**
-   * TOOL025 +03ef and +0581..0591: NoteOn runs an initial vibrato step at
-   * tick 0; the 60 Hz heartbeat toggles bit 7 of the voice status byte so
-   * subsequent vibrato updates run on odd ticks (1, 3, 5, ...) across NoteOff.
-   */
-  private scheduleVibrato(voice: Voice): void {
-    const { vibratoDepth, vibratoSpeed } = voice.instrument;
-    if (vibratoDepth <= 0 || vibratoSpeed <= 0 || !voice.oscillators.length) return;
-    const limit = Math.min(voice.endsAt, voice.started + MAX_VIBRATO_SECONDS);
-    while (voice.noteStarted + voice.vibratoTick / UPDATE_HZ < limit - 1e-9) {
-      const at = voice.noteStarted + voice.vibratoTick / UPDATE_HZ;
-      const step = vibratoStep(voice.vibratoPhase, vibratoSpeed, vibratoDepth);
-      voice.vibratoPhase = step.phase;
-      for (const { source, wave, carry } of voice.oscillators) {
-        const byteRate = iigsByteRate(voice.note, wave, carry + step.offset);
-        source.playbackRate.setValueAtTime(byteRate / BUFFER_RATE, at);
-      }
-      voice.vibratoTick = voice.vibratoTick === 0 ? 1 : voice.vibratoTick + 2;
-    }
   }
 
   private retainUntilEnded(voice: Voice): void {

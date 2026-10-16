@@ -70,6 +70,8 @@ export function createSoundPreview(options: {
     mode: AudioMode,
   ) => { driver: SoundPreviewDriver; audio: AgiAudio | null };
   readonly device?: AudioMode;
+  /** The selected project, independent of any currently playing game. */
+  readonly getGameFiles?: () => ReadonlyMap<string, Uint8Array>;
 }): SoundPreview {
   let device: AudioMode = options.device ?? "tandy";
   const acquire: AuditionLeaseAcquire = (request) => options.acquirePauseLease(request.owner);
@@ -102,6 +104,7 @@ export function createSoundPreview(options: {
     },
     setTarget(target) {
       lastTarget = target;
+      made.audio?.useGameFiles(Object.fromEntries(options.getGameFiles?.() ?? []));
       driver.setTarget({
         projectId: target.projectId,
         ...(target.workspaceId !== undefined ? { workspaceId: target.workspaceId } : {}),
