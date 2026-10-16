@@ -3071,13 +3071,15 @@ export class Engine {
     }
     // The description goes through the same message box as print, so %v, %s
     // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
-    // When vdesc == 0, ShowObj computes viewPtr + 0 without testing for a zero
-    // offset and formats the NUL-terminated bytes starting at byte 0 of the view
-    // header (docs/fidelity.md, F-VIEWS-11).
+    // On verified 2.936, when vdesc == 0, ShowObj computes viewPtr + 0 without
+    // testing for a zero offset and formats the NUL-terminated bytes starting
+    // at byte 0 of the view header (docs/fidelity.md, F-VIEWS-11).
     const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
     let rawDescription = view.description;
     if (rawDescription === undefined) {
-      const raw = this.container.getResource("view", viewNum);
+      const raw = this.profile.showObjUncheckedDescOffset
+        ? this.container.getResource("view", viewNum)
+        : null;
       if (raw) {
         const nul = raw.indexOf(0);
         const slice = nul < 0 ? raw : raw.subarray(0, nul);
@@ -5841,6 +5843,7 @@ export class Engine {
       this.dictionary,
       this.profile.parserStopsAtTenthWord,
       this.profile.parserDefaultsLoneAAndI,
+      this.profile.parserStripsPunctuation,
     );
     this.parserCount = parsed.count;
     if (parsed.unknownPosition > 0) this.vars[V_WORDS] = parsed.unknownPosition;

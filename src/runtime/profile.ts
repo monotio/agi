@@ -349,6 +349,14 @@ export interface AgiProfile {
    */
   readonly parserDefaultsLoneAAndI: boolean;
   /**
+   * MakeLine classifies ",.?!();:[]{}" as word separators and drops "'`-\""
+   * without splitting across PC 2.089..3.002.149, Amiga 2.082..2.333, and IIgs
+   * 1.014; on PC 2.001 MakeLine (0x1901) collapses space runs only and FindWord
+   * (0x1961) requires a space or NUL after a match (docs/fidelity.md "Wave-4
+   * parser verdicts", F-Parser-10).
+   */
+  readonly parserStripsPunctuation: boolean;
+  /**
    * Whether the line editor uses the original interpreter capacity formula
    * modeled by `inputLineEditCap` (docs/fidelity.md "Original input, menu and
    * modal handling").
@@ -507,6 +515,12 @@ export interface AgiProfile {
    * F-picture-04).
    */
   readonly showPriScreenPreservesWindow: boolean;
+  /**
+   * Whether show.obj on a descriptionless view (vdesc == 0) formats the raw
+   * view header bytes from offset 0 (verified on 2.936; docs/fidelity.md,
+   * F-VIEWS-11).
+   */
+  readonly showObjUncheckedDescOffset: boolean;
 
   // ---- pictures ----
   /** Highest dispatched picture command byte: 0xf8 in the early profiles, 0xfa later. */
@@ -607,6 +621,7 @@ const BASE_2936: AgiProfile = {
   inventoryListEndsOnAnyEvent: true,
   parserStopsAtTenthWord: true,
   parserDefaultsLoneAAndI: true,
+  parserStripsPunctuation: true,
   originalInputCapacity: true,
   inputLineEditCap: "dialogue-36",
   closeWindowClearsInputWidth: true,
@@ -640,6 +655,7 @@ const BASE_2936: AgiProfile = {
   newRoomPreservesReposAndCycleDelay: false,
   menuHomeEndUnconditional: false,
   showPriScreenPreservesWindow: false,
+  showObjUncheckedDescOffset: false,
   pictureMaxCommand: 0xfa,
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
@@ -781,6 +797,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     inventoryHeaderBytes: 2,
     action0x8f: "max-drawn-objects",
     parserDefaultsLoneAAndI: false,
+    parserStripsPunctuation: false,
     positionActionOrder: "place-when-drawn",
     statusLineFormat: "booter-2.001",
     windowFrameGeometry: "pc-2.001",
@@ -856,6 +873,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     newRoomPreservesReposAndCycleDelay: true,
     menuHomeEndUnconditional: true,
     showPriScreenPreservesWindow: true,
+    showObjUncheckedDescOffset: true,
   },
   // version_profiles.md "AGI 3.002.086 profile"; conformance matrix "3.002.086 variant selection".
   "3.002.086": {

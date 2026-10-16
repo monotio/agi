@@ -978,30 +978,38 @@ test("F-motion-12: FindPosn raises y <= horizon to horizon + 1 before spiral and
   );
 });
 
-test("F-VIEWS-11: show.obj on a descriptionless view (vdesc == 0) prints the raw view header prefix", () => {
-  const container = createContainer();
+test("F-VIEWS-11: show.obj on a descriptionless view (vdesc == 0) prints the raw view header prefix on 2.936 and empty text on other profiles", () => {
   // Raw view with header bytes [0x41 ('A'), 0x42 ('B'), 1 loop, vdesc=0x0000]
   const rawView = buildView({
     loops: [{ cels: [{ width: 1, height: 1, pixels: [2] }] }],
   });
   rawView[0] = 0x41;
   rawView[1] = 0x42;
-  container.putResource("view", 1, rawView);
-  container.putResource(
-    "logic",
-    0,
-    assembleLogic(`if (!isset(f200)) { set(f200); show.obj(1); } return;`, {
-      dictionary: DICT,
-    }).payload,
-  );
-  const host = new TestHost();
-  const engine = new Engine(container, host, DICT);
-  engine.tick();
-  assert.equal(engine.modalKind, "showObj");
-  assert.equal(engine.textRow(3).trim(), "AB#");
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const container = createContainer();
+    container.putResource("view", 1, rawView);
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(`if (!isset(f200)) { set(f200); show.obj(1); } return;`, {
+        dictionary: DICT,
+        profile,
+      }).payload,
+    );
+    const host = new TestHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    engine.tick();
+    assert.equal(engine.modalKind, "showObj", `${id}: opens showObj modal`);
+    if (id === "2.936") {
+      assert.equal(engine.textRow(3).trim(), "AB#", `${id}: formats raw header prefix at vdesc==0`);
+    } else {
+      assert.equal(engine.textRow(3).trim(), "", `${id}: keeps empty text when vdesc==0`);
+    }
+  }
 });
 
-test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based and clears unpopulated slots", () => {
+test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based and clears unpopulated and out-of-bounds slots (including 10 and 14)", () => {
   const dict = new Map([
     ["look", 10],
     ["around", 20],
@@ -1013,23 +1021,32 @@ test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based and clears unp
     assembleLogic(
       `if (!isset(f200)) {
          set(f200);
+         set.game.id(1);
          set.string(s1, "NONEMPTY");
          set.string(s2, "NONEMPTY");
+         set.string(s4, "NONEMPTY");
+         set.string(s5, "NONEMPTY");
          set.string(s3, "look around");
          parse(s3);
          word.to.string(s0, 0);
          word.to.string(s1, 1);
          word.to.string(s2, 2);
+         word.to.string(s4, 10);
+         word.to.string(s5, 14);
        }
-       return;`,
+       return;
+       #message 1 "TESTID"`,
       { dictionary: dict },
     ).payload,
   );
   const engine = new Engine(container, new TestHost(), dict);
   engine.tick();
+  assert.equal(engine.parserCount, 2);
   assert.equal(engine.strings[0], "look");
   assert.equal(engine.strings[1], "around");
   assert.equal(engine.strings[2], "");
+  assert.equal(engine.strings[4], "", "index 10 on populated parser clears to empty string");
+  assert.equal(engine.strings[5], "", "index 14 on populated parser clears to empty string");
 });
 
 test("F-motion-07: direction > 8 is stationary and preserves loop selection", () => {
@@ -1080,7 +1097,7 @@ test("F-motion-07: direction > 8 is stationary and preserves loop selection", ()
   assert.equal(ego.y, 80);
 });
 
-test("F-motion-16: undrawn out-of-range set.loop (mh2 Logic 192 pattern) survives until valid loop before draw", () => {
+test("F-motion-16: invalid set.loop and set.cel store requested indices without error recovery and mh2 Logic 192 draws after valid loop", () => {
   const container = createContainer();
   container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
   container.putResource(
@@ -1088,7 +1105,12 @@ test("F-motion-16: undrawn out-of-range set.loop (mh2 Logic 192 pattern) survive
     69,
     buildView({
       loops: [
-        { cels: [{ width: 2, height: 1, pixels: [1, 1] }] },
+        {
+          cels: [
+            { width: 2, height: 1, pixels: [1, 1] },
+            { width: 4, height: 1, pixels: [1, 1, 1, 1] },
+          ],
+        },
         { cels: [{ width: 3, height: 1, pixels: [2, 2, 2] }] },
       ],
     }),
@@ -1101,10 +1123,23 @@ test("F-motion-16: undrawn out-of-range set.loop (mh2 Logic 192 pattern) survive
          set(f200);
          assignn(v50, 1); load.pic(v50); draw.pic(v50);
          load.view(69);
+         animate.obj(o2);
+         set.view(o2, 69);
+         set.loop(o2, 5);
+         set.cel(o2, 4);
          animate.obj(o3);
          set.view(o3, 69);
+         set.cel(o3, 1);
          set.loop(o3, 2);
          position(o3, 40, 100);
+         animate.obj(o4);
+         set.loop(o4, 3);
+         set.cel(o4, 2);
+         assignn(v100, 1);
+         return;
+       }
+       if (!isset(f201)) {
+         set(f201);
          set.loop(o3, 1);
          draw(o3);
        }
@@ -1113,6 +1148,18 @@ test("F-motion-16: undrawn out-of-range set.loop (mh2 Logic 192 pattern) survive
     ).payload,
   );
   const engine = new Engine(container, new TestHost(), DICT);
+  assert.doesNotThrow(() => engine.tick());
+  assert.equal(engine.vars[17], 0, "no runtime error code latched in v17");
+  assert.equal(engine.vars[18], 0, "no runtime error value latched in v18");
+  assert.equal(engine.vars[100], 1, "logic pass completes without error-recovery longjmp");
+  assert.equal(engine.screenObjects[2]!.loop, 5, "loop > loopCount stores requested loop");
+  assert.equal(engine.screenObjects[2]!.cel, 4, "cel >= celCount stores requested cel");
+  assert.equal(engine.screenObjects[3]!.loop, 2, "loop == loopCount stores requested loop");
+  assert.equal(engine.screenObjects[3]!.cel, 0, "set.loop clamps cel >= celCount to 0");
+  assert.equal(engine.screenObjects[3]!.width, 4, "invalid loop preserves prior cel width");
+  assert.equal(engine.screenObjects[4]!.loop, 3, "set.loop without loaded view stores loop");
+  assert.equal(engine.screenObjects[4]!.cel, 2, "set.cel without loaded view stores cel");
+
   assert.doesNotThrow(() => engine.tick());
   assert.equal(engine.screenObjects[3]!.active, true);
   assert.equal(engine.screenObjects[3]!.loop, 1);
