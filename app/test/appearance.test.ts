@@ -26,7 +26,11 @@ test("IIgs colours use the binary's sixteen RGB words in AGI index order", () =>
     [255, 255, 255],
   ]);
   assert.equal(appearanceForProfile("2.936").layout, "pc");
-  assert.equal(appearanceForProfile("amiga-2.202").layout, "pc", "an Amiga look is PC until loaded");
+  assert.equal(
+    appearanceForProfile("amiga-2.202").layout,
+    "pc",
+    "an Amiga look is PC until loaded",
+  );
 });
 
 test("system fonts never enter the canonical playable file set", () => {

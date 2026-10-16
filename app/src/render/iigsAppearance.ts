@@ -47,4 +47,3 @@ export function iigsAppearanceForFiles(files?: ReadonlyMap<string, Uint8Array> |
   }
   return appearance;
 }
-
