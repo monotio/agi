@@ -439,10 +439,11 @@ as a well-configured original machine would.
 ### Equivalent builds and the PC booter
 
 Some builds behave identically on everything verified: 3.002.107 runs as
-3.002.102, 2.915 as 2.917, and 2.439 as 2.440. The PC booter release, whose
-interpreter is 2.001, stores the usual resource families in its own disk layout,
-with a smaller inventory file header, an action 0x8f that sizes the object table
-(`max.drawn.objects`) and sound stored as raw chip register rows.
+3.002.102, 2.903 and 2.915 run as 2.917, and 2.439 runs as 2.440. The PC booter
+release, whose interpreter is 2.001, stores the usual resource families in its
+own disk layout, with a smaller inventory file header, an action 0x8f that sizes
+the object table (`max.drawn.objects`) and sound stored as raw chip register
+rows.
 
 **Evidence:** [3-002-107-is-3-002-102](#3-002-107-is-3-002-102),
 [PC booter 2.001 profile](#pc-booter-2001-profile),
@@ -3278,16 +3279,40 @@ resume), `test/kq1.test.ts` (KQ1 slots across a resume, fixture-gated) and
 ### 3-002-107-is-3-002-102
 
 Interpreter build 3.002.107 behaves as 3.002.102; profile detection maps the 3.002.107 version
-string to the 3.002.102 profile. Similarly 2.915 selects 2.917 and 2.439 selects 2.440.
+string to the 3.002.102 profile. Similarly 2.903 and 2.915 select 2.917 and 2.439 selects 2.440.
 
-Manhunter (3.002.107) runs its full first day on the 3.002.102 profile.
+Manhunter (3.002.107) runs its full first day on the 3.002.102 profile, and Police Quest I (2.903)
+runs to completion (254 points) on the 2.917 profile.
 
 **Specification:** version_profiles.md, per-profile paragraphs.
 
-**Evidence:** The builds behave identically on every verified behavior in this file (wherever
-this file lists 3.002.102/3.002.107 offsets, they are the same routine in both).
+**Evidence:**
 
-**Tests:** [profile.test.ts](../test/profile.test.ts), [mh1.test.ts](../test/mh1.test.ts).
+- The builds behave identically on every verified behavior in this file (wherever this file lists
+  3.002.102/3.002.107 offsets, they are the same routine in both).
+- Full binary comparison of `2.903` (`start.exe` sha256
+  `db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7`, `AGIDATA.OVL` sha256
+  `df46a3f13c360045b2d355e97bfad6cb6e1df77ee614fed7b4b1f89778425db3`), `2.915` (`AGI` sha256
+  `6ee9d44b87e11dd3dba847468902932ab53ed08e714e349dc3679de544fc4c2f`, `AGIDATA.OVL` sha256
+  `067bf5c9dcee550b5e9c6d5d16046048c9f53a0d68be6e22a64580d68fe7d2e3`), and `2.917` (`AGI`
+  descrambled sha256 `bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04`,
+  `AGIDATA.OVL` sha256 `f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383`):
+  all 18 condition handlers (`0x01..0x12` at `AGIDATA.OVL+0x08f7..0x0942`), all 174 action
+  entries (`0x00..0xad` at `AGIDATA.OVL+0x061f..0x08d6`, with `0xad` at `0x5f54` / `0x5f53` /
+  `0x5f67` followed immediately by the brush table `04 04 04 04...` at `AGIDATA.OVL+0x08d7`),
+  and all engine tables (`AGIDATA.OVL+0x0000..0x0acf`) are instruction-for-instruction and
+  table-for-table identical. The only code differences across the 39,424-byte executables are:
+  (1) the command-line tail check at `0x00c0..0x00d5` (+5 bytes in `2.915`/`2.917`),
+  (2) DOS volume-handle closing `CloseAllVols` (`0x30cf` / `0x30d4` / `0x30d6`) called from
+  `NewRoom` in `2.917` (`0x181f: call 0x30d6`, +3 bytes),
+  (3) DOS startup video/sound adapter detection (`0x4193` vs `0x4198`/`0x419a`, −6 bytes, and
+  `0x5589..0x559b`, +18 bytes in `2.917`), and
+  (4) the embedded default game ID string (`"PQ\0"` at `0x5a91`, `"MG\0"` at `0x5a90`, `"KQ1\0"`
+  at `0x5aa4`, +1 byte) and the `" or the disk is write-protected"` save-error string at
+  `AGIDATA.OVL+0x0df6` (+34 = `0x22` bytes, shifting later DS globals by `+0x22`). None of these
+  affect observable AGI engine behavior.
+
+**Tests:** [profile.test.ts](../test/profile.test.ts), [games-profile.test.ts](../test/games-profile.test.ts), [mh1.test.ts](../test/mh1.test.ts).
 
 ### PC booter 2.001 profile
 

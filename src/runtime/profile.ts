@@ -1177,11 +1177,14 @@ export const DEFAULT_V2_PROFILE = PROFILES["2.936"];
 const DEFAULT_V3_PROFILE = PROFILES["3.002.149"];
 
 /**
- * Observed builds that the specification states select a promoted profile:
- * 2.915 and the second 2.917 build select 2.917, 2.439 selects 2.440, and
- * 3.002.107 selects 3.002.102 (version_profiles.md, per-profile paragraphs).
+ * Observed builds that select an identical promoted profile:
+ * 2.903 (`start.exe` sha256 `db97accc...`) and 2.915 (`AGI` sha256 `6ee9d44b...`)
+ * match 2.917 across all 18 conditions, 174 actions (0x00..0xad), and engine
+ * tables (docs/fidelity.md); 2.439 selects 2.440; 3.002.107 selects 3.002.102
+ * (version_profiles.md, per-profile paragraphs).
  */
 export const EQUIVALENT_BUILDS: Readonly<Record<string, ProfileId>> = {
+  "2.903": "2.917",
   "2.915": "2.917",
   "2.439": "2.440",
   "3.002.107": "3.002.102",

@@ -21,6 +21,7 @@ const EXPECTED: readonly {
   { hash: KNOWN_GAME_HASH.KQ1, alias: "kq1", version: "2.917", profile: "2.917", maxAction: 0xad },
   { hash: KNOWN_GAME_HASH.KQ2, alias: "kq2", version: "2.411", profile: "2.411", maxAction: 0xa9 },
   { hash: KNOWN_GAME_HASH.KQ3, alias: "kq3", version: "2.936", profile: "2.936", maxAction: 0xaf },
+  { hash: KNOWN_GAME_HASH.PQ1, alias: "pq1", version: "2.903", profile: "2.917", maxAction: 0xad },
 ];
 
 class Host implements EngineHost {

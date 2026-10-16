@@ -269,8 +269,8 @@ describe("profile detection", () => {
   });
 
   test("an observed build selects the promoted profile the spec names", () => {
-    // version_profiles.md: the 2.915 build selects the 2.917 rules; the 2.439
-    // build selects 2.440; 3.002.107 selects 3.002.102.
+    // version_profiles.md and docs/fidelity.md: 2.903 and 2.915 select 2.917;
+    // 2.439 selects 2.440; 3.002.107 selects 3.002.102.
     const at = (v: string) =>
       detectProfile(
         new Map([
@@ -278,6 +278,7 @@ describe("profile detection", () => {
           ["AGI", ascii(`Version ${v}\0`)],
         ]),
       ).id;
+    assert.equal(at("2.903"), "2.917");
     assert.equal(at("2.915"), "2.917");
     assert.equal(at("2.439"), "2.440");
     assert.equal(at("3.002.107"), "3.002.102");
