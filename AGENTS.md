@@ -98,7 +98,9 @@ reviews of one push at a time miss properties of the whole system.
 ## Release contract
 
 Version 1.0 is the first public archive baseline. Released saves and exports stay readable, and
-readers reject unknown versions without rewriting bytes.
+readers reject unknown versions without rewriting bytes. Compatibility runs one way: the site always
+serves the latest release, so a newer release reads every older file, and an older release never
+needs to read a newer one.
 
 - `app/test/archive-formats.test.ts` must keep reading the released archives in `app/test/formats/`;
   never regenerate them.
