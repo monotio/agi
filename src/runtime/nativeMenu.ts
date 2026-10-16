@@ -8,7 +8,7 @@
  * Measurements are in 320x200 screen pixels, rectangles inclusive.
  */
 
-export interface NativeMenuItemDef {
+interface NativeMenuItemDef {
   text: string;
   enabled: boolean;
 }
@@ -26,7 +26,7 @@ export interface IntuitionTitle {
   width: number;
 }
 
-export interface IntuitionItem {
+interface IntuitionItem {
   text: string;
   enabled: boolean;
   /** The select box Intuition complements for the highlighted item. */

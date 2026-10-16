@@ -116,7 +116,7 @@ test("Studio's look follows the presentation when Play selects a platform profil
   assert.deepEqual(presentation.look.value.palette[12], [0xff, 0x99, 0x88]);
   presentation.setProfile("amiga-2.202");
   const amiga = await loadAppearance("amiga-2.202");
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(presentation.look.value, amiga);
   presentation.setProfile(null);
   assert.equal(presentation.look.value, PC_APPEARANCE);

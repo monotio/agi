@@ -28,8 +28,8 @@ an actor and sort out a clerk's Depth.
 - **Play your own Sierra games.** **Add game** takes a game folder, a ZIP or its disk images; add
   all disks of a game together. The files stay in your browser, and the app picks the matching
   interpreter for the edition.
-- **Watch a walkthrough.** Verified releases replay a recorded completion on the real interpreter.
-  Pause it, scrub the timeline, or **Take control**.
+- **Watch a walkthrough.** Verified releases replay a recorded completion on the engine. Pause it,
+  scrub the timeline, or **Take control**.
 - **Rewind.** Every session records itself, so you can return to any earlier moment and carry on
   from there.
 - **Get help.** **Help** on the home screen and in a running game explains playing, creating and
@@ -64,10 +64,10 @@ chip or PC speaker on a PC. **Settings → Advanced… → Sound chip** picks th
 fills a 4:3 frame; **Settings → Original 4:3** switches to square pixels. Mouse clicks walk the
 hero on the Amiga and IIgs. Connected gamepads follow the game's own joystick controls, and on a
 phone, **Keys** offers function, modified letter and fire-button keys. Amiga and IIgs games use
-their own palettes, fonts, status line and mouse pointer. PC text uses this project's own 8 × 8
-drawings. A game's own AGIFONT file is used when the player's copy has one. Native IIgs menus and
-the Standard File dialog, and the Hercules and composite displays, are not built yet. Fan-made
-games run too.
+their own palettes, fonts and status line. PC text uses this project's own 8 × 8 font, a
+[pixel-for-pixel recreation of the original BIOS typeface](docs/fidelity.md#text-beyond-ascii). A
+game's own AGIFONT file is used when the player's copy has one. Native IIgs menus and the Standard
+File dialog, and the Hercules and composite displays, are not built yet. Fan-made games run too.
 [Testing compatibility](docs/testing.md#testing-compatibility) lists the exact
 editions, disk-image formats and builds.
 
@@ -148,14 +148,18 @@ interpreter versions, and is published under
 
 Every Sierra AGI game shipped with its own build of the interpreter, and the builds do not quite
 agree. The 20 original builds we read run as 18 profiles, because a few builds behave
-like a sibling build and share its profile. On a PC, a wandering guard whose countdown runs out walks 256 more steps before he turns; on
+like a sibling build and share its profile. Police Quest's PC build 2.903 is one of them: it behaves
+like 2.917 on everything verified, so `EQUIVALENT_BUILDS`
+[maps it to the 2.917 profile](docs/fidelity.md#equivalent-builds-and-the-pc-booter). On a PC, a wandering guard whose countdown runs out walks 256 more steps before he turns; on
 an Amiga he turns every 7 to 51 steps. Details like that decide whether a puzzle is fair, so the
 engine keeps them.
 
 Sometimes a game needs more than the specification says, or builds disagree. Then the original
 interpreters' machine code was read, and often run with controlled inputs. That covers PC builds
 2.089 to 3.002.149, the Amiga and the Apple IIgs. Each finding is written down with its evidence and
-held in place by a test. Some gaps remain, and the fidelity notes list them. Full-game walkthroughs of thirteen games replay keystroke by keystroke.
+held in place by a test. Some gaps remain: the fidelity notes'
+[coverage table](docs/fidelity.md#coverage) lists the evidence behind each aspect and what is still
+missing. Full-game walkthroughs of thirteen games replay keystroke by keystroke.
 [Interpreter compatibility](docs/fidelity.md) tells the whole story.
 
 The engine is a TypeScript AGI interpreter with no runtime dependencies. It reads AGI v2 and v3

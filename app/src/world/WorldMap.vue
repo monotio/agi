@@ -91,8 +91,39 @@ const { selectedNode, pickFromList, showAllRooms, onDetailKeydown } = useRoomDri
   pick: pickRoom,
 });
 
+/** Latest pick wins while the room's picture is still being resolved. */
+let pickTicket = 0;
+
 function openRoomPicture(room: number): void {
   if (shell.mode.value !== "create") return;
+  void pickRoomPicture(room, ++pickTicket);
+}
+
+/**
+ * A room pick opens its PICTURE in the editor and closes the map. The
+ * picture's number comes from the background scan, so a pick that lands
+ * while a scan is in flight waits for its answer instead of dropping the
+ * click; a superseded pick or a closed map cancels the wait.
+ */
+async function pickRoomPicture(room: number, ticket: number): Promise<void> {
+  while (
+    ticket === pickTicket &&
+    shown.value &&
+    (map.analysisStatus.value === "pending" || map.analysisStatus.value === "literal")
+  ) {
+    await new Promise<void>((resolve) => {
+      const stop = watch([map.analysisStatus, shown], () => {
+        if (
+          (map.analysisStatus.value === "pending" || map.analysisStatus.value === "literal") &&
+          shown.value
+        )
+          return;
+        stop();
+        resolve();
+      });
+    });
+  }
+  if (ticket !== pickTicket || !shown.value) return;
   const resources = map.resources.value;
   const picture = resources.scans
     .get(room)
