@@ -523,6 +523,25 @@ for (const [cause, source, reason] of [
   });
 }
 
+test("Undo during room preparation never claims that a prompt is open", () => {
+  const h = viewHarness(
+    gameContainer(
+      ["v50 = 1; load.pic(v50); draw.pic(v50); show.pic(); new.room(7); return;"],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+    { authorRooms: true },
+  );
+  h.tick(2);
+  assert.equal(h.ctx.run.engine!.hostInteraction?.kind, "room");
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "busy");
+  h.ctx.fns.stopTimers();
+});
+
 // Player rule: rewinding never trades a restored checkpoint for the game's start. Paused before
 // its first cycle after the restore, the checkpoint is not keepable yet and the notice says so.
 test("a restored checkpoint paused before its first cycle keeps its position", () => {
