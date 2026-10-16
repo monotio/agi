@@ -28,7 +28,7 @@ import {
   type HistoryRecording,
   type HistorySegment,
 } from "../../src/agent/history.ts";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -762,6 +762,43 @@ test("a click while viewing is transport traffic, never parked-engine input", ()
     "no click cause recorded while the transport owns the session",
   );
   send({ type: "historyViewEnd" });
+});
+
+test("Resume here on a CGA run continues on CGA and its new segment replays", () => {
+  // Player-visible rule: a rewound moment keeps the screen the run was played on.
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef, pcDisplay: "cga-rgb" });
+  const { ctx, send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  tick(6);
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  assert.equal(recording.segments[0]!.boot.pcDisplay, "cga-rgb");
+  const viewTick = Math.max(...recording.segments[0]!.sync.map((s) => s.tick)) - 1;
+  send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: viewTick });
+  const opened = finalView(h.control, 1);
+  assert.equal(opened.canResume, true, JSON.stringify(opened));
+  send({
+    type: "historyViewTake",
+    id: 2,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+    generation: opened.generation,
+  });
+  const taken = h.control.find((m) => m.type === "historyTaken");
+  assert.ok(taken?.type === "historyTaken" && taken.ok, JSON.stringify(taken));
+  assert.equal(ctx.run.engine!.pcDisplay, "cga-rgb");
+  send({ type: "pause", paused: false });
+  tick(3);
+  send({ type: "pause", paused: true });
+  const branch = collectSegments(h.control).at(-1)!;
+  assert.notEqual(branch.id, recording.segments[0]!.id);
+  assert.equal(branch.boot.pcDisplay, "cga-rgb");
+  const replay = replayHistorySegment(branch);
+  assert.equal(replay.error, null);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.ctx.run.engine!.pcDisplay, "cga-rgb");
 });
 
 test("Resume here adopts the viewed moment; Back to before restores the original", () => {
