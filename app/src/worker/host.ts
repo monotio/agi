@@ -199,9 +199,11 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     logText(text) {
       ctx.ports.presentation({ type: "log", text });
     },
-    /** 0x8d version: stored into a string slot by the engine. */
+    /** 0x8d version: modal WindowPrint banner (docs/fidelity.md F-OPCORE-07). */
     versionString() {
-      const value = ctx.run.engine ? `AGI ${ctx.run.engine.profile.id}` : "AGI IS HERE";
+      const value = ctx.run.engine
+        ? ctx.run.engine.defaultVersionBanner()
+        : "Adventure Game Interpreter\n      Version 2.936";
       ctx.run.recording.recording?.tape.host(["version", value]);
       return value;
     },

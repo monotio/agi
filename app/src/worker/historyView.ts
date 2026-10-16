@@ -129,6 +129,7 @@ export function createHistoryView(
     }
     const drive = createDrive(segment, createContext, {
       ...(anchorIdx !== undefined ? { anchor: anchorIdx } : {}),
+      ...(ctx.view.recording !== null ? { recordingVersion: ctx.view.recording.version } : {}),
       ports: {
         // Scratch host requests resolve from the recorded answers, never the
         // host; only a real engine fault surfaces.

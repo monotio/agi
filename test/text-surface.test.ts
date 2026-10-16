@@ -851,7 +851,11 @@ test("version shows the version string modally and never touches string slot 0",
   );
   engine.tick();
   assert.equal(engine.modalKind, "print", "the version displays modally");
-  assert.ok(host.prints[0]?.includes("AGI"), "the version text is what shows");
+  assert.equal(
+    host.prints[0],
+    "Adventure Game Interpreter\n      Version 2.936",
+    "the version text is what shows",
+  );
   assert.equal(engine.strings[0], "KEEP", "string slot 0 is untouched");
   host.keys.push(0x0d);
   engine.tick();

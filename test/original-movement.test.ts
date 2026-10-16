@@ -242,11 +242,15 @@ test("combined terrain restrictions reject land and water unless priority 15 byp
     const ego = engine.screenObjects[0]!;
     const run = { engine, state: () => ({ room: 0, x: ego.x, y: ego.y }) };
     assert.equal(planWalk(run, { x0: 21, x1: 21, y0: 80, y1: 80 }).found, false);
-    assert.throws(() => engine.tick(), /no acceptable position/);
+    const serialBefore = engine.completedCycleSerial;
+    assert.doesNotThrow(() => engine.tick());
+    assert.equal(engine.completedCycleSerial, serialBefore, "FindPosn stalls the movement pass");
+    assert.equal(ego.waterGate, "both", "stalled pass stops before clearing waterGate");
     ego.fixedPriority = true;
     ego.priority = 15;
     assert.equal(planWalk(run, { x0: 21, x1: 21, y0: 80, y1: 80 }).found, true);
     assert.doesNotThrow(() => engine.tick());
+    assert.equal(engine.completedCycleSerial, serialBefore + 1);
   }
 });
 

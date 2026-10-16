@@ -535,10 +535,86 @@ test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based while %w remai
   }
 });
 
-test("F-Parser-10: lowercasing folds only ASCII A-Z (0x41..0x5A) and preserves high bytes", () => {
+test("F-Parser-07: lone 'a' and 'i' default to group 0 on the 19 verified profiles and are overridden by explicit dictionary entries", () => {
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const run = (line: string, dict: ReadonlyMap<string, number> = DICT) => {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(ACCEPT, { dictionary: dict, profile }).payload,
+      );
+      const host = new Host();
+      const engine = new Engine(container, host, dict, { profile });
+      engine.tick();
+      host.line = line;
+      engine.tick();
+      return {
+        words: [...engine.parsedWords],
+        texts: [...engine.parsedWordTexts],
+        v9: engine.vars[9],
+        f2: engine.flags[2],
+      };
+    };
+
+    if (id === "2.001") {
+      const res = run("open a door");
+      assert.deepEqual(res.words, [11, 0], `${id}: 'a' is unknown when absent from dictionary`);
+      assert.deepEqual(res.texts, ["open", "a"], `${id}: texts stop at unknown 'a'`);
+      assert.equal(res.v9, 2, `${id}: v9 names position 2`);
+      continue;
+    }
+
+    const skippedA = run("open a door");
+    assert.deepEqual(skippedA.words, [11, 13], `${id}: lone 'a' defaults to group 0 (skipped)`);
+    assert.deepEqual(skippedA.texts, ["open", "door"], `${id}: skipped 'a' leaves open door`);
+    assert.equal(skippedA.v9, 0, `${id}: no unknown word for lone 'a'`);
+    assert.equal(skippedA.f2, 1, `${id}: f2 set`);
+
+    const skippedI = run("i look");
+    assert.deepEqual(skippedI.words, [14], `${id}: lone 'i' defaults to group 0 (skipped)`);
+    assert.deepEqual(skippedI.texts, ["look"], `${id}: skipped 'i' leaves look`);
+    assert.equal(skippedI.v9, 0, `${id}: no unknown word for lone 'i'`);
+
+    const multiChar = run("an door");
+    assert.deepEqual(multiChar.words, [0], `${id}: 'an' is not a lone 'a'`);
+    assert.equal(multiChar.v9, 1, `${id}: 'an' is unknown at position 1`);
+
+    const explicitDict = new Map([...DICT, ["i", 50], ["a door", 60]]);
+    const explicitI = run("i look", explicitDict);
+    assert.deepEqual(
+      explicitI.words,
+      [50, 14],
+      `${id}: explicit dictionary entry overrides lone 'i'`,
+    );
+    assert.deepEqual(explicitI.texts, ["i", "look"]);
+
+    const explicitPhrase = run("open a door", explicitDict);
+    assert.deepEqual(
+      explicitPhrase.words,
+      [11, 60],
+      `${id}: longer phrase starting with 'a ' overrides lone 'a' default`,
+    );
+    assert.deepEqual(explicitPhrase.texts, ["open", "a door"]);
+  }
+});
+
+test("F-Parser-10: lowercasing folds only ASCII A-Z (0x41..0x5A) and preserves high bytes across all 20 profiles", () => {
   // 0xC0 (\u00c0) is outside 0x41..0x5A and must remain 0xC0 (\u00c0), not \u00e0.
-  assert.deepEqual(parse("\u00c0BC").texts, ["\u00c0bc"]);
-  assert.equal(parse("\u00c0BC").texts[0]!.charCodeAt(0), 0xc0);
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const container = createContainer();
+    container.putResource("logic", 0, assembleLogic(ACCEPT, { dictionary: DICT, profile }).payload);
+    const host = new Host();
+    const engine = new Engine(container, host, DICT, { profile });
+    engine.tick();
+    host.line = "\u00c0BC";
+    engine.tick();
+    assert.deepEqual(engine.parsedWordTexts, ["\u00c0bc"], `${id}: folds only ASCII A-Z`);
+    assert.equal(engine.parsedWordTexts[0]!.charCodeAt(0), 0xc0, `${id}: preserves 0xC0`);
+    assert.equal(engine.vars[9], 1, `${id}: non-a..z initial is unknown`);
+  }
 });
 
 test("F-Parser-13: echo.line is a no-op before Enter and appends the suffix of lastLine after Enter", () => {

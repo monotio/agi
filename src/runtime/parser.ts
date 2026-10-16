@@ -11,6 +11,7 @@ export function parseSentence(
   line: string,
   dictionary?: ReadonlyMap<string, number>,
   stopAtTenthWord = true,
+  defaultLoneAAndI = true,
 ) {
   // Spec "Parser normalization"; retain the interpreter's ASCII-only A-Z
   // folding (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-10).
@@ -38,7 +39,7 @@ export function parseSentence(
       tokens.push({ text: input[index++]!, id: undefined, status: "unread" });
       continue;
     }
-    const { text, id, length } = matchDictionaryPhrase(input, index, dictionary);
+    const { text, id, length } = matchDictionaryPhrase(input, index, dictionary, defaultLoneAAndI);
     index += length;
     if (id === undefined) {
       // docs/fidelity.md, parser unknown-word audit: the unknown has a zero slot.

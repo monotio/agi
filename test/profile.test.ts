@@ -899,6 +899,7 @@ test("every shipped profile carries its binary-verified authenticity fields", ()
             : "pc";
     assert.equal(profile.windowFrameGeometry, expectedGeometry, `${id}.windowFrameGeometry`);
     assert.equal(profile.parserStopsAtTenthWord, true, `${id}.parserStopsAtTenthWord`);
+    assert.equal(profile.parserDefaultsLoneAAndI, id !== "2.001", `${id}.parserDefaultsLoneAAndI`);
     assert.equal(profile.originalInputCapacity, true, `${id}.originalInputCapacity`);
     const expectedEditCap =
       id === "2.001" || id === "2.089" || id === "2.230"

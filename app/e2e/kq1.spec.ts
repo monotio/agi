@@ -277,7 +277,9 @@ test("discovered game shortcuts trigger inventory and debug mode", async ({ page
   await page.keyboard.press("Enter");
   await expect.poll(() => screenText(page)).not.toContain("VERSION 2.0F");
   await expectModal(page, "print");
-  expect(await screenText(page)).toContain("2.917");
+  const versionModalText = await screenText(page);
+  expect(versionModalText).toContain("Adventure Game Interpreter");
+  expect(versionModalText).toContain("Version 2.917");
   await page.keyboard.press("Enter");
   await expectModal(page, null);
 });

@@ -632,8 +632,24 @@ export function stampWindow(
       0x20,
       textAttr,
     );
-    for (let i = 0; i < lines.length && i < win.textRows; i++) {
-      surface.write(win.textTop + i, win.textLeft, lines[i]!.slice(0, win.textCols), textAttr);
+    const formatted = lines
+      .slice(0, win.textRows)
+      .map((line) => line.slice(0, win.textCols))
+      .join("\n");
+    let r = win.textTop;
+    let c = win.textLeft;
+    const lineBreak = (): void => {
+      if (r < TEXT_ROWS - 1) r++;
+      c = win.textLeft;
+    };
+    for (let i = 0; i < formatted.length; i++) {
+      const ch = formatted.charCodeAt(i);
+      if (ch === 0x0a || ch === 0x0d) {
+        lineBreak();
+        continue;
+      }
+      surface.put(r, c, ch, textAttr);
+      if (++c > TEXT_COLS - 1) lineBreak();
     }
   } else {
     surface.seq++;

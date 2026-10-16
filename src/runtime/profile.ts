@@ -341,6 +341,14 @@ export interface AgiProfile {
    */
   readonly parserStopsAtTenthWord: boolean;
   /**
+   * Match initializes wordLen = 1 and wordNum = 0 for a single-letter token
+   * 'a' or 'i' before scanning the dictionary section, so lone 'a' and 'i'
+   * default to group 0 (ignored) when absent from WORDS.TOK while an explicit
+   * dictionary entry still overrides it: true across every PC, Amiga and IIgs
+   * profile except 2.001 (docs/fidelity.md "Wave-3 parser verdicts", F-Parser-07).
+   */
+  readonly parserDefaultsLoneAAndI: boolean;
+  /**
    * Whether the line editor uses the original interpreter capacity formula
    * modeled by `inputLineEditCap` (docs/fidelity.md "Original input, menu and
    * modal handling").
@@ -464,12 +472,17 @@ export interface AgiProfile {
    */
   readonly clampExactZeroLeftBoundary: boolean;
   /**
-   * Whether add.to.pic runs the scratch-entry FindPosn relocation spiral,
-   * packs (margin << 4) | priority into a byte, and gates the control box on
-   * packed <= 0x3f (verified on 2.936 and 3.002.086; docs/fidelity.md,
-   * F-VIEWS-03, F-VIEWS-04, F-VIEWS-09).
+   * Whether add.to.pic packs (margin << 4) | priority into a byte, auto-derives
+   * priority when the low nibble is 0, and gates the control box on
+   * packed <= 0x3f (verified on 2.440, 2.936 and 3.002.086; docs/fidelity.md
+   * "Original add.to.pic control box", F-VIEWS-04, F-VIEWS-09).
    */
-  readonly addToPicPackingAndRelocation: boolean;
+  readonly addToPicPacking: boolean;
+  /**
+   * Whether add.to.pic runs the scratch-entry FindPosn relocation spiral before
+   * objinpic (verified on 2.936 and 3.002.086; docs/fidelity.md, F-VIEWS-03).
+   */
+  readonly addToPicRelocation: boolean;
   /**
    * Whether the cel blit clips negative-top and right-edge rows/columns in
    * place without shifting left and masks priority to its low nibble (verified
@@ -593,6 +606,7 @@ const BASE_2936: AgiProfile = {
   modalDismissalKeys: "enter-escape",
   inventoryListEndsOnAnyEvent: true,
   parserStopsAtTenthWord: true,
+  parserDefaultsLoneAAndI: true,
   originalInputCapacity: true,
   inputLineEditCap: "dialogue-36",
   closeWindowClearsInputWidth: true,
@@ -620,7 +634,8 @@ const BASE_2936: AgiProfile = {
   statusLineFormat: "common",
   windowFrameGeometry: "pc",
   clampExactZeroLeftBoundary: false,
-  addToPicPackingAndRelocation: false,
+  addToPicPacking: false,
+  addToPicRelocation: false,
   originalCelBlitClippingAndPriorityMask: false,
   newRoomPreservesReposAndCycleDelay: false,
   menuHomeEndUnconditional: false,
@@ -765,6 +780,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0x90,
     inventoryHeaderBytes: 2,
     action0x8f: "max-drawn-objects",
+    parserDefaultsLoneAAndI: false,
     positionActionOrder: "place-when-drawn",
     statusLineFormat: "booter-2.001",
     windowFrameGeometry: "pc-2.001",
@@ -819,6 +835,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     releaseGateAction: "unavailable",
     directionLoops: "exact-four",
+    addToPicPacking: true,
     restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
@@ -833,7 +850,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   },
   "2.936": {
     ...BASE_2936,
-    addToPicPackingAndRelocation: true,
+    addToPicPacking: true,
+    addToPicRelocation: true,
     originalCelBlitClippingAndPriorityMask: true,
     newRoomPreservesReposAndCycleDelay: true,
     menuHomeEndUnconditional: true,
@@ -846,7 +864,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xb1,
     extraActions: "v3-086",
     clampExactZeroLeftBoundary: true,
-    addToPicPackingAndRelocation: true,
+    addToPicPacking: true,
+    addToPicRelocation: true,
     showPriScreenPreservesWindow: true,
   },
   // version_profiles.md "AGI 3.002.102 profile"; conformance matrix "3.002.102 variant selection".
