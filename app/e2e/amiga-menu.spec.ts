@@ -106,6 +106,34 @@ async function framePoint(page: Page, x: number, y: number): Promise<{ x: number
   };
 }
 
+/**
+ * The canvas reaches its new size a pass after a viewport change — the
+ * stage's fit lands through a resize observer — so a point computed from a
+ * box read mid-pass lands on the wrong frame pixel and the strip opens on
+ * no title. Settled means the screen's box held still across two animation
+ * frames.
+ */
+async function settleScreen(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const el = document.querySelector(".screen");
+        if (!el) return resolve();
+        let last = "";
+        let stable = 0;
+        const sample = () => {
+          const r = el.getBoundingClientRect();
+          const box = `${r.x},${r.y},${r.width},${r.height}`;
+          stable = box === last ? stable + 1 : 0;
+          last = box;
+          if (stable >= 2) resolve();
+          else requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      }),
+  );
+}
+
 /** A probe-canvas pixel as [r, g, b], after the presented frame count settles. */
 async function framePixel(page: Page, x: number, y: number): Promise<number[]> {
   return page.evaluate(
@@ -200,6 +228,7 @@ test("the Amiga save dialog shows the original slot window and its Cancel gadget
     { width: 1440, height: 900 },
   ]) {
     await page.setViewportSize(viewport);
+    await settleScreen(page);
     await page.screenshot({ path: test.info().outputPath(`save-dialog-${viewport.width}.png`) });
   }
   const cancel = await framePoint(page, SAVE_CANCEL.x, SAVE_CANCEL.y);
@@ -215,6 +244,7 @@ test("desktop screenshots of the open strip at 1063x815 and 1440x900", async ({ 
     { width: 1440, height: 900 },
   ]) {
     await page.setViewportSize(viewport);
+    await settleScreen(page);
     const title = await framePoint(page, FILE_TITLE.x, FILE_TITLE.y);
     await page.mouse.move(title.x, title.y);
     await page.mouse.down({ button: "right" });
