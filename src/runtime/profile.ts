@@ -191,13 +191,16 @@ export type PaletteId = "ega" | "amiga" | "amiga-2.082" | "amiga-2.31x";
 
 export type AmigaRegion = "ntsc" | "pal";
 
+/** BIOS PIT channel 0 at its power-on divisor 65536: 1,193,182 / 65,536 Hz. */
+const BIOS_TICK_MS = 65_536_000 / 1_193_182;
+
 /**
  * Session timing from the hardware interrupt dividers (docs/fidelity.md
  * "Original scheduler and modal timing", "Original Amiga sound player"):
- * - `"booter-int1c"` (PC 2.001): hooks BIOS INT 1Ch directly without
- *   reprogramming PIT channel 0, so both the row-sound player and v10 pacing
- *   run at 18.2 Hz (`182` ticks per 10 seconds), and `UpdateClock` divides
- *   `sysTimer * 10 / 182` into 1000 ms game seconds.
+ * - `"booter-int1c"` (PC 2.001): hooks BIOS INT 1Ch without reprogramming
+ *   PIT channel 0, so sound rows, pacing and the clock count 18.2065 Hz
+ *   ticks; the clock refreshes v11..v14 from the tick count every 18 ticks,
+ *   so one game second is 18.2 ticks.
  * - `"amiga-vblank"` (Amiga 2.082..2.333): VERTB interrupt runs sound every
  *   VBlank (60 Hz NTSC / 50 Hz PAL) and timer/pacing every 3rd VBlank
  *   (20 Hz NTSC / 16.67 Hz PAL, 20 timer ticks per game second).
@@ -207,7 +210,11 @@ export type AmigaRegion = "ntsc" | "pal";
  */
 export function interpreterTiming(profile: AgiProfile, region: AmigaRegion = "ntsc") {
   if (profile.frameTiming === "booter-int1c") {
-    return { soundHz: 18.2, timerIncrementMs: 1000 / 18.2, gameSecondMs: 1000 };
+    return {
+      soundHz: 1000 / BIOS_TICK_MS,
+      timerIncrementMs: BIOS_TICK_MS,
+      gameSecondMs: (BIOS_TICK_MS * 182) / 10,
+    };
   }
   const soundHz = profile.frameTiming === "amiga-vblank" && region === "pal" ? 50 : 60;
   return { soundHz, timerIncrementMs: 3000 / soundHz, gameSecondMs: 60000 / soundHz };
@@ -215,6 +222,12 @@ export function interpreterTiming(profile: AgiProfile, region: AmigaRegion = "nt
 
 export interface AgiProfile {
   readonly frameTiming: "fixed" | "booter-int1c" | "amiga-vblank";
+  /**
+   * When the pacing counter admits a logic pass: once it reaches v10 (PC and
+   * Amiga), or once it exceeds v10 (IIgs 1.014 loops while v10 >= counter),
+   * so the IIgs waits v10 + 1 timer ticks (docs/fidelity.md "Input and pacing").
+   */
+  readonly pacingAdmission: "reaches-v10" | "exceeds-v10";
   /** Promoted profile identifier, e.g. "2.936". */
   readonly id: ProfileId;
 
@@ -762,6 +775,7 @@ const BASE_2936: AgiProfile = {
   saveBlocks: 5,
   saveBlock3Xor: false,
   frameTiming: "fixed",
+  pacingAdmission: "reaches-v10",
   sound: "common",
   soundStopsBeforeFault: true,
   psgNoise: "ncr8496",
@@ -891,6 +905,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   "2.001": {
     ...BASE_EARLY,
     id: "2.001",
+    frameTiming: "booter-int1c",
     // The booter dispatch is bounded at 0x90, below the later 2.089 bound.
     // docs/fidelity.md: PC booter action 0x8f (max.drawn.objects).
     maxAction: 0x90,
@@ -1165,6 +1180,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // 2.936 contract.
   "iigs-1.014": {
     ...BASE_2936,
+    pacingAdmission: "exceeds-v10",
     // Fields not listed here were checked against the handlers and match
     // the 2.936 contract; docs/fidelity.md "IIgs profile fields verified
     // from the handlers".

@@ -359,7 +359,7 @@ export class Speedrun {
       this.engine.soundTick();
       if (this.engine.modalKind !== null || this.engine.continuationPending) this.engine.tick();
       else {
-        if (this.clock.poll((this.ticks * 1000) / 60, this.engine.vars[10]!)) {
+        if (this.clock.poll((this.ticks * 1000) / 60, this.engine.pacingDelay)) {
           this.engine.tick();
           this.cycles++;
           this.navigationHeading = null;

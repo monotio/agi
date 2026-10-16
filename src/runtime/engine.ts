@@ -931,6 +931,8 @@ export class Engine {
   private replayRecording = true;
   /** Engine timing accumulator serialized as the save's timer tick count. */
   private timerTicks = 0;
+  /** 2.001 ticks since the last UpdateClock (DS 0x1228, outside the save block). */
+  private booterClockPhase = 0;
   private clockRemainderMs = 0;
   /** Most recently prepared picture number (save block 1). */
   private lastPicture = 0;
@@ -1840,10 +1842,26 @@ export class Engine {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
   }
 
-  /** Explicit pause and save selectors freeze timer/pacing counters; ordinary modals do not. */
+  /**
+   * Explicit pause and save selectors freeze timer/pacing counters; ordinary
+   * modals do not. The 2.001 booter's save selectors leave the pause word
+   * alone (docs/fidelity.md "PC booter clock").
+   */
   get timerPaused(): boolean {
     const modal = this.modal;
-    return this.saveDialogMode !== null || (modal?.kind === "print" && modal.pauseClock);
+    return (
+      (this.saveDialogMode !== null && this.profile.frameTiming !== "booter-int1c") ||
+      (modal?.kind === "print" && modal.pauseClock)
+    );
+  }
+
+  /**
+   * Timer increments the pacing counter needs before it admits a logic pass:
+   * v10 on PC and Amiga, v10 + 1 on the IIgs (`profile.pacingAdmission`).
+   */
+  get pacingDelay(): number {
+    const delay = this.vars[10]!;
+    return this.profile.pacingAdmission === "exceeds-v10" ? delay + 1 : delay;
   }
 
   /** Instance serial of the open modal: rises on every push, so back-to-back windows differ. */
@@ -3679,6 +3697,7 @@ export class Engine {
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       ...(this.defaultPriTable ? {} : { priorityTableRebuilt: true as const }),
+      ...(this.booterClockPhase === 0 ? {} : { booterClockPhase: this.booterClockPhase }),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -3745,6 +3764,7 @@ export class Engine {
     this.statusRefreshRequested = state.statusRefreshRequested;
     this.priorityBase = state.priorityBase;
     this.defaultPriTable = state.priorityTableRebuilt !== true;
+    this.booterClockPhase = state.booterClockPhase ?? 0;
     this.vars[V_KEY] = state.key;
     this.flags[1] = state.egoHidden;
     this.flags[F_INPUT_READY] = state.inputReady;
@@ -4467,6 +4487,11 @@ export class Engine {
     // A suspended host interaction is a genuine wait, not a clock busy-loop.
     if (modal === null && this.pendingLogic !== null && this.pendingInteraction === null)
       this.clockWaitMs += milliseconds;
+    if (this.profile.frameTiming === "booter-int1c") {
+      this.advanceBooterClock(milliseconds);
+      this.observePhase("clock", null);
+      return;
+    }
     const elapsed = this.clockRemainderMs + milliseconds;
     const secondMs = this.timing.gameSecondMs;
     let seconds = Math.floor((elapsed + 1e-7) / secondMs);
@@ -4489,6 +4514,29 @@ export class Engine {
     // One call is one clock phase: the elapsed advance completes, then a
     // requested stop latches before anything else can run.
     this.observePhase("clock", null);
+  }
+
+  /**
+   * 2.001 TimerInt (docs/fidelity.md "PC booter clock"): every unpaused BIOS
+   * tick advances the 32-bit tick count, and every 18th tick UpdateClock
+   * rewrites v11..v14 from it as s = floor((ticks * 10 mod 2^32) / 182)
+   * seconds, overwriting whatever the script stored there.
+   */
+  private advanceBooterClock(milliseconds: number): void {
+    const tickMs = this.timing.timerIncrementMs;
+    const elapsed = this.clockRemainderMs + milliseconds;
+    let ticks = Math.floor((elapsed + 1e-7) / tickMs);
+    this.clockRemainderMs = Math.max(0, elapsed - ticks * tickMs);
+    while (ticks-- > 0) {
+      this.timerTicks = (this.timerTicks + 1) >>> 0;
+      if (++this.booterClockPhase < 18) continue;
+      this.booterClockPhase = 0;
+      const s = Math.floor(((this.timerTicks * 10) % 2 ** 32) / 182);
+      this.vars[11] = s % 60;
+      this.vars[12] = Math.floor(s / 60) % 60;
+      this.vars[13] = Math.floor(s / 3600) % 24;
+      this.vars[14] = Math.floor(s / 86400) & 0xff;
+    }
   }
 
   /** Advance one independent sound heartbeat, including during modal waits. */
@@ -4912,7 +4960,8 @@ export class Engine {
     if (stage === "entry") {
       this.presentationDirty = true;
       // The timer tick accumulator serialized as the save's tick count.
-      this.timerTicks = (this.timerTicks + 1) >>> 0;
+      if (this.profile.frameTiming !== "booter-int1c")
+        this.timerTicks = (this.timerTicks + 1) >>> 0;
       // 2. Clear transient mapped events, f2, f4.
       this.controllers.fill(0);
       this.flags[F_INPUT_READY] = 0;

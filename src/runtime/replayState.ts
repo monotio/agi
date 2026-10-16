@@ -72,6 +72,8 @@ export interface EngineReplayState {
   amigaRegion?: "ntsc" | "pal";
   /** Present once set.pri.base has replaced the default priority table (PriToY). */
   priorityTableRebuilt?: true;
+  /** 2.001 ticks since the last clock refresh, when nonzero. */
+  booterClockPhase?: number;
   clockRemainderMs: number;
   pictureShown: boolean;
   terminated: boolean;
@@ -398,7 +400,7 @@ export function validateEngineReplayState(
     "patchGeneration",
     "continuation",
   ];
-  const optional = ["amigaRegion", "priorityTableRebuilt"].filter(
+  const optional = ["amigaRegion", "priorityTableRebuilt", "booterClockPhase"].filter(
     (key) => value !== null && typeof value === "object" && Object.hasOwn(value, key),
   );
   const s = record(value, [...fields, ...optional]);
@@ -437,6 +439,9 @@ export function validateEngineReplayState(
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
     ...(s["priorityTableRebuilt"] === true ? { priorityTableRebuilt: true as const } : {}),
+    ...(s["booterClockPhase"] !== undefined
+      ? { booterClockPhase: number(s["booterClockPhase"], 1, 17) }
+      : {}),
     clockRemainderMs: number(
       s["clockRemainderMs"],
       0,

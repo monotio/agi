@@ -79,7 +79,9 @@ test("ordinary wait pacing survives a directly following interpreter pause", () 
   );
 });
 
-test("worker 2.001 profile runs sound and cycle clocks at 18.2 Hz INT 1Ch cadence and freezes sound clock on pause", () => {
+test("worker 2.001 profile runs sound and cycle clocks at the 18.2065 Hz BIOS tick and freezes pacing on pause", () => {
+  // docs/fidelity.md "PC booter clock": one tick is 65536 / 1193182 s.
+  const tickMs = 65_536_000 / 1_193_182;
   const container = gameContainer([
     "if(!isset(f200)){set(f200);assignn(v10,2);pause();}increment(v100);return;",
   ]);
@@ -87,9 +89,9 @@ test("worker 2.001 profile runs sound and cycle clocks at 18.2 Hz INT 1Ch cadenc
   ctx.run.engine = new Engine(container, ctx.host, new Map(), { profile: "2.001" });
   ctx.run.engine.flags[9] = 1;
   configureSessionTiming(ctx);
-  assert.equal(ctx.run.clocks.sound.hz, 18.2);
-  assert.equal(ctx.run.clocks.cycle.incrementMs, 1000 / 18.2);
-  // Advance 40 ms before pause (< 1 tick at 18.2 Hz = 54.945 ms).
+  assert.equal(ctx.run.clocks.sound.hz, 1000 / tickMs);
+  assert.equal(ctx.run.clocks.cycle.incrementMs, tickMs);
+  // Advance 40 ms before pause (< 1 tick of 54.925 ms).
   ctx.fns.stepHostTick(40);
   assert.equal(ctx.run.engine!.timerPaused, true);
   // 1000 ms while timerPaused: both sound and cycle clocks freeze and rebase.
@@ -98,9 +100,9 @@ test("worker 2.001 profile runs sound and cycle clocks at 18.2 Hz INT 1Ch cadenc
   ctx.run.engine!.ackPrint();
   ctx.fns.stepHostTick(1040);
   assert.equal(ctx.run.engine!.vars[100], 1, "resumed pass completes");
-  // Preserved 40 ms phase + 69 ms = 109 ms < 2 * (1000 / 18.2) = 109.89 ms.
+  // Preserved 40 ms phase + 69 ms = 109 ms < 2 ticks = 109.85 ms.
   ctx.fns.stepHostTick(1109);
-  assert.equal(ctx.run.engine!.vars[100], 1, "two 18.2 Hz increments need 109.89 ms");
+  assert.equal(ctx.run.engine!.vars[100], 1, "two ticks need 109.85 ms");
   ctx.fns.stepHostTick(1110);
-  assert.equal(ctx.run.engine!.vars[100], 2, "two 18.2 Hz increments reached at 110 ms");
+  assert.equal(ctx.run.engine!.vars[100], 2, "two ticks reached at 110 ms");
 });

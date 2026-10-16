@@ -4,7 +4,7 @@ import { CycleClock, TIMER_INCREMENT_MS } from "../src/runtime/cycleClock.ts";
 
 test("v10 waits for the specified number of 50ms timer increments", () => {
   assert.equal(TIMER_INCREMENT_MS, 50);
-  for (const delay of [1, 2, 4, 255]) {
+  for (const delay of [1, 2, 4, 255, 256]) {
     const clock = new CycleClock(0);
     assert.equal(clock.poll(delay * 50 - 0.1, delay), false);
     assert.equal(clock.poll(delay * 50, delay), true);
@@ -60,6 +60,7 @@ test("invalid clocks and delays fail early; backward observations cannot manufac
   assert.equal(clock.poll(90, 1), false);
   assert.equal(clock.poll(140, 1), false);
   assert.equal(clock.poll(150, 1), true);
-  for (const delay of [-1, 1.5, 256, NaN]) assert.throws(() => clock.poll(200, delay), /delay/);
+  // 256 is the IIgs pacing delay for v10 = 255 (Engine.pacingDelay).
+  for (const delay of [-1, 1.5, 257, NaN]) assert.throws(() => clock.poll(200, delay), /delay/);
   assert.throws(() => clock.poll(Infinity, 1), /finite/);
 });

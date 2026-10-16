@@ -162,7 +162,7 @@ export function createCycle(ctx: WorkerContext) {
         // pause landed after them on the live tick axis.
         const parked = obs?.sound ?? ctx.run.clocks.sound.advance(now, true);
         for (let i = 0; i < parked; i++) recordedClock();
-        ctx.run.clocks.cycle.poll(now, engine.vars[10]!, true);
+        ctx.run.clocks.cycle.poll(now, engine.pacingDelay, true);
         // A room entry the host began still draws the room under a pause, so
         // a change shows, and Play's save has its room, while the game waits.
         // A recording whose poll ran no cycle replays it the same way; an armed
@@ -232,7 +232,7 @@ export function createCycle(ctx: WorkerContext) {
       }
       // The cycle clock always polls — its accumulators stay honest — but a
       // recorded lane decides whether the live poll fired.
-      const polled = ctx.run.clocks.cycle.poll(now, engine.vars[10]!);
+      const polled = ctx.run.clocks.cycle.poll(now, engine.pacingDelay);
       if (!(obs?.cycle ?? polled)) return false;
       ctx.fns.flushDeferredMovement();
       if (engine.executionControlActive) {
