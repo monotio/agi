@@ -69,7 +69,59 @@ export interface PlaybackState {
     envelopeValue: number;
   }[];
 }
+/** Optional native joystick service state; omission is the released disconnected host. */
+export interface JoystickReplayState {
+  enabled: boolean;
+  clockMs: number;
+  thresholds: number[];
+  direction: number;
+  buttons: { state: 0 | 1 | 2 | 3; deadline: number }[];
+  calibration: number | null;
+  /** init.joy found no pad; the first sample brings it online (optional). */
+  pendingInit?: true;
+}
+
+export function validateJoystickState(value: unknown): JoystickReplayState {
+  const pending =
+    value !== null && typeof value === "object" && Object.hasOwn(value, "pendingInit");
+  const s = record(value, [
+    "enabled",
+    "clockMs",
+    "thresholds",
+    "direction",
+    "buttons",
+    "calibration",
+    ...(pending ? ["pendingInit"] : []),
+  ]);
+  if (pending && s["pendingInit"] !== true) throw new Error("Replay joystick state is invalid.");
+  const thresholds = array(s["thresholds"], 4, (v) => number(v, -65535, 131070, false));
+  const buttons = array(s["buttons"], 2, (v) => {
+    const b = record(v, ["state", "deadline"]);
+    return {
+      state: number(b["state"], 0, 3) as 0 | 1 | 2 | 3,
+      deadline: number(b["deadline"], 0, Number.MAX_SAFE_INTEGER, false),
+    };
+  });
+  if (
+    thresholds.length !== 4 ||
+    buttons.length !== 2 ||
+    thresholds[0]! > thresholds[1]! ||
+    thresholds[2]! > thresholds[3]!
+  )
+    throw new Error("Replay joystick state is inconsistent.");
+  return {
+    enabled: bool(s["enabled"]),
+    clockMs: number(s["clockMs"], 0, Number.MAX_SAFE_INTEGER, false),
+    thresholds,
+    direction: number(s["direction"], 0, 8),
+    buttons,
+    calibration: s["calibration"] === null ? null : number(s["calibration"], 0, 63),
+    ...(pending ? { pendingInit: true as const } : {}),
+  };
+}
+
 export interface EngineReplayState {
+  joystick?: JoystickReplayState;
   amigaRegion?: "ntsc" | "pal";
   /** Present once set.pri.base has replaced the default priority table (PriToY). */
   priorityTableRebuilt?: true;
@@ -417,10 +469,11 @@ export function validateEngineReplayState(
     "patchGeneration",
     "continuation",
   ];
-  const optional = ["amigaRegion", "priorityTableRebuilt", "booterClockPhase"].filter(
+  const optional = ["amigaRegion", "priorityTableRebuilt", "booterClockPhase", "joystick"].filter(
     (key) => value !== null && typeof value === "object" && Object.hasOwn(value, key),
   );
   const s = record(value, [...fields, ...optional]);
+  const hasJoystick = optional.includes("joystick");
   if (s["priorityTableRebuilt"] !== undefined && s["priorityTableRebuilt"] !== true)
     throw new Error("Replay priority table marker must be true.");
   if (s["amigaRegion"] !== undefined && s["amigaRegion"] !== "pal" && s["amigaRegion"] !== "ntsc")
@@ -453,12 +506,17 @@ export function validateEngineReplayState(
       playback: validatePlaybackState(a["playback"]),
     };
   }
+  const continuation = validateContinuation(s["continuation"], options);
+  const joystick = hasJoystick ? validateJoystickState(s["joystick"]) : undefined;
+  if (joystick?.calibration != null && continuation?.modals[joystick.calibration]?.kind !== "print")
+    throw new Error("Replay joystick calibration is missing its window.");
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
     ...(s["priorityTableRebuilt"] === true ? { priorityTableRebuilt: true as const } : {}),
     ...(s["booterClockPhase"] !== undefined
       ? { booterClockPhase: number(s["booterClockPhase"], 1, 17) }
       : {}),
+    ...(joystick ? { joystick } : {}),
     clockRemainderMs: number(
       s["clockRemainderMs"],
       0,
@@ -521,6 +579,6 @@ export function validateEngineReplayState(
     gameSignature,
     sound,
     patchGeneration: number(s["patchGeneration"], 0, 0xffffffff),
-    continuation: validateContinuation(s["continuation"], options),
+    continuation,
   };
 }

@@ -41,12 +41,13 @@ import { TraceWindow } from "./trace.ts";
 import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
 import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
-import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeKeyWord } from "./keys.ts";
+import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, hasKeypadStop, normalizeKeyWord } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
 import { iigsShakeColour, shakePlan, type ShakeFrame } from "./shake.ts";
 import {
   validateEngineReplayState,
+  type JoystickReplayState,
   type EngineReplayState,
   type ParkedContinuation,
   type SerializedSavedRect,
@@ -185,6 +186,11 @@ export interface EngineHost {
    * (docs/fidelity.md "Original click-to-walk").
    */
   takePointerClicks?(): readonly (readonly [number, number])[];
+  /**
+   * Current joystick/gamepad sample ({ x, y } in any consistent axis scale, or
+   * x = 0 / y = 0 / null when no joystick is connected, plus button1/button2).
+   */
+  sampleJoystick?(): { x: number; y: number; button1?: boolean; button2?: boolean } | null;
   /**
    * Optional host preparation before a room transition changes any state.
    * The host may synchronously supply missing resources. False cancels the
@@ -895,6 +901,30 @@ export class Engine {
    * later click's target and never cleared.
    */
   readonly clickMoveNudge: [number, number] = [0, 0];
+  /** Joystick polling enabled (on at boot on Amiga via InitEvents -> InitJoy; calibrated by init.joy on PC/IIgs). */
+  private joyEnabled = false;
+  private joyObserved = false;
+  /**
+   * init.joy found no host sample on PC or IIgs. Browsers reveal a Gamepad
+   * only after its first button press, so the first sample brings the stick
+   * online at its nominal center (docs/fidelity.md F-IN-17).
+   */
+  private joyInitPending = false;
+  private joyClockMs = 0;
+  /** Modal serial of an active init.joy (0x8b) calibration prompt on PC or IIgs. */
+  private joyCalibratingModalSerial: number | null = null;
+  private joyXMin = -0.5;
+  private joyXMax = 0.5;
+  private joyYMin = -0.5;
+  private joyYMax = 0.5;
+  private lastJoyDir = 0;
+  private readonly joyButtons: [
+    { state: 0 | 1 | 2 | 3; deadline: number },
+    { state: 0 | 1 | 2 | 3; deadline: number },
+  ] = [
+    { state: 0, deadline: 0 },
+    { state: 0, deadline: 0 },
+  ];
   /** Scratch arrays and cached composition for presentation and ego visibility. */
   private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
@@ -1796,6 +1826,10 @@ export class Engine {
   ackPrint(): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     if (!this.modal) return;
+    if (this.modal.serial === this.joyCalibratingModalSerial) {
+      this.modalKey(AGI_KEY.ENTER);
+      return;
+    }
     if (this.modal.kind === "inventory" && this.modal.interactive)
       this.vars[V_SELECTED_ITEM] = 0xff;
     this.closeModal();
@@ -2461,13 +2495,12 @@ export class Engine {
         const queued = this.drainDialogKey();
         if (queued !== undefined) return queued;
         const wait = this.host.waitKey;
-        // A synchronous waitKey answer is GetKey's return: the profiles with
-        // the full-word queue normalize the keypad Enter/Escape words exactly
-        // like the drained queue does.
+        // A synchronous answer crosses the same native GetKey normalization
+        // as a queued or delivered answer (F-IN-04).
         if (wait)
           return this.hostCall(pending, () => {
             const answer = wait.call(this.host) ?? AGI_KEY.ESCAPE;
-            return this.profile.keypadWordsNormalized ? normalizeKeyWord(answer) : answer;
+            return normalizeKeyWord(answer, this.profile.presentation);
           });
         return AGI_KEY.ESCAPE;
       }
@@ -2530,13 +2563,10 @@ export class Engine {
    * navigation event answers. Returns undefined when nothing is queued.
    */
   private drainDialogKey(): number | undefined {
-    for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
+    this.queueHostKeys(true);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      // The selector's wait runs GetKey too, so keypad Enter/Escape words
-      // normalize here on the profiles whose queue keeps the full words
-      // (docs/fidelity.md "Original input, menu and modal handling", F-IN-06).
-      if (event.type === 1)
-        return this.profile.keypadWordsNormalized ? normalizeKeyWord(event.value) : event.value;
+      // The selector's wait uses the platform's GetKey normalization (F-IN-04).
+      if (event.type === 1) return normalizeKeyWord(event.value, this.profile.presentation);
       if (event.type === 2 && event.value !== 0) {
         const navigationKey = NAV_KEY_CODES[event.value];
         if (navigationKey !== undefined) return navigationKey;
@@ -2580,10 +2610,9 @@ export class Engine {
           : (this.host.takeKeys()[0] ?? AGI_KEY.ESCAPE),
       );
       // The host's answer is GetKey's return here: ButtonToChar normalizes
-      // the keypad/joystick Enter/Escape duplicates on this path too, on the
-      // profiles whose queue keeps the full words (docs/fidelity.md "Original
-      // input, menu and modal handling", F-IN-06).
-      if (this.profile.keypadWordsNormalized) key = normalizeKeyWord(key);
+      // the keypad/joystick Enter/Escape words across all twenty builds
+      // (docs/fidelity.md "Original input, menu and modal handling", F-IN-04).
+      key = normalizeKeyWord(key, this.profile.presentation);
       const byte = key & 0xff;
       if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
         this.pendingInteraction = null;
@@ -2650,15 +2679,11 @@ export class Engine {
         break;
       }
       case "saveDialog":
-        // A delivered key answers GetKey: the full-word-queue profiles
-        // normalize keypad Enter/Escape like the selector's own queue drain
-        // and waitKey path do.
+        // Delivered selector keys cross the same native GetKey normalization.
         this.driveSaveDialog(
           pending,
-          this.profile.keypadWordsNormalized &&
-            pending.dialog.need?.kind === "key" &&
-            typeof answer === "number"
-            ? normalizeKeyWord(answer)
+          pending.dialog.need?.kind === "key" && typeof answer === "number"
+            ? normalizeKeyWord(answer, this.profile.presentation)
             : answer,
         );
         break;
@@ -2757,7 +2782,7 @@ export class Engine {
   releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     if (eligible) {
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+      this.queueHostKeys(false);
       this.inputQueue.enqueue({ type: 2, value: 0 });
     }
   }
@@ -2943,14 +2968,28 @@ export class Engine {
    * have.key discards navigation/status events and preserves the unread
    * suffix. It applies no script mapping: a mapped key is raw here.
    */
+  /** Apply a native keyboard switch before a host queues or delivers a key (F-IN-16). */
+  consumePlatformKey(key: number): boolean {
+    if (key !== 0xff00 || this.profile.presentation === "pc") return false;
+    this.setSoundEnabled(this.flags[F_SOUND_ENABLED] === 0);
+    return true;
+  }
+
+  private queueHostKeys(modal: boolean): void {
+    for (const key of this.host.takeKeys()) {
+      if (this.consumePlatformKey(key)) continue;
+      if (key === 0xf500 && !hasKeypadStop(this.profile.id)) continue;
+      if (modal) this.inputQueue.enqueueModalKey(key);
+      else this.inputQueue.enqueueKey(key);
+    }
+  }
+
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      // GetKey normalizes the keypad Enter/Escape words on every consumer of
-      // this path where the profile keeps the full words; elsewhere the queue
-      // already masked them (docs/fidelity.md "Original input, menu and modal
-      // handling", F-IN-06).
-      if (event.type === 1)
-        return this.profile.keypadWordsNormalized ? normalizeKeyWord(event.value) : event.value;
+      // GetKey normalizes the keypad/joystick button words across all twenty
+      // builds via ButtonToChar (docs/fidelity.md "Original input, menu and
+      // modal handling", F-IN-04).
+      if (event.type === 1) return normalizeKeyWord(event.value, this.profile.presentation);
     }
     return undefined;
   }
@@ -2960,6 +2999,14 @@ export class Engine {
     if (key === 0x4600) {
       if (this.trace.active || this.flags[10] !== 0) this.trace.setActive(!this.trace.active);
       return;
+    }
+    // On Apple IIgs 1.014 (seg2+0x1638..0x165e), GetUserInput rewrites unmapped
+    // type-1 words 0x0101 and 0x0201 to 0x000d (CR) before storing v19
+    // and calling EditLine. Native sound switches are consumed before PostEvent.
+    if (this.profile.presentation === "iigs") {
+      if (key === 0x0101 || key === 0x0201) {
+        key = AGI_KEY.ENTER;
+      }
     }
     const byte = key & 0xff;
     // v19 receives the low byte of every type-1 event FIRST — before the
@@ -2997,7 +3044,12 @@ export class Engine {
     }
     const m = this.modal;
     if (!m) return;
-    key = normalizeKeyWord(key);
+    const rawKey = key & 0xffff;
+    key = normalizeKeyWord(rawKey, this.profile.presentation);
+    if (m.kind === "print" && m.serial === this.joyCalibratingModalSerial) {
+      this.resolveJoyCalibrationModal(rawKey, key & 0xff);
+      return;
+    }
     const nav = NAV_KEYS[key];
     if (nav !== undefined) {
       this.modalNavigate(nav);
@@ -3082,6 +3134,7 @@ export class Engine {
   private closeModal(): void {
     const m = this.modals.pop();
     if (!m) return;
+    if (m.serial === this.joyCalibratingModalSerial) this.joyCalibratingModalSerial = null;
     // A timed print zeroes v21 when its window closes, by timeout or key.
     // docs/fidelity.md: print-handler-output-modes
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
@@ -3302,6 +3355,339 @@ export class Engine {
       if (x >= g.x0 && x <= g.x1 && y >= g.y0 && y <= g.y1) return g.answer;
     }
     return null;
+  }
+
+  /**
+   * Whether pixel (x, y) lies inside an unlabeled print/show.obj window's
+   * clickable frame on Amiga (gadget_1 in AddWindowGadgets: h40+0x43a /
+   * h57+0x4a6, [win.x0..win.x1] x [win.y0..win.y1]) or Apple IIgs 1.014
+   * ($000e1f at seg3+0xe87..0xeb9: [$15f2..$15f6] x [$15f4..$15f8], where
+   * $15f6 = win.x1 + 1 and $15f8 = win.y1 + 1).
+   */
+  private windowHitAt(win: WindowOverlay | undefined, x: number, y: number): boolean {
+    if (win === undefined) return false;
+    if (this.profile.windowFrameGeometry === "amiga") {
+      return x >= win.x0 && x <= win.x1 && y >= win.y0 && y <= win.y1;
+    }
+    if (this.profile.windowFrameGeometry === "iigs") {
+      return x >= win.x0 && x <= win.x1 + 1 && y >= win.y0 && y <= win.y1 + 1;
+    }
+    return false;
+  }
+
+  /**
+   * The key word a left-button click at screen pixel (x, y) produces when a
+   * modal window, persistent f15 window, confirmation dialog or text screen is
+   * active on Amiga or Apple IIgs, or null when the click produces no key:
+   * - Amiga confirmation dialog: Restart/Quit -> Enter, Cancel/Continue -> Esc.
+   * - Unlabeled print or show.obj modal (or persistent f15 window): clicking
+   *   inside the window frame returns Enter (0x0d); clicking outside returns null.
+   * - Text screens return Enter on Amiga 2.082 and Apple IIgs 1.014; priority
+   *   screens never do (F-IN-11).
+   */
+  pointerKeyAt(x: number, y: number): number | null {
+    if (this.profile.clickMove === "none") return null;
+    if (this.pendingInteraction?.kind === "confirm") return this.confirmGadgetAt(x, y);
+    const modal = this.modal;
+    if (modal !== null) {
+      if (
+        (modal.kind === "print" || modal.kind === "showObj") &&
+        modal.serial !== this.joyCalibratingModalSerial
+      ) {
+        return this.windowHitAt(modal.saved.window, x, y) ? AGI_KEY.ENTER : null;
+      }
+      return null;
+    }
+    if (this.textMode) {
+      if (this.profile.id === "amiga-2.082" || this.profile.id === "iigs-1.014") {
+        return AGI_KEY.ENTER;
+      }
+      return null;
+    }
+    if (this.persistentWindow !== null && this.windowHitAt(this.persistentWindow.window, x, y)) {
+      return AGI_KEY.ENTER;
+    }
+    return null;
+  }
+
+  /**
+   * Amiga IDCMP MENUUP (0xe9) right-button double-click (docs/fidelity.md
+   * "Original click-to-walk"): posts type-1 word 0x0401 unless a text window
+   * is open; text mode does not gate it. Engine modals count as open windows.
+   */
+  get pointerRightDoubleClickAllowed(): boolean {
+    return (
+      this.profile.presentation === "amiga" && this.modal === null && this.persistentWindow === null
+    );
+  }
+
+  /**
+   * Engine-level form of the right double-click, used by tests. The app does
+   * not call it: PlayArea's `onAmigaRightButton` pairs the clicks and sends
+   * key 0x0401 with `pointer: true`, and the worker (`onKey` in
+   * app/src/worker/input.ts) admits it only while
+   * `pointerRightDoubleClickAllowed` holds. Native right-button work (menus)
+   * belongs on that path.
+   */
+  pointerRightDoubleClick(): boolean {
+    return this.pointerRightDoubleClickAllowed && this.inputQueue.enqueueKey(0x0401);
+  }
+
+  /** Releasing browser input ownership stops the stick without firing a button action. */
+  cancelJoystickInput(): void {
+    if (this.lastJoyDir !== 0) {
+      // GetKey discards direction events. Ownership cleanup must also stop
+      // the current heading when the parked pass resumes without an input phase.
+      this.vars[V_EGO_DIR] = 0;
+      this.inputQueue.enqueue({ type: 2, value: 0 });
+    }
+    this.lastJoyDir = 0;
+    this.joyButtons[0] = { state: 0, deadline: 0 };
+    this.joyButtons[1] = { state: 0, deadline: 0 };
+  }
+
+  /**
+   * Action 0x8b `init.joy`:
+   * - Amiga (2.082 h108+0x0, 2.176..2.333 h145+0x0): digital joystick via
+   *   gameport.device; opens no calibration window and enables polling.
+   * - PC (2.001..3.002.149, e.g. 3.002.149 0x64be) and Apple IIgs 1.014
+   *   (main+0x1cff): reads joystick axes; if disconnected (null or x==0 || y==0),
+   *   disables joystick polling and returns without opening a window. Otherwise
+   *   opens the platform's calibration prompt modal.
+   */
+  private joystickState(): JoystickReplayState | undefined {
+    if (!this.joyObserved) return undefined;
+    return {
+      enabled: this.joyEnabled,
+      clockMs: this.joyClockMs,
+      thresholds: [this.joyXMin, this.joyXMax, this.joyYMin, this.joyYMax],
+      direction: this.lastJoyDir,
+      buttons: this.joyButtons.map((b) => ({ ...b })),
+      ...(this.joyInitPending ? { pendingInit: true as const } : {}),
+      calibration:
+        this.joyCalibratingModalSerial === null
+          ? null
+          : this.modals.findIndex((m) => m.serial === this.joyCalibratingModalSerial),
+    };
+  }
+
+  private restoreJoystickState(state: JoystickReplayState | undefined): void {
+    this.joyObserved = state !== undefined;
+    this.joyEnabled = state?.enabled ?? this.profile.presentation === "amiga";
+    this.joyClockMs = state?.clockMs ?? 0;
+    this.joyXMin = state?.thresholds[0] ?? -0.5;
+    this.joyXMax = state?.thresholds[1] ?? 0.5;
+    this.joyYMin = state?.thresholds[2] ?? -0.5;
+    this.joyYMax = state?.thresholds[3] ?? 0.5;
+    this.lastJoyDir = state?.direction ?? 0;
+    this.joyInitPending = state?.pendingInit === true;
+    this.joyButtons[0] = state ? { ...state.buttons[0]! } : { state: 0, deadline: 0 };
+    this.joyButtons[1] = state ? { ...state.buttons[1]! } : { state: 0, deadline: 0 };
+    this.joyCalibratingModalSerial =
+      state?.calibration === null || state === undefined
+        ? null
+        : (this.modals[state.calibration]?.serial ?? null);
+  }
+
+  /** Poll the native input service independently of game-selected logic pacing. */
+  pollJoystickInput(): void {
+    const sample = this.host.sampleJoystick?.() ?? null;
+    // Ownership loss must cancel held input even while a modal freezes time.
+    if (sample === null) {
+      if (this.joyObserved) this.cancelJoystickInput();
+      return;
+    }
+    if (this.stopLatch !== null || this.timerPaused) return;
+    this.pollJoystick(sample);
+  }
+
+  /** Poll while GetKey is parked and consume each generated raw event once. */
+  pollJoystickKey(): number | undefined {
+    if (this.stopLatch !== null) return undefined;
+    this.pollJoystick();
+    return this.pollRawKey();
+  }
+
+  private initJoy(): void {
+    this.lastJoyDir = 0;
+    this.joyButtons[0] = { state: 0, deadline: 0 };
+    this.joyButtons[1] = { state: 0, deadline: 0 };
+    if (this.profile.presentation === "amiga") {
+      this.joyEnabled = true;
+      return;
+    }
+    const sample = this.host.sampleJoystick?.() ?? null;
+    // An unseen pad keeps native state from here so a checkpoint carries the
+    // pending calibration.
+    this.joyObserved = true;
+    this.joyInitPending = sample === null;
+    if (sample === null || sample.x === 0 || sample.y === 0) {
+      this.joyEnabled = false;
+      this.inputQueue.clear();
+      return;
+    }
+    const prompt =
+      this.profile.presentation === "iigs" ||
+      this.profile.inputLineEditCap === "early-35" ||
+      this.profile.id === "2.272"
+        ? "If you have a joystick, please center it\nand press one of the buttons.\n\nOtherwise, press any key to continue."
+        : "Please center your joystick.\n\nPress ENTER when it is\ncentered.\n\nPress ESC if you do not wish\nto use the joystick.";
+    this.emitPrint(prompt, undefined, true);
+    this.joyCalibratingModalSerial = this.modal?.serial ?? null;
+  }
+
+  private resolveJoyCalibrationModal(rawKey: number, byte: number): void {
+    const isIIgs = this.profile.presentation === "iigs";
+    if (isIIgs) {
+      // The IIgs waits on its keyboard latch or either fire button; every
+      // keyboard key accepts calibration (F-IN-17).
+      const sample = this.host.sampleJoystick?.();
+      if (sample === null || sample === undefined) return;
+      this.calibrateJoystick(sample.x, sample.y);
+      this.joyButtons[0].state = sample.button1 || sample.button2 ? 1 : 0;
+      this.joyCalibratingModalSerial = null;
+      this.closeModal();
+      this.inputQueue.clear();
+      return;
+    }
+    const earlyPC = this.profile.inputLineEditCap === "early-35" || this.profile.id === "2.272";
+    const fireWord = rawKey >= 0x0101 && rawKey <= 0x0401 && (rawKey & 0xff) === 1;
+    if (earlyPC ? fireWord : byte === AGI_KEY.ENTER) {
+      const sample = this.host.sampleJoystick?.();
+      this.calibrateJoystick(
+        sample && sample.x !== 0 ? sample.x : 100,
+        sample && sample.y !== 0 ? sample.y : 100,
+      );
+      this.joyCalibratingModalSerial = null;
+      this.closeModal();
+      this.inputQueue.clear();
+    } else if (earlyPC || byte === AGI_KEY.ESCAPE) {
+      this.joyEnabled = false;
+      this.joyCalibratingModalSerial = null;
+      this.closeModal();
+      this.inputQueue.clear();
+    }
+  }
+
+  /** Accept a center: PC halves it, the IIgs uses its two shifts (F-IN-17). */
+  private calibrateJoystick(cx: number, cy: number): void {
+    if (this.profile.presentation === "iigs") {
+      this.joyXMin = Math.trunc(cx / 4);
+      this.joyXMax = cx + Math.trunc(cx / 2) + Math.trunc(cx / 4);
+      this.joyYMin = Math.trunc(cy / 4);
+      this.joyYMax = cy + Math.trunc(cy / 2) + Math.trunc(cy / 4);
+    } else {
+      this.joyXMin = cx - Math.trunc(cx / 2);
+      this.joyXMax = Math.trunc((3 * cx) / 2);
+      this.joyYMin = cy - Math.trunc(cy / 2);
+      this.joyYMax = Math.trunc((3 * cy) / 2);
+    }
+    this.joyEnabled = true;
+    this.joyInitPending = false;
+  }
+
+  private pollJoystick(sample = this.host.sampleJoystick?.() ?? null): void {
+    if (sample === null) {
+      if (this.joyObserved) this.cancelJoystickInput();
+      return;
+    }
+    this.joyObserved = true;
+    if (this.modal !== null && this.modal.serial === this.joyCalibratingModalSerial) {
+      if (
+        this.profile.presentation === "iigs" ||
+        this.profile.inputLineEditCap === "early-35" ||
+        this.profile.id === "2.272"
+      ) {
+        if (sample.button1 || sample.button2) this.inputQueue.enqueueModalKey(0x0101);
+      } else {
+        if (this.joyButtons[0].state === 1 && !sample.button1)
+          this.inputQueue.enqueueModalKey(0x0101);
+        if (this.joyButtons[1].state === 1 && !sample.button2)
+          this.inputQueue.enqueueModalKey(0x0201);
+        this.joyButtons[0].state = sample.button1 ? 1 : 0;
+        this.joyButtons[1].state = sample.button2 ? 1 : 0;
+      }
+      return;
+    }
+    // Browser axes are normalized, so 128 is the stick's true center.
+    if (this.joyInitPending) this.calibrateJoystick(128, 128);
+    if (!this.joyEnabled) return;
+    const isAmiga = this.profile.presentation === "amiga";
+    const isIIgs = this.profile.presentation === "iigs";
+    const dx = isAmiga
+      ? sample.x < -0.5
+        ? -1
+        : sample.x > 0.5
+          ? 1
+          : 0
+      : sample.x < this.joyXMin
+        ? -1
+        : sample.x > this.joyXMax
+          ? 1
+          : 0;
+    const dy = isAmiga
+      ? sample.y < -0.5
+        ? -1
+        : sample.y > 0.5
+          ? 1
+          : 0
+      : sample.y < this.joyYMin
+        ? -1
+        : sample.y > this.joyYMax
+          ? 1
+          : 0;
+    const dirTable = [8, 1, 2, 7, 0, 3, 6, 5, 4] as const;
+    const dir = dirTable[(dy + 1) * 3 + (dx + 1)]!;
+    if (dir !== this.lastJoyDir) {
+      this.lastJoyDir = dir;
+      this.inputQueue.enqueue({ type: 2, value: dir });
+    }
+    if (isIIgs) {
+      const pressed = Boolean(sample.button1 || sample.button2);
+      if (pressed && this.joyButtons[0].state === 0) {
+        this.joyButtons[0].state = 1;
+        this.inputQueue.enqueue({ type: 1, value: AGI_KEY.ENTER });
+      } else if (!pressed && this.joyButtons[0].state !== 0) {
+        this.joyButtons[0].state = 0;
+      }
+      return;
+    }
+    for (let i = 0 as 0 | 1; i < 2; i = (i + 1) as 0 | 1) {
+      if (isAmiga && i === 1) break;
+      const pressed = i === 0 ? Boolean(sample.button1) : Boolean(sample.button2);
+      const singleWord = i === 0 ? 0x0101 : 0x0201;
+      const doubleWord = isAmiga ? 0x0401 : i === 0 ? 0x0301 : 0x0401;
+      const b = this.joyButtons[i];
+      if (b.state === 0) {
+        if (pressed) b.state = 1;
+      } else if (b.state === 1) {
+        if (!pressed) {
+          if (this.flags[8] === 0) {
+            b.state = 0;
+            this.inputQueue.enqueue({ type: 1, value: singleWord });
+          } else {
+            b.state = 2;
+            b.deadline =
+              this.joyClockMs +
+              // v15 counts timer increments: the interpreter's 20 Hz clock,
+              // or BIOS 18.2 Hz ticks on the 2.001 booter (F-IN-17).
+              this.vars[15]! * this.timing.timerIncrementMs;
+          }
+        }
+      } else if (b.state === 2) {
+        if (this.joyClockMs >= b.deadline) {
+          b.state = 0;
+          this.inputQueue.enqueue({ type: 1, value: singleWord });
+        } else if (pressed) {
+          b.state = 3;
+        }
+      } else if (b.state === 3) {
+        if (!pressed) {
+          b.state = 0;
+          this.inputQueue.enqueue({ type: 1, value: doubleWord });
+        }
+      }
+    }
   }
 
   /** The adapter supplies an available directory; the engine owns selection and text. */
@@ -3711,10 +4097,13 @@ export class Engine {
   }
 
   private replayState(continuation = this.captureContinuation()): EngineReplayState {
+    const joystick = this.joystickState();
+    if (joystick && continuation === null) joystick.calibration = null;
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       ...(this.defaultPriTable ? {} : { priorityTableRebuilt: true as const }),
       ...(this.booterClockPhase === 0 ? {} : { booterClockPhase: this.booterClockPhase }),
+      ...(joystick ? { joystick } : {}),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -3832,6 +4221,7 @@ export class Engine {
       this.pendingAnswer = undefined;
       this.conditionReplayUntil = -1;
     } else this.restoreContinuation(continuation);
+    this.restoreJoystickState(state.joystick);
     this.presentationDirty = true;
   }
 
@@ -4088,6 +4478,7 @@ export class Engine {
       this.serialize(),
       this.hostReplay,
       {
+        ...(this.joystickState() ? { joystick: this.joystickState()! } : {}),
         cells: this.text.cells,
         written: this.text.written,
         seq: this.text.seq,
@@ -4178,6 +4569,7 @@ export class Engine {
     // The parked pass restores after presentation: a patch-mismatched
     // continuation peels its windows back onto the snapshot's surface.
     if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
+    this.restoreJoystickState(presentation?.joystick);
   }
 
   /**
@@ -4509,6 +4901,7 @@ export class Engine {
       this.yieldedExecution
     )
       return;
+    if (this.joyObserved) this.joyClockMs += milliseconds;
     const modal = this.modal;
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {
@@ -5025,7 +5418,12 @@ export class Engine {
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
       // Modal Enter/Escape are raw controls, even when a script binds them.
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
+      this.queueHostKeys(true);
+      for (const [x, y] of this.host.takePointerClicks?.() ?? []) {
+        const key = this.pointerKeyAt(x, y);
+        if (key !== null) this.inputQueue.enqueueModalKey(key);
+      }
+      this.pollJoystick();
       while (this.modal) {
         const event = this.inputQueue.dequeue();
         if (!event) break;
@@ -5082,7 +5480,8 @@ export class Engine {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
         this.pendingController = null;
       }
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+      this.queueHostKeys(false);
+      this.pollJoystick();
       // The original's message pump starts a click-move as the click arrives;
       // a direction event it queued alongside still cancels it below.
       for (const [x, y] of this.host.takePointerClicks?.() ?? []) this.pointerClick(x, y);
@@ -5090,10 +5489,11 @@ export class Engine {
         if (event.type === 2) {
           this.vars[V_EGO_DIR] = this.vars[V_EGO_DIR] === event.value ? 0 : event.value;
           // The original's direction-event case forces ego's motion mode to
-          // normal while the player controls movement, so scripted motion
-          // carried across new.room ends on the next direction input
-          // (docs/fidelity.md, "Original new.room sequence").
-          if (this.directionCoupling !== 0) this.objects[0]!.motionMode = MOTION_NORMAL;
+          // normal while the player controls movement on 2.272+, Amiga and
+          // IIgs, while 2.001..2.230 omit the motionMode clear
+          // (docs/fidelity.md "Original input, menu and modal handling", F-IN-01).
+          if (this.directionCoupling !== 0 && this.profile.inputLineEditCap !== "early-35")
+            this.objects[0]!.motionMode = MOTION_NORMAL;
         } else if (event.type === 3) this.controllers[event.value] = 1;
         else {
           // Script key mappings apply here, and only here (docs/fidelity.md,
@@ -5349,6 +5749,12 @@ export class Engine {
    * on the play area's rows. Targets are words: nothing clamps them.
    */
   private pointerClick(x: number, y: number): void {
+    const key = this.pointerKeyAt(x, y);
+    if (key !== null) {
+      this.inputQueue.enqueueKey(key);
+      return;
+    }
+    if (this.textMode) return;
     const rule = this.profile.clickMove;
     if (rule === "none") return;
     if (rule === "iigs" && y < 8) return;
@@ -5357,6 +5763,8 @@ export class Engine {
       this.pointerX = x & 0xffff;
       this.pointerY = y & 0xffff;
     }
+    // An Amiga print window blocks walking; the IIgs f15 window does not
+    // (docs/fidelity.md "Original click-to-walk").
     if (rule !== "iigs" && this.persistentWindow !== null) return;
     if (this.directionCoupling === 0) return;
     const ego = this.objects[0]!;
@@ -6826,7 +7234,7 @@ export class Engine {
         // gets a synthesized Enter after a bounded number of polls so a
         // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
-        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+        this.queueHostKeys(false);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey;
         if (pressed === undefined) {
@@ -7872,7 +8280,8 @@ export class Engine {
         this.drawInputRow();
         return next;
       case 0x8b:
-        /* init.joy: joystick calibration; no joystick in this target */ return next;
+        this.initJoy();
+        return next;
       // toggle.monitor: spec places the alternate display mode outside the
       // full-EGA target this engine implements.
       case 0x8c:
@@ -8556,6 +8965,12 @@ export class Engine {
     const id = this.profile.id;
     const isAmiga = this.profile.windowFrameGeometry === "amiga";
     const isIIgs = this.profile.windowFrameGeometry === "iigs";
+    if (!this.restartPending) {
+      this.joyEnabled = isAmiga;
+      this.joyInitPending = false;
+    }
+    this.joyCalibratingModalSerial = null;
+    this.lastJoyDir = 0;
     // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,
     // which also gates status.line.on/off until configure.screen sets a
     // nonzero picture top (docs/fidelity.md "Amiga screen, font and pointer").

@@ -180,3 +180,22 @@ test("a shake in progress survives a replay-state round trip", () => {
   restored.tick();
   assert.equal(restored.vars[100], 1);
 });
+
+test("a joystick held during a shake steers ego once the shake ends", () => {
+  // Merge of shake.screen's modal with the native joystick service: the
+  // service keeps polling (its clock runs through modals), while the shake's
+  // pass reads no input, so the direction waits in the queue like a key.
+  const stick = { x: 0, y: 0 };
+  const { e } = engine("shake.screen(1);", "amiga-2.202", { sampleJoystick: () => stick });
+  e.tick();
+  assert.equal(e.modalKind, "shake");
+  stick.x = 1;
+  e.pollJoystickInput();
+  e.tick();
+  assert.equal(e.vars[6], 0, "the shake reads no direction");
+  e.advanceClock(250);
+  assert.equal(e.modalKind, null, "5 ticks = 250 ms");
+  e.tick();
+  e.tick();
+  assert.equal(e.vars[6], 3, "the next input phase reads the waiting direction");
+});

@@ -62,7 +62,9 @@ export function createCycle(ctx: WorkerContext) {
     // A suspended interaction freezes the cycle until its answer lands — the
     // gate inside tick() is the same, but skipping here keeps the recorder's
     // operation list honest: a parked tick never runs.
-    if (engine.hostInteractionPending && !engine.hostInteractionReady) return false;
+    if (engine.hostInteractionPending && !engine.hostInteractionReady) {
+      return false;
+    }
     const tape = ctx.run.recording.recording?.tape;
     return runTickEntry(() => {
       if (tape) {
@@ -206,6 +208,7 @@ export function createCycle(ctx: WorkerContext) {
         if (ctx.fns.debugStoppedHeld()) return false;
         recordedClock();
       }
+      ctx.fns.pollJoystickInput();
       ctx.fns.deliverQueuedKey();
       if (
         engine.modalKind !== null ||
@@ -318,6 +321,7 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   function onPause(msg: Inbound<"pause">): void {
+    if (msg.paused === true) ctx.fns.onJoystick({ type: "joystick", sample: null });
     ctx.livePause = msg.paused === true;
     ctx.run.cycle.paused = ctx.livePause;
     // An adopted session carries its recorded clock across the parked

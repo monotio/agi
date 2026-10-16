@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import { buildView } from "../../src/view/view.ts";
+import { gamepadSample } from "../src/play/useGameKeys.ts";
 
 test("a parked have.key plus a key message delivers exactly one key", () => {
   const { ctx, presentation } = workerHarness(
@@ -80,4 +81,28 @@ test("toggle release keeps northeast direction when the horizon clips its vertic
   assert.deepEqual([Math.sign(ego.x - before.x), Math.sign(ego.y - before.y)], [1, 0]);
   assert.equal(ego.direction, 2);
   assert.equal(ctx.run.engine!.vars[6], 2);
+});
+
+test("Gamepad snapshots keep neutral distinct from absence and combine stick, D-pad and buttons", () => {
+  assert.equal(gamepadSample(null), null);
+  assert.deepEqual(gamepadSample({ axes: [0, 0], buttons: [] }), {
+    x: 0,
+    y: 0,
+    button1: false,
+    button2: false,
+  });
+  assert.deepEqual(gamepadSample({ axes: [0.8, -0.8], buttons: [{ pressed: true }] }), {
+    x: 0.8,
+    y: -0.8,
+    button1: true,
+    button2: false,
+  });
+  const buttons = Array.from({ length: 16 }, (_, i) => ({ pressed: i === 12 || i === 15 }));
+  assert.deepEqual(gamepadSample({ axes: [0, 0], buttons }), {
+    x: 1,
+    y: -1,
+    button1: false,
+    button2: false,
+  });
+  assert.equal(gamepadSample({ connected: false, axes: [1, 1] }), null);
 });

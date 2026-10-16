@@ -6,8 +6,8 @@ import {
 /** Bounded, detached execution of authored resources using the real interpreter. */
 import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
-import { Engine, type EngineHost } from "../runtime/engine.ts";
-import { AGI_KEY } from "../runtime/keys.ts";
+import { Engine, HostWait, type EngineHost } from "../runtime/engine.ts";
+import { AGI_KEY, type JoystickSample } from "../runtime/keys.ts";
 import { parseView } from "../view/view.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import {
@@ -148,6 +148,7 @@ export class Simulation {
   /** Keys the simulation pressed for a blocking wait; only genesis boots allow that. */
   keyPresses = 0;
   private recordedCalls: RecordedHostCall[] | null = null;
+  private recordedKeyResume: number | undefined;
   navigationFailureTarget: Target | null = null;
   private queuedDirection: number | null = null;
 
@@ -219,6 +220,12 @@ export class Simulation {
         if (this.recordedCalls[0]?.[0] !== "clicks") return [];
         return this.recordedCalls.shift()![1] as [number, number][];
       },
+      sampleJoystick: () => {
+        while (this.recordedCalls?.[0]?.[0] === "clock")
+          this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
+        if (this.recordedCalls?.[0]?.[0] !== "joystick") return null;
+        return this.recordedCalls.shift()![1] as JoystickSample | null;
+      },
       prepareRoom: (room) => {
         if (!container.getResource("logic", room)) {
           this.missingRooms.push(room);
@@ -237,7 +244,15 @@ export class Simulation {
         this.recordedCalls ? (this.recordedValue("random") as number) : randomByte(),
       soundDevice: () => (this.recordedCalls ? (this.recordedValue("soundDevice") as number) : 1),
       waitKey: () => {
-        if (this.recordedCalls) return this.recordedValue("waitKey") as number;
+        if (this.recordedCalls) {
+          const answer = this.recordedValue("waitKey") as number;
+          if (this.recordedCalls[0]?.[0] === "keyResume") {
+            this.recordedCalls.shift();
+            this.recordedKeyResume = answer;
+            throw new HostWait();
+          }
+          return answer;
+        }
         if (!options.pressKeys) return unsupported("waitKey");
         this.keyPresses += 1;
         return 13;
@@ -268,12 +283,35 @@ export class Simulation {
       instructionBudget,
     });
   }
+  private drainJoystickWait(consumeKey = true): number | undefined {
+    let generated: number | undefined;
+    for (;;) {
+      if (this.recordedCalls?.[0]?.[0] === "clock")
+        this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
+      else if (this.recordedCalls?.[0]?.[0] === "soundEnabled")
+        this.engine.setSoundEnabled(this.recordedCalls.shift()![1] !== 0);
+      else if (this.recordedCalls?.[0]?.[0] === "joystick") {
+        const remaining = this.recordedCalls.length;
+        if (consumeKey) {
+          const key = this.engine.pollJoystickKey();
+          if (key !== undefined) generated = key;
+        } else this.engine.pollJoystickInput();
+        if (this.recordedCalls.length >= remaining)
+          throw new Error("Recorded joystick wait did not consume its sample.");
+      } else break;
+    }
+    return generated;
+  }
+
   private recordedValue(kind: RecordedHostCall[0]): unknown {
     while (this.recordedCalls?.[0]?.[0] === "clock") {
       const call = this.recordedCalls.shift()!;
       this.advanceRecordedClock(call[1] as number);
     }
+    const generated = this.drainJoystickWait(kind === "waitKey");
     const call = this.recordedCalls?.shift();
+    if (generated !== undefined && call?.[1] !== generated)
+      throw new Error("Recorded joystick wait key diverged.");
     if (!call || call[0] !== kind)
       throw new Error(
         `Recorded replay diverged: expected host ${call?.[0] ?? "end of tick"}, received ${kind}.`,
@@ -308,6 +346,7 @@ export class Simulation {
           this.engine.ackPrint();
           break;
         case "release":
+        case "joystick":
         case "tick":
           if (operation[0] === "tick" && ++this.cycles > this.cycleBudget)
             throw new Error(`Simulation cycle limit (${this.cycleBudget}) exceeded.`);
@@ -316,13 +355,25 @@ export class Simulation {
           // called: its recorded answer was taken at delivery time, so feed
           // the parked interaction before the tick that consumed it.
           if (operation[0] === "tick" && this.engine.awaitingKey) {
-            while (this.recordedCalls[0]?.[0] === "clock")
-              this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
-            if (this.recordedCalls[0]?.[0] === "waitKey")
-              this.engine.deliverHostAnswer(this.recordedCalls.shift()![1]);
+            const generated = this.drainJoystickWait();
+            if (this.recordedCalls[0]?.[0] === "waitKey") {
+              const answer = this.recordedCalls.shift()![1];
+              if (generated !== undefined && generated !== answer)
+                throw new Error("Recorded joystick wait key diverged.");
+              if ((this.recordedCalls[0] as RecordedHostCall | undefined)?.[0] === "keyResume")
+                this.recordedCalls.shift();
+              this.engine.deliverHostAnswer(answer);
+            }
           }
           if (operation[0] === "tick") this.engine.tick();
+          else if (operation[0] === "joystick") this.engine.pollJoystickInput();
           else this.engine.releaseTrackedKey(true);
+          while (this.recordedKeyResume !== undefined) {
+            const answer = this.recordedKeyResume;
+            this.recordedKeyResume = undefined;
+            this.engine.deliverHostAnswer(answer);
+            this.engine.tick();
+          }
           if (this.recordedCalls.length)
             throw new Error(
               `Recorded replay diverged: ${this.recordedCalls.length} unconsumed host calls.`,

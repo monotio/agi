@@ -3,7 +3,7 @@
  * line buffer and the suspended key wait. Pure functions of the worker
  * context — importable under Node for unit tests.
  */
-import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../../src/runtime/keys.ts";
+import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS, isJoystickSample } from "../../../src/runtime/keys.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 export function createInput(ctx: WorkerContext) {
@@ -57,6 +57,7 @@ export function createInput(ctx: WorkerContext) {
       ctx.fns.runTickEntry(() =>
         ctx.run.recording.recording!.tape.run("tick", () => {
           ctx.run.recording.recording!.tape.host(["waitKey", queued]);
+          ctx.run.recording.recording!.tape.host(["keyResume", 1]);
           ctx.run.engine!.deliverHostAnswer(queued);
           ctx.run.engine!.tick();
         }),
@@ -88,7 +89,13 @@ export function createInput(ctx: WorkerContext) {
     if (ctx.fns.debugStoppedHeld()) return;
     flushDeferredMovement();
     const key = Number(msg.code) & 0xffff;
+    if (msg.pointer && (key !== 0x0401 || !ctx.run.engine?.pointerRightDoubleClickAllowed)) return;
     ctx.fns.historyRecord({ kind: "key", code: key });
+    if (ctx.run.engine?.consumePlatformKey(key)) {
+      ctx.run.recording.recording?.tape.recordSound(ctx.run.engine.flags[9] !== 0);
+      ctx.fns.postFrame();
+      return;
+    }
     // A parked key wait answers from the queue directly — any key,
     // including a navigation key that would otherwise defer.
     const keyWaitParked = ctx.run.engine?.awaitingKey === true;
@@ -202,15 +209,79 @@ export function createInput(ctx: WorkerContext) {
       deliverQueuedKey();
       return;
     }
-    if (
-      engine.modalKind !== null ||
-      engine.awaitingKey ||
-      engine.awaitingHostAnswer ||
-      engine.profile.clickMove === "none"
-    )
+    if (engine.awaitingKey) {
+      const answer = engine.pointerKeyAt(x, y);
+      if (answer === null) return;
+      ctx.fns.historyRecord({ kind: "click", x, y });
+      ctx.run.input.keyQueue.unshift(answer);
+      deliverQueuedKey();
       return;
+    }
+    if (engine.awaitingHostAnswer) return;
+    if (engine.modalKind !== null || engine.textModeActive || engine.profile.clickMove === "none") {
+      if (engine.pointerKeyAt(x, y) === null) return;
+    }
     ctx.fns.historyRecord({ kind: "click", x, y });
     ctx.run.input.clickQueue.push([x, y]);
+  }
+
+  function onJoystick(msg: Inbound<"joystick">): void {
+    const engine = ctx.run.engine;
+    if (!engine) return;
+    if (ctx.replay.replay && !ctx.replay.historyReplay) return;
+    if (
+      msg.sample !== null &&
+      (!ctx.run.owner.active ||
+        ctx.fns.debugStoppedHeld() ||
+        !isJoystickSample(msg.sample) ||
+        ctx.run.cycle.paused)
+    )
+      return;
+    const sample = msg.sample;
+    const native =
+      sample === null
+        ? null
+        : engine.profile.presentation === "amiga"
+          ? { ...sample }
+          : {
+              ...sample,
+              x: Math.round(128 + 127 * sample.x),
+              y: Math.round(128 + 127 * sample.y),
+            };
+    if (JSON.stringify(native) === JSON.stringify(ctx.run.input.joystick)) return;
+    ctx.fns.historyRecord({ kind: "joystick", sample });
+    ctx.run.input.joystick = native;
+    if (sample !== null) ctx.run.input.joystickObserved = true;
+    else if (ctx.run.recording.recording)
+      ctx.run.recording.recording.tape.run("joystick", () => engine.pollJoystickInput());
+    else engine.pollJoystickInput();
+  }
+
+  function pollJoystickInput(): void {
+    const engine = ctx.run.engine;
+    if (
+      !engine ||
+      !ctx.run.input.joystickObserved ||
+      (engine.awaitingHostAnswer && !engine.awaitingKey)
+    )
+      return;
+    const tape = ctx.run.recording.recording?.tape;
+    if (!engine.awaitingKey) {
+      if (tape) tape.run("joystick", () => engine.pollJoystickInput());
+      else engine.pollJoystickInput();
+      return;
+    }
+    const poll = () => {
+      const key = engine.pollJoystickKey();
+      if (key !== undefined) {
+        ctx.run.input.keyQueue.push(key);
+        deliverQueuedKey();
+      }
+    };
+    if (tape) {
+      tape.run("tick", poll);
+      if (engine.awaitingHostAnswer) tape.holdTick();
+    } else poll();
   }
 
   function onInput(msg: Inbound<"input">): void {
@@ -272,6 +343,8 @@ export function createInput(ctx: WorkerContext) {
     onKey,
     onDirection,
     onClick,
+    onJoystick,
+    pollJoystickInput,
     onInput,
     onEdit,
     onDismissPrint,

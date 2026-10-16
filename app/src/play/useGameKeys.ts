@@ -7,7 +7,56 @@
  */
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
-import { FUNCTION_KEYS, registeredKey, pcKey } from "./gameControls.ts";
+import { translatePlatformKey, type JoystickSample } from "../../../src/runtime/keys.ts";
+import { FUNCTION_KEYS } from "./gameControls.ts";
+
+/** Minimal subset of the W3C Gamepad object used by the platform joystick poller. */
+export interface GamepadInputLike {
+  readonly connected?: boolean;
+  readonly axes?: readonly number[];
+  readonly buttons?: readonly { readonly pressed: boolean }[];
+}
+
+/** Convert the browser's stick/D-pad snapshot without inventing native key events. */
+export function gamepadSample(pad: GamepadInputLike | null | undefined): JoystickSample | null {
+  if (!pad || pad.connected === false) return null;
+  const axis = (index: number): number => {
+    const value = pad.axes?.[index] ?? 0;
+    return Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0;
+  };
+  const up = Boolean(pad.buttons?.[12]?.pressed),
+    down = Boolean(pad.buttons?.[13]?.pressed);
+  const left = Boolean(pad.buttons?.[14]?.pressed),
+    right = Boolean(pad.buttons?.[15]?.pressed);
+  return {
+    x: left || right ? Number(right) - Number(left) : axis(0),
+    y: up || down ? Number(down) - Number(up) : axis(1),
+    button1: Boolean(pad.buttons?.[0]?.pressed),
+    button2: Boolean(pad.buttons?.[1]?.pressed),
+  };
+}
+
+/** Sample the first connected controller for boot and the mounted play surface. */
+export function connectedGamepad(): JoystickSample | null {
+  const pads = typeof navigator === "undefined" ? undefined : navigator.getGamepads?.();
+  return gamepadSample(pads ? Array.from(pads).find((p) => p && p.connected !== false) : null);
+}
+
+/**
+ * The native key word for a physical key, or undefined when the browser keeps
+ * it. The Command key belongs to the browser (copy, paste, reload) unless the
+ * game binds the word it makes: no shipped game binds an Amiga-qualified word
+ * (docs/fidelity.md "Original input, menu and modal handling", F-IN-16).
+ */
+export function nativeGameKey(
+  ev: KeyboardEvent,
+  profile: string | null,
+  controls: readonly { readonly key: number }[],
+): number | undefined {
+  const key = translatePlatformKey(ev, profile);
+  if (key === undefined || !ev.metaKey) return key;
+  return controls.some((binding) => binding.key === key) ? key : undefined;
+}
 
 /** What the keyboard routing needs from PlayArea's exposed API. */
 export interface KeyTarget {
@@ -165,7 +214,7 @@ export function useGameKeys(deps: {
       state.waitingForKey ||
       (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
     ) {
-      const key = pcKey(ev);
+      const key = nativeGameKey(ev, state.profile, state.controls);
       if (key !== undefined) {
         ev.preventDefault();
         sendKey(key);
@@ -182,15 +231,23 @@ export function useGameKeys(deps: {
 
     if (area()?.movementKeyDown(ev)) return;
 
-    const shortcut = registeredKey(ev, state.controls);
-    if (shortcut !== undefined) {
+    // Bound keys, Keypad 5 (stop) and the native sound switch reach the game.
+    // Unbound keys keep their browser meaning (editing the command draft):
+    // the original's input phase ignores them (F-Parser-12).
+    const nativeKey = nativeGameKey(ev, state.profile, state.controls);
+    if (
+      nativeKey !== undefined &&
+      (nativeKey === 0xf500 ||
+        nativeKey === 0xff00 ||
+        state.controls.some((b) => b.key === nativeKey))
+    ) {
       ev.preventDefault();
-      area()?.triggerKey(shortcut);
+      area()?.triggerKey(nativeKey);
       return;
     }
 
     if (!state.inputEnabled) {
-      const code = pcKey(ev);
+      const code = nativeGameKey(ev, state.profile, state.controls);
       if (code !== undefined) {
         ev.preventDefault();
         sendKey(code);

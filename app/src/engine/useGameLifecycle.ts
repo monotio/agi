@@ -1,3 +1,4 @@
+import { connectedGamepad } from "../play/useGameKeys.ts";
 import { migrateAgentChats } from "../../../src/agent/chats.ts";
 /**
  * Game lifecycle: boot (fixture / authored / stub-agent), eject, shutdown,
@@ -436,6 +437,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       );
       w.postMessage({
         type: "boot",
+        joystick: connectedGamepad(),
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
         progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
@@ -567,6 +569,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       );
       w.postMessage({
         type: "boot",
+        joystick: connectedGamepad(),
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
         progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
@@ -923,6 +926,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     );
     w.postMessage({
       type: "boot",
+      joystick: connectedGamepad(),
       amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
       progressMode: options.getProjectMode?.() ?? "play",
       projectMode: "create",
@@ -1152,6 +1156,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           );
           w.postMessage({
             type: "boot",
+            joystick: connectedGamepad(),
             amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
             progressMode: options.getProjectMode?.() ?? "play",
             ...(options.getProjectMode?.() === "create"

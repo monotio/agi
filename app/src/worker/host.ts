@@ -133,6 +133,15 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         ]);
       return clicks;
     },
+    sampleJoystick() {
+      const sample = ctx.run.input.joystick;
+      if (ctx.run.input.joystickObserved)
+        ctx.run.recording.recording?.tape.host([
+          "joystick",
+          sample === null ? null : { ...sample },
+        ]);
+      return sample;
+    },
     prepareRoom(room, from) {
       if (!ctx.boot.authorRooms || !ctx.run.engine) return true;
       const container = openContainer(ctx.run.engine.containerFiles, {

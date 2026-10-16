@@ -2559,16 +2559,26 @@ Amiga`h38+0x0e`/`h55+0x0e`; IIgs `~arrays+0x17dc`). `FindWord`(not`MakeLine`) th
 `>= 0x80`in a`parse(sA)`or player input string survive verbatim without
 Unicode/locale folding and become unknown words. Engine:`profile.parserStripsPunctuation` (`false`on`2.001`, `true`on the other 19
 profiles) selects space-only vs separator/ignored-punctuation`MakeLine`normalization in`parseSentence`, and `asciiLower`folds only ASCII`0x41..0x5a` across all twenty profiles.
-- **F-Parser-12 (fact; engine matches on printable/control keys; non-printable scan-word insertion into INLINE is host boundary).**
-  Input-line editor keys (`2.411` kq2 `EditLine` `0x353b` / `2.936` kq3
-  `0x3652`): key `13` on an empty line is silently consumed (no parse; `v19 =
-13` was already stored by the caller, so the observable state matches the
-  engine). Backspace at empty is a silent no-op with `v19 = 8` visible to
-  scripts (matching `keyByteStoredBeforeEdit: true`). Key `10` is dropped. On
-  raw BIOS scan words (e.g. `F1 = 0x3B00`), the original's unguarded `EditLine`
-  stores low byte `0x00` into `INLINE`; the engine's `0x20..0x7E` filter keeps
-  non-printable control/scan words out of the text edit buffer while still
-  delivering their low byte to `v19`.
+- **F-Parser-12 (fact; engine matches on printable and editing keys; inserting
+  unmapped control and scan words into `INLINE` is a host boundary).**
+  Input-line editor keys (PC `EditLine`: `2.001` `0x3258`, `2.936` `0x3652`,
+  `3.002.149` `0x3961`; Amiga: `2.082` `h63+0x114`, `2.176..2.333` `h85+0x118`;
+  IIgs `1.014` `seg2+0x1727`): key `13` on an empty line is silently consumed
+  (no parse; `v19 = 13` was already stored by the caller, so the observable
+  state matches the engine). Backspace at empty is a silent no-op with `v19 = 8`
+  visible to scripts (matching `keyByteStoredBeforeEdit: true`). Key `10` is
+  dropped. No PC `EditLine` tests the key word's high byte; no image contains a
+  `test byte [bp+5],0xff` guard. The default case
+  (`cmp di,[count]; jna; or si,si; jz; inc count; mov [buf+bx],al`: `2.001`
+  `0x32b3..0x32c8`, `2.936` `0x36e8..0x36fc`, `3.002.149` `0x39eb..0x39ff`)
+  appends the low byte of any nonzero unmapped word: F1 (`0x3b00`) appends
+  `0x00`, and an unmapped `0x0101` appends `0x01`. IIgs `EditLine` tests
+  `lda $08,s; and #$ff00; bne ret` (`seg2+0x1729`), and Amiga `EditLine` gates
+  insertion on `0x20 <= ch < 0x7f` (`2.082` `h63+0x1b6`, `2.176..2.333`
+  `h85+0x1be`). Engine: on every profile the `0x20..0x7e` filter keeps control
+  and scan words out of the edit buffer while delivering their low byte to
+  `v19`. No shipped game depends on inserting NUL or control bytes into
+  `INLINE`.
 - **F-Parser-13 (fact; engine matches).** `echo.line` / `cancel.line` (PC
   `EchoLine`/`CancelLine`: `2.001` `0x3477`/`0x344a`, `2.089` `0x3441`/`0x3414`,
   `2.230` `0x33a0`/`0x3373`, `2.272` `0x342e`/`0x3401`, `2.411`
@@ -3687,17 +3697,50 @@ Static disassembly of KQ1 2.917, SQ2 2.936 and the KQ4 3.002.086 code body
 
 ### Original input, menu and modal handling
 
-Static disassembly of the decoded KQ3 2.936 image, DEMOPAC4 3.002.102, MH1
-3.002.107 and GR1 3.002.149; event-queue layout and hook tables read from the
-hash-pinned data segments.
+Static disassembly across all twenty shipped interpreter binaries (PC
+`2.001..3.002.149`, Amiga `2.082..2.333`, and Apple IIgs `1.014`); event-queue
+layout, key translation tables, and hook tables read from the hash-pinned code
+and data segments.
 
-- **F-IN-01 (fact; engine matches).** Direction-event toggle (2.936 kq3
-  0x35FA / 3.002.102 demopac4 0x39AD / 3.002.107 mh1 0x39AD / 3.002.149 gr1
-  0x3911): the type-2 case compares the event value against the ego record's
-  direction byte [rec+0x21] — equal: v6:=0, else v6:=value — then, only when
-  userCtrl≠0, ego motion:=0. The compare operand is the record byte (not v6);
-  the record is synced from v6 by the post-logic mirror, so repeated
-  same-direction events within one input phase do not re-toggle.
+- **F-IN-01 (fact; engine differs on PC `2.001..2.272`, open).**
+  Direction-event toggle. `v6` is `DS:0x15` on `2.001` and `DS:0x0f` on
+  `2.089` and later; `DS:0x0c` is `v3`. No PC build up to `2.272` compares a
+  direction event against `v6`:
+  - **PC `2.001`:** the type-2 case (`0x322d`) only stores the value
+    (`mov [0x145],ax`). The toggle happens earlier, in MapKey
+    (`0x417e..0x419c`), which compares against `[0x137]` when `[0xe26] != 0`.
+    The main cycle (`0x142..0x157`) sets `v6 := [0x145]` while the player has
+    control, and otherwise copies ego's direction byte (`rec+0x21`) into `v6`.
+  - **PC `2.089`** (`0x305e`) and **`2.230`** (`0x2fa4`): the input phase
+    handles four event types. Keyboard directions arrive as type 4 (posted at
+    `2.089` `0x3f12`) and toggle against the word `[0x131]`. Type 2 (joystick)
+    stores its value in `[0x13f]` with no compare. The main cycle copies
+    `[0x13f]` into `v6` while the player has control (`0xec..0x101`). Neither
+    build clears ego's motion.
+  - **PC `2.272`** (`0x3072`): compares against the shadow word `[0x13f]`,
+    then, while the player has control, clears ego's motion
+    (`mov byte [di+0x22],0`).
+  - Consequence: on `2.001..2.272`, a script's write to `v6` is overwritten
+    every cycle while the player has control and never feeds the toggle.
+  - **PC `2.411..3.002.149`** (`2.411` `0x34fc`, `2.936` `0x35fa`,
+    `3.002.149` `0x3911`), **Amiga `2.082..2.333`** (`2.082` `h63+0x70`,
+    `2.176..2.333` `h85+0x76`), and **IIgs `1.014`** (`seg2+0x1685`): compare
+    against the ego record's direction field (`[bx+0x21]` on PC, `+0x36` on
+    Amiga/IIgs) — equal: `v6 := 0`, else `v6 := value` — and, while the player
+    has control, clear ego's motion (`+0x22` on PC). Because the cycle-tail
+    mirror writes `v6` into ego's direction at the end of every logic pass, the
+    two are equal at the start of every input phase; they differ only if two or
+    more direction events arrive within one cycle, which no shipped game
+    depends on.
+    Engine: keeps `v6` as the toggle operand on every profile and does not model
+    the `2.001..2.272` shadow word. It omits the motion clear on
+    `2.001..2.230` and clears ego's motion under player control on `2.272` and
+    later, Amiga and IIgs. The `2.001..2.272` shadow-word behavior is an open
+    deviation. The catalogued games select `2.411` or later by default; the
+    `2.089` SQ1 release and Donald Duck's Playground under `2.272` assign `v6`
+    from room logic (SQ1 logics 20, 24, 36, 37 and 70; DDP logics 15 and
+    20..24), and whether those writes happen while the player has control has
+    not been checked.
 - **F-IN-02 (fact; engine matches).** Input-phase v19 order (PC input phase:
   2.001 0x32de, 2.089 0x32a8, 2.230 0x3207, 2.272 0x3295, 2.411 0x34ac, 2.440
   0x34ba, 2.903 0x35a6, 2.917/2.936 0x35ad, 3.002.086 0x394a,
@@ -3719,22 +3762,35 @@ ax,[si+2]`; `A2 1C 00 mov [0x1c],al`; `83 3E D3 05 00 cmp word [0x5d3],0`;
   the LOW byte (`test al,al`). Extended words (F1=0x3B00) have AL=0 → false,
   v19 untouched. No blocking: the drain loop exits on queue-empty or
   GetKey≠−1.
-- **F-IN-04 (fact; engine matches).** Keypad-word normalization (PC
-  ButtonToChar: 2.001 0x4230, 2.089 0x44fb, 2.230 0x4483, 2.272 0x44ef, 2.411
-  0x450e, 2.440 0x4540, 2.903 0x4633, 2.917/2.936 0x4634, 3.002.086 0x4a62,
-  3.002.102/3.002.107 0x4a78, 3.002.149 0x488f; absent on Amiga 2.082..2.333
-  and IIgs 1.014): on all thirteen PC builds, the event queue stores full
-  16-bit type+value words (e.g. demopac4 PostEvent 0x48DD, 4-byte stride, 20
-  slots). ButtonToChar (0x101/0x301→CR, 0x201/0x401→ESC, type-1 only) runs
-  inside GetKey — so have.key, get.string/get.num (WaitChar), and all ChkAcAb
-  modals normalize — plus the inventory, menu, and menu-status handlers
-  directly; the input-phase EditLine is the only key consumer that never
-  normalizes. Amiga and IIgs receive events from Intuition or the IIgs Event
-  Manager and carry no ButtonToChar helper (`keypadWordsNormalized: false`).
-  Engine: the event queue and history/speedrun replay lanes preserve full
-  16-bit key words, and on all thirteen PC profiles (`keypadWordsNormalized:
-true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
-  CR/ESC while the line editor reads raw keys.
+- **F-IN-04 (fact; engine matches).** Button-word normalization (`ButtonToChar`:
+  PC `2.001` `0x40c5`, `2.089` `0x3ea6`, `2.230` `0x3e2a`, `2.272` `0x3e88`,
+  `2.411` `0x44fe`, `2.440` `0x4530`, `2.903` `0x4633`, `2.917`/`2.936`
+  `0x4634`, `3.002.086` `0x4a62`, `3.002.102`/`3.002.107` `0x4a78`, `3.002.149`
+  `0x488f`, called from `GetKey` at `0x4802`; Amiga mapping `2.082`
+  `h76+0x28e..0x2ae`, `2.176..2.333` `h103+0x2a4..0x2c4`; IIgs `1.014`
+  `eventseg+0x351..0x39d`): across all twenty shipped binaries, the event queue
+  stores full 16-bit type+value words (`PostEvent` 4-byte stride, 20 slots).
+  `ButtonToChar` runs inside `GetKey` / `WaitKey` — so `have.key`,
+  `get.string`/`get.num` (`WaitChar`), and all `ChkAcAb` modals normalize — plus
+  the inventory, menu, and confirmation handlers:
+  - **PC (`2.001..3.002.149`) and Amiga (`2.082..2.333`):** `0x0101` and
+    `0x0301` map to `0x0d` (`CR`), and `0x0201` and `0x0401` map to `0x1b`
+    (`ESC`). In `GetUserInput` (the ordinary input phase; `3.002.149`
+    `0x47b1`), `0x0101..0x0401` are matched against `keyMap`
+    (`set.key(1, 1..4, c)`), and a mapped word becomes a type-3 event with no
+    rewrite to `CR`/`ESC`. Nearly every shipped game binds these four words
+    with `set.key`, so they are reachable input.
+  - **Apple IIgs (`1.014`):** `ButtonToChar` (`eventseg+0x351..0x39d`) maps all
+    four words `0x0101`, `0x0201`, `0x0301`, and `0x0401` to `0x0d` (`CR`).
+    MapKey (`eventseg+0x1b0`) turns mapped keys into type-3 events. In the
+    type-1 case, `GetUserInput` (`seg2+0x1638..0x1652`) rewrites unmapped
+    words `0x0101` and `0x0201` to `0x0d` (`CR`) before storing `v19`
+    (`seg2+0x165b`) and calling `EditLine`.
+    Engine: `InputQueue.enqueueKey` preserves `0x0101..0x0401` across all twenty
+    profiles so `set.key(1, 1..4, c)` bindings fire in `GetUserInput`,
+    `normalizeKeyWord` normalizes `0x0101..0x0401` per platform in `pollRawKey`,
+    `modalKey`, and `confirmWaitLoop`, and `handleKey` applies the IIgs
+    `0x0101`/`0x0201 -> 0x0d` rewrite.
 - **F-IN-05 (fact; engine matches).** Menu-interaction gate (3.002.107 mh1 /
   3.002.149 gr1): allow.menu (0xB1) stores its operand to a dedicated word
   (mh1 DS+0x5E3, gr1 DS+0x403), shipped value 1, never re-initialized.
@@ -3743,19 +3799,66 @@ true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
   request word set — a gated request pends until allow.menu(1). No
   gr1/mh1/demopac4 logic calls allow.menu. Engine: the gate ships 1, is never
   re-initialized, and a gated menu request stays pending until allow.menu(1).
-- **F-IN-07 (fact; engine matches the 0xAD/0xB5 hold/release gate; hardware INT
-  9 scancode latch is a host boundary).** Tracked key release
-  (3.002.102/3.002.107/3.002.149): the int-9 hook (mh1 0x6487) windows scans
-  0x47-0x51, consults an 11-byte selected-key table (mh1 DS+0x159C = FF FF FF
-  00 FF 00 FF 00 FF FF FF — the 8 direction keys) and an 11-byte pressed
-  latch (DS+0x15A7). Make: latch set → swallowed repeat; else clear all
-  latches, latch this key. Break: latch clear → no event; else clear latch
-  and, iff the 0xAD/0xB5 gate byte (DS+0x5E5) ≠ 0, enqueue type-2 value 0.
-  hold.key sets the gate to 1; release.key clears it. Keypad-5 make (no
-  shifts) enqueues type-2 value 0 ungated. Engine: `hold.key` and
-  `release.key` control `keyHoldMode`, and `releaseTrackedKey()` enqueues
-  type-2 value 0 when `keyHoldMode` is enabled; raw BIOS INT 9 scancode
-  make/break latching is handled by the host input layer.
+- **F-IN-07 (fact; engine matches).** `hold.key` (`0xad`), `release.key`
+  (`0xb5`) and Keypad 5 across all twenty builds. Each PC action dispatcher
+  rejects an opcode above its last action (`cmp al,N; jna`, else error `0x10`):
+  `N` is `0x90` on `2.001`, `0x9a` on `2.089` and `2.230`, `0xa0` on `2.272`,
+  `0xa9` on `2.411`/`2.440`, `0xad` on `2.917`, `0xaf` on `2.936`, `0xb1` on
+  `3.002.086`, and `0xb5` on `3.002.102`/`3.002.107`/`3.002.149` (`2.903` was
+  not rechecked).
+  - **PC `2.001..2.440`:** `hold.key` and `release.key` are out of range. The
+    `2.411`/`2.440` INT 9 hook (`2.411` `0x5e16`) handles only Keypad 5 and
+    Ctrl+Alt+arrows, then chains to the BIOS; there is no hold byte and no key
+    latch.
+  - **PC `2.917`, `2.936` and `3.002.086`:** `hold.key` increments a byte
+    (`inc byte`: `2.917` `0x5f67` on `[0x1526]`, `2.936` `0x602f` on
+    `[0x1530]`, `3.002.086` `0x6468` on `[0x15a0]`); `release.key` is out of
+    range. Each build installs an INT 9 hook that latches scan codes
+    `0x47..0x51` (`2.917` `0x5f6e`, `2.936` `0x6036`, `3.002.086` `0x646f`).
+    Its break path reads the byte (`2.936` `0x60e6`, `3.002.086` `0x651f`), so
+    after `hold.key` releasing a latched key posts `{type: 2, value: 0}`, and
+    nothing turns that off.
+  - **PC `3.002.102`/`3.002.107`/`3.002.149`:** `hold.key` sets the byte to 1
+    and `release.key` sets it to 0 (`3.002.107` `0x6477`/`0x647f`
+    `mov byte [0x5e5],1`/`0`; `3.002.149` `0x63a8`/`0x63b0` on `[0x405]`). The
+    INT 9 hook (`3.002.107` `0x6487`) windows scan codes `0x47..0x51` and
+    consults an 11-byte selected-key mask (`3.002.107` DS+0x159C =
+    `FF FF FF 00 FF 00 FF 00 FF FF FF`, the eight direction keys) and an
+    11-byte pressed latch (DS+0x15A7). Make: latch set → swallowed repeat; else
+    clear all latches and latch this key. Break: latch clear → no event; else
+    clear the latch and, when the byte is nonzero, post `{type: 2, value: 0}`.
+  - **Amiga `2.082..2.202`:** `hold.key` and `release.key` are out of range.
+    `2.082` bounds actions with `cmpi.l #$a1; ble` (table ends at `0xa0`);
+    `2.176`/`2.202` use `cmpi.b #$aa; bls` at `h6+0x0a` (table `h5` is `0x3fc`
+    bytes, 170 entries `0..0xa9`). An action out of range calls `h94+0`, fatal
+    error 16.
+  - **Amiga `2.310..2.333`:** the bound is `cmpi.b #$b7`. `0xad` and `0xb5`
+    point to the shared stub (`link; move.l 8(a6),d0; unlk; rts`) at `h6+0x64`
+    on PQ (`2.310`) and `h6+0x66` on GR and MH2 (`2.316`, `2.333`). Key-up
+    codes post nothing: the translator's `cmpi.w #$60,d7; bcc` returns 0 for
+    them, so the `RAWKEY` arm (`h106+0x1f6`) has no event to post.
+  - **Apple IIgs `1.014`:** `0xad` runs `seg3+0xecc` (`inc $0080` at
+    `+0xed7`). The dispatcher bound is `sbc #$00b1` (`actionseg+0x33`), so
+    `0xb5` is out of range.
+  - **Usage:** among the shipped fixtures, `hold.key` appears only in `mh1`,
+    `mumg` (`2.917`, logic 0) and `mh2-amiga`; no game calls `release.key`.
+  - **Keypad 5 (stop ego):** `2.001`'s key-to-direction tables (DS `0x116d`,
+    or DS `0x1191` when `[0xd42] == 2`) have no `0x4c` or `'5'` entry, and its
+    INT 9 hook (`0x5832`) handles only Ctrl+Alt+arrows, so Keypad 5 does
+    nothing on `2.001`. `2.089` and `2.230` also lack the entry (tables
+    `0x125f` and `0x1251`). From `2.272` on, the INT 9 hook reads the scan code
+    (`in al,0x60; cmp al,0x4c; and ah,0x0f; jnz`), posts `{type: 2, value: 0}`
+    and swallows the key: `2.272` `0x586b`, `2.411` `0x5e16`, `2.936`
+    `0x6036`, `3.002.107` `0x6487`, `3.002.149` `0x63b8`. Amiga `2.082..2.333`
+    map `RAWKEY` `0x2d` to `0xf500` (`h79`/`h107`), and IIgs `1.014` maps
+    `KeyMapPad` `'5'` (`~arrays+0x1019`) to `0xf500`; both post direction 0.
+    Engine: `releaseGateAction` is `unavailable` on `2.001..2.440` and
+    `amiga-2.082`/`2.176`/`2.202` (an out-of-range action faults), `increment`
+    (one byte) on `2.917`, `2.936`, `3.002.086` and IIgs, `set` on
+    `3.002.102` and later, and `noop` on `amiga-2.310..2.333`. While the gate is
+    nonzero, the host posts the release when a direction key or touch direction
+    is released. `hasKeypadStop` ignores Keypad 5 on `2.001`, `2.089` and
+    `2.230`.
 - **F-IN-08 (fact; engine matches).** Modal acknowledgement keys (PC ChkAcAb:
   2.001 0x41ec, 2.089 0x44b7, 2.230 0x443f, 2.272 0x44ab, 2.411 0x44ca, 2.440
   0x44fc, 2.903 0x45ef, 2.917/2.936 0x45f0, 3.002.086 0x4a1e,
@@ -3763,8 +3866,8 @@ true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
   2.176..2.333 h105+0x84; IIgs 1.014 seg2+0x0b79..0x0bbf): across all twenty
   shipped binaries (thirteen PC, six Amiga, and IIgs 1.014), all
   print/show.obj/show.pri/save/restore modals funnel to WaitAcAb → ChkAcAb: CR
-  (`0x0d`) → accept(1), ESC (`0x1b`) → abort(0) (on PC, after GetKey's
-  0x101/0x201/0x301/0x401 normalization); every other key and all non-CHAR
+  (`0x0d`) → accept(1), ESC (`0x1b`) → abort(0) (after `GetKey`'s
+  `ButtonToChar` normalization); every other key and all non-CHAR
   events return `-1` and are ignored — Space does NOT dismiss
   (`modalDismissalKeys: "enter-escape"`). v21≠0 on the print path swaps the bare
   wait for a sysTimer deadline loop (e.g. PQ1 2.903 `AGI` `db97accc…` ChkAcAb
@@ -3772,6 +3875,20 @@ true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
   `WaitAcAb` at `seg2+0x0bc0`). Engine: modals dismiss on Enter/Escape only
   across all twenty profiles (`modalDismissalKeys: "enter-escape"`), with the
   v21 deadline on the print path.
+- **F-IN-11 (fact; engine matches).** Pointer acknowledgement. Amiga `2.082`
+  left-button handling at `h78+0x25c` (`cmpi.w #$68; cmpi.l #1,h129`) posts
+  Enter when the flag `h129+0x0` is set. Its only writer is `text.screen`
+  (action `0x6a`, set at `h128+0x0e`, cleared at `h128+0x18a`).
+  `show.pri.screen` (action `0x1d`, `h123+0x20a`) swaps the screens, redraws
+  and calls WaitAcAb (`h76+0x218`) without setting it, so a click on the
+  priority screen is not Enter. `2.176+` omits the branch; there `h180+0x0` is
+  written only in text mode (`h179+0x24`/`+0x1d8`), and Intuition menus do not
+  raise it. IIgs `1.014` uses its text-mode bit in the click handler
+  (`seg3+0xa6f`), including top-row text clicks. A priority display leaves
+  that bit clear and does not turn its clicks into Enter. Engine: a click on
+  the `amiga-2.082` text screen posts Enter, and no profile turns a click on
+  the priority screen into Enter. Window hits and modal gates are detailed
+  under [Original click-to-walk](#original-click-to-walk).
 - **F-IN-14 (fact; engine matches).** Non-interactive inventory dismiss (PC
   Status: 2.001 0x30b4, 2.089 0x3070, 2.230 0x2fd3, 2.272 0x3061, 2.411 0x3293,
   2.440 0x32a1, 2.903 0x32e2, 2.917/2.936 0x32e9, 3.002.086 0x3680,
@@ -3793,6 +3910,123 @@ true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
   likewise do not skip disabled items. Engine: gated by
   `profile.menuHomeEndUnconditional` (`true` on `2.936`; other profiles keep
   their previous enabled-heading scan on Home/End until verified).
+- **F-IN-16 (fact; native keyboard translation).** The executable hashes are
+  pinned in the PC input table and the Amiga/IIgs build sections above.
+  - **PC (`2.001..3.002.149`):** BIOS words carry ASCII in the low byte and
+    scan in the high byte. PollKey strips the scan byte when ASCII is nonzero
+    (`int 16h` with `ah=0`; `test al,al; jz; xor ah,ah`: `2.001` `0x55ad`,
+    `2.089` `0x52ab`, `3.002.149` `0x5e02`); PostEvent itself stores both
+    words unchanged. Cursor directions become
+    type 2, while joystick buttons enter PostEvent directly as type-1 words
+    `0x0101..0x0401`. Thus an injected BIOS `0x1e61` binds `set.key(97,0,c)`,
+    while a joystick `0x0101` binds `set.key(1,1,c)`.
+  - **Amiga:** keyboard translator `2.082` `h78+0x340`, `2.176`/`2.202`
+    `h106+0x358`, `2.310..2.333` `h106+0x35a`, ending at `h106+0x43a`, with
+    unshifted, shifted and Alt tables in `h79` / `h107`. F1..F10 produce
+    `0x3b00..0x4400`; Help produces F1, Alt+Help produces the sound switch
+    `0xff00`; Delete produces `0x7f`. Keypad 1..9 produce `0xf100..0xf900`,
+    which MapKey converts to directions `6,5,4,7,0,3,8,1,2`. Ctrl uses the
+    shifted table minus `0x40`; `2.176+` alone rewrites `X` to `C` first
+    (`cmpi.w #$58` → `#$43`), so Ctrl+X gives `0x03`. Alt letters and top-row
+    digits use PC scan words. Either Amiga key (qualifier mask `0xc0`) sets
+    bit 8 on a nonzero word (`bset #8`), so Amiga+Q is `0x0171`. The `0xff00`
+    branch (`h106+0x41a`) switches sound and zeroes the word, so nothing is
+    posted. The message pump runs from the tick server `h194+0`
+    (`h103+0x32`), so keys are translated during modal waits too. No shipped
+    game binds an Amiga-qualified word (`0x01xx` other than
+    `0x0101..0x0401`).
+  - **IIgs `1.014`:** translator `seg3+0xb95..0xc46`; keypad table
+    `~arrays+0x1019`, direction table `~arrays+0xff1`, Alt scan table
+    `~arrays+0xef1`, and final translation table `~arrays+0x1041`.
+    Keypad-qualified digits produce the same `0xf100..0xf900` words.
+    Control letters map to `1..26`; Option+letters/digits produce PC scan
+    words, and Option+/ produces the sound switch. Delete (`0x7f`) becomes
+    Backspace (`0x08`), and the symbols `! @ # $ % ^ & * ( )` become F1..F10.
+    The sound-switch word is consumed by the translator at `seg3+0xc20..0xc39`,
+    rather than reaching v19 or the script key map.
+    Engine: `translatePlatformKey` applies these translations to physical
+    keys. Native text composition remains owned by the browser input; the
+    phone key panel uses the same translator for modifier letters and Delete.
+    The browser keeps Command shortcuts unless the game binds the resulting
+    word.
+- **F-IN-17 (fact; engine matches except the PC poll interval, open).**
+  Joystick calibration and polling. `init.joy` is action
+  `0x8b`. These are static binary findings, not measurements of a modern
+  controller's physical calibration.
+  - **PC:** InitJoy entry points are `2.001` `0x58cd`, `2.089` `0x585f`,
+    `2.230` `0x585a`, `2.272` `0x58f4`, `2.411` `0x5e9f`, `2.440` `0x5ed1`,
+    `2.903` `0x6062`, `2.917` `0x6075`, `2.936` `0x613c`, `3.002.086`
+    `0x6575`, `3.002.102`/`3.002.107` `0x658d`, `3.002.149` `0x64be`
+    (load-module offsets). A missing axis disables polling. `2.001..2.272`
+    accept a pressed fire button and cancel on any keyboard key (`2.089`
+    `0x58aa..0x58c8`); on `2.001` and `2.089`, when the mode word
+    (`[0xd42]`, `[0xe40]`) is 2, InitJoy skips the axis check. `2.411+` wait
+    for Enter or Escape through WaitKey → GetKey → ButtonToChar (`2.411`
+    `0x44a1` → `0x4468` → `0x44fe`; `3.002.149` `0x64fb..0x6512`), so fire
+    buttons count once normalized. The later button poll emits on release, so
+    holding fire keeps that calibration window open. Accepted centers give
+    thresholds `center - trunc(center/2)` and `center + trunc(center/2)`
+    (`idiv` by a code-segment word of 2, `3.002.149` `0x651e..0x6556`). Axis
+    changes post direction events, including 0 on returning to center
+    (`3.002.149` `0x65a8..0x65bf`, JoyDir `0x66c1..0x673d`). The joystick poll
+    waits 9 ticks between samples (`3.002.149` `0x65c3`). Button records hold
+    the single and double words (DS `0x1368` = `{0x0101, 0x0301}`, DS `0x1374`
+    = `{0x0201, 0x0401}`), posted with PostEvent(1, word) (`3.002.149`
+    `0x661d`/`0x666c`). With f8 clear a release posts the single word. With f8
+    set, a second release before the deadline posts the double word, and the
+    deadline posts the single word only from the waiting state (state 2).
+    v15 = 0 fires on the next poll.
+  - **PC timer unit for v15** (addresses from `3.002.149`): `2.089..3.002.149`
+    set the PIT divisor to `0x4dae` (about 60 Hz; `0x874d`) and chain the BIOS INT 8
+    handler every third interrupt (`0x8839..0x884b`). INT 1C (`0x8852`) runs
+    `0x8210`, which does `add [0x129],1` and rolls the seconds every 20 ticks
+    (`0x8231`). One tick is therefore `3 × 19886 / 1193182` s, about 50.0 ms
+    (20 Hz). The fire deadline is `[0x129] + v15` (`0x664c..0x6664`). The
+    `2.001` booter leaves the PIT alone and rolls seconds every 18 ticks
+    (`0x73ec`); its deadline is `[0x12f] + v15` (`[0x1e]`), in BIOS 18.2 Hz
+    ticks.
+  - **Amiga:** InitJoy (`2.082` `h108`; `2.176..2.333` `h145`) opens
+    `gameport.device` unit 1 once, with `GPCT_ABSJOYSTICK`, up/down triggers
+    and unit X/Y deltas; it does not display calibration. Polling is enabled
+    at boot (`h33+0x20` → `h103+0` → `h145+0`) with `SETCTYPE` 3 and trigger
+    `{3, 0, 1, 1}`. The direction table (`h146+0xe`) is column-major
+    `8,7,6 / 1,0,5 / 2,3,4` for `(ie_X,ie_Y)` in `-1..1`. SQ2
+    `h145+0x172..0x2d2` posts a changed direction. Its single fire button uses
+    the same f8/v15 state machine (`h145+0x2d4..0x3be`) and posts on release:
+    `0x0101` at once when f8 is clear or after the timeout when f8 is set, and
+    **`0x0401`** on a second release (data words at `h146+0x6/+0x8`). It does
+    not have a second joystick fire button. The mouse right-double-click path
+    is separate from this joystick state.
+  - **IIgs `1.014`:** InitJoy is `main+0x1cff..0x1dc8`. A missing axis
+    returns without a prompt. Either fire button or **any keyboard key**
+    accepts the center. The two shifts at `main+0x1d8c..0x1db1` derive
+    `low = center >> 2` and
+    `high = center + (center >> 1) + (center >> 2)`, so odd centers retain
+    the original integer rounding. JoyDir posts transitions at
+    `main+0x1dc9..0x1dff`; the button reader at `main+0x1e1d..0x1e88`
+    debounces held buttons and posts Enter on a press. There is no PC-style
+    pair of button-release or double-click event words on this path.
+  - Engine: `EngineHost.sampleJoystick` supplies native axis counts for
+    PC/IIgs and
+    signed digital axes for Amiga. Unit tests assert calibration, thresholds,
+    direction changes and platform button words against these rules.
+    The browser adapter samples the first connected Gamepad's stick or D-pad,
+    mapping normalized axes to counts `round(128 + 127 * axis)` on PC/IIgs.
+    Native polling runs on host ticks, independently of game-selected logic
+    pacing; the engine does not model the PC 9-tick poll interval (open). The
+    fire deadline counts v15 in 50 ms units (the interpreter's 20 Hz tick) on
+    PC `2.089` and later, in `65536/1193182` s units on `2.001`, and in the
+    selected region's tick on Amiga. Disconnecting or relinquishing
+    play ownership cancels held directions and button state without a fire
+    release. Browsers reveal a Gamepad only after its first button press, so
+    `init.joy` in logic 0 usually finds no host sample on PC and IIgs. The
+    original reads a connected stick whenever it polls; the engine therefore
+    keeps that `init.joy` pending and brings the first sample online without a
+    window, calibrated at the normalized center 128 (an adapter choice: the
+    browser has already calibrated its axes). A player who declines with
+    Escape keeps the stick off. Optional host checkpoint and recording fields
+    retain calibration, the pending state, native deadlines and samples;
+    released files omit them unchanged.
 
 ### Original window and status-line text
 
@@ -4620,23 +4854,23 @@ Each remaining profile field was classified against the executables' own
 handlers (static disassembly, the dispatch tables above). Values that change
 behavior were confirmed independently at the addresses given (**fact**):
 
-| Build(s)             | Field                        | Value                                 | Evidence                                                                                                              |
-| -------------------- | ---------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 2.082                | `restartPromptBypassedByF16` | false                                 | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)                    |
-| 2.082, 2.176+        | `timedPrintClearsV21`        | true                                  | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)           |
-| all                  | `heapDiagnosticExtraLine`    | false                                 | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable             |
-| 2.176                | `targetMotionDeferred`       | false                                 | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not              |
-| 2.176                | `inventorySelector`          | true                                  | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25        |
-| 2.176                | `pictureMaxCommand`          | 0xfa                                  | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8            |
-| 2.176, 2.202, 2.31x  | `patternProfile`             | `short-r1`, `center-row-320`          | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                   |
-| all                  | `windowFrameGeometry`        | `amiga`                               | `OpenWndw` (Sierra h71+0x0, 2.176+ h97+0x0) draws inclusive `RectFill` (`8·cols+21` × `8·rows+11`) and 1-px red frame |
-| all                  | `keypadWordsNormalized`      | false                                 | Intuition input events have no PC `ButtonToChar` 0x101..0x401 helper                                                  |
-| all                  | `modalDismissalKeys`         | `enter-escape`                        | `ChkAcAb` (Sierra h77+0x84, 2.176+ h105+0x84) accepts only `0x0d` and `0x1b`                                          |
-| all                  | `inputLineEditCap`           | `prompt-40`                           | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`              |
-| all                  | `presentation`               | `amiga`                               | [Amiga screen, font and pointer](#amiga-screen-font-and-pointer): screen title status line, ROM font, own pointer     |
-| 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                    |
-| all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)        |
-| all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)      |
+| Build(s)             | Field                        | Value                                 | Evidence                                                                                                                                                     |
+| -------------------- | ---------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2.082                | `restartPromptBypassedByF16` | false                                 | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)                                                           |
+| 2.082, 2.176+        | `timedPrintClearsV21`        | true                                  | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)                                                  |
+| all                  | `heapDiagnosticExtraLine`    | false                                 | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable                                                    |
+| 2.176                | `targetMotionDeferred`       | false                                 | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not                                                     |
+| 2.176                | `inventorySelector`          | true                                  | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25                                               |
+| 2.176                | `pictureMaxCommand`          | 0xfa                                  | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8                                                   |
+| 2.176, 2.202, 2.31x  | `patternProfile`             | `short-r1`, `center-row-320`          | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                                                          |
+| all                  | `windowFrameGeometry`        | `amiga`                               | `OpenWndw` (Sierra h71+0x0, 2.176+ h97+0x0) draws inclusive `RectFill` (`8·cols+21` × `8·rows+11`) and 1-px red frame                                        |
+| all                  | `keypadWordsNormalized`      | false                                 | `ButtonToChar` (`Sierra h76+0x28e..0x2ae`, `2.176+ h103+0x2a4..0x2c4`) maps `0x0101/0x0301 -> 0x0d` and `0x0201/0x0401 -> 0x1b` without PC keypad scan words |
+| all                  | `modalDismissalKeys`         | `enter-escape`                        | `ChkAcAb` (Sierra h77+0x84, 2.176+ h105+0x84) accepts only `0x0d` and `0x1b`                                                                                 |
+| all                  | `inputLineEditCap`           | `prompt-40`                           | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`                                                     |
+| all                  | `presentation`               | `amiga`                               | [Amiga screen, font and pointer](#amiga-screen-font-and-pointer): screen title status line, ROM font, own pointer                                            |
+| 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                                                           |
+| all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)                                               |
+| all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)                                             |
 
 Fields whose slot is above a build's dispatch bound (see the table above)
 never run there: `menuInteractionGate`, `releaseGateAction`,
@@ -5597,19 +5831,59 @@ unless marked.
 at (0, 0), 320x200 (NewWindow template GR h131+0x44, flags `0x1900`), so its
 mouse coordinates are screen pixels. Its IDCMP template (h131+0x4e, flags
 `0x000c2568`) subscribes to button, gadget, menu, raw-key and
-activation messages but not MOUSEMOVE or DELTAMOVE, so the pointer position
-is only seen inside a button message. The message pump (GR h106+0x3c) copies
-the message's MouseX/MouseY — screen pixels on the 320x200 screen — and
-dispatches on the class. The left-button-down arm (`cmpi.w #$68`,
-h106+0x258) does, in order:
+activation messages (`GADGETUP = 0x40`, `MOUSEBUTTONS = 0x08`, `MENUPICK = 0x100`,
+`RAWKEY = 0x400`) but not MOUSEMOVE or DELTAMOVE, so the pointer position
+is only seen inside a button message. The message pump (Sierra `2.082 h78+0x00`,
+`2.176+ h106+0x3c`) copies the message's MouseX/MouseY — screen pixels on the
+320x200 screen — and dispatches on the class and code:
 
-1. skip the click if the menu/modal flag h180+0x0 is set;
-2. **2.31x only:** set flag 19 (`moveq #$13` into the `bset` routine
-   h175+0x16) and store MouseX/MouseY in h108+0xc/+0xe;
-3. skip the walk if the text-window flag h59+0x8 is set (set by the
-   windowed print path h57+0x446, cleared at h57+0x796 — the engine's
-   non-blocking print window);
-4. call the starter h45+0x14a(MouseX, MouseY).
+- **Window gadget click (`GADGETUP = 0x40`, Sierra `h78+0x148`, `2.176+ h106+0x158`):**
+  when a window has neither button string, the print path attaches an
+  Intuition boolean gadget with GadgetID 1 (attach `Sierra h40+0x432..0x494`,
+  `2.176+ h57+0x474..0x4f8`; gadget `Sierra h41+0x5c`, SQ2 `h58+0x5c`).
+  `OpenWndw` (`Sierra h71+0x60..0xca`, `2.176+ h97+0x60..0xca`) only computes
+  and fills the rectangle the gadget covers: `LeftEdge = 8*leftCol - 10`,
+  `TopEdge = 8*topRow - 6`, `Width = 8*cols + 21`, `Height = 8*rows + 11`, with
+  Flags 3 and Activation 1 (`RELVERIFY`). A click inside it posts `GADGETUP`.
+  On `2.176+` the jump table at `h106+0x17c` posts `{1, 0x0d}` (Enter) for
+  IDs 1, 2 and 4 and `{1, 0x1b}` (Escape) for ID 3; for IDs outside 1..4, bit
+  9 posts type `0x0b` and bit 8 type `0x0a`. `2.082` posts Enter for IDs 1 and
+  2, Escape for ID 3, and type `0x0a` for bit 7. ID 0 posts nothing. Clicks
+  outside the rectangle miss the gadget. Engine: an inclusive hit on the
+  window rectangle posts Enter.
+- **Left-button-down (`MOUSEBUTTONS = 0x08`, code `0x68 = SELECTDOWN`, Sierra `h78+0x228`, `2.176..2.202 h106+0x262`, `2.31x h106+0x258`):**
+  1. if the text-screen flag (`Sierra h129+0x0`, `2.176+ h180+0x0`) is clear:
+     - **2.31x only:** set flag 19 (`moveq #$13` into the `bset` routine
+       `h175+0x16`) and store MouseX/MouseY in `h108+0xc/+0xe`;
+     - skip the walk if the text-window flag (`Sierra h42+0x8`, `2.176+ h59+0x8`)
+       is set (set by the windowed print path `h57+0x446`, cleared at `h57+0x796` —
+       an open non-blocking print window);
+     - call the starter (`Sierra h33+0x15c`, `2.176+ h45+0x14a`) with `(MouseX, MouseY)`.
+  2. **Sierra `2.082` only (`h78+0x25c`):** when `h129+0x0` is set
+     (`cmpi.w #$68; cmpi.l #1,h129`), the `SELECTDOWN` arm enqueues
+     `{1, 0x0d}` (Enter). Only `text.screen` (action `0x6a`, `h128+0x0e`,
+     cleared at `h128+0x18a`) writes that flag; `show.pri.screen` (action
+     `0x1d`, `h123+0x20a`) calls WaitAcAb (`h76+0x218`) without setting it.
+     So a left click satisfies a `text.screen` wait on `amiga-2.082` with
+     Enter, and a click on the priority screen does not. `2.176+` removed this
+     branch; there `h180+0x0` is written only in text mode
+     (`h179+0x24`/`+0x1d8`), and Intuition menus do not raise it.
+- **Right-button-up (`MOUSEBUTTONS = 0x08`, code `0xe9 = MENUUP`, Sierra `h78+0x282..0x2d8`, `2.176..2.202 h106+0x294..0x2ea`, `2.31x h106+0x2a4..0x2fa`):**
+  calls Intuition `DoubleClick(prevSec, prevMicro, curSec, curMicro)`
+  (LVO `-0x66`). When it returns non-zero and the text-window flag
+  (`Sierra h42+0x8`, `2.176+ h59+0x8`) is clear, the arm posts
+  `move.l #$401`, event `{1, 0x0401}`, via `Sierra h75+0x40` /
+  `2.176+ h103+0x40`. It never tests the text-screen flag. Posting leaves the
+  stored time unchanged; the arm records `(curSec, curMicro)` only when it
+  posts no double click (`h106+0x2da`), so a third quick click is compared
+  with the same stored time. `ButtonToChar` (`Sierra h76+0x28e..0x2ae`,
+  `2.176+ h103+0x2a4..0x2c4`) normalizes `0x0401` to `0x1b` (Escape), while
+  `set.key(1, 4, c)` binds controller `c` to the raw word `0x0401`; nearly
+  every shipped game binds `0x0101..0x0401`. Engine: the right double click
+  posts only when no engine modal and no f15 window is open (inference: an
+  open print window raises the text-window flag). The browser adapter pairs
+  clicks within 500 ms and starts a new pair after posting (an adapter
+  choice).
 
 `mouse.posn` (h191+0x3b2) reads only h108+0xc/+0xe: it reports the last
 eligible click, X halved, Y unadjusted — never a live pointer. The earlier
@@ -5648,37 +5922,50 @@ event under player control clears ego's mode (h85+0x94..0xa4), cancelling
 the walk. `new.room`'s reset (h51+0xb6) clears ego's mode and v6 when the
 mode is 4.
 
-**Right button (not modelled).** Right-button-up (`0xe9`) runs Intuition's
-`DoubleClick()` against the stored time; a double click with no text window
-enqueues event `{1, 0x401}` (h103+0x40), which no shipped key map was traced
-to consume. Sierra 2.082 also has a second left-button arm (h78+0x25c): with
-the menu flag set, a click enqueues Enter.
+**Apple IIgs 1.014.** The mouse-down arm is `seg3+0x8eb..0xa83`.
+For a top-row click (`where.y < 8`), native menu selection requires flag 14,
+`$0090 == 0` and `$00b3 != 1`; otherwise the click continues to the window
+hit-test at `seg3+0x9b4..0x9c4`. `$00b3` is text mode, not a generic modal
+flag (text.screen writes it at `seg2+0x6ba`).
 
-**Apple IIgs 1.014.** The Event Manager loop's mouse-down arm (seg3+0x8eb)
-sends clicks on rows 0-7 (`where.y - 8` negative, signed) to the menu bar
-when AGI flag 14 is set, `$0090` is zero and `$00b3` is not 1. Other clicks go through a hit
-test (`jsl $000e1f` with the position, seg3+0x9be); a zero result or part 2
-of its four-way table (seg3+0xa3a) reaches the walk arm (seg3+0xa4b), which
-starts the walk when `$1592` and `$00b3` are both zero or `$1590` is set,
-and otherwise turns the click into Enter when `$00b3` is 1. The walk arm calls
-`movetoseg+0xb4` with the click — the same starter: player control `$011d`, mode 4,
-`+0x40 = x/2 - width/2`, `+0x42 = y - $b7` (the play-area top), `+0x44 =
-+0x30`, and no nudge. The finish (`movetoseg+0x198`) skips the completion
-flag for mode 4 and hands control back; the mover's edge case
-(`moveobjsse+0x1ec`) finishes only mode 3; `newroomseg+0x115` clears a mode-4
-ego and v6. The IIgs has no `mouse.posn`, flag-19 or nudge surface. The
-menu gate fields `$0090` and `$00b3` are described under
-[Original native menu dispatch](#original-native-menu-dispatch). The remaining
-click-specific roles of `$1590`, `$1592` and the hit test's parts are not
-fully decoded, so the engine applies the normal case: rows 0-7
-never walk, and below them the player-control gate decides.
+The hit-test (`seg3+0xe1f..0xecb`) first asks the Toolbox for a window/control
+hit. Its AGI rectangle fallback at `+0xe87` requires `$158d != 0` (set at
+`seg2+0x2d21`), compares
+X with inclusive `$15f2..$15f6` and Y with inclusive `$15f4..$15f8`, and
+returns part 2 for a hit. These bounds are populated at `seg2+0x4aa3..0x4ae0`;
+the right and bottom bounds include one pixel beyond the drawn frame's last
+pixel. The dispatch posts Enter or Escape for dialog control hits; a normal
+print or show.obj frame hit (part 2) posts Enter through the relocated table
+at `seg3+0xa32`.
+
+The no-hit arm (`seg3+0xa4b..0xa67`) checks `$1592`, set by opening a print
+window at `seg2+0x2c27` and cleared by CloseWndw at `seg2+0x2162`. It walks when
+`($1592 == 0 && $b3 == 0) || $1590 != 0`. The f15 branch at
+`seg2+0x2275..0x22a5` returns without closing the window and sets
+`$1590 = 1` (`seg2+0x2295`), so an open f15 window allows outside
+click-to-walk; any other open print window blocks it. Clicking the window's
+frame still posts Enter. Otherwise text mode posts Enter (`seg3+0xa6f`),
+including a click in the top row. show.pri.screen
+(`debugseg+0x258..0x284`) swaps the picture nibbles and calls WaitAcAb without
+setting text mode: its graphics click is not an Enter event.
+
+The walk starter `movetoseg+0xb4` checks player control `$011d`, sets mode 4,
+`+0x40 = x/2 - width/2`, `+0x42 = y - $b7` (the play-area top), `+0x44 = +0x30`,
+and no nudge. The finish (`movetoseg+0x198`) skips the completion flag for mode 4
+and hands control back; the mover's edge case (`moveobjsse+0x1ec`) finishes only
+mode 3; `newroomseg+0x115` clears a mode-4 ego and v6. The IIgs has no
+`mouse.posn`, flag-19 or nudge surface. The menu gate fields `$0090` and `$00b3`
+are also described under [Original native menu dispatch](#original-native-menu-dispatch).
+Engine: an open f15 window lets outside clicks walk on the IIgs, and clicking
+its frame posts Enter.
 
 **Engine mapping.** The host reports left-button-downs through
-`EngineHost.takePointerClicks` as screen pixels; the engine applies them in
-the input phase after the queued keys, per `AgiProfile.clickMove`. The
-parameter bank holds the target words and saved step, which Amiga and IIgs
-save images carry whole at +0x40..+0x45.
-**Tests:** [click-move.test.ts](../test/click-move.test.ts).
+`EngineHost.takePointerClicks` as screen pixels during gameplay and routes clicks
+during modal/window states through `Engine.pointerKeyAt(x, y)`; Amiga right-button
+double-clicks route through `Engine.pointerRightDoubleClick()`. The parameter bank
+holds the target words and saved step, which Amiga and IIgs save images carry
+whole at +0x40..+0x45.
+**Tests:** [click-move.test.ts](../test/click-move.test.ts), [input-fidelity.test.ts](../test/input-fidelity.test.ts).
 
 ### Original motion counter width
 
@@ -6272,7 +6559,7 @@ Values that change behavior, confirmed at the addresses given (**fact**):
 | `patternProfile`              | `center-row-320`        | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                          |
 | `windowFrameGeometry`         | `iigs`                  | `OpenWndw` (`seg2+0x4a62..0x4b84`): `_PaintRect` white fill (`8·cols+20` × `8·rows+10`) plus 1-px red `_FrameRect` inset 2   |
 | `inputLineEditCap`            | `iigs-39`               | `EditLine` (`seg2+0x16f8..0x1726`): `min(var[24], 39 - strlen(s0) - (cursor != 0))`                                          |
-| `keypadWordsNormalized`       | false                   | `GetLine` (`seg2+0x1333`): line editor reads character bytes without PC scan-code word substitution                          |
+| `keypadWordsNormalized`       | false                   | `ButtonToChar` (`eventseg+0x351..0x39d`) maps `0x0101..0x0401 -> 0x0d` without PC keypad scan words                          |
 | `playerControlMotionClear`    | `on-control-transition` | `player.control` (`motionseg+0x02b2`): `lda $011d; bne ret` skips clearing ego motion `+0x38` when `$011d` is already 1      |
 | `restoreRewritesMachineState` | false                   | `RestoreGame` (`savegameseg+0x036e..0x04a2`) writes `f12 = 1` without touching `v20`, `v22`, `v26`, or `f11`                 |
 

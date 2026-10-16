@@ -21,6 +21,8 @@ export function newRunSession(now: number): RunSession {
       deferredMovement: [],
       inputBuffer: [],
       clickQueue: [],
+      joystick: null,
+      joystickObserved: false,
       keyWaiting: false,
     },
     hostRequests: {

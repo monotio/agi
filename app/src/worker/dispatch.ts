@@ -91,6 +91,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       (epoch === ctx.run.owner.epoch && msg.generation < ctx.run.owner.generation)
     )
       return;
+    if (!msg.active) ctx.fns.onJoystick({ type: "joystick", sample: null });
     ctx.run.owner.active = msg.active;
     ctx.run.owner.generation = msg.generation;
     ctx.run.owner.epoch = epoch;
@@ -517,6 +518,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       // restored: the boot record carries the image the session resumed
       // from.
       ctx.fns.historyBoot(boot);
+      if (boot.joystick !== undefined && boot.joystick !== null)
+        ctx.fns.onJoystick({ type: "joystick", sample: boot.joystick });
       if (!ctx.replay.replay) ctx.fns.startTimers();
       control({
         type: "booted",
@@ -712,6 +715,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     }
     if (msg.type === "key") {
       ctx.fns.onKey(msg);
+      return;
+    }
+    if (msg.type === "joystick") {
+      ctx.fns.onJoystick(msg);
       return;
     }
     if (msg.type === "click") {
