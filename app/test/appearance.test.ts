@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { appearanceForProfile } from "../src/render/appearance.ts";
+import { appearanceForProfile, loadAppearance } from "../src/render/appearance.ts";
 import { isPlayableFileName } from "../../src/container/playableFiles.ts";
+
+await loadAppearance("iigs-1.014");
 
 test("IIgs colours use the binary's sixteen RGB words in AGI index order", () => {
   const appearance = appearanceForProfile("iigs-1.014")!;
@@ -24,7 +26,7 @@ test("IIgs colours use the binary's sixteen RGB words in AGI index order", () =>
     [255, 255, 255],
   ]);
   assert.equal(appearanceForProfile("2.936").layout, "pc");
-  assert.equal(appearanceForProfile("amiga-2.202").layout, "pc");
+  assert.equal(appearanceForProfile("amiga-2.202").layout, "pc", "an Amiga look is PC until loaded");
 });
 
 test("system fonts never enter the canonical playable file set", () => {

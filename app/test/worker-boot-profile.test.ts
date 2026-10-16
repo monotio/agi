@@ -14,6 +14,9 @@ import type {
   WorkerInbound,
   WorkerPresentation,
 } from "../src/worker/workerProtocol.ts";
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await loadAppearance("iigs-1.014");
 
 test("worker boot with a profile override reports the chosen profile and detection kind", () => {
   const container = gameContainer(["assignn(v0, 1); accept.input(); return;"]);

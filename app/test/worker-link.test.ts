@@ -13,6 +13,9 @@ import type { ReplayObservation } from "../src/walkthrough/replay.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
 import { installedProgressLocator } from "../src/project/progressTarget.ts";
 import { testRevision } from "./identity.ts";
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await loadAppearance("iigs-1.014");
 
 /**
  * The outbound dispatch table is a required mapped type — a WorkerOutbound

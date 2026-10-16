@@ -7,7 +7,7 @@
  *
  * The PC look is built in; a platform look loads on demand
  * (`loadAppearance`) and stays cached, so the Play boot path carries no
- * Amiga font. `appearanceForProfile` answers synchronously with whatever is
+ * Amiga or IIgs font. `appearanceForProfile` answers synchronously with whatever is
  * loaded and the PC look until then.
  */
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
@@ -24,56 +24,16 @@ export {
   AMIGA_TITLE_TEXT_Y,
 } from "./look.ts";
 
-import { IIGS_FONT } from "./fontIigs.ts";
-import { readIigsFont } from "./readIigsFont.ts";
-
-/** SQ2 1.014 SetColorTable, docs/fidelity.md "Apple IIgs presentation". */
-const IIGS_PALETTE: Appearance["palette"] = [
-  [0x00, 0x00, 0x00],
-  [0x00, 0x00, 0xff],
-  [0x00, 0x88, 0x00],
-  [0x00, 0xdd, 0xbb],
-  [0xcc, 0x00, 0x00],
-  [0xbb, 0x77, 0xdd],
-  [0x88, 0x55, 0x00],
-  [0xbb, 0xbb, 0xbb],
-  [0x77, 0x77, 0x77],
-  [0x00, 0xbb, 0xff],
-  [0x00, 0xee, 0x00],
-  [0x00, 0xff, 0xdd],
-  [0xff, 0x99, 0x88],
-  [0xdd, 0x99, 0xff],
-  [0xee, 0xee, 0x00],
-  [0xff, 0xff, 0xff],
-];
-
 export const PC_APPEARANCE: Appearance = {
   palette: EGA_PALETTE,
   font: FONT,
   hasGlyph: HAS_GLYPH,
   layout: "pc",
 };
-const IIGS_APPEARANCE: Appearance = {
-  palette: IIGS_PALETTE,
-  font: IIGS_FONT,
-  hasGlyph: new Uint8Array(256).fill(1),
-  layout: "iigs",
-};
-const fontAppearances = new WeakMap<Uint8Array, Appearance>();
-
-function iigsAppearanceForFiles(files?: ReadonlyMap<string, Uint8Array> | null): Appearance {
-  const bytes = files?.get("AGIFONT");
-  if (!bytes) return IIGS_APPEARANCE;
-  let appearance = fontAppearances.get(bytes);
-  if (!appearance) {
-    const font = readIigsFont(bytes);
-    appearance = font ? { ...IIGS_APPEARANCE, font } : IIGS_APPEARANCE;
-    fontAppearances.set(bytes, appearance);
-  }
-  return appearance;
-}
-
 const loaded = new Map<string, Appearance>();
+/** The IIgs look, once its chunk has loaded; it depends on the game's AGIFONT. */
+let iigsLook: ((files?: ReadonlyMap<string, Uint8Array> | null) => Appearance) | undefined;
+let iigsLoading: Promise<Appearance> | undefined;
 const loading = new Map<string, Promise<Appearance>>();
 
 function lookKey(id: string | null | undefined): string {
@@ -87,7 +47,7 @@ export function appearanceForProfile(
   id?: string | null,
   files?: ReadonlyMap<string, Uint8Array> | null,
 ): Appearance {
-  if (id === "iigs-1.014") return iigsAppearanceForFiles(files);
+  if (id === "iigs-1.014") return iigsLook?.(files) ?? PC_APPEARANCE;
   return loaded.get(lookKey(id)) ?? PC_APPEARANCE;
 }
 
@@ -96,7 +56,14 @@ export function loadAppearance(
   id?: string | null,
   files?: ReadonlyMap<string, Uint8Array> | null,
 ): Promise<Appearance> {
-  if (id === "iigs-1.014") return Promise.resolve(iigsAppearanceForFiles(files));
+  if (id === "iigs-1.014") {
+    if (iigsLook) return Promise.resolve(iigsLook(files));
+    iigsLoading ??= import("./iigsAppearance.ts").then(({ iigsAppearanceForFiles }) => {
+      iigsLook = iigsAppearanceForFiles;
+      return iigsAppearanceForFiles(files);
+    });
+    return iigsLoading.then(() => iigsLook!(files));
+  }
   const key = lookKey(id);
   const ready = loaded.get(key);
   if (ready) return Promise.resolve(ready);

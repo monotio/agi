@@ -230,6 +230,7 @@ import { AMIGA_FONT } from "../src/render/fontAmiga.ts";
 import { AMIGA_PALETTE, AMIGA_PALETTE_2_082, AMIGA_PALETTE_2_31X } from "../src/render/palette.ts";
 
 const amiga = await loadAppearance("amiga-2.202");
+await loadAppearance("iigs-1.014");
 
 test("the Amiga profiles draw the picture through their own colour tables", async () => {
   const input = fixture();
