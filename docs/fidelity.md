@@ -322,9 +322,11 @@ v21 when it closes. `obj.status.v` is a real modal window, not a log line.
 
 ### Text beyond ASCII
 
-The originals drew text with each machine's own font. This project uses its own
-MIT 8×8 drawings in the same 40 × 25 character grid. `app/src/render/font8x8.ts`
-serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
+The originals drew text with each machine's own font. The PC's project table
+recreates the BIOS graphics bitmap typeface pixel for pixel, credited as a
+recreation, in the same 40 × 25 character grid (see
+[PC fonts and display adapters](#pc-fonts-and-display-adapters)).
+`app/src/render/font8x8.ts` serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
 (see [Apple IIgs presentation](#apple-iigs-presentation)). A player's IIgs `AGIFONT`, when included with their game, overrides the project
 font at runtime. No original glyphs ship with the project; a missing or invalid
 font uses the project drawings.
@@ -6614,12 +6616,13 @@ PQ1 2.903 `CGA_GRAF.OVL` SHA-256
 returns a two-row picture pattern from `AGIDATA.OVL + 0x1d0a`, while
 `0x0037..0x00da` maps cel colours through the separate table at `0x1d4a`.
 Thus a post-process with one four-colour palette cannot reproduce it.
-The compositor accepts sprite ownership to select the cel mapping, uses
+The compositor accepts sprite ownership and an explicit cel-pixel mask
+for previews and persistent stamps to select the cel mapping, uses
 alternating picture rows and retains both horizontal hardware pixels.
 
 The following DOS inputs have identical sixteen three-byte picture entries
 and sixteen cel entries. Their executable/data identities are listed under
-[PC sound](#pc-sound); the table addresses below are in `AGIDATA.OVL`.
+[PC and IIgs sound streams](#pc-and-iigs-sound-streams); the table addresses below are in `AGIDATA.OVL`.
 The driver modes are confirmed by the shipped overlays' initialization paths.
 
 | Build     | Picture patterns | Cel patterns | Graphics paths                               |
@@ -6657,12 +6660,17 @@ alone does not close this behavior or install a player setting.
 PQ1's driver programs a 720×348 display, places the 640×336 picture at
 horizontal pixel 40, and uses four pairs of dither rows per colour
 (`HGC_GRAF.OVL` `0x0099..0x0125`, data table `0x1d7c`). The game's
-`HGC_FONT` is a 3,072-byte 8×12 strike and must come from the player's files
-when this path is implemented. Composite programs CGA control `0x1a` and
+`HGC_FONT` contains 128 glyphs of 16×12 pixels. The driver's custom
+INT 10h AH=9 path (`0x027b..0x02f4`) indexes `character × 24`, reads
+six pairs of words, and writes each first word to the later scanline and
+each second word to the earlier one. The status row occupies 12 scanlines;
+later text rows have two blank scanlines followed by the glyph (14 in all).
+The file must come from the player's copy when this path is implemented. Composite programs CGA control `0x1a` and
 colour `0x27` (`CGA_GRAF.OVL` `0x00f8..0x0113`); its 640-pixel signal and
 colour decoding are distinct from RGB mode. Neither path is approximated
 by a palette here. CGA RGB also needs the original drawing provenance for
-cels baked by `add.to.pic`, beyond the animated-sprite ownership input.
+cels baked by `add.to.pic` and the scratch `show.obj` preview, beyond the
+animated-sprite ownership input.
 
 ### Display geometry
 

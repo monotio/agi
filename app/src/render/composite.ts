@@ -78,6 +78,8 @@ export interface CompositeInput {
   priority?: Uint8Array | undefined;
   /** Visible sprite ownership, needed by CGA's distinct picture and cel mappings. */
   ownership?: Uint16Array | undefined;
+  /** Visible cel pixels without a live owner: add.to.pic stamps and show.obj previews. */
+  celPixels?: Uint8Array | undefined;
   /** 40x25 [char, attr] cells; char 0 is transparent. */
   text: Uint8Array;
   /**
@@ -213,15 +215,20 @@ export function compositeFrame(
           ? (priority?.[i] ?? 15) & 0x0f
           : input.visual[i]! & 0x0f;
       const pair = (
-        input.ownership?.[i] && mode !== "priority" && !(mode === "split" && px > splitX)
+        (input.celPixels?.[i] || input.ownership?.[i]) &&
+        mode !== "priority" &&
+        !(mode === "split" && px > splitX)
           ? look.spritePairs
           : y & 1
             ? (look.alternatePicturePairs ?? look.picturePairs)
             : look.picturePairs
       )?.[colour];
       let [r, g, b] = pair?.[0] ?? palette[colour]!;
+      let rr = pair?.[1][0] ?? r;
+      let rg = pair?.[1][1] ?? g;
+      let rb = pair?.[1][2] ?? b;
       if (mode === "split" && (px === splitX || px === splitX + 1)) {
-        r = g = b = 0xff;
+        r = g = b = rr = rg = rb = 0xff;
       } else if (mode === "blend") {
         const pri = (priority?.[i] ?? 15) & 0x0f;
         const [tr, tg, tb] = PRIORITY_TINTS[pri]!;
@@ -230,18 +237,17 @@ export function compositeFrame(
         r = Math.round(r * (1 - a) + tr * a);
         g = Math.round(g * (1 - a) + tg * a);
         b = Math.round(b * (1 - a) + tb * a);
+        rr = Math.round(rr * (1 - a) + tr * a);
+        rg = Math.round(rg * (1 - a) + tg * a);
+        rb = Math.round(rb * (1 - a) + tb * a);
       }
       out[o] = r;
       out[o + 1] = g;
       out[o + 2] = b;
       out[o + 3] = 255;
-      const right =
-        pair && mode !== "blend" && !(mode === "split" && (px === splitX || px === splitX + 1))
-          ? pair[1]
-          : null;
-      out[o + 4] = right?.[0] ?? r;
-      out[o + 5] = right?.[1] ?? g;
-      out[o + 6] = right?.[2] ?? b;
+      out[o + 4] = rr;
+      out[o + 5] = rg;
+      out[o + 6] = rb;
       out[o + 7] = 255;
       o += 8;
     }

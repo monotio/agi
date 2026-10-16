@@ -45,34 +45,28 @@ const ASCII = `
 000063361c366300 00006666663e067c 00007e4c18327e00 0e18187018180e00
 1818180018181800 7018180e18187000 3b6e000000000000 00081c3663637f00`;
 
-const GLYPHS: [number | string, string][] = [
-  // Engine box-drawing and cursor glyphs at the 1.x checkpoint codes
-  // 0x01..0x07: host-image checkpoints (format version 1) store these bytes
-  // verbatim, so the masks stay the pre-9f506052 thin single lines through
-  // cell row 3 / column 3 and the solid two-row cursor forever.
-  [GLYPH_H, "........ ........ ........ ######## ........ ........ ........ ........"],
-  [GLYPH_V, "...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#...."],
-  [GLYPH_TL, "........ ........ ........ ...##### ...#.... ...#.... ...#.... ...#...."],
-  [GLYPH_TR, "........ ........ ........ ####.... ...#.... ...#.... ...#.... ...#...."],
-  [GLYPH_BL, "...#.... ...#.... ...#.... ...##### ........ ........ ........ ........"],
-  [GLYPH_BR, "...#.... ...#.... ...#.... ####.... ........ ........ ........ ........"],
-  [GLYPH_CURSOR, "........ ........ ........ ........ ........ ........ ######## ########"],
-  // The PC code page's box drawing that Gold Rush! prints in its messages
-  // (docs/fidelity.md "Text beyond ASCII"), in the same line style: single
-  // lines through row 3 / column 3, double verticals in columns 2 and 4.
-  [0xb3, "...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#...."],
-  [0xb7, "........ ........ ........ #####... ..#.#... ..#.#... ..#.#... ..#.#..."],
-  [0xba, "..#.#... ..#.#... ..#.#... ..#.#... ..#.#... ..#.#... ..#.#... ..#.#..."],
-  [0xbd, "..#.#... ..#.#... ..#.#... #####... ........ ........ ........ ........"],
-  [0xc1, "...#.... ...#.... ...#.... ######## ........ ........ ........ ........"],
-  [0xc2, "........ ........ ........ ######## ...#.... ...#.... ...#.... ...#...."],
-  [0xc4, "........ ........ ........ ######## ........ ........ ........ ........"],
-  [0xd0, "..#.#... ..#.#... ..#.#... ######## ........ ........ ........ ........"],
-  [0xd2, "........ ........ ........ ######## ..#.#... ..#.#... ..#.#... ..#.#..."],
-  [0xd3, "..#.#... ..#.#... ..#.#... ..###### ........ ........ ........ ........"],
-  [0xd6, "........ ........ ........ ..###### ..#.#... ..#.#... ..#.#... ..#.#..."],
-  // The code page's non-breaking space, which King's Quest II prints.
-  [0xff, "........ ........ ........ ........ ........ ........ ........ ........"],
+const GLYPHS: readonly (readonly [number, string])[] = [
+  // Released checkpoint masks: single lines at row/column 3, two-row cursor.
+  [GLYPH_H, "000000ff00000000"],
+  [GLYPH_V, "1010101010101010"],
+  [GLYPH_TL, "0000001f10101010"],
+  [GLYPH_TR, "000000f010101010"],
+  [GLYPH_BL, "1010101f00000000"],
+  [GLYPH_BR, "101010f000000000"],
+  [GLYPH_CURSOR, "000000000000ffff"],
+  // Existing extended box masks (docs/fidelity.md "Text beyond ASCII").
+  [0xb3, "1010101010101010"],
+  [0xb7, "000000f828282828"],
+  [0xba, "2828282828282828"],
+  [0xbd, "282828f800000000"],
+  [0xc1, "101010ff00000000"],
+  [0xc2, "000000ff10101010"],
+  [0xc4, "000000ff00000000"],
+  [0xd0, "282828ff00000000"],
+  [0xd2, "000000ff28282828"],
+  [0xd3, "2828283f00000000"],
+  [0xd6, "0000003f28282828"],
+  [0xff, "0000000000000000"],
 ];
 
 /** Packed glyph rows: FONT[code * 8 + row], bit 7 = leftmost pixel. */
@@ -80,22 +74,11 @@ export const FONT = new Uint8Array(256 * 8);
 /** 1 for each code this font draws. */
 export const HAS_GLYPH = new Uint8Array(256);
 
-for (const [key, art] of GLYPHS) {
-  const code = typeof key === "number" ? key : key.charCodeAt(0);
-  HAS_GLYPH[code] = 1;
-  const rows = art.split(" ");
-  if (rows.length !== 8) throw new Error(`glyph ${key}: expected 8 rows`);
-  rows.forEach((r, y) => {
-    if (r.length !== 8) throw new Error(`glyph ${key} row ${y}: expected 8 columns`);
-    let bits = 0;
-    for (let x = 0; x < 8; x++) if (r[x] === "#") bits |= 0x80 >> x;
-    FONT[code * 8 + y] = bits;
-  });
-}
-
-for (const [index, glyph] of ASCII.trim().split(/\s+/).entries()) {
-  const code = index + 0x20;
+function defineGlyph(code: number, glyph: string): void {
   HAS_GLYPH[code] = 1;
   for (let row = 0; row < 8; row++)
     FONT[code * 8 + row] = parseInt(glyph.slice(row * 2, row * 2 + 2), 16);
 }
+
+for (const [code, glyph] of GLYPHS) defineGlyph(code, glyph);
+for (const [index, glyph] of ASCII.trim().split(/\s+/).entries()) defineGlyph(index + 0x20, glyph);

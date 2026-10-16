@@ -33,13 +33,8 @@ const PC_MCGA_DISPLAYS: readonly PcDisplay[] = [...PC_EARLY_DISPLAYS, "mcga"];
 
 /** Available renderer choices, constrained to the selected build's drivers. */
 export function pcDisplayChoices(id?: string | null): readonly PcDisplay[] {
-  if (id?.startsWith("amiga-") || id === "iigs-1.014") return [];
-  return id === "2.001" ||
-    id === "2.089" ||
-    id === "2.230" ||
-    id === "2.272" ||
-    id === "2.411" ||
-    id === "2.440"
+  if (id?.startsWith("amiga-") || id === "iigs-1.014" || id === "2.001") return [];
+  return id === "2.089" || id === "2.230" || id === "2.272" || id === "2.411" || id === "2.440"
     ? PC_EARLY_DISPLAYS
     : PC_MCGA_DISPLAYS;
 }
@@ -80,29 +75,6 @@ export const PC_APPEARANCE: Appearance = {
   hasGlyph: HAS_GLYPH,
   layout: "pc",
 };
-// CGA_GRAF initialization selects background blue and palette 0: green,
-// red, brown. AGIDATA's RGB picture permutation packs two hardware pixels
-// per AGI pixel. Text attributes use their own four-colour grouping.
-// docs/fidelity.md "PC fonts and display adapters".
-const CGA_RGB = [EGA_PALETTE[1]!, EGA_PALETTE[2]!, EGA_PALETTE[4]!, EGA_PALETTE[6]!] as const;
-const CGA_TEXT = [0, 1, 1, 1, 2, 2, 2, 3, 3, 1, 1, 1, 2, 2, 2, 3];
-const CGA_PICTURE_EVEN = [0, 0, 5, 0, 10, 12, 14, 4, 3, 0, 4, 5, 14, 8, 7, 15];
-const CGA_PICTURE_ODD = [0, 0, 4, 1, 10, 3, 11, 3, 4, 13, 1, 5, 14, 2, 13, 15];
-function cgaPairs(patterns: readonly number[]): NonNullable<Appearance["picturePairs"]> {
-  return patterns.map(
-    (pair) =>
-      [CGA_RGB[(pair >> 2) as 0 | 1 | 2 | 3], CGA_RGB[(pair & 3) as 0 | 1 | 2 | 3]] as const,
-  );
-}
-const CGA_RGB_APPEARANCE: Appearance = {
-  ...PC_APPEARANCE,
-  cgaRgb: true,
-  palette: CGA_TEXT.map((index) => CGA_RGB[index as 0 | 1 | 2 | 3]),
-  picturePairs: cgaPairs(CGA_PICTURE_EVEN),
-  alternatePicturePairs: cgaPairs(CGA_PICTURE_ODD),
-  spritePairs: cgaPairs([0, 0, 12, 1, 10, 2, 9, 13, 0, 3, 5, 7, 14, 14, 15, 15]),
-};
-
 const IIGS_APPEARANCE: Appearance = {
   palette: IIGS_PALETTE,
   font: IIGS_FONT,
@@ -139,7 +111,8 @@ export function appearanceForProfile(
   display: PcDisplay = "ega",
 ): Appearance {
   if (id === "iigs-1.014") return iigsAppearanceForFiles(files);
-  if (display === "cga-rgb" && pcDisplayChoices(id).includes(display)) return CGA_RGB_APPEARANCE;
+  if (display === "cga-rgb" && pcDisplayChoices(id).includes(display))
+    return loaded.get("pc:cga-rgb") ?? PC_APPEARANCE;
   return loaded.get(lookKey(id)) ?? PC_APPEARANCE;
 }
 
@@ -150,14 +123,20 @@ export function loadAppearance(
   display: PcDisplay = "ega",
 ): Promise<Appearance> {
   if (id === "iigs-1.014") return Promise.resolve(iigsAppearanceForFiles(files));
-  const key = lookKey(id);
+  const key =
+    display === "cga-rgb" && pcDisplayChoices(id).includes(display) ? "pc:cga-rgb" : lookKey(id);
   const ready = loaded.get(key);
   if (ready) return Promise.resolve(ready);
   if (key === "pc") return Promise.resolve(appearanceForProfile(id, files, display));
   let pending = loading.get(key);
   if (!pending) {
-    pending = import("./amigaAppearance.ts").then(({ amigaAppearance }) => {
-      const look = amigaAppearance(PROFILES[id as ProfileId].palette);
+    pending =
+      key === "pc:cga-rgb"
+        ? import("./cgaAppearance.ts").then(({ CGA_RGB_APPEARANCE }) => CGA_RGB_APPEARANCE)
+        : import("./amigaAppearance.ts").then(({ amigaAppearance }) =>
+            amigaAppearance(PROFILES[id as ProfileId].palette),
+          );
+    pending = pending.then((look) => {
       loaded.set(key, look);
       loading.delete(key);
       return look;
