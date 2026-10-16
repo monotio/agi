@@ -3418,8 +3418,8 @@ terminators) writes nothing in its slot. Playback completes on the tick after th
 The start routine at `0x7408..0x746a` stores the payload bounds in `[0x122a]` / `[0x122c]`, reads the
 first byte (`mov al,[di]` at `0x7422`, after `inc [0x122a]` at `0x741e`) into `[0x122e]` and zeroes the
 countdown `[0x1230]`. The cursor therefore starts one byte in: the period byte is never written to the
-chip or the speaker. On device 0 (speaker) a zero period branches to cleanup `0x4b96` at `0x743d` and the
-sound never activates; with a nonzero device (chip) it activates normally. Each tick the reader
+chip or the speaker. On device 0 (speaker) a zero period branches to cleanup `0x4b96` at `0x743d`, which returns
+early because the sound is inactive (see the speaker entry's recovery note); with a nonzero device (chip) it activates normally. Each tick the reader
 (`0x746b`) first compares the cursor with the end (`0x7473..0x747c`, cleanup on exhaustion), then
 `dec [0x1230]` and returns while the result is positive (`jng` at `0x7486`); otherwise it reloads
 `[0x1230]` from `[0x122e]` (`0x748b`) and consumes one row. The countdown starts at zero, so row 0 plays
@@ -6378,7 +6378,10 @@ and offline preview, including snapshot continuation and speaker stop.
 Regressions in [sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts)
 failed before implementation.
 
-**Bounds and remaining scope.** On malformed truncated pairs the host uses
+**Bounds and remaining scope.** A speaker sound with period 0 branches to cleanup `0x4b96`
+at `0x743d` while inactive: `cmp word [0xe74],0` / `jz 0x4bb5` (`0x4b9b..0x4ba0`) returns
+early, so the original never sets the completion flag and never completes. The host
+completes it on tick 1 as a deliberate bounded recovery. On malformed truncated pairs the host uses
 zero for a missing continuation; original code reads past the payload. Unknown
 selectors are ignored by the host; the original can loop without advancing.
 Those are bounded recovery policies, not original valid-resource behavior.

@@ -633,7 +633,7 @@ describe("pc booter 2.001 row streams", () => {
     assert.deepEqual(booterSoundRows(new Uint8Array(0)), []);
   });
 
-  it("emits one row per tick and completes at payload exhaustion", () => {
+  it("emits one row per period (1 here) and completes on the tick after the last row", () => {
     const profile = detectProfile(new Map(), "2.001");
     const payload = Uint8Array.of(1, 0x80, 0x02, 0, 0, 0x9f, 0);
     const sound = new SoundPlayback(profile, payload, 1);

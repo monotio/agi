@@ -116,7 +116,10 @@ function laneControlOf(family: RenderFamily): AuditionLaneControls {
   return "unsupported";
 }
 
-/** The header-declared extent: summed lane durations, word 0 as 65,536. */
+/**
+ * The header-declared span: summed lane durations, word 0 as 65,536. For booter
+ * rows it is rows x max(period, 1), not the playback extent (no cleanup tick).
+ */
 function authoredExtent(payload: Uint8Array, family: RenderFamily): number | null {
   if (family === "iigs") return null;
   if (family === "booter")

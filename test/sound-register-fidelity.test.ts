@@ -291,7 +291,9 @@ it("2.001 uses the first payload byte as the row period and never writes it to t
     outputs: [{ kind: "speaker", divisor: null }],
     complete: true,
   });
-  // Speaker period zero cleans up at start (0x743d -> 0x4b96) and plays no row.
+  // Deliberate bounded recovery, not original behavior (docs/fidelity.md
+  // "Bounds and remaining scope"): the original never completes a speaker
+  // period-0 sound, so the host completes it on tick 1 and plays no row.
   const stopped = new SoundPlayback(
     detectProfile(new Map(), "2.001"),
     Uint8Array.of(0, 0x81, 0x23, 0),
