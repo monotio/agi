@@ -33,7 +33,15 @@ type SerializedModal =
   | { kind: "menu"; saved: SerializedSavedRect }
   | { kind: "showObj"; saved: SerializedSavedRect; view: number }
   | { kind: "showPri" }
-  | { kind: "shake"; steps: number; step: number; elapsedMs: number; palette: number[] | null };
+  | { kind: "shake"; steps: number; step: number; elapsedMs: number; palette: number[] | null }
+  | {
+      kind: "dissolve";
+      elapsedMs: number;
+      durationMs: number;
+      skipRows: boolean;
+      /** The screen it started from: 26,880 hex digits, one colour a pixel. */
+      from: string;
+    };
 
 /**
  * A logic pass parked at a resumable boundary — an open window or a have.key
@@ -127,6 +135,12 @@ export interface EngineReplayState {
   priorityTableRebuilt?: true;
   /** 2.001 ticks since the last clock refresh, when nonzero. */
   booterClockPhase?: number;
+  /**
+   * Amiga/IIgs: overlay.pic set the show.pic mode flag, so the next show.pic
+   * copies at once (docs/fidelity.md "Original picture dissolve"). Older
+   * states omit it and keep what the image's picture replay left.
+   */
+  pictureRevealInstant?: boolean;
   clockRemainderMs: number;
   pictureShown: boolean;
   terminated: boolean;
@@ -356,6 +370,19 @@ function serializedModal(value: unknown, options?: { allowWindow?: boolean }): S
         palette,
       };
     }
+    case "dissolve": {
+      const m = record(value, ["kind", "elapsedMs", "durationMs", "skipRows", "from"]);
+      const durationMs = number(m["durationMs"], 1, 2000, false);
+      if (typeof m["from"] !== "string" || !/^[0-9a-f]{26880}$/.test(m["from"]))
+        throw new Error("Replay dissolve frame is invalid.");
+      return {
+        kind,
+        elapsedMs: number(m["elapsedMs"], 0, durationMs, false),
+        durationMs,
+        skipRows: bool(m["skipRows"]),
+        from: m["from"],
+      };
+    }
     default:
       throw new Error("Replay state has an unknown modal kind.");
   }
@@ -469,9 +496,13 @@ export function validateEngineReplayState(
     "patchGeneration",
     "continuation",
   ];
-  const optional = ["amigaRegion", "priorityTableRebuilt", "booterClockPhase", "joystick"].filter(
-    (key) => value !== null && typeof value === "object" && Object.hasOwn(value, key),
-  );
+  const optional = [
+    "amigaRegion",
+    "priorityTableRebuilt",
+    "booterClockPhase",
+    "pictureRevealInstant",
+    "joystick",
+  ].filter((key) => value !== null && typeof value === "object" && Object.hasOwn(value, key));
   const s = record(value, [...fields, ...optional]);
   const hasJoystick = optional.includes("joystick");
   if (s["priorityTableRebuilt"] !== undefined && s["priorityTableRebuilt"] !== true)
@@ -515,6 +546,9 @@ export function validateEngineReplayState(
     ...(s["priorityTableRebuilt"] === true ? { priorityTableRebuilt: true as const } : {}),
     ...(s["booterClockPhase"] !== undefined
       ? { booterClockPhase: number(s["booterClockPhase"], 1, 17) }
+      : {}),
+    ...(s["pictureRevealInstant"] !== undefined
+      ? { pictureRevealInstant: bool(s["pictureRevealInstant"]) }
       : {}),
     ...(joystick ? { joystick } : {}),
     clockRemainderMs: number(

@@ -575,6 +575,19 @@ export interface AgiProfile {
    */
   readonly statusLineGate: "unconditional" | "pic-top" | "pic-top-and-enabled";
   /**
+   * How `show.pic` presents a picture after `draw.pic` (docs/fidelity.md
+   * "Original picture dissolve"); after `overlay.pic` every build copies it
+   * at once. `"instant"`: PC, and Amiga 2.333, whose mode string is patched
+   * to "blit" (`h116+0x0`). The others block the pass for a dissolve that
+   * also ends restore.game: `"amiga-2.082"` always skips picture rows 0..1
+   * (`h154+0x2c0`); `"amiga-pic-top"` (2.176, 2.202, `h215+0x2e0`) skips them
+   * while the picture starts below row 0; `"amiga-pic-top-and-status"` (2.310,
+   * 2.316, `h215+0x300`) only while the status line is on as well; `"iigs"`
+   * (`main+0x0f53`) copies all 168 rows.
+   */
+  readonly showPictureReveal:
+    "instant" | "amiga-2.082" | "amiga-pic-top" | "amiga-pic-top-and-status" | "iigs";
+  /**
    * A due movement proposal whose left X is exactly zero reports left-boundary
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
@@ -761,6 +774,7 @@ const BASE_2936: AgiProfile = {
   inputLineOrder: "cursor-first",
   confirmCursor: "kept",
   statusLineGate: "unconditional",
+  showPictureReveal: "instant",
   clampExactZeroLeftBoundary: false,
   addToPicPacking: true,
   addToPicBandForZeroPriority: true,
@@ -890,6 +904,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   inputLineOrder: "prompt-edit-cursor",
   confirmCursor: "erased",
   statusLineGate: "pic-top-and-enabled",
+  showPictureReveal: "amiga-pic-top-and-status",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
   // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
   // Fields not listed here were checked against the handlers and match the
@@ -1077,6 +1092,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     movementClear: "later",
     windowFrameGeometry: "amiga",
     presentation: "amiga",
+    showPictureReveal: "amiga-2.082",
     palette: "amiga-2.082",
     inputLineOrder: "prompt-edit-cursor",
     confirmCursor: "erased",
@@ -1126,6 +1142,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     inputLineOrder: "prompt-edit-cursor",
     confirmCursor: "erased",
     statusLineGate: "pic-top",
+    showPictureReveal: "amiga-pic-top",
     pictureMaxCommand: 0xfa,
     patternProfile: "short-r1",
     restartPromptBypassedByF16: true,
@@ -1160,6 +1177,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     inputLineOrder: "prompt-edit-cursor",
     confirmCursor: "erased",
     statusLineGate: "pic-top",
+    showPictureReveal: "amiga-pic-top",
     patternProfile: "short-r1",
     restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
@@ -1171,7 +1189,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // (BASE_AMIGA_31X above; docs/fidelity.md "Amiga interpreter profiles").
   "amiga-2.310": { ...BASE_AMIGA_31X, id: "amiga-2.310", celMirrorLoopMask: 3 },
   "amiga-2.316": { ...BASE_AMIGA_31X, id: "amiga-2.316" },
-  "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333" },
+  // 2.333 keeps the 2.31x dissolve code, but its mode string reads "blit".
+  "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333", showPictureReveal: "instant" },
   // Apple IIgs "SQ2.SYS16" 1.014 (SQ2 IIgs; docs/fidelity.md "Apple IIgs
   // interpreter"). The executable's action and condition dispatchers bound at
   // 0xb1 and 0x13. The relocated action table ends at 0xb0: its 0xaf/0xb0
@@ -1194,6 +1213,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // from the handlers".
     id: "iigs-1.014",
     presentation: "iigs",
+    showPictureReveal: "iigs",
     maxAction: 0xb1,
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",
