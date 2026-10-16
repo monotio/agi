@@ -4061,8 +4061,10 @@ leaves the cell grid alone and reports the 39-byte title through
 `getPresentation().statusBar` (null while hidden, or while the picture top
 is row 0), and the host draws the bar from it
 (`app/src/render/composite.ts`, `drawAmigaTitleBar`) with its own drawing
-of the depth gadgets. The pen-0 fill that status.line.off leaves over the
-picture's first rows is not modelled. The same routine and strings sit at `h82+0x42c` in KQ2
+of the depth gadgets. `status.line.on` and `.off` return at once while the
+`configure.screen` gate is clear (`amigaStatusAllowed`), `.off` leaves the
+configured status row alone and blacks window rows 0..10 (text row 0 and
+the picture rows under the bar) as the RectFill does. The same routine and strings sit at `h82+0x42c` in KQ2
 and the 2.31x builds and at `h60+0x28e` (SetWindowTitles) in SQ1.
 
 **Input row (fact, all six builds).** `ShowInput` prints, in order, string
@@ -4104,8 +4106,9 @@ x, y) (`h130+0x594`, wrapper `h245+0x152`, `-$10e(a6)`) and SetRGB4 for pens
 — and colours `$d22`, `$000`, `$fca`; `Busy` ends `f9 f8` (hot spot
 `(-7, -8)`, its centre). The busy pointer shows during disk loads, which the
 engine has none of; the arrow is the player's cursor over the screen, drawn
-by the app as its own arrow in those colours and hot spot
-(`app/src/play/amigaPointer.ts`). SQ1 2.082 reads only `data/pointer`.
+by the app as its own arrow in those colours and hot spot and scaled like
+the screen's pixels in each direction (`app/src/play/amigaPointer.ts`); as
+browser chrome it is absent from composed and exported frames. SQ1 2.082 reads only `data/pointer`.
 
 **Glyph shapes (decision).** The font the player saw is the ROM's Topaz 8.
 The app's Amiga font (`app/src/render/fontAmiga.ts`) is a recreation of the

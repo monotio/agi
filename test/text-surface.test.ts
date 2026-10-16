@@ -278,16 +278,71 @@ test("Amiga input row: s0 prompt, typed text, then the cursor; erased only durin
   assert.equal(engine.modalKind, null);
   assert.equal(engine.textRow(22), ">lo_" + spaces(36), "WriteCur after the prompt");
 
+  // Abandoning the confirmation (the host dropping it) brings the cursor
+  // straight back, before anything else is typed.
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.modalKind, "print");
+  assert.equal(engine.textRow(22), ">lo" + spaces(37));
+  engine.abortInteraction();
+  assert.equal(engine.textRow(22), ">lo_" + spaces(36), "the cursor returns on abort");
+
   // Restoring a save over an open confirmation replaces the prompt; the
-  // typed line is transient as in any restore, and the cursor comes back.
+  // typed line is transient as in any restore, and the cursor is back at
+  // once.
   engine.flags[201] = 1;
   engine.tick();
   assert.equal(engine.modalKind, "print");
   engine.restoreImage(image);
   assert.equal(engine.modalKind, null);
+  assert.equal(engine.textRow(22), ">_" + spaces(38), "the cursor returns on restore");
   host.keys.push(0x6f); // o
   engine.tick();
-  assert.equal(engine.textRow(22), ">o_" + spaces(37), "the cursor returns after restore");
+  assert.equal(engine.textRow(22), ">o_" + spaces(37));
+});
+
+// Amiga status opcodes (docs/fidelity.md "Amiga screen, font and pointer"):
+// status.line.on/off return at once while the picture top is row 0;
+// status.line.off never touches the configured status row (the interpreter
+// stores it and never reads it) and instead blacks out window rows 0..10.
+test("Amiga status line: gated by the picture top, off leaves the status row alone and blacks the bar area", () => {
+  const amigaEngine = (source: string, host = new Host()) => {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES["amiga-2.202"] }).payload,
+    );
+    const engine = new Engine(container, host, DICT, { profile: PROFILES["amiga-2.202"] });
+    engine.tick();
+    return engine;
+  };
+  const off = amigaEngine(
+    'configure.screen(1, 22, 2); assignn(v3, 5); assignn(v7, 42); display(2, 0, "KEEP"); status.line.on(); status.line.off(); return;',
+  );
+  assert.equal(off.getPresentation().statusBar, null, "the title is hidden");
+  assert.equal(off.textRow(2).slice(0, 4), "KEEP", "the configured status row survives");
+  assert.ok(
+    row(off, 0).chars.every((c) => c === 0x20) && row(off, 0).attrs.every((a) => a === 0),
+    "row 0 is opaque black",
+  );
+  assert.ok(
+    off
+      .getPresentation()
+      .visual.subarray(0, 3 * 160)
+      .every((p) => p === 0),
+    "picture rows 0..2 under the bar are black",
+  );
+  const on = amigaEngine(
+    "configure.screen(1, 22, 0); assignn(v3, 5); assignn(v7, 42); status.line.on(); return;",
+  );
+  assert.equal(on.getPresentation().statusBar?.slice(0, 13), "Score:5 of 42");
+  // With the picture at row 0 the opcodes do nothing, even after the
+  // picture top changes later.
+  const gated = amigaEngine(
+    "if (!isset(f200)) { set(f200); configure.screen(0, 22, 0); status.line.on(); configure.screen(1, 22, 0); } return;",
+  );
+  assert.equal(gated.getPresentation().statusBar, null, "status.line.on was ignored");
 });
 
 test("print: solid-framed window centred in the display area, restored on acknowledgement", () => {

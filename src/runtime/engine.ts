@@ -821,6 +821,12 @@ export class Engine {
   private textFg = 15;
   private textBg = 0;
   private displayBaseRow = 1;
+  /**
+   * The Amiga status gate: configure.screen sets it to `picTop != 0`
+   * ($6a14), and status.line.on/off return before touching anything while
+   * it is clear (docs/fidelity.md "Amiga screen, font and pointer").
+   */
+  private amigaStatusAllowed = false;
   private inputRow = 22;
   private statusRow = 0;
   /** Engine-owned text surface (spec "Text geometry and surfaces"). */
@@ -2342,7 +2348,6 @@ export class Engine {
     const roomWait = this.roomReentryWaiting();
     const pending = this.pendingInteraction;
     this.pendingInteraction = null;
-    this.cursorErased = false;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     if (pending?.kind === "saveDialog") {
@@ -2358,6 +2363,11 @@ export class Engine {
       this.cycleCursor = null;
       this.parkedModalWait = false;
       this.parkedClockWait = false;
+    }
+    // An abandoned confirmation's erased cursor comes back with the row.
+    if (this.cursorErased) {
+      this.cursorErased = false;
+      this.drawInputRow();
     }
   }
 
@@ -2823,13 +2833,34 @@ export class Engine {
   /**
    * The Amiga screen title while the status line shows, or null: the status
    * routine formats "Score:%d of %d  " at column 0 and "Sound:%s" at column
-   * 26 of a 39-byte title, and status.line.on is ignored while the picture
-   * starts at row 0 (docs/fidelity.md "Amiga screen, font and pointer").
+   * 26 of a 39-byte title (docs/fidelity.md "Amiga screen, font and
+   * pointer").
    */
   statusBarText(): string | null {
     if (this.profile.presentation !== "amiga") return null;
-    if (!this.statusEnabled || this.textMode || this.displayBaseRow === 0) return null;
+    if (!this.statusEnabled || this.textMode) return null;
     return (this.statusText().padEnd(26) + this.soundText()).padEnd(39).slice(0, 39);
+  }
+
+  /** status.line.on/off do nothing on the Amiga while the picture top is row 0 ($6a14 clear). */
+  private amigaStatusGated(): boolean {
+    return this.profile.presentation === "amiga" && !this.amigaStatusAllowed;
+  }
+
+  /**
+   * The Amiga status.line.off fills window pixels rows 0..10 with pen 0
+   * after hiding the title (h82+0x590..0x5bc): text row 0 turns opaque
+   * black and the picture rows under the bar go black until the next
+   * picture draw. The configured status row is never touched.
+   */
+  private eraseAmigaTitleArea(): void {
+    this.text.fill(0, 0, 0, TEXT_COLS - 1, 0x20, attr(0, 0));
+    // Picture rows that lie within frame rows 0..10 (160 pixels per row).
+    const pictureRows = Math.max(0, Math.min(168, 11 - this.displayBaseRow * 8));
+    if (pictureRows > 0) {
+      this.surface.visual.fill(0, 0, pictureRows * 160);
+      this.presentationDirty = true;
+    }
   }
 
   private statusText(): string {
@@ -4064,8 +4095,6 @@ export class Engine {
       }
       this.host.setTextMode?.(false);
     }
-    // A confirmation the restore replaced took its erased cursor with it.
-    this.cursorErased = false;
     // The parked pass restores after presentation: a patch-mismatched
     // continuation peels its windows back onto the snapshot's surface.
     if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
@@ -4082,6 +4111,9 @@ export class Engine {
   applyRestore(image: Uint8Array, screen: readonly ReplayPair[] | null = null): never {
     const s = decodeSave(image, this.profile);
     this.saveDescription = s.description;
+    // A confirmation the restore replaces took its erased cursor with it;
+    // the input row redraws below with the cursor back.
+    this.cursorErased = false;
     this.statusRefreshRequested = false;
     this.inputQueue.clear();
     this.pendingController = null;
@@ -7493,17 +7525,21 @@ export class Engine {
         this.displayBaseRow = a(0);
         this.inputRow = a(1);
         this.statusRow = a(2);
+        this.amigaStatusAllowed = a(0) !== 0;
         return next;
       case 0x67:
         this.display(a(0), a(1), this.message(a(2)));
         return next;
       case 0x70:
+        if (this.amigaStatusGated()) return next;
         this.statusEnabled = true;
         this.drawStatus();
         return next;
       case 0x71:
+        if (this.amigaStatusGated()) return next;
         this.statusEnabled = false;
-        this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0, 0);
+        if (this.profile.presentation === "amiga") this.eraseAmigaTitleArea();
+        else this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0, 0);
         this.host.statusLine("");
         return next;
       case 0x72:

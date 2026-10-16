@@ -37,18 +37,40 @@ const COLOURS: Record<string, [number, number, number]> = {
 /** The sprite's hot spot: SetPointer offset (-1, 0) puts it one pixel into the image. */
 export const AMIGA_POINTER_HOTSPOT = { x: 1, y: 0 };
 export const AMIGA_POINTER_SIZE = 16;
+/** Browsers cap cursor images at 128 px. */
+const MAX_CURSOR_PX = 128;
+
+export interface PointerSize {
+  width: number;
+  height: number;
+  hotX: number;
+  hotY: number;
+}
 
 /**
- * RGBA pixels of the arrow scaled like the frame's pixels (nearest
- * neighbour), `16·sx` wide and `16·sy` high.
+ * The cursor image for a screen whose pixels are `sx` wide and `sy` high
+ * per frame pixel: the whole sprite scaled by each factor and rounded to
+ * whole pixels, the hot spot scaled the same way, each side capped at
+ * 128 px.
  */
-export function amigaPointerRgba(sx: number, sy: number): Uint8ClampedArray<ArrayBuffer> {
-  const width = AMIGA_POINTER_SIZE * sx;
-  const height = AMIGA_POINTER_SIZE * sy;
+export function amigaPointerSize(sx: number, sy: number): PointerSize {
+  const width = Math.max(1, Math.min(MAX_CURSOR_PX, Math.round(AMIGA_POINTER_SIZE * sx)));
+  const height = Math.max(1, Math.min(MAX_CURSOR_PX, Math.round(AMIGA_POINTER_SIZE * sy)));
+  return {
+    width,
+    height,
+    hotX: Math.min(width - 1, Math.round((AMIGA_POINTER_HOTSPOT.x * width) / AMIGA_POINTER_SIZE)),
+    hotY: Math.min(height - 1, Math.round((AMIGA_POINTER_HOTSPOT.y * height) / AMIGA_POINTER_SIZE)),
+  };
+}
+
+/** RGBA pixels of the arrow resampled (nearest neighbour) to `width` × `height`. */
+export function amigaPointerRgba(width: number, height: number): Uint8ClampedArray<ArrayBuffer> {
   const out = new Uint8ClampedArray(new ArrayBuffer(width * height * 4));
   for (let y = 0; y < height; y++) {
+    const row = ARROW[Math.floor((y * AMIGA_POINTER_SIZE) / height)]!;
     for (let x = 0; x < width; x++) {
-      const c = COLOURS[ARROW[Math.floor(y / sy)]![Math.floor(x / sx)]!];
+      const c = COLOURS[row[Math.floor((x * AMIGA_POINTER_SIZE) / width)]!];
       if (!c) continue;
       const o = (y * width + x) * 4;
       out[o] = c[0];
@@ -63,28 +85,23 @@ export function amigaPointerRgba(sx: number, sy: number): Uint8ClampedArray<Arra
 const cursors = new Map<string, string>();
 
 /**
- * A CSS `cursor` value showing the arrow scaled like the frame's pixels:
- * `sx` and `sy` are the screen's horizontal and vertical pixels per frame
- * pixel, rounded to integers and capped at 8 (browsers cap cursor images at
- * 128 px). The hot spot scales with them. Undefined where canvases are
- * unavailable. Cached per size.
+ * A CSS `cursor` value showing the arrow scaled like the frame's pixels
+ * (`amigaPointerSize`), or undefined where canvases are unavailable.
+ * Cached per image size.
  */
 export function amigaPointerCursor(sx: number, sy: number): string | undefined {
-  const cx = Math.max(1, Math.min(8, Math.round(sx)));
-  const cy = Math.max(1, Math.min(8, Math.round(sy)));
-  const key = `${cx}x${cy}`;
+  const { width, height, hotX, hotY } = amigaPointerSize(sx, sy);
+  const key = `${width}x${height}`;
   const cached = cursors.get(key);
   if (cached) return cached;
   if (typeof document === "undefined") return undefined;
-  const width = AMIGA_POINTER_SIZE * cx;
-  const height = AMIGA_POINTER_SIZE * cy;
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) return undefined;
-  ctx.putImageData(new ImageData(amigaPointerRgba(cx, cy), width, height), 0, 0);
-  const value = `url(${canvas.toDataURL("image/png")}) ${AMIGA_POINTER_HOTSPOT.x * cx} ${AMIGA_POINTER_HOTSPOT.y * cy}, auto`;
+  ctx.putImageData(new ImageData(amigaPointerRgba(width, height), width, height), 0, 0);
+  const value = `url(${canvas.toDataURL("image/png")}) ${hotX} ${hotY}, auto`;
   cursors.set(key, value);
   return value;
 }
