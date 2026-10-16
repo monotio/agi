@@ -225,8 +225,10 @@ export function createHistoryView(
         while (!preview.halted && !presented) {
           preview.step();
           const engine = preview.ctx.run.engine;
+          // A first picture that dissolves in presents once it has.
           presented =
             engine !== null &&
+            engine.modalKind !== "dissolve" &&
             (engine.readLeanState().pictureShown ||
               engine.textModeActive ||
               engine.modalKind !== null);

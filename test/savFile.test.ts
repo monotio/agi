@@ -67,7 +67,7 @@ function game(profile: AgiProfile, suffix = "", effects?: string[]): Engine {
       set.game.id("TEST");
       assignn(v50, 1);
       load.pic(v50);
-      draw.pic(v50);
+      overlay.pic(v50);
       show.pic();
       assignn(v100, 37);
       set(f100);

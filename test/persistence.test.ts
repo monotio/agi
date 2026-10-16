@@ -1955,8 +1955,10 @@ describe("native object flags and engine save round trips (fixture-gated)", () =
     const { container, dict } = openFixture(alias);
     const host = new QuietHost();
     const engine = new Engine(container, host, dict, { restarted: true, profile });
+    // One timer tick of time per pass, so the Amiga/IIgs picture dissolves end.
     for (let i = 0; i < 600 && engine.vars[0] !== room; i++) {
       if (host.keys.length === 0) host.keys.push(0x0d);
+      engine.advanceClock(50);
       engine.tick();
       if (host.prints > 0) {
         engine.ackPrint();
@@ -1967,6 +1969,7 @@ describe("native object flags and engine save round trips (fixture-gated)", () =
     // Let the room's opening passes run (SQ2 IIgs accepts input ~150 in).
     for (let i = 0; i < 200; i++) {
       if (host.keys.length === 0) host.keys.push(0x0d);
+      engine.advanceClock(50);
       engine.tick();
       if (host.prints > 0) {
         engine.ackPrint();

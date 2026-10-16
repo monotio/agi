@@ -6,13 +6,15 @@ import { CycleClock } from "../src/runtime/cycleClock.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 
+// overlay.pic shows the empty picture at once on every profile; after draw.pic
+// the Amiga and IIgs would hold each pass for their dissolve (test/dissolve.test.ts).
 function engine(source: string, profile: ProfileId): Engine {
   const container = createContainer();
   container.putResource("picture", 0, Uint8Array.of(255));
   container.putResource(
     "logic",
     0,
-    assembleLogic("load.pic(v0);draw.pic(v0);show.pic();" + source, {
+    assembleLogic("load.pic(v0);overlay.pic(v0);show.pic();" + source, {
       profile: PROFILES[profile],
       dictionary: new Map(),
     }).payload,

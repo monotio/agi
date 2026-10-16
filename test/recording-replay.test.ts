@@ -652,7 +652,7 @@ test("a recorded click batch replays through the tape host into click-move", () 
     assembleLogic(
       `if (!isset(f200)) {
          set(f200);
-         load.pic(v250); draw.pic(v250); show.pic();
+         load.pic(v250); overlay.pic(v250); show.pic();
          animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
          assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
        }
@@ -788,7 +788,7 @@ test("a PAL recorded setup keeps its timing in the operation tape and authored t
     "logic",
     0,
     assembleLogic(
-      "assignn(v10,1); assignn(v0,1); load.pic(v0); draw.pic(v0); show.pic(); return;",
+      "assignn(v10,1); assignn(v0,1); load.pic(v0); overlay.pic(v0); show.pic(); return;",
       { dictionary: new Map() },
     ).payload,
   );

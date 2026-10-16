@@ -66,7 +66,7 @@ import { discoverInstalledGames } from "../library/gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
 import type { useHistoryController } from "../history/useHistoryController.ts";
 import type { useHistoryView } from "../history/useHistoryView.ts";
-import { freshHistoryView } from "./useEngineTypes.ts";
+import { freshHistoryView, modalWaitsOnClock } from "./useEngineTypes.ts";
 import { useStartOverNote } from "../history/useStartOverNote.ts";
 import type { TransportModel } from "../history/useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
@@ -920,8 +920,8 @@ export function useEngine(
    * tap's screen pixel, an Amiga confirmation gadget under it is selected.
    */
   function dismissModal(point?: { x: number; y: number }): void {
-    // The original reads no input while it shakes the screen.
-    if (state.modal === null || state.modal === "shake") return;
+    // The original reads no input while it shakes the screen or dissolves a picture in.
+    if (state.modal === null || modalWaitsOnClock(state.modal)) return;
     link
       .getWorker()
       ?.postMessage({ type: "dismissPrint", ...(point ?? {}) } satisfies WorkerInbound);

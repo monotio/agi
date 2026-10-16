@@ -46,6 +46,14 @@ import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
 import { iigsShakeColour, shakePlan, type ShakeFrame } from "./shake.ts";
 import {
+  applyDissolve,
+  dissolveOrder,
+  dissolveRun,
+  dissolveSteps,
+  packDissolveFrame,
+  unpackDissolveFrame,
+} from "./dissolve.ts";
+import {
   validateEngineReplayState,
   type JoystickReplayState,
   type EngineReplayState,
@@ -355,6 +363,18 @@ type Modal = { serial: number } & (
       elapsedMs: number;
       /** IIgs colour table for the current step. */
       palette: number[] | null;
+    }
+  | {
+      kind: "dissolve";
+      /** Time into the dissolve. */
+      elapsedMs: number;
+      durationMs: number;
+      /** Whether picture rows 0 and 1 are left out of the order. */
+      skipRows: boolean;
+      /** The screen the dissolve started from, 160x168 colours. */
+      from: Uint8Array;
+      /** Register states finished, as the presentation shows them. */
+      steps: number;
     }
 );
 
@@ -842,6 +862,18 @@ export class Engine {
    */
   private conditionReplayUntil = -1;
   private pictureShown = false;
+  /**
+   * The Amiga/IIgs show.pic mode flag (`h117+0x12`, IIgs `$1608`): zero at
+   * load and after draw.pic, so show.pic dissolves; overlay.pic sets it and
+   * show.pic copies at once (docs/fidelity.md "Original picture dissolve").
+   */
+  private pictureRevealInstant = false;
+  /** The screen before this pass's draw.pic, kept for the dissolve to start from. */
+  private dissolveFrom: Uint8Array | null = null;
+  /** A picture has reached the screen since boot; before that the screen is black. */
+  private screenShown = false;
+  /** restore.game's dissolve is running; logic 0 re-enters once it ends. */
+  private restoreRevealOwed = false;
   private terminated = false;
   private statusEnabled = false;
   /** Cycle-entry status values survive a modal suspension of the logic stack. */
@@ -1845,7 +1877,8 @@ export class Engine {
    * Host acknowledged the open modal (Enter/Esc/click). For a print window
    * this restores the covered cells; for an interactive inventory it is the
    * cancel path (v25 = 0xff); for a menu it closes without selection. A
-   * shake ignores the player's keys, so only a host override ends it early.
+   * shake or a dissolve ignores the player's keys, so only a host override
+   * ends it early.
    */
   ackPrint(): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
@@ -1909,6 +1942,12 @@ export class Engine {
   /** Kind of the open modal, or null when the interpreter is running. */
   get modalKind(): Modal["kind"] | "save" | "restore" | null {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
+  }
+
+  /** A shake or picture dissolve holds the pass; the clock ends it, not the player. */
+  get clockModalOpen(): boolean {
+    const kind = this.modal?.kind;
+    return kind === "shake" || kind === "dissolve";
   }
 
   /**
@@ -2460,6 +2499,7 @@ export class Engine {
     if (roomWait) {
       while (this.modal !== null) this.closeModal();
       this.cycleCursor = null;
+      this.restoreRevealOwed = false;
       this.parkedModalWait = false;
       this.parkedClockWait = false;
     }
@@ -2611,7 +2651,7 @@ export class Engine {
    */
   private beginRestore(image: Uint8Array): void {
     try {
-      this.applyRestore(image);
+      this.applyRestore(image, null, true);
     } catch (error) {
       if (error instanceof ContinuationAbort) throw error;
       // Block-read/decode failure is fatal only after its error dialog. The
@@ -3143,8 +3183,8 @@ export class Engine {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     const m = this.modal;
     if (!m) return;
-    // A shake reads no input: the press waits in the queue for the next pass.
-    if (m.kind === "shake") {
+    // A shake or dissolve reads no input: the press waits in the queue for the next pass.
+    if (m.kind === "shake" || m.kind === "dissolve") {
       const word = NAV_KEY_CODES[value];
       if (word !== undefined) this.inputQueue.enqueueKey(word);
       return;
@@ -3180,7 +3220,8 @@ export class Engine {
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
       this.vars[21] = 0;
     if (m.kind === "print" || m.kind === "showObj") this.text.clearWindowOverlay();
-    if (m.kind !== "showPri" && m.kind !== "shake") this.text.restore(m.saved);
+    if (m.kind === "dissolve") this.presentationDirty = true;
+    else if (m.kind !== "showPri" && m.kind !== "shake") this.text.restore(m.saved);
     if (m.kind === "print" && this.cursorErased) {
       this.cursorErased = false;
       this.drawInputRow();
@@ -4333,6 +4374,9 @@ export class Engine {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       ...(this.defaultPriTable ? {} : { priorityTableRebuilt: true as const }),
       ...(this.booterClockPhase === 0 ? {} : { booterClockPhase: this.booterClockPhase }),
+      ...(this.profile.showPictureReveal === "instant"
+        ? {}
+        : { pictureRevealInstant: this.pictureRevealInstant }),
       ...(joystick ? { joystick } : {}),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
@@ -4401,6 +4445,10 @@ export class Engine {
     this.priorityBase = state.priorityBase;
     this.defaultPriTable = state.priorityTableRebuilt !== true;
     this.booterClockPhase = state.booterClockPhase ?? 0;
+    if (state.pictureRevealInstant !== undefined)
+      this.pictureRevealInstant = state.pictureRevealInstant;
+    this.restoreRevealOwed = false;
+    this.dissolveFrom = null;
     this.vars[V_KEY] = state.key;
     this.flags[1] = state.egoHidden;
     this.flags[F_INPUT_READY] = state.inputReady;
@@ -4518,6 +4566,14 @@ export class Engine {
               step: m.step,
               elapsedMs: m.elapsedMs,
               palette: m.palette === null ? null : [...m.palette],
+            };
+          case "dissolve":
+            return {
+              kind: "dissolve",
+              elapsedMs: m.elapsedMs,
+              durationMs: m.durationMs,
+              skipRows: m.skipRows,
+              from: packDissolveFrame(m.from),
             };
         }
       }),
@@ -4638,6 +4694,17 @@ export class Engine {
             step: m.step,
             elapsedMs: m.elapsedMs,
             palette: m.palette === null ? null : [...m.palette],
+          });
+          break;
+        case "dissolve":
+          this.modals.push({
+            serial,
+            kind: "dissolve",
+            elapsedMs: m.elapsedMs,
+            durationMs: m.durationMs,
+            skipRows: m.skipRows,
+            from: unpackDissolveFrame(m.from),
+            steps: dissolveSteps(m.elapsedMs, m.durationMs),
           });
           break;
       }
@@ -4810,6 +4877,8 @@ export class Engine {
     // continuation peels its windows back onto the snapshot's surface.
     if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
     this.restoreJoystickState(presentation?.joystick);
+    this.restoreRevealOwed = false;
+    this.screenShown = true;
   }
 
   /**
@@ -4819,9 +4888,17 @@ export class Engine {
    * presentation, then abort the current continuation. The room's logic is NOT
    * re-run: the screen comes from the replay sequence, not from room re-entry.
    * A host resume passes the autosave's screen sequence to rebuild from.
+   * restore.game itself (`reveal`) ends in the Amiga/IIgs dissolve, from the
+   * screen the restore found to the restored one.
    */
-  applyRestore(image: Uint8Array, screen: readonly ReplayPair[] | null = null): never {
+  applyRestore(
+    image: Uint8Array,
+    screen: readonly ReplayPair[] | null = null,
+    reveal = false,
+  ): never {
     const s = decodeSave(image, this.profile);
+    const revealFrom =
+      reveal && this.profile.showPictureReveal !== "instant" ? this.composedVisual() : null;
     this.saveDescription = s.description;
     // A confirmation the restore replaces took its erased cursor with it;
     // the input row redraws below with the cursor back.
@@ -4951,6 +5028,8 @@ export class Engine {
       this.drawInputRow();
     }
     this.host.clearText?.();
+    this.dissolveFrom = null;
+    if (revealFrom !== null) this.startDissolve(revealFrom);
 
     // 4. Abort the current continuation and re-enter logic in this cycle.
     throw new ContinuationAbort(true);
@@ -5150,6 +5229,7 @@ export class Engine {
         if (modal.remainingMs <= 1e-7) this.closeModal();
       }
       if (modal.kind === "shake") this.advanceShake(milliseconds);
+      if (modal.kind === "dissolve") this.advanceDissolve(modal, milliseconds);
       // Modal presentation suspends scripts, not timer counters. Explicit
       // pause and save selectors are handled by timerPaused above.
       // docs/fidelity.md: original-scheduler-and-modal-timing
@@ -5237,6 +5317,47 @@ export class Engine {
       }
       if (plan.randomPalette) m.palette = this.shakePalette();
     }
+  }
+
+  /**
+   * Start the picture dissolve when the profile has one (docs/fidelity.md
+   * "Original picture dissolve"): the pass parks on a modal that the clock
+   * ends, like a shake. `from` is the screen it starts from; the presentation
+   * shows it in every cell the register has not reached.
+   */
+  private startDissolve(from: Uint8Array | null): void {
+    const run = dissolveRun(
+      this.profile.showPictureReveal,
+      { displayBaseRow: this.displayBaseRow, statusEnabled: this.statusEnabled },
+      this.amigaRegion,
+    );
+    if (run === null) return;
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "dissolve",
+      elapsedMs: 0,
+      durationMs: run.durationMs,
+      skipRows: run.skipRows,
+      from: from ?? this.composedVisual(),
+      steps: 0,
+    });
+  }
+
+  /** What the screen shows now: the composed frame, or black before any picture. */
+  private composedVisual(): Uint8Array {
+    if (!this.screenShown) return new Uint8Array(SCREEN_WIDTH * 168);
+    this.ensurePresentationCurrent();
+    return this.cachedVisual.slice();
+  }
+
+  private advanceDissolve(m: Extract<Modal, { kind: "dissolve" }>, milliseconds: number): void {
+    m.elapsedMs += milliseconds;
+    const steps = dissolveSteps(m.elapsedMs, m.durationMs);
+    if (steps !== m.steps) {
+      m.steps = steps;
+      this.presentationDirty = true;
+    }
+    if (m.elapsedMs >= m.durationMs - 1e-7) this.closeModal();
   }
 
   /** The open shake's display, or null when no shake is running. */
@@ -5654,8 +5775,12 @@ export class Engine {
       }
       return;
     }
-    // A shake blocks the interpreter without reading input; it ends on the clock.
-    if (this.modal?.kind === "shake") return;
+    // A shake or dissolve blocks the interpreter without reading input; it
+    // ends on the clock. A debugger cursor parked behind it waits too.
+    if (this.modal?.kind === "shake" || this.modal?.kind === "dissolve") {
+      this.cycleCursor = cursor;
+      return;
+    }
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
       // Modal Enter/Escape are raw controls, even when a script binds them.
@@ -5692,10 +5817,16 @@ export class Engine {
 
     // The pass is a phase sequence; a debugger stop between phases parks the
     // owed remainder on the session-local cycle cursor and resumes here.
+    // restore.game's dissolve ended: the restore's logic 0 re-entry is owed.
     let stage: CycleCursor["phase"] | "entry" =
       cursor?.phase ??
-      (this.pendingLogic === null && !this.hostRoomEntryPending ? "entry" : "logic");
+      (this.restoreRevealOwed
+        ? "reset"
+        : this.pendingLogic === null && !this.hostRoomEntryPending
+          ? "entry"
+          : "logic");
     this.hostRoomEntryPending = false;
+    this.restoreRevealOwed = false;
 
     if (stage === "entry") {
       this.presentationDirty = true;
@@ -5869,6 +6000,14 @@ export class Engine {
               return;
             }
             if (this.operationUnwind(rc, { phase: "reset" }, "reset")) return;
+            // The original dissolves the restored picture before it re-enters
+            // logic 0 (docs/fidelity.md "Original picture dissolve").
+            // (The pass entry returned early while a dissolve was open; the
+            // restore opened this one since.)
+            if ((this.modal as Modal | null)?.kind === "dissolve") {
+              this.restoreRevealOwed = true;
+              return;
+            }
             if (this.runResetPhase()) return;
             continue;
           }
@@ -5909,6 +6048,8 @@ export class Engine {
         this.presentationDirty = true;
         this.updateEgoVisibility();
       }
+      // This pass's frame is on screen now; a later draw.pic captures it afresh.
+      this.dissolveFrom = null;
       if (this.observePhase("motion", { phase: "cycle-end" })) return;
       stage = "cycle-end";
     }
@@ -6607,6 +6748,16 @@ export class Engine {
             this.scratchPreview[index] = 1;
           },
         });
+    }
+
+    if (this.modal?.kind === "dissolve") {
+      const m = this.modal;
+      applyDissolve(
+        this.scratchVisual,
+        m.from,
+        dissolveOrder(this.profile.showPictureReveal, m.skipRows),
+        m.steps,
+      );
     }
 
     if (this.modal?.kind === "showPri") {
@@ -7815,6 +7966,9 @@ export class Engine {
       }
       case 0x19: {
         const num = this.vars[a(0)]!;
+        // The screen keeps the old picture until show.pic; a dissolve starts from it.
+        if (this.profile.showPictureReveal !== "instant" && this.dissolveFrom === null)
+          this.dissolveFrom = this.composedVisual();
         this.drawPicture(num);
         this.record(REPLAY_DRAW_PICTURE, num);
         return next;
@@ -7847,6 +8001,9 @@ export class Engine {
             );
           }
         }
+        if (!this.pictureRevealInstant) this.startDissolve(this.dissolveFrom);
+        this.dissolveFrom = null;
+        this.screenShown = true;
         return next;
       }
       case 0x1b: {
@@ -8975,6 +9132,7 @@ export class Engine {
     renderPicture(this.picturePayload(num), this.surface, { profile: this.profile });
     this.text.clearPictureTitleFill(this.displayBaseRow);
     this.pictureShown = false;
+    this.pictureRevealInstant = false;
     this.lastPicture = num;
     this.presentationDirty = true;
   }
@@ -8992,6 +9150,7 @@ export class Engine {
           }
         : {}),
     });
+    this.pictureRevealInstant = true;
     this.lastPicture = num;
     this.presentationDirty = true;
   }
@@ -9449,6 +9608,8 @@ export class Engine {
     this.runRoomPhase(room, entry);
     this.messageUpdatePending = false;
     this.hostRoomEntryPending = true;
+    // The visit replaces a restore whose logic 0 re-entry still waited.
+    this.restoreRevealOwed = false;
   }
 
   private applyRoomEntry(entry: RoomEntryState): void {

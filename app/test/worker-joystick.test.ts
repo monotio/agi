@@ -138,7 +138,7 @@ test("history replays Gamepad samples and preserves a connected neutral sample i
   await loadAppearance("amiga-2.202");
   const container = gameContainer(
     [
-      `if (!isset(f200)) {set(f200);load.pic(v0);draw.pic(v0);show.pic();set.key(1,1,1);} if (controller(c1)) {increment(v40);} return;`,
+      `if (!isset(f200)) {set(f200);load.pic(v0);overlay.pic(v0);show.pic();set.key(1,1,1);} if (controller(c1)) {increment(v40);} return;`,
     ],
     (c) => c.putResource("picture", 0, Uint8Array.of(255)),
   );

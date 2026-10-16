@@ -119,7 +119,20 @@ test("switching PC, Amiga and IIgs games keeps the look from the first picture t
     const paints = await page.evaluate(
       () => (window as typeof window & { lookPaints: number[][][] }).lookPaints,
     );
-    for (const paint of paints) expect(paint).toEqual(expected);
+    // Amiga and IIgs pictures dissolve in from the black screen (docs/fidelity.md
+    // "Original picture dissolve"), and the text after show.pic waits for it: until
+    // the last paint a sampled pixel may be black or the picture's blue, but it
+    // never shows another platform's colour.
+    const look = [
+      [0, 0, 0, 255],
+      [0, 0, blue, 255],
+      [0, green, 0, 255],
+    ];
+    for (const paint of paints) {
+      if (profile === "2.936") expect(paint).toEqual(expected);
+      else for (const pixel of paint) expect(look).toContainEqual(pixel);
+    }
+    expect(paints.at(-1)).toEqual(expected);
     for (const [width, height] of [
       [1063, 815],
       [1440, 900],

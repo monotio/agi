@@ -31,7 +31,7 @@ const EGO_SETUP = `
   if (!isset(f200)) {
     set(f200);
     configure.screen(1, 22, 0);
-    load.pic(v250); draw.pic(v250); show.pic();
+    load.pic(v250); overlay.pic(v250); show.pic();
     animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
     assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
   }
@@ -258,7 +258,7 @@ test("iigs-1.014 f15 window lets an outside click walk and accepts a click insid
     `if (!isset(f200)) {
        set(f200);
        configure.screen(1, 22, 0);
-       load.pic(v250); draw.pic(v250); show.pic();
+       load.pic(v250); overlay.pic(v250); show.pic();
        animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
        assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
        set(f15);

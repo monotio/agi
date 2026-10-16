@@ -23,7 +23,7 @@ test("PAL session records timing, replays, resets and resumes with PAL", () => {
     "logic",
     0,
     assembleLogic(
-      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); overlay.pic(v50); show.pic(); } return;",
       { dictionary: new Map() },
     ).payload,
   );
@@ -114,7 +114,7 @@ test("a numbered PAL save restores the region and both session clocks", () => {
     "logic",
     0,
     assembleLogic(
-      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); } if (isset(f208)) { reset(f208); restore.game(); } return;",
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); overlay.pic(v50); show.pic(); } if (isset(f208)) { reset(f208); restore.game(); } return;",
       { dictionary: new Map() },
     ).payload,
   );

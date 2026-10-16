@@ -313,12 +313,15 @@ a copy 4 pixels right and 4 rows down, eight times per count (half a second).
 The Amiga moves the whole screen 5 pixels and 10 rows in four diagonal
 directions and back, five ticks per count. The IIgs moves nothing: it flashes
 sixteen random colours each tick for five ticks per count, drawing them from
-the game's random numbers. On the Amiga and the IIgs, a picture shown after
-`draw.pic` dissolves in two pixels at a time in a fixed scrambled order; PC
-pictures appear at once. The engine shows every picture at once for now.
+the game's random numbers. On the Amiga (except MH2's 2.333) and the IIgs,
+`show.pic` after `draw.pic`, and every `restore.game`, dissolve the picture in
+two pixels at a time in a fixed scrambled order, holding the game for about
+0.8 s on the Amiga and 0.45 s on the IIgs while sound and the clock run; PC
+pictures, and pictures shown after `overlay.pic`, appear at once.
 
 **Evidence:**
 [Original shake.screen and picture reveal](#original-shakescreen-and-picture-reveal),
+[Original picture dissolve](#original-picture-dissolve),
 [Original cel blit over control pixels](#original-cel-blit-over-control-pixels),
 [Original add.to.pic control box](#original-addtopic-control-box),
 [Text under later graphics](#text-under-later-graphics) and
@@ -4296,21 +4299,103 @@ clipped screen, or recolours it. The adapter is EGA, the only PC display the app
 [shake-screen.spec.ts](../app/e2e/shake-screen.spec.ts).
 
 Picture reveal (fact): PC `show.pic` copies the picture bottom to top with no wait or palette
-change, and no PC executable or overlay contains a dissolve. On the Amiga (`show.pic`
-`h115+0x26e` on SQ2) and the IIgs (`seg2+0x55ba`), `show.pic` checks a flag that `draw.pic`
-clears and `overlay.pic` sets (Amiga `h117+0x12`, IIgs `$1608`): after `overlay.pic` the
-picture is copied at once, after `draw.pic` it dissolves (Amiga `h215+0x2e0`, IIgs
-`main+0x0f53`). The dissolve copies cell 0 and then walks a Galois shift register from state 1
-(shift right, `eor #$3500` on carry) until it returns to 1, copying cell s for every state below
-`0x3480`: each of the 13,440 cells, two AGI pixels wide (row `s / 80`, x `2 * (s mod 80)`), once,
-in a fixed order, with no waits. Its speed is the CPU's. MAME measured 48 to 50 frames (about
-800 ms) on an A500 and 27 to 28 frames (about 460 ms) on a IIgs, at a constant rate. `new.room`
-has no screen effect on any platform. On the Amiga, the dissolve's limit drops by `0xa0` cells
-when `h132+0x20` is set (meaning not settled), and `restore.game` also ends in it (`h156+0x29a`).
+change, and no PC executable or overlay contains a dissolve (no `0x3500` constant). `new.room`
+has no screen effect on any platform. The Amiga and IIgs dissolve is in
+[Original picture dissolve](#original-picture-dissolve).
 
-Engine divergence (open): every platform shows the picture at once. Matching the original means
-blocking the pass for the dissolve, as for the shake, which every engine the worker creates
-(live, replay, history, room launch) must do alike to keep recorded tapes consistent.
+### Original picture dissolve
+
+Static disassembly of the six Amiga executables (hashes under
+[Amiga interpreter profiles](#amiga-interpreter-profiles); `hN+0x...` are code-hunk offsets with
+relocations resolved) and the IIgs `SQ2.SYS16` 1.014 (sha256 `e1a2788f92cb7622…`). MAME 0.289
+(a500n with Kickstart 1.3, NTSC; apple2gsr1) is the cross-check.
+
+**When it runs (fact).** `show.pic` tests a longword flag: zero calls the dissolve, nonzero copies
+the picture at once (Amiga BltBitMap, IIgs a linear copy at `main+0x15d8`). The draw-picture
+routine stores 0 after decoding and the overlay routine stores 1, and nothing else writes the
+flag, so every `show.pic` after a `draw.pic` dissolves, a second `show.pic` without a new
+`draw.pic` included, and one after `overlay.pic` does not. The flag is zero at load (Amiga BSS,
+IIgs `~globals` data). `restore.game` ends in the dissolve without testing the flag, after it has
+rebuilt the room's picture and objects. Before the loop both wait while a menu is held (Amiga
+`h108+0x8`, IIgs `$008e`).
+
+| Build (game, sha256)                               | `show.pic` → dissolve | Flag: test; `draw.pic` 0; `overlay.pic` 1             | Dissolve             | `restore.game`                                                                    | Rows 0..1 left out                                                                                                                                                            |
+| -------------------------------------------------- | --------------------- | ----------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.082 (SQ1, `80c6b0c4…`)                           | `h83+0x286`           | `h84+0x12`: `h83+0x27e`; `h83+0x1b4`; `h83+0x264`     | `h154+0x2c0`         | `h116+0x29a`                                                                      | always: source `+0x50`, screen `+0x190` (10 lines), limit `cmpi.l #$33e0` (`h154+0x340`)                                                                                      |
+| 2.176 (KQ2, `62b17ac8…`), 2.202 (SQ2, `557215fb…`) | `h115+0x298`          | `h117+0x12`: `h115+0x290`; `h115+0x1b0`; `h115+0x260` | `h215+0x2e0`         | `h156+0x29a`                                                                      | while the picture top `h181+0x20` (row × 8, written by `configure.screen` at `h179+0x22a`) is nonzero: screen `+0x190`, limit `0x3480 - 0xa0`                                 |
+| 2.310 (PQ1, `72ddbb3e…`)                           | `h115+0x298`          | `h117+0x12`: `h115+0x290`; `h115+0x1b0`; `h115+0x260` | `h215+0x300`         | `h156+0x29a`                                                                      | while the picture top is nonzero and the status-enabled longword `h206+0x400` is set; with the status line off the screen offset is `0x140` (8 lines) and all rows are copied |
+| 2.316 (GR, `7bfa2f36…`)                            | `h115+0x2aa`          | `h117+0x12`: `h115+0x2a2`; `h115+0x1bc`; `h115+0x272` | `h215+0x300`         | `h156+0x29a`                                                                      | as 2.310                                                                                                                                                                      |
+| 2.333 (MH2, `5ce3b163…`)                           | never                 | `h117+0x12`: `h115+0x29a`; `h115+0x1c6`; `h115+0x262` | `h215+0x300`, unused | never                                                                             | –                                                                                                                                                                             |
+| IIgs 1.014                                         | `seg2+0x55e8`         | `$1608`: `seg2+0x55e0`; `seg2+0x550f`; `seg2+0x58a3`  | `main+0x0f53`        | `seg2+0x0656` (the rebuild at `seg2+0x3c4`, called once the save blocks are read) | never; it writes all 168 rows from the line table entry for `$b7`                                                                                                             |
+
+2.333 (fact): `show.pic` (`h115+0x292`) and the restore (`h156+0x29a`) first test `h117+0x16`
+and copy at once when it is set. Its only writer, the picture module's start-up routine
+(`h115+0x0`, called at `h33+0x62`), sets it when `strcmp(*h116+0xa, "blit") == 0`. The pointer
+`h116+0xa` has one relocation, to `h116+0x0`, which holds `"blit\0lve\0"`, and no instruction
+writes it, so the test is always true and 2.333 never dissolves. Inference: `"lve"` is the tail of
+`"dissolve"`, overwritten with `"blit"`.
+
+**Order (fact).** First the top-left corner: the Amiga copies one byte of each of the four
+bitplanes (`h215+0x354`), cells 0 and 1 (160 and 161 when rows 0..1 are left out); the IIgs copies
+one word (`main+0x0f91`), cell 0. Then, from state 1, `lsr` and `eor #$3500` on carry until the
+state is 1 again, copying cell s for each state below the limit (s + 160 when rows 0..1 are left
+out). A cell is two picture pixels: on the Amiga one nibble of each plane byte, the high nibble
+for even s (`h215+0x388`); on the IIgs one word, the source's colour nibbles doubled into four
+screen pixels (`main+0x0fb4`). Cell s is picture row `s / 80`, x `2 * (s mod 80)`. The register
+walks all 16,383 nonzero 14-bit states, 13,439 below `0x3480` and 13,279 below `0x33e0`, so each
+cell is written once; the Amiga's last state rewrites cell 1, and on the IIgs cell 1 changes
+last. The first states are `0x3500` (past the limit), 6784, 3392, 1696, 848, 424, 212, 106, 53.
+
+**Timing (fact and measurement).** Neither loop waits for a frame or a timer or masks
+interrupts: it runs at the CPU's speed. The 68000 cycles of the Amiga loop, summed over the
+16,383 states from the instruction timings, are 5,084,134 on 2.082 (an immediate compare),
+5,259,678 on the later builds with all rows and 5,215,198 with rows 0..1 left out; at
+7.159 MHz that is 710, 735 and 728 ms. In MAME the SQ2 title and station-exterior dissolves took
+794.4 and 793.9 ms (a line through the furthest register state on screen in each 60 Hz frame,
+within 116 states of every frame), about 9% over the bare count; inference: chip-bus contention
+and interrupt service. The room 2 dissolve took 827 ms. The IIgs loop is 1,131,955 cycles, 395 ms
+at 2.864 MHz before the slow writes to bank `$E1`; MAME measured 448.2 and 447.5 ms.
+
+**During the dissolve (fact).** The Amiga VERTB server and the IIgs heartbeat keep running, so
+sound plays and the clock counts; key events wait in the window's message port or the event
+queue. A busy flag set for the loop (2.082 `h80+0xc`, 2.176/2.202 `h108+0xc`, 2.31x `h206+0x410`,
+IIgs `$0090`) makes the menu handler (Amiga MENUVERIFY at `h106+0x10e`, 2.082 `h78+0x10e`; IIgs
+`seg3+0x08fd`) refuse a menu. The IIgs hides the mouse cursor (`$9004`) for the loop. Only
+picture rows change: the title bar, status and input lines stay. The loop writes the screen
+bitmap directly, so text in the picture band disappears cell by cell (inference from the writes).
+
+Engine: `showPictureReveal` selects the variant per profile. `show.pic` with the flag clear
+(`draw.pic` clears it, `overlay.pic` sets it) parks the pass on a dissolve modal
+([dissolve.ts](../src/runtime/dissolve.ts)) that the clock ends, like the shake: its length is the
+build's cycle count at the rate MAME measured for SQ2 (6,566.6 cycles per ms on NTSC, scaled by
+7.09379 / 7.15909 on PAL; 447.9 ms on the IIgs), and the presentation shows each cell from the
+new frame once the register has passed it, at a constant rate. The dissolve starts from the frame
+composed before the pass's first `draw.pic`, or at `show.pic` without one, and from black before
+the first picture of the session. `restore.game` starts
+one from the frame before the restore and enters logic 0 when it ends; restores the host makes
+(autosave, history) show the image at once. Checkpoints carry an open dissolve, its start frame
+as 26,880 hex digits, and the flag (`pictureRevealInstant`). Tests:
+[dissolve.test.ts](../test/dissolve.test.ts) (hand-computed first states per platform, durations,
+replay round trip mid-dissolve, restore), each of which failed before the change except the
+instant cases, which a reversed profile or host restore made fail;
+[worker-dissolve.test.ts](../app/test/worker-dissolve.test.ts) (presented frames, and a recording
+made through dissolves replaying from its boot and every anchor) and
+[picture-dissolve.spec.ts](../app/e2e/picture-dissolve.spec.ts).
+
+Cross-check against MAME, each frame against the engine's order at the frame's time (cells
+whose two pictures agree left out): SQ2 Amiga title 0.42%, station 0.61% and room 2 2.58% of
+cells differ, IIgs station 0.84% and room 2 0.87%. All differences lie within one frame's
+progress of the predicted state (the beam scans the frame while the CPU writes), apart from the
+pointer cells at the top left and room 2's slower dissolve, whose last frames trail by up to
+two frames.
+
+Divergences: text in the picture band goes at `show.pic` instead of dissolving away (the engine
+keeps text in its own cell layer); where the original leaves rows 0..1 alone, the engine shows
+the new rows at once (under the title bar while the status line is on); the length is fixed per
+build, while the original varies with interrupt load (room 2 above, +4%); and the start frame is
+the engine's composition before `draw.pic`, so sprites that the pass erased before it are gone
+from the start frame. Inference: the original's screen still shows them until their cells are
+reached.
 
 ### Original cel handling and priority table
 

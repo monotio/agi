@@ -940,5 +940,17 @@ test("every shipped profile carries its binary-verified authenticity fields", ()
           ? "pic-top-and-enabled"
           : "unconditional";
     assert.equal(profile.statusLineGate, expectedStatusLineGate, `${id}.statusLineGate`);
+    // docs/fidelity.md "Original picture dissolve": 2.333's mode string is "blit".
+    const expectedReveal =
+      id === "amiga-2.082"
+        ? "amiga-2.082"
+        : id === "amiga-2.176" || id === "amiga-2.202"
+          ? "amiga-pic-top"
+          : id === "amiga-2.310" || id === "amiga-2.316"
+            ? "amiga-pic-top-and-status"
+            : id === "iigs-1.014"
+              ? "iigs"
+              : "instant";
+    assert.equal(profile.showPictureReveal, expectedReveal, `${id}.showPictureReveal`);
   }
 });

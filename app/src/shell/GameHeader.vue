@@ -31,6 +31,7 @@ import { lessonCatalogId, lessonSetFor } from "../lessons/registry.ts";
 import type { LessonSet, StudioLesson } from "../lessons/types.ts";
 import { projectId } from "../../../src/gameIdentity.ts";
 import { gameShortcuts } from "../play/gameControls.ts";
+import { modalWaitsOnClock } from "../engine/useEngineTypes.ts";
 import { HistoryUnsavedError } from "../engine/useGameLifecycle.ts";
 import {
   suggestAssertions,
@@ -212,7 +213,11 @@ function onControlsClosed(): void {
 
 const shortcuts = computed(() => gameShortcuts(state.controls));
 const shortcutsBlocked = computed(
-  () => state.paused || state.modal !== null || state.prompt !== null || state.textMode,
+  () =>
+    state.paused ||
+    (state.modal !== null && !modalWaitsOnClock(state.modal)) ||
+    state.prompt !== null ||
+    state.textMode,
 );
 
 function triggerKey(code: number): void {

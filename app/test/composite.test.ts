@@ -233,6 +233,23 @@ import { AMIGA_PALETTE, AMIGA_PALETTE_2_082, AMIGA_PALETTE_2_31X } from "../src/
 const amiga = await loadAppearance("amiga-2.202");
 await loadAppearance("iigs-1.014");
 
+/**
+ * One pass, then as many as it takes for an Amiga picture dissolve to end:
+ * these steps check what a finished show.pic leaves (test/dissolve.test.ts
+ * covers the dissolve itself).
+ */
+function tickPast(engine: {
+  tick(): void;
+  advanceClock(ms: number): void;
+  readonly modalKind: string | null;
+}): void {
+  engine.tick();
+  while (engine.modalKind === "dissolve") {
+    engine.advanceClock(50);
+    engine.tick();
+  }
+}
+
 test("the Amiga profiles draw the picture through their own colour tables", async () => {
   const input = fixture();
   input.visual.fill(13); // SQ2's purple building
@@ -416,7 +433,7 @@ test("Amiga status off erases all title pixels while retaining the text below ro
         new Map(),
         { profile: "amiga-2.202" },
       );
-      engine.tick();
+      tickPast(engine);
       const pixels = new Uint8Array(320 * 200 * 4);
       compositeFrame({ ...engine.getPresentation(), picRow: top, appearance }, pixels);
       return pixels;
@@ -653,10 +670,10 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       {
         name: "cold start: displayBase is 0 and status.line.on/off follow profile gate",
         act: () => {
-          engine.tick();
+          tickPast(engine);
           assert.equal(engine.displayBase, 0, `${profile.id}: cold start displayBase`);
           engine.flags[201] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: gatedAtPicTop0 ? "unfilled" : "black",
@@ -666,7 +683,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "configure.screen(0, 22, 2): status.line.on/off follow profile gate at picTop 0",
         act: () => {
           engine.flags[202] = 1;
-          engine.tick();
+          tickPast(engine);
           assert.equal(engine.displayBase, 0, `${profile.id}: configure.screen 0 displayBase`);
         },
         statusBar: null,
@@ -677,7 +694,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "configure.screen(2, 22, 2) + status.line.on: title bar renders on rows 0..10",
         act: () => {
           engine.flags[203] = 1;
-          engine.tick();
+          tickPast(engine);
           assert.equal(engine.displayBase, 2, `${profile.id}: configure.screen 2 displayBase`);
         },
         statusBar: expectedTitle,
@@ -688,7 +705,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "configure.screen(0, 22, 2): title visibility at picTop 0 follows profile gate",
         act: () => {
           engine.flags[204] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: gatedAtPicTop0 ? null : expectedTitle,
         rows0to10: gatedAtPicTop0 ? "unfilled" : "title",
@@ -698,7 +715,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "configure.screen(2, 22, 2): statusBar returns when picTop is nonzero",
         act: () => {
           engine.flags[205] = 1;
-          engine.tick();
+          tickPast(engine);
           savedOn = engine.serialize();
         },
         statusBar: expectedTitle,
@@ -709,7 +726,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "status.line.off: blacks rows 0..10 while keeping row 1 bottom and status row 2",
         act: () => {
           engine.flags[206] = 1;
-          engine.tick();
+          tickPast(engine);
           assert.equal(
             engine.textRow(2).slice(0, 4),
             "KEEP",
@@ -724,7 +741,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "modal print open and close: closing modal keeps rows 0..10 black",
         act: () => {
           engine.flags[207] = 1;
-          engine.tick();
+          tickPast(engine);
           assert.equal(engine.modalKind, "print", `${profile.id}: print modal opened`);
           engine.ackPrint();
           assert.equal(engine.modalKind, null, `${profile.id}: print modal closed`);
@@ -737,9 +754,9 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "persistent window open and close: close.window keeps rows 0..10 black",
         act: () => {
           engine.flags[208] = 1;
-          engine.tick();
+          tickPast(engine);
           engine.flags[209] = 1;
-          engine.tick();
+          tickPast(engine);
           if (engine.modalKind === "print") engine.ackPrint();
         },
         statusBar: null,
@@ -788,7 +805,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "overlay.pic green line (0,0)..(10,0) after display(1,0,MMMM) + status.line.off: paints green without resurrecting text, preserving y=11..15",
         act: () => {
           engine.flags[217] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: "overlayGreenLine0to10",
@@ -799,7 +816,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "draw.pic white picture after display(1,0,MMMM) + status.line.off: paints y=8..10 white without resurrecting text, preserving y=11..15",
         act: () => {
           engine.flags[218] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: "showPicTop1",
@@ -810,7 +827,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "show.pri.screen after display(1,0,MMMM) + status.line.off: paints y=8..10 priority without resurrecting text, preserving y=11..15",
         act: () => {
           engine.flags[219] = 1;
-          engine.tick();
+          tickPast(engine);
           assert.equal(engine.modalKind, "showPri", `${profile.id}: showPri modal open`);
           try {
             const priOut = composeEngine(engine);
@@ -852,7 +869,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "repeated status.line.off after show.pic: 2.31x returns early when already off; 2.082/2.176/2.202 repaint black",
         act: () => {
           engine.flags[220] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: offChecksEnabled ? "showPicTop1" : "black",
@@ -863,7 +880,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "show.pic after fill (picTop 1, white pic): supersedes y=8..10 while y=0..7 stays black, directly and after checkpoint restore",
         act: () => {
           engine.flags[211] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: "showPicTop1",
@@ -874,7 +891,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "configure.screen 2 then 0 around fill: rows 0..10 stay black before show.pic, directly and after checkpoint restore",
         act: () => {
           engine.flags[212] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: "black",
@@ -887,7 +904,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           const fromAutosave = cloneViaAutosave(engine);
           const fromRecording = cloneViaRecording(engine);
           engine.flags[213] = 1;
-          engine.tick();
+          tickPast(engine);
           fromAutosave.flags[213] = 1;
           fromAutosave.tick();
           fromRecording.flags[213] = 1;
@@ -918,7 +935,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "add.to.pic 1px blue cel at (0,0) after fill: paints (0,8)..(1,8) blue over fill, directly and after checkpoint restore",
         act: () => {
           engine.flags[214] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: "addToPicBlue00",
@@ -980,9 +997,9 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "serialize + restoreImage (status off): statusBar stays null and rows 0..10 black",
         act: () => {
           engine.flags[203] = 1;
-          engine.tick();
+          tickPast(engine);
           engine.flags[206] = 1;
-          engine.tick();
+          tickPast(engine);
           const savedOff = engine.serialize();
           engine = makeEngine(keys);
           engine.restoreImage(savedOff);
@@ -1005,7 +1022,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         name: "status.line.off after restoring status-on save: blacks rows 0..10",
         act: () => {
           engine.flags[206] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: "black",
@@ -1016,10 +1033,10 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         act: () => {
           keys.push(0x0d);
           engine.flags[210] = 1;
-          engine.tick();
+          tickPast(engine);
           assert.equal(engine.displayBase, 0, `${profile.id}: restart displayBase is 0`);
           engine.flags[201] = 1;
-          engine.tick();
+          tickPast(engine);
         },
         statusBar: null,
         rows0to10: gatedAtPicTop0 ? "unfilled" : "black",
@@ -1100,9 +1117,9 @@ test("accepted restart.game preserves picture top on PC 2.936 and IIgs 1.014 whi
       new Map(),
       { profile },
     );
-    engine.tick();
+    tickPast(engine);
     assert.equal(engine.displayBase, 2, `${profileId}: configured displayBase is 2`);
-    engine.tick();
+    tickPast(engine);
     assert.equal(
       engine.displayBase,
       expectedAfterRestart,
