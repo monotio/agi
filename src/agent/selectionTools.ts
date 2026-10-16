@@ -62,6 +62,7 @@ import {
 } from "./selectionPreview.ts";
 import type { AgentSessionState, AgentToolImage, AgentToolResult } from "./agentState.ts";
 import type { ToolDefinition } from "./tools.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 /** AGI's power-on horizon (engine.ts), for the walkable estimate. */
@@ -893,11 +894,11 @@ function readPictureContext(
     const scale = cropScale(crop);
     imageList.push(
       {
-        png: pictureCropPng(compiled, crop, scale),
+        png: pictureCropPng(compiled, crop, scale, colourTableForProfile(session.profile)),
         caption: `Selection crop x${crop.x0}-${crop.x1} y${crop.y0}-${crop.y1}, each cell ${scale * 2}x${scale} image pixels. ${PICTURE_COMPARISON_LEGEND}`,
       },
       {
-        png: pictureOverviewPng(compiled.visual, area),
+        png: pictureOverviewPng(compiled.visual, area, colourTableForProfile(session.profile)),
         caption: "Whole room, visual plane at 320x168; the selection is tinted magenta.",
       },
     );
@@ -1058,6 +1059,7 @@ function readViewContext(
                   .slice(0, MAX_SHEET_ROWS)
                   .map(({ loop, cel }) => ({ after: document.loops[loop]?.cels[cel] })),
                 false,
+                colourTableForProfile(session.profile),
               ),
               caption: `Selected cels ${scope.targetCels
                 .slice(0, MAX_SHEET_ROWS)
@@ -1179,7 +1181,11 @@ function proposePicture(
   const check = checkCandidate(before.compiled, after, scope);
   if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
   const candidateId = `c${assist.proposals}`;
-  const previewPng = pictureAssistPreviewPng(before.compiled, after);
+  const previewPng = pictureAssistPreviewPng(
+    before.compiled,
+    after,
+    colourTableForProfile(session.profile),
+  );
   const area = selectionArea(before.compiled, scope.targetIds);
   const walk = walkRelevant(scope)
     ? (() => {
@@ -1284,6 +1290,7 @@ function proposeView(
   const previewPng = spriteSheetPng(
     pairs.length ? pairs : [{ before: undefined, after: undefined }],
     true,
+    colourTableForProfile(session.profile),
   );
   const candidateId = `c${assist.proposals}`;
   const candidateDraft = { kind: "view", payload: document.payload.slice() } as const;

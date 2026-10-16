@@ -18,7 +18,8 @@
  * explicit dimensions so it can be checked against hand-computed tiny buffers.
  */
 
-import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import { encodePngRgb } from "../picture/png.ts";
+import { EGA_TABLE, type ColourTable } from "../runtime/colourTables.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 
 export interface SurfaceDims {
@@ -55,6 +56,7 @@ export function pictureComparisonPng(
   visual: Uint8Array,
   priority: Uint8Array,
   dims: SurfaceDims = PICTURE_DIMS,
+  palette: ColourTable = EGA_TABLE,
 ): Uint8Array {
   const panelWidth = dims.width * 2;
   const outputWidth = panelWidth * 3;
@@ -75,9 +77,9 @@ export function pictureComparisonPng(
   for (let y = 0; y < dims.height; y++) {
     for (let x = 0; x < dims.width; x++) {
       const index = y * dims.width + x;
-      const visualRgb = EGA_RGB[visual[index]! & 0x0f]!;
+      const visualRgb = palette[visual[index]! & 0x0f]!;
       const priorityValue = priority[index]! & 0x0f;
-      const priorityRgb = EGA_RGB[priorityValue]!;
+      const priorityRgb = palette[priorityValue]!;
       let overlayRgb: readonly [number, number, number];
       if (priorityValue <= 3) overlayRgb = CONTROL_OVERLAY_RGB[priorityValue]!;
       else if (priorityValue === 4) overlayRgb = visualRgb;

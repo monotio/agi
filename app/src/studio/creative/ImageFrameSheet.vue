@@ -23,7 +23,7 @@ import {
 } from "../../../../src/creative/imageFrameGeometry.ts";
 import type { Rect } from "../../../../src/creative/catalog.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
-import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
+import { paletteCss, useGamePalette, useGamePaletteLook } from "../../render/useGamePalette.ts";
 import UiButton from "../../ui/UiButton.vue";
 
 const props = defineProps<{
@@ -86,6 +86,7 @@ function loopName(loop: number): string {
   return `${name} · loop ${loop}${mirror != null ? ` (mirrors ${directions[mirror]?.toLowerCase() ?? `loop ${mirror}`})` : ""}`;
 }
 const palette = useGamePalette();
+const gameLook = useGamePaletteLook();
 const colours = computed(() =>
   [11, 13, 10, 14, 9, 12, 3, 6].map((index) => paletteCss(palette.value, index)),
 );
@@ -110,6 +111,7 @@ const preview = computed(() => {
           props.profile,
           props.background,
           props.backgroundTransparent,
+          gameLook.value,
         )
       : null;
   } catch {

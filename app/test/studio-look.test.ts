@@ -7,6 +7,12 @@ import { createPresentation } from "../src/play/usePresentation.ts";
 import { cropFrameRgba } from "../src/inspector/debugView.ts";
 import { paintLayer } from "../src/studio/studioView.ts";
 import { thumbRgba } from "../src/world/nodeThumbs.ts";
+import { frameToRgb } from "../src/studio/share/shareFrame.ts";
+import { pictureReviewPixels } from "../src/agent/workspaceImageReview.ts";
+import { drawFrameInto } from "../../src/agent/frames.ts";
+import { pictureComparisonPng } from "../../src/agent/pictureFeedback.ts";
+import { EGA_TABLE, colourTableForProfile } from "../../src/runtime/colourTables.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import { snapImageToEga } from "../../src/creative/imageStyle.ts";
 import { nearestEgaIndex, quantizeToEga } from "../../src/view/spritesheet.ts";
 import { swatchInk } from "../src/studio/sprite/spriteView.ts";
@@ -154,4 +160,47 @@ test("a traced image snaps to the game's own colours, so its nearest colour is w
     keyColor: null,
   });
   assert.equal(sheet.pixels[0], 5, "Amiga 5 is b7d");
+});
+
+// Exports and the agent's images show what the player sees: Amiga 13 is
+// (221, 0, 255), EGA 13 is (255, 85, 255).
+test("a shared picture frame is drawn in the game's colours", async () => {
+  const amiga = await loadAppearance("amiga-2.202");
+  const frame = new Uint8Array(320 * 200).fill(13);
+  assert.deepEqual([...frameToRgb(frame, 1, 3, amiga.palette).subarray(0, 3)], [221, 0, 255]);
+  assert.deepEqual([...frameToRgb(frame, 1).subarray(0, 3)], [255, 85, 255]);
+});
+
+test("the agent's review picture and frames use the game's colours", async () => {
+  const amiga = await loadAppearance("amiga-2.202");
+  const visual = new Uint8Array(160 * 168).fill(13);
+  assert.deepEqual(
+    [...pictureReviewPixels(visual, {}, "picture:1", amiga.palette).subarray(0, 4)],
+    [221, 0, 255, 255],
+  );
+  const frame = {
+    visual: new Uint8Array(160 * 168).fill(13),
+    priority: new Uint8Array(160 * 168),
+    picRow: 1,
+  };
+  const rgb = new Uint8Array(320 * 200 * 3);
+  drawFrameInto(frame as never, "visual", rgb, 320, 0, 0, amiga.palette);
+  assert.deepEqual([...rgb.subarray(8 * 320 * 3, 8 * 320 * 3 + 3)], [221, 0, 255]);
+});
+
+test("agent pictures follow the profile: Amiga bytes differ from EGA, EGA is unchanged", () => {
+  const visual = new Uint8Array(160 * 168).fill(13);
+  const priority = new Uint8Array(160 * 168).fill(4);
+  const plain = pictureComparisonPng(visual, priority);
+  assert.deepEqual(pictureComparisonPng(visual, priority, undefined, EGA_TABLE), plain);
+  const amiga = pictureComparisonPng(
+    visual,
+    priority,
+    undefined,
+    colourTableForProfile(PROFILES["amiga-2.202"]),
+  );
+  assert.notDeepEqual(amiga, plain);
+  assert.deepEqual(colourTableForProfile(PROFILES["amiga-2.202"])[13], [221, 0, 255]);
+  assert.deepEqual(colourTableForProfile(PROFILES["iigs-1.014"])[12], [255, 153, 136]);
+  assert.deepEqual(colourTableForProfile(PROFILES["2.936"])[13], [255, 85, 255]);
 });

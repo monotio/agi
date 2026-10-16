@@ -22,6 +22,7 @@ import {
   frameToRgb,
   type ShareCaption,
 } from "./shareFrame.ts";
+import { colourTableForProfile } from "../../../../src/runtime/colourTables.ts";
 
 /** Video types in order of preference; Safari records only MP4. */
 const CLIP_TYPES = ["video/webm;codecs=vp9", "video/webm", "video/mp4"] as const;
@@ -99,7 +100,12 @@ export async function recordClip(source: ClipSource, options: RecordOptions): Pr
     if (key !== shown) {
       shown = key;
       const visual = renderUpTo(compiled, commands, profile).visual;
-      const rgba = frameToRgb(composeFrame(visual, captioned ? caption : null), 1, 4);
+      const rgba = frameToRgb(
+        composeFrame(visual, captioned ? caption : null),
+        1,
+        4,
+        colourTableForProfile(profile),
+      );
       smallContext.putImageData(
         new ImageData(new Uint8ClampedArray(rgba.buffer), FRAME_WIDTH, FRAME_HEIGHT),
         0,

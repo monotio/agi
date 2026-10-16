@@ -13,6 +13,11 @@
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { FONT, HAS_GLYPH } from "./font8x8.ts";
 import { EGA_PALETTE } from "./palette.ts";
+import {
+  IIGS_TABLE,
+  colourIdForProfile,
+  colourTableForId,
+} from "../../../src/runtime/colourTables.ts";
 import type { Appearance } from "./look.ts";
 
 export type { Appearance } from "./look.ts";
@@ -27,25 +32,7 @@ export {
 import { IIGS_FONT } from "./fontIigs.ts";
 import { readIigsFont } from "./readIigsFont.ts";
 
-/** SQ2 1.014 SetColorTable, docs/fidelity.md "Apple IIgs presentation". */
-const IIGS_PALETTE: Appearance["palette"] = [
-  [0x00, 0x00, 0x00],
-  [0x00, 0x00, 0xff],
-  [0x00, 0x88, 0x00],
-  [0x00, 0xdd, 0xbb],
-  [0xcc, 0x00, 0x00],
-  [0xbb, 0x77, 0xdd],
-  [0x88, 0x55, 0x00],
-  [0xbb, 0xbb, 0xbb],
-  [0x77, 0x77, 0x77],
-  [0x00, 0xbb, 0xff],
-  [0x00, 0xee, 0x00],
-  [0x00, 0xff, 0xdd],
-  [0xff, 0x99, 0x88],
-  [0xdd, 0x99, 0xff],
-  [0xee, 0xee, 0x00],
-  [0xff, 0xff, 0xff],
-];
+const IIGS_PALETTE: Appearance["palette"] = IIGS_TABLE;
 
 export const PC_APPEARANCE: Appearance = {
   palette: EGA_PALETTE,
@@ -59,6 +46,20 @@ const IIGS_APPEARANCE: Appearance = {
   hasGlyph: new Uint8Array(256).fill(1),
   layout: "iigs",
 };
+/**
+ * The id a preparation recipe records for the colours a profile shows: the
+ * profile's palette id ("ega", "amiga", ...), or "iigs" for the Apple IIgs table.
+ */
+export function gamePaletteId(id?: string | null): string {
+  if (id === null || id === undefined || !Object.hasOwn(PROFILES, id)) return "ega";
+  return colourIdForProfile(PROFILES[id as ProfileId]);
+}
+
+/** The sixteen colours a recorded palette id names; EGA for an id this build does not know. */
+export function paletteTableForId(id: string): Appearance["palette"] {
+  return colourTableForId(id);
+}
+
 const fontAppearances = new WeakMap<Uint8Array, Appearance>();
 
 function iigsAppearanceForFiles(files?: ReadonlyMap<string, Uint8Array> | null): Appearance {

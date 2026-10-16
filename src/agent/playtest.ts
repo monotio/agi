@@ -27,6 +27,7 @@ import {
 } from "./navigationController.ts";
 import { resourceSetHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 /** A failure the Tests panel can describe without parsing Agent prose. */
 export interface PlaytestFailure {
@@ -398,6 +399,7 @@ export class Simulation {
       ? framesToContactSheet(
           this.checkpoints.map(({ frame: checkpoint }) => checkpoint),
           "visual",
+          colourTableForProfile(this.engine.profile),
         )
       : null;
     const checkpoints = this.checkpoints.map((checkpoint, tile) => ({
@@ -413,7 +415,7 @@ export class Simulation {
     }));
     const images = [
       {
-        png: frameToPng(frame, "visual"),
+        png: frameToPng(frame, "visual", colourTableForProfile(this.engine.profile)),
         caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and sprites at authentic geometry; game text is transcribed separately.`,
       },
     ];
@@ -432,7 +434,12 @@ export class Simulation {
             y: engine.screenObjects[0]!.y,
           }),
         };
-        const snapshot = renderNavigationSnapshot(navState, this.navigationFailureTarget);
+        const snapshot = renderNavigationSnapshot(
+          navState,
+          this.navigationFailureTarget,
+          undefined,
+          colourTableForProfile(this.engine.profile),
+        );
         images.push({
           png: snapshot.png,
           caption:

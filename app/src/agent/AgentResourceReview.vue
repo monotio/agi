@@ -12,7 +12,7 @@ import { renderPicture } from "../../../src/picture/renderer.ts";
 import { encodePngRgba } from "../../../src/creative/composite.ts";
 import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.ts";
 import { parseView, selectViewCel } from "../../../src/view/view.ts";
-import { EGA_RGB } from "../../../src/picture/png.ts";
+import { colourTableForProfile } from "../../../src/runtime/colourTables.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
 import {
   gameTestActionCount,
@@ -83,6 +83,7 @@ const images = computed(() => {
             surface.visual,
             index ? props.afterDocuments : props.beforeDocuments,
             target,
+            colourTableForProfile(props.profile),
           ),
         );
         return {
@@ -121,7 +122,7 @@ const views = computed(() => {
                   for (let x = 0; x < cel.width * 2; x++) {
                     const color = cel.pixels[y * cel.width + Math.floor(x / 2)]!;
                     const offset = (y * cel.width * 2 + x) * 4;
-                    rgba.set(EGA_RGB[color]!, offset);
+                    rgba.set(colourTableForProfile(props.profile)[color]!, offset);
                     rgba[offset + 3] = color === cel.transparentColor ? 0 : 255;
                   }
                 return {

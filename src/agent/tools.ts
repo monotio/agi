@@ -109,6 +109,7 @@ import {
   type FramePlane,
   type FrameSource,
 } from "./frames.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 export interface ToolDefinition {
   readonly name: string;
@@ -875,7 +876,12 @@ function executeLegacyTool(
           ...(compiled.warnings.length > 0 ? { adjustments: [...compiled.warnings] } : {}),
           images: [
             {
-              png: pictureComparisonPng(surface.visual, surface.priority),
+              png: pictureComparisonPng(
+                surface.visual,
+                surface.priority,
+                undefined,
+                colourTableForProfile(session.profile),
+              ),
               caption: `Picture ${room}, 960x168 comparison sheet; each 320x168 panel uses native 2:1 logical-pixel aspect. ${PICTURE_COMPARISON_LEGEND}`,
             },
           ],
@@ -935,7 +941,12 @@ function executeLegacyTool(
           },
           images: [
             {
-              png: pictureComparisonPng(surface.visual, surface.priority),
+              png: pictureComparisonPng(
+                surface.visual,
+                surface.priority,
+                undefined,
+                colourTableForProfile(session.profile),
+              ),
               caption: `Picture ${num}, stored bytes in a 960x168 comparison sheet; each 320x168 panel uses native 2:1 logical-pixel aspect. ${PICTURE_COMPARISON_LEGEND}`,
             },
           ],
@@ -1604,7 +1615,11 @@ async function executeReadFrames(
 
   const images: AgentToolImage[] = [];
   if (sheet && frames.length > 1) {
-    const { png, grid } = framesToContactSheet(frames, plane);
+    const { png, grid } = framesToContactSheet(
+      frames,
+      plane,
+      colourTableForProfile(session.profile),
+    );
     images.push({
       png,
       caption: `Contact sheet, ${plane} plane: ${grid.cols} columns x ${grid.rows} rows, row-major (oldest top-left), ${FRAME_WIDTH}x${FRAME_HEIGHT} per tile, ${SHEET_GAP}px gutter, sheet ${grid.width}x${grid.height}. Cycles in order: ${cycles.join(", ")}. ${noteText}`,
@@ -1612,7 +1627,7 @@ async function executeReadFrames(
   } else {
     for (const frame of frames) {
       images.push({
-        png: frameToPng(frame, plane),
+        png: frameToPng(frame, plane, colourTableForProfile(session.profile)),
         caption: `Cycle ${frame.cycle}, ${plane} plane, ${FRAME_WIDTH}x${FRAME_HEIGHT}. ${noteText}`,
       });
     }

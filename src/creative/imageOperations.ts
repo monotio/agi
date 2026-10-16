@@ -122,6 +122,12 @@ export function detectImageBackground(
   const rgb = key.split(",").map(Number);
   return [rgb[0]!, rgb[1]!, rgb[2]!];
 }
+/** A game's colour table with the id a preparation recipe records for it. */
+export interface GamePaletteLook {
+  readonly id: string;
+  readonly table: readonly (readonly [number, number, number])[];
+}
+
 /** One scale for both axes, rounded to native cel pixels. */
 export function scaleImageFrame(region: Rect, requestedHeight: number) {
   const scale =
@@ -248,6 +254,8 @@ export function prepareImageCels(
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
+  /** The game's colour table and its identity; colours are matched to it. EGA when omitted. */
+  look?: GamePaletteLook,
 ) {
   const identity = { id: sha256Hex(image.rgba), incarnation: "image", revision: 0 };
   const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
@@ -277,6 +285,7 @@ export function prepareImageCels(
       algorithm: "manual-view-preparation-v1",
       sources: [identity],
       palette: "ega-weighted-243-v1",
+      ...(look && look.id !== "ega" ? { paletteId: look.id } : {}),
       mask: {
         alphaThreshold: transparent ? 128 : 0,
         key: !transparent || background === null ? null : { mode: "ega-index-v1", rgb: background },
@@ -288,6 +297,7 @@ export function prepareImageCels(
       })),
     },
     profile,
+    look && look.id !== "ega" ? { [look.id]: look.table } : {},
   );
 }
 /** Append all selected frames and their attachment atomically, preserving existing cels. */
@@ -299,6 +309,7 @@ export function makeCelsChanges(
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
+  look?: GamePaletteLook,
 ): readonly ProjectChange[] {
   if (!/^view:(0|[1-9]\d{0,2})$/.test(target) || Number(target.slice(5)) > 255)
     throw new Error("Choose a VIEW target.");
@@ -319,7 +330,7 @@ export function makeCelsChanges(
             })) ?? [],
           ...(parsed?.description ? { description: parsed.description } : {}),
         };
-  const prepared = prepareImageCels(image, frames, profile, background, transparent);
+  const prepared = prepareImageCels(image, frames, profile, background, transparent, look);
   const loops = input.loops.map((loop) => ({ ...loop, cels: [...(loop.cels ?? [])] }));
   const destinations = [...new Set(frames.map((f) => f.loop))].sort((a, b) => a - b);
   for (const [i, destination] of destinations.entries()) {

@@ -20,7 +20,8 @@
  * a language model reads more reliably than a rendered glyph anyway. Every
  * caption says so, so the agent never mistakes black rows for a blank screen.
  */
-import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import { encodePngRgb } from "../picture/png.ts";
+import { EGA_TABLE, type ColourTable } from "../runtime/colourTables.ts";
 
 /** Logical picture surface. */
 const PIC_WIDTH = 160;
@@ -113,6 +114,7 @@ export function drawFrameInto(
   destWidth: number,
   originX: number,
   originY: number,
+  palette: ColourTable = EGA_TABLE,
 ): void {
   const nibbles = plane === "priority" ? frame.priority : frame.visual;
   const top = frame.picRow * 8;
@@ -122,7 +124,7 @@ export function drawFrameInto(
     const src = py * PIC_WIDTH;
     let o = ((originY + y) * destWidth + originX) * 3;
     for (let px = 0; px < PIC_WIDTH; px++) {
-      const rgb = EGA_RGB[nibbles[src + px]! & 0x0f]!;
+      const rgb = palette[nibbles[src + px]! & 0x0f]!;
       // One logical pixel is two screen pixels wide (authentic 320x200 EGA).
       dest[o] = rgb[0];
       dest[o + 1] = rgb[1];
@@ -136,9 +138,13 @@ export function drawFrameInto(
 }
 
 /** Encode a single frame as a 320x200 PNG. */
-export function frameToPng(frame: AgentFrame, plane: FramePlane): Uint8Array {
+export function frameToPng(
+  frame: AgentFrame,
+  plane: FramePlane,
+  palette: ColourTable = EGA_TABLE,
+): Uint8Array {
   const rgb = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 3);
-  drawFrameInto(frame, plane, rgb, FRAME_WIDTH, 0, 0);
+  drawFrameInto(frame, plane, rgb, FRAME_WIDTH, 0, 0, palette);
   return encodePngRgb(FRAME_WIDTH, FRAME_HEIGHT, rgb);
 }
 
@@ -146,6 +152,7 @@ export function frameToPng(frame: AgentFrame, plane: FramePlane): Uint8Array {
 export function framesToContactSheet(
   frames: readonly AgentFrame[],
   plane: FramePlane,
+  palette: ColourTable = EGA_TABLE,
 ): { png: Uint8Array; grid: SheetGrid } {
   const grid = sheetGrid(frames.length);
   const rgb = new Uint8Array(grid.width * grid.height * 3);
@@ -159,6 +166,7 @@ export function framesToContactSheet(
       grid.width,
       col * (FRAME_WIDTH + SHEET_GAP),
       row * (FRAME_HEIGHT + SHEET_GAP),
+      palette,
     );
   }
   return { png: encodePngRgb(grid.width, grid.height, rgb), grid };

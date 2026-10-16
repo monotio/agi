@@ -37,8 +37,7 @@ import { openSprite } from "../../../../src/view/spriteDocument.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import { buildView } from "../../../../src/view/view.ts";
 import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
-import { EGA_PALETTE } from "../../render/palette.ts";
-import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
+import { paletteCss, useGamePalette, useGamePaletteLook } from "../../render/useGamePalette.ts";
 import { presentTrace, previewTrace } from "./tracePresentation.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
@@ -99,6 +98,7 @@ watch(
 const mirrors = shallowRef<readonly (number | null)[]>([]);
 const loopHeights = shallowRef<readonly number[]>([]);
 const palette = useGamePalette();
+const gameLook = useGamePaletteLook();
 const background = shallowRef<readonly [number, number, number] | null>(null);
 const replaceOpen = ref(false);
 const colourOpen = ref(false);
@@ -134,7 +134,7 @@ const name = computed(() => {
 const backgroundName = computed(() =>
   background.value === null
     ? "Background is see-through"
-    : `${colourNames[nearestEgaIndex(...background.value)]} is see-through`,
+    : `${colourNames[nearestEgaIndex(...background.value, palette.value)]} is see-through`,
 );
 const sourceUrl = computed(() => {
   if (!image.value) return "";
@@ -359,6 +359,7 @@ const prepared = computed(() => {
       props.profile,
       background.value,
       backgroundTransparent.value,
+      gameLook.value,
     );
   } catch {
     return null;
@@ -379,6 +380,7 @@ async function addCels() {
         props.profile,
         background.value,
         backgroundTransparent.value,
+        gameLook.value,
       ),
       "Make cels from an image",
     );
@@ -493,7 +495,7 @@ onBeforeUnmount(() => {
             class="image-source__swatch"
             :style="{
               background: background
-                ? paletteCss(palette, nearestEgaIndex(...background))
+                ? paletteCss(palette, nearestEgaIndex(...background, palette))
                 : 'transparent',
             }"
           ></i
@@ -505,7 +507,7 @@ onBeforeUnmount(() => {
           aria-label="See-through colour"
         >
           <button
-            v-for="(colour, index) in EGA_PALETTE"
+            v-for="(colour, index) in palette"
             :key="index"
             type="button"
             :aria-label="colourNames[index]"

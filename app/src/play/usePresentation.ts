@@ -37,6 +37,8 @@ export function createPresentation() {
   let appearance: Appearance = PC_APPEARANCE;
   /** The same look as a ref, for Studio previews that repaint when a lazy platform look arrives. */
   const look = shallowRef<Appearance>(PC_APPEARANCE);
+  /** The running game's profile id, null before one loads. */
+  const profileId = shallowRef<string | null>(null);
   /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
   const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
   /** Text-only composite feeding the exploded view's front plane. */
@@ -183,6 +185,7 @@ export function createPresentation() {
     const request = ++profileRequest;
     appearance = appearanceForProfile(id, files);
     look.value = appearance;
+    profileId.value = id;
     void loadAppearance(id, files).then((next) => {
       if (request !== profileRequest || next === appearance) return;
       appearance = next;
@@ -326,6 +329,7 @@ export function createPresentation() {
       return appearance;
     },
     look,
+    profileId,
     testMode,
     canvasEl,
     gpuCanvasEl,
