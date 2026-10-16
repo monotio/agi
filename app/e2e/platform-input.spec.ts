@@ -170,7 +170,11 @@ for (const profile of ["2.936", "amiga-2.202", "iigs-1.014"]) {
         window as unknown as { gamepad: { buttons: { pressed: boolean }[] } }
       ).gamepad.buttons[0]!.pressed = true;
     });
-    if (profile !== "iigs-1.014") {
+    if (profile === "iigs-1.014") {
+      await expect
+        .poll(async () => (await textHook(page)).rows.join("\n"))
+        .toContain("Primary action");
+    } else {
       // Establish that the held sample reached the worker before releasing it.
       const polls = await page.evaluate(
         () => (window as unknown as { gamepad: { polls: number } }).gamepad.polls,
@@ -180,6 +184,7 @@ for (const profile of ["2.936", "amiga-2.202", "iigs-1.014"]) {
           page.evaluate(() => (window as unknown as { gamepad: { polls: number } }).gamepad.polls),
         )
         .toBeGreaterThan(polls);
+      await waitForCycles(page, 2);
     }
     await page.evaluate(() => {
       (

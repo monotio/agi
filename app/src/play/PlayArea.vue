@@ -172,7 +172,7 @@ onMounted(() => {
   window.addEventListener("blur", onFocusMove);
   window.addEventListener("blur", releaseGamepad);
   document.addEventListener("visibilitychange", releaseGamepad);
-  gamepadTimer = setInterval(pollGamepad, 50);
+  gamepadTimer = setInterval(pollGamepad, 1000 / 60);
   readKeyboard();
 });
 onBeforeUnmount(() => {

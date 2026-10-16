@@ -209,7 +209,12 @@ onBeforeUnmount(() => {
             emit(
               'key',
               translatePlatformKey(
-                { key: letter, ctrlKey: modifier === 'ctrl', altKey: modifier === 'alt' },
+                {
+                  key: letter,
+                  ctrlKey: modifier === 'ctrl',
+                  altKey: modifier === 'alt',
+                  metaKey: modifier === 'meta',
+                },
                 profile,
               ) ?? letter.charCodeAt(0),
             )
