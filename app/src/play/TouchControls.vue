@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { AGI_KEY, translatePlatformKey } from "../../../src/runtime/keys.ts";
+import { AGI_KEY, hasKeypadStop, translatePlatformKey } from "../../../src/runtime/keys.ts";
 import { FUNCTION_KEYS } from "./gameControls.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiSelect from "../ui/UiSelect.vue";
@@ -46,8 +46,7 @@ const extraKeys = computed<Record<string, number>>(() => ({
   Insert: AGI_KEY.INSERT,
   Delete: translatePlatformKey({ key: "Delete" }, profile) ?? AGI_KEY.DELETE,
   "Scroll Lock": 0x4600,
-  // Keypad 5 stops the hero, except on 2.089 and 2.230 (F-IN-07).
-  ...(profile === "2.089" || profile === "2.230" ? {} : { Stop: 0xf500 }),
+  ...(hasKeypadStop(profile) ? { Stop: 0xf500 } : {}),
   ...fireKeys.value,
   ...(profile?.startsWith("amiga-") || profile === "iigs-1.014" ? { Sound: 0xff00 } : {}),
 }));

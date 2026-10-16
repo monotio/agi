@@ -41,7 +41,7 @@ import { TraceWindow } from "./trace.ts";
 import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
 import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
-import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeKeyWord } from "./keys.ts";
+import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, hasKeypadStop, normalizeKeyWord } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
 import {
@@ -2941,7 +2941,7 @@ export class Engine {
   private queueHostKeys(modal: boolean): void {
     for (const key of this.host.takeKeys()) {
       if (this.consumePlatformKey(key)) continue;
-      if (key === 0xf500 && (this.profile.id === "2.089" || this.profile.id === "2.230")) continue;
+      if (key === 0xf500 && !hasKeypadStop(this.profile.id)) continue;
       if (modal) this.inputQueue.enqueueModalKey(key);
       else this.inputQueue.enqueueKey(key);
     }
@@ -3339,8 +3339,8 @@ export class Engine {
    * - Amiga confirmation dialog: Restart/Quit -> Enter, Cancel/Continue -> Esc.
    * - Unlabeled print or show.obj modal (or persistent f15 window): clicking
    *   inside the window frame returns Enter (0x0d); clicking outside returns null.
-   * - Text screens return Enter on Amiga 2.082 and Apple IIgs 1.014.
-   *   A priority screen does so only on Amiga 2.082 (F-IN-11).
+   * - Text screens return Enter on Amiga 2.082 and Apple IIgs 1.014; priority
+   *   screens never do (F-IN-11).
    */
   pointerKeyAt(x: number, y: number): number | null {
     if (this.profile.clickMove === "none") return null;
@@ -3352,9 +3352,6 @@ export class Engine {
         modal.serial !== this.joyCalibratingModalSerial
       ) {
         return this.windowHitAt(modal.saved.window, x, y) ? AGI_KEY.ENTER : null;
-      }
-      if (modal.kind === "showPri") {
-        if (this.profile.id === "amiga-2.082") return AGI_KEY.ENTER;
       }
       return null;
     }
@@ -3371,16 +3368,13 @@ export class Engine {
   }
 
   /**
-   * Amiga IDCMP MENUUP (0xe9) right-button double-click (2.082 h78+0x282,
-   * 2.176..2.333 h106+0x2a4): when no text window is open, enqueues type-1
-   * word 0x0401 (Button 2 double-click).
+   * Amiga IDCMP MENUUP (0xe9) right-button double-click (docs/fidelity.md
+   * "Original click-to-walk"): posts type-1 word 0x0401 unless a text window
+   * is open; text mode does not gate it. Engine modals count as open windows.
    */
   get pointerRightDoubleClickAllowed(): boolean {
     return (
-      this.profile.presentation === "amiga" &&
-      this.modal === null &&
-      this.persistentWindow === null &&
-      !this.textMode
+      this.profile.presentation === "amiga" && this.modal === null && this.persistentWindow === null
     );
   }
 
@@ -3609,7 +3603,12 @@ export class Engine {
             b.state = 2;
             b.deadline =
               this.joyClockMs +
-              this.vars[15]! * (isAmiga ? this.timing.timerIncrementMs : (65536 * 1000) / 1193182);
+              // v15 counts the interpreter's 20 Hz clock; the 2.001 booter
+              // counts BIOS 18.2 Hz ticks (F-IN-17).
+              this.vars[15]! *
+                (this.profile.id === "2.001"
+                  ? (65536 * 1000) / 1193182
+                  : this.timing.timerIncrementMs);
           }
         }
       } else if (b.state === 2) {
@@ -5583,7 +5582,9 @@ export class Engine {
       this.pointerX = x & 0xffff;
       this.pointerY = y & 0xffff;
     }
-    if (this.persistentWindow !== null) return;
+    // An Amiga print window blocks walking; the IIgs f15 window does not
+    // (docs/fidelity.md "Original click-to-walk").
+    if (rule !== "iigs" && this.persistentWindow !== null) return;
     if (this.directionCoupling === 0) return;
     const ego = this.objects[0]!;
     const nudge = rule === "amiga-2.31x" ? this.clickMoveNudge : [0, 0];

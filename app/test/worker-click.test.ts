@@ -207,7 +207,7 @@ test("clicking inside an open print window dismisses it on Amiga and IIgs while 
   }
 });
 
-test("amiga-2.082 left-click answers a text.screen have.key wait and dismisses show.pri.screen while amiga-2.316 drops both", () => {
+test("amiga-2.082 left-click answers a text.screen have.key wait; no build turns a priority-screen click into Enter", () => {
   const textLogic = `
     if (!isset(f201)) {
       set(f201);
@@ -237,7 +237,8 @@ test("amiga-2.082 left-click answers a text.screen have.key wait and dismisses s
   assert.equal(earlyPri.ctx.run.engine!.modalKind, "showPri");
   earlyPri.send({ type: "click", x: 160, y: 100 });
   earlyPri.tick(1);
-  assert.equal(earlyPri.ctx.run.engine!.modalKind, null);
+  // F-IN-11: show.pri.screen never raises 2.082's text-mode flag.
+  assert.equal(earlyPri.ctx.run.engine!.modalKind, "showPri");
 
   const laterPri = clickSession("amiga-2.316", priLogic);
   laterPri.tick(1);
@@ -247,7 +248,7 @@ test("amiga-2.082 left-click answers a text.screen have.key wait and dismisses s
   assert.equal(laterPri.ctx.run.engine!.modalKind, "showPri");
 });
 
-test("iigs-1.014 persistent print blocks outside walking and accepts a click inside", () => {
+test("iigs-1.014 f15 window lets an outside click walk and accepts a click inside", () => {
   const { ctx, send, tick } = clickSession(
     "iigs-1.014",
     `if (!isset(f200)) {
@@ -264,10 +265,10 @@ test("iigs-1.014 persistent print blocks outside walking and accepts a click ins
   );
   tick(2);
   assert.equal(ctx.run.engine!.modalKind, null, "f15 left the window non-blocking");
-  // The open-window gate at seg3+0xa4b blocks outside click-to-walk.
+  // The f15 branch sets $1590, which passes the walk gate at seg3+0xa4b.
   send({ type: "click", x: 161, y: 108 });
   tick(1);
-  assert.equal(ctx.run.engine!.screenObjects[0]!.motionMode, 0);
+  assert.equal(ctx.run.engine!.screenObjects[0]!.motionMode, 4, "click-move mode");
   // Clicking inside the banner at (30, 24) enqueues Enter (0x0d) for have.key().
   send({ type: "click", x: 30, y: 24 });
   tick(1);

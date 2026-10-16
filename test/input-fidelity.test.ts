@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
-import { translatePlatformKey } from "../src/runtime/keys.ts";
+import { AGI_KEY, translatePlatformKey } from "../src/runtime/keys.ts";
 import { PROFILES, type AgiProfile } from "../src/runtime/profile.ts";
 import { validateEngineReplayState } from "../src/runtime/replayState.ts";
 import { buildObjectFile } from "../src/agent/agentState.ts";
@@ -651,7 +651,7 @@ test("F-IN-01: direction events clear ego.motionMode under player control on 2.2
   }
 });
 
-test("Keypad 5 (0xf500) stops ego on 2.001, 2.272+, Amiga and IIgs, but is ignored on 2.089 and 2.230", () => {
+test("Keypad 5 (0xf500) stops ego on 2.272+, Amiga and IIgs, but is ignored on 2.001, 2.089 and 2.230", () => {
   for (const id of [
     "2.001",
     "2.089",
@@ -671,7 +671,8 @@ test("Keypad 5 (0xf500) stops ego on 2.001, 2.272+, Amiga and IIgs, but is ignor
     assert.equal(engine.vars[6], 3, `${id}: moving East`);
     host.keys.push(0xf500); // Keypad 5
     engine.tick();
-    const ignored = id === "2.089" || id === "2.230";
+    // F-IN-07: only the 2.272+ INT 9 hook posts the keypad-5 stop.
+    const ignored = id === "2.001" || id === "2.089" || id === "2.230";
     assert.equal(engine.vars[6], ignored ? 3 : 0, `${id}: Keypad 5 stop behavior`);
   }
 });
@@ -703,7 +704,7 @@ test("Amiga and IIgs left-clicking inside an unlabeled print or show.obj window 
   }
 });
 
-test("A graphics priority-display click dismisses only amiga-2.082", () => {
+test("a priority-display click is never Enter: show.pri.screen leaves the text-mode flag clear", () => {
   class ClickHost extends Host {
     clicks: [number, number][] = [];
     takePointerClicks(): readonly (readonly [number, number])[] {
@@ -721,12 +722,8 @@ test("A graphics priority-display click dismisses only amiga-2.082", () => {
     assert.equal(engine.modalKind, "showPri", `${id}: show.pri.screen modal opened`);
     host.clicks.push([160, 100]);
     engine.tick();
-    const dismisses = id === "amiga-2.082";
-    assert.equal(
-      engine.modalKind,
-      dismisses ? null : "showPri",
-      `${id}: show.pri.screen click behavior`,
-    );
+    // F-IN-11: on 2.082 only text.screen raises the flag whose click posts Enter.
+    assert.equal(engine.modalKind, "showPri", `${id}: show.pri.screen click behavior`);
   }
 });
 
@@ -876,6 +873,16 @@ test("Amiga right-button double-click enqueues 0x0401 when no window is open, an
     "Amiga right double-click triggers 0x0401 controller",
   );
 
+  // The MENUUP arm tests only the text-window flag: text mode does not gate it.
+  const textHost = new ClickHost();
+  const textEngine = game(
+    "set.key(1, 4, 12); if (!isset(f200)) { set(f200); text.screen(); } return;",
+    textHost,
+    PROFILES["amiga-2.316"],
+  );
+  textEngine.tick();
+  assert.equal(textEngine.pointerRightDoubleClick(), true, "text mode allows the double-click");
+
   // Non-Amiga ignores pointerRightDoubleClick
   const pcHost = new ClickHost();
   const pcEngine = game("set.key(1, 4, 12); return;", pcHost, PROFILES["2.936"]);
@@ -929,7 +936,9 @@ test("Amiga right-button double-click enqueues 0x0401 when no window is open, an
       );
     }
 
-    // Clicking outside a persistent window blocks walking; later Amiga still latches f19.
+    // Outside an f15 window, the Amiga text-window flag blocks walking (f19
+    // still latches on 2.31x); the IIgs f15 branch sets $1590, which lets
+    // the walk through.
     host.clicks.push([2, 140]);
     engine.tick();
     if (id === "amiga-2.316") {
@@ -940,7 +949,7 @@ test("Amiga right-button double-click enqueues 0x0401 when no window is open, an
       );
       assert.equal(engine.vars[6], 0, "Amiga 2.316 persistent window blocks click-to-walk");
     } else {
-      assert.equal(engine.vars[6], 0, "IIgs 1.014 persistent window blocks outside click-to-walk");
+      assert.notEqual(engine.vars[6], 0, "IIgs 1.014 f15 window allows outside click-to-walk");
     }
 
     // Clicking inside persistent window enqueues Enter (0x0d) -> v19 = 13
@@ -1433,4 +1442,53 @@ test("all IIgs fire-button words accept the save selector through synchronous Ge
     engine.tick();
     assert.equal(host.writes, 1, `native word ${word.toString(16)} accepts`);
   }
+});
+
+test("the joystick double-press interval counts the 20 Hz clock, or BIOS ticks on the 2.001 booter", () => {
+  // F-IN-17: 2.089+ program the PIT for a 20 Hz count (3 x 19886 / 1193182 s);
+  // 2.001 counts the BIOS 18.2 Hz tick. v15 = 10 gives 500 ms and 549.25 ms.
+  class JoyHost extends Host {
+    joy = { x: 100, y: 100, button1: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const singleAfter = (id: "2.001" | "2.936"): number => {
+    const host = new JoyHost();
+    const engine = game(
+      "set.key(1,1,7); if (!isset(f200)) { set(f200); init.joy(); } return;",
+      host,
+      PROFILES[id],
+    );
+    engine.tick();
+    assert.equal(engine.modalKind, "print", `${id}: calibration window`);
+    if (id === "2.001") {
+      host.joy.button1 = true;
+      engine.tick();
+    } else {
+      host.keys.push(AGI_KEY.ENTER);
+      engine.tick();
+    }
+    assert.equal(engine.modalKind, null, `${id}: calibrated`);
+    host.joy.button1 = false;
+    engine.tick();
+    engine.tick();
+    engine.flags[8] = 1;
+    engine.vars[15] = 10;
+    host.joy.button1 = true;
+    engine.tick();
+    host.joy.button1 = false;
+    engine.tick();
+    assert.equal(engine.controllers[7], 0, `${id}: the single waits for a second press`);
+    let elapsed = 0;
+    const fired = (): boolean => engine.controllers[7] === 1;
+    while (!fired() && elapsed < 2000) {
+      engine.advanceClock(1);
+      elapsed += 1;
+      engine.tick();
+    }
+    return elapsed;
+  };
+  assert.equal(singleAfter("2.936"), 500);
+  assert.equal(singleAfter("2.001"), 550);
 });

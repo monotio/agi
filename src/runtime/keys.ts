@@ -79,6 +79,15 @@ export const KEYPAD_DIRECTION_WORDS: Record<number, number> = {
 };
 
 /**
+ * Whether unmodified Keypad 5 stops the hero (0xf500, direction 0). The INT 9
+ * hooks of 2.272 and later post it; 2.001, 2.089 and 2.230 have neither the
+ * hook check nor a keypad-5 table entry (docs/fidelity.md F-IN-07).
+ */
+export function hasKeypadStop(profileId: string | null | undefined): boolean {
+  return profileId !== "2.001" && profileId !== "2.089" && profileId !== "2.230";
+}
+
+/**
  * The keypad/joystick duplicates of the accept/cancel keys:
  * - On PC (all 13 builds) and Amiga (2.082 h76+0x278, 2.176..2.333 h103+0x28e),
  *   ButtonToChar maps 0x0101/0x0301 -> CR (0x0d) and 0x0201/0x0401 -> ESC (0x1b).
@@ -236,8 +245,8 @@ function eventLetter(event: PlatformKeyEvent): string | undefined {
 /**
  * Translate a keyboard event into the profile's native 16-bit AGI key word
  * (docs/fidelity.md "Original input, menu and modal handling"):
- * - Unmodified Keypad 5 -> 0xf500 (direction 0 stop) on 2.001, 2.272+, Amiga
- *   and IIgs; ignored on 2.089 and 2.230 (no 0x4c check in INT 9).
+ * - Unmodified Keypad 5 -> 0xf500 (direction 0 stop) on 2.272+, Amiga and
+ *   IIgs; ignored on 2.001, 2.089 and 2.230 (`hasKeypadStop`).
  * - Amiga (2.082 h78+0x340/h79, 2.176..2.333 h106+0x358/h107): Help -> F1
  *   (0x3b00), Alt+Help -> 0xff00, Delete -> 0x7f, Ctrl+X -> 0x03 on 2.176+,
  *   Alt+letter/digit/F-key scan words, and Amiga (metaKey) bit 8 (| 0x0100).
@@ -262,7 +271,7 @@ export function translatePlatformKey(
     !event.shiftKey &&
     (event.code === "Numpad5" || (isKeypad && (event.key === "5" || event.key === "Clear")))
   ) {
-    return profileId === "2.089" || profileId === "2.230" ? undefined : 0xf500;
+    return hasKeypadStop(profileId) ? 0xf500 : undefined;
   }
 
   if (
