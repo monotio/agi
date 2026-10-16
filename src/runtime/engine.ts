@@ -2520,7 +2520,7 @@ export class Engine {
    * navigation event answers. Returns undefined when nothing is queued.
    */
   private drainDialogKey(): number | undefined {
-    for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
+    this.queueHostKeys(true);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
       // The selector's wait runs GetKey too, so keypad Enter/Escape words
       // normalize here on the profiles whose queue keeps the full words
@@ -2746,7 +2746,7 @@ export class Engine {
   releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     if (eligible) {
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+      this.queueHostKeys(false);
       this.inputQueue.enqueue({ type: 2, value: 0 });
     }
   }
@@ -2932,6 +2932,22 @@ export class Engine {
    * have.key discards navigation/status events and preserves the unread
    * suffix. It applies no script mapping: a mapped key is raw here.
    */
+  /** Apply a native keyboard switch before a host queues or delivers a key (F-IN-16). */
+  consumePlatformKey(key: number): boolean {
+    if (key !== 0xff00 || this.profile.presentation === "pc") return false;
+    this.setSoundEnabled(this.flags[F_SOUND_ENABLED] === 0);
+    return true;
+  }
+
+  private queueHostKeys(modal: boolean): void {
+    for (const key of this.host.takeKeys()) {
+      if (this.consumePlatformKey(key)) continue;
+      if (key === 0xf500 && (this.profile.id === "2.089" || this.profile.id === "2.230")) continue;
+      if (modal) this.inputQueue.enqueueModalKey(key);
+      else this.inputQueue.enqueueKey(key);
+    }
+  }
+
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
       // GetKey normalizes the keypad/joystick button words across all twenty
@@ -2954,9 +2970,6 @@ export class Engine {
     if (this.profile.presentation === "iigs") {
       if (key === 0x0101 || key === 0x0201) {
         key = AGI_KEY.ENTER;
-      } else if (key === 0xff00) {
-        this.flags[F_SOUND_ENABLED] = this.flags[F_SOUND_ENABLED] ? 0 : 1;
-        if (this.flags[F_SOUND_ENABLED] === 0) this.stopSound();
       }
     }
     const byte = key & 0xff;
@@ -2997,6 +3010,10 @@ export class Engine {
     if (!m) return;
     const rawKey = key & 0xffff;
     key = normalizeKeyWord(rawKey, this.profile.presentation);
+    if (m.kind === "print" && m.serial === this.joyCalibratingModalSerial) {
+      this.resolveJoyCalibrationModal(rawKey, key & 0xff);
+      return;
+    }
     const nav = NAV_KEYS[key];
     if (nav !== undefined) {
       this.modalNavigate(nav);
@@ -3007,10 +3024,6 @@ export class Engine {
       case "print":
       case "showObj":
       case "showPri":
-        if (m.kind === "print" && m.serial === this.joyCalibratingModalSerial) {
-          this.resolveJoyCalibrationModal(rawKey, byte);
-          return;
-        }
         // ChkAcAb accepts CR (1) or ESC (0) only; every other key keeps
         // waiting — Space is not an acknowledgement key (docs/fidelity.md
         // "Original input, menu and modal handling").
@@ -3341,14 +3354,12 @@ export class Engine {
         return this.windowHitAt(modal.saved.window, x, y) ? AGI_KEY.ENTER : null;
       }
       if (modal.kind === "showPri") {
-        if (this.profile.id === "amiga-2.082" || (this.profile.id === "iigs-1.014" && y >= 8)) {
-          return AGI_KEY.ENTER;
-        }
+        if (this.profile.id === "amiga-2.082") return AGI_KEY.ENTER;
       }
       return null;
     }
     if (this.textMode) {
-      if (this.profile.id === "amiga-2.082" || (this.profile.id === "iigs-1.014" && y >= 8)) {
+      if (this.profile.id === "amiga-2.082" || this.profile.id === "iigs-1.014") {
         return AGI_KEY.ENTER;
       }
       return null;
@@ -3394,8 +3405,10 @@ export class Engine {
       return;
     }
     const prompt =
-      this.profile.presentation === "iigs"
-        ? "If you have a joystick,\nplease center it and press one\nof the buttons.\n\nOtherwise, press any key to\ncontinue."
+      this.profile.presentation === "iigs" ||
+      this.profile.inputLineEditCap === "early-35" ||
+      this.profile.id === "2.272"
+        ? "If you have a joystick, please center it\nand press one of the buttons.\n\nOtherwise, press any key to continue."
         : "Please center your joystick.\n\nPress ENTER when it is\ncentered.\n\nPress ESC if you do not wish\nto use the joystick.";
     this.emitPrint(prompt, undefined, true);
     this.joyCalibratingModalSerial = this.modal?.serial ?? null;
@@ -3403,40 +3416,38 @@ export class Engine {
 
   private resolveJoyCalibrationModal(rawKey: number, byte: number): void {
     const isIIgs = this.profile.presentation === "iigs";
-    const isButtonWord =
-      rawKey === 0x0101 || rawKey === 0x0201 || rawKey === 0x0301 || rawKey === 0x0401;
     if (isIIgs) {
-      if (isButtonWord || byte === AGI_KEY.ENTER) {
-        const sample = this.host.sampleJoystick?.();
-        const cx = sample && sample.x !== 0 ? sample.x : 100;
-        const cy = sample && sample.y !== 0 ? sample.y : 100;
-        this.joyXMin = Math.trunc(cx / 4);
-        this.joyXMax = Math.trunc((7 * cx) / 4);
-        this.joyYMin = Math.trunc(cy / 4);
-        this.joyYMax = Math.trunc((7 * cy) / 4);
-        this.joyEnabled = true;
-        this.joyCalibratingModalSerial = null;
-        this.closeModal();
-      } else if (byte !== 0) {
-        this.joyEnabled = false;
-        this.joyCalibratingModalSerial = null;
-        this.closeModal();
-      }
+      // The IIgs waits on its keyboard latch or either fire button; every
+      // keyboard key accepts calibration (F-IN-17).
+      const sample = this.host.sampleJoystick?.();
+      if (sample === null || sample === undefined) return;
+      const cx = sample.x;
+      const cy = sample.y;
+      this.joyXMin = Math.trunc(cx / 4);
+      this.joyXMax = cx + Math.trunc(cx / 2) + Math.trunc(cx / 4);
+      this.joyYMin = Math.trunc(cy / 4);
+      this.joyYMax = cy + Math.trunc(cy / 2) + Math.trunc(cy / 4);
+      this.joyEnabled = true;
+      this.joyCalibratingModalSerial = null;
+      this.closeModal();
+      this.inputQueue.clear();
       return;
     }
-    if (byte === AGI_KEY.ENTER) {
+    const earlyPC = this.profile.inputLineEditCap === "early-35" || this.profile.id === "2.272";
+    const fireWord = rawKey >= 0x0101 && rawKey <= 0x0401 && (rawKey & 0xff) === 1;
+    if (earlyPC ? fireWord : byte === AGI_KEY.ENTER) {
       const sample = this.host.sampleJoystick?.();
       const cx = sample && sample.x !== 0 ? sample.x : 100;
       const cy = sample && sample.y !== 0 ? sample.y : 100;
-      this.joyXMin = Math.trunc(cx / 2);
+      this.joyXMin = cx - Math.trunc(cx / 2);
       this.joyXMax = Math.trunc((3 * cx) / 2);
-      this.joyYMin = Math.trunc(cy / 2);
+      this.joyYMin = cy - Math.trunc(cy / 2);
       this.joyYMax = Math.trunc((3 * cy) / 2);
       this.joyEnabled = true;
       this.joyCalibratingModalSerial = null;
       this.closeModal();
       this.inputQueue.clear();
-    } else if (byte === AGI_KEY.ESCAPE) {
+    } else if (earlyPC || byte === AGI_KEY.ESCAPE) {
       this.joyEnabled = false;
       this.joyCalibratingModalSerial = null;
       this.closeModal();
@@ -3448,8 +3459,20 @@ export class Engine {
     const sample = this.host.sampleJoystick?.() ?? null;
     if (sample === null) return;
     if (this.modal !== null && this.modal.serial === this.joyCalibratingModalSerial) {
-      if (sample.button1) this.inputQueue.enqueueModalKey(0x0101);
-      else if (sample.button2) this.inputQueue.enqueueModalKey(0x0201);
+      if (
+        this.profile.presentation === "iigs" ||
+        this.profile.inputLineEditCap === "early-35" ||
+        this.profile.id === "2.272"
+      ) {
+        if (sample.button1 || sample.button2) this.inputQueue.enqueueModalKey(0x0101);
+      } else {
+        if (this.joyButtons[0].state === 1 && !sample.button1)
+          this.inputQueue.enqueueModalKey(0x0101);
+        if (this.joyButtons[1].state === 1 && !sample.button2)
+          this.inputQueue.enqueueModalKey(0x0201);
+        this.joyButtons[0].state = sample.button1 ? 1 : 0;
+        this.joyButtons[1].state = sample.button2 ? 1 : 0;
+      }
       return;
     }
     if (!this.joyEnabled) return;
@@ -3494,6 +3517,7 @@ export class Engine {
       return;
     }
     for (let i = 0 as 0 | 1; i < 2; i = (i + 1) as 0 | 1) {
+      if (isAmiga && i === 1) break;
       const pressed = i === 0 ? Boolean(sample.button1) : Boolean(sample.button2);
       const singleWord = i === 0 ? 0x0101 : 0x0201;
       const doubleWord = isAmiga ? 0x0401 : i === 0 ? 0x0301 : 0x0401;
@@ -3507,7 +3531,7 @@ export class Engine {
             this.inputQueue.enqueue({ type: 1, value: singleWord });
           } else {
             b.state = 2;
-            b.deadline = this.timerTicks + (this.vars[15] || 5);
+            b.deadline = this.timerTicks + this.vars[15]!;
           }
         }
       } else if (b.state === 2) {
@@ -5130,7 +5154,7 @@ export class Engine {
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
       // Modal Enter/Escape are raw controls, even when a script binds them.
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
+      this.queueHostKeys(true);
       for (const [x, y] of this.host.takePointerClicks?.() ?? []) {
         const key = this.pointerKeyAt(x, y);
         if (key !== null) this.inputQueue.enqueueModalKey(key);
@@ -5191,12 +5215,7 @@ export class Engine {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
         this.pendingController = null;
       }
-      for (const key of this.host.takeKeys()) {
-        if (key === 0xf500 && (this.profile.id === "2.089" || this.profile.id === "2.230")) {
-          continue;
-        }
-        this.inputQueue.enqueueKey(key);
-      }
+      this.queueHostKeys(false);
       this.pollJoystick();
       // The original's message pump starts a click-move as the click arrives;
       // a direction event it queued alongside still cancels it below.
@@ -5479,7 +5498,7 @@ export class Engine {
       this.pointerX = x & 0xffff;
       this.pointerY = y & 0xffff;
     }
-    if (rule !== "iigs" && this.persistentWindow !== null) return;
+    if (this.persistentWindow !== null) return;
     if (this.directionCoupling === 0) return;
     const ego = this.objects[0]!;
     const nudge = rule === "amiga-2.31x" ? this.clickMoveNudge : [0, 0];
@@ -6921,7 +6940,7 @@ export class Engine {
         // gets a synthesized Enter after a bounded number of polls so a
         // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
-        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
+        this.queueHostKeys(false);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey;
         if (pressed === undefined) {

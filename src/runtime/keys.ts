@@ -265,6 +265,18 @@ export function translatePlatformKey(
     return profileId === "2.089" || profileId === "2.230" ? undefined : 0xf500;
   }
 
+  if (
+    isKeypad &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    (profileId === "iigs-1.014" || profileId?.startsWith("amiga-"))
+  ) {
+    const digit = event.code?.match(/^Numpad([1-9])$/)?.[1] ?? event.key;
+    if (/^[1-9]$/.test(digit)) return (0xf0 + Number(digit)) << 8;
+  }
+
   if (profileId === "iigs-1.014") {
     if (event.metaKey) return undefined;
     if (event.ctrlKey) {

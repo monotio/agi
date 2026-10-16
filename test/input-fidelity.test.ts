@@ -702,7 +702,7 @@ test("Amiga and IIgs left-clicking inside an unlabeled print or show.obj window 
   }
 });
 
-test("Amiga and IIgs left-click on text.screen or show.pri.screen enqueues Enter only on amiga-2.082 and iigs-1.014", () => {
+test("A graphics priority-display click dismisses only amiga-2.082", () => {
   class ClickHost extends Host {
     clicks: [number, number][] = [];
     takePointerClicks(): readonly (readonly [number, number])[] {
@@ -720,7 +720,7 @@ test("Amiga and IIgs left-click on text.screen or show.pri.screen enqueues Enter
     assert.equal(engine.modalKind, "showPri", `${id}: show.pri.screen modal opened`);
     host.clicks.push([160, 100]);
     engine.tick();
-    const dismisses = id === "amiga-2.082" || id === "iigs-1.014";
+    const dismisses = id === "amiga-2.082";
     assert.equal(
       engine.modalKind,
       dismisses ? null : "showPri",
@@ -928,7 +928,7 @@ test("Amiga right-button double-click enqueues 0x0401 when no window is open, an
       );
     }
 
-    // Clicking outside persistent window: blocks click-to-walk on Amiga (while latching f19), starts click-to-walk on IIgs
+    // Clicking outside a persistent window blocks walking; later Amiga still latches f19.
     host.clicks.push([2, 140]);
     engine.tick();
     if (id === "amiga-2.316") {
@@ -939,11 +939,7 @@ test("Amiga right-button double-click enqueues 0x0401 when no window is open, an
       );
       assert.equal(engine.vars[6], 0, "Amiga 2.316 persistent window blocks click-to-walk");
     } else {
-      assert.notEqual(
-        engine.vars[6],
-        0,
-        "IIgs 1.014 persistent window allows click-to-walk outside window",
-      );
+      assert.equal(engine.vars[6], 0, "IIgs 1.014 persistent window blocks outside click-to-walk");
     }
 
     // Clicking inside persistent window enqueues Enter (0x0d) -> v19 = 13
@@ -1085,4 +1081,155 @@ test("init.joy and joystick polling follow PC, Amiga and Apple IIgs binary rules
     engine.tick();
     assert.equal(engine.vars[19], 0x0d, "IIgs joystick button posts Enter (0x0d)");
   }
+});
+
+test("PC joystick calibration waits for a button release and uses center minus half for its lower threshold", () => {
+  class JoyHost extends Host {
+    joy = { x: 101, y: 101, button1: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const engine = game(
+    "if (!isset(f200)) { set(f200); init.joy(); } return;",
+    host,
+    PROFILES["3.002.149"],
+  );
+  engine.tick();
+  host.joy.button1 = true;
+  engine.tick();
+  assert.equal(engine.modalKind, "print", "holding fire keeps the calibration window open");
+  host.joy.button1 = false;
+  engine.tick();
+  assert.equal(engine.modalKind, null, "releasing fire accepts the centered joystick");
+  host.joy.x = 50;
+  engine.tick();
+  assert.equal(engine.vars[6], 7, "101 - trunc(101 / 2) = 51, so 50 is left of center");
+});
+
+test("IIgs joystick calibration accepts a keyboard key and uses the binary's two shifts for odd centers", () => {
+  class JoyHost extends Host {
+    joy = { x: 103, y: 103, button1: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const engine = game(
+    "if (!isset(f200)) { set(f200); init.joy(); } return;",
+    host,
+    PROFILES["iigs-1.014"],
+  );
+  engine.tick();
+  host.keys.push(0x61);
+  engine.tick();
+  assert.equal(engine.modalKind, null);
+  host.joy.x = 180;
+  engine.tick();
+  assert.equal(engine.vars[6], 3, "103 + (103 >> 1) + (103 >> 2) = 179, so 180 is right");
+});
+
+test("Amiga joystick has one fire button; the gamepad secondary button is not an extra native button", () => {
+  class JoyHost extends Host {
+    joy = { x: 0, y: 0, button1: false, button2: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const engine = game("set.key(1,2,2); return;", host, PROFILES["amiga-2.202"]);
+  engine.tick();
+  host.joy.button2 = true;
+  engine.tick();
+  host.joy.button2 = false;
+  engine.tick();
+  assert.equal(engine.controllers[2], 0);
+});
+
+test("Amiga Help+Alt toggles sound during gameplay and a print wait without entering the key queue", () => {
+  const host = new Host();
+  const engine = game(
+    'set.key(0,255,1); if (controller(c1)) { assignn(v100,1); } if (isset(f200)) { reset(f200); print("Wait"); } return;',
+    host,
+    PROFILES["amiga-2.202"],
+  );
+  engine.tick();
+  engine.vars[19] = 42;
+  host.keys.push(0xff00);
+  engine.tick();
+  assert.equal(engine.flags[9], 0);
+  assert.equal(engine.vars[100], 0, "the native sound switch posts no controller event");
+  engine.flags[200] = 1;
+  engine.tick();
+  assert.equal(engine.modalKind, "print");
+  host.keys.push(0xff00);
+  engine.tick();
+  assert.equal(engine.flags[9], 1);
+  assert.equal(engine.modalKind, "print");
+});
+
+test("native numeric keypad directions stay directions while a modal or have.key owns input", () => {
+  for (const id of ["amiga-2.082", "amiga-2.202", "iigs-1.014"] as const) {
+    for (const [digit, word] of [
+      ["1", 0xf100],
+      ["2", 0xf200],
+      ["3", 0xf300],
+      ["4", 0xf400],
+      ["6", 0xf600],
+      ["7", 0xf700],
+      ["8", 0xf800],
+      ["9", 0xf900],
+    ] as const) {
+      assert.equal(
+        translatePlatformKey({ key: digit, code: `Numpad${digit}`, location: 3 }, id),
+        word,
+        `${id} keypad ${digit}`,
+      );
+    }
+  }
+});
+
+test("PC 2.001 through 2.272 calibrate on a pressed fire button and cancel on any keyboard key", () => {
+  class JoyHost extends Host {
+    joy = { x: 100, y: 100, button1: false, button2: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  for (const id of ["2.001", "2.089", "2.230", "2.272"] as const) {
+    const host = new JoyHost();
+    const engine = game("if (!isset(f200)) {set(f200); init.joy();} return;", host, PROFILES[id]);
+    engine.tick();
+    host.keys.push(0x61);
+    engine.tick();
+    assert.equal(engine.modalKind, null, `${id}: a keyboard key cancels`);
+    host.joy.x = 180;
+    engine.tick();
+    assert.equal(engine.vars[6], 0, `${id}: the cancelled joystick does not move ego`);
+    const fireHost = new JoyHost();
+    const fireEngine = game(
+      "if (!isset(f200)) {set(f200); init.joy();} return;",
+      fireHost,
+      PROFILES[id],
+    );
+    fireEngine.tick();
+    fireHost.joy.button2 = true;
+    fireEngine.tick();
+    assert.equal(fireEngine.modalKind, null, `${id}: either pressed fire button calibrates`);
+  }
+});
+
+test("IIgs text.screen clicks include the top row; priority display clicks are not Enter", () => {
+  const host = new Host();
+  const text = game("text.screen(); return;", host, PROFILES["iigs-1.014"]);
+  text.tick();
+  assert.equal(text.pointerKeyAt(160, 0), 0x0d, "text mode bypasses the native menu-bar route");
+  const priority = game("show.pri.screen(); return;", new Host(), PROFILES["iigs-1.014"]);
+  priority.tick();
+  assert.equal(
+    priority.pointerKeyAt(160, 100),
+    null,
+    "priority graphics keep the text-mode bit clear",
+  );
 });

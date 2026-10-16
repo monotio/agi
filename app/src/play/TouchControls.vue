@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { AGI_KEY } from "../../../src/runtime/keys.ts";
-import { FUNCTION_KEYS, ALT_LETTER_SCANS } from "./gameControls.ts";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { AGI_KEY, translatePlatformKey } from "../../../src/runtime/keys.ts";
+import { FUNCTION_KEYS } from "./gameControls.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiSelect from "../ui/UiSelect.vue";
 
-const { disabled, navigating, hold } = defineProps<{
+const { disabled, navigating, hold, profile } = defineProps<{
   disabled: boolean;
   navigating: boolean;
   hold: boolean;
+  profile: string | null;
 }>();
 const emit = defineEmits<{ direction: [direction: number]; key: [code: number]; keyboard: [] }>();
 const active = ref<number>();
@@ -26,14 +27,20 @@ const directions = [
   { dir: 5, angle: 90, name: "south" },
   { dir: 4, angle: 45, name: "southeast" },
 ];
-const extraKeys: Record<string, number> = {
+const extraKeys = computed<Record<string, number>>(() => ({
   ...FUNCTION_KEYS,
   Tab: AGI_KEY.TAB,
   Backspace: AGI_KEY.BACKSPACE,
   Insert: AGI_KEY.INSERT,
-  Delete: AGI_KEY.DELETE,
+  Delete: translatePlatformKey({ key: "Delete" }, profile) ?? AGI_KEY.DELETE,
   "Scroll Lock": 0x4600,
-};
+  Stop: 0xf500,
+  "Button 1": 0x0101,
+  "Button 2": 0x0201,
+  "Button 3": 0x0301,
+  "Button 4": 0x0401,
+  ...(profile?.startsWith("amiga-") || profile === "iigs-1.014" ? { Sound: 0xff00 } : {}),
+}));
 const modifier = ref<"none" | "ctrl" | "alt">("none");
 const letters = "abcdefghijklmnopqrstuvwxyz".split("");
 
@@ -187,18 +194,17 @@ onBeforeUnmount(() => {
       </label>
       <div class="key-grid letters">
         <button
-          v-for="(letter, index) in letters"
+          v-for="letter in letters"
           :key="letter"
           type="button"
           :disabled
           @click="
             emit(
               'key',
-              modifier === 'ctrl'
-                ? index + 1
-                : modifier === 'alt'
-                  ? ALT_LETTER_SCANS[letter.toUpperCase()]! << 8
-                  : letter.charCodeAt(0),
+              translatePlatformKey(
+                { key: letter, ctrlKey: modifier === 'ctrl', altKey: modifier === 'alt' },
+                profile,
+              ) ?? letter.charCodeAt(0),
             )
           "
         >

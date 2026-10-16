@@ -89,6 +89,11 @@ export function createInput(ctx: WorkerContext) {
     flushDeferredMovement();
     const key = Number(msg.code) & 0xffff;
     ctx.fns.historyRecord({ kind: "key", code: key });
+    if (ctx.run.engine?.consumePlatformKey(key)) {
+      ctx.run.recording.recording?.tape.record(["soundEnabled", ctx.run.engine.flags[9]!]);
+      ctx.fns.postFrame();
+      return;
+    }
     // A parked key wait answers from the queue directly — any key,
     // including a navigation key that would otherwise defer.
     const keyWaitParked = ctx.run.engine?.awaitingKey === true;

@@ -26,7 +26,7 @@ import { stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 import { amigaPointerCursor } from "./amigaPointer.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
-import { pcKey, movementDirection } from "./gameControls.ts";
+import { movementDirection } from "./gameControls.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { AGI_KEY, DIRECTION_KEYS, translatePlatformKey } from "../../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../../src/runtime/textSurface.ts";
@@ -531,41 +531,10 @@ function onPromptKey(ev: KeyboardEvent): void {
 
 /** Keys while an engine modal (print window, inventory, menu…) is open. */
 function onModalKey(ev: KeyboardEvent): void {
-  const activeModal =
-    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
-      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
-      : state.modal;
-  if (state.waitingForKey || activeModal === "save" || activeModal === "restore") {
-    const code = translatePlatformKey(ev, state.profile) ?? pcKey(ev);
-    if (code !== undefined) {
-      ev.preventDefault();
-      sendKey(code);
-    }
-    return;
-  }
-  const dir = movementDirection(ev);
-  if (dir !== undefined) {
-    sendDirection(dir);
-    ev.preventDefault();
-    return;
-  }
-  const code =
-    ev.key === "Enter"
-      ? AGI_KEY.ENTER
-      : ev.key === "Escape"
-        ? AGI_KEY.ESCAPE
-        : ev.key === "Home"
-          ? AGI_KEY.HOME
-          : ev.key === "End"
-            ? AGI_KEY.END
-            : ev.key === "PageUp"
-              ? AGI_KEY.PAGE_UP
-              : ev.key === "PageDown"
-                ? AGI_KEY.PAGE_DOWN
-                : ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey
-                  ? ev.key.charCodeAt(0) & 0xff
-                  : null;
-  if (code === null) return;
+  // The queue classifies native direction words; every other key remains a
+  // raw modal key, including function keys on a bare inventory wait.
+  const code = translatePlatformKey(ev, state.profile);
+  if (code === undefined) return;
   ev.preventDefault();
   sendKey(code);
 }
@@ -938,6 +907,7 @@ defineExpose({
       :disabled="agentBlocksGame || state.paused"
       :navigating="state.modal !== null"
       :hold="state.holdToMove"
+      :profile="state.profile"
       @direction="onTouchDirection"
       @key="onVirtualKey"
       @keyboard="inputEl?.focus({ preventScroll: true })"

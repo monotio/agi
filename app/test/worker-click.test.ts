@@ -247,7 +247,7 @@ test("amiga-2.082 left-click answers a text.screen have.key wait and dismisses s
   assert.equal(laterPri.ctx.run.engine!.modalKind, "showPri");
 });
 
-test("iigs-1.014 click outside a non-blocking f15 window walks ego while clicking inside enqueues Enter", () => {
+test("iigs-1.014 persistent print blocks outside walking and accepts a click inside", () => {
   const { ctx, send, tick } = clickSession(
     "iigs-1.014",
     `if (!isset(f200)) {
@@ -264,12 +264,35 @@ test("iigs-1.014 click outside a non-blocking f15 window walks ego while clickin
   );
   tick(2);
   assert.equal(ctx.run.engine!.modalKind, null, "f15 left the window non-blocking");
-  // Clicking outside the banner at (161, 108) starts click-to-walk.
+  // The open-window gate at seg3+0xa4b blocks outside click-to-walk.
   send({ type: "click", x: 161, y: 108 });
   tick(1);
-  assert.equal(ctx.run.engine!.screenObjects[0]!.motionMode, 4);
+  assert.equal(ctx.run.engine!.screenObjects[0]!.motionMode, 0);
   // Clicking inside the banner at (30, 24) enqueues Enter (0x0d) for have.key().
   send({ type: "click", x: 30, y: 24 });
   tick(1);
   assert.equal(ctx.run.engine!.vars[100], 0x0d);
+});
+
+test("native sound switches leave a parked have.key wait parked on Amiga and IIgs", () => {
+  for (const profile of ["amiga-2.202", "iigs-1.014"] as const) {
+    const { ctx, send, tick } = clickSession(
+      profile,
+      "wait: if (!have.key()) {goto wait;} assignv(v100,v19); return;",
+    );
+    tick(1);
+    assert.equal(ctx.run.engine!.awaitingKey, true);
+    assert.equal(ctx.run.engine!.flags[9], 1);
+    ctx.run.recording.recording = {
+      tape: new OperationRecorder(),
+      events: [],
+      printed: [],
+      tainted: null,
+    };
+    send({ type: "key", code: 0xff00 });
+    assert.equal(ctx.run.engine!.flags[9], 0);
+    assert.equal(ctx.run.engine!.awaitingKey, true, "the native switch posts no character event");
+    send({ type: "key", code: 0x61 });
+    assert.equal(ctx.run.engine!.vars[100], 0x61);
+  }
 });

@@ -3559,8 +3559,8 @@ ax,[si+2]`; `A2 1C 00 mov [0x1c],al`; `83 3E D3 05 00 cmp word [0x5d3],0`;
   PC `2.001` `0x4230`, `2.089` `0x44fb`, `2.230` `0x4483`, `2.272` `0x44ef`,
   `2.411` `0x450e`, `2.440` `0x4540`, `2.903` `0x4633`, `2.917`/`2.936`
   `0x4634`, `3.002.086` `0x4a62`, `3.002.102`/`3.002.107` `0x4a78`, `3.002.149`
-  `0x488f`; Amiga `2.082` `h77+0xbe`, `2.176..2.333` `h105+0xbe`; IIgs `1.014`
-  `seg2+0x0bf9..0x0c17`): across all twenty shipped binaries, the event queue
+  `0x488f`; Amiga `2.082` `h76+0x278`, `2.176..2.333` `h103+0x28e`; IIgs `1.014`
+  `eventseg+0x351..0x39d`): across all twenty shipped binaries, the event queue
   stores full 16-bit type+value words (`PostEvent` 4-byte stride, 20 slots).
   `ButtonToChar` runs inside `GetKey` / `WaitKey` — so `have.key`,
   `get.string`/`get.num` (`WaitChar`), and all `ChkAcAb` modals normalize — plus
@@ -3570,7 +3570,7 @@ ax,[si+2]`; `A2 1C 00 mov [0x1c],al`; `83 3E D3 05 00 cmp word [0x5d3],0`;
     (`ESC`). In `GetUserInput` (the ordinary input phase), `0x0101..0x0401` are
     matched against `keyMap` (`set.key(1, 1..4, c)`) and are not rewritten to
     `CR`/`ESC`.
-  - **Apple IIgs (`1.014`):** `ButtonToChar` (`seg2+0x0bf9..0x0c17`) maps all
+  - **Apple IIgs (`1.014`):** `ButtonToChar` (`eventseg+0x351..0x39d`) maps all
     four words `0x0101`, `0x0201`, `0x0301`, and `0x0401` to `0x0d` (`CR`). In
     addition, `GetUserInput` (`seg2+0x1638..0x1652`) rewrites unmapped type-1
     words `0x0101` and `0x0201` to `0x0d` (`CR`) before storing `v19` and
@@ -3656,85 +3656,76 @@ $0080`); `0xb5` is outside `maxAction` (`0xae`).
   likewise do not skip disabled items. Engine: gated by
   `profile.menuHomeEndUnconditional` (`true` on `2.936`; other profiles keep
   their previous enabled-heading scan on Home/End until verified).
-- **F-IN-16 (fact; engine matches).** Native keyboard translation per platform:
-  - **PC (`2.001..3.002.149` `PollKeyboard`):** reads BIOS INT 16h 16-bit key
-    words `(scan << 8) | ascii`, maps cursor/keypad scancodes (`0x4800`,
-    `0x4900`, `0x4d00`, `0x5100`, `0x5000`, `0x4f00`, `0x4b00`, `0x4700`)
-    through `dirKeyMap` to `{type: 2, value: 1..8}`, and enqueues all other keys
-    as `{type: 1, value: word}`.
-  - **Amiga (`2.082` `h78+0x5c..0x226` and tables in `h79`; `2.176..2.333`
-    `h106+0x56..0x246` and tables in `h107`):** Intuition `RAWKEY` down codes map
-    `0x50..0x59` (`F1..F10`) to `0x3b00..0x4400`, `0x5f` (`Help`) to `0x3b00`
-    (`F1`) or `0xff00` when `IEQUALIFIER_LALT | IEQUALIFIER_RALT` (`0x30`) is
-    held, `0x46` (`Delete`) to `0x007f`, cursor `0x4c..0x4f` and numeric keypad
-    `0x1d..0x1f, 0x2d..0x2f, 0x3d..0x3f` to `0xf100..0xf900` (which `MapKey`
-    `h78+0x1be` / `h106+0x1ea` turns into `{type: 2, value: dir}` via the 9-entry
-    table `[0, 6, 5, 4, 7, 0, 3, 8, 1, 2]`), `IEQUALIFIER_CONTROL` (`0x08`) to
-    `ascii & 0x1f` with `2.176..2.333` (`h106+0x1dc`) rewriting `Ctrl+X`
-    (`0x18`) to `0x03`, `Alt` (`0x30`) to `(pcScan << 8)` via the 64-byte table
-    at `h79+0x100` / `h107+0x100` (`A..Z` -> PC scancodes `0x1e..0x32`, top-row
-    digits `1..0` -> `0x7800..0x8100`), and `IEQUALIFIER_LCOMMAND |
-IEQUALIFIER_RCOMMAND` (`0xc0`, Amiga key) to `ascii | 0x0100` (`type 1`,
-    matching `set.key(ascii, 1, c)`).
-  - **Apple IIgs (`1.014` `KeyEvent` `seg2+0x1335..0x14d6` and tables
-    `seg2+0x14d7..0x1602`):** Event Manager `keyDown` (`0x03`) and `autoKey`
-    (`0x05`) events check `modifiers` (`+0x0e`): `keyPad` (`0x0080`) or arrow
-    keys `0x08, 0x15, 0x0a, 0x0b` scan `KeyMapPad` (`seg2+0x14d7`, 30 entries)
-    to emit `0xf100..0xf900` (`type 2` directions `0..8`) or `0x0101`/`0x0201`
-    on keypad `Enter`/`Clear`; `controlKey` (`0x1000`) on `A..Z`/`a..z` masks
-    `& 0x1f`; `optionKey` (`0x0200`) scans `KeyMapOption` (`seg2+0x1573`, 72
-    entries) mapping `Option+letter` to PC scan words `(scan << 8)` and
-    `Option+/` (`0x2f`) to `0xff00` (which toggles `f9` sound in `GetUserInput`
-    at `seg2+0x1654..0x165e`); `shiftKey` (`0x0100`) scans `KeyMapShift`
-    (`seg2+0x1541`, 22 entries) mapping `! @ # $ % ^ & * ( )` (`Shift+1..0`) to
-    `F1..F10` (`0x3b00..0x4400`, since the IIgs keyboard has no F1..F10 keys);
-    and `0x7f` (`Delete`) is ignored (`seg2+0x1398`).
-    Engine: `translatePlatformKey` in `src/runtime/keys.ts` and `InputQueue` in
-    `src/runtime/inputQueue.ts` implement each platform's key translation and
-    `0xf100..0xf900` direction words.
-- **F-IN-17 (fact; engine matches).** `init.joy` (`0x8b`) and joystick polling
-  across PC, Amiga, and Apple IIgs:
-  - **PC (`2.001..3.002.149`: `2.001` `InitJoy` `0x4ca1` / `JoyDir` `0x4d43` /
-    `JoyButton` `0x4e03`; `2.936` `0x5386` / `0x542c` / `0x54ec`; `3.002.149`
-    `0x55eb` / `0x5691` / `0x5751`):** `init.joy` (`0x8b`) opens the calibration
-    window (`"If you have a joystick, please center it and press one of the
-buttons.\n\nOtherwise, press any key to continue."`) and runs
-    `WaitJoyButton`: a joystick button release records the centered `(x0, y0)`
-    counts, derives the axis thresholds, and sets `joyActive = 1`, while any key
-    press (`CR`/`ESC`) sets `joyActive = 0` and closes the window. When
-    `joyActive != 0`, `PollJoystick` runs `JoyDir` (mapping `(x, y)` displacement
-    into 8-way direction `0..8` and enqueueing `{type: 2, value: dir}` on
-    transitions `dir != prevJoyDir`) and `JoyButton` (enqueueing `{type: 1,
-value: 0x0101}` for Button 1 and `0x0201` for Button 2 on release, or
-    `0x0301` / `0x0401` when released a second time within 6 BIOS ticks,
-    `~330ms`).
-  - **Amiga (`2.082` `InitJoy` `h108+0x0`, `PollJoy` `h78+0x294`; `2.176..2.333`
-    `InitJoy` `h145+0x0`, `PollJoy` `h106+0x2a6`):** `init.joy` (`0x8b`) is a
-    pure no-op (`move.l 8(a6), d0; rts`); `gameport.device` unit 1 is opened at
-    startup (`GPCT_ABSJOYSTICK`, `gpt_Triggers = {GPTF_UPKEYS | GPTF_DOWNKEYS,
-gpt_Timeout = 15, gpt_XDelta = 1, gpt_YDelta = 1}`). `PollJoy` maps
-    `ie_X`/`ie_Y` (`-1, 0, +1`) through the 3×3 direction table (`8, 1, 2 / 7,
-0, 3 / 6, 5, 4`) into `{type: 2, value: dir}` on change, and on fire-button
-    release (`ie_Code == 0x81`, `IEQUALIFIER_RELATIVEMOUSE`) enqueues `{type: 1,
-value: 0x0301}` when Intuition `DoubleClick()` succeeds or `{type: 1, value:
-0x0101}` otherwise.
-  - **Apple IIgs (`1.014` `InitJoy` `seg3+0xb03..0xb6c`, `JoyDir`
-    `seg3+0xa50..0xaab`, `ReadJoyButtons` `seg3+0xaac..0xb02`):** `init.joy`
-    (`0x8b`) displays `"Please center your joystick\nand press one of the
-buttons."` when `$156e == 0` or `"If you have a joystick, please center it
-and press one of the buttons.\n\nOtherwise, press any key to continue."` when
-    `$156e != 0`, and calls `WaitKeyOrJoy`: a joystick button press stores
-    center `(x0, y0)` at `$1570/$1572`, sets `xLow = x0/2`, `xHigh = x0 + x0/2`,
-    `yLow = y0/2`, `yHigh = y0 + y0/2`, and sets `$156e = 1`, while a key press
-    leaves `$156e = 0`. `JoyDir` enqueues `{type: 2, value: dir}` on transitions,
-    and `ReadJoyButtons` enqueues `{type: 1, value: 0x0d}` on either button's
-    release when a window is open (`$158d != 0`), or `{type: 1, value: 0x0101}`
-    (Button 0) / `{type: 1, value: 0x0201}` (Button 1) when no window is open
-    (without double-click promotion).
-    Engine: `init.joy` (`0x8b`), `EngineHost.sampleJoystick`, `pollJoystick` in
-    `src/runtime/engine.ts`, and `stepGamepadPoll` in `app/src/play/useGameKeys.ts`
-    implement calibration and per-platform joystick polling and map the browser
-    Gamepad API to each platform's semantics.
+- **F-IN-16 (fact; native keyboard translation).** The executable hashes are
+  pinned in the PC input table and the Amiga/IIgs build sections above.
+  - **PC (`2.001..3.002.149`):** BIOS words carry ASCII in the low byte and
+    scan in the high byte. PollKey strips the scan byte when ASCII is nonzero;
+    PostEvent itself stores both words unchanged. Cursor directions become
+    type 2, while joystick buttons enter PostEvent directly as type-1 words
+    `0x0101..0x0401`. Thus an injected BIOS `0x1e61` binds `set.key(97,0,c)`,
+    while a joystick `0x0101` binds `set.key(1,1,c)`.
+  - **Amiga:** `2.082` keyboard translator `h78+0x340`; `2.176..2.333`
+    `h106+0x358..0x43a`, with unshifted, shifted and Alt tables in `h79` /
+    `h107`. F1..F10 produce `0x3b00..0x4400`; Help produces F1, Alt+Help
+    produces the sound switch `0xff00`; Delete produces `0x7f`. Keypad
+    1..9 produce `0xf100..0xf900`, which MapKey converts to directions
+    `6,5,4,7,0,3,8,1,2`. Ctrl uses the shifted table minus `0x40`, with
+    Ctrl+X rewritten from `0x18` to `0x03` on `2.176+`. Alt letters and
+    top-row digits use PC scan words. Either Amiga key sets bit 8 on a
+    nonzero word, so Amiga+Q is `0x0171`. Sound switching happens before
+    posting a key event (`h106+0x41a..0x43a`), including during modal waits.
+  - **IIgs `1.014`:** translator `seg3+0xb95..0xc46`; keypad table
+    `~arrays+0x1019`, direction table `~arrays+0xff1`, Alt scan table
+    `~arrays+0xef1`, and final translation table `~arrays+0x1041`.
+    Keypad-qualified digits produce the same `0xf100..0xf900` words.
+    Control letters map to `1..26`; Option+letters/digits produce PC scan
+    words, and Option+/ produces the sound switch. Delete (`0x7f`) becomes
+    Backspace (`0x08`), and the symbols `! @ # $ % ^ & * ( )` become F1..F10.
+    The sound-switch word is consumed by the translator at `seg3+0xc20..0xc39`,
+    rather than reaching v19 or the script key map.
+    `translatePlatformKey` applies these translations to physical keys. Native
+    text composition remains owned by the browser input; the phone key panel
+    uses the same translator for modifier letters and Delete.
+- **F-IN-17 (fact; joystick calibration and polling).** `init.joy` is action
+  `0x8b`. These are static binary findings, not measurements of a modern
+  controller's physical calibration.
+  - **PC:** InitJoy entry points are `2.001` `0x58cd`, `2.089` `0x585f`,
+    `2.230` `0x585a`, `2.272` `0x58f4`, `2.411` `0x5e9f`, `2.440` `0x5ed1`,
+    `2.903` `0x6062`, `2.917` `0x6075`, `2.936` `0x613c`, `3.002.086`
+    `0x6575`, `3.002.102`/`3.002.107` `0x658d`, `3.002.149` `0x64be`
+    (load-module offsets). A missing axis disables polling. `2.001..2.272`
+    accept a pressed fire button and cancel on any keyboard key; `2.411+`
+    wait for Enter or Escape, including fire-button words normalized by
+    GetKey. The later button poll emits on release, so holding fire keeps
+    that calibration window open. Accepted centers give thresholds
+    `center - trunc(center/2)` and `center + trunc(center/2)`; GR's arithmetic
+    is `0x651e..0x6556`. Axis changes post direction events, including zero
+    on returning to center (`3.002.149` `0x6574..0x65da`, JoyDir
+    `0x66c1..0x673d`). The two button state machines (`0x65db..0x66c0`)
+    post `0x0101`/`0x0201` on release when f8 is clear. With f8 set, the first
+    release waits v15 timer ticks; a second release posts `0x0301`/`0x0401`,
+    otherwise the deadline posts the single word. v15 zero is a zero interval.
+  - **Amiga:** InitJoy (`2.082` `h108`; `2.176..2.333` `h145`) opens
+    `gameport.device` unit 1 once, with `GPCT_ABSJOYSTICK`, up/down triggers
+    and unit X/Y deltas; it does not display calibration. Polling is enabled
+    at startup. The direction table is column-major `8,7,6 / 1,0,5 / 2,3,4`
+    for `(ie_X,ie_Y)` in `-1..1`. SQ2 `h145+0x172..0x2d2` posts a changed
+    direction. Its single fire button uses the same f8/v15 state machine
+    (`h145+0x2d4..0x3be`), with data words `0x0101` and **`0x0401`** at
+    `h146+0x6/+0x8`. It does not have a second joystick fire button. The
+    mouse right-double-click path is separate from this joystick state.
+  - **IIgs `1.014`:** InitJoy is `main+0x1cff..0x1dc8`. A missing axis
+    returns without a prompt. Either fire button or **any keyboard key**
+    accepts the center. The two shifts at `main+0x1d8c..0x1db1` derive
+    `low = center >> 2` and
+    `high = center + (center >> 1) + (center >> 2)`, so odd centers retain
+    the original integer rounding. JoyDir posts transitions at
+    `main+0x1dc9..0x1dff`; the button reader at `main+0x1e1d..0x1e88`
+    debounces held buttons and posts Enter on a press. There is no PC-style
+    pair of button-release or double-click event words on this path.
+    `EngineHost.sampleJoystick` supplies native axis counts for PC/IIgs and
+    signed digital axes for Amiga. Unit tests assert calibration, thresholds,
+    direction changes and platform button words against these rules.
 
 ### Original window and status-line text
 
@@ -5415,42 +5406,28 @@ event under player control clears ego's mode (h85+0x94..0xa4), cancelling
 the walk. `new.room`'s reset (h51+0xb6) clears ego's mode and v6 when the
 mode is 4.
 
-**Apple IIgs 1.014.** The Event Manager loop's mouse-down arm (`seg3+0x8eb..0xa83`)
-first checks whether the click lands in the menu bar (`where.y < 8`, signed
-`sec; sbc #8; bvs/eor #$8000; bpl +0x9ba` at `seg3+0x969..0x978`) when AGI flag
-14 is set, `$0090 == 0` and `$00b3 != 1`, routing those clicks to `_MenuSelect`
-(`seg3+0x97c`). All other clicks call the window hit-test `jsl $000e1f`
-(`seg2+0x4bfd..0x4c9a`) at `seg3+0x9be`:
+**Apple IIgs 1.014.** The mouse-down arm is `seg3+0x8eb..0xa83`.
+For a top-row click (`where.y < 8`), native menu selection requires flag 14,
+`$0090 == 0` and `$00b3 != 1`; otherwise the click continues to the window
+hit-test at `seg3+0x9b4..0x9c4`. `$00b3` is text mode, not a generic modal
+flag (text.screen writes it at `seg2+0x6ba`).
 
-- **Window hit-test (`seg2+0x4bfd..0x4c9a`):**
-  1. If `$158d == 0` (no open AGI window; set to `1` by `OpenWndw` at `seg2+0x4a75`
-     and cleared to `0` by `CloseWndw` at `seg2+0x4bcb`), returns `0` at `+0x4c09`.
-  2. If `where.x` and `where.y` fall inside the active window's inclusive rect
-     `$15f2..$15f8` (`top = $15f2 = y - height`, `left = $15f4 = x*2`,
-     `bottom = $15f6 = y`, `right = $15f8 = (x + width)*2`), returns `1` at `+0x4c3f`.
-  3. Otherwise, if `$1590 != 0` (accept/cancel dialog gadgets active: `0x80` =
-     OK/Cancel pair, `0x40` = single OK button), tests gadget rects `$15fa..$1601`
-     (returns `3`) and `$1602..$1609` (returns `4`), or returns `2` when outside
-     all rects (`+0x4c93`).
-- **Four-way dispatch (`seg3+0x9c8..0xa83`, table at `seg3+0xa32..0xa38`):**
-  - Return `0` (no window open) or part `2` (`+0xa3a`, outside window when
-    `$1590 == 0`): jumps to the walk/modal arm at `seg3+0xa4b`.
-  - Part `1` (`+0x9db`, click inside the open window rect `$15f2..$15f8`): if
-    `$1592 != 0` (inventory selector active), hits item rects in `$160a+` and on
-    double-click posts `{type: 11, value: itemId}` (`+0xa1f`); when `$1592 == 0`
-    (normal `print` / `show.obj` window), jumps to `+0xa6c` and posts `{1, 0x0d}`
-    (`Enter`) if `$00b3 == 1` (blocking modal wait `WaitAcAb` sets `$00b3 = 1`
-    around its event poll at `seg2+0x154d..0x155d`).
-  - Part `3` (`+0xa3f`, primary dialog gadget): posts `{1, 0x0d}` (`Enter`).
-  - Part `4` (`+0xa46`, cancel dialog gadget): posts `{1, 0x1b}` (`Escape`).
-  - Walk/modal arm (`+0xa4b`): if `$1592 == 0 && $00b3 == 0` or `$1590 != 0`,
-    calls `movetoseg+0xb4` (`jsl $000f00`) to start ego click-to-walk when
-    `$0090 == 0`; otherwise, when `$00b3 == 1` and `$158d == 0` (a modal wait with
-    no open window, such as `text.screen` or `show.pri.screen`), posts `{1, 0x0d}`
-    (`Enter`). When a blocking `print` or `show.obj` window is open (`$158d == 1`,
-    `$00b3 == 1`, `$1590 == 0`), a click inside `$15f2..$15f8` hits part `1` and
-    dismisses the modal with `Enter`, whereas a click outside hits part `2` ->
-    `+0xa4b` and is ignored until the player clicks inside the window or presses a key.
+The hit-test (`seg3+0xe1f..0xecb`) first asks the Toolbox for a window/control
+hit. Its AGI rectangle fallback at `+0xe87` requires `$158d != 0`, compares
+X with inclusive `$15f2..$15f6` and Y with inclusive `$15f4..$15f8`, and
+returns part 2 for a hit. These bounds are populated at `seg2+0x4aa3..0x4ae0`;
+the right and bottom bounds include one pixel beyond the drawn frame's last
+pixel. The dispatch posts Enter or Escape for dialog control hits; a normal
+print or show.obj frame hit posts Enter.
+
+The no-hit arm (`seg3+0xa4b`) checks `$1592`, set by opening a print window at
+`seg2+0x2c27` and cleared by CloseWndw at `seg2+0x2162`. An open print window
+blocks outside click-to-walk, including an f15 window: the f15 branch at
+`seg2+0x2275..0x22a5` returns without closing it. Clicking its frame still
+posts Enter. With no open window, graphics mode calls the walk starter;
+text mode posts Enter, including a click in the top row. show.pri.screen
+(`debugseg+0x258..0x284`) swaps the picture nibbles and calls WaitAcAb without
+setting text mode: its graphics click is not an Enter event.
 
 The walk starter `movetoseg+0xb4` checks player control `$011d`, sets mode 4,
 `+0x40 = x/2 - width/2`, `+0x42 = y - $b7` (the play-area top), `+0x44 = +0x30`,

@@ -9,7 +9,7 @@ import type { EngineApi } from "../engine/engineContext.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
 import { AGI_KEY, translatePlatformKey } from "../../../src/runtime/keys.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
-import { FUNCTION_KEYS, registeredKey, pcKey } from "./gameControls.ts";
+import { FUNCTION_KEYS } from "./gameControls.ts";
 
 /** Minimal subset of the W3C Gamepad object used by the platform joystick poller. */
 export interface GamepadInputLike {
@@ -294,7 +294,7 @@ export function useGameKeys(deps: {
       state.waitingForKey ||
       (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
     ) {
-      const key = translatePlatformKey(ev, state.profile) ?? pcKey(ev);
+      const key = translatePlatformKey(ev, state.profile);
       if (key !== undefined) {
         ev.preventDefault();
         sendKey(key);
@@ -316,7 +316,10 @@ export function useGameKeys(deps: {
       nativeKey !== undefined &&
       (nativeKey === 0xf500 ||
         nativeKey === 0xff00 ||
-        ((nativeKey & 0xff) === 0 && nativeKey >= 0x3b00 && nativeKey <= 0x4400) ||
+        nativeKey >= 0x100 ||
+        ev.ctrlKey ||
+        ev.altKey ||
+        ev.metaKey ||
         state.controls.some((b) => b.key === nativeKey))
     ) {
       ev.preventDefault();
@@ -324,15 +327,8 @@ export function useGameKeys(deps: {
       return;
     }
 
-    const shortcut = registeredKey(ev, state.controls);
-    if (shortcut !== undefined) {
-      ev.preventDefault();
-      area()?.triggerKey(shortcut);
-      return;
-    }
-
     if (!state.inputEnabled) {
-      const code = translatePlatformKey(ev, state.profile) ?? pcKey(ev);
+      const code = translatePlatformKey(ev, state.profile);
       if (code !== undefined) {
         ev.preventDefault();
         sendKey(code);
