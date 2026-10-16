@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
-import { paletteCss, useStudioPalette } from "../render/useGameLook.ts";
+import { paletteCss, useGamePalette } from "../render/useGamePalette.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
@@ -81,7 +81,7 @@ const emit = defineEmits<{
 }>();
 
 const canvas = useTemplateRef("canvas");
-const palette = useStudioPalette();
+const palette = useGamePalette();
 const width = computed(() => SCREEN_WIDTH * viewport.pixelAspect * viewport.zoom);
 const height = computed(() => SCREEN_HEIGHT * viewport.zoom);
 const backingWidth = computed(() => Math.round(width.value * dpr));

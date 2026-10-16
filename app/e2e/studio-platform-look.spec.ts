@@ -1,5 +1,11 @@
 import { expect, test } from "./test.ts";
-import { FIRST_LOAD_BUDGET_MS, enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import {
+  FIRST_LOAD_BUDGET_MS,
+  enterCreateMode,
+  enterPlayMode,
+  isolateStorage,
+  textHook,
+} from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
@@ -81,4 +87,9 @@ test("Studio previews an Amiga game in the colours Play draws", async ({ page })
     ).toBe("rgb(221 0 255)");
     await page.screenshot({ path: test.info().outputPath(`studio-amiga-${width}.png`) });
   }
+  // Leaving Create keeps the editor retained, but Play's chrome gets the default tokens back.
+  await enterPlayMode(page);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--agi-13")))
+    .toBe("");
 });

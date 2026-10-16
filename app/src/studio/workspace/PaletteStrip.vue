@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { paletteCss, useStudioPalette } from "../../render/useGameLook.ts";
+import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { paletteContext } from "../useStudioPalette.ts";
 import { CONTROL_VALUES, priorityMeaning } from "../studioView.ts";
@@ -14,7 +14,7 @@ const {
   disabled?: boolean;
 }>();
 const emit = defineEmits<{ choose: [value: number] }>();
-const palette = useStudioPalette();
+const palette = useGamePalette();
 const state = computed(() => context ?? { action: "draw", lens: "art" });
 /**
  * Visual offers the 16 colours. Priority offers the four control lines

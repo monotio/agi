@@ -5,7 +5,7 @@ import UiExplain from "../../ui/UiExplain.vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import { explain } from "../studioTerms.ts";
 import { swatchInk } from "./spriteView.ts";
-import { useStudioPalette } from "../../render/useGameLook.ts";
+import { useGamePalette } from "../../render/useGamePalette.ts";
 
 /**
  * The fixed AGI palette with the edited cel's transparent colour marked T,
@@ -20,7 +20,7 @@ import { useStudioPalette } from "../../render/useGameLook.ts";
 const { transparent } = defineProps<{ transparent: number }>();
 const emit = defineEmits<{ erase: []; choose: [] }>();
 const color = defineModel<number>({ required: true });
-const palette = useStudioPalette();
+const palette = useGamePalette();
 const COLOURS = Array.from({ length: 16 }, (_, index) => index);
 /** The swatch Tab lands on: the paint colour, never the transparent one. */
 const focusable = computed(() =>

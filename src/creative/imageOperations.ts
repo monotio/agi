@@ -355,6 +355,8 @@ export function makeCelsChanges(
 export function prepareTracePixels(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
   transform: TraceTransform = { x: 0, y: 0, scale: 1 },
+  /** The game's colours for indices 0..15; EGA when omitted. */
+  palette?: readonly (readonly [number, number, number])[],
 ): Uint8Array {
   const factor = Math.max(320 / image.width, 168 / image.height) * transform.scale;
   const pixels = new Uint8Array(160 * 168 * 4);
@@ -367,13 +369,14 @@ export function prepareTracePixels(
         pixels.set(image.rgba.subarray(source, source + 4), (y * 160 + x) * 4);
       }
     }
-  return snapImageToEga(pixels);
+  return snapImageToEga(pixels, palette);
 }
 
 /** Rebuild a saved tracing underlay from its immutable decoded raster. */
 export function imageTraceUnderlay(
   documents: Documents,
   target: string,
+  palette?: readonly (readonly [number, number, number])[],
 ): { pixels: Uint8Array; opacity: number; behindArt: boolean; transform: TraceTransform } | null {
   const references = readImageReferences(documents),
     trace = references.traces[target];
@@ -387,7 +390,7 @@ export function imageTraceUnderlay(
       Math.max(320 / image.width, 168 / image.height),
   };
   return {
-    pixels: prepareTracePixels(image, transform),
+    pixels: prepareTracePixels(image, transform, palette),
     opacity: trace.opacity,
     behindArt: trace.behindArt ?? false,
     transform,

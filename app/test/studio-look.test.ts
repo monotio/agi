@@ -6,8 +6,11 @@ import { celRgba } from "../src/render/palette.ts";
 import { createPresentation } from "../src/play/usePresentation.ts";
 import { cropFrameRgba } from "../src/inspector/debugView.ts";
 import { paintLayer } from "../src/studio/studioView.ts";
+import { thumbRgba } from "../src/world/nodeThumbs.ts";
+import { snapImageToEga } from "../../src/creative/imageStyle.ts";
+import { nearestEgaIndex, quantizeToEga } from "../../src/view/spritesheet.ts";
 import { swatchInk } from "../src/studio/sprite/spriteView.ts";
-import { paletteCss, paletteVars } from "../src/render/useGameLook.ts";
+import { applyPaletteVars, paletteCss, paletteVars } from "../src/render/useGamePalette.ts";
 import type { Frame } from "../src/engine/useEngine.ts";
 
 // Studio draws a game with the colours Play draws it with: a player editing an
@@ -111,4 +114,44 @@ test("Studio's look follows the presentation when Play selects a platform profil
   assert.equal(presentation.look.value, amiga);
   presentation.setProfile(null);
   assert.equal(presentation.look.value, PC_APPEARANCE);
+});
+
+test("leaving Create hands Play's chrome back the default colour tokens", async () => {
+  const amiga = await loadAppearance("amiga-2.202");
+  const style = new Map<string, string>();
+  const fake = {
+    setProperty: (name: string, value: string) => void style.set(name, value),
+    removeProperty: (name: string) => style.delete(name),
+  };
+  applyPaletteVars(fake, amiga.palette);
+  assert.equal(style.size, 16);
+  assert.equal(style.get("--agi-13"), "rgb(221 0 255)");
+  applyPaletteVars(fake, null);
+  assert.equal(style.size, 0);
+});
+
+test("map thumbnails show a picture in the game's colours", async () => {
+  const amiga = await loadAppearance("amiga-2.202");
+  const pixels = new Uint8Array(320 * 168).fill(13);
+  assert.deepEqual([...thumbRgba(pixels, amiga.palette).subarray(0, 4)], [0xdd, 0x00, 0xff, 255]);
+  assert.deepEqual(
+    [...thumbRgba(pixels, PC_APPEARANCE.palette).subarray(0, 4)],
+    [0xff, 0x55, 0xff, 255],
+  );
+});
+
+test("a traced image snaps to the game's own colours, so its nearest colour is what the game shows", async () => {
+  const amiga = await loadAppearance("amiga-2.202");
+  // Hand-computed: (220, 2, 250) is nearest Amiga 13, d0f, which is (221, 0, 255).
+  const source = Uint8Array.of(220, 2, 250, 255, 0, 0, 0, 0);
+  assert.deepEqual([...snapImageToEga(source, amiga.palette).subarray(0, 4)], [221, 0, 255, 255]);
+  assert.equal(nearestEgaIndex(220, 2, 250, amiga.palette), 13);
+  // An Amiga-only colour (0,187,255 is Amiga 9 = 0bf) maps to 9 under the Amiga table, and to a different EGA entry.
+  assert.equal(nearestEgaIndex(0, 0xbb, 0xff, amiga.palette), 9);
+  assert.notEqual(nearestEgaIndex(0, 0xbb, 0xff), 9);
+  const sheet = quantizeToEga(Uint8Array.of(0xbb, 0x77, 0xdd, 255), 1, 1, {
+    palette: amiga.palette,
+    keyColor: null,
+  });
+  assert.equal(sheet.pixels[0], 5, "Amiga 5 is b7d");
 });

@@ -8,7 +8,7 @@ import { roomEntryProblem } from "../../../../src/runtime/roomEntry.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectBindings.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
-import { paletteCss, useStudioPalette } from "../../render/useGameLook.ts";
+import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
@@ -403,7 +403,7 @@ function setHeroY(event: Event): void {
 // ---- Canvas rendering for hero position ----------------------------------
 
 const heroCanvas = useTemplateRef("heroCanvas");
-const palette = useStudioPalette();
+const palette = useGamePalette();
 
 function renderHeroStage(): void {
   const canvasEl = heroCanvas.value;

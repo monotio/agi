@@ -284,7 +284,7 @@ function drawOverlay(): void {
   }
 }
 
-watch([debugFrame, overlayOn, inspectArmed, picked, hover, report], drawOverlay);
+watch([debugFrame, overlayOn, inspectArmed, picked, hover, report, presentation.look], drawOverlay);
 
 // While exploded, the camera keeps easing toward the pointer — redraw every
 // frame so projected marks track the parallax instead of lagging behind.

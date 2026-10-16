@@ -38,6 +38,7 @@ import { readBindingsDocument } from "../../../../src/authoring/projectDocuments
 import { buildView } from "../../../../src/view/view.ts";
 import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
+import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
 import { presentTrace, previewTrace } from "./tracePresentation.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
@@ -97,6 +98,7 @@ watch(
 );
 const mirrors = shallowRef<readonly (number | null)[]>([]);
 const loopHeights = shallowRef<readonly number[]>([]);
+const palette = useGamePalette();
 const background = shallowRef<readonly [number, number, number] | null>(null);
 const replaceOpen = ref(false);
 const colourOpen = ref(false);
@@ -303,10 +305,11 @@ function adjustTrace(next: TraceTransform, release: boolean) {
   previewPlacement();
   if (release) changeTrace("Trace position");
 }
+watch(palette, () => previewPlacement());
 function previewPlacement() {
   if (!image.value || !isPicture.value) return;
   presentTrace(props.session, props.target, {
-    pixels: prepareTracePixels(image.value, transform.value),
+    pixels: prepareTracePixels(image.value, transform.value, palette.value),
     opacity: opacity.value,
     behindArt: behindArt.value,
     transform: transform.value,
@@ -488,7 +491,11 @@ onBeforeUnmount(() => {
           @click="colourOpen = !colourOpen"
           >Colour<i
             class="image-source__swatch"
-            :style="{ background: background ? `rgb(${background.join(' ')})` : 'transparent' }"
+            :style="{
+              background: background
+                ? paletteCss(palette, nearestEgaIndex(...background))
+                : 'transparent',
+            }"
           ></i
         ></UiButton>
         <div
@@ -502,7 +509,7 @@ onBeforeUnmount(() => {
             :key="index"
             type="button"
             :aria-label="colourNames[index]"
-            :style="{ background: `rgb(${colour.join(' ')})` }"
+            :style="{ background: paletteCss(palette, index) }"
             @click="
               background = colour;
               colourOpen = false;

@@ -2,7 +2,7 @@
 import { computed, useTemplateRef, watchEffect } from "vue";
 import type { SpriteCel } from "../../../src/view/spriteDocument.ts";
 import { celRgba } from "../render/palette.ts";
-import { useStudioPalette } from "../render/useGameLook.ts";
+import { useGamePalette } from "../render/useGamePalette.ts";
 
 /**
  * One cel drawn small with AGI's 2:1 pixels at the largest whole zoom that
@@ -22,7 +22,7 @@ const {
 }>();
 
 const canvas = useTemplateRef("canvas");
-const palette = useStudioPalette();
+const palette = useGamePalette();
 const zoom = computed(() =>
   Math.max(1, Math.floor(Math.min(width / (cel.width * 2), height / cel.height))),
 );

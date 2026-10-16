@@ -9,7 +9,7 @@ import { probeActor } from "../../../../src/studio/probe.ts";
 import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../../src/types.ts";
 import { forEachPaintedPixel, type ViewCel } from "../../../../src/view/view.ts";
-import { useStudioPalette } from "../../render/useGameLook.ts";
+import { useGamePalette } from "../../render/useGamePalette.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { explain } from "../studioTerms.ts";
@@ -119,7 +119,7 @@ const verdict = computed(() => {
 });
 
 const canvas = useTemplateRef("canvas");
-const palette = useStudioPalette();
+const palette = useGamePalette();
 watchEffect(
   () => {
     const target = canvas.value;
