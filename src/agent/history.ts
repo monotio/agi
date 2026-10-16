@@ -330,6 +330,8 @@ export interface HistoryBoot {
  */
 export interface HistorySegment {
   id: string;
+  /** Format version the segment was opened under when the enclosing recording header was later upgraded. */
+  version?: number;
   boot: HistoryBoot;
   anchors: HistoryAnchor[];
   events: HistoryEvent[];
@@ -1161,10 +1163,18 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
     ...(value["dropped"] !== undefined ? { dropped: int(value["dropped"], "dropped") } : {}),
     segments: segments.map((s): HistorySegment => {
       if (!isObj(s)) fail("segment must be an object.");
-      if (version < 2 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
+      let segmentVersion: number | undefined;
+      if (s["version"] !== undefined) {
+        const sv = s["version"];
+        if (typeof sv !== "number" || HISTORY_END_REASONS[sv] === undefined || sv > version)
+          fail(`unsupported segment version ${String(sv)}.`);
+        segmentVersion = sv;
+      }
+      if ((segmentVersion ?? version) < 2 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
         fail("project documents require recording version 2.");
       const segment: HistorySegment = {
         id: text(s["id"], "segment id", 64),
+        ...(segmentVersion !== undefined ? { version: segmentVersion } : {}),
         boot: validateHistoryBoot(s["boot"], { allowWindow }),
         anchors: Array.isArray(s["anchors"])
           ? s["anchors"].map((a) => anchor(a, { allowWindow }))

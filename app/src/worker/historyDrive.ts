@@ -260,12 +260,14 @@ export function openHistoryDrive(
   // whose behavior legitimately differs from today's; nothing in it is
   // verified, and a position replay cannot reach is a compatibility notice,
   // never a divergence or a hard failure. When a short segment has no sync
-  // marks yet, the enclosing recording's version (or a v1 host image on its
-  // boot/anchor) identifies whether it was recorded before split marks.
+  // marks yet, the segment's own format version (or the enclosing recording's
+  // version, or a v1 host image on its boot/anchor) identifies whether it was
+  // recorded by a released build (versions 1 and 2).
+  const effectiveVersion = segment.version ?? options.recordingVersion ?? HISTORY_FORMAT_VERSION;
   const legacyOnly =
     segment.sync.length > 0
       ? segment.sync.every((m) => m.state === undefined)
-      : (options.recordingVersion ?? HISTORY_FORMAT_VERSION) < 2 ||
+      : effectiveVersion < HISTORY_FORMAT_VERSION ||
         (segment.boot.image !== undefined && base64ToBytes(segment.boot.image)[33] === 1) ||
         (segment.anchors[0] !== undefined && base64ToBytes(segment.anchors[0].image)[33] === 1);
 

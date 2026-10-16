@@ -93,6 +93,8 @@ const MANIFEST_MARKS_MAX = 200;
 /** A segment's place in tape order plus the retention-relevant metadata. */
 interface ManifestSegment {
   id: string;
+  /** Format version the segment was opened under when the enclosing recording header was later upgraded. */
+  version?: number;
   /** Segment ids are unique writer ownership tokens; an open lease protects its tape. */
   writerExpiresAt?: number;
   /** The files blob this segment's boot references — release key on eviction. */
@@ -589,6 +591,7 @@ export async function mergeHistoryBatch(
       const ledger = (manifest.committed[batch.segment] ??= []);
       if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
       let directory = manifest.segments.find((s) => s.id === batch.segment);
+      const isNewSegment = directory === undefined;
       if (directory === undefined) {
         const receipt = manifest.evicted?.find((entry) => entry.id === batch.segment);
         if (receipt !== undefined)
@@ -637,12 +640,18 @@ export async function mergeHistoryBatch(
         (manifest.bytes[batch.segment] ?? 0) + JSON.stringify(batch).length;
       // A current writer's first commit on an older tape upgrades the
       // recording header in the same transaction before a current-only
-      // event can land in it. Reads,
+      // event can land in it, stamping existing segments with the format
+      // version their boots were recorded under. Reads,
       // bookmark/branch writes and dedup resent batches never reach here, so
       // they never rewrite the version; a refused batch aborts the upgrade
       // with its record.
-      if (manifest.recording.version < HISTORY_FORMAT_VERSION)
+      if (manifest.recording.version < HISTORY_FORMAT_VERSION) {
+        for (const s of manifest.segments) {
+          if (isNewSegment && s === directory) continue;
+          s.version ??= manifest.recording.version;
+        }
         manifest.recording.version = HISTORY_FORMAT_VERSION;
+      }
       if (batch.end !== undefined) {
         directory.end = batch.end;
         delete directory.writerExpiresAt;
@@ -702,6 +711,7 @@ function assembleSegment(
 ): HistorySegment {
   const segment: HistorySegment = {
     id: directory.id,
+    ...(directory.version !== undefined ? { version: directory.version } : {}),
     boot: undefined as unknown as HistoryBoot,
     anchors: [],
     events: [],
@@ -841,15 +851,22 @@ export async function moveHistoryRecord(
       // record's acknowledged batches are lost.
       const manifest = stored;
       // A merged tape must not claim an older version than any record it
-      // now holds — a v1 destination receiving v2 segments upgrades.
-      manifest.recording.version = Math.max(
-        manifest.recording.version,
-        fromManifest.recording.version,
-      );
+      // now holds — a v1 destination receiving v2 segments upgrades,
+      // stamping older segments with their original version provenance.
+      const mergedVersion = Math.max(manifest.recording.version, fromManifest.recording.version);
+      if (manifest.recording.version < mergedVersion) {
+        for (const s of manifest.segments) s.version ??= manifest.recording.version;
+      }
+      manifest.recording.version = mergedVersion;
       const ids = new Set(manifest.segments.map((segment) => segment.id));
       for (const segment of fromManifest.segments) {
         if (ids.has(segment.id)) continue;
-        manifest.segments.push({ ...segment });
+        manifest.segments.push({
+          ...segment,
+          ...(fromManifest.recording.version < mergedVersion && segment.version === undefined
+            ? { version: fromManifest.recording.version }
+            : {}),
+        });
         for (const n of fromManifest.committed[segment.id] ?? []) {
           const record = records.get(batchKey(from, segment.id, n)) as StoredBatch | undefined;
           if (record !== undefined)
@@ -1289,6 +1306,7 @@ export async function importGameHistory(
             );
             manifest.segments.push({
               id: segment.id,
+              ...(segment.version !== undefined ? { version: segment.version } : {}),
               blob: filesRef,
               extent,
               ...(segment.marks.length > 0

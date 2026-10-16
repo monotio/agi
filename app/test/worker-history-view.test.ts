@@ -1785,25 +1785,63 @@ test("short recordings with no sync marks select startup semantics from the pers
   assert.equal(currentRecording.version, HISTORY_FORMAT_VERSION);
   assert.equal(currentRecording.segments[0]!.sync.length, 0);
 
-  // Current short recording (version 2) replays with 2.936 ResetAll f11 = 1 -> v40 = 77.
+  // Current short recording (version 3) replays with 2.936 ResetAll f11 = 1 -> v40 = 77.
   h.send({ type: "historyViewStart", id: 1, recording: currentRecording, segment: 0, tick: 3 });
   assert.equal(finalView(h.control, 1).error, null);
   assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], 1);
   assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], 77);
   h.send({ type: "historyViewEnd" });
 
-  // Released short recording (version 1) with no sync marks replays with legacy f11 = 0 -> v40 = 11.
-  const releasedRecording = validateHistoryRecording({
+  // Released short recordings (versions 1 and 2) with no sync marks replay with legacy f11 = 0 -> v40 = 11.
+  for (const [idx, releasedVersion] of [1, 2].entries()) {
+    const releasedRecording = validateHistoryRecording({
+      ...structuredClone(currentRecording),
+      version: releasedVersion,
+    });
+    assert.equal(releasedRecording.version, releasedVersion);
+    assert.equal(releasedRecording.segments[0]!.sync.length, 0);
+    h.send({
+      type: "historyViewStart",
+      id: 2 + idx,
+      recording: releasedRecording,
+      segment: 0,
+      tick: 3,
+    });
+    assert.equal(finalView(h.control, 2 + idx).error, null);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], 0);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], 11);
+    h.send({ type: "historyViewEnd" });
+  }
+
+  // An upgraded recording (version 3) whose earlier segments carry version 1 or 2 provenance
+  // replays those segments with legacy startup semantics and new segments with current semantics.
+  const baseSegment = currentRecording.segments[0]!;
+  const upgradedRecording = validateHistoryRecording({
     ...structuredClone(currentRecording),
-    version: 1,
+    version: HISTORY_FORMAT_VERSION,
+    segments: [
+      { ...structuredClone(baseSegment), id: "s-v1", version: 1 },
+      { ...structuredClone(baseSegment), id: "s-v2", version: 2 },
+      { ...structuredClone(baseSegment), id: "s-v3" },
+    ],
   });
-  assert.equal(releasedRecording.version, 1);
-  assert.equal(releasedRecording.segments[0]!.sync.length, 0);
-  h.send({ type: "historyViewStart", id: 2, recording: releasedRecording, segment: 0, tick: 3 });
-  assert.equal(finalView(h.control, 2).error, null);
-  assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], 0);
-  assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], 11);
-  h.send({ type: "historyViewEnd" });
+  for (const [segIdx, expected] of [
+    [0, { f11: 0, v40: 11 }],
+    [1, { f11: 0, v40: 11 }],
+    [2, { f11: 1, v40: 77 }],
+  ] as const) {
+    h.send({
+      type: "historyViewStart",
+      id: 10 + segIdx,
+      recording: upgradedRecording,
+      segment: segIdx,
+      tick: 3,
+    });
+    assert.equal(finalView(h.control, 10 + segIdx).error, null);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], expected.f11);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], expected.v40);
+    h.send({ type: "historyViewEnd" });
+  }
 });
 
 test("released retained originals restore through historyViewRestore and still reject tampering", () => {
