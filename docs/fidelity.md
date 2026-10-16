@@ -328,8 +328,8 @@ recreation, in the same 40 × 25 character grid (see
 [PC fonts and display adapters](#pc-fonts-and-display-adapters)).
 `app/src/render/font8x8.ts` serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
 (see [Apple IIgs presentation](#apple-iigs-presentation)). A player's IIgs `AGIFONT`, when included with their game, overrides the project
-font at runtime. No original glyphs ship with the project; a missing or invalid
-font uses the project drawings.
+font at runtime. No ROM or font file ships with the project; a missing or
+invalid game font uses the project drawings.
 
 A scan of every logic message in the catalogued releases found these
 characters outside printable ASCII, apart from line breaks:
@@ -340,8 +340,8 @@ characters outside printable ASCII, apart from line breaks:
 | 0xff                                                             | non-breaking space                | King's Quest II (PC and Amiga)                      | 15 on the PC, 16 on the Amiga                                          |
 | 0x09                                                             | tab                               | Manhunter 1, Space Quest II (PC, Amiga, Apple IIgs) | one each                                                               |
 
-The font draws the box-drawing characters in its own line style and 0xff
-as a blank. There is no evidence yet of how the originals drew a tab, so it
+The PC font recreates the code-page box characters with their two-pixel
+strokes and draws 0xff as a blank. There is no evidence yet of how the originals drew a tab, so it
 shows blank. The Amiga Gold Rush! ships the same bytes; whether its own font
 drew them as PC box drawing is unverified. Any other character a game prints
 shows blank and is reported once in the browser console.
@@ -6600,6 +6600,10 @@ or font file ships, and neither build nor runtime reads one. The optional
 local-reference test compares codes `0x20..0x7f` against the Tandy 1000 SX
 BIOS (`8040328.u41`, reference offset `0x7a6e`); the released engine window
 and cursor aliases `0x01..0x07` retain their checkpoint-compatible masks.
+The extended box characters used by Gold Rush! are recreated with the
+PC code-page strokes, checked against the local `bigblue.chr` character
+reference (eight row banks at stride 256). This reference check establishes
+the glyph shapes; a Gold Rush! Bible-page frame comparison remains open.
 
 The aligned MAME 0.289 `t1000sx` PQ1 opening, message and restart scenes
 changed from 264 / 1,791 / 956 differing RGB pixels to 30 / 30 / 22 after

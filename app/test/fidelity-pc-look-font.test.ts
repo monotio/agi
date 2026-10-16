@@ -29,3 +29,29 @@ test("the PC recreation matches every printable BIOS glyph in the local referenc
       `character ${code}`,
     );
 });
+
+test("PC box characters recreate the double-width BIOS strokes", () => {
+  assert.deepEqual([...FONT.subarray(0xb3 * 8, 0xb3 * 8 + 8)], Array(8).fill(0x18));
+  assert.deepEqual([...FONT.subarray(0xc4 * 8, 0xc4 * 8 + 8)], [0, 0, 0, 0, 255, 0, 0, 0]);
+  assert.deepEqual(
+    [...FONT.subarray(0xd6 * 8, 0xd6 * 8 + 8)],
+    [0, 0, 0, 0, 0x3f, 0x36, 0x36, 0x36],
+  );
+});
+
+test("the extended recreation matches the local PC character-generator reference", (t) => {
+  const path = new URL("../../games/_roms/roms/t1000sx/bigblue.chr", import.meta.url);
+  if (!existsSync(path)) return t.skip("no local PC character reference");
+  const rom = readFileSync(path);
+  assert.equal(
+    createHash("sha256").update(rom).digest("hex"),
+    "95481817e59795adf6bc25f817cbbf96b8bc3da7949517638a185c0ad9b5481f",
+  );
+  const codes = [0xb3, 0xb7, 0xba, 0xbd, 0xc1, 0xc2, 0xc4, 0xd0, 0xd2, 0xd3, 0xd6, 0xff];
+  for (const code of codes)
+    assert.deepEqual(
+      [...FONT.subarray(code * 8, code * 8 + 8)],
+      Array.from({ length: 8 }, (_, row) => rom[code + row * 256]),
+      `character ${code}`,
+    );
+});
