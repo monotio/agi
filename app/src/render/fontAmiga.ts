@@ -122,6 +122,10 @@ export const AMIGA_FONT = new Uint8Array(PC_FONT);
 /** 1 for each code this font draws. */
 export const AMIGA_HAS_GLYPH = new Uint8Array(PC_HAS_GLYPH);
 
+// The save dialog's slot pointer, read off a MAME frame of SQ2 2.202's slot
+// window (docs/fidelity.md "Original Amiga save and restore dialogs").
+GLYPHS["\u00bb"] = "00cc663366cc0000";
+
 for (const [key, hex] of Object.entries(GLYPHS)) {
   const code = key.charCodeAt(0);
   if (hex.length !== 16) throw new Error(`glyph ${key}: expected 16 hex digits`);

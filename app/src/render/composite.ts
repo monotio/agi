@@ -28,6 +28,14 @@ import {
   TEXT_ROWS,
   type GadgetLabel,
 } from "../../../src/runtime/textSurface.ts";
+import {
+  INTUITION_BAR_ROWS,
+  INTUITION_ITEM_TEXT_X,
+  INTUITION_ITEM_TEXT_Y,
+  INTUITION_TITLE_TEXT_X,
+  INTUITION_TITLE_TEXT_Y,
+  type NativeMenuChrome,
+} from "../../../src/runtime/nativeMenu.ts";
 
 import { FONT } from "./font8x8.ts";
 
@@ -95,6 +103,8 @@ export interface CompositeInput {
   statusBar?: string | null | undefined;
   /** Gadgets whose labels sit off the cell grid (the Amiga layout draws them). */
   gadgets?: readonly GadgetLabel[] | undefined;
+  /** The open Amiga menu strip and pull-down (the Amiga layout draws them over everything). */
+  menu?: NativeMenuChrome | undefined;
 }
 
 /** Paint the font's lit pixels of `ch` at a frame position in one colour. */
@@ -175,6 +185,82 @@ function drawAmigaTitleBar(
       o += 4;
     }
   }
+}
+
+/** Draw a glyph run in one colour at a pixel position. */
+function drawText(
+  out: Uint8ClampedArray | Uint8Array,
+  look: Appearance,
+  text: string,
+  x: number,
+  y: number,
+  fg: readonly [number, number, number],
+): void {
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i) & 0xff;
+    if (ch !== 0x20) drawGlyph(out, look, ch, x + 8 * i, y, fg);
+  }
+}
+
+/**
+ * The Intuition menu strip Kickstart 1.3 draws while the right button is
+ * held (docs/fidelity.md "Original Amiga menu strip and pull-downs"): the
+ * bar in the block pen over the title bar's rows with the detail-pen line
+ * under it, titles two pixels in and one row down, the active title's box
+ * complemented, and the pull-down with a one-pixel top and bottom line,
+ * two-pixel sides, item text four pixels in and one row down inside each
+ * select box, the highlighted box complemented, and ghosted items erased
+ * through Intuition's 0x4444/0x1111 pattern.
+ */
+function drawIntuitionMenu(
+  out: Uint8ClampedArray | Uint8Array,
+  look: Appearance,
+  menu: NativeMenuChrome,
+): void {
+  const pen0 = look.palette[0]!;
+  const pen15 = look.palette[15]!;
+  fillRect(out, 0, 0, FRAME_WIDTH - 1, INTUITION_BAR_ROWS - 1, pen15);
+  fillRect(out, 0, INTUITION_BAR_ROWS, FRAME_WIDTH - 1, INTUITION_BAR_ROWS, pen0);
+  for (const t of menu.titles) {
+    if (t.highlighted) fillRect(out, t.left + 1, 0, t.left + t.width, 8, pen0);
+    drawText(
+      out,
+      look,
+      t.text,
+      t.left + INTUITION_TITLE_TEXT_X,
+      INTUITION_TITLE_TEXT_Y,
+      t.highlighted ? pen15 : pen0,
+    );
+  }
+  const p = menu.pulldown;
+  if (!p) return;
+  fillRect(out, p.x0, p.y0, p.x1, p.y1, pen0);
+  fillRect(out, p.x0 + 2, p.y0 + 1, p.x1 - 2, p.y1 - 1, pen15);
+  p.items.forEach((it, i) => {
+    const highlighted = i === p.highlighted;
+    if (highlighted) fillRect(out, it.x0, it.y0, it.x1, it.y1, pen0);
+    drawText(
+      out,
+      look,
+      it.text,
+      it.x0 + INTUITION_ITEM_TEXT_X,
+      it.y0 + INTUITION_ITEM_TEXT_Y,
+      highlighted ? pen15 : pen0,
+    );
+    if (it.enabled) return;
+    for (let y = it.y0; y <= it.y1; y++) {
+      // The pattern is aligned to the screen, not the item: pattern row
+      // 0x4444 on even rows erases x % 4 == 3, 0x1111 on odd rows x % 4 == 1.
+      const phase = (y & 1) === 1 ? 1 : 3;
+      for (let x = it.x0 + ((((phase - it.x0) % 4) + 4) % 4); x <= it.x1; x += 4) {
+        if (x < 0 || x >= FRAME_WIDTH || y < 0 || y >= FRAME_HEIGHT) continue;
+        const o = (y * FRAME_WIDTH + x) * 4;
+        out[o] = pen15[0];
+        out[o + 1] = pen15[1];
+        out[o + 2] = pen15[2];
+      }
+    }
+  });
 }
 
 /**
@@ -294,6 +380,8 @@ export function compositeFrame(
         drawGlyph(out, look, g.text.charCodeAt(i) & 0xff, g.textX + 8 * i, g.textY, palette[15]!);
     }
   }
-  // The screen title bar lies over everything in the window, text included.
-  if (title !== null) drawAmigaTitleBar(out, look, title);
+  // The screen title bar lies over everything in the window, text included;
+  // an open menu strip replaces it.
+  if (look.layout === "amiga" && input.menu) drawIntuitionMenu(out, look, input.menu);
+  else if (title !== null) drawAmigaTitleBar(out, look, title);
 }
