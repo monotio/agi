@@ -86,8 +86,9 @@ reviews of one push at a time miss properties of the whole system.
 - A profile covers what the player sees and hears as well as what the game does: palette, font
   metrics, prompts, menus, dialogs, pointer, sound and timing per platform. When a game's own
   files include its font, such as the Apple IIgs `AGIFONT`, the player's copy is used at runtime.
-  Otherwise the font is the project's own drawing with the original's exact metrics. The project
-  never ships original fonts and never asks players for ROMs, and a game without its font file
+  Otherwise the project's own font table recreates the original bitmap typeface pixel for pixel,
+  credited as a recreation. The project never ships ROM or font files, never extracts their bytes
+  in the build or at runtime, and never asks players for ROMs, and a game without its font file
   still plays. The original binary decides semantics and the values it encodes. MAME runs of the
   original interpreter are a cross-check, not ground truth: MAME also emulates the graphics and
   sound chips, so explain each difference instead of copying MAME's output. Only real hardware
