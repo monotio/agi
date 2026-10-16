@@ -77,7 +77,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "The screen",
         body: [
           "AGI games draw 320 × 200 pixels. Original 4:3 in Settings stretches them to a 4:3 screen, so each pixel stands a little taller than wide. Turn it off for square pixels. The game itself stays the same.",
-          "Game text uses this project's own 8 × 8 font in the originals' character grid. It draws English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank.",
+          "Game text uses this project's own 8 × 8 font in the originals' character grid, a pixel-for-pixel recreation of the original typeface. It draws English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank.",
         ],
       },
       {
@@ -348,7 +348,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "authentic",
         title: "Compared with originals",
         body: [
-          "AGI IS HERE is an independent interpreter. Its behavior is checked against original Sierra interpreters on PC, Amiga and Apple IIgs, and against recorded runs in an emulator. The fidelity notes record the evidence and the gaps that remain.",
+          "AGI IS HERE is an independent interpreter. Its behavior is checked against original Sierra interpreters on PC, Amiga and Apple IIgs, and against recorded runs in an emulator. The fidelity notes keep a coverage table of the evidence behind each part of a game on each machine, and the gaps that remain.",
         ],
       },
       {

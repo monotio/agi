@@ -616,7 +616,8 @@ selected interpreter profile.
 When a game depends on behavior the specification leaves open, or builds
 disagree, the original interpreter is the reference.
 [Interpreter compatibility](docs/fidelity.md) collects what is known and how it
-was established; its appendices describe the tooling for inventorying, decoding,
+was established; its [coverage table](docs/fidelity.md#coverage) summarizes each
+aspect's evidence per platform, and its appendices describe the tooling for inventorying, decoding,
 disassembling and probing an interpreter you supply locally. Record a new
 finding there with its build, binary hash, addresses and conclusion, label facts
 and inferences, and cite the entry's heading from code comments; the offsets
