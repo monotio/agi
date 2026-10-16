@@ -7,6 +7,7 @@ import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import { recolorCount, recolorEdit, type RecolorEdit, type RecolorScope } from "./spriteRecolor.ts";
 import { swatchInk } from "./spriteView.ts";
+import { useStudioPalette } from "../studioLook.ts";
 
 /**
  * The recolour tool's popover: one colour becomes another over this cel,
@@ -167,7 +168,7 @@ const tabStop = (chosen: number | null | undefined): number =>
           @click="row === 'from' ? (from = value) : (to = value)"
           @keydown="onSwatchKey($event, row, value)"
         >
-          <span :style="{ color: swatchInk(value) }">{{
+          <span :style="{ color: swatchInk(value, palette) }">{{
             value === transparent ? "T" : value
           }}</span>
         </button>

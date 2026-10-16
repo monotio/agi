@@ -185,6 +185,8 @@ export function cropFrameRgba(
   radius: number,
   /** The surface to crop — the picked layer's source, defaulting to composed. */
   source: Uint8Array = frame.visual,
+  /** The running game's colours; EGA when omitted. */
+  palette: readonly (readonly [number, number, number])[] = EGA_PALETTE,
 ): { width: number; height: number; data: Uint8Array } {
   const size = radius * 2 + 1;
   const x0 = Math.max(0, Math.min(cx - radius, PIC_W - size));
@@ -195,7 +197,7 @@ export function cropFrameRgba(
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y0 + y) * PIC_W + (x0 + x);
-      const [r, g, b] = EGA_PALETTE[source[i]! & 0x0f]!;
+      const [r, g, b] = palette[source[i]! & 0x0f]!;
       const o = (y * w + x) * 4;
       data[o] = r;
       data[o + 1] = g;

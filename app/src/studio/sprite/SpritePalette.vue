@@ -5,6 +5,7 @@ import UiExplain from "../../ui/UiExplain.vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import { explain } from "../studioTerms.ts";
 import { swatchInk } from "./spriteView.ts";
+import { useStudioPalette } from "../studioLook.ts";
 
 /**
  * The fixed AGI palette with the edited cel's transparent colour marked T,
@@ -91,7 +92,7 @@ function onKey(event: KeyboardEvent, value: number): void {
         @click="choose(value)"
         @keydown="onKey($event, value)"
       >
-        <span :style="{ color: swatchInk(value) }">{{ value === transparent ? "T" : value }}</span>
+        <span :style="{ color: swatchInk(value, palette) }">{{ value === transparent ? "T" : value }}</span>
       </button>
     </div>
   </section>

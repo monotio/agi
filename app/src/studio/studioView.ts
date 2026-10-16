@@ -141,13 +141,12 @@ function put(
   out[o + 3] = 255;
 }
 
-const BLACK = EGA_PALETTE[0]!;
 /** Share of the priority colour in the Priority blend. */
 const DEPTH_BLEND = 0.5;
 
 /**
- * Paint one pane into RGBA `out` (160x168x4). Art is the visual plane in EGA
- * colours. Priority blends each distance band's EGA colour over the art (or
+ * Paint one pane into RGBA `out` (160x168x4). Art is the visual plane in the
+ * game's colours (`palette`, EGA by default). Priority blends each distance band's colour over the art (or
  * shows the priority plane alone, background 4 as black) and draws control
  * lines 0-3 in their own colour and pattern.
  */
@@ -156,9 +155,11 @@ export function paintLayer(
   visual: Uint8Array,
   priority: Uint8Array,
   out: Uint8ClampedArray,
+  palette: readonly (readonly [number, number, number])[] = EGA_PALETTE,
 ): void {
+  const BLACK = palette[0]!;
   for (let i = 0; i < visual.length; i++) {
-    const art = EGA_PALETTE[visual[i]! & 0x0f]!;
+    const art = palette[visual[i]! & 0x0f]!;
     const pri = priority[i]! & 0x0f;
     if (layer === "art") {
       put(out, i, art);
@@ -170,15 +171,15 @@ export function paintLayer(
       const x = i % SCREEN_WIDTH;
       const y = (i - x) / SCREEN_WIDTH;
       const on = patternOn(control.pattern, x, y);
-      put(out, i, on ? EGA_PALETTE[control.colour]! : only ? BLACK : art);
+      put(out, i, on ? palette[control.colour]! : only ? BLACK : art);
       continue;
     }
     if (pri >= 5)
       put(
         out,
         i,
-        only ? EGA_PALETTE[pri]! : art,
-        only ? undefined : EGA_PALETTE[pri]!,
+        only ? palette[pri]! : art,
+        only ? undefined : palette[pri]!,
         DEPTH_BLEND,
       );
     else put(out, i, only ? BLACK : art);

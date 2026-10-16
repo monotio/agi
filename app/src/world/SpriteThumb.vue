@@ -2,6 +2,7 @@
 import { computed, useTemplateRef, watchEffect } from "vue";
 import type { SpriteCel } from "../../../src/view/spriteDocument.ts";
 import { celRgba } from "../render/palette.ts";
+import { useStudioPalette } from "../studio/studioLook.ts";
 
 /**
  * One cel drawn small with AGI's 2:1 pixels at the largest whole zoom that
@@ -21,6 +22,7 @@ const {
 }>();
 
 const canvas = useTemplateRef("canvas");
+const palette = useStudioPalette();
 const zoom = computed(() =>
   Math.max(1, Math.floor(Math.min(width / (cel.width * 2), height / cel.height))),
 );
@@ -32,7 +34,7 @@ watchEffect(
     target.width = cel.width;
     target.height = cel.height;
     const image = new ImageData(cel.width, cel.height);
-    celRgba(cel, image.data);
+    celRgba(cel, image.data, undefined, palette.value);
     target.getContext("2d")!.putImageData(image, 0, 0);
   },
   { flush: "post" },

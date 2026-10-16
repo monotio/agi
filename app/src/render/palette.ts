@@ -73,6 +73,7 @@ export function celRgba(
   cel: Pick<SpriteCel, "pixels" | "transparent">,
   out: Uint8ClampedArray,
   tint?: { readonly rgb: readonly [number, number, number]; readonly alpha: number },
+  palette: readonly (readonly [number, number, number])[] = EGA_PALETTE,
 ): void {
   for (let i = 0; i < cel.pixels.length; i++) {
     const value = cel.pixels[i]!;
@@ -81,7 +82,7 @@ export function celRgba(
       out[o + 3] = 0;
       continue;
     }
-    const [r, g, b] = EGA_PALETTE[value & 0x0f]!;
+    const [r, g, b] = palette[value & 0x0f]!;
     if (tint) {
       out[o] = (r + tint.rgb[0]) / 2;
       out[o + 1] = (g + tint.rgb[1]) / 2;

@@ -68,6 +68,7 @@ import type { ProjectHistoryState } from "../../../../src/authoring/projectHisto
 import type { ProjectSession } from "../../project/projectSession.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
+import { useStudioPaletteVars } from "../studioLook.ts";
 import { workspaceStudioContext } from "./studioContext.ts";
 import type { PlayHereTarget } from "../../../../src/runtime/playHere.ts";
 import type { BindingKind } from "../../../../src/agent/authoringState.ts";
@@ -260,6 +261,7 @@ function setContextTarget(element: Element | ComponentPublicInstance | null): vo
 }
 const commands = useOptionalCommands();
 const presentation = usePresentation();
+useStudioPaletteVars();
 const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
 const phoneQuery = window.matchMedia("(max-width: 600px)");
 const phoneWidth = ref(phoneQuery.matches);

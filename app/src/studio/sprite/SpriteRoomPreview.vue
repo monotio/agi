@@ -9,7 +9,7 @@ import { probeActor } from "../../../../src/studio/probe.ts";
 import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../../src/types.ts";
 import { forEachPaintedPixel, type ViewCel } from "../../../../src/view/view.ts";
-import { EGA_PALETTE } from "../../render/palette.ts";
+import { useStudioPalette } from "../studioLook.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { explain } from "../studioTerms.ts";
@@ -119,6 +119,7 @@ const verdict = computed(() => {
 });
 
 const canvas = useTemplateRef("canvas");
+const palette = useStudioPalette();
 watchEffect(
   () => {
     const target = canvas.value;
@@ -129,7 +130,7 @@ watchEffect(
     const context = target.getContext("2d")!;
     const image = context.createImageData(SCREEN_WIDTH * 2, SCREEN_HEIGHT);
     const put = (cell: number, color: number, alpha: number) => {
-      const [r, g, b] = EGA_PALETTE[color & 0x0f]!;
+      const [r, g, b] = palette.value[color & 0x0f]!;
       for (const half of [0, 1]) {
         // Each picture cell is two canvas pixels wide.
         const o = (cell * 2 + half) * 4;

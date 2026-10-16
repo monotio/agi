@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
-import { EGA_PALETTE } from "../render/palette.ts";
+import { paletteCss, useStudioPalette } from "./studioLook.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
@@ -81,6 +81,7 @@ const emit = defineEmits<{
 }>();
 
 const canvas = useTemplateRef("canvas");
+const palette = useStudioPalette();
 const width = computed(() => SCREEN_WIDTH * viewport.pixelAspect * viewport.zoom);
 const height = computed(() => SCREEN_HEIGHT * viewport.zoom);
 const backingWidth = computed(() => Math.round(width.value * dpr));
@@ -104,14 +105,14 @@ watchEffect(
     scratch ??= document.createElement("canvas");
     scratch.width = SCREEN_WIDTH;
     scratch.height = SCREEN_HEIGHT;
-    paintLayer(layer, visual, priority, image.data);
+    paintLayer(layer, visual, priority, image.data, palette.value);
     scratch.getContext("2d")!.putImageData(image, 0, 0);
     // Reading the size here re-paints after a zoom or ratio change resets the canvas.
     if (target.width !== backingWidth.value) target.width = backingWidth.value;
     if (target.height !== backingHeight.value) target.height = backingHeight.value;
     const context = target.getContext("2d")!;
     context.imageSmoothingEnabled = false;
-    context.fillStyle = `rgb(${EGA_PALETTE[15]!.join(" ")})`;
+    context.fillStyle = paletteCss(palette.value, 15);
     context.fillRect(0, 0, target.width, target.height);
     if (!underlay?.behindArt) context.drawImage(scratch, 0, 0, target.width, target.height);
     if (underlay !== null && underlay.opacity > 0) {
