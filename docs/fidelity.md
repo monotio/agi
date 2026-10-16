@@ -2636,16 +2636,199 @@ at RNG zero followed by a random call: restart consumes no BIOS input; the
 subsequent call consumes exactly one. f9/f6 and timing-word behavior are
 protected through record→seek→resume. Original save block 2 copies raw object
 records; the parameter bank uses the offsets proven in the
-[motion audit](#original-motion-and-animation-audit). Full `.SAV`
-interoperability remains unverified: the original flag mapping
-below is distinct from the engine’s private packing, and bit 0x8000 has no
-established operational meaning. The engine preserves host RNG on restart
+[motion audit](#original-motion-and-animation-audit). The released image codec retains private flag packing; the separate
+[original-file API](#original-save-file-interoperability) converts it and verifies
+controlled writer/reader interoperability. Bit 0x8000 still has no established
+operational meaning. The engine preserves host RNG on restart
 and excludes it from authentic saves.
 
 ```sh
 python scripts/probe-interpreter-lifecycle.py /tmp/agi-fixed-sq2.bin
 python scripts/probe-interpreter-lifecycle.py games/gr1/AGI
 ```
+
+### Original save-file interoperability
+
+**Evidence class:** execution of original save writers and block readers with controlled,
+original synthetic memory; Unicorn 2.1.4 on x86/68000, headless MAME 0.289 on the IIgs.
+Disk selection, file opening and OS I/O are intercepted. The original code chooses the block
+addresses, sizes, order, length bytes and resume serialization. The captured payloads contain
+no game assets. The byte assertions are in [savFile.test.ts](../test/savFile.test.ts) and
+[savFile-captures.json](../test/savFile-captures.json).
+
+There are two independent cases per single-file build: a patterned memory image tests opaque
+byte preservation; a hand-initialized game state tests fresh export without decoding an expected
+file, followed by importing the original writer’s file into a real Engine. The latter carries
+signature `TEST`, v100=37, f100/f200 set, s0=`Hello`, a drawn animated ego at (40,80) using
+view 3, one carried inventory item and three active replay pairs: load picture 1, draw picture 1,
+load view 3. Capacity is four; the fourth pair is inactive. Reference tokens and reserved fields
+are zero, except the documented reserved word 15. Resume contains the empty cache head and
+terminator. The patterned case additionally carries nonzero tokens, string/description tails,
+inactive pairs and object bits 0x0080/0x8000.
+Field placement inside the state block comes from the earlier layout findings and the executed
+Set routine, and the seed script places fields at those documented offsets, so the fresh-export
+byte match proves the writer’s block choice, order, sizes, endianness, XOR, description and flag
+bit order, but not field placement.
+
+**Scope:** complete file bytes and the mapped saved state, with engine reconstruction exercised
+using original synthetic resources. The original block readers independently restore all captured
+blocks byte for byte. The PC/Amiga reader runs use the patterned case; IIgs uses the game-state
+case. This does not establish every game’s later LOGIC behavior or unknown object bit 0x8000.
+Original restore effects (f12, machine variables, follower retry and view rebinding) still apply,
+rather than treating a native file as an exact host checkpoint. Native pointer tokens are rebuilt
+during restore; fresh exports with zero tokens match the original writer given zero-token memory,
+not arbitrary addresses in a separately running game.
+
+#### Writer and reader boundaries
+
+PC addresses below are load-module offsets; the hash covers the decoded executable, including
+its MZ header. Amiga addresses are hunk-relative; hashes cover the original hunk executable.
+The IIgs hash covers the OMF load file; segment names/offsets identify its relocated routines.
+Entry→stop ends before close/reconstruction. Every single-file row passed exact export and
+mapped-state import assertions.
+
+| Build       | SHA-256                                                            | Writer entry→stop        | Reader entry→stop  | State bytes    |
+| ----------- | ------------------------------------------------------------------ | ------------------------ | ------------------ | -------------- |
+| 2.089       | `e31e5e8611c81d58ba2a8fcc63ecdf7ded767814324c66dfd73b6452f7199cb4` | `0x25a2→0x2634`          | `0x23f2→0x2451`    | `0x3db`        |
+| 2.230       | `875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de1332245df9f60ff4570` | `0x24e8→0x257a`          | `0x2336→0x2395`    | `0x3db`        |
+| 2.272       | `a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a` | `0x2596→0x263e`          | `0x23d2→0x2443`    | `0x3db`        |
+| 2.411       | `d99938d6622ef18556bea76ebe72214b18cecac7305b83885a1157ddcff539bf` | `0x2734→0x27dc`          | `0x256c→0x25dd`    | `0x5df`        |
+| 2.440       | `c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676` | `0x275a→0x2802`          | `0x2592→0x2603`    | `0x5df`        |
+| 2.903       | `db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7` | `0x27f4→0x289c`          | `0x25cf→0x2640`    | `0x5e1`        |
+| 2.917       | `bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04` | `0x27fb→0x28a3`          | `0x25d6→0x2647`    | `0x5e1`        |
+| 2.936       | `4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400` | `0x27fb→0x28a3`          | `0x25d6→0x2647`    | `0x5e1`        |
+| 3.002.086   | `b9b27b403015bb18f6562ba1b8b04c2829e0c3b53c042196bee7924d1df7be65` | `0x2aea→0x2b92`          | `0x28a1→0x2912`    | `0x5e1`        |
+| 3.002.102   | `7cf6eac9d5bbfbd944a2b5d7189878ffe4b2d608646d91c87d5372399fa9d1d0` | `0x2b00→0x2ba8`          | `0x28b7→0x2928`    | `0x5e4`        |
+| 3.002.107   | `ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e` | `0x2b00→0x2ba8`          | `0x28b7→0x2928`    | `0x5e4`        |
+| 3.002.149   | `12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41` | `0x2a9f→0x2b47`          | `0x2856→0x28c7`    | `0x404`        |
+| amiga-2.082 | `80c6b0c4912a4ca5b44ad94c1c1b66a42e2b490f8a4ace90fb8b05f1fb39ea0f` | `h49+0xd6→0x1f6`         | `h47+0xec→0x178`   | `0x2f4`        |
+| amiga-2.176 | `62b17ac8049a982e08b1830463f067e102960feb2abb78e992e28bbe15a1cf42` | `h69+0xe0→0x200`         | `h66+0xf6→0x182`   | `0x40a`        |
+| amiga-2.202 | `557215fbbf431193e99578be53372496bd4bf1cfad7c4ba93a61968e5c760dec` | `h69+0xe0→0x200`         | `h66+0xf6→0x182`   | `0x40a`        |
+| amiga-2.310 | `72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca` | `h69+0x146→0x266`        | `h66+0x104→0x190`  | `0x414`        |
+| amiga-2.316 | `7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db` | `h69+0x146→0x266`        | `h66+0x104→0x190`  | `0x414`        |
+| amiga-2.333 | `5ce3b163bd32ee025f6ba8ca8c946b03a06ff2960da8cc723c1d6184a3cc346a` | `h69+0x164→0x284`        | `h66+0x104→0x190`  | `0x414`        |
+| iigs-1.014  | `e1a2788f92cb76220e5ac228945bf2eaf7f3a97208f0c3af2ae81d947407717f` | `savegamese+0x16e→0x281` | `seg2+0x11a→0x1ba` | `0x38 + 0x3d0` |
+
+IIgs execution places the original arithmetic helpers in bank 1 and resolves the reached OMF
+far-pointer/internal-call relocations to synthetic RAM. The writer runs its original length
+division helper (`main+0x34cc`); the reader runs its original byte-combining helper. The Write
+and Read wrappers at segment 13 +0x10f/+0xb5 transfer requested bytes to an in-memory
+file. Segment `logicseg+0x363` serializes the cache head and terminator. No GS/OS disk dialog
+or game startup is part of this routine probe.
+
+#### Envelope and blocks
+
+All three platforms write a 31-byte description followed by `{u16le length, payload}` blocks.
+The description is a byte string ending at its first NUL; bytes after it can retain earlier text.
+There is no magic, version or profile identifier. The caller must select the interpreter profile;
+structurally identical builds cannot be distinguished by their file bytes.
+
+| Builds                                  | Blocks in order                                    | Inventory transform         |
+| --------------------------------------- | -------------------------------------------------- | --------------------------- |
+| PC 2.089, 2.230                         | state, objects, inventory, script                  | none                        |
+| PC 2.272 through 2.936, including 2.903 | state, objects, inventory, script, resume          | none                        |
+| PC 3.002.086/.102/.107/.149             | state, objects, inventory, script, resume          | repeating `Avis Durgan` XOR |
+| Amiga 2.082/.176/.202                   | state, objects, inventory, script, resume          | none                        |
+| Amiga 2.310/.316/.333                   | state, objects, inventory, script, resume          | repeating `Avis Durgan` XOR |
+| IIgs 1.014                              | globals, state, objects, inventory, script, resume | none                        |
+
+The inventory block is the runtime OBJECT payload after its metadata header: live room byte
+at entry +2, three-byte entries on PC/IIgs and four-byte entries on Amiga, followed by the name
+pool. XOR covers the whole payload from key index zero. PC v3 transforms before selection
+(for example 3.002.149 `0x2a00..0x2a12`, transform `0x07bc`) and reverses it after saving.
+Amiga 2.31x does the same at h69+0x5a..0x7a, calling h19+0; the execution captures include
+that call. Earlier claims that these Amiga save blocks are raw were incorrect.
+
+Script storage is capacity × two bytes, including inactive slots. Each pair is two bytes
+`{kind, value}` with no endian conversion. The active count is distinct from capacity. Kind 5
+consumes three additional pairs for add.to.pic. Resume storage consists of four-byte records
+`{u16 logic, u16 offset}`: cache head, cached logic records, `0xffff` terminator. Resume words
+are little-endian on PC/IIgs and big-endian on Amiga. The raw head/terminator words survive
+document re-export. Resume records supply scan offsets to replay loads; they are not a load list.
+
+#### PC state and objects
+
+Every PC state block begins with signature[7], v0..v255 at +0x007, 32 flag bytes at +0x107,
+a u32le timer at +0x127 and the middle section at +0x12b. Saved numeric fields are little-endian.
+Original PC flags use `0x80 >> (flag & 7)`; executing Set for f100/f200 produced 0x08/0x80
+in their respective bytes on every captured PC build. Set entry addresses, in table order, are
+`0x6a04, 0x69bd, 0x6a59, 0x70c2, 0x71e7, 0x73aa, 0x73bd, 0x7484, 0x78c3,
+0x78db, 0x78db, 0x77b8`. The host codec’s opposite bit order stays confined to host images.
+
+| PC layout                  | Middle   | Key map      | String bank   | Text             | Tail                                                   |
+| -------------------------- | -------- | ------------ | ------------- | ---------------- | ------------------------------------------------------ |
+| 2.089/.230/.272            | 28 bytes | +0x147, 39×4 | +0x1e7, 12×40 | +0x3c7, 20 bytes | none                                                   |
+| 2.411/.440                 | 24 bytes | +0x143, 49×4 | +0x20b, 24×40 | +0x5cb, 20 bytes | none                                                   |
+| 2.903/.917/.936, 3.002.086 | 24 bytes | +0x143, 49×4 | +0x20b, 24×40 | +0x5cb, 20 bytes | checkpoint u16 at +0x5df                               |
+| 3.002.102/.107             | same     | same         | same          | same             | checkpoint +0x5df, menu u16 +0x5e1, key gate u8 +0x5e3 |
+| 3.002.149                  | 24 bytes | +0x143, 49×4 | +0x20b, 12×40 | +0x3eb, 20 bytes | checkpoint +0x3ff, menu +0x401, key gate +0x403        |
+
+The 49 serialized key records are 39 active plus ten reserved until 3.002.149; early layouts
+serialize 39. Four alignment bytes precede strings. Parse addresses six early string slots or
+twelve later ones; the additional serialized slots remain accessible to other string actions.
+Key records contain u16 raw key and u16 status. String slots contain 40 bytes each.
+
+Early middle u16 fields, in order: display mode, horizon, previous navigation, rectangle left/
+top/right/bottom, direction coupling, last picture, navigation direction, block enabled, startup
+count, script capacity, active count. Common middle: horizon, reserved zero, rectangle left/
+top/right/bottom, direction coupling, last picture, block enabled, reserved 15, capacity, active.
+The text group has u16 foreground/background/attribute/input-enabled/input-row, prompt byte
+and padding byte, then u16 status-enabled/status-row/base-row/bottom-row.
+
+PC object records have stride 0x2b: step-time/count/index bytes +0..2; x/y u16 +3/+5;
+view byte +7; reference word +8; loop/count bytes +0xa/+0xb; reference +0xc; cel/count
+bytes +0xe/+0xf; reference words +0x10/+0x12/+0x14; previous x/y +0x16/+0x18;
+width/height +0x1a/+0x1c; step-size/cycle-time/cycle-count/direction/motion/cycle/priority
+bytes +0x1e..0x24; flag word +0x25; four parameter bytes +0x27..0x2a.
+Native motion numbers normal/wander/follow/move are 0/1/2/3; cycle numbers forward/
+end-of-loop/reverse-loop/reverse-cycle are 0/1/2/3. Object flag meanings are in the
+[original flag table](#startup-and-reconstruction-execution); the new boundary converts
+both mode enums and flags to the engine’s portable representation.
+
+#### Amiga and IIgs state
+
+The [Amiga save-image map](#save-image-fact) and [IIgs globals/object map](#bounds-objects-and-the-save-image-fact)
+give the full platform field offsets. The captured Amiga state sizes are 0x2f4, 0x40a, 0x40a,
+0x414, 0x414, 0x414 in build order; their fields and 0x48-byte object records are big-endian.
+IIgs writes the 0x38-byte globals image, then 0x3d0 bytes of arrays; its fields and 0x48-byte
+objects are little-endian. Amiga and IIgs flag banks use `1 << (flag & 7)`, unlike PC:
+Amiga h126+0x2a..0x34 (2.082) and h175 (later builds) shift 1 left; IIgs flagseg+0x28a
+uses main+0x3280 to shift 1 left before OR at +0x2cc. The object flag words have the
+shared native assignment already documented for these platforms.
+
+Earlier IIgs notes inferred big-endian length words from division without following which
+result remained in A versus on the stack. Execution of savegamese+0x2e2..0x3b4 establishes
+low byte first: +0x2f8 pops the remainder, whereas +0x33e discards it and retains the quotient.
+The original reader at seg2+0x273 combines low + 256×high. A 0x38-byte lead starts `38 00`,
+and a 0x3d0-byte state starts `d0 03` in both controlled captures.
+
+#### Booter 2.001
+
+The decoded booter executable SHA-256 is
+`424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`.
+Its save routine at 0x2541..0x2609 is a different storage protocol: it reads a 512-byte
+directory buffer, clears DS+6, sends DS+6..0x2de (0x2d9 bytes), the object table at
+DS pointer 0x457/length 0x45b and inventory at 0x45d/length 0x461 through 0x2bba,
+then updates the directory through 0x2f37. The block writer emits 0x12/0x34 and its
+device/length fields in sector buffers. Routine 0x2cbf derives cylinder/head/sector values;
+0x5685 performs BIOS INT 13h I/O. There is no 31-byte description plus length-block file.
+The standalone file API rejects 2.001. Booter disk-image import/export is outside this API.
+
+#### API and archive boundary
+
+Dynamically import `src/runtime/savFile.ts` only when needed. `decodeOriginalSav(bytes, profile)`
+returns portable SaveState; `encodeOriginalSav(state, profile)` writes an original file.
+The same decoded state retains opaque bytes for unchanged document re-export.
+`importOriginalSav(engine, bytes)` checks the selected profile layout, signature, object allocation
+and inventory metadata before the engine’s disposable restore validation. `exportOriginalSav(engine, description?)` requires a complete room with no open interaction or parked continuation.
+No native platform dialog is added.
+
+The released `encodeSave`/`decodeSave`, host envelopes, checkpoint versions, profile IDs and archive
+fixtures keep their bytes and behavior. Native conversion alone handles PC flags/object modes,
+the four-block 2.230 file, Amiga 2.31x XOR and the IIgs length order. Import failures, including
+unknown replay kinds, missing view resources and truncated transient-cel packets, leave the
+live game state unchanged. File I/O/storage concurrency is the caller’s concern; this in-memory
+API neither writes storage nor claims tab/close durability.
 
 #### Startup and reconstruction execution
 
@@ -2753,8 +2936,8 @@ partition is stopped. Erase preserves animation membership; unanimate.all clears
 only drawn/animated bits. The engine's `active` means drawn, `update` means
 animated membership, and `earlierPartition` is inverse update-partition selection.
 These names and the engine's packed save bits are distinct from the original
-bit assignments. Original raw save-bit interoperability remains unclaimed,
-particularly for 0x8000 and combinations not established by execution.
+bit assignments. The [original-file API](#original-save-file-interoperability) translates these bits
+and preserves unmapped raw bits; operational meaning for 0x8000 remains unclaimed.
 
 `animate.obj` writes only the flag word (0x70: update|cycling|animated, wiping
 the other tested bits) and zeroes record bytes 0x21..0x23; it touches no cadence
@@ -3843,9 +4026,10 @@ hunks (h14/h17) and read identically on all six builds.
 
 #### Save image (fact)
 
-Every fixture ships real `Save/` directories; the images decode exactly
+Shipped SQ1 and SQ2 `Save/` images decode exactly
 to end-of-file under the PC envelope: a 31-byte description header, then
-five blocks each `{u16le length, payload}`. The block partition differs
+five blocks each `{u16le length, payload}`. Controlled execution additionally verifies
+all six builds in [original-file interoperability](#original-save-file-interoperability). The block partition differs
 from PC — block 1 is the whole state-hunk image, block 2 the `0x48`-record
 object table, block 3 the inventory region, block 4 the replay pairs
 (state capacity word × 2 bytes) and block 5 the logic-resume records:
@@ -5321,8 +5505,9 @@ slots resolved through the ~arrays+0x03fe table's cINTERSEG records):
   and round-trip through the record's raw image.
 
 `savegameseg` writes the 31-byte description header (`pea $001f`) then
-six blocks, each prefixed by a big-endian u16 length (the writer
-divmods the block size and emits high then low byte):
+six blocks, each prefixed by a little-endian u16 length.
+[Execution of the writer and reader](#original-save-file-interoperability) corrects
+the earlier high-byte-first inference:
 
 ```text
 block 1  0x38  ~globals image $010d..$0144 (u16le words; map below)
@@ -5336,9 +5521,8 @@ block 6  logic-resume {u16le logic, u16le offset} records + terminator
 ```
 
 `restore.game` reads the same six blocks back through the matching
-reader. No shipped IIgs save image exists in the fixture, so the
-layout is proven by the writer's push sequences and region boundaries
-rather than a file. The writer's far pointers resolve through the
+reader. No shipped IIgs save image exists in the fixture; controlled
+writer captures and reader execution now verify the layout and bytes. The writer's far pointers resolve through the
 segment's SUPER relocations: the lead block is ~globals (seg 2) +0x10d,
 the state block ~arrays (seg 3) +0x2e, where `set.game.id` (seg2+0x4ca0)
 copies its seven signature bytes. The lead block's words are the
@@ -6255,16 +6439,18 @@ inference distinct when extending the existing hash/address-backed findings.
 Completed loader comparisons, exhaustive RNG and wander probes need not be
 rerun as new discoveries.
 
-| Investigation                          | Current evidence and remaining acceptance                                                                                                                                                                                                                                                                                                         |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scheduler and modal timing             | [Coupled original IRQ, pacing and modal execution](#original-scheduler-and-modal-timing) covers representative v2/v3 builds, delay changes, backlogs and wait classes. Full-machine interrupt arrival, physical clock accuracy and successful disk-transfer latency remain outside this evidence.                                                 |
-| Startup and restore reconstruction     | [Startup, reconstruction and main-loop control execution](#startup-and-reconstruction-execution) establishes cold defaults, lazy RNG seeding, resource replay, follower reset and same-cycle re-entry in two builds. Actual resource bodies, full DOS startup and object bit 0x8000 remain unverified; full `.SAV` interoperability is unclaimed. |
-| Complete movement and collision passes | [Original dispatcher and movement execution](#original-complete-movement-and-follow-audit) covers seven builds and synthetic terrain/object/cadence vectors. Dispatcher cases intercept graphics and cel binding; separate cases execute the actual cel setter. This does not prove rendered-pixel or full-machine gameplay fidelity.             |
-| Follow retries and older profiles      | The movement audit executes signed retry edges and stationary RNG rejection/call counts across the listed v2/v3 builds. Earlier profiles absent from that matrix remain unverified; no new profile distinction was inferred.                                                                                                                      |
-| Chip and device semantics              | [Original sound execution](#signed-adjustment-and-device-2-edges) covers byte arithmetic and device-2 edges in four builds. TI documentation establishes programming formats, but zero-divisor and undocumented continuation behavior across chip variants still require independent hardware evidence.                                           |
+| Investigation                          | Current evidence and remaining acceptance                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scheduler and modal timing             | [Coupled original IRQ, pacing and modal execution](#original-scheduler-and-modal-timing) covers representative v2/v3 builds, delay changes, backlogs and wait classes. Full-machine interrupt arrival, physical clock accuracy and successful disk-transfer latency remain outside this evidence.                                                                                                               |
+| Startup and restore reconstruction     | [Startup, reconstruction and main-loop control execution](#startup-and-reconstruction-execution) establishes cold defaults, lazy RNG seeding, resource replay, follower reset and same-cycle re-entry in two builds. Actual resource bodies, full DOS startup and object bit 0x8000 remain unverified; controlled file interoperability is covered by the [separate API](#original-save-file-interoperability). |
+| Complete movement and collision passes | [Original dispatcher and movement execution](#original-complete-movement-and-follow-audit) covers seven builds and synthetic terrain/object/cadence vectors. Dispatcher cases intercept graphics and cel binding; separate cases execute the actual cel setter. This does not prove rendered-pixel or full-machine gameplay fidelity.                                                                           |
+| Follow retries and older profiles      | The movement audit executes signed retry edges and stationary RNG rejection/call counts across the listed v2/v3 builds. Earlier profiles absent from that matrix remain unverified; no new profile distinction was inferred.                                                                                                                                                                                    |
+| Chip and device semantics              | [Original sound execution](#signed-adjustment-and-device-2-edges) covers byte arithmetic and device-2 edges in four builds. TI documentation establishes programming formats, but zero-divisor and undocumented continuation behavior across chip variants still require independent hardware evidence.                                                                                                         |
 
 The shared object parameter bank at `0x27..0x2a` is already evidenced; it does
-not prove the remaining flags or full save interoperability. Preserve existing
-lifecycle and cadence assertions while widening each investigation. Store probe
+not prove the remaining flags or full-machine save reconstruction across arbitrary games.
+Controlled file bytes and mapped-state imports are covered by the
+[original-file API](#original-save-file-interoperability). Preserve existing lifecycle and
+cadence assertions while widening each investigation. Store probe
 commands, tool versions and controlled inputs alongside private outputs; publish
 only concise findings and independently authored expected vectors.
