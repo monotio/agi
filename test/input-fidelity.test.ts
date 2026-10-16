@@ -5,6 +5,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
 import { translatePlatformKey } from "../src/runtime/keys.ts";
 import { PROFILES, type AgiProfile } from "../src/runtime/profile.ts";
+import { validateEngineReplayState } from "../src/runtime/replayState.ts";
 import { buildObjectFile } from "../src/agent/agentState.ts";
 import { buildView } from "../src/view/view.ts";
 
@@ -1280,6 +1281,13 @@ test("a host checkpoint of PC joystick calibration still calibrates on Enter aft
   engine.tick();
   const image = engine.recordingImage(true)!;
   const replay = engine.captureReplayState(true);
+  const launch = engine.captureRoomLaunchState();
+  assert.equal(
+    launch.replay.joystick?.calibration,
+    null,
+    "launching a room abandons calibration's window",
+  );
+  validateEngineReplayState(launch.replay);
   const resumed = game(source, host, PROFILES["2.936"]);
   resumed.restoreImage(image);
   resumed.restoreReplayState(replay);
@@ -1305,4 +1313,124 @@ test("a touch acknowledgement of joystick calibration follows the Enter path", (
   host.joy.x = 180;
   engine.tick();
   assert.equal(engine.vars[6], 3);
+});
+
+test("connecting a joystick after a disconnected checkpoint has the same native clock", () => {
+  class JoyHost extends Host {
+    joy: { x: number; y: number } | null = null;
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const engine = game("return;", host, PROFILES["amiga-2.202"]);
+  engine.advanceClock(1000);
+  const image = engine.recordingImage(true)!;
+  const replay = engine.captureReplayState(true);
+  const resumed = game("return;", host, PROFILES["amiga-2.202"]);
+  resumed.restoreImage(image);
+  resumed.restoreReplayState(replay);
+  host.joy = { x: 0, y: 0 };
+  engine.pollJoystickInput();
+  resumed.pollJoystickInput();
+  assert.deepEqual(
+    resumed.captureReplayState(true).joystick,
+    engine.captureReplayState(true).joystick,
+  );
+});
+
+test("an expired joystick click interval emits the single before a new press", () => {
+  class JoyHost extends Host {
+    joy = { x: 0, y: 0, button1: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const engine = game("set.key(1,1,1); set.key(1,4,4); return;", host, PROFILES["amiga-2.202"]);
+  engine.tick();
+  engine.flags[8] = 1;
+  engine.vars[15] = 0;
+  host.joy.button1 = true;
+  engine.pollJoystickInput();
+  host.joy.button1 = false;
+  engine.pollJoystickInput();
+  host.joy.button1 = true;
+  engine.pollJoystickInput();
+  engine.tick();
+  assert.equal(engine.controllers[1], 1);
+  assert.equal(engine.controllers[4], 0);
+});
+
+test("the IIgs calibration fire press cannot also accept the following key wait", () => {
+  class JoyHost extends Host {
+    joy = { x: 100, y: 100, button1: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+    waitKey(): number {
+      throw new HostWait();
+    }
+  }
+  const host = new JoyHost();
+  const engine = game(
+    "init.joy(); wait: if (!have.key()) {goto wait;} assignn(v100,1); return;",
+    host,
+    PROFILES["iigs-1.014"],
+  );
+  engine.tick();
+  host.joy.button1 = true;
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.vars[100], 0);
+  assert.equal(engine.awaitingKey, true);
+  assert.equal(
+    engine.pollJoystickKey(),
+    undefined,
+    "the held calibration press is already debounced",
+  );
+});
+
+test("joystick calibration in a replay must reference its parked print window", () => {
+  const engine = game("return;", new Host(), PROFILES["amiga-2.202"]);
+  const state = engine.captureReplayState(true);
+  const joystick = {
+    enabled: false,
+    clockMs: 0,
+    thresholds: [0, 1, 0, 1],
+    direction: 0,
+    buttons: [
+      { state: 0, deadline: 0 },
+      { state: 0, deadline: 0 },
+    ],
+    calibration: 0,
+  };
+  assert.throws(() => validateEngineReplayState({ ...state, joystick }), /calibration/);
+});
+
+test("all IIgs fire-button words accept the save selector through synchronous GetKey", () => {
+  class SaveHost extends Host {
+    answers: number[] = [];
+    writes = 0;
+    waitKey() {
+      return this.answers.shift() ?? 27;
+    }
+    listSaveGames() {
+      return [];
+    }
+    promptSaveDescription() {
+      return "Test";
+    }
+    saveGame() {
+      this.writes++;
+      return true;
+    }
+  }
+  for (const word of [13, 0x0101, 0x0201, 0x0301, 0x0401]) {
+    const host = new SaveHost();
+    host.answers = [word, word];
+    const engine = game("save.game(); return;", host, PROFILES["iigs-1.014"]);
+    engine.tick();
+    assert.equal(host.writes, 1, `native word ${word.toString(16)} accepts`);
+  }
 });

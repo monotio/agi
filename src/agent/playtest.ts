@@ -283,7 +283,7 @@ export class Simulation {
       instructionBudget,
     });
   }
-  private drainJoystickWait(): number | undefined {
+  private drainJoystickWait(consumeKey = true): number | undefined {
     let generated: number | undefined;
     for (;;) {
       if (this.recordedCalls?.[0]?.[0] === "clock")
@@ -292,8 +292,10 @@ export class Simulation {
         this.engine.setSoundEnabled(this.recordedCalls.shift()![1] !== 0);
       else if (this.recordedCalls?.[0]?.[0] === "joystick") {
         const remaining = this.recordedCalls.length;
-        const key = this.engine.pollJoystickKey();
-        if (key !== undefined) generated = key;
+        if (consumeKey) {
+          const key = this.engine.pollJoystickKey();
+          if (key !== undefined) generated = key;
+        } else this.engine.pollJoystickInput();
         if (this.recordedCalls.length >= remaining)
           throw new Error("Recorded joystick wait did not consume its sample.");
       } else break;
@@ -306,7 +308,7 @@ export class Simulation {
       const call = this.recordedCalls.shift()!;
       this.advanceRecordedClock(call[1] as number);
     }
-    const generated = kind === "waitKey" ? this.drainJoystickWait() : undefined;
+    const generated = this.drainJoystickWait(kind === "waitKey");
     const call = this.recordedCalls?.shift();
     if (generated !== undefined && call?.[1] !== generated)
       throw new Error("Recorded joystick wait key diverged.");
@@ -358,7 +360,8 @@ export class Simulation {
               const answer = this.recordedCalls.shift()![1];
               if (generated !== undefined && generated !== answer)
                 throw new Error("Recorded joystick wait key diverged.");
-              if (this.recordedCalls[0]?.[0] === "keyResume") this.recordedCalls.shift();
+              if ((this.recordedCalls[0] as RecordedHostCall | undefined)?.[0] === "keyResume")
+                this.recordedCalls.shift();
               this.engine.deliverHostAnswer(answer);
             }
           }

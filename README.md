@@ -62,8 +62,10 @@ interpreters.
 Sound follows the machine: emulated Paula on the Amiga, Ensoniq wavetable on the IIgs, and the Tandy
 chip or PC speaker on a PC. **Settings → Advanced… → Sound chip** picks the PC one. The picture
 fills a 4:3 frame like a monitor of the day; **Settings → Original 4:3** switches to square pixels.
-Mouse clicks walk the hero on the Amiga and IIgs, as they did on the originals. Text uses this
-project's own 8 × 8 drawings, or the player's AGIFONT when an IIgs game includes it.
+Mouse clicks walk the hero on the Amiga and IIgs, as they did on the originals. Connected gamepads
+follow the game's native joystick controls and calibration. On a phone, **Keys** provides function,
+modified letter and fire-button keys. Text uses this project's own 8 × 8 drawings, or the player's
+AGIFONT when an IIgs game includes it.
 The IIgs profile uses its original palette and font metrics;
 native IIgs menus and the mouse pointer still differ from the original. Fan-made games run too.
 [Testing compatibility](docs/testing.md#testing-compatibility) lists the exact

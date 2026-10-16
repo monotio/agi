@@ -41,7 +41,13 @@ const extraKeys = computed<Record<string, number>>(() => ({
   "Button 4": 0x0401,
   ...(profile?.startsWith("amiga-") || profile === "iigs-1.014" ? { Sound: 0xff00 } : {}),
 }));
-const modifier = ref<"none" | "ctrl" | "alt">("none");
+const modifier = ref<"none" | "ctrl" | "alt" | "meta">("none");
+watch(
+  () => profile,
+  (value) => {
+    if (modifier.value === "meta" && !value?.startsWith("amiga-")) modifier.value = "none";
+  },
+);
 const letters = "abcdefghijklmnopqrstuvwxyz".split("");
 
 function press(event: PointerEvent, dir: number): void {
@@ -190,6 +196,7 @@ onBeforeUnmount(() => {
           <option value="none">Letters</option>
           <option value="ctrl">Ctrl + letter</option>
           <option value="alt">Alt + letter</option>
+          <option v-if="profile?.startsWith('amiga-')" value="meta">Command + letter</option>
         </UiSelect>
       </label>
       <div class="key-grid letters">
@@ -211,7 +218,7 @@ onBeforeUnmount(() => {
           {{
             modifier === "none"
               ? letter
-              : `${modifier === "ctrl" ? "Ctrl" : "Alt"}+${letter.toUpperCase()}`
+              : `${modifier === "ctrl" ? "Ctrl" : modifier === "meta" ? "Command" : "Alt"}+${letter.toUpperCase()}`
           }}
         </button>
       </div>

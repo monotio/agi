@@ -91,6 +91,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       (epoch === ctx.run.owner.epoch && msg.generation < ctx.run.owner.generation)
     )
       return;
+    if (!msg.active) ctx.fns.onJoystick({ type: "joystick", sample: null });
     ctx.run.owner.active = msg.active;
     ctx.run.owner.generation = msg.generation;
     ctx.run.owner.epoch = epoch;

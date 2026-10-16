@@ -79,6 +79,17 @@ export class OperationRecorder {
       run();
       return;
     }
+    if (kind === "joystick" && this.openCalls !== null) {
+      // A cancellation while a host answer is pending precedes that answer.
+      // Keep the tick open: this input poll does not resume its logic pass.
+      this.calls = this.openCalls;
+      try {
+        run();
+      } finally {
+        this.calls = null;
+      }
+      return;
+    }
     if (kind === "tick" && this.openCalls !== null) {
       // Resumption of a tick parked on a host answer: keep collecting into
       // the operation it started rather than opening a second tick.

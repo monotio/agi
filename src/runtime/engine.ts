@@ -2458,13 +2458,12 @@ export class Engine {
         const queued = this.drainDialogKey();
         if (queued !== undefined) return queued;
         const wait = this.host.waitKey;
-        // A synchronous waitKey answer is GetKey's return: the profiles with
-        // the full-word queue normalize the keypad Enter/Escape words exactly
-        // like the drained queue does.
+        // A synchronous answer crosses the same native GetKey normalization
+        // as a queued or delivered answer (F-IN-04).
         if (wait)
           return this.hostCall(pending, () => {
             const answer = wait.call(this.host) ?? AGI_KEY.ESCAPE;
-            return this.profile.keypadWordsNormalized ? normalizeKeyWord(answer) : answer;
+            return normalizeKeyWord(answer, this.profile.presentation);
           });
         return AGI_KEY.ESCAPE;
       }
@@ -2529,11 +2528,8 @@ export class Engine {
   private drainDialogKey(): number | undefined {
     this.queueHostKeys(true);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      // The selector's wait runs GetKey too, so keypad Enter/Escape words
-      // normalize here on the profiles whose queue keeps the full words
-      // (docs/fidelity.md "Original input, menu and modal handling", F-IN-06).
-      if (event.type === 1)
-        return this.profile.keypadWordsNormalized ? normalizeKeyWord(event.value) : event.value;
+      // The selector's wait uses the platform's GetKey normalization (F-IN-04).
+      if (event.type === 1) return normalizeKeyWord(event.value, this.profile.presentation);
       if (event.type === 2 && event.value !== 0) {
         const navigationKey = NAV_KEY_CODES[event.value];
         if (navigationKey !== undefined) return navigationKey;
@@ -2646,15 +2642,11 @@ export class Engine {
         break;
       }
       case "saveDialog":
-        // A delivered key answers GetKey: the full-word-queue profiles
-        // normalize keypad Enter/Escape like the selector's own queue drain
-        // and waitKey path do.
+        // Delivered selector keys cross the same native GetKey normalization.
         this.driveSaveDialog(
           pending,
-          this.profile.keypadWordsNormalized &&
-            pending.dialog.need?.kind === "key" &&
-            typeof answer === "number"
-            ? normalizeKeyWord(answer)
+          pending.dialog.need?.kind === "key" && typeof answer === "number"
+            ? normalizeKeyWord(answer, this.profile.presentation)
             : answer,
         );
         break;
@@ -3398,7 +3390,12 @@ export class Engine {
 
   /** Releasing browser input ownership stops the stick without firing a button action. */
   cancelJoystickInput(): void {
-    if (this.lastJoyDir !== 0) this.inputQueue.enqueue({ type: 2, value: 0 });
+    if (this.lastJoyDir !== 0) {
+      // GetKey discards direction events. Ownership cleanup must also stop
+      // the current heading when the parked pass resumes without an input phase.
+      this.vars[V_EGO_DIR] = 0;
+      this.inputQueue.enqueue({ type: 2, value: 0 });
+    }
     this.lastJoyDir = 0;
     this.joyButtons[0] = { state: 0, deadline: 0 };
     this.joyButtons[1] = { state: 0, deadline: 0 };
@@ -3447,8 +3444,14 @@ export class Engine {
 
   /** Poll the native input service independently of game-selected logic pacing. */
   pollJoystickInput(): void {
+    const sample = this.host.sampleJoystick?.() ?? null;
+    // Ownership loss must cancel held input even while a modal freezes time.
+    if (sample === null) {
+      if (this.joyObserved) this.cancelJoystickInput();
+      return;
+    }
     if (this.stopLatch !== null || this.timerPaused) return;
-    this.pollJoystick();
+    this.pollJoystick(sample);
   }
 
   /** Poll while GetKey is parked and consume each generated raw event once. */
@@ -3497,6 +3500,7 @@ export class Engine {
       this.joyYMin = Math.trunc(cy / 4);
       this.joyYMax = cy + Math.trunc(cy / 2) + Math.trunc(cy / 4);
       this.joyEnabled = true;
+      this.joyButtons[0].state = sample.button1 || sample.button2 ? 1 : 0;
       this.joyCalibratingModalSerial = null;
       this.closeModal();
       this.inputQueue.clear();
@@ -3524,8 +3528,7 @@ export class Engine {
     }
   }
 
-  private pollJoystick(): void {
-    const sample = this.host.sampleJoystick?.() ?? null;
+  private pollJoystick(sample = this.host.sampleJoystick?.() ?? null): void {
     if (sample === null) {
       if (this.joyObserved) this.cancelJoystickInput();
       return;
@@ -3610,11 +3613,11 @@ export class Engine {
           }
         }
       } else if (b.state === 2) {
-        if (pressed) {
-          b.state = 3;
-        } else if (this.joyClockMs >= b.deadline) {
+        if (this.joyClockMs >= b.deadline) {
           b.state = 0;
           this.inputQueue.enqueue({ type: 1, value: singleWord });
+        } else if (pressed) {
+          b.state = 3;
         }
       } else if (b.state === 3) {
         if (!pressed) {
@@ -4032,9 +4035,11 @@ export class Engine {
   }
 
   private replayState(continuation = this.captureContinuation()): EngineReplayState {
+    const joystick = this.joystickState();
+    if (joystick && continuation === null) joystick.calibration = null;
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
-      ...(this.joystickState() ? { joystick: this.joystickState()! } : {}),
+      ...(joystick ? { joystick } : {}),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -4812,7 +4817,7 @@ export class Engine {
       this.yieldedExecution
     )
       return;
-    this.joyClockMs += milliseconds;
+    if (this.joyObserved) this.joyClockMs += milliseconds;
     const modal = this.modal;
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {

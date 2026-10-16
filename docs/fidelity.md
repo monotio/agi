@@ -3726,6 +3726,14 @@ $0080`); `0xb5` is outside `maxAction` (`0xae`).
     `EngineHost.sampleJoystick` supplies native axis counts for PC/IIgs and
     signed digital axes for Amiga. Unit tests assert calibration, thresholds,
     direction changes and platform button words against these rules.
+    The browser adapter samples the first connected Gamepad's stick or D-pad,
+    mapping normalized axes to counts `round(128 + 127 * axis)` on PC/IIgs.
+    Native polling runs on host ticks, independently of game-selected logic
+    pacing. Fire deadlines use elapsed timer ticks (PC PIT `65536/1193182`
+    seconds; Amiga's selected region tick). Disconnecting or relinquishing
+    play ownership cancels held directions and button state without a fire
+    release. Optional host checkpoint and recording fields retain calibration,
+    native deadlines and samples; released files omit them unchanged.
 
 ### Original window and status-line text
 

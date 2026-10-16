@@ -227,9 +227,16 @@ export function createInput(ctx: WorkerContext) {
 
   function onJoystick(msg: Inbound<"joystick">): void {
     const engine = ctx.run.engine;
-    if (!engine || !ctx.run.owner.active || ctx.fns.debugStoppedHeld()) return;
+    if (!engine) return;
     if (ctx.replay.replay && !ctx.replay.historyReplay) return;
-    if (msg.sample !== null && (!isJoystickSample(msg.sample) || ctx.run.cycle.paused)) return;
+    if (
+      msg.sample !== null &&
+      (!ctx.run.owner.active ||
+        ctx.fns.debugStoppedHeld() ||
+        !isJoystickSample(msg.sample) ||
+        ctx.run.cycle.paused)
+    )
+      return;
     const sample = msg.sample;
     const native =
       sample === null
@@ -245,6 +252,9 @@ export function createInput(ctx: WorkerContext) {
     ctx.fns.historyRecord({ kind: "joystick", sample });
     ctx.run.input.joystick = native;
     if (sample !== null) ctx.run.input.joystickObserved = true;
+    else if (ctx.run.recording.recording)
+      ctx.run.recording.recording.tape.run("joystick", () => engine.pollJoystickInput());
+    else engine.pollJoystickInput();
   }
 
   function pollJoystickInput(): void {

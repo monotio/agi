@@ -478,9 +478,13 @@ export function validateEngineReplayState(
       playback: validatePlaybackState(a["playback"]),
     };
   }
+  const continuation = validateContinuation(s["continuation"], options);
+  const joystick = hasJoystick ? validateJoystickState(s["joystick"]) : undefined;
+  if (joystick?.calibration != null && continuation?.modals[joystick.calibration]?.kind !== "print")
+    throw new Error("Replay joystick calibration is missing its window.");
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
-    ...(hasJoystick ? { joystick: validateJoystickState(s["joystick"]) } : {}),
+    ...(joystick ? { joystick } : {}),
     clockRemainderMs: number(
       s["clockRemainderMs"],
       0,
@@ -543,6 +547,6 @@ export function validateEngineReplayState(
     gameSignature,
     sound,
     patchGeneration: number(s["patchGeneration"], 0, 0xffffffff),
-    continuation: validateContinuation(s["continuation"], options),
+    continuation,
   };
 }

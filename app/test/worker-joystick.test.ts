@@ -117,9 +117,12 @@ test("paused and inactive games reject joystick samples; disconnect stops withou
   sample(-1, 0, false);
   assert.equal(ctx.run.input.joystick, null);
   onWorkerMessage(ctx, { type: "pause", paused: false });
+  // A fresh centered browser sample can arrive before the first resumed tick.
+  sample(0, 0, false);
   ctx.fns.tickEngine();
   assert.equal(ctx.run.engine!.vars[6], 0);
   assert.equal(ctx.run.engine!.controllers[1], 0);
+  onWorkerMessage(ctx, { type: "joystick", sample: null });
   ctx.run.owner.active = false;
   sample(1, 0);
   assert.equal(ctx.run.input.joystick, null);
@@ -221,4 +224,81 @@ test("a native sound switch during a recorded key wait takes effect before the r
   sim.engine.restoreImage(image, { preservePresentation: true });
   sim.replay({ state, operations: tape.operations });
   assert.equal(sim.engine.vars[100], 2);
+});
+
+test("transferring play ownership cancels held Gamepad input before reclaim", () => {
+  const { ctx, sample } = setup("amiga-2.202");
+  ctx.fns.tickEngine();
+  sample(1, 0, true);
+  ctx.fns.tickEngine();
+  onWorkerMessage(ctx, { type: "playOwner", active: false, generation: 1 });
+  onWorkerMessage(ctx, { type: "playOwner", active: true, generation: 2 });
+  sample(0, 0, false);
+  ctx.fns.tickEngine();
+  assert.equal(ctx.run.engine!.vars[6], 0);
+  assert.equal(ctx.run.engine!.controllers[1], 0);
+});
+
+test("cancelling Gamepad ownership during a recorded key wait stops walking before its answer", () => {
+  const source = "if (isset(f201)) {reset(f201); wait: if (!have.key()) {goto wait;}} return;";
+  const { ctx, sample } = setup("amiga-2.202", source);
+  const engine = ctx.run.engine!;
+  ctx.fns.tickEngine();
+  sample(1, 0, true);
+  ctx.fns.tickEngine();
+  engine.flags[201] = 1;
+  const image = engine.recordingImage(true)!;
+  const state = engine.captureReplayState(true);
+  const tape = new OperationRecorder();
+  ctx.run.recording.recording = { tape, events: [], printed: [], tainted: null };
+  ctx.fns.tickEngine();
+  assert.equal(engine.awaitingKey, true);
+  onWorkerMessage(ctx, { type: "joystick", sample: null });
+  onWorkerMessage(ctx, { type: "key", code: 97 });
+  const sim = new Simulation(
+    createAgentSessionState(gameContainer([source]), PROFILES["amiga-2.202"]),
+  );
+  sim.engine.restoreImage(image, { preservePresentation: true });
+  sim.replay({ state, operations: tape.operations });
+  assert.deepEqual(
+    sim.engine.captureReplayState(true).inputQueue,
+    engine.captureReplayState(true).inputQueue,
+  );
+  assert.equal(engine.vars[6], 0);
+  assert.equal(sim.engine.vars[6], 0);
+});
+
+test("Gamepad cancellation during a recorded string prompt precedes its answer", () => {
+  const source = 'if (isset(f201)) {reset(f201); get.string(s1,"Name?",20,0,10);} return;';
+  const { ctx, sample } = setup("amiga-2.202", source);
+  const engine = ctx.run.engine!;
+  ctx.fns.tickEngine();
+  sample(1, 0, true);
+  ctx.fns.tickEngine();
+  engine.flags[201] = 1;
+  const image = engine.recordingImage(true)!;
+  const state = engine.captureReplayState(true);
+  const tape = new OperationRecorder();
+  ctx.run.recording.recording = { tape, events: [], printed: [], tainted: null };
+  ctx.fns.tickEngine();
+  const request = ctx.run.hostRequests.hostRequestOutstanding!;
+  assert.equal(request.op, "getstring");
+  onWorkerMessage(ctx, { type: "joystick", sample: null });
+  ctx.fns.onHostAnswer({
+    type: "hostAnswer",
+    generation: request.generation,
+    id: request.id,
+    response: "Ada",
+  });
+  const sim = new Simulation(
+    createAgentSessionState(gameContainer([source]), PROFILES["amiga-2.202"]),
+  );
+  sim.engine.restoreImage(image, { preservePresentation: true });
+  sim.replay({ state, operations: tape.operations });
+  assert.equal(sim.engine.strings[1], "Ada");
+  assert.equal(sim.engine.vars[6], 0);
+  assert.deepEqual(
+    sim.engine.captureReplayState(true).inputQueue,
+    engine.captureReplayState(true).inputQueue,
+  );
 });
