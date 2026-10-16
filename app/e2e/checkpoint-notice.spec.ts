@@ -1,6 +1,13 @@
 import { test, expect } from "./test.ts";
 import { createStarterProject } from "../../src/authoring/starterProject.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter, waitForGameInput } from "./engineProbe.ts";
+import {
+  enterCreateMode,
+  isolateStorage,
+  textHook,
+  waitForAutosaveAfter,
+  waitForCycles,
+  waitForGameInput,
+} from "./engineProbe.ts";
 
 test("Play explains refused checkpoint storage and clears the notice when progress saves @phone", async ({
   page,
@@ -17,14 +24,16 @@ test("Play explains refused checkpoint storage and clears the notice when progre
   await page.goto("/");
   await page.evaluate(() => {
     const write = Storage.prototype.setItem;
+    const fault = window as unknown as { checkpointWritesRefused: boolean };
+    fault.checkpointWritesRefused = true;
     Storage.prototype.setItem = function (key, value) {
-      if (key.startsWith("monotio_agi.autosave."))
+      if (fault.checkpointWritesRefused && key.startsWith("monotio_agi.autosave."))
         throw new DOMException("Injected full storage", "QuotaExceededError");
       write.call(this, key, value);
     };
     (window as unknown as { restoreCheckpointStorage: () => void }).restoreCheckpointStorage =
       () => {
-        Storage.prototype.setItem = write;
+        fault.checkpointWritesRefused = false;
       };
   });
   await page.getByTestId("boot-checkpoint-proof").click();
@@ -52,4 +61,13 @@ test("Play explains refused checkpoint storage and clears the notice when progre
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await waitForAutosaveAfter(page, -1);
   await expect(notice).toBeHidden();
+  await waitForCycles(page, 2);
+  await page.evaluate(() => {
+    (window as unknown as { checkpointWritesRefused: boolean }).checkpointWritesRefused = true;
+    window.dispatchEvent(new Event("pagehide"));
+  });
+  await expect(notice).toBeVisible();
+  await enterCreateMode(page);
+  await expect(notice).toBeHidden();
+  expect(await page.evaluate(() => window.__AGI_STATE__?.checkpointProblem)).toBe("");
 });
