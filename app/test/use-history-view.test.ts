@@ -623,6 +623,39 @@ test("a retain refused while the game is starting names that cause and the next 
   assert.equal(v.active, true, "the view stays open");
 });
 
+test("Undo rewind on a text screen explains how to continue without blaming a prompt", async () => {
+  const target = await bindViewGame();
+  await importGameHistory(target, { recording: RECORDING });
+  await stageRetainedOriginal(target, {
+    id: "text-screen-undo",
+    boot: stampBoot(BOOT),
+    from: null,
+    retainedAt: 1,
+  });
+  await commitStagedOriginal(target, "text-screen-undo");
+  const { state, view, takes, waitHeld, release, sessionState } = makeHarness({
+    defer: ["historyRetain"],
+  });
+  const undoing = view.undoRewind();
+  await waitHeld("historyRetain");
+  release("historyRetain", {
+    type: "historyRetained",
+    id: 0,
+    boot: null,
+    from: null,
+    reason: "text-mode",
+  });
+  await undoing;
+  assert.equal(
+    state.historyView.error,
+    "The game is showing a text screen. Continue past it, then rewind.",
+  );
+  assert.deepEqual(takes, [], "no adoption was requested");
+  assert.equal(sessionState.hold, null, "authoring is released");
+  assert.equal(state.powerUp.busy, false);
+  assert.equal((await loadRetainedBranches(target.locator)).length, 1, "Undo stays available");
+});
+
 test("a failed stage write releases the hold and asks the worker nothing", async () => {
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });

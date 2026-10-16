@@ -475,6 +475,22 @@ test("a game paused before its first room draws is refused as still starting", (
   ctx.fns.stopTimers();
 });
 
+test("Undo on a text title screen names the text screen and leaves the game in place", () => {
+  const h = viewHarness(gameContainer(['text.screen(); display(2, 2, "Title screen"); return;']));
+  const { ctx, send, tick } = h;
+  tick(2);
+  send({ type: "pause", paused: true });
+  assert.equal(ctx.run.engine!.textModeActive, true);
+  const before = ctx.run.engine!.readState();
+  send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "text-mode");
+  assert.deepEqual(ctx.run.engine!.readState(), before, "the title screen stays in place");
+  ctx.fns.stopTimers();
+});
+
 // Player rule: rewinding never trades a restored checkpoint for the game's start. Paused before
 // its first cycle after the restore, the checkpoint is not keepable yet and the notice says so.
 test("a restored checkpoint paused before its first cycle keeps its position", () => {

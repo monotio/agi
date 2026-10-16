@@ -1084,7 +1084,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
         v.error =
           departing.reason === "starting"
             ? "The game is still starting. Play a moment, then rewind."
-            : "The paused session can't be kept while a game prompt is open.";
+            : departing.reason === "text-mode"
+              ? "The game is showing a text screen. Continue past it, then rewind."
+              : "The paused session can't be kept while a game prompt is open.";
         return false;
       }
       const candidate = {
