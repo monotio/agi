@@ -449,53 +449,62 @@ test("F-persistence-05: Amiga confirmation gadgets are selectable at their label
     return engine;
   };
 
-  // Hand-computed layout (textSurface placePrintWindow, display base row 1):
-  // both windows are 3 lines, so textTop = 1 + ((20 - 1 - 3) >> 1) + 1 = 10
-  // and the gadget line is text row 12 (pixel rows 96..103). The restart
-  // window is 17 columns wide (textLeft 11): "Restart" fills columns 11..17
-  // (x 88..143) and "Cancel" columns 22..27 (x 176..223). The quit window is
-  // 27 columns wide (textLeft 6): "Quit" fills columns 6..9 (x 48..79) and
-  // "Continue" columns 25..32 (x 200..263). A gadget's hit region is its
-  // label cells plus half a cell (4 px) on each side, from the blank line
-  // above the labels (y 88) down to the window's bottom edge (y 108).
+  // Hand-computed layout (textSurface placePrintWindow, display base row 1).
+  // WindowPrint adds three rows to a message with gadget labels, so both
+  // windows are 4 rows: textTop = 1 + ((20 - 1 - 4) >> 1) + 1 = 9, the labels
+  // sit on text row 12 and the frame's bottom edge is y1 = 8 * 13 + 4 = 108.
+  // Gadgets (F-persistence-05): 12 px high with top = y1 - 17 = 91 (rows
+  // 91..102), width 8 * len + 8, the first at frame left + 10 and the second
+  // ending 10 px before frame right. Restart window (17 columns, textLeft 11):
+  // frame x 78..234, Restart x 88..151, Cancel (56 wide) x 168..223. Quit
+  // window (27 columns, textLeft 6): frame x 38..274, Quit x 48..87, Continue
+  // (72 wide) x 192..263.
+  const edges = (engine: Engine, name: string, x0: number, x1: number, answer: number): void => {
+    for (const [x, y] of [
+      [x0, 91],
+      [x1, 91],
+      [x0, 102],
+      [x1, 102],
+      [(x0 + x1) >> 1, 96],
+    ])
+      assert.equal(engine.confirmGadgetAt(x!, y!), answer, `${name} inside at ${x},${y}`);
+    for (const [x, y] of [
+      [x0 - 1, 96],
+      [x1 + 1, 96],
+      [(x0 + x1) >> 1, 90],
+      [(x0 + x1) >> 1, 103],
+    ])
+      assert.equal(engine.confirmGadgetAt(x!, y!), null, `${name} outside at ${x},${y}`);
+  };
   for (const id of AMIGA) {
     const restart = open(id, 1);
+    assert.equal(restart.textRow(9).indexOf("Restart the game?"), 11, `${id} restart prompt row`);
     assert.equal(restart.textRow(12).indexOf("Restart    Cancel"), 11, `${id} restart gadget line`);
-    assert.equal(restart.confirmGadgetAt(115, 99), 13, `${id} Restart gadget centre accepts`);
-    assert.equal(restart.confirmGadgetAt(84, 88), 13, `${id} Restart gadget top-left corner`);
-    assert.equal(restart.confirmGadgetAt(147, 108), 13, `${id} Restart gadget bottom-right corner`);
-    assert.equal(restart.confirmGadgetAt(199, 99), 27, `${id} Cancel gadget centre cancels`);
-    assert.equal(restart.confirmGadgetAt(172, 88), 27, `${id} Cancel gadget top-left corner`);
-    assert.equal(restart.confirmGadgetAt(227, 108), 27, `${id} Cancel gadget bottom-right corner`);
-    assert.equal(restart.confirmGadgetAt(160, 99), null, `${id} the gap between the gadgets`);
-    assert.equal(restart.confirmGadgetAt(83, 99), null, `${id} left of Restart`);
-    assert.equal(restart.confirmGadgetAt(228, 99), null, `${id} right of Cancel`);
-    assert.equal(restart.confirmGadgetAt(115, 87), null, `${id} the prompt line`);
-    assert.equal(restart.confirmGadgetAt(115, 109), null, `${id} below the window frame`);
+    edges(restart, `${id} Restart`, 88, 151, 13);
+    edges(restart, `${id} Cancel`, 168, 223, 27);
+    assert.equal(restart.confirmGadgetAt(160, 96), null, `${id} between the gadgets`);
 
     const quit = open(id, 2);
+    assert.equal(
+      quit.textRow(9).indexOf("Quit the game, or continue?"),
+      6,
+      `${id} quit prompt row`,
+    );
     assert.equal(
       quit.textRow(12).indexOf("Quit               Continue"),
       6,
       `${id} quit gadget line`,
     );
-    assert.equal(quit.confirmGadgetAt(63, 99), 13, `${id} Quit gadget centre accepts`);
-    assert.equal(quit.confirmGadgetAt(44, 88), 13, `${id} Quit gadget top-left corner`);
-    assert.equal(quit.confirmGadgetAt(83, 108), 13, `${id} Quit gadget bottom-right corner`);
-    assert.equal(quit.confirmGadgetAt(231, 99), 27, `${id} Continue gadget centre cancels`);
-    assert.equal(quit.confirmGadgetAt(196, 88), 27, `${id} Continue gadget top-left corner`);
-    assert.equal(quit.confirmGadgetAt(267, 108), 27, `${id} Continue gadget bottom-right corner`);
-    assert.equal(quit.confirmGadgetAt(140, 99), null, `${id} the gap between the gadgets`);
-    assert.equal(quit.confirmGadgetAt(43, 99), null, `${id} left of Quit`);
-    assert.equal(quit.confirmGadgetAt(268, 99), null, `${id} right of Continue`);
-    assert.equal(quit.confirmGadgetAt(63, 87), null, `${id} the prompt line`);
+    edges(quit, `${id} Quit`, 48, 87, 13);
+    edges(quit, `${id} Continue`, 192, 263, 27);
+    assert.equal(quit.confirmGadgetAt(140, 96), null, `${id} between the gadgets`);
 
     // The gadget answer resolves the wait exactly like its key: Restart
-    // restarts, Cancel resumes after the opcode.
-    restart.deliverHostAnswer(restart.confirmGadgetAt(115, 99));
+    // restarts, Continue resumes after the opcode.
+    restart.deliverHostAnswer(restart.confirmGadgetAt(119, 96));
     restart.tick();
     assert.equal(restart.vars[90], 1, `${id} Restart gadget restarts`);
-    quit.deliverHostAnswer(quit.confirmGadgetAt(231, 99));
+    quit.deliverHostAnswer(quit.confirmGadgetAt(227, 96));
     quit.tick();
     assert.equal(quit.vars[82], 1, `${id} Continue gadget resumes`);
     assert.equal(

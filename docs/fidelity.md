@@ -2817,12 +2817,43 @@ to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`, IIgs
   profiles (`windowFrameGeometry === "amiga"`) and the PC/IIgs Enter/Escape
   confirmation strings on all other profiles, with Enter accepting and Escape
   cancelling across all profiles (fields `originalRestartRestore` and
-  `exitAlwaysImmediate`). On the Amiga profiles each gadget label is a
-  selectable target (`confirmGadgetAt`): a click or tap on Restart or Quit
-  accepts, on Cancel or Continue declines. The binaries record the labels,
-  not the gadget boxes, so the engine's hit regions are its own label cells
-  plus half a cell either side, from the blank line above the labels to the
-  window's bottom edge (inference).
+  `exitAlwaysImmediate`).
+- **F-persistence-05-gadgets (fact; engine matches the rectangles).** Amiga
+  WindowPrint gadget geometry, read off all six executables (`Sierra` 2.082
+  `80c6b0c4912a4ca5…` h40 `9f9e04710ff4e18c…`; `KQ2` 2.176
+  `62b17ac8049a982e…` h57 `90f7d02648af2c98…`; `SQ2` 2.202
+  `557215fbbf431193…` h57 `4b3b5915cf53b938…`; `PQ` 2.310
+  `72ddbb3ecda804b8…`, `GR` 2.316 `7bfa2f36616923a4…` and `MH2` 2.333
+  `5ce3b163bd32ee02…` share h57 `6895a48299a9da74…`): with either label
+  non-null the window's text rows gain 3 (`2.082` h40+0x286, `2.176`/`2.202`
+  h57+0x2c8, `2.31x` h57+0x2d0). The gadget routine (`2.082`
+  h40+0x4b8..0x5ec, `2.176`/`2.202` h57+0x51c..0x66e, `2.31x`
+  h57+0x524..0x676) sets, for each of two static 44-byte `Gadget` structs,
+  `Height = fontHeight + 4`, `Width = strlen(label) × fontWidth + 8`,
+  `TopEdge = windowBottom − 5 − Height`, and `LeftEdge = windowLeft + 10`
+  for the first label and `windowRight − 10 − Width` for the second (a lone
+  label is centred on `2.176+`; `2.082` has no centring branch). The font
+  words are 8×8 in every build (`2.082` `$9f8c`/`$9f8e`, `2.176`
+  `$9e14`/`$9e16`, `2.202` `$9e48`/`$9e4a`, `2.310` `$a540`/`$a542`, `2.316`
+  `$a674`/`$a676`, `2.333` `$a640`/`$a642`), so gadgets are 12 px high and
+  `8 × len + 8` wide. Each gadget is drawn with `RectFill` in pen 2 (first)
+  or pen 4 (second), then `AddGadget`; its `IntuiText` has FrontPen 15,
+  BackPen 2/4, `LeftEdge 4`, `TopEdge 2`; `GadgetType 1` (BOOLGADGET),
+  Activation 1 (RELVERIFY). The window variables the routine reads (e.g.
+  `2.316` `$810c`/`$810e`/`$8110`/`$8112`, written by h97+0x4e..0xa0) are the
+  frame's inclusive bounds `x0 = 8·textLeft − 10`, `y0 = 8·textTop − 6`,
+  `x1 = 8·(textLeft + cols) + 10`, `y1 = 8·(textTop + rows) + 4`: the
+  `windowFrameGeometry: "amiga"` overlay. With no label the routine adds one
+  gadget covering the whole window (`2.316` h57+0x4b2..0x4f0; not modelled:
+  the engine's print windows take Enter/Escape only). Engine:
+  `amigaConfirmText` adds the three rows, `confirmGadgetAt` hit-tests the two
+  rectangles (`top = y1 − 17`, 12 rows; the first from `x0 + 10`, the second
+  ending at `x1 − 11`) and answers Enter for the first and Escape for the
+  second, and the label cells carry pens 15 on 2 and 15 on 4. Divergence
+  (cell surface): the engine writes the labels as 8 px cells on the window's
+  last text row, starting at the first text column and ending at the last,
+  which is 3 px below and 4 px beside the original glyphs at
+  `(LeftEdge + 4, TopEdge + 2)`, and it does not draw the 12 px filled boxes.
 - **F-OPCORE-04-adjacent (fact; engine matches).** `ResetAll` tail (PC: `2.001`
   `0x106d..0x10fe`, `2.089` `0x0ed6..0x1002`, `2.230` `0x0e50..0x0f57`, `2.272`
   `0x0e7c..0x0f85`, `2.411` `0x0f6a..0x1086`, `2.439` `0x0f70..0x10a4`, `2.440`

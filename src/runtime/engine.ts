@@ -445,10 +445,23 @@ const AMIGA_CONFIRM_GADGETS: Record<
   quit: { prompt: "Quit the game, or continue?", accept: "Quit", cancel: "Continue", gap: 15 },
 };
 
-/** The Amiga confirmation window's text: the prompt, a blank line, the gadget line. */
+/**
+ * The Amiga confirmation window's text. WindowPrint adds three rows to the
+ * message when it has gadget labels and draws the gadgets in that space; the
+ * engine's cell surface carries the labels on the last of those rows, which
+ * the 12 px gadget boxes overlap most (F-persistence-05).
+ */
 function amigaConfirmText(action: "restart" | "quit"): string {
   const g = AMIGA_CONFIRM_GADGETS[action];
-  return `${g.prompt}\n\n${g.accept}${" ".repeat(g.gap)}${g.cancel}`;
+  return `${g.prompt}\n\n\n${g.accept}${" ".repeat(g.gap)}${g.cancel}`;
+}
+
+/** Gadget height: the 8 px font plus 4 (F-persistence-05). */
+const AMIGA_GADGET_HEIGHT = 12;
+
+/** Gadget width: the label in the 8 px font plus 8 (F-persistence-05). */
+function amigaGadgetWidth(label: string): number {
+  return 8 * label.length + 8;
 }
 
 /**
@@ -3054,6 +3067,15 @@ export class Engine {
       undefined,
       true,
     );
+    if (original && amiga && this.modal?.kind === "print" && this.modal.saved.window) {
+      // The gadget labels carry their gadgets' pens: front pen 15 on the
+      // first gadget's fill pen 2 and the second's pen 4 (F-persistence-05).
+      const win = this.modal.saved.window;
+      const g = AMIGA_CONFIRM_GADGETS[action];
+      const row = win.textTop + win.textRows - 1;
+      this.text.write(row, win.textLeft, g.accept, attr(15, 2));
+      this.text.write(row, win.textLeft + g.accept.length + g.gap, g.cancel, attr(15, 4));
+    }
     const pending: PendingInteraction = {
       kind: "confirm",
       next,
@@ -3076,10 +3098,11 @@ export class Engine {
    * as the answer its wait takes: Enter for the accepting gadget (Restart,
    * Quit), Escape for the declining one (Cancel, Continue), or null when no
    * confirmation waits, the profile's prompt has no gadgets, or the point
-   * misses both. The window's own layout places the labels (docs/fidelity.md
-   * F-persistence-05 records the labels, not the gadget boxes): a gadget
-   * covers its label cells plus half a cell either side, from the blank line
-   * above the labels down to the window's bottom edge, so the two never meet.
+   * misses both. The boxes are the original WindowPrint's gadget rectangles
+   * (docs/fidelity.md F-persistence-05, all six Amiga builds): 12 px high,
+   * `8 * label length + 8` wide, their top 17 px above the window frame's
+   * bottom edge, the first 10 px in from the frame's left edge and the
+   * second ending 10 px before its right edge.
    */
   confirmGadgetAt(x: number, y: number): number | null {
     const pending = this.pendingInteraction;
@@ -3090,17 +3113,12 @@ export class Engine {
     const win = modal.saved.window;
     if (win === undefined) return null;
     const gadgets = AMIGA_CONFIRM_GADGETS[pending.action];
-    const row = win.textTop + 2;
-    const y0 = 8 * (row - 1);
-    if (y < y0 || y > win.y1) return null;
-    let col = win.textLeft;
-    for (const [label, answer] of [
-      [gadgets.accept, AGI_KEY.ENTER],
-      [gadgets.cancel, AGI_KEY.ESCAPE],
-    ] as const) {
-      if (x >= 8 * col - 4 && x <= 8 * (col + label.length) + 3) return answer;
-      col += label.length + gadgets.gap;
-    }
+    const top = win.y1 - 5 - AMIGA_GADGET_HEIGHT;
+    if (y < top || y >= top + AMIGA_GADGET_HEIGHT) return null;
+    const acceptLeft = win.x0 + 10;
+    if (x >= acceptLeft && x < acceptLeft + amigaGadgetWidth(gadgets.accept)) return AGI_KEY.ENTER;
+    const cancelLeft = win.x1 - 10 - amigaGadgetWidth(gadgets.cancel);
+    if (x >= cancelLeft && x < cancelLeft + amigaGadgetWidth(gadgets.cancel)) return AGI_KEY.ESCAPE;
     return null;
   }
 
