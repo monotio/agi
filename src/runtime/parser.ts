@@ -12,9 +12,10 @@ export function parseSentence(
   dictionary?: ReadonlyMap<string, number>,
   stopAtTenthWord = true,
 ) {
-  // Spec "Parser normalization"; retain the interpreter's normalization exactly.
+  // Spec "Parser normalization"; retain the interpreter's ASCII-only A-Z
+  // folding (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-10).
   const normalized = line
-    .toLowerCase()
+    .replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32))
     .replace(/['`\-"]/g, "")
     .replace(/[ ,.?!();:[\]{}]+/g, " ")
     .replace(/ $/, "");

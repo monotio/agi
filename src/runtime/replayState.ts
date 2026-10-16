@@ -148,7 +148,7 @@ function array<T>(value: unknown, max: number, parse: (v: unknown) => T): T[] {
     throw new Error("Replay state array is too long.");
   return value.map(parse);
 }
-function savedRect(value: unknown): SerializedSavedRect {
+function savedRect(value: unknown, options?: { allowWindow?: boolean }): SerializedSavedRect {
   const hasWindow = value !== null && typeof value === "object" && Object.hasOwn(value, "window");
   const s = record(
     value,
@@ -168,6 +168,10 @@ function savedRect(value: unknown): SerializedSavedRect {
     throw new Error("Replay state saved rect dimensions are invalid.");
   let window: WindowOverlay | undefined;
   if (hasWindow && s["window"] !== undefined) {
+    if (options?.allowWindow === false)
+      throw new Error(
+        "Replay state saved.window requires recording version 3 or host image version 2.",
+      );
     const hasErased =
       s["window"] !== null &&
       typeof s["window"] === "object" &&
@@ -233,7 +237,7 @@ function savedRect(value: unknown): SerializedSavedRect {
   };
 }
 
-function serializedModal(value: unknown): SerializedModal {
+function serializedModal(value: unknown, options?: { allowWindow?: boolean }): SerializedModal {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Replay state requires an object.");
   const kind = (value as Record<string, unknown>)["kind"];
@@ -242,7 +246,7 @@ function serializedModal(value: unknown): SerializedModal {
       const m = record(value, ["kind", "saved", "remainingMs", "pauseClock"]);
       return {
         kind,
-        saved: savedRect(m["saved"]),
+        saved: savedRect(m["saved"], options),
         pauseClock: bool(m["pauseClock"]),
         remainingMs:
           m["remainingMs"] === null ? null : number(m["remainingMs"], 0, 0xffffffff, false),
@@ -252,7 +256,7 @@ function serializedModal(value: unknown): SerializedModal {
       const m = record(value, ["kind", "saved", "items", "slots", "selected", "interactive"]);
       return {
         kind,
-        saved: savedRect(m["saved"]),
+        saved: savedRect(m["saved"], options),
         items: array(m["items"], 255, (v) => {
           const item = record(v, ["num", "name"]);
           return { num: number(item["num"], 0, 255), name: text(item["name"]) };
@@ -267,11 +271,11 @@ function serializedModal(value: unknown): SerializedModal {
     }
     case "menu": {
       const m = record(value, ["kind", "saved"]);
-      return { kind, saved: savedRect(m["saved"]) };
+      return { kind, saved: savedRect(m["saved"], options) };
     }
     case "showObj": {
       const m = record(value, ["kind", "saved", "view"]);
-      return { kind, saved: savedRect(m["saved"]), view: number(m["view"], 0, 255) };
+      return { kind, saved: savedRect(m["saved"], options), view: number(m["view"], 0, 255) };
     }
     case "showPri":
       record(value, ["kind"]);
@@ -282,7 +286,10 @@ function serializedModal(value: unknown): SerializedModal {
 }
 
 /** Validate a serialized parked pass, or null for a non-parked snapshot. */
-export function validateContinuation(value: unknown): ParkedContinuation | null {
+export function validateContinuation(
+  value: unknown,
+  options?: { allowWindow?: boolean },
+): ParkedContinuation | null {
   if (value === null) return null;
   const s = record(value, ["frames", "modals", "persistentWindow", "keyWait"]);
   let keyWait: ParkedContinuation["keyWait"] = null;
@@ -307,8 +314,9 @@ export function validateContinuation(value: unknown): ParkedContinuation | null 
         hash: number(f["hash"], 0, 0xffffffff),
       };
     }),
-    modals: array(s["modals"], 8, serializedModal),
-    persistentWindow: s["persistentWindow"] === null ? null : savedRect(s["persistentWindow"]),
+    modals: array(s["modals"], 8, (v) => serializedModal(v, options)),
+    persistentWindow:
+      s["persistentWindow"] === null ? null : savedRect(s["persistentWindow"], options),
     keyWait,
   };
 }
@@ -350,7 +358,10 @@ export function validatePlaybackState(value: unknown): PlaybackState {
     }),
   };
 }
-export function validateEngineReplayState(value: unknown): EngineReplayState {
+export function validateEngineReplayState(
+  value: unknown,
+  options?: { allowWindow?: boolean },
+): EngineReplayState {
   const fields = [
     "clockRemainderMs",
     "pictureShown",
@@ -446,7 +457,7 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
         v,
         o.mapOnConsume === undefined ? ["type", "value"] : ["type", "value", "mapOnConsume"],
       );
-      const type = number(o.type, 1, 3) as 1 | 2 | 3;
+      const type = number(o.type, 1, 3) as 1 | 3 | 2;
       if (o.mapOnConsume !== undefined && o.mapOnConsume !== true)
         throw new Error("Invalid replay input mapping.");
       return {
@@ -479,6 +490,6 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     gameSignature,
     sound,
     patchGeneration: number(s["patchGeneration"], 0, 0xffffffff),
-    continuation: validateContinuation(s["continuation"]),
+    continuation: validateContinuation(s["continuation"], options),
   };
 }

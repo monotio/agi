@@ -429,8 +429,8 @@ test("the command line honors the four profile-specific inputLineEditCap formula
     return engine.inputEdit.length;
   };
 
-  // "early-35": always 35 unless v24 is smaller
-  assert.equal(measure("2.089", ACCEPT), 35, "2.089 no prompt: 35 columns");
+  // "early-35": fixed literal 35 (2.001 0x3176, 2.089 0x3114, 2.230 0x305a), ignores v24 (which starts at 0)
+  assert.equal(measure("2.089", ACCEPT), 35, "2.089 no prompt: 35 columns (even with v24=0)");
   assert.equal(
     measure("2.089", 'set.cursor.char(">"); accept.input(); return;'),
     35,
@@ -438,8 +438,8 @@ test("the command line honors the four profile-specific inputLineEditCap formula
   );
   assert.equal(
     measure("2.089", "assignn(v24, 10); accept.input(); return;"),
-    10,
-    "2.089: v24 lowers the cap",
+    35,
+    "2.089: EditLine compares against literal 0x23 and ignores v24",
   );
 
   // "prompt-40": 40 with no prompt, 39 with prompt, unaffected by open.dialogue (where opcode 0x99 exists)
@@ -496,4 +496,88 @@ test("the command line honors the four profile-specific inputLineEditCap formula
     36,
     "iigs-1.014 subtracts strlen(s0) from 39",
   );
+});
+
+test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based while %w remains 1-based", () => {
+  for (const profile of [
+    "2.089",
+    "2.411",
+    "2.936",
+    "3.002.149",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `accept.input();
+         if (isset(f2)) {
+           word.to.string(s1, 0);
+           word.to.string(s2, 1);
+           word.to.string(s3, 2);
+           set.string(s4, "%w1-%w2");
+         }
+         return;`,
+        { dictionary: DICT, profile: PROFILES[profile] },
+      ).payload,
+    );
+    const host = new Host();
+    const engine = new Engine(container, host, DICT, { profile: PROFILES[profile] });
+    engine.tick();
+    host.line = "open door";
+    engine.tick();
+    assert.equal(engine.strings[1], "open", `${profile}: slot 0 is the first token`);
+    assert.equal(engine.strings[2], "door", `${profile}: slot 1 is the second token`);
+    assert.equal(engine.strings[3], "", `${profile}: slot 2 past count is empty`);
+    assert.equal(engine.strings[4], "open-door", `${profile}: %w1 and %w2 remain 1-based`);
+  }
+});
+
+test("F-Parser-10: lowercasing folds only ASCII A-Z (0x41..0x5A) and preserves high bytes", () => {
+  // 0xC0 (\u00c0) is outside 0x41..0x5A and must remain 0xC0 (\u00c0), not \u00e0.
+  assert.deepEqual(parse("\u00c0BC").texts, ["\u00c0bc"]);
+  assert.equal(parse("\u00c0BC").texts[0]!.charCodeAt(0), 0xc0);
+});
+
+test("F-Parser-13: echo.line is a no-op before Enter and appends the suffix of lastLine after Enter", () => {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); accept.input(); }
+       if (isset(f201)) { reset(f201); echo.line(); }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const host = new Host();
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+
+  // Before any Enter has been accepted, echo.line is a no-op even if editLine is empty.
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "");
+
+  // Type "look" and press Enter so acceptedLine becomes "look".
+  host.keys.push(0x6c, 0x6f, 0x6f, 0x6b, 0x0d);
+  engine.tick();
+  assert.equal(engine.lastInputLine, "look");
+  assert.equal(engine.inputEdit, "");
+
+  // Type "xy" (length 2 < "look".length 4), then run echo.line(): appends "look".slice(2) = "ok" -> "xyok".
+  host.keys.push(0x78, 0x79);
+  engine.tick();
+  assert.equal(engine.inputEdit, "xy");
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "xyok");
+
+  // Running echo.line() again when editLine.length >= acceptedLine.length leaves editLine unchanged.
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "xyok");
 });

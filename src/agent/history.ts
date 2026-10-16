@@ -38,9 +38,9 @@ import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
  * and new writers emit the split digests (an optional-field extension at
  * the same version); version 1 is the released contract.
  */
-export const HISTORY_FORMAT_VERSION = 2;
+export const HISTORY_FORMAT_VERSION = 3;
 /** Released recordings remain unchanged on read; the next append upgrades the header. */
-export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, 2, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -87,11 +87,12 @@ export type HistoryEndReason =
  * The end reasons each recording version may carry. Version 1 is the
  * released contract — a version-1 record never admits "debugger", so the
  * released reader could not have silently carried a reason it cannot name.
- * Version 2 admits every released reason plus "debugger".
+ * Versions 2 and 3 admit every released reason plus "debugger".
  */
 const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
   1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
   2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
+  3: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
 };
 
 export type HistoryEventCause =
@@ -997,7 +998,7 @@ function fingerprint(value: unknown): HistoryFingerprint {
   return { v, hash: text(value["hash"], "fingerprint hash", 64) };
 }
 
-function anchor(value: unknown): HistoryAnchor {
+function anchor(value: unknown, options?: { allowWindow?: boolean }): HistoryAnchor {
   if (!isObj(value)) fail("anchor must be an object.");
   const reason = value["reason"];
   if (!["boot", "room", "autosave", "flush", "pause", "resume"].includes(String(reason)))
@@ -1010,8 +1011,10 @@ function anchor(value: unknown): HistoryAnchor {
     image: b64(value["image"], "anchor image"),
     replay: (() => {
       try {
-        return validateEngineReplayState(value["replay"]);
-      } catch {
+        return validateEngineReplayState(value["replay"], options);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("requires recording version 3"))
+          return fail(error.message);
         return fail("anchor.replay must be a valid engine replay state.");
       }
     })(),
@@ -1054,7 +1057,10 @@ function projectDocuments(value: unknown): HistoryProjectDocuments {
 }
 
 /** Validate a standalone boot record (a retained original carried over messages). */
-export function validateHistoryBoot(value: unknown): HistoryBoot {
+export function validateHistoryBoot(
+  value: unknown,
+  options?: { allowWindow?: boolean },
+): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
   if (
     value["amigaRegion"] !== undefined &&
@@ -1100,8 +1106,10 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (value["image"] !== undefined) out.image = b64(value["image"], "boot image");
   if (value["replay"] !== undefined) {
     try {
-      out.replay = validateEngineReplayState(value["replay"]);
-    } catch {
+      out.replay = validateEngineReplayState(value["replay"], options);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("requires recording version 3"))
+        fail(error.message);
       fail("boot.replay must be a valid engine replay state.");
     }
   }
@@ -1130,6 +1138,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
   if (typeof version !== "number" || HISTORY_END_REASONS[version] === undefined)
     fail(`unsupported version ${String(version)}.`);
   const endReasons = HISTORY_END_REASONS[version]!;
+  const allowWindow = version >= 3;
   const segments = value["segments"];
   if (!Array.isArray(segments) || segments.length > 4096) fail("segments must be a bounded list.");
   const rawIdentity = value["identity"];
@@ -1156,9 +1165,9 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
         fail("project documents require recording version 2.");
       const segment: HistorySegment = {
         id: text(s["id"], "segment id", 64),
-        boot: validateHistoryBoot(s["boot"]),
+        boot: validateHistoryBoot(s["boot"], { allowWindow }),
         anchors: Array.isArray(s["anchors"])
-          ? s["anchors"].map(anchor)
+          ? s["anchors"].map((a) => anchor(a, { allowWindow }))
           : fail("anchors must be a list."),
         events: events(s["events"], endReasons, version),
         marks: roomMarks(s["marks"]),

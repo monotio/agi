@@ -1362,7 +1362,7 @@ offsets) and the KQ4 3.002.086 code body (`f05abff4…`, body offsets); quoted
 data-table bytes come from the hash-pinned overlays. Facts below are read
 directly off the machine code; each entry names the finding it settles.
 
-- **F-motion-02 (fact; engine diverges on post-logic motion phase).** Pre-logic
+- **F-motion-02 (fact; engine matches).** Pre-logic
   order (PC main cycle: 2.001 0x013c..0x0159, 2.089 0x00e6..0x0103, 2.230
   0x00e6..0x0103, 2.272 0x00e6..0x0103, 2.411/2.440 0x0181..0x019e,
   2.903/2.917/2.936/3.002.086 0x0150..0x0198, 3.002.102/3.002.107
@@ -1378,11 +1378,10 @@ directly off the machine code; each entry names the finding it settles.
   (0x18E-0x195) — runs BEFORE `GetObjDirs` (`preLogicDirectionMirror: true`,
   PC 2.411/2.440 0x0611, 2.903..3.002.086 0x0644, 3.002.102/3.002.107 0x065b,
   3.002.149 0x0654; Amiga 2.176+ h22+0x0; IIgs animateseg+0x0); a second
-  post-logic `ego.dir := v6` store sits after logic 0 (e.g. kq3 0x1EA). The
-  engine's pre-logic vs post-block mirror order matches all twenty profiles
-  (field `preLogicDirectionMirror`), while its object motion pass runs
-  post-logic (after the cycle-tail store), so logic there sees the previous
-  cycle's motion results where the originals' logic sees this cycle's.
+  post-logic `ego.dir := v6` store sits after logic 0 (e.g. kq3 0x1EA) before
+  `Animate`/`MoveObjs`. Engine: matches the pre-logic vs post-block mirror order
+  and the post-logic `Animate`/`MoveObjs` phase across all twenty profiles
+  (field `preLogicDirectionMirror`).
 - **F-motion-03 (fact; engine matches).** Zero-step reposition pass (2.936 kq3
   0x150A / 3.002.086 kq4 body 0x1751): the REPOS test (0x0400) skips only the
   direction-delta computation; border clamps+reporting, Collide, CanBHere and
@@ -1398,11 +1397,12 @@ directly off the machine code; each entry names the finding it settles.
   0x6EA1) is a single `mov byte [rec+0x22],0` after the record index; it
   never touches userCtrl/v6, so ego stays under program control until
   player.control.
-- **F-motion-07 (fact; engine diverges).** Direction deltas (2.936 kq3): xs/ys
+- **F-motion-07 (fact; malformed-input/memory-only divergence).** Direction deltas (2.936 kq3): xs/ys
   9-word tables at DS+0xA61/0xA73 indexed `imul word [bx+0xA61]` with the raw
   direction byte — no bounds check; dir>8 reads the following data (the
   move.obj direction table at DS+0xA85). Loop-select tables DS+0x8DD/0x8E7
-  likewise indexed unchecked.
+  likewise indexed unchecked. Reachable only from malformed bytecode writing
+  an out-of-range direction `> 8`.
 - **F-motion-08 (fact; engine matches).** Footprint flag timing (2.936 kq3):
   MoveObjs calls Collide (0x4719) before CanBHere (0x56B8) with
   short-circuit; the f3/f0 Set/Reset calls live at CanBHere 0x572B-0x574C
@@ -1412,7 +1412,7 @@ directly off the machine code; each entry names the finding it settles.
   0x7E7C) is operand-fetch + store to the horizon global DS:0x12D and
   returns; no object relocation — enforcement is lazy via the MoveObjs clamp
   and GoodPos.
-- **F-motion-10 (fact; engine diverges).** new.room object loop (2.936 kq3
+- **F-motion-10 (fact; engine matches).** new.room object loop (2.936 kq3
   core 0x1792, loop body 0x17B6, record stride 0x2B): `and word
 [si+0x25],0xffbe / or word [si+0x25],0x10` — drawn (0x01) and animated
   membership (0x40) clear, the update-partition bit (0x10) is set on every
@@ -1424,16 +1424,16 @@ directly off the machine code; each entry names the finding it settles.
   stepsize (+0x1E), cyclefreq (+0x1F) and cycleclk (+0x20) — cadence offsets
   cross-checked against MoveObjs (0x1542: moveclk dec/reload from movefreq)
   and the Animate sweep (0x5EF: cycleclk/cyclefreq). x (+0x03), y (+0x05)
-  and dir (+0x21) are preserved. The engine's room reset reloads the five
-  cadence scalars and reproduces the 0xFFBE|0x10 flag outcome, but it
-  additionally clears the pending-reposition and initial-delay bits for
-  every object — a REPOS-armed or first-delay-pending object crossing
-  new.room loses that state in the engine and keeps it in the original.
-- **F-motion-12 (fact; engine diverges).** FindPosn (2.936 kq3 0x593A): spiral
+  and dir (+0x21) are preserved. Engine: `finishRoomChange` reloads the five
+  cadence scalars and reproduces the `0xFFBE | 0x10` flag outcome (`active =
+false`, `update = false`, `earlierPartition = false`), preserving
+  `newlyPositioned` (`0x0400`) and `cycleDelay` (`0x1000`) across `new.room`.
+- **F-motion-12 (fact; malformed-input/memory-only divergence).** FindPosn (2.936 kq3 0x593A): spiral
   legs x--/y++/x++/y-- with leg length incremented after the down and up
   legs; the only exits are GoodPos∧¬Collide∧CanBHere acceptance. No bound or
-  iteration cap — degenerate screens hang/wrap; the engine's exhaustion throw
-  has no original counterpart.
+  iteration cap — degenerate screens where no legal position exists hang/wrap;
+  the engine's exhaustion throw guards against an unplaced object on a
+  degenerate/malformed screen.
 - **F-motion-13 (fact; engine matches).** Movement clamps (2.936 kq3 0x159B):
   X then Y, each an else-if chain; Y order top (y-ysize<-1) → bottom (>167) →
   horizon (!IGNRHRZ ∧ y≤horizon → horizon+1, border 1). Top clamp pre-empts
@@ -1478,16 +1478,16 @@ offsets), the Amiga hunk executables (`2.082..2.333`), and IIgs `SQ2.SYS16`
   previously claimed `stop.motion`/`start.motion` both clear direction and
   motion on every build; every address it cited was a `stop.motion` handler.
   The corrected bullet stands there.
-- **F-motion-16 (fact; engine diverges).** `set.loop`/`set.cel` bounds (`2.936`
+- **F-motion-16 (fact; malformed-input/memory-only divergence).** `set.loop`/`set.cel` bounds (`2.936`
   kq3): `SetLoop` `0x3BB7` — `viewptr` NULL → `Error(6)`; `loop > loopcnt` →
   `Error(5)` (`jnc`, so `loop == loopcnt` passes and `_SetLoop` `0x3C1B` reads
   one word past the loop-offset table). `SetCel` `0x3CCB` — `viewptr` NULL →
   `Error(10)`; `cel >= celcnt` → `Error(8)` (strict `ja`). `_SetLoop` clamps
   `cel` to `0` when `cel >=` the new `celcnt`. `draw` `0x0A06`: unanimated
   record → `Error(19)`, `celptr` NULL → `Error(20)`. `Error` `0x3FE8` never
-  returns — its tail is a `longjmp` (`0x7EEF`). The engine's silent
-  stale-dimension behavior has no original counterpart; its `draw` throw
-  matches `Error(20)`'s fault class.
+  returns — its tail is a `longjmp` (`0x7EEF`). Reachable only when malformed
+  bytecode selects an unloaded view or out-of-bounds loop/cel index; the
+  engine's `draw` throw matches `Error(20)`'s fault class.
 - **F-motion-17 (fact; engine matches).** Amiga click-move update (`MH2`
   `2.333`, shared across `2.082..2.333`): the direction dispatcher (`h16+0x24c`
   in `2.333`, `h13+0x246` in `2.082`) jumps motion types 3 (`move.obj`) and 4
@@ -1784,32 +1784,36 @@ room 3.
 Static disassembly of the decoded KQ3 2.936 image and the KQ4 3.002.086 code
 body; the two builds are instruction-identical on these paths.
 
-- **F-VIEWS-03 (fact; engine diverges).** add.to.pic control box anchor (2.936
+- **F-VIEWS-03 (fact; engine matches).** add.to.pic control box anchor (2.936
   kq3): the AddToPic core (0x2D52) stores the script x/y into a scratch
   animation entry, forces pri 15, calls FindPosn (0x593A — may relocate x/y),
   then objinpic (0x57CF) feeds InsertObj and the control box from the SAME
   entry fields ([bp+3]/[bp+5]). Box and cel are always co-anchored at the
   possibly-FindPosn-relocated position; there is no blit-level placement
-  shift in this vintage.
-- **F-VIEWS-04 (fact; engine diverges).** add.to.pic packing (2.936 kq3
+  shift in this vintage. Engine: both `drawCel` and `stampControlBox` use the
+  same anchor `(x, y)` without any blit-level `left += top` shift.
+- **F-VIEWS-04 (fact; engine matches).** add.to.pic packing (2.936 kq3
   handler 0x2C7A, 3.002.086 kq4 0x2F3F): margin is `shl 4` ORed into the
   priority byte (byte store — margin ≥ 16 truncates away); objinpic masks the
   packed byte `and ah,0x0F` before use, and a zero nibble triggers the
   y-priority lookup. Over-range priority operands are nibble-truncated by
-  construction.
-- **F-VIEWS-09 (fact; engine diverges).** add.to.pic box gate (2.936 kq3
+  construction. Engine: `addToPic` masks both priority and margin to 4-bit
+  nibbles (`priNibble === 0 ? priorityForY(y, priorityBase) : priNibble` and
+  `margin & 0x0f`).
+- **F-VIEWS-09 (fact; engine matches).** add.to.pic box gate (2.936 kq3
   objinpic 0x57FA, 3.002.086 kq4 0x5C15): the sole skip condition is
   `cmp byte [entry+0x24],0x3F; ja` on the packed margin|priority byte —
   the margin operand reaches the gate nibble-truncated (F-VIEWS-04's byte
   store), so margins 16..19 (and every margin ≡ 0..3 mod 16) still draw a
   truncated-color box while margins with a truncated nibble ≥ 4 skip it.
   No y-range guard exists; the box top is bounded by
-  the pri_tbl band scan and shadow-ram top only.
-- **F-VIEWS-12 (fact; deliberate engine divergence).** Narrow-cel control box
+  the pri_tbl band scan and shadow-ram top only. Engine: `addToPic` gates
+  `stampControlBox` solely on `(margin & 0x0f) < 4`, matching `packed <= 0x3f`.
+- **F-VIEWS-12 (fact; malformed-input/memory-only divergence).** Narrow-cel control box
   (2.936 kq3 0x5867, 3.002.086 kq4 0x5C82): the top-row loop is
   `mov cl,al; sub cl,2; … loop` with no zero test — xdim 1 stamps 255 cells,
   xdim 2 wraps LOOP to 65536 iterations marching across shadow ram. Not
-  modelled (deliberate).
+  modelled (shadow-RAM buffer overrun on width-1/2 control-box cels).
 - **F-picture-06 (fact; engine matches the modeled box).** add.to.pic
   control box (2.936 kq3 objinpic 0x57CF / 3.002.086 kq4 body 0x5BEA,
   instruction-identical): the cel blit runs first (a runtime-loaded OBJS
@@ -1828,10 +1832,10 @@ es:[di],packed&0xF0` — the truncated margin nibble into the shadow byte's
   height-1 box is the bottom row only (`dec cl; jz` at 0x5851). The top-row
   count runs as a 16-bit LOOP with CH=0, so widths below 3 overrun — that
   finding (255 iterations at width 1, 65536 at width 2) is owned by
-  F-VIEWS-12. The engine's control-box stamp matches the gate for margins
-  0..3, the band walk, the height cap and the bottom/edges/top geometry;
-  the truncated-margin gate and the absent y-guard diverge (F-VIEWS-09) and
-  the narrow-cel overrun is deliberately unmodelled (F-VIEWS-12).
+  F-VIEWS-12. The engine's control-box stamp matches the nibble-truncated
+  gate (`F-VIEWS-04`/`F-VIEWS-09`), the band walk, the height cap and the
+  bottom/edges/top geometry; only the narrow-cel memory overrun is
+  unmodelled (`F-VIEWS-12`).
 
 ### Text under later graphics
 
@@ -2035,37 +2039,37 @@ cel.width) / 2)` at baseline 167 with priority 15 and blits the cel onto the
 Static disassembly of the decoded KQ3 2.936 image (`4b50c681…`, runtime
 offsets; `IBM_OBJS.OVL` `44f738f0…` loads at runtime base `0x9DB0`).
 
-- **F-VIEWS-07 (fact; engine diverges on composition, matches the store).**
+- **F-VIEWS-07 (fact; engine matches).**
   Fixed priority > 15 (`2.936` kq3): `set.priority` (`0x7A80`) and
   `set.priority.v` (`0x7B08`) store the operand byte unmasked at record `+0x24`
   (matching the engine). The per-frame draw key (`0x4CBB`) for a stored
   priority of `16..255` finds no band ≥ `pri` and exits with key `168` — the
-  engine's key matches for over-range values too. But the `InsertObj` blit
+  engine's key matches for over-range values too. The `InsertObj` blit
   (`IBM_OBJS.OVL` `0xC5`) derives the compared/stamped priority with four
   byte-wide `shl bh,1`, an implicit `(pri & 0x0F) << 4`: a stored `17` blits as
-  priority `1`, where the engine's raw `17` outranks every destination and
-  poisons the scratch priority channel.
-- **F-VIEWS-04-detail (fact; engine diverges; completes the wave-3 entry).**
+  priority `1`. Engine: `drawCel` masks `priority` with `& 0x0f` for both the
+  destination comparison and the priority-buffer stamp while `set.priority` and
+  `set.priority.v` retain the unmasked byte in the object record.
+- **F-VIEWS-04-detail (fact; engine matches; completes the wave-3 entry).**
   The nibble truncation applies to BOTH blit and box (`objinpic` `0x57CF` +
   `InsertObj`): `objinpic` masks `and ah,0x0F` for the y-priority zero test and
   band fold-in; `InsertObj` loads the packed byte raw but its byte-wide shifts
   truncate to `(pri & 0x0F) << 4` for both the dest compare and the shadow-ram
   stamp; the box gate `cmp byte [entry+0x24],0x3F` and box color `and dl,0xF0`
   use the full packed byte by design. An over-range priority (e.g. `17`)
-  composes as priority `1` everywhere in the original.
-- **F-VIEWS-09-adjacent (fact; engine diverges; confirms wave 3).**
+  composes as priority `1` everywhere in the original and in the engine.
+- **F-VIEWS-09-adjacent (fact; engine matches; confirms wave 3).**
   Re-verified on kq3 `2.936`: `InsertObj` runs BEFORE the box gate (the cel is
   always blitted; only the box is conditional), the sole skip condition is the
   packed byte `> 0x3F`, and no y-range compare exists anywhere in `objinpic`. A
   margin operand of `16..31` truncates away in the handler's byte-wide packing,
-  so the original draws a truncated-color box where the engine's raw
-  `margin < 4` gate draws none.
-- **F-VIEWS-11 (fact; engine diverges).** `show.obj` description (`2.936` kq3
+  drawing a `(margin & 0x0f)` control box in both the original and the engine.
+- **F-VIEWS-11 (fact; malformed-input/memory-only divergence).** `show.obj` description (`2.936` kq3
   core `0x5EDB`): the `vdesc` word at `view+3` is loaded little-endian, added
   to the view base, and passed straight to `WindowPrint` — no zero test, no
   bounds check, no fallback. Malformed offsets print whatever memory they land
   on; the engine's `descOffset > 0 && descOffset < length` gate and
-  end-clamping are inventions (reachable only with malformed views).
+  end-clamping are reachable only with malformed views.
 
 ### Original string slot addressing
 
@@ -2196,11 +2200,11 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
   0x3549, 2.903 0x364b, 2.917/2.936 0x3652, 3.002.086 0x39ef, 3.002.102/3.002.107
   0x3a05, 3.002.149 0x3961; Amiga: 2.082 h63+0x136, 2.176..2.333 h85+0x13c; IIgs
   1.014 seg3+0x0f75 `sec; lda #$0027; sbc`): in every binary, a character is
-  accepted only while `editLen < maxLen`, where `var[24]` is initialized to 41
-  (e.g. kq1 ResetAll 0x108C) and excess keys are silently rejected. Four
+  accepted only while `editLen < maxLen` and excess keys are silently rejected. Four
   `inputLineEditCap` formulas exist across the twenty shipped binaries:
-  - `"early-35"` on PC 2.001, 2.089, and 2.230 (`min(var[24], 35)` — fixed
-    literal `0x23`, independent of `strlen(s0)` and the cursor byte).
+  - `"early-35"` on PC 2.001, 2.089, and 2.230 (fixed literal `0x23 = 35` —
+    `EditLine` compares `editLen` directly against `0x23`, independent of
+    `var[24]` which `ResetAll` leaves at `0`, `strlen(s0)` and the cursor byte).
   - `"dialogue-36"` on PC 2.411..3.002.107 (`min(var[24], (dialogueOpen ? 36 : 40) − strlen(s0) − (promptByte≠0))`,
     where actions 163/164 set/clear the dialogue flag at `DS:0x0ce9` in
     2.411/2.440, `DS:0x0d07` in 2.903..2.936, `DS:0x0d45` in 3.002.086,
@@ -2212,7 +2216,7 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
     `seg3+0x0f75`, without subtracting the cursor byte).
     The edit buffer INLINE and the accepted-line buffer PREVLINE are separate
     42-byte buffers: Enter copies INLINE→PREVLINE then Parses INLINE; echo.line
-    copies PREVLINE back into INLINE; cancel.line emits physical backspaces until
+    appends `PREVLINE[editLen..]` onto INLINE; cancel.line emits physical backspaces until
     editLen==0. Engine: the editor applies each profile's exact capacity formula
     across all twenty profiles (fields `originalInputCapacity`, `inputLineEditCap`,
     and `inputWidthActions`).
@@ -2238,42 +2242,57 @@ XMAS 2.272 (`a0c26b5d…`), KQ2 2.411 (`d99938d6…`) and KQ3 2.936
   (`cmp ax,0xC`, base `DS:0x20D`) only from the 2.4x generation up (`kq3`
   `2.936` `0x1958`). The engine's per-profile `stringSlots: 6` on the early
   profiles is the exact original behavior.
-- **F-Parser-09 (fact; engine diverges).** `word.to.string` (`2.936` kq3
-  `0x0D70` / `2.411` kq2 `0x0D3D` / `2.089` sq1-dos `0x0D41`): the word operand
-  is a raw 0-based index into `wordPtr` with no zero/range check; a bounded
-  `strcpy` (`kq3` `0x4DE8`, `n = 40`) copies whatever the slot points at — a
-  NULL slot (`wordPtr` is zeroed at `Parse` entry) reads `DS:0x0000`, and index
-  `>= 11` reinterprets `numWords`/`wordTbl`/`parseLine` bytes as a near
-  pointer. It never stores an empty string. The engine's 1-based indexing and
-  `?? ""` fallback depart on base, missing-slot result and bound. Shipped games
-  report unknown words via the separate 1-based, bounds-checked `%wN`
-  formatter, not this action.
-- **F-Parser-10 (fact; engine diverges).** Parse normalization charset (`2.936`
-  kq3 `Match` `0x1A6B` / `tolower` `0x4FEA` / `MakeLine` `0x199D`): folding is
-  ASCII A–Z only; the first character must fold into `'a'..'z'` or the token is
-  an unknown word; separators and dropped characters are the ASCII sets
+- **F-Parser-09 (fact; engine matches on valid slots; NULL/out-of-bounds pointer dereference is malformed-input/memory-only).**
+  `word.to.string` (PC `WordToString`: `2.001` `0x0d4f`, `2.089` `0x0D41`,
+  `2.230` `0x0c7f`, `2.272` `0x0d1b`, `2.411` `0x0D3D`, `2.440` `0x0d4b`,
+  `2.903`/`2.917` `0x0d69`, `2.936` `0x0D70`, `3.002.086` `0x0fc4`,
+  `3.002.102`/`3.002.107` `0x0fda`, `3.002.149` `0x0fd3`; Amiga: `2.082`
+  `h14+0x140`, `2.176..2.333` `h20+0x140`; IIgs `1.014` `seg2+0x389a`): in
+  every shipped binary across all twenty profiles, the word operand is a raw
+  0-based index into `wordPtr` (`wordPtr[wordIndex]`, where `wordIndex = 0` is
+  the first retained token), distinct from the 1-based `%wN` message formatter.
+  A bounded `strcpy` (`n = 40`) copies whatever the slot points at — a NULL slot
+  (`wordPtr` is zeroed at `Parse` entry) reads `DS:0x0000`, and index `>= 11`
+  reinterprets `numWords`/`wordTbl`/`parseLine` bytes as a near pointer. Engine:
+  action `0x76` (`word.to.string`) indexes `parsedWordTexts[wordIndex]` 0-based
+  across all twenty profiles while `%wN` stays 1-based; dereferencing an
+  unpopulated or out-of-bounds `wordPtr` slot into `DS:0x0000` or adjacent
+  memory is reachable only from malformed bytecode and returns `""` in the
+  engine.
+- **F-Parser-10 (fact; engine matches).** Parse normalization charset (`2.936`
+  kq3 `Match` `0x1A6B` / `tolower` `0x4FEA` / `MakeLine` `0x199D`, and across
+  all twenty binaries): folding is ASCII `A–Z` (`0x41..0x5A` → `0x61..0x7A`)
+  only; the first character must fold into `'a'..'z'` (`0x61..0x7A`) or the
+  token is an unknown word; separators and dropped characters are the ASCII sets
   `" ,.?!();:[]{}"` and `"'`-\""`(ovl`DS:0xC67`/`0xC75`). Bytes `>= 0x80`in
-a`parse(sA)`string survive verbatim and become unknown words — the original
-has no Unicode/locale folding, unlike the engine's JS`toLowerCase()`.
-- **F-Parser-12 (fact; engine diverges).** Input-line editor keys (`2.411` kq2
-  `EditLine` `0x353b` / `2.936` kq3 `0x3652`): key `13` on an empty line is
-  silently consumed (no parse; `v19 = 13` was already stored by the caller, so
-  the observable state matches the engine). Backspace at empty is a silent
-  no-op with `v19 = 8` visible to scripts (matching `keyByteStoredBeforeEdit:
-true`). There is no printable-range filter: any nonzero key word other than
-  `8`/`10`/`13` stores its low byte while under the cap; key `10` is dropped;
-  extended words (e.g. `F1 = 0x3B00`) store low byte `0x00` as an embedded NUL
-  with the length already incremented. The engine's `0x20..0x7E` gate is a host
-  safeguard.
-- **F-Parser-13 (fact; engine diverges).** `echo.line` / `cancel.line` (`2.936`
-  kq3 `0x3753`/`0x3726`; `2.411` kq2 `0x3651`/`0x3624`): `echo.line` returns
-  immediately when input is disabled (`[0x5D3] == 0`); enabled, it appends
-  `PREVLINE[editLen..]` onto `INLINE` at `editLen` while `editLen < var[24]`
-  (the dialogue-2/mode-0 variant also prints the prompt, reads one key into
-  `v19` and feeds it to `EditLine`). `cancel.line` loops `EditLine(8)` until
-  `editLen == 0` — physical backspaces — except in dialogue mode 2 with the
-  mode flag clear, where it does nothing. `prevent.input`/`accept.input` write
-  `[0x5D3]` and `EraseCur`/`WriteCur` (`kq3` `0x386F`/`0x3898`).
+a`parse(sA)`or player input string survive verbatim without Unicode/locale
+folding and become unknown words. Engine:`parseSentence`and`lookupPhrase`in`src/runtime/parser.ts`fold only ASCII`0x41..0x5A`and gate dictionary
+section lookup on`0x61..0x7A`, preserving all bytes `>= 0x80` verbatim.
+- **F-Parser-12 (fact; engine matches on printable/control keys; non-printable scan-word insertion into INLINE is host boundary).**
+  Input-line editor keys (`2.411` kq2 `EditLine` `0x353b` / `2.936` kq3
+  `0x3652`): key `13` on an empty line is silently consumed (no parse; `v19 =
+13` was already stored by the caller, so the observable state matches the
+  engine). Backspace at empty is a silent no-op with `v19 = 8` visible to
+  scripts (matching `keyByteStoredBeforeEdit: true`). Key `10` is dropped. On
+  raw BIOS scan words (e.g. `F1 = 0x3B00`), the original's unguarded `EditLine`
+  stores low byte `0x00` into `INLINE`; the engine's `0x20..0x7E` filter keeps
+  non-printable control/scan words out of the text edit buffer while still
+  delivering their low byte to `v19`.
+- **F-Parser-13 (fact; engine matches).** `echo.line` / `cancel.line` (PC
+  `EchoLine`/`CancelLine`: `2.001` `0x3477`/`0x344a`, `2.089` `0x3441`/`0x3414`,
+  `2.230` `0x33a0`/`0x3373`, `2.272` `0x342e`/`0x3401`, `2.411`
+  `0x3651`/`0x3624`, `2.440` `0x365f`/`0x3632`, `2.903` `0x374c`/`0x371f`,
+  `2.917`/`2.936` `0x3753`/`0x3726`, `3.002.086` `0x3af0`/`0x3ac3`,
+  `3.002.102`/`3.002.107` `0x3b06`/`0x3ad9`, `3.002.149` `0x3a62`/`0x3a35`;
+  Amiga: `2.082` `h63+0x1f8`/`+0x1ca`, `2.176..2.333` `h85+0x1fe`/`+0x1d0`; IIgs
+  `1.014` `seg3+0x1018`/`+0x0ff1`): `echo.line` returns immediately when input
+  is disabled; when enabled and `editLine.length < prevLine.length`, it appends
+  the remaining suffix `prevLine.slice(editLine.length)` onto `editLine` up to
+  `inputCapacity()` (so typing `"xy"` after `"look"` and running `echo.line`
+  yields `"xyok"`, and if `editLine` is already at least as long as `prevLine`
+  it leaves `editLine` unchanged). `cancel.line` clears `editLine` to `""`, and
+  `prevent.input`/`accept.input` update input acceptance and redraw the input
+  row.
 
 ### Original sound player audit
 
@@ -2437,28 +2456,26 @@ the same 0x5234 helper, consistent with the shared 2.936 core.
 
 Static disassembly of KQ2 2.411, LSL1 2.440 and XMAS 2.272 (`a0c26b5d…`).
 
-- **F-SOUND-02 (fact; engine matches 2.272 and the Tandy +3 rule; the
-  2.411/2.440 clamp still diverges).**
+- **F-SOUND-02 (fact; engine matches).**
   Early sound attenuation (2.272 xmas 0x764D / 2.411 kq2 0x7D02 / 2.440 lsl1
   0x7E2B): 2.272 adds var[23] (DS+0x20) to the whole control byte with a
   signed `jng` clamp to 0x0F; 2.411/2.440 mask the nibble first then clamp
-  (`(c&0xF0)|min(15,n+v23)`) — but their clamp is also a signed `jng`, so a
-  nibble+var[23] sum that wraps past 0x7F is kept and bleeds into the
-  selector nibble on the OR. On machType==2 (Tandy) all three builds first
-  apply +3 to any attenuation latch byte ((b&0x90)==0x90 — the
-  0x90/0xB0/0xD0/0xF0 family, every tone channel and the noise channel)
-  whose low nibble < 8 (ConvertTDVolume kq2 0x7D3C / lsl1 0x7E65 / xmas
-  0x7680). 2.440 alone suppresses the second tone byte when its top three
-  bits are set (lsl1 0x7E21 `and al,0xe0 / cmp al,0xe0 / jz`), which the
-  engine models under its early-2.440 family. Terminator emits
+  with a signed `jng` (`add cl,[v23]; cmp cl,0x0f; jng`, so a nibble+var[23]
+  sum that wraps past 0x7F tests negative under signed `jng`, skips the `0x0f`
+  clamp, and bleeds into the selector nibble on `or dl,cl`). On machType==2
+  (Tandy) all three builds first apply +3 to any attenuation latch byte
+  ((b&0x90)==0x90 — the 0x90/0xB0/0xD0/0xF0 family, every tone channel and the
+  noise channel) whose low nibble < 8 (ConvertTDVolume kq2 0x7D3C / lsl1
+  0x7E65 / xmas 0x7680). 2.440 alone suppresses the second tone byte when its
+  top three bits are set (lsl1 0x7E21 `and al,0xe0 / cmp al,0xe0 / jz`), which
+  the engine models under its early-2.440 family. Terminator emits
   (saved&0xEF, 0x00, selector|0x0F), the saved bytes initialized from the
   shipped word array {0x9F,0xBF,0xDF,0xFF} (kq2 AGIDATA.OVL DS+0x166F).
-  Engine: the 2.272 whole-byte signed rule is matched exactly, and the
-  Tandy +3 lift now applies on every early build and all four attenuation
-  latches with the original's `(b&0x90)==0x90 && nibble<8` mask — scoped to
-  the probed early sound families (2.089, 2.230, 2.272, 2.411, 2.440); the
-  2.411/2.440 nibble-masked clamp is still an unsigned min, flattening the
-  wrapped sums the original's signed `jng` keeps.
+  Engine: matches the 2.272 whole-byte signed rule, the Tandy +3 lift across
+  all four attenuation latches on all early sound families (`2.089`, `2.230`,
+  `2.272`, `2.411`, `2.440`), and the 2.411/2.440 signed 8-bit `jng` clamp
+  (`((sum << 24) >> 24) > 0x0f ? 0x0f : sum`) including wrapped selector-bleed
+  bytes.
 - **F-SOUND-03 (fact; engine matches).** sound() ordering (PC Sound handler:
   2.001 0x4b42, 2.089 0x48eb, 2.230 0x48a7, 2.272 0x4943, 2.411 0x4FD5, 2.440
   0x5007, 2.903/2.917 0x510b, 2.936 0x51d3, 3.002.086 0x55d9,
@@ -2658,8 +2675,10 @@ retain their separate stop behavior. Direct host image restoration still
 returns without running game logic. Synthetic regressions fail when
 resumption is delayed to another tick.
 
-Engine startup initializes f9=1 and v24=41; accepted restart restores v24=41
-while preserving the pre-restart sound preference. Hosts can still apply a
+Engine startup and accepted restart apply the per-profile `ResetAll` tuple
+(`[v8, v20, v22, v24, v26, f5, f11]`; see `F-OPCORE-04-adjacent` below), with
+startup setting `f9 = 1` and accepted restart preserving the pre-restart `f9`
+sound preference while setting `f6 = 1`. Hosts can still apply a
 player-selected sound preference after construction.
 
 The opcode dispatch tables (SQ2 DS0x061d; GR1 DS0x0440) select the original
@@ -2792,10 +2811,13 @@ to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`, IIgs
   `h57+0x150`), and `quit` (`2.082` `h2+0x18e`, `2.176`/`2.202` `h2+0x1c2`,
   `2.310..2.333` `h2+0x1ce`) passes `"Quit the game, or continue?"` (`h3+0x00`)
   with gadget labels `"Quit"`/`"Continue"` (`h3+0x25`/`+0x2a`); no Amiga binary
-  contains `"Do you want to quit?"`. Because the engine's 40×25 text modal does
-  not render Amiga Intuition button gadgets, the restart and quit prompts use
-  the Enter/Escape confirmation strings across all profiles (fields
-  `originalRestartRestore` and `exitAlwaysImmediate`).
+  contains `"Do you want to quit?"`. Engine: `confirmSessionAction` renders
+  `"Restart the game?\n\nRestart    Cancel"` and
+  `"Quit the game, or continue?\n\nQuit               Continue"` on Amiga
+  profiles (`windowFrameGeometry === "amiga"`) and the PC/IIgs Enter/Escape
+  confirmation strings on all other profiles, with Enter accepting and Escape
+  cancelling across all profiles (fields `originalRestartRestore` and
+  `exitAlwaysImmediate`).
 - **F-OPCORE-04-adjacent (fact; engine matches).** `ResetAll` tail (PC: `2.001`
   `0x106d..0x10fe`, `2.089` `0x0ed6..0x1002`, `2.230` `0x0e50..0x0f57`, `2.272`
   `0x0e7c..0x0f85`, `2.411` `0x0f6a..0x1086`, `2.439` `0x0f70..0x10a4`, `2.440`
@@ -2811,7 +2833,10 @@ Set(f11)` (PC `2.230..2.411` set `v22 = 3` and `f11 = 1` unconditionally;
   `2.272+` and Amiga set `v24 = 41`, IIgs sets `v24 = 40`; `2.411+` PC and
   `2.176+` Amiga set `v26 = 3`). Reached from the accepted restart path across
   all twenty profiles, so logic 0 sees `f5 = 1` after restart as well as after
-  startup. No var slot is set to 255.
+  startup. No var slot is set to 255. Engine: `applyResetAllDefaults` writes the
+  exact per-profile `[v8, v20, v22, v24, v26, f5, f11]` tuple at construction
+  and on accepted restart (with `soundDevice === 0` overriding `v22 = 1` and
+  `f11 = 0` on PC `2.439+` where `computerType == 0` branches).
 
 **Correction.** The audit narrative above reports the accepted restart path
 as setting f6 and lists f5 only among the startup writes; that reading
@@ -3052,32 +3077,38 @@ Playback completes at payload exhaustion and silences the chip.
 Static disassembly of KQ1 2.917, SQ2 2.936 and the KQ4 3.002.086 code body
 (body offsets); shipped directory bytes cross-checked against the game files.
 
-- **F-LOAD-02 (fact; engine diverges).** Directory bounds (2.917 kq1 / 2.936
-  sq2, GetSeg 0x2E56; 3.002.086 kq4 body 0x311B): no offset-vs-volume-size
-  validation at directory load (InitDir 0x4305) or resource load; an
-  out-of-bounds entry lseeks past EOF, the short read enters DiskError
-  ("Press ENTER to try again." 0x401D) and MustGet (0x2E32) retries until the
-  user aborts to Quit. kq1 SNDDIR[34..37] and sq2 LOGDIR[141]/PICDIR[147]
-  ship such entries; shipped bytecode never loads them.
-- **F-LOAD-03 (fact; engine diverges).** Record header validation
-  (2.917/2.936 GetSeg 0x2F3A; 3.002.086 body 0x320E): bad 0x12 0x34 magic or
-  a volume-byte mismatch (v2 full-byte; v3 low nibble when metadata 0x80 set)
-  is not fatal — CloseAllVols, segErr=1, WrongVol ("That is the wrong disk."
-  / "Please insert disk %d") and retry via OpenAllVols; Quit only on abort.
-  Short/truncated reads go to DiskError's ENTER-to-retry prompt; a missing
-  VOL (open returns -1 silently) takes the insert-disk prompt.
+- **F-LOAD-02 (fact; malformed-input/memory-only divergence).** Directory
+  bounds (2.917 kq1 / 2.936 sq2, GetSeg 0x2E56; 3.002.086 kq4 body 0x311B): no
+  offset-vs-volume-size validation at directory load (InitDir 0x4305) or
+  resource load; an out-of-bounds entry lseeks past EOF, the short read enters
+  DiskError ("Press ENTER to try again." 0x401D) and MustGet (0x2E32) retries
+  until the user aborts to Quit. kq1 SNDDIR[34..37] and sq2
+  LOGDIR[141]/PICDIR[147] ship such entries; shipped bytecode never loads them.
+  This behavior only arises when loading an out-of-bounds directory entry or
+  experiencing a short disk read (malformed resource / I/O fault).
+- **F-LOAD-03 (fact; malformed-input/memory-only divergence).** Record header
+  validation (2.917/2.936 GetSeg 0x2F3A; 3.002.086 body 0x320E): bad 0x12 0x34
+  magic or a volume-byte mismatch (v2 full-byte; v3 low nibble when metadata
+  0x80 set) is not fatal — CloseAllVols, segErr=1, WrongVol ("That is the wrong
+  disk." / "Please insert disk %d") and retry via OpenAllVols; Quit only on
+  abort. Short/truncated reads go to DiskError's ENTER-to-retry prompt; a
+  missing VOL (open returns -1 silently) takes the insert-disk prompt. This
+  behavior only arises on corrupt record headers, truncated volume files or
+  missing floppy volumes (malformed container / disk I/O fault).
 - **F-LOAD-08 (fact; engine matches).** Absent-resource load (2.917/2.936
   filter 0x434E; 3.002.086 body 0x476C): directory absence is volume nibble
   0xF (v2) or exact FF FF FF (v3), tested in the LogSeg/ViewSeg/PicSeg/SndSeg
   helpers before any volume I/O; an absent load prints "%s %d not found" with
   the kind name and Quits the interpreter — never the insert-disk prompt,
   never a silent null.
-- **F-LOAD-06 (fact; engine diverges).** WORDS.TOK (2.917/2.936 load 0xF6F,
-  Match 0x1A6B; 3.002.086 load body 0x11AE, Match body 0x1D8F): the file is
-  LoadFile'd raw and section offsets are used as-is — no validation of
-  ordering or bounds; offset 0 means empty section (unknown word). The
-  per-word scan is linear and overwrites the result on every full match, so a
-  duplicated word resolves to its last entry in the section.
+- **F-LOAD-06 (fact; malformed-input/memory-only divergence).** WORDS.TOK
+  (2.917/2.936 load 0xF6F, Match 0x1A6B; 3.002.086 load body 0x11AE, Match body
+  0x1D8F): the file is LoadFile'd raw and section offsets are used as-is — no
+  validation of ordering or bounds; offset 0 means empty section (unknown
+  word). The per-word scan is linear and overwrites the result on every full
+  match, so a duplicated word resolves to its last entry in the section. Any
+  difference from the engine's dictionary loader only arises on out-of-bounds
+  section offsets or malformed duplicate entries in `WORDS.TOK`.
 
 ### Original input, menu and modal handling
 
@@ -3137,7 +3168,8 @@ true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
   request word set — a gated request pends until allow.menu(1). No
   gr1/mh1/demopac4 logic calls allow.menu. Engine: the gate ships 1, is never
   re-initialized, and a gated menu request stays pending until allow.menu(1).
-- **F-IN-07 (fact; engine diverges).** Tracked key release
+- **F-IN-07 (fact; engine matches the 0xAD/0xB5 hold/release gate; hardware INT
+  9 scancode latch is a host boundary).** Tracked key release
   (3.002.102/3.002.107/3.002.149): the int-9 hook (mh1 0x6487) windows scans
   0x47-0x51, consults an 11-byte selected-key table (mh1 DS+0x159C = FF FF FF
   00 FF 00 FF 00 FF FF FF — the 8 direction keys) and an 11-byte pressed
@@ -3145,7 +3177,10 @@ true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
   latches, latch this key. Break: latch clear → no event; else clear latch
   and, iff the 0xAD/0xB5 gate byte (DS+0x5E5) ≠ 0, enqueue type-2 value 0.
   hold.key sets the gate to 1; release.key clears it. Keypad-5 make (no
-  shifts) enqueues type-2 value 0 ungated.
+  shifts) enqueues type-2 value 0 ungated. Engine: `hold.key` and
+  `release.key` control `keyHoldMode`, and `releaseTrackedKey()` enqueues
+  type-2 value 0 when `keyHoldMode` is enabled; raw BIOS INT 9 scancode
+  make/break latching is handled by the host input layer.
 - **F-IN-08 (fact; engine matches).** Modal acknowledgement keys (PC ChkAcAb:
   2.001 0x41ec, 2.089 0x44b7, 2.230 0x443f, 2.272 0x44ab, 2.411 0x44ca, 2.440
   0x44fc, 2.903 0x45ef, 2.917/2.936 0x45f0, 3.002.086 0x4a1e,
@@ -3175,12 +3210,14 @@ true`) every GetKey-consuming path normalizes 0x101/0x201/0x301/0x401 to
   the acknowledgement-only list closes on any queued event across all twenty
   profiles (`inventoryListEndsOnAnyEvent: true`), while the interactive path
   keeps the CR/ESC/DIR filter.
-- **F-IN-15 (fact; engine diverges).** Menu Home/End (2.936 kq3 DoMenu
+- **F-IN-15 (fact; engine matches).** Menu Home/End (2.936 kq3 DoMenu
   0x9517): value 8 loads menuBase (root heading) and value 6 loads
   menuBase->prev (rightmost) UNCONDITIONALLY — disabled edge headings are
   selected and shown. The enabled-skip loop exists only in the left/right
   cases (3/7: `cmp word [si+0xa],0; jz` at 0x94BC/0x9501); item up/down (1/5)
-  likewise do not skip disabled items.
+  likewise do not skip disabled items. Engine: `menuNavigate` selects menu 0
+  on Home (8) and `menu.length - 1` on End (6) unconditionally, even when
+  disabled.
 
 ### Original window and status-line text
 
@@ -3261,20 +3298,21 @@ shl di,1 / add di,0xa`; executed under Unicorn on descrambled kq1 `bf53a4f9…`:
     stamp, and `compositeFrame` renders the exact sub-cell fill and border bars
     for each profile's `windowFrameGeometry` (including `show.obj`), with text
     starting at `(topRow, leftCol)` matching `SetCurPos`.
-- **F-text-04 (fact; engine diverges on out-of-bounds corruption).** Window
-  placement (PC WindowNoWait: 2.001 0x1da2, 2.089 0x1c06, 2.230 0x1b1e, 2.272
-  0x1bba, 2.411 0x1d5c, 2.440 0x1d6a, 2.903 0x1e47, 2.917/2.936 0x1E69,
-  3.002.086 0x2121, 3.002.102/3.002.107 0x2136, 3.002.149 0x20e2; Amiga: 2.082
-  h40+0x204, 2.176..2.333 h57+0x246; IIgs 1.014 seg2+0x2b50): `top = picTop + 1
-  - ((winBot − 1 − numLines) >> 1)` (`winBot = 19`on PC 2.001,`20`on all
-other nineteen builds),`left = (40 − maxLength) >> 1` (`shr`= floor; slack
-non-negative via the verbose gate); engine centering matches.`print.at`
-row/col overrides are stored VERBATIM (`picTop`still added to row) with no
-clamping — off-screen overrides write outside the window bounds rather than
-shifting to fit. Engine:`print.at`overrides are stored verbatim with`picTop`added across all twenty profiles (field`originalTextWindows`); a
-    fully off-screen override's saved rectangle is canonicalized so checkpoints
-    validate and dismissal restores nothing — the original's out-of-bounds memory
-    writes themselves are not reproduced.
+- **F-text-04 (fact; engine matches on placement and verbatim print.at
+  overrides; malformed-input/memory-only divergence on off-screen memory
+  corruption).** Window placement (PC WindowNoWait: 2.001 0x1da2, 2.089 0x1c06,
+  2.230 0x1b1e, 2.272 0x1bba, 2.411 0x1d5c, 2.440 0x1d6a, 2.903 0x1e47,
+  2.917/2.936 0x1E69, 3.002.086 0x2121, 3.002.102/3.002.107 0x2136, 3.002.149
+  0x20e2; Amiga: 2.082 h40+0x204, 2.176..2.333 h57+0x246; IIgs 1.014
+  seg2+0x2b50): `top = picTop + 1 + ((winBot − 1 − numLines) >> 1)` (`winBot =
+19` on PC 2.001, `20` on all other nineteen builds), `left = (40 − maxLength)
+  > > 1` (`shr`= floor; slack non-negative via the verbose gate); engine
+centering matches.`print.at` row/col overrides are stored VERBATIM (`picTop`still added to row) with no clamping — off-screen overrides write outside the
+window bounds rather than shifting to fit. Engine:`print.at`overrides are
+stored verbatim with`picTop`added across all twenty profiles (field`originalTextWindows`); a fully off-screen override's saved rectangle is
+  > > canonicalized so checkpoints validate and dismissal restores nothing — the
+  > > original's out-of-bounds memory writes from invalid off-screen bytecode
+  > > coordinates are not reproduced.
 - **F-text-08 (fact; engine matches).** Timed print (2.917 kq1 0x1CE8 / 2.936
   kq3): timeOut = sysTimer + v21*10 (dword, 20 Hz → half-second units);
   busy-wait `while (sysTimer < timeOut && ChkAcAb() == -1)` — tick-quantized
@@ -3304,8 +3342,9 @@ body; brush tables read from the hash-pinned overlays.
   3.002.086 kq4 body 0x4FB0): `Reset(15)` (LEAVE_WIN), `CloseWindow(NULL)`,
   `BackToScrn`, `picVisible=1`, in that order — the flag-15 clear and window
   close exist on PC exactly as on Amiga/IIgs.
-- **F-picture-02 (fact; engine matches the modeled fill).** Seed fill (2.936
-  kq3 colorFill 0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose
+- **F-picture-02 (fact; engine matches the modeled fill;
+  malformed-input/memory-only divergence on CPU stack overflow).** Seed fill
+  (2.936 kq3 colorFill 0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose
   pending-line stack is the CPU stack, seeded with 4×0xFFFF (`B8 FF FF 50 50
 50 50` at 0x5377), popped until start-Y == 0xFF; no SP bound — a
   pathological fill corrupts the stack rather than aborting (the overrun is
@@ -3315,11 +3354,12 @@ body; brush tables read from the hash-pinned overlays.
   `cmp byte [pri],0x40 / jz`); visual channel selected before priority
   (`test bh,0xF` first); seed masked pixel must equal the background mask or
   the fill is ignored; Y test is an 8-bit `cmp al,0xA7`.
-- **F-picture-04 (fact; engine diverges).** show.pri.screen (2.936 kq3 0x731B
+- **F-picture-04 (fact; engine matches).** show.pri.screen (2.936 kq3 0x731B
   / 3.002.086 kq4 body 0x775A): `showPri=1; BackToScrn; WaitAcAb; BackToScrn;
 showPri=0` — no window close. ChkAcAb (kq3 0x45F0) accepts only 0x0D
   (ENTER) and 0x1B (ESC); SPACE is ignored. The wait is a private blocking
-  loop (logic frozen).
+  loop (logic frozen). Engine: `showPriScreen` preserves any open window across
+  the priority-screen modal and accepts only Enter/Escape.
 - **F-picture-09 (fact; engine matches).** PC picture core (2.936 kq3 /
   3.002.086 kq4): brush row-word tables at ovl DS+0x1629 (kq3) / DS+0x1699
   (kq4) via 8-pointer tables DS+0x1619/0x1689 — byte-exact ROW_WORDS_V2 incl.
@@ -3329,12 +3369,13 @@ showPri=0` — no window close. ChkAcAb (kq3 0x45F0) accepts only 0x0D
   offset is y*160+x with no x clamp (kq3 0x52F9) — the X=160 right-edge wrap
   is real on PC. Pattern plotter masks radius with `and si,7` and clamps the
   origin to 320−2r.
-- **F-picture-10 (fact; engine diverges).** Picture stream termination (2.936
-  kq3 DrwPicNC 0x6475): the dispatch loop `lodsb; cmp al,0xFF; jz done; sub
-al,0xF0; jc top; cmp al,0xA; ja top; call [bx+tbl]` carries no length
-  register — 0xFB..0xFE are skipped, and a stream without 0xFF reads past the
-  buffer into adjacent heap until an 0xFF byte. The engine's clean EOF stop
-  diverges for truncated resources.
+- **F-picture-10 (fact; malformed-input/memory-only divergence).** Picture
+  stream termination (2.936 kq3 DrwPicNC 0x6475): the dispatch loop `lodsb; cmp
+al,0xFF; jz done; sub al,0xF0; jc top; cmp al,0xA; ja top; call [bx+tbl]`
+  carries no length register — 0xFB..0xFE are skipped, and a stream without
+  0xFF reads past the buffer into adjacent heap until an 0xFF byte. The
+  engine's clean EOF stop only differs on malformed/truncated picture resources
+  missing their `0xFF` terminator.
 
 ### Original cel handling and priority table
 
@@ -3350,12 +3391,14 @@ body (instruction-identical on MirrorCell).
   total emitted in ≤15-pixel chunks, fill bytes reversed per row via
   std/lodsb/cld/stosb — and rep-movsb's it back over the original cel.
   Orientation field is 0x70 (mod 8), not 0x30.
-- **F-VIEWS-05 (fact; engine diverges).** Cel placement adjustment (2.936
+- **F-VIEWS-05 (fact; engine matches).** Cel placement adjustment (2.936
   kq3): none exists in the blit — InsertObj computes top = y − ydim + 1 and
   plots. SetCel (0x3CCB) persistently clamps the object instead: x+xsize >
   160 → x := 160 − xsize; y−ysize < −1 → y := ysize−1 (then horizon+1 unless
   IGNRHRZ); both set REPOS (0x0400). A negative top never shifts x left — the
-  spec's `left += top` rule is not corroborated.
+  spec's `left += top` rule is not corroborated. Engine: `drawCel` computes
+  `top = y - ydim + 1` and plots without shifting `left` when `top < 0`, while
+  `SetCel` clamps the object.
 - **F-VIEWS-06 (fact; engine matches).** Priority table build (2.936 kq3
   initpri 0x56A2 / set.pri.base 0x4D10; 3.002.086 kq4 0x5AB6 / 0x513E):
   default is rep-stosb 48×4 then 12-row bands to 14. set.pri.base rebuilds

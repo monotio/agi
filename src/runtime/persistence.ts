@@ -1662,7 +1662,8 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
  * so even a description containing the marker cannot identify a bare save.
  */
 const HOST_IMAGE_MAGIC = "MONOTIO AUTOSAVE".padEnd(SAVE_DESCRIPTION_BYTES + 2, "\xff");
-const HOST_IMAGE_VERSION = 1;
+const HOST_IMAGE_VERSION = 2;
+const HOST_IMAGE_READ_VERSIONS: readonly number[] = [1, HOST_IMAGE_VERSION];
 const HOST_IMAGE_HEADER = HOST_IMAGE_MAGIC.length + 1 + 4;
 
 const HOST_TEXT_CELLS = TEXT_COLS * TEXT_ROWS;
@@ -1799,7 +1800,7 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
   if (bytes.length < HOST_IMAGE_HEADER)
     throw new RangeError("host autosave ends before its image length");
   const version = bytes[HOST_IMAGE_MAGIC.length]!;
-  if (version !== HOST_IMAGE_VERSION)
+  if (!HOST_IMAGE_READ_VERSIONS.includes(version))
     throw new RangeError(`unsupported host autosave version ${version}`);
   const imageLength = u32(bytes, HOST_IMAGE_MAGIC.length + 1);
   const countAt = HOST_IMAGE_HEADER + imageLength;
@@ -1868,7 +1869,7 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       throw new RangeError("host autosave continuation is not valid JSON");
     }
     try {
-      result.continuation = validateContinuation(parsed);
+      result.continuation = validateContinuation(parsed, { allowWindow: version >= 2 });
     } catch (error) {
       throw new RangeError(`host autosave continuation is invalid: ${(error as Error).message}`, {
         cause: error,

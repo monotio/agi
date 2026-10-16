@@ -522,7 +522,7 @@ test("a bare save described with the envelope's words is still a save", () => {
   // Framing reaches beyond the description into the first block length.
   const envelope = encodeHostImage(image, [{ kind: 2, value: 1 }]);
   assert.deepEqual([...envelope.subarray(31, 33)], [0xff, 0xff]);
-  assert.equal(envelope[33], 1);
+  assert.equal(envelope[33], 2);
   assert.deepEqual(decodeHostImage(envelope), { image, screen: [{ kind: 2, value: 1 }] });
 });
 
@@ -605,7 +605,7 @@ test("bare save descriptions cannot collide with host autosave framing", () => {
   }
 });
 
-for (const version of [0, 2, 3, 255]) {
+for (const version of [0, 3, 4, 255]) {
   test(`host autosave version ${version} is rejected without rewriting bytes or engine state`, () => {
     const engine = new Engine(buildGame(), new RecordingHost(), DICT);
     engine.tick();
@@ -621,6 +621,67 @@ for (const version of [0, 2, 3, 255]) {
     assert.deepEqual(engine.serialize(), state);
   });
 }
+
+test("host autosave stamps version 2, migrates version 1 without window, rejects window in version 1, and 1.2.4 rejects version 2 by version", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  const v2Image = engine.autosaveImage()!;
+  assert.equal(v2Image[33], 2);
+
+  // Released 1.2.4 decodeHostImage version gate (bytes[33] !== 1) rejects v2 cleanly without rewriting bytes.
+  function released124HostGate(bytes: Uint8Array): void {
+    if (bytes[33] !== 1) {
+      throw new Error(`Restore image has unsupported host autosave version ${bytes[33]!}`);
+    }
+  }
+  const beforeV2 = v2Image.slice();
+  assert.throws(() => released124HostGate(v2Image), /unsupported host autosave version 2/);
+  assert.deepEqual(v2Image, beforeV2);
+
+  // Released version 1 image (without saved.window) still decodes and restores under the new reader.
+  const v1Image = v2Image.slice();
+  v1Image[33] = 1;
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(v1Image);
+  assert.deepEqual(fresh.surface.visual, engine.surface.visual);
+
+  // Version 2 admits a continuation carrying saved.window; version 1 rejects it.
+  const withWindow = encodeHostImage(engine.serialize(), [], undefined, {
+    frames: [],
+    modals: [],
+    persistentWindow: {
+      written: new Array<number>(30).fill(1),
+      top: 9,
+      left: 5,
+      bottom: 11,
+      right: 14,
+      cells: new Array<number>(60).fill(0x20),
+      window: {
+        geometry: "pc",
+        textTop: 10,
+        textLeft: 6,
+        textRows: 1,
+        textCols: 8,
+        x0: 40,
+        y0: 72,
+        x1: 120,
+        y1: 96,
+        seq: 1,
+      },
+    },
+    keyWait: null,
+  });
+  assert.equal(withWindow[33], 2);
+  assert.ok(decodeHostImage(withWindow).continuation?.persistentWindow?.window);
+  const v1Smuggled = withWindow.slice();
+  v1Smuggled[33] = 1;
+  const beforeSmuggled = v1Smuggled.slice();
+  assert.throws(
+    () => decodeHostImage(v1Smuggled),
+    /\.window requires recording version 3 or host image version 2/,
+  );
+  assert.deepEqual(v1Smuggled, beforeSmuggled);
+});
 
 test("host autosaves require the current continuation framing", () => {
   const envelope = encodeHostImage(new Uint8Array([1, 2]), []);

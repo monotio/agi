@@ -343,6 +343,16 @@ export function openHistoryDrive(
     );
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
     candidate.flags[9] = 1;
+    if (legacyOnly) {
+      // Released pre-1.2.5 cold boots initialized the common [v20, v22, v24, v26, f11]
+      // tuple before per-profile ResetAll defaults were added; if the start point
+      // carries a saved image, restoreImage overwrites these below.
+      candidate.vars[20] = 0;
+      candidate.vars[22] = (facade.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+      candidate.vars[24] = 41;
+      candidate.vars[26] = 3;
+      candidate.flags[11] = 0;
+    }
     ctx.replay.replay = {
       tick: startTick,
       revision: 0,

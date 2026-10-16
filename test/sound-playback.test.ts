@@ -691,6 +691,30 @@ describe("pc booter 2.001 row streams", () => {
     }
   });
 
+  it("F-SOUND-02: 2.411 and 2.440 add v23 to the low nibble in 8-bit arithmetic and clamp with signed jng", () => {
+    for (const id of ["2.411", "2.440"] as const) {
+      // Base 0x94 (nibble 4) + v23=20 -> sum=24 (16..127 clamps to 15) -> 0x90 | 0x0f = 0x9f.
+      const clamped = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 1);
+      assert.equal(bytes(clamped.tick(true, 20).outputs)[2], 0x9f, `${id}: 4+20 clamps to 0x9f`);
+
+      // Base 0x94 (nibble 4) + v23=0xc5 (197) -> sum=0xc9 (signed negative <= 15, kept as 0xc9) -> 0x90 | 0xc9 = 0xd9.
+      const bleed = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 1);
+      assert.equal(
+        bytes(bleed.tick(true, 0xc5).outputs)[2],
+        0xd9,
+        `${id}: 4+0xc5=0xc9 is negative in signed 8-bit so jng keeps 0xc9 and ORs into 0xd9`,
+      );
+
+      // Base 0x94 (nibble 4) + v23=0xfe (254) -> sum=2 (<= 15) -> 0x90 | 0x02 = 0x92.
+      const wrapped = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 1);
+      assert.equal(
+        bytes(wrapped.tick(true, 0xfe).outputs)[2],
+        0x92,
+        `${id}: 4+0xfe wraps in 8-bit to 2 -> 0x92`,
+      );
+    }
+  });
+
   it("snapshots and restores the row position", () => {
     const profile = detectProfile(new Map(), "2.001");
     const payload = Uint8Array.of(0x80, 0x02, 0, 0x84, 0, 0x9f, 0);

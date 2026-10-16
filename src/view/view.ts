@@ -506,7 +506,7 @@ export function drawCel(
   yBaseline: number,
   opts?: DrawCelOptions,
 ): void {
-  const p = opts?.priority ?? 15;
+  const p = (opts?.priority ?? 15) & 0x0f;
   forEachPaintedPixel(surface, cel, x, yBaseline, p, (cell, color) => {
     surface.visual[cell] = color;
     // A control pixel keeps its control value under a painted cel; only its
@@ -530,18 +530,12 @@ export function forEachPaintedPixel(
   p: number,
   visit: (cell: number, color: number) => void,
 ): void {
-  let left = x;
-  let top = yBaseline - cel.height + 1;
-  if (top < 0) {
-    left += top;
-    top = 0;
-  }
-  if (left + cel.width > SCREEN_WIDTH) {
-    left = SCREEN_WIDTH - cel.width;
-  }
-
+  p &= 0x0f;
+  const left = x;
+  const top = yBaseline - cel.height + 1;
+  const firstY = Math.max(0, top);
   const bottom = Math.min(top + cel.height, SCREEN_HEIGHT);
-  for (let dy = top; dy < bottom; dy++) {
+  for (let dy = firstY; dy < bottom; dy++) {
     const rowBase = (dy - top) * cel.width;
     for (let sx = 0; sx < cel.width; sx++) {
       const dx = left + sx;

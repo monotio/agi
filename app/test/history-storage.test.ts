@@ -1118,8 +1118,8 @@ test("eviction deletes an evicted segment's batch records and its private blob",
   assert.equal(recording?.segments[0]?.boot.files["VOL.0"], "e2==");
 });
 
-test("history uses v2 and refuses unsupported or obsolete storage without rewriting", async () => {
-  assert.equal(HISTORY_FORMAT_VERSION, 2);
+test("history uses v3 and refuses unsupported or obsolete storage without rewriting", async () => {
+  assert.equal(HISTORY_FORMAT_VERSION, 3);
   for (const kind of ["envelope", "recording", "profile", "missing-directory"]) {
     const target = installedTarget(`tape-store-refuse-${kind}`);
     const key = target.locator;

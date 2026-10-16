@@ -855,9 +855,23 @@ function analyzeRun(ref: RunRef, outCaseDir: string, brief: Brief | null) {
   const synthDict = new Map([...groups.keys()].map((id) => [`w${id}`, id]));
 
   // Template bytecode as it would be assembled against this run's dictionary.
+  // Historical 1.0.0 runs started from the pre-F-Parser-09 template that passed
+  // 1..11 to word.to.string; compare each run against the template it received.
+  const logic0Payload = container.getResource("logic", 0);
+  const usesLegacyWordIndex =
+    logic0Payload !== null &&
+    decodeLogicInsns(logic0Payload, { dictionary: synthDict }).some(
+      (i) => i.kind === "action" && i.name === "word.to.string" && i.args?.[1] === 11,
+    );
+  const logic0Source = usesLegacyWordIndex
+    ? BASE_TEMPLATE_LOGIC0_SOURCE.replace(
+        /word\.to\.string\(s11, (\d+)\);/g,
+        (_, idx: string) => `word.to.string(s11, ${Number(idx) + 1});`,
+      )
+    : BASE_TEMPLATE_LOGIC0_SOURCE;
   const templateBytes = new Map<number, Uint8Array>();
   for (const [num, source] of [
-    [0, BASE_TEMPLATE_LOGIC0_SOURCE],
+    [0, logic0Source],
     [TEMPLATE_DEATH_LOGIC, BASE_TEMPLATE_DEATH_LOGIC_SOURCE],
   ] as const) {
     try {

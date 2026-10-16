@@ -2253,8 +2253,10 @@ test("2.001/2.089/2.230/2.272/amiga-2.082 always show the restart confirmation, 
     engine.tick();
     engine.flags[201] = 1;
     engine.tick();
+    const expectedPrefix =
+      profile === "amiga-2.082" ? "Restart the game?" : "Press ENTER to restart";
     assert.ok(
-      host.prints.some((t) => t.startsWith("Press ENTER to restart")),
+      host.prints.some((t) => t.startsWith(expectedPrefix)),
       `${profile}: the confirmation prompt shows`,
     );
     assert.equal(engine.vars[100], 42, `${profile}: declined prompt keeps state`);

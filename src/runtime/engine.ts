@@ -995,16 +995,10 @@ export class Engine {
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
     this.strings = Array.from({ length: layoutStringTotal(bank) }, () => "");
-    this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
-    this.vars[24] = 41;
-    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
-    this.vars[26] = 3; // EGA presentation on the PC-compatible platform (v20 = 0).
+    this.applyResetAllDefaults();
     // Original game-state startup defaults; hosts may apply sound preference.
     // docs/fidelity.md: Original save and restart audit.
     this.flags[F_SOUND_ENABLED] = 1;
-    // On cold boot, f5 (F_NEW_ROOM) is set for the initial room 0;
-    // f6 (F_RESTART) is only set on restart (options.restarted or restart.game).
-    this.flags[F_NEW_ROOM] = 1;
     if (options?.restarted) {
       this.flags[F_RESTART] = 1;
     }
@@ -2679,7 +2673,9 @@ export class Engine {
     }
     switch (this.profile.inputLineEditCap) {
       case "early-35":
-        return Math.max(0, Math.min(this.vars[24]!, 35));
+        // PC 2.001, 2.089 and 2.230 compare editLen against literal 0x23 (35)
+        // directly; ResetAll leaves v24 at 0 on these builds (F-Parser-05).
+        return 35;
       case "iigs-39":
         return Math.max(0, Math.min(this.vars[24]!, 39 - this.strings[0]!.length));
       case "prompt-40": {
@@ -3004,7 +3000,9 @@ export class Engine {
   }
 
   private showPriScreen(): void {
-    this.closeWindowOnTop();
+    // Original show.pri.screen sets showPri=1, blits the priority screen, waits
+    // on ChkAcAb, and restores the visual screen without calling CloseWindow
+    // (docs/fidelity.md "Original picture drawing and fill", F-picture-04).
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showPri" });
     this.host.showPriScreen?.();
   }
@@ -3017,15 +3015,21 @@ export class Engine {
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
     // Original restart/quit prompt wording; CancelLine runs only on the
     // accepted restart branch, so declining preserves editLine across all
-    // profiles (docs/fidelity.md "Wave-3 persistence verdicts", F-persistence-02).
+    // profiles (docs/fidelity.md "Wave-3 persistence verdicts",
+    // F-persistence-02, F-persistence-05).
     const original = this.profile.originalRestartRestore;
+    const amiga = this.profile.windowFrameGeometry === "amiga";
     this.emitPrint(
       action === "restart"
         ? original
-          ? "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
+          ? amiga
+            ? "Restart the game?\n\nRestart    Cancel"
+            : "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
           : "Restart the game?\nENTER: yes   ESC: continue"
         : original
-          ? "Press ENTER to quit.\nPress ESC to keep playing."
+          ? amiga
+            ? "Quit the game, or continue?\n\nQuit               Continue"
+            : "Press ENTER to quit.\nPress ESC to keep playing."
           : "Quit the game?\nENTER: yes   ESC: continue",
       undefined,
       true,
@@ -3256,16 +3260,16 @@ export class Engine {
     const n = heading.items.length;
     switch (value) {
       case 1:
-        heading.current = (heading.current - 1 + n) % n;
+        if (n > 0) heading.current = (heading.current - 1 + n) % n;
         break;
       case 2:
-        heading.current = 0;
+        if (n > 0) heading.current = 0;
         break;
       case 4:
-        heading.current = n - 1;
+        if (n > 0) heading.current = n - 1;
         break;
       case 5:
-        heading.current = (heading.current + 1) % n;
+        if (n > 0) heading.current = (heading.current + 1) % n;
         break;
       case 3:
         this.menuHeading = this.nextEnabledHeading(this.menuHeading, 1);
@@ -3274,10 +3278,12 @@ export class Engine {
         this.menuHeading = this.nextEnabledHeading(this.menuHeading, -1);
         break;
       case 6:
-        this.menuHeading = this.nextEnabledHeading(0, -1);
+        // DoMenu End (value 6) loads menuBase->prev unconditionally (F-IN-15).
+        this.menuHeading = this.menu.length - 1;
         break;
       case 8:
-        this.menuHeading = this.nextEnabledHeading(this.menu.length - 1, 1);
+        // DoMenu Home (value 8) loads menuBase unconditionally (F-IN-15).
+        this.menuHeading = 0;
         break;
     }
     this.drawMenu();
@@ -3680,7 +3686,10 @@ export class Engine {
       switch (m.kind) {
         case "print": {
           const saved = deserializeSavedRect(m.saved);
-          if (saved.window !== undefined) stampWindowOverlayOnly(this.text, saved.window, true);
+          if (saved.window !== undefined) {
+            stampWindowOverlayOnly(this.text, saved.window, true);
+            delete saved.window.erased;
+          }
           this.modals.push({
             serial,
             kind: "print",
@@ -3706,7 +3715,10 @@ export class Engine {
           break;
         case "showObj": {
           const saved = deserializeSavedRect(m.saved);
-          if (saved.window !== undefined) stampWindowOverlayOnly(this.text, saved.window, true);
+          if (saved.window !== undefined) {
+            stampWindowOverlayOnly(this.text, saved.window, true);
+            delete saved.window.erased;
+          }
           this.modals.push({
             serial,
             kind: "showObj",
@@ -3724,7 +3736,10 @@ export class Engine {
       this.persistentWindow = null;
     } else {
       const saved = deserializeSavedRect(continuation.persistentWindow);
-      if (saved.window !== undefined) stampWindowOverlayOnly(this.text, saved.window, true);
+      if (saved.window !== undefined) {
+        stampWindowOverlayOnly(this.text, saved.window, true);
+        delete saved.window.erased;
+      }
       this.persistentWindow = saved;
     }
     if (continuation.keyWait !== null) {
@@ -4315,22 +4330,74 @@ export class Engine {
     const view = this.loadView(viewNum);
     const c = selectViewCel(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
-    // The cel paints into the picture for good, text included, but only where
-    // its opaque pixels land and the priority screen lets them (the demo
-    // pack's menu paints rows 0..9 black, then add.to.pic's its cards on top).
-    // A priority operand whose low nibble is zero takes the baseline's band
-    // (docs/fidelity.md, "Original add.to.pic control box").
+    // AddToPic stores x/y into a scratch entry with pri=15, IGNRHRZ and
+    // IGNROBJS and runs FindPosn before objinpic, so both the cel blit and the
+    // control box use the relocated coordinates (docs/fidelity.md, F-VIEWS-03).
+    [x, y] = this.relocateAddToPic(x, y, c.width, c.height);
+    // Handler packs (margin << 4) | priority into a single byte; objinpic
+    // substitutes the baseline band when the low nibble is zero, blits with
+    // the low nibble, and gates the control box on packed <= 0x3f
+    // (docs/fidelity.md, F-VIEWS-04, F-VIEWS-09).
+    let packed = (priority & 0xff) | ((margin & 0x0f) << 4);
+    if ((packed & 0x0f) === 0) {
+      packed |= priorityForY(y, this.priorityBase) & 0x0f;
+    }
     const covered = new Set<number>();
     drawCel(this.surface, c, x, y, {
-      priority: (priority & 0x0f) === 0 ? priorityForY(y, this.priorityBase) : priority,
+      priority: packed & 0x0f,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
       },
     });
     this.text.dropCells(covered);
-    if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) this.stampControlBox(x, y, c, margin);
+    if (packed <= 0x3f && y >= 0 && y < SCREEN_HEIGHT) {
+      this.stampControlBox(x, y, c, (packed >> 4) & 0x0f);
+    }
     this.presentationDirty = true;
+  }
+
+  /**
+   * FindPosn spiral for add.to.pic's scratch animation entry (pri=15,
+   * IGNRHRZ, IGNROBJS: only screen bounds are tested; docs/fidelity.md,
+   * F-VIEWS-03).
+   */
+  private relocateAddToPic(x: number, y: number, width: number, height: number): [number, number] {
+    if (x >= 0 && x + width <= SCREEN_WIDTH && y >= height - 1 && y < SCREEN_HEIGHT) {
+      return [x, y];
+    }
+    const originX = x;
+    const originY = y;
+    let leg = 1;
+    let remaining = 1;
+    let direction = 0;
+    const deltas = [
+      [-1, 0],
+      [0, 1],
+      [1, 0],
+      [0, -1],
+    ] as const;
+    const radius =
+      Math.max(
+        Math.abs(originX),
+        Math.abs(originX - 159),
+        Math.abs(originY),
+        Math.abs(originY - 167),
+      ) + 1;
+    const limit = (radius * 2 + 1) ** 2;
+    for (let i = 0; i < limit; i++) {
+      if (x >= 0 && x + width <= SCREEN_WIDTH && y >= height - 1 && y < SCREEN_HEIGHT) {
+        return [x, y];
+      }
+      x += deltas[direction]![0];
+      y += deltas[direction]![1];
+      if (--remaining === 0) {
+        direction = (direction + 1) % 4;
+        if (direction === 0 || direction === 2) leg++;
+        remaining = leg;
+      }
+    }
+    return [originX, originY];
   }
 
   /**
@@ -5440,7 +5507,7 @@ export class Engine {
       const view = this.views.get(this.modal.view);
       const cel = view && readViewCel(view, 0, 0);
       if (cel)
-        drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, {
+        drawCel(frame, cel, Math.trunc((SCREEN_WIDTH - 1 - cel.width) / 2), SCREEN_HEIGHT - 1, {
           priority: 15,
           onPixel: (index: number) => {
             this.scratchPreview[index] = 1;
@@ -6619,12 +6686,21 @@ export class Engine {
         const visibleWindow = window
           ? this.text.save(window.top, window.left, window.bottom, window.right)
           : null;
+        const windowErased = window?.window
+          ? captureWindowErased(this.text, window.window)
+          : undefined;
         // Presenting the picture repaints its band; text there is gone.
         if (!this.textMode)
           this.text.fill(this.displayBaseRow, 0, this.displayBaseRow + 20, TEXT_COLS - 1, 0, 0);
         if (visibleWindow) {
           this.text.restore(visibleWindow);
-          if (window?.window) stampWindowOverlayOnly(this.text, window.window, false);
+          if (window?.window) {
+            stampWindowOverlayOnly(
+              this.text,
+              windowErased ? { ...window.window, erased: windowErased } : window.window,
+              false,
+            );
+          }
         }
         return next;
       }
@@ -7281,14 +7357,24 @@ export class Engine {
         return next;
       }
       case 0x74: {
-        // word.to.string copies the parsed token TEXT (spec: parser results),
-        // not the dictionary id — "what is your name?" depends on it.
-        this.setString(a(0), this.parsedWordTexts[a(1) - 1] ?? "");
+        // word.to.string indexes wordPtr 0-based across all 20 profiles
+        // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-09).
+        this.setString(a(0), this.parsedWordTexts[a(1)] ?? "");
         return next;
       }
       case 0x89:
-        this.editLine = this.acceptedLine.slice(0, this.inputCapacity());
-        this.drawInputRow();
+        // echo.line returns immediately when input is disabled; when enabled,
+        // it appends PREVLINE[editLen..] onto INLINE while under the edit cap
+        // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-13).
+        if (this.inputAccepted) {
+          if (this.editLine.length < this.acceptedLine.length) {
+            this.editLine = (this.editLine + this.acceptedLine.slice(this.editLine.length)).slice(
+              0,
+              this.inputCapacity(),
+            );
+          }
+          this.drawInputRow();
+        }
         return next;
       case 0x8a:
         this.editLine = "";
@@ -7681,12 +7767,11 @@ export class Engine {
     for (const num of this.logics.keys()) if (num !== 0) this.logics.delete(num);
     for (const num of this.scanStart.keys()) if (num !== 0) this.scanStart.delete(num);
     // The original object loop writes flags &= ~0x41; flags |= 0x10: drawn and
-    // animated membership clear, but every record rejoins the updating
-    // partition (docs/fidelity.md "Original new.room sequence").
+    // animated membership clear, every record rejoins the updating partition,
+    // and newlyPositioned (0x0400) and cycleDelay (0x1000) are preserved
+    // (docs/fidelity.md "Original new.room sequence", F-motion-10).
     for (const o of this.objects) {
       o.stepSize = o.stepTime = o.stepCount = o.cycleTime = o.cycleCount = 1;
-      o.newlyPositioned = false;
-      o.cycleDelay = false;
       o.earlierPartition = false;
     }
     this.unanimateAll();
@@ -7886,11 +7971,8 @@ export class Engine {
     this.host.stopSound?.();
 
     this.vars.fill(0);
-    this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
-    this.vars[24] = 41;
-    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
-    this.vars[26] = 3;
     this.flags.fill(0);
+    this.applyResetAllDefaults();
     this.controllers.fill(0);
     this.logics.clear();
     this.pictures.clear();
@@ -7947,11 +8029,45 @@ export class Engine {
     this.haveKeyPolls = 0;
 
     this.flags[F_SOUND_ENABLED] = soundEnabled;
-    this.flags[F_NEW_ROOM] = 1;
     this.flags[F_RESTART] = 1;
     this.restartPending = true;
     this.trace.setActive(false);
     if (this.trace.logic !== null) this.loadLogic(this.trace.logic);
+  }
+
+  /**
+   * Apply the binary's ResetAll variable and flag writes shared by cold
+   * startup and accepted restart (docs/fidelity.md "Wave-3 persistence
+   * verdicts", F-OPCORE-04-adjacent).
+   */
+  private applyResetAllDefaults(): void {
+    const id = this.profile.id;
+    const isAmiga = this.profile.windowFrameGeometry === "amiga";
+    const isIIgs = this.profile.windowFrameGeometry === "iigs";
+    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
+    this.vars[20] = isAmiga ? 5 : isIIgs ? 7 : 0;
+    if (id === "2.001") {
+      this.vars[22] = 0;
+      this.flags[11] = 0;
+    } else if (id === "2.230" || id === "2.272" || id === "2.411" || isAmiga || isIIgs) {
+      this.vars[22] = 3;
+      this.flags[11] = 1;
+    } else {
+      const soundOn = (this.host.soundDevice?.() ?? 1) !== 0;
+      this.vars[22] = soundOn ? 3 : 1;
+      this.flags[11] = soundOn ? 1 : 0;
+    }
+    this.vars[24] = this.profile.inputLineEditCap === "early-35" ? 0 : isIIgs ? 40 : 41;
+    this.vars[26] =
+      id === "2.001" ||
+      id === "2.089" ||
+      id === "2.230" ||
+      id === "2.272" ||
+      id === "amiga-2.082" ||
+      isIIgs
+        ? 0
+        : 3;
+    this.flags[F_NEW_ROOM] = 1;
   }
 
   // ---------- host inspection (live patching / agent perception) ----------
