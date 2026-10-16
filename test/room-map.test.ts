@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { PROFILES } from "../src/runtime/profile.ts";
 import assert from "node:assert/strict";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import {
@@ -71,6 +72,20 @@ test("guards that do not pin a single edge leave the exit unlabeled", () => {
   // A conjunct still pins the edge: v2==4 must hold for the then-block.
   const conjunct = scanStaticExits(logic("if(v2==4 && isset(f5)){new.room(2);} return;"));
   assert.deepEqual(conjunct.targets, [{ to: 2, edge: "left" }]);
+});
+
+test("the map keeps mouse coordinates as computed exits instead of inventing room links", () => {
+  for (const variable of [40, 41]) {
+    const scan = scanStaticExits(
+      assembleLogic(`v40 = 7; v41 = 8; mouse.posn(v40, v41); new.room.v(v${variable}); return;`, {
+        dictionary: dict,
+        profile: PROFILES["amiga-2.310"],
+      }).payload,
+      PROFILES["amiga-2.310"],
+    );
+    assert.deepEqual(scan.targets, []);
+    assert.equal(scan.variableTarget, true);
+  }
 });
 
 test("an unbound room target remains a computed exit", () => {
