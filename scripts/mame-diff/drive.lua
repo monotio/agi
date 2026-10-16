@@ -46,7 +46,10 @@ emu.register_frame_done(function()
         if found ~= 1 then error('Expected one field for ' .. name .. ', found ' .. found) end
       end
     elseif event.key then
-      local codes = { Enter = '{ENTER}', Escape = '{ESC}', F9 = '{F9}', Space = ' ' }
+      local codes = {
+        Enter = '{ENTER}', Escape = '{ESC}', F9 = '{F9}', Space = ' ',
+        Up = '{UP}', Down = '{DOWN}', Left = '{LEFT}', Right = '{RIGHT}'
+      }
       manager.machine.natkeyboard:post_coded(codes[event.key])
     elseif event.boot then
       manager.machine.natkeyboard:post_coded(event.boot)

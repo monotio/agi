@@ -21,6 +21,7 @@ import { CycleClock } from "../src/runtime/cycleClock.ts";
 import { detectProfile, PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { rngDraw } from "../src/runtime/rng.ts";
+import { AGI_KEY } from "../src/runtime/keys.ts";
 import { loadAppearance } from "../app/src/render/appearance.ts";
 import { compositeFrame } from "../app/src/render/composite.ts";
 import { decodePng, encodePngRgb } from "./png.ts";
@@ -35,7 +36,7 @@ interface Wait {
 }
 interface Step {
   at: number;
-  key?: "Enter" | "Escape" | "F9" | "Space";
+  key?: keyof typeof KEYS;
   fields?: string[];
   input?: string;
   capture?: string;
@@ -50,10 +51,26 @@ export interface Scenario {
   media: { slot: string; path?: string; sha256?: string }[];
   crop: Rectangle;
   seconds: number;
+  /** Node RNG state word and zero-state reseed (default 1); the original's RNG is not replaced. */
+  seed?: number;
   boot?: { at: number; text: string }[];
   steps: Step[];
 }
-const KEYS = { Enter: 13, Escape: 27, F9: 0x4300, Space: 32 };
+/**
+ * Node key words. Direction keys are the PC navigation words the engine's input
+ * queue turns into direction events, as the original's keyboard poll does; on
+ * MAME they post the natural-keyboard arrow, or the step's exact `fields`.
+ */
+const KEYS = {
+  Enter: AGI_KEY.ENTER,
+  Escape: AGI_KEY.ESCAPE,
+  F9: AGI_KEY.F9,
+  Space: AGI_KEY.SPACE,
+  Up: AGI_KEY.UP,
+  Down: AGI_KEY.DOWN,
+  Left: AGI_KEY.LEFT,
+  Right: AGI_KEY.RIGHT,
+};
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 function json(path: string, value: unknown): void {
   writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
@@ -71,7 +88,7 @@ function lua(value: unknown): string {
     .map(([k, v]) => `[${lua(k)}]=${lua(v)}`)
     .join(",")}}`;
 }
-function validate(s: Scenario): void {
+export function validateScenario(s: Scenario): void {
   if (
     !s ||
     !Object.hasOwn(PROFILES, s.profile) ||
@@ -83,6 +100,8 @@ function validate(s: Scenario): void {
   )
     throw new Error("Expected fixture, supported profile, machine, media, crop and steps.");
   if (!(s.seconds > 0 && s.seconds <= 3600)) throw new Error("seconds must be in (0, 3600].");
+  if (s.seed !== undefined && !(Number.isInteger(s.seed) && s.seed >= 1 && s.seed <= 0xffff))
+    throw new Error("seed must be an integer in [1, 65535].");
   const names = new Set<string>();
   let previous = -1;
   for (const step of s.steps) {
@@ -92,6 +111,14 @@ function validate(s: Scenario): void {
     if ([step.key, step.input, step.capture].filter((v) => v !== undefined).length !== 1)
       throw new Error("Each step needs exactly one key, input or capture.");
     if (step.key && !Object.hasOwn(KEYS, step.key)) throw new Error("Unsupported key.");
+    if (
+      step.fields !== undefined &&
+      (!step.key ||
+        !Array.isArray(step.fields) ||
+        !step.fields.length ||
+        step.fields.some((f) => typeof f !== "string" || !f))
+    )
+      throw new Error("fields must list MAME keyboard field names for a key step.");
     if (step.capture) {
       if (!/^[a-z0-9-]+$/.test(step.capture) || names.has(step.capture))
         throw new Error("Capture names must be unique safe filenames.");
@@ -150,7 +177,7 @@ export async function captureEngine(s: Scenario, output: string) {
   const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
   let keys: number[] = [],
     input: string | null = null,
-    random = 1,
+    random = s.seed ?? 1,
     tick = 0;
   const engine = new Engine(
     container,
@@ -174,7 +201,7 @@ export async function captureEngine(s: Scenario, output: string) {
         return pending;
       },
       randomByte() {
-        const draw = rngDraw(random, () => 1);
+        const draw = rngDraw(random, () => s.seed ?? 1);
         random = draw.state;
         return draw.byte;
       },
@@ -191,7 +218,7 @@ export async function captureEngine(s: Scenario, output: string) {
     if (
       engine.modalKind !== null ||
       engine.continuationPending ||
-      clock.poll((tick * 1000) / 60, engine.vars[10]!)
+      clock.poll((tick * 1000) / 60, engine.pacingDelay)
     )
       engine.tick();
   };
@@ -242,13 +269,25 @@ export async function captureEngine(s: Scenario, output: string) {
     observations.push({
       scene: step.capture,
       tick,
+      cycles: engine.completedCycleSerial,
       room: engine.vars[0],
       modal: engine.modalKind,
+      // Position, cel and priority of every active object, for animation alignment.
+      objects: engine.readObjects().map(({ num, view, loop, cel, x, y, priority, direction }) => ({
+        num,
+        view,
+        loop,
+        cel,
+        x,
+        y,
+        priority,
+        direction,
+      })),
       rows: rows(),
     });
   }
   return {
-    seed: 1,
+    seed: s.seed ?? 1,
     profile: profile.id,
     files: [...files].map(([name, bytes]) => ({ name, sha256: sha256(bytes) })),
     observations,
@@ -262,7 +301,7 @@ async function main() {
       "Usage: node --experimental-strip-types scripts/mame-diff.ts SCENARIO.json ROMPATH [OUTPUT_DIR] [MAME_BINARY]",
     );
   const s = JSON.parse(readFileSync(manifest, "utf8")) as Scenario;
-  validate(s);
+  validateScenario(s);
   const output = resolve(destination ?? `.local/mame-diff/${s.machine}`);
   const within = relative(resolve("."), output);
   if (

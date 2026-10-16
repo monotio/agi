@@ -968,7 +968,11 @@ difference needs an explanation rather than a copy of MAME's output.
 
 The supplied scripts cover SQ2 Amiga 2.202 (`a500n`, `kick13`), SQ2 IIgs 1.014
 (`apple2gsr1`, self-booting two-disk 2MG set; no separate GS/OS disk required),
-and PQ1 PC 2.936 (`t1000sx`, FreeDOS). Fixture resources resolve through
+and PQ1 PC build 2.903, which runs on the 2.917 profile (`t1000sx`, FreeDOS).
+The `*-walk.json` scripts walk the ego under player control and capture every
+few steps: PQ1 walks to the evidence counter, where Russ passes behind the
+window bars, then walks back with the mirrored loop; SQ2 walks left, climbs the
+station hull and crosses the upper walkway. Fixture resources resolve through
 `test/fixtures.ts`; source disk images resolve recursively under `games/` by
 SHA-256. Each disk is copied before boot, and each run gets fresh configuration
 and NVRAM directories. ROMs are read from the supplied absolute directory.
@@ -1021,8 +1025,12 @@ Copy a supplied JSON script into `.local/` to adapt it. Its fields are:
   with `at` in emulated seconds and natural-keyboard coded `text`, such as
   `{ENTER}`. Keep these separate from the game scene sequence.
 - Each ordered `steps` entry has `at` and one of `key`, `input` or `capture`.
-  Keys are Enter, Escape, F9 or Space; `fields` optionally selects exact MAME
-  keyboard field names instead of natural-keyboard codes. `input` submits the
+  Keys are Enter, Escape, F9, Space, Up, Down, Left or Right; `fields`
+  optionally selects exact MAME keyboard field names instead of
+  natural-keyboard codes. Node delivers a direction key as the PC navigation
+  word, which toggles ego motion as the original's keyboard poll does; use
+  `fields` for directions on MAME (`Cursor Left` on `t1000sx` and `a500n`,
+  `Left Arrow` on `apple2gsr1`). `input` submits the
   same command line to both engines. `capture` names the output scene.
 - A step's `engine` wait runs before its action: `advanceMs` advances a fixed
   interval, then optional `room`, `modal` (including `null`) and `text`
@@ -1035,8 +1043,14 @@ Copy a supplied JSON script into `.local/` to adapt it. Its fields are:
 The game input order is shared; boot time and host pacing differ, so the two
 runs use explicit MAME times and Node state predicates rather than assuming
 that equal elapsed seconds identify equal scenes. MAME scene correspondence
-is verified visually. Node uses `rngDraw` with state 1 and zero-state reseed 1; the original's RNG is
-not replaced. Animated objects, cursor blink and mouse position may therefore
+is verified visually. Node uses `rngDraw` with state and zero-state reseed 1,
+or the script's optional `seed`; the original's RNG is not replaced. A walk
+script may pick the seed whose opening ego position matches the original's
+(SQ2 wanders the ego during its intro), and may start Node captures a few
+hundred milliseconds earlier than MAME's to absorb the original's measured
+key latency. Both are alignment choices recorded in the script; state them
+when reporting. The IIgs original's intro position changes between boots,
+so its walk converges only once the ego reaches the walkway's end. Animated objects, cursor blink and mouse position may therefore
 differ. Record these limits instead of hiding them with a tolerance or mask.
 
 Outputs include raw `*-mame.png`, cropped `*-original.png`, `*-ours.png` and
@@ -1047,8 +1061,9 @@ absolute per-channel `*-diff.png` (black means exact agreement), plus:
   Bounds use full-screen coordinates: status rows 0–7, play rows 8–175,
   input/spare rows 176–199. No colour correction, palette remapping or masking
   is applied. Normalization samples the centre of each nearest-neighbour cell.
-- `engine.json`: checkpoint room, modal, text rows, tick, RNG seed, profile and
-  resource hashes.
+- `engine.json`: checkpoint room, modal, text rows, tick, completed cycles,
+  the view, loop, cel, position and priority of every active object, RNG
+  seed, profile and resource hashes.
 - `provenance.json`, `drive.lua`, `mame.log`: version, revision, exact scene
   script, command line, disk hashes, input times and keyboard field inventory.
 
