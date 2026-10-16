@@ -758,6 +758,39 @@ test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing
   }
 });
 
+test("F-VIEWS-04: add.to.pic takes the band for a zero priority only where ObjInPic substitutes pri_tbl[y]", () => {
+  // The 2.001 ObjInPic (0x532a) calls InsertObj without the substitution;
+  // every later build substitutes. The profile field decides, not the build id.
+  for (const id of Object.keys(PROFILES) as ProfileId[])
+    assert.equal(PROFILES[id].addToPicBandForZeroPriority, id !== "2.001", id);
+  for (const band of [true, false]) {
+    const profile = { ...PROFILES["2.936"], addToPicBandForZeroPriority: band };
+    const container = createContainer();
+    container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf8, 0, 0, 0xff]));
+    container.putResource(
+      "view",
+      1,
+      new Uint8Array([
+        0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 4, 4, 0x0f, 0x24, 0x00, 0x24, 0x00, 0x24, 0x00, 0x24, 0x00,
+      ]),
+    );
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `assignn(v50, 1); load.pic(v50); draw.pic(v50); load.view(1);
+         add.to.pic(1, 0, 0, 40, 80, 0, 4); show.pic(); return;`,
+        { dictionary: DICT, profile },
+      ).payload,
+    );
+    const engine = new Engine(container, new TestHost(), DICT, { profile });
+    engine.tick();
+    // Row 80 lies in the band of priority 7; priority 0 loses to the background 4.
+    assert.equal(engine.surface.priority[80 * 160 + 40], band ? 7 : 4, `band ${band}`);
+    assert.equal(engine.surface.visual[80 * 160 + 40], band ? 2 : 15, `band ${band}`);
+  }
+});
+
 test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask apply across all 18 binary-verified profiles", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];

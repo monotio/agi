@@ -580,12 +580,18 @@ export interface AgiProfile {
    */
   readonly clampExactZeroLeftBoundary: boolean;
   /**
-   * Whether add.to.pic packs (margin << 4) | priority into a byte, auto-derives
-   * priority when the low nibble is 0 (2.089+ and Amiga/IIgs), and gates the
-   * control box on packed <= 0x3f (verified across all 18 profiles;
+   * Whether add.to.pic packs (margin << 4) | priority into a byte and gates
+   * the control box on packed <= 0x3f (PC and Amiga builds checked;
    * docs/fidelity.md "Original add.to.pic control box", F-VIEWS-04, F-VIEWS-09).
    */
   readonly addToPicPacking: boolean;
+  /**
+   * Whether ObjInPic replaces a zero priority nibble with the baseline's band
+   * (`pri_tbl[y]`) before drawing: 2.089 and later, Amiga and IIgs. The 2.001
+   * ObjInPic (`0x532a`) calls InsertObj directly, so priority 0 draws as 0
+   * (docs/fidelity.md F-VIEWS-04).
+   */
+  readonly addToPicBandForZeroPriority: boolean;
   /**
    * Whether add.to.pic runs the scratch-entry FindPosn relocation spiral before
    * objinpic (verified across all 18 profiles; docs/fidelity.md, F-VIEWS-03).
@@ -757,6 +763,7 @@ const BASE_2936: AgiProfile = {
   statusLineGate: "unconditional",
   clampExactZeroLeftBoundary: false,
   addToPicPacking: true,
+  addToPicBandForZeroPriority: true,
   addToPicRelocation: true,
   originalCelBlitClippingAndPriorityMask: true,
   newRoomPreservesReposAndCycleDelay: true,
@@ -911,6 +918,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0x90,
     inventoryHeaderBytes: 2,
     action0x8f: "max-drawn-objects",
+    addToPicBandForZeroPriority: false,
     parserDefaultsLoneAAndI: false,
     parserStripsPunctuation: false,
     positionActionOrder: "place-when-drawn",

@@ -41,7 +41,9 @@ const OPENING_DETAILS: Record<string, OpeningDetails> = {
   mh1: { titleRoom: 153 },
   mh2: { titleRoom: 153 },
   mumg: { titleRoom: 96, openingRoom: 32 },
-  pq1: { titleRoom: 1, profiles: ["2.903", "2.917", "2.936"] },
+  // PQ1's 2.903 interpreter runs as 2.917 (EQUIVALENT_BUILDS); 2.936 is the
+  // container fallback when the interpreter files are absent.
+  pq1: { titleRoom: 1, profiles: ["2.917", "2.936"] },
   sq1: { titleRoom: 67 },
   sq2: { titleRoom: 140, openingRoom: 2 },
   synthetic: { titleRoom: 1, openingRoom: 1, profiles: ["2.936"] },

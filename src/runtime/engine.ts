@@ -4719,12 +4719,12 @@ export class Engine {
     }
     const usePacking = this.profile.addToPicPacking;
     let packed = (priority & 0xff) | ((margin & 0x0f) << 4);
-    if ((packed & 0x0f) === 0 && this.profile.action0x8f !== "max-drawn-objects") {
+    if ((packed & 0x0f) === 0 && this.profile.addToPicBandForZeroPriority) {
       packed |= priorityForY(y, this.priorityBase) & 0x0f;
     }
     const drawPriority = usePacking
       ? packed & 0x0f
-      : (priority & 0x0f) === 0 && this.profile.action0x8f !== "max-drawn-objects"
+      : (priority & 0x0f) === 0 && this.profile.addToPicBandForZeroPriority
         ? priorityForY(y, this.priorityBase)
         : priority;
     const covered = new Set<number>();

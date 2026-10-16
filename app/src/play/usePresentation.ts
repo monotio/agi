@@ -105,7 +105,9 @@ export function createPresentation() {
       stage!.setTextLayer(composedText);
       stage!.setPriority(frame.priority, frame.picRow);
       // Exploded band layers sample the picture surface, not the composed
-      // frame — otherwise a sprite would punch a hole in its own wall.
+      // frame — otherwise a sprite would punch a hole in its own wall. They
+      // keep the game's colours during an IIgs shake; the debug view needs no
+      // flash.
       const picVisual = frame.picVisual ?? frame.visual;
       const picPriority = frame.picPriority ?? frame.priority;
       compositeFrame(
