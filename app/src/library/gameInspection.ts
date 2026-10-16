@@ -87,7 +87,7 @@ export async function inspectGame(game: PreviewWorkerInbound): Promise<GameInspe
       text: presentation.text,
       windowOverlay: presentation.windowOverlay,
       picRow: engine.displayBase,
-      appearance: await loadAppearance(engine.profile.id),
+      appearance: await loadAppearance(engine.profile.id, engine.containerFiles),
       statusBar: presentation.statusBar,
       gadgets: presentation.gadgets,
     },

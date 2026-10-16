@@ -2855,6 +2855,14 @@ export class Engine {
    */
   private eraseAmigaTitleArea(): void {
     this.text.fill(0, 0, 0, TEXT_COLS - 1, 0x20, attr(0, 0));
+    // The title fill covers the top three pixels of row 1 as well. Keep
+    // its remaining glyph rows intact; later cell/picture writes erase this
+    // overlay through the ordinary text-surface write ordering.
+    const stamp = ++this.text.seq;
+    this.text.overlay.fill(1, 8 * 320, 11 * 320);
+    this.text.overlayWritten.fill(stamp, 8 * 320, 11 * 320);
+    this.text.hasOverlay = true;
+    this.text.dirty++;
     // Picture rows that lie within frame rows 0..10 (160 pixels per row).
     const pictureRows = Math.max(0, Math.min(168, 11 - this.displayBaseRow * 8));
     if (pictureRows > 0) {
@@ -4164,6 +4172,7 @@ export class Engine {
     this.statusEnabled = s.statusEnabled !== 0;
     this.statusRow = s.statusRow;
     this.displayBaseRow = s.displayBaseRow;
+    this.amigaStatusAllowed = s.displayBaseRow !== 0;
     this.keyReleaseGate = s.releaseGate;
     for (let num = 0; num < this.objects.length; num++) {
       const o = this.objects[num]!;

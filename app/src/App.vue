@@ -109,6 +109,7 @@ const engine = useEngine(
       playArea.value?.handlePromptType(text);
     },
     onScreenReset: () => presentation.forgetFrame(),
+    onAppearance: (id, files) => presentation.setProfile(id, files),
   },
 );
 provideEngine(engine);

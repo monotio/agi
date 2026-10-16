@@ -77,11 +77,11 @@ export function createAutosave(ctx: WorkerContext) {
       // The thumbnail is the frame as the player sees it: the profile's look
       // (preloaded when the run started) with its title bar and gadgets.
       const frame = {
+        appearance: appearanceForProfile(ctx.run.engine.profile.id, ctx.run.engine.containerFiles),
         visual: presentation.visual,
         text: presentation.text,
         windowOverlay: presentation.windowOverlay,
         picRow: ctx.run.engine.displayBase,
-        appearance: appearanceForProfile(ctx.run.engine.profile.id),
         statusBar: presentation.statusBar,
         gadgets: presentation.gadgets,
       };

@@ -621,6 +621,7 @@ export interface RunSession {
 }
 
 export interface WorkerContext {
+  appearanceLoading?: { queue: WorkerInbound[] } | undefined;
   imagePreviewEngine?: Engine | undefined;
   imageHeroPreview?:
     ((frame: ReturnType<Engine["getPresentation"]>, cycle: number) => void) | undefined;

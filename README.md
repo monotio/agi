@@ -63,8 +63,10 @@ Sound follows the machine: emulated Paula on the Amiga, Ensoniq wavetable on the
 chip or PC speaker on a PC. **Settings → Advanced… → Sound chip** picks the PC one. The picture
 fills a 4:3 frame like a monitor of the day; **Settings → Original 4:3** switches to square pixels.
 Mouse clicks walk the hero on the Amiga and IIgs, as they did on the originals. Text uses this
-project's own 8 × 8 font, which covers English and the box drawing Sierra's games print. Fan-made
-games run too. [Testing compatibility](docs/testing.md#testing-compatibility) lists the exact
+project's own 8 × 8 drawings, or the player's AGIFONT when an IIgs game includes it.
+The IIgs profile uses its original palette and font metrics;
+native IIgs menus and the mouse pointer still differ from the original. Fan-made games run too.
+[Testing compatibility](docs/testing.md#testing-compatibility) lists the exact
 editions, disk-image formats and builds.
 
 Bring your own copies of commercial games. Fans have also made over a hundred free AGI games since

@@ -1,3 +1,4 @@
+import { MAX_AUXILIARY_BYTES } from "./gameZipLimits.ts";
 import { MAX_GAME_ZIP_BYTES } from "./gameZipLimits.ts";
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
 import { readProgressEntries } from "../saves/gameProgressImport.ts";
@@ -9,7 +10,11 @@ import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "../project/gameMetadata.ts";
 import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import { openContainer, DIRECTORY_FILES } from "../../../src/container/container.ts";
-import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
+import {
+  canonicalResourceName,
+  isPlayableFileName,
+  isAuxiliaryFileName,
+} from "../../../src/container/playableFiles.ts";
 import { isBooterImage } from "../../../src/container/booter.ts";
 import { isDiskImageName, readDiskImage } from "../../../src/container/disk/image.ts";
 import { createDiskExtractionBudget, reserveDiskBytes } from "../../../src/container/disk/files.ts";
@@ -175,7 +180,8 @@ function expandDiskImages(entries: Map<string, Uint8Array>): boolean {
     const decoded = readDiskImage(imagePath, imageBytes, budget);
     for (const [path, bytes] of decoded.files) {
       const name = canonicalResourceName(path.slice(path.lastIndexOf("/") + 1));
-      if (!isPlayableFileName(name)) continue;
+      if (!isPlayableFileName(name) && !isAuxiliaryFileName(name)) continue;
+      if (isAuxiliaryFileName(name) && bytes.length > MAX_AUXILIARY_BYTES) continue;
       const previous = entries.get(name);
       if (
         previous &&
@@ -253,6 +259,11 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     )
       throw new Error("Invalid game file path.");
     if (entries.has(name)) throw new Error(`Duplicate game filename: ${name}.`);
+    if (
+      isAuxiliaryFileName(name.slice(name.lastIndexOf("/") + 1)) &&
+      bytes.length > MAX_AUXILIARY_BYTES
+    )
+      continue;
     expanded += bytes.length;
     if (bytes.length > MAX_ENTRY_BYTES || expanded > MAX_EXPANDED_BYTES)
       throw new Error("The game exceeds the import size limit.");
@@ -279,7 +290,8 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     if (!path.startsWith(root)) continue;
     const name = path.slice(root.length);
     // The shared playable vocabulary, plus the stored game tests.
-    if (isPlayableFileName(name) || name === "TESTS.JSON") files[name] = data;
+    if (isPlayableFileName(name) || isAuxiliaryFileName(name) || name === "TESTS.JSON")
+      files[name] = data;
   }
   if (!files["WORDS.TOK"])
     throw new Error(

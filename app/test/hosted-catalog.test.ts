@@ -188,3 +188,34 @@ test("missing catalog is empty while resource and size failures are actionable",
   );
   await assert.rejects(missing[0]!.load(), /file.*404/i);
 });
+
+test("hosted imports drop an optional font over 64 KiB without losing the game", async () => {
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const files: Record<string, Uint8Array> = {
+    ...Object.fromEntries(container.files),
+    "WORDS.TOK": buildWordsTok([]),
+    AGIFONT: new Uint8Array(65_537),
+  };
+  const catalog = await loadHostedCatalog(base, async (input) => {
+    if (String(input) === base.href)
+      return new Response(
+        JSON.stringify(
+          manifest([
+            {
+              id: "bounded-font",
+              version: "1",
+              title: "Font",
+              license: "MIT",
+              path: "games/font/",
+              files: Object.keys(files),
+            },
+          ]),
+        ),
+      );
+    return new Response(new Uint8Array(files[new URL(String(input)).pathname.split("/").pop()!]!));
+  });
+  const opened = await catalog[0]!.load();
+  assert.ok(opened.files["WORDS.TOK"]);
+  assert.equal(opened.files["AGIFONT"], undefined);
+});

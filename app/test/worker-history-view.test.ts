@@ -1,3 +1,7 @@
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => loadAppearance(id)));
+
 /**
  * The history transport's worker side: while the live session sits parked,
  * a scratch drive replays the recorded tape — seeks rebuild it from anchors,

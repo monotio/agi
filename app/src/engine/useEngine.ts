@@ -112,6 +112,7 @@ export function useEngine(
     pendingEditorChanges?: () => boolean;
     /** A new engine replaced the game, or the game was left: drop its picture. */
     onScreenReset?: () => void;
+    onAppearance?: (id: string | null, files?: ReadonlyMap<string, Uint8Array>) => void;
   },
 ) {
   let projectMode: "create" | "play" = "play";
@@ -840,6 +841,7 @@ export function useEngine(
       startOverNote.hide();
     },
     onScreenReset: () => engineOptions?.onScreenReset?.(),
+    onAppearance: (id, files) => engineOptions?.onAppearance?.(id, files),
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     pendingEditorChanges: () =>
       (engineOptions?.pendingEditorChanges?.() ?? false) ||

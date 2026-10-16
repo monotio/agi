@@ -13,7 +13,12 @@ import {
   compositeFrame,
   type ScreenViewMode,
 } from "../render/composite.ts";
-import { PC_APPEARANCE, loadAppearance, type Appearance } from "../render/appearance.ts";
+import {
+  PC_APPEARANCE,
+  appearanceForProfile,
+  loadAppearance,
+  type Appearance,
+} from "../render/appearance.ts";
 import type { DebugViewMode } from "../inspector/debugView.ts";
 import type { Frame } from "../engine/useEngine.ts";
 
@@ -171,10 +176,11 @@ export function createPresentation() {
   }
 
   let profileRequest = 0;
-  /** Draw with the running profile's look once it has loaded; frames before that keep the PC look. */
-  function setProfile(id: string | null): void {
+  /** Select this game's look immediately; repaint when a lazy platform look finishes loading. */
+  function setProfile(id: string | null, files?: ReadonlyMap<string, Uint8Array> | null): void {
     const request = ++profileRequest;
-    void loadAppearance(id).then((next) => {
+    appearance = appearanceForProfile(id, files);
+    void loadAppearance(id, files).then((next) => {
       if (request !== profileRequest || next === appearance) return;
       appearance = next;
       repaint();
@@ -311,6 +317,9 @@ export function createPresentation() {
   return {
     get crtAmount(): number {
       return stage?.crtAmount ?? 0;
+    },
+    get appearance(): Appearance {
+      return appearance;
     },
     testMode,
     canvasEl,

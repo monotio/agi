@@ -59,12 +59,6 @@ const {
 } = engine;
 const presentation = usePresentation();
 const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
-// The frame is drawn with the running profile's colours, font and layout.
-watch(
-  () => state.profile,
-  (id) => presentation.setProfile(id),
-  { immediate: true },
-);
 const bridge = useShellBridge();
 const agentBlocksGame = computed(
   () =>

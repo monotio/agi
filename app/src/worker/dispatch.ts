@@ -4,7 +4,8 @@
  * fake-port context. engine.worker.ts owns the ports that stamp sessionId
  * and suppress presentation while seeking; this module only sees ctx.
  */
-import { loadAppearance } from "../render/appearance.ts";
+import { appearanceForProfile, loadAppearance } from "../render/appearance.ts";
+import { detectProfile } from "../../../src/runtime/profile.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
@@ -47,6 +48,39 @@ function debugLoadGate(ctx: WorkerContext, msg: WorkerInbound): boolean {
 }
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
+  if (ctx.appearanceLoading) {
+    ctx.appearanceLoading.queue.push(msg);
+    return;
+  }
+  if (msg.type === "boot") {
+    try {
+      const files = new Map(Object.entries(msg.files));
+      const profile = detectProfile(files, msg.profile);
+      if (
+        profile.presentation === "amiga" &&
+        appearanceForProfile(profile.id, files).layout !== "amiga"
+      ) {
+        const pending = { queue: [msg] };
+        ctx.appearanceLoading = pending;
+        void loadAppearance(profile.id, files)
+          .then(() => {
+            ctx.appearanceLoading = undefined;
+            for (const held of pending.queue) onWorkerMessage(ctx, held);
+          })
+          .catch((error: unknown) => {
+            ctx.appearanceLoading = undefined;
+            ctx.ports.control({
+              type: "error",
+              message: `Game appearance failed to load: ${String(error)}`,
+            });
+          });
+        return;
+      }
+    } catch (error) {
+      ctx.ports.control({ type: "error", message: String(error) });
+      return;
+    }
+  }
   if (msg.type === "playOwner") {
     const epoch = msg.epoch ?? ctx.run.owner.epoch;
     if (
@@ -408,8 +442,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         },
       );
       engine.flags[9] = 1;
-      // The look the autosave thumbnails draw with; nothing waits on it.
-      void loadAppearance(engine.profile.id);
+      // Amiga boots wait at the command boundary above; resolve player fonts for this engine too.
+      void loadAppearance(engine.profile.id, engine.containerFiles);
       let restored: Extract<WorkerControl, { type: "restored" }> | undefined;
       if (boot.restoreImage) {
         try {

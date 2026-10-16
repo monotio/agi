@@ -1,3 +1,4 @@
+import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import {
   detectKnownGame,
   gameRevision,
@@ -13,6 +14,7 @@ import { writeMapSidecar } from "../world/roomMapStore.ts";
 import { importGameHistory } from "../history/historyStorage.ts";
 import { bindSavedProgressTarget } from "../project/progressBinding.ts";
 import {
+  ProjectExistsError,
   loadAuthoredGame,
   saveAuthoredGame,
   listCachedGames,
@@ -76,7 +78,7 @@ export async function addLibraryGame(
   // An archive that declares none asks for nothing different, and keeps the
   // choice the player made for these bytes.
   if (!game.project || source === "catalog") {
-    const existing = listCachedGames().find((entry) => {
+    const candidates = listCachedGames().filter((entry) => {
       const library = entry.library;
       return (
         library?.revision === revision &&
@@ -88,7 +90,23 @@ export async function addLibraryGame(
           (library?.catalog?.id === catalog.id && library.catalog?.version === catalog.version))
       );
     });
-    if (existing) return existing.projectId;
+    // Equal resource revisions can carry different player-owned fonts. Keep
+    // those imports independently, without rewriting either edition's bytes.
+    for (const existing of candidates) {
+      const stored = await loadAuthoredGame(existing.projectId);
+      if (!stored) continue;
+      const names = new Set(
+        [...Object.keys(stored.files), ...Object.keys(game.files)].filter(isAuxiliaryFileName),
+      );
+      if (
+        [...names].every((name) => {
+          const a = stored.files[name];
+          const b = game.files[name];
+          return a && b && a.length === b.length && a.every((byte, i) => byte === b[i]);
+        })
+      )
+        return existing.projectId;
+    }
   }
   let targetProjectId = preferredId;
   if (
@@ -145,10 +163,22 @@ export async function addLibraryGame(
     words: game.words,
     imported: true,
   };
-  if (!(await saveAuthoredGame(targetProjectId, data)))
-    throw new Error(
-      "Your browser could not save this game. Free some storage space and try again.",
-    );
+  for (;;) {
+    try {
+      data.references = rebindStagedReferences(game.project?.references, {
+        project: targetProjectId,
+        revision,
+      });
+      if (!(await saveAuthoredGame(targetProjectId, data, { requireNew: true })))
+        throw new Error(
+          "Your browser could not save this game. Free some storage space and try again.",
+        );
+      break;
+    } catch (error) {
+      if (!(error instanceof ProjectExistsError)) throw error;
+      targetProjectId = requireProjectId(`${preferredId}-${crypto.randomUUID()}`);
+    }
+  }
   // Bind sidecars to the published body and its live lifetime receipt.
   // Each carried sidecar reports whether it reached this exact revision.
   const bound =

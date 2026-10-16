@@ -1,3 +1,7 @@
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => loadAppearance(id)));
+
 /**
  * Amiga restart/quit confirmations offer two Intuition gadgets (Restart /
  * Cancel, Quit / Continue; docs/fidelity.md F-persistence-05). Each gadget

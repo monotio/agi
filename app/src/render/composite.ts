@@ -1,8 +1,8 @@
 /**
  * Frame compositor: the engine's 160x168 visual buffer and 40x25 text
- * surface become one 320x200 RGBA frame, exactly the EGA presentation the
- * spec describes (a text column is four logical picture pixels, a text row
- * eight logical rows; the display base row offsets the picture).
+ * surface become one 320x200 RGBA frame, with the profile’s presentation assets. Each
+ * text column spans four logical picture pixels and each row spans
+ * eight logical rows; the display base row offsets the picture.
  *
  * Both presentation paths draw this same frame: the three.js stage uploads
  * it as a texture, the Canvas2D fallback (and the Playwright pixel probe)
@@ -22,7 +22,14 @@ import {
   PC_APPEARANCE,
   type Appearance,
 } from "./appearance.ts";
-import { TEXT_COLS, TEXT_ROWS, type GadgetLabel } from "../../../src/runtime/textSurface.ts";
+import {
+  GLYPH_CURSOR,
+  TEXT_COLS,
+  TEXT_ROWS,
+  type GadgetLabel,
+} from "../../../src/runtime/textSurface.ts";
+
+import { FONT } from "./font8x8.ts";
 
 /** Codes already reported as missing from the font, once per page. */
 const reportedGlyphs = new Uint8Array(256);
@@ -73,7 +80,7 @@ export interface CompositeInput {
   text: Uint8Array;
   /**
    * Optional 320x200 sub-cell window border overlay (`0` = transparent,
-   * `1 + EGA colour` = opaque pixel) painted into the window's outer cells
+   * `1 + palette index` = opaque pixel) painted into the window's outer cells
    * before interior text cells overwrite it.
    */
   windowOverlay?: Uint8Array | undefined;
@@ -102,7 +109,7 @@ function drawGlyph(
   for (let gy = 0; gy < 8; gy++) {
     const y = y0 + gy;
     if (y < 0 || y >= FRAME_HEIGHT) continue;
-    const bits = look.font[ch * 8 + gy]!;
+    const bits = (ch <= GLYPH_CURSOR ? FONT : look.font)[ch * 8 + gy]!;
     for (let gx = 0; gx < 8; gx++) {
       const x = x0 + gx;
       if (x < 0 || x >= FRAME_WIDTH || !(bits & (0x80 >> gx))) continue;
@@ -249,7 +256,7 @@ export function compositeFrame(
       const fg = palette[a & 0x0f]!;
       const bg = palette[(a >> 4) & 0x0f]!;
       for (let gy = 0; gy < 8; gy++) {
-        const bits = look.font[ch * 8 + gy]!;
+        const bits = (ch <= GLYPH_CURSOR ? FONT : look.font)[ch * 8 + gy]!;
         let o = ((row * 8 + gy) * FRAME_WIDTH + col * 8) * 4;
         for (let gx = 0; gx < 8; gx++) {
           const c = bits & (0x80 >> gx) ? fg : bg;

@@ -300,3 +300,134 @@ test("Amiga gadget labels draw four pixels in and two down from the fill's corne
   compositeFrame({ ...input, gadgets: [gadget] }, out);
   assert.deepEqual(pixelAt(out, 100, 120), EGA_PALETTE[15]);
 });
+
+test("a supplied platform appearance colours pictures, glyphs and window pixels", () => {
+  const input = fixture();
+  input.visual.fill(1);
+  input.text[0] = 65;
+  input.text[1] = 0x21;
+  const palette = Array.from({ length: 16 }, () => [0, 0, 0] as [number, number, number]);
+  palette[1] = [0, 0, 255];
+  palette[2] = [0, 136, 0];
+  palette[4] = [204, 0, 0];
+  const font = new Uint8Array(256 * 8);
+  font[65 * 8] = 0x40; // Synthetic glyph: only column 1 of row 0 is lit.
+  const windowOverlay = new Uint8Array(320 * 200);
+  windowOverlay[319] = 5;
+  const out = new Uint8Array(320 * 200 * 4);
+  const platformInput = {
+    ...input,
+    windowOverlay,
+    appearance: { palette, font, hasGlyph: new Uint8Array(256).fill(1), layout: "iigs" as const },
+  };
+  compositeFrame(platformInput, out);
+  assert.deepEqual(pixelAt(out, 0, 8), [0, 0, 255], "picture index 1");
+  assert.deepEqual(pixelAt(out, 1, 0), [0, 0, 255], "supplied glyph foreground");
+  assert.deepEqual(pixelAt(out, 0, 0), [0, 136, 0], "glyph background");
+  assert.deepEqual(pixelAt(out, 319, 0), [204, 0, 0], "window border index 4");
+  compositeFrame(platformInput, out, "visual", 0.5, "only");
+  assert.deepEqual(pixelAt(out, 1, 0), [0, 0, 255], "exploded text uses the font");
+  assert.equal(out[8 * 320 * 4 + 3], 0, "text plane leaves picture transparent");
+});
+
+test("platform fonts preserve the engine's private frame and cursor glyphs", () => {
+  const input = fixture();
+  input.text[0] = 1; // Private horizontal frame stroke: full row 3.
+  input.text[1] = 0x0f;
+  input.text[2] = 7; // Private cursor: full rows 6 and 7.
+  input.text[3] = 0x0f;
+  const out = new Uint8Array(320 * 200 * 4);
+  compositeFrame(
+    {
+      ...input,
+      appearance: {
+        palette: EGA_PALETTE,
+        font: new Uint8Array(2048),
+        hasGlyph: new Uint8Array(256).fill(1),
+        layout: "iigs",
+      },
+    },
+    out,
+  );
+  assert.deepEqual(pixelAt(out, 0, 3), [255, 255, 255]);
+  assert.deepEqual(pixelAt(out, 7, 3), [255, 255, 255]);
+  assert.deepEqual(pixelAt(out, 0, 2), [0, 0, 0]);
+  assert.deepEqual(pixelAt(out, 8, 6), [255, 255, 255]);
+  assert.deepEqual(pixelAt(out, 15, 7), [255, 255, 255]);
+});
+
+test("IIgs cells keep an eight-pixel advance, baseline seven and exact foreground/background", () => {
+  const input = fixture();
+  input.text[0] = 65;
+  input.text[1] = 0x21;
+  input.text[2] = 103;
+  input.text[3] = 0x4f;
+  input.text[4] = 59;
+  input.text[5] = 0x21;
+  input.text[6] = 65;
+  input.text[7] = 0x21;
+  const out = new Uint8Array(320 * 200 * 4);
+  compositeFrame({ ...input, appearance: appearanceForProfile("iigs-1.014") }, out);
+  // Hand-drawn A at x=0 and x=24; the semicolon cannot advance the next cell by 9.
+  const rows = [0x38, 0x44, 0x44, 0x7c, 0x44, 0x44, 0x44, 0];
+  for (const left of [0, 24]) {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        assert.deepEqual(
+          pixelAt(out, left + x, y),
+          rows[y]! & (128 >> x) ? [0, 0, 255] : [0, 136, 0],
+        );
+      }
+    }
+  }
+  assert.deepEqual(pixelAt(out, 10, 7), [255, 255, 255], "g descender occupies row 7");
+  assert.deepEqual(pixelAt(out, 8, 7), [204, 0, 0], "descender row background");
+  assert.deepEqual(pixelAt(out, 10, 8), [255, 255, 255], "cell ends before the next row");
+});
+
+test("Amiga status off erases all title pixels while retaining the text below row 10", async () => {
+  const { Engine } = await import("../../src/runtime/engine.ts");
+  const { createContainer } = await import("../../src/container/container.ts");
+  const { assembleLogic } = await import("../../src/logic/assembler.ts");
+  const appearance = await loadAppearance("amiga-2.202");
+  const { PROFILES } = await import("../../src/runtime/profile.ts");
+  for (const top of [1, 2]) {
+    const make = (off: boolean) => {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(
+          `configure.screen(${top},22,2); set.text.attribute(15,4); display(1,0,"MMMM"); ${off ? "status.line.on(); status.line.off();" : ""} return;`,
+          { dictionary: new Map(), profile: PROFILES["amiga-2.202"] },
+        ).payload,
+      );
+      const engine = new Engine(
+        container,
+        {
+          print() {},
+          displayAt() {},
+          statusLine() {},
+          takeInputLine: () => null,
+          takeKeys: () => [],
+        },
+        new Map(),
+        { profile: "amiga-2.202" },
+      );
+      engine.tick();
+      const pixels = new Uint8Array(320 * 200 * 4);
+      compositeFrame({ ...engine.getPresentation(), picRow: top, appearance }, pixels);
+      return pixels;
+    };
+    const before = make(false);
+    const after = make(true);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 32; x++) {
+        assert.deepEqual(
+          pixelAt(after, x, y),
+          y <= 10 ? [0, 0, 0] : pixelAt(before, x, y),
+          `top ${top} pixel ${x},${y}`,
+        );
+      }
+  }
+});

@@ -1084,6 +1084,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // the 2.936 contract; docs/fidelity.md "IIgs profile fields verified
     // from the handlers".
     id: "iigs-1.014",
+    presentation: "iigs",
     maxAction: 0xb1,
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",

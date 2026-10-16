@@ -46,7 +46,8 @@ import {
   ResourceCommitError,
 } from "../project/projectTransaction.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
-import type { ProfileId } from "../../../src/runtime/profile.ts";
+import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
+import { loadAppearance } from "../render/appearance.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import type { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { WorkerLink } from "./useWorkerLink.ts";
@@ -88,6 +89,8 @@ export interface GameLifecycleOptions {
   readonly resetHistoryView: () => void;
   /** The screen's last picture belongs to the replaced or departed game. */
   readonly onScreenReset?: () => void;
+  readonly onAppearance?:
+    ((id: string | null, files?: ReadonlyMap<string, Uint8Array>) => void) | undefined;
   readonly flushProject?: () => Promise<void>;
   readonly pendingEditorChanges?: () => boolean;
   readonly getProjectMode?: () => "create" | "play";
@@ -196,6 +199,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.walkthrough.error = "";
     options.audio?.setPaused(false);
     state.paused = false;
+    options.onAppearance?.(null);
     state.profile = null;
     hook.profile = null;
     state.textMode = false;
@@ -307,6 +311,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // lifetime: its writes refuse rather than mint a fabricated epoch.
     game.historyLifetime =
       progressTarget === null ? null : await readHistoryLifetime(progressTarget.locator);
+    await loadAppearance(
+      detectProfile(new Map(Object.entries(files)), match?.profile).id,
+      new Map(Object.entries(files)),
+    );
     return { game, profile: match?.profile };
   }
 
@@ -423,6 +431,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       booted = game;
       slotGame = game;
       options.audio?.useGameFiles(game.files);
+      options.onAppearance?.(
+        detectProfile(new Map(Object.entries(game.files)), profile).id,
+        new Map(Object.entries(game.files)),
+      );
       w.postMessage({
         type: "boot",
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
@@ -550,6 +562,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.authoring?.resetSession();
       booted = prepared.game;
       options.audio?.useGameFiles(prepared.game.files);
+      options.onAppearance?.(
+        detectProfile(new Map(Object.entries(prepared.game.files)), prepared.profile).id,
+        new Map(Object.entries(prepared.game.files)),
+      );
       w.postMessage({
         type: "boot",
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
@@ -854,6 +870,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
     await options.flushProject?.();
     if (!isCurrent()) return;
+    await loadAppearance(
+      detectProfile(new Map(Object.entries(files))).id,
+      new Map(Object.entries(files)),
+    );
+    if (!isCurrent()) return;
     await options.prepareRun?.();
     if (!isCurrent()) return;
     const w = link.spawnWorker();
@@ -897,6 +918,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
     const activeReplaySeed = options.getActiveReplaySeed();
     options.audio?.useGameFiles(files);
+    options.onAppearance?.(
+      detectProfile(new Map(Object.entries(files)), undefined).id,
+      new Map(Object.entries(files)),
+    );
     w.postMessage({
       type: "boot",
       amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
@@ -1082,6 +1107,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             return;
           }
           if (!isCurrent()) return;
+          await loadAppearance(
+            detectProfile(new Map(Object.entries(cached.files)), cached.library?.profile).id,
+            new Map(Object.entries(cached.files)),
+          );
+          if (!isCurrent()) return;
           await options.prepareRun?.();
           if (!isCurrent()) return;
           const openingAdmission = await admitQualifiedOpening(
@@ -1117,6 +1147,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           }
           const activeReplaySeed = options.getActiveReplaySeed();
           options.audio?.useGameFiles(cached.files);
+          options.onAppearance?.(
+            detectProfile(new Map(Object.entries(cached.files)), cached.library?.profile).id,
+            new Map(Object.entries(cached.files)),
+          );
           w.postMessage({
             type: "boot",
             amigaRegion: options.getAmigaRegion?.() ?? "ntsc",

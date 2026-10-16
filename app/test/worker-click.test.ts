@@ -1,3 +1,7 @@
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => loadAppearance(id)));
+
 /**
  * Pointer clicks: admitted only on click-to-walk profiles and only while the
  * interpreter could consume them — an open modal, a parked key wait or a

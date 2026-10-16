@@ -203,3 +203,20 @@ test("the recorded boot carries the override and replays and adoptions use it", 
     "the adopted engine runs the recorded override",
   );
 });
+
+test("a IIgs boot needs no original system font", async () => {
+  const { workerHarness } = await import("./worker-ctx.ts");
+  const { ctx, control } = workerHarness(gameContainer(["return;"]));
+  const previous = ctx.run.engine;
+  onWorkerMessage(ctx, {
+    type: "boot",
+    profile: "iigs-1.014",
+    files: Object.fromEntries(previous!.containerFiles),
+    words: [],
+  });
+  ctx.fns.stopTimers();
+  assert.notEqual(ctx.run.engine, previous);
+  assert.equal(ctx.run.engine?.profile.id, "iigs-1.014");
+  assert.ok(control.some((message) => message.type === "booted"));
+  assert.ok(!control.some((message) => message.type === "error"));
+});

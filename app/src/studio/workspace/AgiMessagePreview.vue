@@ -31,6 +31,7 @@ function render(): void {
   const pixels = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
     {
+      appearance: presentation.appearance,
       visual: presentation.lastFrame.value?.visual ?? new Uint8Array(160 * 168),
       text: surface.cells,
       windowOverlay: surface.overlay,
