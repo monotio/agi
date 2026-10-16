@@ -191,14 +191,30 @@ export type PaletteId = "ega" | "amiga" | "amiga-2.082" | "amiga-2.31x";
 
 export type AmigaRegion = "ntsc" | "pal";
 
-/** Session timing from the fixed VBlank dividers; docs/fidelity.md "Original Amiga sound player". */
+/**
+ * Session timing from the hardware interrupt dividers (docs/fidelity.md
+ * "Original scheduler and modal timing", "Original Amiga sound player"):
+ * - `"booter-int1c"` (PC 2.001): hooks BIOS INT 1Ch directly without
+ *   reprogramming PIT channel 0, so both the row-sound player and v10 pacing
+ *   run at 18.2 Hz (`182` ticks per 10 seconds), and `UpdateClock` divides
+ *   `sysTimer * 10 / 182` into 1000 ms game seconds.
+ * - `"amiga-vblank"` (Amiga 2.082..2.333): VERTB interrupt runs sound every
+ *   VBlank (60 Hz NTSC / 50 Hz PAL) and timer/pacing every 3rd VBlank
+ *   (20 Hz NTSC / 16.67 Hz PAL, 20 timer ticks per game second).
+ * - `"fixed"` (PC 2.089..3.002.149 PIT 60 Hz / 3 = 20 Hz, IIgs 1.014
+ *   SetHeartBeat 60 Hz / 3 = 20 Hz): 60 Hz sound, 50 ms timer increments,
+ *   1000 ms game seconds.
+ */
 export function interpreterTiming(profile: AgiProfile, region: AmigaRegion = "ntsc") {
+  if (profile.frameTiming === "booter-int1c") {
+    return { soundHz: 18.2, timerIncrementMs: 1000 / 18.2, gameSecondMs: 1000 };
+  }
   const soundHz = profile.frameTiming === "amiga-vblank" && region === "pal" ? 50 : 60;
   return { soundHz, timerIncrementMs: 3000 / soundHz, gameSecondMs: 60000 / soundHz };
 }
 
 export interface AgiProfile {
-  readonly frameTiming: "fixed" | "amiga-vblank";
+  readonly frameTiming: "fixed" | "booter-int1c" | "amiga-vblank";
   /** Promoted profile identifier, e.g. "2.936". */
   readonly id: ProfileId;
 
