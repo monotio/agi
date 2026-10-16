@@ -2470,6 +2470,7 @@ export class Engine {
     if (roomWait) {
       while (this.modal !== null) this.closeModal();
       this.cycleCursor = null;
+      this.restoreRevealOwed = false;
       this.parkedModalWait = false;
       this.parkedClockWait = false;
     }
@@ -9358,6 +9359,8 @@ export class Engine {
     this.runRoomPhase(room, entry);
     this.messageUpdatePending = false;
     this.hostRoomEntryPending = true;
+    // The visit replaces a restore whose logic 0 re-entry still waited.
+    this.restoreRevealOwed = false;
   }
 
   private applyRoomEntry(entry: RoomEntryState): void {
