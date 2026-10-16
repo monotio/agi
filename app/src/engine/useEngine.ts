@@ -155,7 +155,7 @@ export function useEngine(
     profileKind: null,
     agentLog: [],
     omittedLogEntries: 0,
-    shake: false,
+    shake: null,
     prompt: null,
     soundPlaying: false,
     soundMuted: false,

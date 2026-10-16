@@ -656,8 +656,10 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal(state.status, "Score: 1");
         break;
       case "shake":
-        deliver(w, { type, count: 1 });
-        assert.equal(state.shake, true);
+        deliver(w, { type, shake: { dx: 8, dy: 4, palette: null } });
+        assert.deepEqual(state.shake, { dx: 8, dy: 4, palette: null });
+        deliver(w, { type, shake: null });
+        assert.equal(state.shake, null);
         break;
       case "showObj":
         deliver(w, { type, viewNum: 7 });

@@ -216,7 +216,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.soundPlaying = false;
     options.resetPauseOwners();
     options.resetHistoryView();
-    state.shake = false;
     link.clearShake();
     hook.modal = null;
     hook.textMode = false;

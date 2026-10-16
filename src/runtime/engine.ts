@@ -44,6 +44,7 @@ import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeKeyWord } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
+import { iigsShakeColour, shakePlan, type ShakeFrame } from "./shake.ts";
 import {
   validateEngineReplayState,
   type EngineReplayState,
@@ -191,8 +192,6 @@ export interface EngineHost {
    */
   prepareRoom?(room: number, from: number): boolean;
 
-  /** shake.screen: shake the visible display `count` times. */
-  shakeScreen?(count: number): void;
   /** show.obj / show.obj.v: modal view preview; dismissal acks via ackPrint(). */
   showObj?(viewNum: number): void;
   /** show.pri.screen: modal priority-surface view; dismissal acks via ackPrint(). */
@@ -318,6 +317,17 @@ type Modal = { serial: number } & (
   | { kind: "menu"; saved: SavedRect }
   | { kind: "showObj"; saved: SavedWindow; view: number }
   | { kind: "showPri" }
+  | {
+      kind: "shake";
+      /** Steps still to show, the current one included. */
+      steps: number;
+      /** Index of the current step. */
+      step: number;
+      /** Time into a fixed-length step (PC EGA). */
+      elapsedMs: number;
+      /** IIgs colour table for the current step. */
+      palette: number[] | null;
+    }
 );
 
 function serializeSavedRect(saved: SavedWindow, text?: TextSurface): SerializedSavedRect {
@@ -1784,7 +1794,7 @@ export class Engine {
    */
   ackPrint(): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
-    if (!this.modal) return;
+    if (!this.modal || this.modal.kind === "shake") return;
     if (this.modal.kind === "inventory" && this.modal.interactive)
       this.vars[V_SELECTED_ITEM] = 0xff;
     this.closeModal();
@@ -3043,6 +3053,12 @@ export class Engine {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     const m = this.modal;
     if (!m) return;
+    // A shake reads no input: the press waits in the queue for the next pass.
+    if (m.kind === "shake") {
+      const word = NAV_KEY_CODES[value];
+      if (word !== undefined) this.inputQueue.enqueueKey(word);
+      return;
+    }
     // The non-interactive inventory's bare WaitEvent ends on ANY event,
     // navigation included (docs/fidelity.md "Original input, menu and modal
     // handling", F-IN-01).
@@ -3070,7 +3086,7 @@ export class Engine {
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
       this.vars[21] = 0;
     if (m.kind === "print" || m.kind === "showObj") this.text.clearWindowOverlay();
-    if (m.kind !== "showPri") this.text.restore(m.saved);
+    if (m.kind !== "showPri" && m.kind !== "shake") this.text.restore(m.saved);
     if (m.kind === "print" && this.cursorErased) {
       this.cursorErased = false;
       this.drawInputRow();
@@ -3869,6 +3885,14 @@ export class Engine {
             return { kind: "showObj", saved: serializeSavedRect(m.saved, this.text), view: m.view };
           case "showPri":
             return { kind: "showPri" };
+          case "shake":
+            return {
+              kind: "shake",
+              steps: m.steps,
+              step: m.step,
+              elapsedMs: m.elapsedMs,
+              palette: m.palette === null ? null : [...m.palette],
+            };
         }
       }),
       persistentWindow:
@@ -3974,6 +3998,16 @@ export class Engine {
         }
         case "showPri":
           this.modals.push({ serial, kind: "showPri" });
+          break;
+        case "shake":
+          this.modals.push({
+            serial,
+            kind: "shake",
+            steps: m.steps,
+            step: m.step,
+            elapsedMs: m.elapsedMs,
+            palette: m.palette === null ? null : [...m.palette],
+          });
           break;
       }
     }
@@ -4480,6 +4514,7 @@ export class Engine {
         modal.remainingMs -= milliseconds;
         if (modal.remainingMs <= 1e-7) this.closeModal();
       }
+      if (modal.kind === "shake") this.advanceShake(milliseconds);
       // Modal presentation suspends scripts, not timer counters. Explicit
       // pause and save selectors are handled by timerPaused above.
       // docs/fidelity.md: original-scheduler-and-modal-timing
@@ -4514,6 +4549,69 @@ export class Engine {
     // One call is one clock phase: the elapsed advance completes, then a
     // requested stop latches before anything else can run.
     this.observePhase("clock", null);
+  }
+
+  /**
+   * shake.screen (docs/fidelity.md "Original shake.screen and picture reveal"): the action parks
+   * the pass on a shake modal that the clock ends; sound and the game clock
+   * keep running and keys wait. An operand of 0 makes the original loop
+   * 65,536 times (hours); the engine skips it as a divergence on unusual input.
+   */
+  private startShake(count: number): void {
+    if (count === 0) return;
+    const plan = shakePlan(this.profile);
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "shake",
+      steps: count * plan.stepsPerUnit,
+      step: 0,
+      elapsedMs: 0,
+      palette: plan.randomPalette ? this.shakePalette() : null,
+    });
+  }
+
+  /** Sixteen IIgs colours from sixteen draws of the game RNG (shakeseg+0x003c). */
+  private shakePalette(): number[] {
+    return Array.from({ length: 16 }, () => iigsShakeColour(this.randomByte()));
+  }
+
+  /**
+   * Advance the open shake by elapsed time. Tick-timed steps end where the
+   * timer increments: `clockRemainderMs` still holds the phase before this
+   * advance, so the crossings are counted from it.
+   */
+  private advanceShake(milliseconds: number): void {
+    const m = this.modal;
+    if (m?.kind !== "shake") return;
+    const plan = shakePlan(this.profile);
+    let ends: number;
+    if (plan.stepMs !== null) {
+      m.elapsedMs += milliseconds;
+      ends = Math.floor((m.elapsedMs + 1e-7) / plan.stepMs);
+      m.elapsedMs -= ends * plan.stepMs;
+    } else {
+      const tickMs = this.timing.timerIncrementMs;
+      const phase = this.clockRemainderMs % tickMs;
+      ends = Math.floor((phase + milliseconds + 1e-7) / tickMs);
+    }
+    while (ends-- > 0) {
+      m.step++;
+      if (m.step >= m.steps) {
+        this.closeModal();
+        return;
+      }
+      if (plan.randomPalette) m.palette = this.shakePalette();
+    }
+  }
+
+  /** The open shake's display, or null when no shake is running. */
+  get shakeFrame(): ShakeFrame | null {
+    const m = this.modal;
+    if (m?.kind !== "shake") return null;
+    const [dx, dy] = shakePlan(this.profile).offsets[
+      m.step % shakePlan(this.profile).offsets.length
+    ]!;
+    return { dx, dy, palette: m.palette };
   }
 
   /**
@@ -4921,6 +5019,8 @@ export class Engine {
       }
       return;
     }
+    // A shake blocks the interpreter without reading input; it ends on the clock.
+    if (this.modal?.kind === "shake") return;
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
       // Modal Enter/Escape are raw controls, even when a script binds them.
@@ -7653,7 +7753,7 @@ export class Engine {
         this.textBg = a(1);
         return next;
       case 0x6e:
-        this.host.shakeScreen?.call(this.host, a(0));
+        this.startShake(a(0));
         return next;
       case 0x6f:
         this.displayBaseRow = a(0);

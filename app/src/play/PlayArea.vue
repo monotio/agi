@@ -184,6 +184,23 @@ const stageStyle = computed(() => {
  * and pointer"). It is browser chrome: exported and composed frames carry
  * no pointer.
  */
+/**
+ * shake.screen moves the whole display by the engine's step offset in frame
+ * pixels; the screen clips it and shows black where nothing is drawn
+ * (src/runtime/shake.ts). The IIgs shake recolours instead of moving.
+ */
+const shakeSurfaceStyle = computed(() => {
+  const shake = state.shake;
+  if (shake === null || (shake.dx === 0 && shake.dy === 0)) return undefined;
+  return {
+    transform: `translate(${(shake.dx / FRAME_WIDTH) * 100}%, ${(shake.dy / FRAME_HEIGHT) * 100}%)`,
+  };
+});
+watch(
+  () => state.shake?.palette ?? null,
+  (palette) => presentation.setPaletteOverride(palette),
+);
+
 const screenCursor = computed(() => {
   const profile = state.profile;
   if (profile === null || !Object.hasOwn(PROFILES, profile)) return undefined;
@@ -747,7 +764,7 @@ defineExpose({
           active: state.phase === 'running',
           'gpu-stage': !!gpuBackend,
           tube: !!gpuBackend && crtAmount > 0,
-          shake: state.shake,
+          shaking: shakeSurfaceStyle !== undefined,
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"
         :style="screenCursor ? { cursor: screenCursor } : undefined"
@@ -763,6 +780,7 @@ defineExpose({
           width="960"
           height="600"
           data-testid="gpu-canvas"
+          :style="shakeSurfaceStyle"
         />
         <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
         <canvas
@@ -772,6 +790,7 @@ defineExpose({
           width="320"
           height="200"
           data-testid="game-canvas"
+          :style="shakeSurfaceStyle"
         />
 
         <!-- Native keyboard/IME capture; the engine renders the only visible command line. -->
@@ -1043,26 +1062,8 @@ defineExpose({
   background: var(--agi-0);
 }
 
-.screen.shake {
-  animation: screen-shake 0.1s linear infinite;
-}
-
-@keyframes screen-shake {
-  0% {
-    transform: translate(2px, 1px);
-  }
-  25% {
-    transform: translate(-2px, -1px);
-  }
-  50% {
-    transform: translate(1px, -2px);
-  }
-  75% {
-    transform: translate(-1px, 2px);
-  }
-  100% {
-    transform: translate(2px, 1px);
-  }
+.screen.shaking {
+  overflow: hidden;
 }
 
 /* Split-mode wipe: a wide invisible drag strip with a visible edge and grip. */

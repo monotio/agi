@@ -24,6 +24,12 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.run.presentation.lastInputEdit = ctx.run.engine.inputEdit;
       ctx.ports.presentation({ type: "inputEdit", text: ctx.run.presentation.lastInputEdit });
     }
+    const shake = ctx.run.engine.shakeFrame;
+    const shakeKey = JSON.stringify(shake);
+    if (shakeKey !== ctx.run.presentation.lastShake) {
+      ctx.run.presentation.lastShake = shakeKey;
+      ctx.ports.presentation({ type: "shake", shake });
+    }
     const frame = ctx.run.engine.getPresentation();
     if (capture) captureFrame(frame);
     if (ctx.run.engine === ctx.imagePreviewEngine)

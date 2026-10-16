@@ -73,7 +73,7 @@ lists what remains unverified.
   [object records and save games](#object-records-and-save-games),
   [click-to-walk](#click-to-walk), [motion counters](#motion-counters),
   [pattern brushes](#pattern-brushes), [Paula sound](#paula-sound),
-  [screen, font and pointer](#screen-font-and-pointer)
+  [Amiga timing](#amiga-timing), [screen, font and pointer](#screen-font-and-pointer)
 - [Apple IIgs edition](#apple-iigs-edition):
   [the SQ2.SYS16 interpreter](#the-sq2sys16-interpreter),
   [actions and conditions](#actions-and-conditions),
@@ -198,8 +198,13 @@ The engine models these as host waits: the worker suspends the logic pass
 instead of blocking, and the host clock keeps advancing. It normalizes twenty
 pacing increments and sixty sound increments to one second of host time.
 
+The PC booter release keeps the BIOS timer rate of 18.2 ticks a second for
+sound, pacing and the clock, and rewrites the clock variables from its tick
+count every 18 ticks, so a script cannot set them. Only its pause stops time.
+
 **Evidence:**
 [Original scheduler and modal timing](#original-scheduler-and-modal-timing),
+[PC booter clock](#pc-booter-clock),
 [Timer-interrupt sound during blocking input](#timer-interrupt-sound-during-blocking-input),
 [Have key polling](#have-key-polling) and
 [Script key mappings and have.key](#script-key-mappings-and-havekey). The host
@@ -302,7 +307,18 @@ games rely on the consequences:
 The engine applies the cel-over-control and control-box rules to every profile;
 the evidence comes from specific builds, and the entries say which.
 
+`shake.screen` holds the game still while it shakes; sound and the clock keep
+running and keys wait for the next pass. On PC the whole screen alternates with
+a copy 4 pixels right and 4 rows down, eight times per count (half a second).
+The Amiga moves the whole screen 5 pixels and 10 rows in four diagonal
+directions and back, five ticks per count. The IIgs moves nothing: it flashes
+sixteen random colours each tick for five ticks per count, drawing them from
+the game's random numbers. On the Amiga and the IIgs, a picture shown after
+`draw.pic` dissolves in two pixels at a time in a fixed scrambled order; PC
+pictures appear at once.
+
 **Evidence:**
+[Original shake.screen and picture reveal](#original-shakescreen-and-picture-reveal),
 [Original cel blit over control pixels](#original-cel-blit-over-control-pixels),
 [Original add.to.pic control box](#original-addtopic-control-box),
 [Text under later graphics](#text-under-later-graphics) and
@@ -577,6 +593,16 @@ programmed volume.
 
 **Evidence:** [Original Amiga sound player](#original-amiga-sound-player).
 
+### Amiga timing
+
+Sound runs every frame and the game timer every third frame, so pacing and the
+clock run at 20 ticks a second on NTSC machines and 16.7 on PAL ones; the
+builds do not detect the region. Holding a menu open, or switching to another
+window, freezes the clock and pacing. The engine follows the frame rate but
+not those two pauses: its menus and the browser window are not the Amiga's.
+
+**Evidence:** [Amiga timer and pacing](#amiga-timer-and-pacing).
+
 ### Screen, font and pointer
 
 Each Amiga interpreter opens its own 320×200 sixteen-colour Intuition screen
@@ -679,7 +705,9 @@ and
 
 Keyboard and mouse input arrive through the Event Manager; there are no direct
 ADB calls. Menus and dialogs are native desktop UI. The game clock follows the
-usual v11 to v14 convention, driven by the heartbeat.
+usual v11 to v14 convention, driven by the heartbeat. The pacing wait lets a
+logic pass run only after v10 + 1 timer ticks, one tick later than on PC, so a
+game set to v10 = 2 runs at 6.7 passes a second instead of 10.
 
 **Evidence:**
 [Input and pacing (fact + inference)](#input-and-pacing-fact--inference).
@@ -1097,14 +1125,40 @@ this probe's evidence.
 
 #### Wave-3 timer verdict
 
-- **F-timing-03 (fact; engine matches).** PC timer cadence (kq3 2.936 runtime
-  0x8447, kq1 2.917 0x8380, gr1 3.002.149 body 0x874D — identical bytes
-  `B0 36 E6 43 B8 AE 4D E6 40 86 C4 E6 40`): PIT channel 0 mode 3 divisor
-  0x4DAE = 60 Hz; the IRQ8 handler services sound every tick and chains the
-  BIOS vector only when a counter byte decrements from 3 to 0 (every 3rd
-  tick), so INT 1Ch TimerInt fires at 20 Hz; TimerInt divides by 20 (0x14)
-  into the var[11..14] 60/60/24 clock cascade — 50 ms v10 increments, 1 s v11
-  seconds.
+- **F-timing-03 (fact; engine matches on 2.089..3.002.149).** PC timer cadence:
+  every build from 2.089 programs PIT channel 0 with the bytes
+  `B0 36 E6 43 B8 AE 4D E6 40 86 E0 E6 40` (divisor `0x4dae`, 60.0011 Hz; an
+  earlier revision quoted `86 C4`). The IRQ8 handler services sound every tick,
+  gated only by the sound-active word, and chains the BIOS vector every third
+  tick, so INT 1Ch TimerInt runs at 20 Hz. TimerInt adds 1 to the 32-bit
+  `sysTimer` and drains the keyboard outside the pause gate, then, unless
+  paused, adds 1 to the pacing counter and to a sub-counter that steps v11 once
+  per 20 ticks (`== 20` reset on 2.089..2.411, `while >= 20 subtract` from 2.439;
+  nothing else writes it, so the two agree). The pacing wait admits a pass once
+  the counter reaches v10 and then clears it. Exactly three code paths write
+  the pause word: the pause action `0x88`, which also stops the sound, and the
+  save and restore wrappers.
+
+  | Build     | PIT program | IRQ8     | INT 1Ch  | TimerInt | Pause word | Pacing / sub DS     | Pacing wait |
+  | --------- | ----------- | -------- | -------- | -------- | ---------- | ------------------- | ----------- |
+  | 2.089     | `0x7890`    | `0x7925` | `0x794f` | `0x7459` | `0x3df`    | `0x132a` / `0x132c` | `0x74db`    |
+  | 2.230     | `0x7819`    | `0x78ae` | `0x78d8` | `0x73dc` | `0x3df`    | `0x131e` / `0x1320` | `0x745e`    |
+  | 2.272     | `0x78bf`    | `0x7954` | `0x797e` | `0x7478` | `0x40f`    | `0x13ee` / `0x13f0` | `0x74fa`    |
+  | 2.411     | `0x7fb8`    | `0x8092` | `0x80bd` | `0x7b2d` | `0x613`    | `0x1653` / `0x1655` | `0x7baf`    |
+  | 2.439     | `0x80d9`    | `0x81b3` | `0x81de` | `0x7c4a` | `0x613`    | `0x1700` / `0x1702` | `0x7cc9`    |
+  | 2.440     | `0x80e1`    | `0x81bb` | `0x81e6` | `0x7c52` | `0x613`    | `0x1700` / `0x1702` | `0x7cd1`    |
+  | 2.903     | `0x836d`    | `0x8447` | `0x8472` | `0x7e22` | `0x615`    | `0x1758` / `0x175a` | `0x7ea1`    |
+  | 2.915     | `0x836c`    | `0x8446` | `0x8471` | `0x7e21` | `0x615`    | `0x177a` / `0x177c` | `0x7ea0`    |
+  | 2.917     | `0x8380`    | `0x845a` | `0x8485` | `0x7e35` | `0x615`    | `0x177a` / `0x177c` | `0x7eb4`    |
+  | 2.936     | `0x8447`    | `0x8521` | `0x854c` | `0x7efc` | `0x615`    | `0x1784` / `0x1786` | `0x7f7b`    |
+  | 3.002.086 | `0x8886`    | `0x8960` | `0x898b` | `0x833b` | `0x615`    | `0x17f4` / `0x17f6` | `0x83ba`    |
+  | 3.002.102 | `0x889e`    | `0x8978` | `0x89a3` | `0x8353` | `0x618`    | `0x1806` / `0x1808` | `0x83d2`    |
+  | 3.002.107 | `0x889e`    | `0x8978` | `0x89a3` | `0x8353` | `0x618`    | `0x1806` / `0x1808` | `0x83d2`    |
+  | 3.002.149 | `0x874d`    | `0x8827` | `0x8852` | `0x8210` | `0x438`    | `0x15bb` / `0x15bd` | `0x828f`    |
+
+  Hashes are under [Original string slot addressing](#original-string-slot-addressing) and
+  [Original save-file interoperability](#original-save-file-interoperability). The booter 2.001
+  keeps the BIOS rate instead: [PC booter clock](#pc-booter-clock).
 
 ### Timer-interrupt sound during blocking input
 
@@ -3550,14 +3604,48 @@ Playback completes at payload exhaustion and silences the chip.
   chip writes but keeps the row cursor and countdown advancing, and the done
   flag fires only at payload exhaustion — no stop on the first disabled tick.
   The gate is scoped to the booter 2.001 row player; other families' disabled
-  stop is unchanged. Tick delivery still differs: the original's rows and
-  clock ride the asynchronous BIOS INT 1Ch cascade (the ~18.2 Hz default —
-  the booter never reprograms PIT channel 0; its only port-0x43 writes are
-  timer-2 speaker divisors), while the engine advances its sound/clock ticks
-  from its own clock lane inside host poll/timer processing.
+  stop is unchanged. Tick delivery now matches too: the rows and the clock run
+  on the BIOS INT 1Ch rate of 18.2065 Hz, since the booter never reprograms PIT
+  channel 0 ([PC booter clock](#pc-booter-clock)).
   (Incidental: the booter writer carries the early family's Tandy +3
   attenuation rule — `(b & 0x90) == 0x90 && nibble < 8` at 0x75DA, all four
   attenuation latches — see the early-family F-SOUND-02 entry.)
+
+### PC booter clock
+
+The 2.001 booter (decoded executable SHA-256
+`424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`) never reprograms PIT
+channel 0: it has no `out 0x40`, and its only port `0x43` writes select the speaker's
+channel 2. Fact: InitTimer (`0x4bba`) hooks INT 1Ch with the handler at `0x4c1d`, which calls
+`0x76d7` and from there TimerInt (`0x73c5`) on every BIOS tick, 1,193,182 / 65,536 =
+18.2065 Hz (inference: the BIOS default rate, since nothing changes it). Per tick, TimerInt:
+
+1. polls input (`call 0x3f6f`);
+2. returns while the pause word `DS:0x2e3` is set (`0x73cd`), so pause stops everything below;
+3. adds 1 to the 32-bit tick count `DS:0x12f` (`0x73d4`);
+4. adds 1 to the pacing counter `DS:0x2df` (`0x73de`);
+5. adds 1 to `DS:0x1228` and, at 18, clears it and calls UpdateClock (`0x5626`);
+6. runs the row-sound player (`0x746b`) while a sound plays (`0x7401`).
+
+UpdateClock recomputes the clock from the tick count T rather than counting seconds:
+`s = floor(((T * 10) mod 2^32) / 182)`, then v11 = `s mod 60`, v12 = `(s / 60) mod 60`,
+v13 = `(s / 3600) mod 24` and v14 = `(s / 86400) mod 256` (`0x562e..0x5668`). So one game second
+is 18.2 ticks; v11 changes once per 18 ticks and holds one value for two refreshes once every
+91 refreshes; script writes to v11..v14 last until the next refresh. The pacing wait
+(`0x0111..0x011f`) admits a pass once the counter reaches v10 and clears it, counting 54.9 ms
+ticks. Only the pause action sets the pause word, and it stops the sound first; the save and
+restore selectors and message windows leave it clear. Restart (`0x21c9`) zeroes the tick
+count; the save block `DS+6..0x2de` (see [Booter 2.001](#booter-2001)) includes it, so a
+restore brings the saved clock back, while `DS:0x1228` lies outside the block.
+
+The engine selects this cadence with `frameTiming: "booter-int1c"`: sound, pacing and the clock
+run on 54.925 ms ticks, the clock is rewritten every 18 ticks from the saved tick count, and only
+pause freezes it. The tests in [original-scheduler.test.ts](../test/original-scheduler.test.ts)
+and [worker-original-scheduler.test.ts](../app/test/worker-original-scheduler.test.ts) failed
+before the change. Open: the sound start at `0x7409` reads payload byte 0 as a row period
+(rows advance every `max(1, b0)` ticks; one booter sound has `b0 = 0`, which on the speaker
+never starts and never sets its done flag), while the engine's row player treats byte 0 as row
+data. Every booter sound but one has `b0 = 1`, so timing agrees; the stray first write remains.
 
 ### Original directory and resource loading
 
@@ -3915,6 +4003,60 @@ DrwPicNC loop `h102+0x0052` (`2.082`) / `h152` (`2.176..2.333`), clrScreen `h114
   range, so a stream without `0xff` reads past the buffer. Every shipped picture resource in the
   game fixtures ends with `0xff`; the engine's clean stop at the end of the resource differs only
   on truncated resources.
+
+### Original shake.screen and picture reveal
+
+Static disassembly; hashes as in [Original scheduler and modal timing](#original-scheduler-and-modal-timing)
+(PC), [Amiga interpreter profiles](#amiga-interpreter-profiles) and
+[Apple IIgs interpreter (SQ2 1.014)](#apple-iigs-interpreter-sq2-1014). Action `0x6e` takes a
+count n. On every platform the handler loops until it is done, so the rest of the pass, the
+movers and the animation wait, while the timer interrupt keeps sound and the clock running and
+input stays queued for later.
+
+- PC (handler `2.089` `0x6f40`, `2.230` `0x6ef9`, `2.272` `0x6f95`, `2.411` `0x763e`, `2.440`
+  `0x7763`, `2.903` `0x7926`, `2.917` `0x7939`, `2.936` `0x7a00`, `3.002.086` `0x7e3f`,
+  `3.002.102`/`3.002.107` `0x7e57`, `3.002.149` `0x7d14`): the handler dispatches on the display
+  type. The EGA routine (KQ3 `EGA_GRAF.OVL`, called at `0x7a17`) latch-copies the screen into
+  page 1 shifted 8 EGA pixels right and 4 lines down (`di = 0x20a1`, 196 rows of 39 bytes), then
+  shows page 1 and page 0 alternately for four vertical retraces each, four times per unit:
+  32 retraces, 533 ms per unit at 60 Hz (inference from the mode's refresh rate). Page 1's
+  uncovered left and top edge is black. CGA, PCjr and Tandy instead nudge the CRTC sync
+  registers through the table `01 01 ff 01 01 ff ff ff 00 00`, one 20 Hz tick per step;
+  Hercules shifts 8 pixels and 8 lines; MCGA inverts the colours on alternate ticks.
+- PC booter 2.001 (handler `0x6f38`, EGA driver `0x790c`): per unit, four copies shifted by
+  (8, 4), (-8, -4), (-8, 4) and (8, -4) EGA pixels and lines, each shown until the BIOS tick
+  changes, from the table at `DS:0x1294`.
+- Amiga (handler `h182+0x0` on `2.176..2.333`, `h131+0x0` on `2.082`): five steps per unit set
+  the screen ViewPort's `DxOffset`/`DyOffset` to the saved values plus 10 times the table
+  `1, 1, -1, 1, 1, -1, -1, -1, 0, 0`, call MakeScreen and RethinkDisplay, and wait for the timer
+  tick to change. On the 320×200 lores screen that is 10 pixels and 10 lines. A count of 0 does
+  nothing.
+- IIgs (`shakeseg+0x0`): for 5n ticks, it fills colour table 0 with sixteen colours
+  `(r * 17) & 0x0fff` from sixteen draws of the game's random-number routine, the one `random`
+  uses (`shakeseg+0x003c`), sets it with SetColorTable and waits for the tick to change; then it
+  restores the standard table. Nothing moves, and each unit consumes 80 random numbers.
+- A count of 0 makes the PC `loop` run 65,536 units (hours); the engine treats it as no shake,
+  a divergence on unusual input.
+
+Engine: action `0x6e` opens a shake modal ([shake.ts](../src/runtime/shake.ts)) that the clock
+ends: PC steps last 66.7 ms, the others end at timer ticks. The worker posts each step's offset
+and IIgs colours, and the player's screen moves its whole frame by that offset inside a black,
+clipped screen, or recolours it. The adapter is EGA, the only PC display the app offers. Tests:
+[shake.test.ts](../test/shake.test.ts) (each failed before the change),
+[worker-shake.test.ts](../app/test/worker-shake.test.ts) and
+[shake-screen.spec.ts](../app/e2e/shake-screen.spec.ts).
+
+Picture reveal (fact): PC `show.pic` copies the picture bottom to top with no wait or palette
+change, and no PC executable or overlay contains a dissolve. On the Amiga (`show.pic`
+`h115+0x26e` on SQ2) and the IIgs (`seg2+0x55ba`), `show.pic` checks a flag that `draw.pic`
+clears and `overlay.pic` sets (Amiga `h117+0x12`, IIgs `$1608`): after `overlay.pic` the
+picture is copied at once, after `draw.pic` it dissolves (Amiga `h215+0x2e0`, IIgs
+`main+0x0f53`). The dissolve copies cell 0 and then walks a Galois shift register from state 1
+(shift right, `eor #$3500` on carry) until it returns to 1, copying cell s for every state below
+`0x3480`: each of the 13,440 cells, two AGI pixels wide (row `s / 80`, x `2 * (s mod 80)`), once,
+in a fixed order, with no waits. Its speed is the CPU's. MAME measured 48 to 50 frames (about
+800 ms) on an A500 and 27 to 28 frames (about 460 ms) on a IIgs, at a constant rate. `new.room`
+has no screen effect on any platform.
 
 ### Original cel handling and priority table
 
@@ -5302,6 +5444,30 @@ Periods below 124 colour clocks retain the DMA-limit approximation, and period 0
 counts 65,536 clocks at the programmed volume. The `soundDevice` operand stays a PC-family
 selection. PC and IIgs graphs keep their own synthesis paths.
 
+### Amiga timer and pacing
+
+Fact, all six executables (hashes under
+[Amiga interpreter profiles](#amiga-interpreter-profiles)): a VERTB interrupt server, installed
+with `AddIntServer` and `moveq #$5,d0` (`2.082` `h141+0x1c0`, `2.176` `h200+0x1c6`,
+`2.202..2.333` `h200+0x1cc`), is byte-identical in every build (`2.082` `h97`, the others `h135`).
+Each frame it causes the sound soft interrupt while a sound is active; every third frame it
+causes the game soft interrupt unconditionally. The constant 3 is fixed and nothing reads the
+video standard, so pacing and the clock run at 20 Hz on NTSC and 16.7 Hz on PAL machines. The
+timer (`h194`, `h136` on `2.082`) adds 1 to the tick count and reads input outside the pause
+gate, then advances pacing and the seconds sub-counter (`>= 20`, `== 20` on `2.082`). Pacing
+differs in mechanism from PC: the interrupt clears the counter and signals the main task when
+it reaches v10, and the main loop (`h2+0x10`, `h2+0x0a` on `2.082`) waits for that signal only
+when v10 is not 0. No WaitTOF or other frame wait exists. Besides the pause action (which stops
+the sound), the IDCMP handlers set the pause word on MENUVERIFY until MENUPICK and on
+INACTIVEWINDOW until ACTIVEWINDOW; on `2.176..2.333` INACTIVEWINDOW also stops the sound, while
+`2.082` has a `nop` there.
+
+Engine: `frameTiming: "amiga-vblank"` matches the rates for the selected region
+([amiga-timing.test.ts](../test/amiga-timing.test.ts)). Divergences: the signal-locked pacing
+grid differs from the engine's admission-time clear only when a pass overruns v10 ticks; the
+menu-hold and inactive-window pauses are not modeled, because the app's menus and browser focus
+are not Intuition's.
+
 ### Original Amiga and IIgs pattern brushes
 
 The shaped brush of picture commands 0xf9/0xfa differs from both PC
@@ -6060,6 +6226,20 @@ desktop UI for menus and dialogs (inference: `menu.input` and
 the same v11–v14 seconds/minutes/hours convention (f100 above). No
 fixed-cycle vsync wait was identified; event/timer pacing is
 toolbox-driven.
+
+Fact (SQ2.SYS16 `e1a2788f…`): one SetHeartBeat task (`main+0xeda`, re-armed
+with count 1) runs the sound tick every heartbeat and, every third heartbeat,
+the timer at `main+0x186f`: the 32-bit tick count, then the pause gate, then
+the pacing counter and the v11 cascade (`== 20`). The pacing wait at
+`main+0x1901..0x1911` is `lda v10; and #$00ff; cmp pacing; bcs loop`, looping
+while `v10 >= pacing`, then clears the counter: a pass needs v10 + 1 timer
+ticks, and v10 = 0 still waits one tick (20 passes a second). The engine
+applies this through `profile.pacingAdmission: "exceeds-v10"`
+(`Engine.pacingDelay`); the regression in
+[original-scheduler.test.ts](../test/original-scheduler.test.ts) failed first, and
+the MAME walk comparison of SQ2 IIgs matched the original's 15 pixels per 1.5 s
+only after the change. Inference: the heartbeat is 60 Hz; a 50 Hz IIgs was not
+examined.
 
 #### Apple IIgs sound discard
 

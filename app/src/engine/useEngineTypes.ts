@@ -12,6 +12,7 @@ import type {
   TraceRecord,
 } from "../../../src/runtime/engine.ts";
 import type { AudioMode } from "../audio/AgiAudio.ts";
+import type { ShakeFrame } from "../../../src/runtime/shake.ts";
 import type { RoomTransitionNotice } from "../worker/workerProtocol.ts";
 import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
@@ -183,8 +184,8 @@ export interface EngineState {
   /** Debug screen: live agent activity (requests, responses, patches). */
   agentLog: AgentLogEntry[];
   omittedLogEntries?: number;
-  /** True while a shake.screen effect is animating. */
-  shake: boolean;
+  /** The running shake.screen step: display offset and IIgs colours. */
+  shake: ShakeFrame | null;
   /** Active blocking prompt (0x76 get.num / 0x73 get.string), if any. */
   prompt: PromptState | null;
   /** Active sound playback state */

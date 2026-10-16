@@ -72,6 +72,7 @@ export function newRunSession(now: number): RunSession {
       lastPatchGen: -1,
       lastControls: "",
       lastInputEdit: "",
+      lastShake: "null",
       lastSoundEnabled: null,
     },
     debug: {

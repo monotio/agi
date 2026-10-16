@@ -150,7 +150,6 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     pending?.abort.abort();
   }
   let latestFrame: Frame | null = null;
-  let shakeTimer: number | null = null;
   const workerQueries = createWorkerQueries();
   const patchWaiters = createPatchWaiters();
   // A replaced worker answers neither its queries nor its patch acks.
@@ -214,10 +213,9 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     patchWaiters.drainPatchWaiters(new Error("engine worker stopped"));
   }
 
-  /** Cancel a pending shake.timer effect; lifecycle's screen reset calls this. */
+  /** End any shake on screen; lifecycle's screen reset calls this. */
   function clearShake(): void {
-    clearTimeout(shakeTimer ?? undefined);
-    shakeTimer = null;
+    state.shake = null;
   }
 
   function spawnWorker(preservePlayOwnership = false): Worker {
@@ -413,12 +411,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.status = msg.text;
       },
       shake: (msg) => {
-        state.shake = true;
-        clearTimeout(shakeTimer ?? undefined);
-        shakeTimer = setTimeout(() => {
-          state.shake = false;
-          shakeTimer = null;
-        }, msg.count * 100) as unknown as number;
+        state.shake = msg.shake;
       },
       soundEnabled: (msg) => {
         state.soundMuted = !msg.enabled;

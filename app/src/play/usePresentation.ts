@@ -69,7 +69,7 @@ export function createPresentation() {
     // it would smear across every depth band a dialog happens to cover.
     const exploded = mode === "explode" && stage !== null;
     const look = {
-      appearance,
+      appearance: shakeAppearance ?? appearance,
       statusBar: frame.statusBar,
       gadgets: frame.gadgets,
     };
@@ -168,6 +168,26 @@ export function createPresentation() {
         }
       });
     }
+  }
+
+  let shakeAppearance: Appearance | null = null;
+  /**
+   * The IIgs shake.screen replaces colour table 0 with sixteen 12-bit $0RGB
+   * colours each tick (src/runtime/shake.ts); null restores the game's palette.
+   */
+  function setPaletteOverride(palette: readonly number[] | null): void {
+    shakeAppearance =
+      palette === null
+        ? null
+        : {
+            ...appearance,
+            palette: palette.map((c) => [
+              ((c >> 8) & 15) * 17,
+              ((c >> 4) & 15) * 17,
+              (c & 15) * 17,
+            ]),
+          };
+    repaint();
   }
 
   /** Re-composite the last frame after a dock view change. */
@@ -321,6 +341,7 @@ export function createPresentation() {
     get appearance(): Appearance {
       return appearance;
     },
+    setPaletteOverride,
     testMode,
     canvasEl,
     gpuCanvasEl,

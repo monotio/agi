@@ -242,6 +242,8 @@ interface PresentationState {
   lastPatchGen: number;
   lastControls: string;
   lastInputEdit: string;
+  /** Last shake step posted, as its JSON, so only changes cross the port. */
+  lastShake: string;
   lastSoundEnabled: boolean | null;
 }
 

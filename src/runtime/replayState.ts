@@ -32,7 +32,8 @@ type SerializedModal =
     }
   | { kind: "menu"; saved: SerializedSavedRect }
   | { kind: "showObj"; saved: SerializedSavedRect; view: number }
-  | { kind: "showPri" };
+  | { kind: "showPri" }
+  | { kind: "shake"; steps: number; step: number; elapsedMs: number; palette: number[] | null };
 
 /**
  * A logic pass parked at a resumable boundary — an open window or a have.key
@@ -287,6 +288,22 @@ function serializedModal(value: unknown, options?: { allowWindow?: boolean }): S
     case "showPri":
       record(value, ["kind"]);
       return { kind };
+    case "shake": {
+      const m = record(value, ["kind", "steps", "step", "elapsedMs", "palette"]);
+      const steps = number(m["steps"], 1, 255 * 8);
+      const step = number(m["step"], 0, steps - 1);
+      const palette =
+        m["palette"] === null ? null : array(m["palette"], 16, (v) => number(v, 0, 0xfff));
+      if (palette !== null && palette.length !== 16)
+        throw new Error("Replay shake palette needs sixteen colours.");
+      return {
+        kind,
+        steps,
+        step,
+        elapsedMs: number(m["elapsedMs"], 0, 1000, false),
+        palette,
+      };
+    }
     default:
       throw new Error("Replay state has an unknown modal kind.");
   }

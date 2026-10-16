@@ -2,6 +2,7 @@ import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
 import type { GadgetLabel } from "../../../src/runtime/textSurface.ts";
 import type { RoomLaunchRequest } from "./roomLaunch.ts";
 import type { HostRngState } from "../../../src/runtime/rng.ts";
+import type { ShakeFrame } from "../../../src/runtime/shake.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 /**
@@ -951,7 +952,8 @@ export type WorkerPresentation =
     }
   | { type: "print"; text: string }
   | { type: "status"; text: string }
-  | { type: "shake"; count: number }
+  /** The running shake.screen step, or null when it ends (src/runtime/shake.ts). */
+  | { type: "shake"; shake: ShakeFrame | null }
   | { type: "showObj"; viewNum: number }
   | {
       type: "autosave";

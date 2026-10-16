@@ -149,10 +149,6 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         objects: ctx.run.engine.readObjects(),
       });
     },
-    /** 0x6e shake.screen: cosmetic jitter on the main thread. */
-    shakeScreen(count) {
-      ctx.ports.presentation({ type: "shake", count });
-    },
     /** 0x81/0xa2 show.obj: modal view popup (engine pauses on the open modal). */
     showObj(viewNum) {
       ctx.ports.presentation({ type: "showObj", viewNum });

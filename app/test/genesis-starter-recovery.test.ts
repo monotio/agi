@@ -132,7 +132,7 @@ function harness(options?: {
     profile: null,
     soundPlaying: false,
     soundMode: "web",
-    shake: false,
+    shake: null,
   };
   const noop = () => {};
   const sessions: unknown[] = [];
