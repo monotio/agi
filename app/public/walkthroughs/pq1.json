@@ -8,7 +8,7 @@
     "cb643573c06cb9799fa2c08fcf4eec77db3a2102d07b199a6703a0d49c5164b3"
   ],
   "coverage": "complete-game",
-  "profile": "2.936",
+  "profile": "2.917",
   "seed": 1,
   "fixtureHashes": {
     "AGIDATA.OVL": "df46a3f13c360045b2d355e97bfad6cb6e1df77ee614fed7b4b1f89778425db3",
@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 196804,
+  "elapsedMs": 60347,
   "virtualTicks": 448820,
   "cycles": 39667,
   "actions": [
@@ -53971,7 +53971,7 @@
     }
   ],
   "finalState": {
-    "profile": "2.936",
+    "profile": "2.917",
     "room": 104,
     "previousRoom": 103,
     "egoX": 76,
