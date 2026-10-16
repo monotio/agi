@@ -338,12 +338,14 @@ v21 when it closes. `obj.status.v` is a real modal window, not a log line.
 
 ### Text beyond ASCII
 
-The originals drew text with each machine's own font. This project uses its own
-MIT 8×8 drawings in the same 40 × 25 character grid. `app/src/render/font8x8.ts`
-serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
+The originals drew text with each machine's own font. The PC's project table
+recreates the BIOS graphics bitmap typeface pixel for pixel, credited as a
+recreation, in the same 40 × 25 character grid (see
+[PC fonts and display adapters](#pc-fonts-and-display-adapters)).
+`app/src/render/font8x8.ts` serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
 (see [Apple IIgs presentation](#apple-iigs-presentation)). A player's IIgs `AGIFONT`, when included with their game, overrides the project
-font at runtime. No original glyphs ship with the project; a missing or invalid
-font uses the project drawings.
+font at runtime. No ROM or font file ships with the project; a missing or
+invalid game font uses the project drawings.
 
 A scan of every logic message in the catalogued releases found these
 characters outside printable ASCII, apart from line breaks:
@@ -354,8 +356,8 @@ characters outside printable ASCII, apart from line breaks:
 | 0xff                                                             | non-breaking space                | King's Quest II (PC and Amiga)                      | 15 on the PC, 16 on the Amiga                                          |
 | 0x09                                                             | tab                               | Manhunter 1, Space Quest II (PC, Amiga, Apple IIgs) | one each                                                               |
 
-The font draws the box-drawing characters in its own line style and 0xff
-as a blank. There is no evidence yet of how the originals drew a tab, so it
+The PC font recreates the code-page box characters with their two-pixel
+strokes and draws 0xff as a blank. There is no evidence yet of how the originals drew a tab, so it
 shows blank. The Amiga Gold Rush! ships the same bytes; whether its own font
 drew them as PC box drawing is unverified. Any other character a game prints
 shows blank and is reported once in the browser console.
@@ -7429,3 +7431,106 @@ Controlled file bytes and mapped-state imports are covered by the
 cadence assertions while widening each investigation. Store probe
 commands, tool versions and controlled inputs alongside private outputs; publish
 only concise findings and independently authored expected vectors.
+
+### PC fonts and display adapters
+
+**Font evidence.** PQ1 PC 2.903 (`START.EXE` SHA-256
+`db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7`),
+load-relative `0x2c4e..0x2c72`, copies eight glyph rows from
+`F000:FA6E + character × 8` into its drawing buffer. The graphics text uses
+this BIOS typeface, rather than the Tandy character-generator typeface.
+The app's `font8x8.ts` recreates the printable BIOS graphics bitmap design
+pixel for pixel in its own packed table, credited as a recreation. No ROM
+or font file ships, and neither build nor runtime reads one. The optional
+local-reference test compares codes `0x20..0x7f` against the Tandy 1000 SX
+BIOS (`8040328.u41`, reference offset `0x7a6e`); the released engine window
+and cursor aliases `0x01..0x07` retain their checkpoint-compatible masks.
+The extended box characters used by Gold Rush! are recreated with the
+PC code-page strokes, checked against the local `bigblue.chr` character
+reference (eight row banks at stride 256). This reference check establishes
+the glyph shapes; a Gold Rush! Bible-page frame comparison remains open.
+
+The aligned MAME 0.289 `t1000sx` PQ1 opening, message and restart scenes
+changed from 264 / 1,791 / 956 differing RGB pixels to 30 / 30 / 22 after
+the recreation. The status and play regions agree exactly in all three;
+the remaining differences occupy the prompt/cursor area at rows 184–191.
+These are raw 320×200 comparisons without masks or colour adjustment.
+They establish the sampled graphics typeface, not every PC adapter's font.
+
+**CGA RGB mapping.** The inspected DOS builds' CGA driver initializes BIOS
+mode 4, background colour 1 and palette 0: blue, green, red and brown.
+PQ1 2.903 `CGA_GRAF.OVL` SHA-256
+`1dce45a21dcdcc27e3fcc8c193119489d1f8cbac76f18fc8a41864fdf7caa5e5`,
+`0x00db..0x0114`, establishes those register calls. Its `0x0015..0x0036`
+returns a two-row picture pattern from `AGIDATA.OVL + 0x1d0a`, while
+`0x0037..0x00da` maps cel colours through the separate table at `0x1d4a`.
+Thus a post-process with one four-colour palette cannot reproduce it.
+The compositor accepts sprite ownership and an explicit cel-pixel mask
+for previews and persistent stamps to select the cel mapping, uses
+alternating picture rows and retains both horizontal hardware pixels.
+
+The following DOS inputs have identical sixteen three-byte picture entries
+and sixteen cel entries. Their executable/data identities are listed under
+[PC and IIgs sound streams](#pc-and-iigs-sound-streams); the table addresses below are in `AGIDATA.OVL`.
+The driver modes are confirmed by the shipped overlays' initialization paths.
+
+| Build     | Picture patterns | Cel patterns | Graphics paths                               |
+| --------- | ---------------- | ------------ | -------------------------------------------- |
+| 2.089     | `0x1786`         | `0x17c6`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.230     | `0x177a`         | `0x17ba`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.272     | `0x184a`         | `0x188a`     | EGA, CGA RGB/composite, PCjr/Tandy           |
+| 2.411     | `0x1acb`         | `0x1b0b`     | EGA, CGA RGB/composite, PCjr/Tandy, Hercules |
+| 2.440     | `0x1b78`         | `0x1bb8`     | EGA, CGA RGB/composite, PCjr/Tandy, Hercules |
+| 2.903     | `0x1d0a`         | `0x1d4a`     | Above plus MCGA                              |
+| 2.917     | `0x1d2c`         | `0x1d6c`     | Above plus MCGA                              |
+| 2.936     | `0x1d36`         | `0x1d76`     | Above plus MCGA                              |
+| 3.002.086 | `0x1dc2`         | `0x1e02`     | Above plus MCGA                              |
+| 3.002.102 | `0x1dd2`         | `0x1e12`     | Above plus MCGA                              |
+| 3.002.107 | `0x1dd4`         | `0x1e14`     | Above plus MCGA                              |
+| 3.002.149 | `0x1b89`         | `0x1bc9`     | Above plus MCGA                              |
+
+The EGA driver requests BIOS mode `0x0d`; MCGA requests `0x13` and writes
+indices 0–15, doubling every picture pixel; PCjr/Tandy requests `0x89`.
+These paths share the sixteen digital RGB colours at the app's logical
+raster. This does not establish analogue output or every adapter's BIOS font.
+The 2.001 booter's full adapter census remains unverified here.
+
+**Monitor switch.** PQ1 2.903 `0x7872..0x78ad` admits `toggle.monitor`
+only on computer type 0, outside text mode, when the monitor type is neither
+EGA (3) nor Hercules (2). It XORs monitor type with 1 and reloads/redraws the
+picture: this exchanges composite (0) and RGB (1) on CGA. It does not change
+v26, which startup copied at `0x1081..0x1084`. PCjr/Tandy and MCGA computer
+types bypass the switch. Equivalent XOR sites are 2.089 `0x6eb1`, 2.230
+`0x6e6a`, 2.272 `0x6f06`, 2.411 `0x75ae`, 2.440 `0x76cb`, 2.917 `0x78a9`
+and 2.936 `0x7970`. The engine's opcode remains a no-op; compositor support
+alone does not close this behavior or install a player setting.
+
+**Remaining adapter work.** Hercules is a separate monochrome raster:
+PQ1's driver programs a 720×348 display, places the 640×336 picture at
+horizontal pixel 40, and uses four pairs of dither rows per colour
+(`HGC_GRAF.OVL` `0x0099..0x0125`, data table `0x1d7c`). The game's
+`HGC_FONT` contains 128 glyphs of 16×12 pixels. The driver's custom
+INT 10h AH=9 path (`0x027b..0x02f4`) indexes `character × 24`, reads
+six pairs of words, and writes each first word to the later scanline and
+each second word to the earlier one. The status row occupies 12 scanlines;
+later text rows have two blank scanlines followed by the glyph (14 in all).
+The file must come from the player's copy when this path is implemented. Composite programs CGA control `0x1a` and
+colour `0x27` (`CGA_GRAF.OVL` `0x00f8..0x0113`); its 640-pixel signal and
+colour decoding are distinct from RGB mode. Neither path is approximated
+by a palette here. CGA RGB also needs the original drawing provenance for
+cels baked by `add.to.pic` and the scratch `show.obj` preview, beyond the
+animated-sprite ownership input.
+
+### Display geometry
+
+The active image remains 320×200 on PC, IIgs and the inspected Amiga builds.
+At the logical NTSC/EGA pixel width:height of 5:6 it has aspect 4:3. With
+PAL Amiga pixel width:height 16:15, the same 200-line active window has
+aspect 128:75; a complete 320×256 PAL field would be 4:3. The geometry
+helpers distinguish these and retain an 8:5 square-pixel option. The PAL
+helper still needs wiring to the running region in the Play layout.
+
+CRT overscan, blank borders, screen position and calibration belong to the
+physical monitor. The app's optional CRT scanlines, glow and curved glass
+are display effects, rather than measurements of a particular monitor.
+Square-pixel presentation samples the bitmap with nearest-neighbour filtering.
