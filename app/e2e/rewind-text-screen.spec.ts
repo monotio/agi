@@ -2,7 +2,13 @@ import { test, expect } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
-import { isolateStorage, textHook, waitForCycles, waitForGameInput } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+  waitForGameInput,
+} from "./engineProbe.ts";
 
 test("Undo rewind on a text title screen names the screen and keeps Undo available @phone", async ({
   page,
@@ -74,3 +80,70 @@ test("Undo rewind on a text title screen names the screen and keeps Undo availab
     await page.screenshot({ path: test.info().outputPath(`rewind-text-screen-${width}.png`) });
   }
 });
+
+for (const refuse of [false, true]) {
+  test(`Undo start over restores play from the fresh title screen${refuse ? " after a refused attempt" : ""}`, async ({
+    page,
+  }) => {
+    const game = createContainer();
+    game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+    game.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+      if (!isset(f200)) {
+        set(f200); v50 = 1; load.pic(v50); draw.pic(v50); show.pic();
+        text.screen(); display(5, 5, "Press a key to play");
+        wait: if (!have.key()) { goto wait; }
+        graphics(); accept.input();
+      }
+      return;
+    `,
+        { dictionary: new Map() },
+      ).payload,
+    );
+    game.putFile("WORDS.TOK", buildWordsTok([]));
+    await page.route("**/fixtures/**", async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/fixtures/") return route.fulfill({ json: ["fresh-title"] });
+      if (path === "/fixtures/fresh-title/") return route.fulfill({ json: [...game.files.keys()] });
+      const bytes = game.files.get(path.split("/").at(-1)!);
+      return route.fulfill(bytes ? { body: Buffer.from(bytes) } : { status: 404 });
+    });
+    await isolateStorage(page);
+    await page.goto("/");
+    await page.getByTestId("boot-fresh-title").click();
+    await expect.poll(async () => (await textHook(page)).textMode).toBe(true);
+    await page.locator("canvas.game-surface:visible").click();
+    await page.keyboard.press("Space");
+    await expect.poll(async () => (await textHook(page)).textMode).toBe(false);
+    await waitForCycles(page, 12);
+    await openGameOptions(page, "settings-menu");
+    await page.getByTestId("btn-start-over").click();
+    await expect.poll(async () => (await textHook(page)).textMode).toBe(true);
+    const undo = page.getByTestId("btn-undo-start-over");
+    await expect(undo).toBeVisible();
+    if (refuse) {
+      await page.evaluate(() => {
+        const post = Worker.prototype.postMessage;
+        Worker.prototype.postMessage = function (message, options) {
+          if (message.type === "historyViewTake") {
+            Worker.prototype.postMessage = post;
+            message = { ...message, generation: message.generation + 1 };
+          }
+          post.call(this, message, options as StructuredSerializeOptions);
+        };
+      });
+      await undo.click();
+      await expect(page.getByTestId("history-error")).toBeVisible();
+      await expect(undo).toBeVisible();
+      await expect.poll(async () => (await textHook(page)).textMode).toBe(true);
+    }
+    await undo.click();
+    await expect.poll(async () => (await textHook(page)).textMode).toBe(false);
+    await expect(undo).toBeHidden();
+    await expect(page.getByTestId("history-error")).toBeHidden();
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  });
+}

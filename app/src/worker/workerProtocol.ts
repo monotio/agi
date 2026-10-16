@@ -716,13 +716,14 @@ export type WorkerControl =
    * own open segment — the restore's provenance. `reason: "starting"` marks a
    * null boot whose only obstacle is the first room not having drawn yet.
    * `reason: "text-mode"` marks a text screen that cannot be captured.
+   * An open host prompt takes precedence; other unsafe boundaries report busy.
    */
   | {
       type: "historyRetained";
       id: number;
       boot: HistoryBoot | null;
       from: { segment: string; seq: number; tick: number } | null;
-      reason?: "starting" | "text-mode";
+      reason?: "starting" | "text-mode" | "prompt" | "busy";
     }
   | {
       type: "historyTaken";

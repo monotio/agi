@@ -1052,8 +1052,9 @@ export function useEngine(
 
   /** Undo start over: back to where the earlier session ended. */
   async function undoStartOver(): Promise<boolean> {
-    startOverNote.hide();
-    return historyView!.undoStartOver();
+    const undone = await historyView!.undoStartOver();
+    if (undone) startOverNote.hide();
+    return undone;
   }
 
   const updateAiConfig = createAiConfigUpdater({

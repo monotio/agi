@@ -361,11 +361,20 @@ export function createHistoryView(
         h.segment === null
           ? null
           : { segment: h.segment, seq: h.seq, tick: ctx.run.cycle.tickCount - h.tickBase },
-      ...(boot === null && engine?.textModeActive
-        ? { reason: "text-mode" as const }
-        : starting
-          ? { reason: "starting" as const }
-          : {}),
+      ...(boot === null
+        ? {
+            reason:
+              engine?.hostInteractionPending && engine.hostInteraction?.kind !== "key"
+                ? ("prompt" as const)
+                : ctx.fns.debugCaptureBlocked()
+                  ? ("busy" as const)
+                  : engine?.textModeActive
+                    ? ("text-mode" as const)
+                    : starting
+                      ? ("starting" as const)
+                      : ("busy" as const),
+          }
+        : {}),
     });
   }
 

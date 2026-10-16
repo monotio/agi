@@ -617,45 +617,70 @@ test("a retain refused while the game is starting names that cause and the next 
   });
   await taking;
   const v = state.historyView;
-  assert.equal(v.error, "The game is still starting. Play a moment, then rewind.");
+  assert.equal(
+    v.error,
+    "The game is still starting. Play a moment and try Resume from here again.",
+  );
   assert.deepEqual(takes, [], "no adoption was requested");
   assert.equal(sessionState.hold, null, "the adoption hold released");
   assert.equal(v.active, true, "the view stays open");
 });
 
-test("Undo rewind on a text screen explains how to continue without blaming a prompt", async () => {
-  const target = await bindViewGame();
-  await importGameHistory(target, { recording: RECORDING });
-  await stageRetainedOriginal(target, {
-    id: "text-screen-undo",
-    boot: stampBoot(BOOT),
-    from: null,
-    retainedAt: 1,
+for (const paused of [false, true]) {
+  test(`Undo rewind refused on a text screen keeps the game ${paused ? "paused" : "playing"}`, async () => {
+    const target = await bindViewGame();
+    await importGameHistory(target, { recording: RECORDING });
+    await stageRetainedOriginal(target, {
+      id: "text-screen-undo",
+      boot: stampBoot(BOOT),
+      from: null,
+      retainedAt: 1,
+    });
+    await commitStagedOriginal(target, "text-screen-undo");
+    const { state, view, takes, waitHeld, release, sessionState } = makeHarness({
+      defer: ["historyRetain"],
+    });
+    if (paused) view.pauseAtLive();
+    const undoing = view.undoRewind();
+    await waitHeld("historyRetain");
+    release("historyRetain", {
+      type: "historyRetained",
+      id: 0,
+      boot: null,
+      from: null,
+      reason: "text-mode",
+    });
+    await undoing;
+    assert.equal(
+      state.historyView.error,
+      "The game is showing a text screen. Continue past it and try Undo rewind again.",
+    );
+    assert.deepEqual(takes, [], "no adoption was requested");
+    assert.equal(sessionState.hold, null, "authoring is released");
+    assert.equal(state.powerUp.busy, false);
+    assert.equal(state.historyView.parked, paused, "the player keeps their earlier pause choice");
+    assert.equal((await loadRetainedBranches(target.locator)).length, 1, "Undo stays available");
   });
-  await commitStagedOriginal(target, "text-screen-undo");
-  const { state, view, takes, waitHeld, release, sessionState } = makeHarness({
-    defer: ["historyRetain"],
+}
+
+for (const reason of ["prompt", "busy", undefined] as const) {
+  test(`a refused capture explains ${reason ?? "an unknown block"} honestly`, async () => {
+    await importGameHistory(await bindViewGame(), { recording: RECORDING });
+    const h = makeHarness({ defer: ["historyRetain"] });
+    await h.view.openHistory({ segment: 0, tick: 8 });
+    const taking = h.view.resumeFromHere();
+    await h.waitHeld("historyRetain");
+    h.release("historyRetain", { boot: null, from: null, reason });
+    await taking;
+    assert.equal(
+      h.state.historyView.error,
+      reason === "prompt"
+        ? "A game prompt is open. Finish it and try Resume from here again."
+        : "The game can't keep this moment yet. Continue the game and try Resume from here again.",
+    );
+    assert.deepEqual(h.takes, []);
   });
-  const undoing = view.undoRewind();
-  await waitHeld("historyRetain");
-  release("historyRetain", {
-    type: "historyRetained",
-    id: 0,
-    boot: null,
-    from: null,
-    reason: "text-mode",
-  });
-  await undoing;
-  assert.equal(
-    state.historyView.error,
-    "The game is showing a text screen. Continue past it and try Undo rewind again.",
-  );
-  assert.deepEqual(takes, [], "no adoption was requested");
-  assert.equal(sessionState.hold, null, "authoring is released");
-  assert.equal(state.powerUp.busy, false);
-  assert.equal(state.historyView.parked, false, "a running game keeps accepting player input");
-  assert.equal((await loadRetainedBranches(target.locator)).length, 1, "Undo stays available");
-});
+}
 
 test("a failed stage write releases the hold and asks the worker nothing", async () => {
   const target = await bindViewGame();
@@ -1618,6 +1643,16 @@ test("Undo start over resumes the earlier session where it ended and keeps playi
   );
 });
 
+test("Undo start over discards a fresh text screen without needing to capture it", async () => {
+  await importGameHistory(await bindViewGame(), { recording: STARTED_OVER });
+  const { state, view, takes } = makeHarness({
+    retainError: "the fresh text screen cannot be captured",
+  });
+  assert.equal(await view.undoStartOver(), true, state.historyView.error);
+  assert.equal(takes.length, 1);
+  assert.equal(state.historyView.parked, false);
+});
+
 test("Undo start over on a paused game leaves the earlier session paused", async () => {
   await importGameHistory(await bindViewGame(), { recording: STARTED_OVER });
   const { state, view, takes } = makeHarness();
@@ -2018,24 +2053,30 @@ test("a game replaced while Undo start over opens keeps the replacement paused",
   );
 });
 
-test("a game replaced after Undo start over's retain answers undoes nothing and leaves the replacement running", async () => {
+test("a game replaced after Undo start over's seek answers undoes nothing and leaves the replacement running", async () => {
   await importGameHistory(await bindViewGame(), { recording: STARTED_OVER });
   const b = await independentProject("undo-stale-retain", {
     ...RECORDING,
     segments: [segment("sB.1", [[1, 2, 3]])],
   });
-  const h = makeHarness({ defer: ["historyRetain"] });
+  const h = makeHarness({ defer: ["historyViewSeek"] });
   h.view.pauseAtLive();
   const pending = h.view.undoStartOver();
-  await h.waitHeld("historyRetain");
+  await h.waitHeld("historyViewSeek");
   // The old reply is delivered immediately before replacement in this
   // turn. Its queued continuation observes the replacement, exactly as a
   // settled query can outlive spawnWorker's drainPendingQueries.
-  h.release("historyRetain", {
-    type: "historyRetained",
+  h.release("historyViewSeek", {
+    type: "historyView",
     id: 0,
-    boot: stampBoot({ ...BOOT, rng: 42 }),
-    from: { segment: "sS.4", seq: 9, tick: 9 },
+    final: true,
+    segment: 2,
+    tick: 30,
+    seq: 30,
+    generation: 7,
+    canResume: true,
+    diverged: null,
+    error: null,
   });
   h.replaceGame(b.game, freshWorker());
   const before = h.pauses.length;
