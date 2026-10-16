@@ -43,7 +43,7 @@ test("a later profile cancels a pending CGA look", async () => {
   presentation.setProfile("2.936", null, "cga-rgb");
   presentation.setProfile("amiga-2.202", null);
   await loadAppearance("2.936", null, "cga-rgb");
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(presentation.appearance, amiga);
 });
 
@@ -54,7 +54,7 @@ test("a CGA frame repaints in CGA colours once the look loads, with no new frame
   presentation.setProfile("2.936", null);
   presentation.present(greenFrame("cga-rgb"), undefined, true);
   await loadAppearance("2.936", null, "cga-rgb");
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(presentation.appearance.cgaRgb, true);
   assert.equal(presentation.look.value, PC_APPEARANCE, "Studio keeps the EGA colours");
   const last = painted.at(-1)!;
