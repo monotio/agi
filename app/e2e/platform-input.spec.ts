@@ -8,7 +8,7 @@ import { buildZip } from "../src/archive/zip.ts";
 
 test.use({ keepDetectedProfileOption: false });
 
-async function boot(page: Page, profile: string): Promise<void> {
+async function boot(page: Page, profile: string, joystick = false): Promise<void> {
   const game = createContainer();
   game.putResource("picture", 0, Uint8Array.of(255));
   game.putResource(
@@ -28,11 +28,14 @@ async function boot(page: Page, profile: string): Promise<void> {
       load.view(0); animate.obj(o0); set.view(o0,0); position(o0,80,120); draw(o0);
       assignn(v99,1); step.size(o0,v99); step.time(o0,v99); accept.input();
       set.key(0,59,1); set.key(3,0,2); set.key(24,0,3); set.key(1,4,4);
+      set.key(1,1,5); ${profile === "iigs-1.014" ? "set.key(13,0,5);" : ""}
+      ${joystick ? "init.joy();" : ""}
     }
     if (controller(c1)) { print("Help window"); }
     if (controller(c2)) { display(4,0,"Control 3"); }
     if (controller(c3)) { display(4,0,"Control 24"); }
     if (controller(c4)) { print("Secondary action"); }
+    if (controller(c5)) {display(6,0,"Primary action");}
     get.dir(o0,v100); display(5,0,"Direction %v100");
     return;
   `,
@@ -111,3 +114,74 @@ test.describe(() => {
     }
   });
 });
+
+for (const profile of ["2.936", "amiga-2.202", "iigs-1.014"]) {
+  test(`${profile} Gamepad calibration, movement and fire use the native joystick @webkit-desktop`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const pad = {
+        connected: true,
+        axes: [0, 0],
+        buttons: Array.from({ length: 16 }, () => ({ pressed: false })),
+      };
+      (window as unknown as { gamepad: typeof pad }).gamepad = pad;
+      Object.defineProperty(navigator, "getGamepads", {
+        value: () => {
+          (pad as typeof pad & { polls?: number }).polls =
+            ((pad as typeof pad & { polls?: number }).polls ?? 0) + 1;
+          return [pad];
+        },
+      });
+    });
+    await boot(page, profile, true);
+    if (profile !== "amiga-2.202") {
+      await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+      if (profile === "iigs-1.014")
+        await page.evaluate(() => {
+          (
+            window as unknown as { gamepad: { buttons: { pressed: boolean }[] } }
+          ).gamepad.buttons[0]!.pressed = true;
+        });
+      else await page.keyboard.press("Enter");
+      await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+      await page.evaluate(() => {
+        (
+          window as unknown as { gamepad: { buttons: { pressed: boolean }[] } }
+        ).gamepad.buttons[0]!.pressed = false;
+      });
+    }
+    await page.evaluate(() => {
+      (window as unknown as { gamepad: { axes: number[] } }).gamepad.axes[0] = 0.9;
+    });
+    await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 3");
+    await page.evaluate(() => {
+      (window as unknown as { gamepad: { axes: number[] } }).gamepad.axes[0] = 0;
+    });
+    await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 0");
+    await page.evaluate(() => {
+      (
+        window as unknown as { gamepad: { buttons: { pressed: boolean }[] } }
+      ).gamepad.buttons[0]!.pressed = true;
+    });
+    if (profile !== "iigs-1.014") {
+      // Establish that the held sample reached the worker before releasing it.
+      const polls = await page.evaluate(
+        () => (window as unknown as { gamepad: { polls: number } }).gamepad.polls,
+      );
+      await expect
+        .poll(async () =>
+          page.evaluate(() => (window as unknown as { gamepad: { polls: number } }).gamepad.polls),
+        )
+        .toBeGreaterThan(polls);
+    }
+    await page.evaluate(() => {
+      (
+        window as unknown as { gamepad: { buttons: { pressed: boolean }[] } }
+      ).gamepad.buttons[0]!.pressed = false;
+    });
+    await expect
+      .poll(async () => (await textHook(page)).rows.join("\n"))
+      .toContain("Primary action");
+  });
+}

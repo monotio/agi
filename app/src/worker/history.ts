@@ -270,6 +270,9 @@ export function createHistory(ctx: WorkerContext) {
       inputQueue: [...ctx.run.input.keyQueue],
       directionQueue: [...ctx.run.input.deferredMovement],
       inputLines: [...ctx.run.input.inputBuffer],
+      ...(ctx.run.input.joystickObserved
+        ? { joystick: ctx.run.input.joystick === null ? null : { ...ctx.run.input.joystick } }
+        : {}),
       // Omitted while empty: a click-free session's fingerprint is unchanged.
       ...(ctx.run.input.clickQueue.length > 0
         ? { clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
@@ -661,6 +664,9 @@ export function createHistory(ctx: WorkerContext) {
       inputQueue: [...ctx.run.input.keyQueue],
       directionQueue: [...ctx.run.input.deferredMovement],
       inputLines: [...ctx.run.input.inputBuffer],
+      ...(ctx.run.input.joystickObserved
+        ? { joystick: ctx.run.input.joystick === null ? null : { ...ctx.run.input.joystick } }
+        : {}),
       ...(ctx.run.input.clickQueue.length > 0
         ? { clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),

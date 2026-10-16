@@ -1,3 +1,4 @@
+import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import { newRunSession } from "./runState.ts";
 import type { PendingSentence } from "./missedSentences.ts";
 /**
@@ -108,6 +109,8 @@ interface InputState {
   inputBuffer: string[];
   /** Pointer clicks awaiting the next input phase's takePointerClicks drain. */
   clickQueue: [number, number][];
+  joystick: JoystickSample | null;
+  joystickObserved: boolean;
   /** The suspended interaction waits on a player key, not a host request. */
   keyWaiting: boolean;
 }
@@ -170,6 +173,7 @@ export interface ReplaySnapshot {
   deferredMovement: number[];
   inputBuffer: string[];
   clickQueue: [number, number][];
+  joystick?: JoystickSample | null;
   requestSerial: number;
   clock: ReturnType<CycleClock["snapshot"]>;
   soundRemainder: number;
@@ -422,6 +426,8 @@ export interface WorkerFns {
   onKey(msg: Inbound<"key">): void;
   onDirection(msg: Inbound<"direction">): void;
   onClick(msg: Inbound<"click">): void;
+  onJoystick(msg: Inbound<"joystick">): void;
+  pollJoystickInput(): void;
   onInput(msg: Inbound<"input">): void;
   onEdit(msg: Inbound<"edit">): void;
   onDismissPrint(msg?: Inbound<"dismissPrint">): void;

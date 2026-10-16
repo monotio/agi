@@ -382,3 +382,28 @@ export function describeKeyWord(key: number): string {
   if (key >= 33 && key <= 126) return `'${String.fromCharCode(key)}'`;
   return `0x${key.toString(16)}`;
 }
+
+/** A sampled joystick position; the adapter supplies the platform's native axis scale. */
+export interface JoystickSample {
+  readonly x: number;
+  readonly y: number;
+  readonly button1?: boolean;
+  readonly button2?: boolean;
+}
+
+/** Validate browser axes before an input message becomes interpreter input. */
+export function isJoystickSample(value: unknown, axisLimit = 1): value is JoystickSample {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const s = value as Record<string, unknown>;
+  return (
+    Object.keys(s).every((k) => ["x", "y", "button1", "button2"].includes(k)) &&
+    typeof s["x"] === "number" &&
+    Number.isFinite(s["x"]) &&
+    Math.abs(s["x"]) <= axisLimit &&
+    typeof s["y"] === "number" &&
+    Number.isFinite(s["y"]) &&
+    Math.abs(s["y"]) <= axisLimit &&
+    (s["button1"] === undefined || typeof s["button1"] === "boolean") &&
+    (s["button2"] === undefined || typeof s["button2"] === "boolean")
+  );
+}

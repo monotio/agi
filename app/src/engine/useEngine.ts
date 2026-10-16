@@ -327,7 +327,7 @@ export function useEngine(
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
-  const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
+  const { sendInput, sendEdit, sendDirection, sendKey, sendClick, sendJoystick } = input;
   const startOverNote = useStartOverNote(state);
 
   let executionDebug: ReturnType<typeof createExecutionDebugLink> | undefined;
@@ -1591,10 +1591,11 @@ export function useEngine(
       startOverNote.noteInput();
       sendDirection(dir, sessionId);
     },
-    sendKey: (code: number, sessionId?: number) => {
+    sendKey: (code: number, sessionId?: number, pointer?: boolean) => {
       startOverNote.noteInput();
-      sendKey(code, sessionId);
+      sendKey(code, sessionId, pointer);
     },
+    sendJoystick,
     sendClick: (x: number, y: number, sessionId?: number) => {
       startOverNote.noteInput();
       sendClick(x, y, sessionId);

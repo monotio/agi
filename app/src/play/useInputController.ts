@@ -1,3 +1,4 @@
+import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import type { WorkerInbound } from "../worker/workerProtocol.ts";
 
 export type LogAgentFn = (
@@ -18,7 +19,8 @@ export interface InputController {
   sendInput(text: string): void;
   sendEdit(text: string): void;
   sendDirection(dir: number, sessionId?: number): void;
-  sendKey(code: number, sessionId?: number): void;
+  sendKey(code: number, sessionId?: number, pointer?: boolean): void;
+  sendJoystick(sample: JoystickSample | null): void;
   sendClick(x: number, y: number, sessionId?: number): void;
 }
 
@@ -47,7 +49,7 @@ export function useInputController(options: InputControllerOptions): InputContro
     } satisfies WorkerInbound);
   }
 
-  function sendKey(code: number, sessionId?: number): void {
+  function sendKey(code: number, sessionId?: number, pointer = false): void {
     const worker = options.getWorker();
     if (!worker) return;
     const activeSession = options.getActiveWalkthroughSession();
@@ -55,6 +57,7 @@ export function useInputController(options: InputControllerOptions): InputContro
     worker.postMessage({
       type: "key",
       code,
+      ...(pointer ? { pointer: true } : {}),
       ...(session > 0 ? { sessionId: session } : {}),
     } satisfies WorkerInbound);
   }
@@ -72,7 +75,12 @@ export function useInputController(options: InputControllerOptions): InputContro
     } satisfies WorkerInbound);
   }
 
+  function sendJoystick(sample: JoystickSample | null): void {
+    options.getWorker()?.postMessage({ type: "joystick", sample } satisfies WorkerInbound);
+  }
+
   return {
+    sendJoystick,
     sendInput,
     sendEdit,
     sendDirection,

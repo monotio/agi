@@ -46,6 +46,7 @@ import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
 import {
   validateEngineReplayState,
+  type JoystickReplayState,
   type EngineReplayState,
   type ParkedContinuation,
   type SerializedSavedRect,
@@ -890,6 +891,8 @@ export class Engine {
   readonly clickMoveNudge: [number, number] = [0, 0];
   /** Joystick polling enabled (on at boot on Amiga via InitEvents -> InitJoy; calibrated by init.joy on PC/IIgs). */
   private joyEnabled = false;
+  private joyObserved = false;
+  private joyClockMs = 0;
   /** Modal serial of an active init.joy (0x8b) calibration prompt on PC or IIgs. */
   private joyCalibratingModalSerial: number | null = null;
   private joyXMin = -0.5;
@@ -1802,6 +1805,10 @@ export class Engine {
   ackPrint(): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
     if (!this.modal) return;
+    if (this.modal.serial === this.joyCalibratingModalSerial) {
+      this.modalKey(AGI_KEY.ENTER);
+      return;
+    }
     if (this.modal.kind === "inventory" && this.modal.interactive)
       this.vars[V_SELECTED_ITEM] = 0xff;
     this.closeModal();
@@ -2965,8 +2972,8 @@ export class Engine {
       return;
     }
     // On Apple IIgs 1.014 (seg2+0x1638..0x165e), GetUserInput rewrites unmapped
-    // type-1 words 0x0101 and 0x0201 to 0x000d (CR) and toggles f9 on 0xff00
-    // (Option+/) before storing v19 and calling EditLine.
+    // type-1 words 0x0101 and 0x0201 to 0x000d (CR) before storing v19
+    // and calling EditLine. Native sound switches are consumed before PostEvent.
     if (this.profile.presentation === "iigs") {
       if (key === 0x0101 || key === 0x0201) {
         key = AGI_KEY.ENTER;
@@ -3092,6 +3099,7 @@ export class Engine {
   private closeModal(): void {
     const m = this.modals.pop();
     if (!m) return;
+    if (m.serial === this.joyCalibratingModalSerial) this.joyCalibratingModalSerial = null;
     // A timed print zeroes v21 when its window closes, by timeout or key.
     // docs/fidelity.md: print-handler-output-modes
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
@@ -3339,8 +3347,8 @@ export class Engine {
    * - Amiga confirmation dialog: Restart/Quit -> Enter, Cancel/Continue -> Esc.
    * - Unlabeled print or show.obj modal (or persistent f15 window): clicking
    *   inside the window frame returns Enter (0x0d); clicking outside returns null.
-   * - Text screen (`text.screen`) or `show.pri.screen`: returns Enter (0x0d)
-   *   on Amiga 2.082 (h78+0x25c) and Apple IIgs 1.014 (seg3+0xa6f, y >= 8).
+   * - Text screens return Enter on Amiga 2.082 and Apple IIgs 1.014.
+   *   A priority screen does so only on Amiga 2.082 (F-IN-11).
    */
   pointerKeyAt(x: number, y: number): number | null {
     if (this.profile.clickMove === "none") return null;
@@ -3375,10 +3383,25 @@ export class Engine {
    * 2.176..2.333 h106+0x2a4): when no text window is open, enqueues type-1
    * word 0x0401 (Button 2 double-click).
    */
+  get pointerRightDoubleClickAllowed(): boolean {
+    return (
+      this.profile.presentation === "amiga" &&
+      this.modal === null &&
+      this.persistentWindow === null &&
+      !this.textMode
+    );
+  }
+
   pointerRightDoubleClick(): boolean {
-    if (this.profile.presentation !== "amiga") return false;
-    if (this.modal !== null || this.persistentWindow !== null) return false;
-    return this.inputQueue.enqueueKey(0x0401);
+    return this.pointerRightDoubleClickAllowed && this.inputQueue.enqueueKey(0x0401);
+  }
+
+  /** Releasing browser input ownership stops the stick without firing a button action. */
+  cancelJoystickInput(): void {
+    if (this.lastJoyDir !== 0) this.inputQueue.enqueue({ type: 2, value: 0 });
+    this.lastJoyDir = 0;
+    this.joyButtons[0] = { state: 0, deadline: 0 };
+    this.joyButtons[1] = { state: 0, deadline: 0 };
   }
 
   /**
@@ -3390,6 +3413,51 @@ export class Engine {
    *   disables joystick polling and returns without opening a window. Otherwise
    *   opens the platform's calibration prompt modal.
    */
+  private joystickState(): JoystickReplayState | undefined {
+    if (!this.joyObserved) return undefined;
+    return {
+      enabled: this.joyEnabled,
+      clockMs: this.joyClockMs,
+      thresholds: [this.joyXMin, this.joyXMax, this.joyYMin, this.joyYMax],
+      direction: this.lastJoyDir,
+      buttons: this.joyButtons.map((b) => ({ ...b })),
+      calibration:
+        this.joyCalibratingModalSerial === null
+          ? null
+          : this.modals.findIndex((m) => m.serial === this.joyCalibratingModalSerial),
+    };
+  }
+
+  private restoreJoystickState(state: JoystickReplayState | undefined): void {
+    this.joyObserved = state !== undefined;
+    this.joyEnabled = state?.enabled ?? this.profile.presentation === "amiga";
+    this.joyClockMs = state?.clockMs ?? 0;
+    this.joyXMin = state?.thresholds[0] ?? -0.5;
+    this.joyXMax = state?.thresholds[1] ?? 0.5;
+    this.joyYMin = state?.thresholds[2] ?? -0.5;
+    this.joyYMax = state?.thresholds[3] ?? 0.5;
+    this.lastJoyDir = state?.direction ?? 0;
+    this.joyButtons[0] = state ? { ...state.buttons[0]! } : { state: 0, deadline: 0 };
+    this.joyButtons[1] = state ? { ...state.buttons[1]! } : { state: 0, deadline: 0 };
+    this.joyCalibratingModalSerial =
+      state?.calibration === null || state === undefined
+        ? null
+        : (this.modals[state.calibration]?.serial ?? null);
+  }
+
+  /** Poll the native input service independently of game-selected logic pacing. */
+  pollJoystickInput(): void {
+    if (this.stopLatch !== null || this.timerPaused) return;
+    this.pollJoystick();
+  }
+
+  /** Poll while GetKey is parked and consume each generated raw event once. */
+  pollJoystickKey(): number | undefined {
+    if (this.stopLatch !== null) return undefined;
+    this.pollJoystick();
+    return this.pollRawKey();
+  }
+
   private initJoy(): void {
     this.lastJoyDir = 0;
     this.joyButtons[0] = { state: 0, deadline: 0 };
@@ -3399,6 +3467,7 @@ export class Engine {
       return;
     }
     const sample = this.host.sampleJoystick?.() ?? null;
+    if (sample !== null) this.joyObserved = true;
     if (sample === null || sample.x === 0 || sample.y === 0) {
       this.joyEnabled = false;
       this.inputQueue.clear();
@@ -3457,7 +3526,11 @@ export class Engine {
 
   private pollJoystick(): void {
     const sample = this.host.sampleJoystick?.() ?? null;
-    if (sample === null) return;
+    if (sample === null) {
+      if (this.joyObserved) this.cancelJoystickInput();
+      return;
+    }
+    this.joyObserved = true;
     if (this.modal !== null && this.modal.serial === this.joyCalibratingModalSerial) {
       if (
         this.profile.presentation === "iigs" ||
@@ -3531,13 +3604,15 @@ export class Engine {
             this.inputQueue.enqueue({ type: 1, value: singleWord });
           } else {
             b.state = 2;
-            b.deadline = this.timerTicks + this.vars[15]!;
+            b.deadline =
+              this.joyClockMs +
+              this.vars[15]! * (isAmiga ? this.timing.timerIncrementMs : (65536 * 1000) / 1193182);
           }
         }
       } else if (b.state === 2) {
         if (pressed) {
           b.state = 3;
-        } else if (this.timerTicks >= b.deadline) {
+        } else if (this.joyClockMs >= b.deadline) {
           b.state = 0;
           this.inputQueue.enqueue({ type: 1, value: singleWord });
         }
@@ -3959,6 +4034,7 @@ export class Engine {
   private replayState(continuation = this.captureContinuation()): EngineReplayState {
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
+      ...(this.joystickState() ? { joystick: this.joystickState()! } : {}),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -4074,6 +4150,7 @@ export class Engine {
       this.pendingAnswer = undefined;
       this.conditionReplayUntil = -1;
     } else this.restoreContinuation(continuation);
+    this.restoreJoystickState(state.joystick);
     this.presentationDirty = true;
   }
 
@@ -4312,6 +4389,7 @@ export class Engine {
       this.serialize(),
       this.hostReplay,
       {
+        ...(this.joystickState() ? { joystick: this.joystickState()! } : {}),
         cells: this.text.cells,
         written: this.text.written,
         seq: this.text.seq,
@@ -4402,6 +4480,7 @@ export class Engine {
     // The parked pass restores after presentation: a patch-mismatched
     // continuation peels its windows back onto the snapshot's surface.
     if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
+    this.restoreJoystickState(presentation?.joystick);
   }
 
   /**
@@ -4733,6 +4812,7 @@ export class Engine {
       this.yieldedExecution
     )
       return;
+    this.joyClockMs += milliseconds;
     const modal = this.modal;
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {

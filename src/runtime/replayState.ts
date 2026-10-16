@@ -68,7 +68,52 @@ export interface PlaybackState {
     envelopeValue: number;
   }[];
 }
+/** Optional native joystick service state; omission is the released disconnected host. */
+export interface JoystickReplayState {
+  enabled: boolean;
+  clockMs: number;
+  thresholds: number[];
+  direction: number;
+  buttons: { state: 0 | 1 | 2 | 3; deadline: number }[];
+  calibration: number | null;
+}
+
+export function validateJoystickState(value: unknown): JoystickReplayState {
+  const s = record(value, [
+    "enabled",
+    "clockMs",
+    "thresholds",
+    "direction",
+    "buttons",
+    "calibration",
+  ]);
+  const thresholds = array(s["thresholds"], 4, (v) => number(v, -65535, 131070, false));
+  const buttons = array(s["buttons"], 2, (v) => {
+    const b = record(v, ["state", "deadline"]);
+    return {
+      state: number(b["state"], 0, 3) as 0 | 1 | 2 | 3,
+      deadline: number(b["deadline"], 0, Number.MAX_SAFE_INTEGER, false),
+    };
+  });
+  if (
+    thresholds.length !== 4 ||
+    buttons.length !== 2 ||
+    thresholds[0]! > thresholds[1]! ||
+    thresholds[2]! > thresholds[3]!
+  )
+    throw new Error("Replay joystick state is inconsistent.");
+  return {
+    enabled: bool(s["enabled"]),
+    clockMs: number(s["clockMs"], 0, Number.MAX_SAFE_INTEGER, false),
+    thresholds,
+    direction: number(s["direction"], 0, 8),
+    buttons,
+    calibration: s["calibration"] === null ? null : number(s["calibration"], 0, 63),
+  };
+}
+
 export interface EngineReplayState {
+  joystick?: JoystickReplayState;
   amigaRegion?: "ntsc" | "pal";
   clockRemainderMs: number;
   pictureShown: boolean;
@@ -398,7 +443,11 @@ export function validateEngineReplayState(
   ];
   const hasRegion =
     value !== null && typeof value === "object" && Object.hasOwn(value, "amigaRegion");
-  const s = record(value, hasRegion ? [...fields, "amigaRegion"] : fields);
+  if (hasRegion) fields.push("amigaRegion");
+  const hasJoystick =
+    value !== null && typeof value === "object" && Object.hasOwn(value, "joystick");
+  if (hasJoystick) fields.push("joystick");
+  const s = record(value, fields);
   if (s["amigaRegion"] !== undefined && s["amigaRegion"] !== "pal" && s["amigaRegion"] !== "ntsc")
     throw new Error("Replay region must be ntsc or pal.");
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
@@ -431,6 +480,7 @@ export function validateEngineReplayState(
   }
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
+    ...(hasJoystick ? { joystick: validateJoystickState(s["joystick"]) } : {}),
     clockRemainderMs: number(
       s["clockRemainderMs"],
       0,

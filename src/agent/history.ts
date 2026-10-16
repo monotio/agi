@@ -1,3 +1,4 @@
+import { isJoystickSample, type JoystickSample } from "../runtime/keys.ts";
 /**
  * HistoryRecording — the versioned always-on session-history contract.
  *
@@ -101,6 +102,7 @@ export type HistoryEventCause =
   | { kind: "release" }
   /** Pointer click in 320x200 screen pixels; only click-to-walk profiles consume it. */
   | { kind: "click"; x: number; y: number }
+  | { kind: "joystick"; sample: JoystickSample | null }
   | { kind: "input"; text: string }
   | { kind: "edit"; text: string }
   | { kind: "dismiss" }
@@ -262,6 +264,7 @@ export interface HistoryAnchor {
   inputLines: string[];
   /** Pointer clicks not yet consumed by takePointerClicks; absent on older tapes. */
   clickQueue?: [number, number][];
+  joystick?: JoystickSample | null;
   /** Host-request serial, so replayed requests keep their answer pairing. */
   requestSerial: number;
   rng: number;
@@ -309,6 +312,7 @@ export interface HistoryBoot {
   directionQueue?: number[];
   inputLines?: string[];
   clickQueue?: [number, number][];
+  joystick?: JoystickSample | null;
   /** The RNG's 16-bit state word at this point (docs/fidelity.md, "Original RNG"). */
   rng: number;
   rngPolicy?: RngPolicy;
@@ -505,6 +509,7 @@ export interface HistorySemanticState {
   directionQueue?: number[];
   inputLines?: string[];
   clickQueue?: [number, number][];
+  joystick?: JoystickSample | null;
   requestSerial: number;
   rng: number;
   rngPolicy?: RngPolicy;
@@ -537,6 +542,7 @@ export function historyAnchorSemantic(
   };
   if (anchor.rngPolicy !== undefined) out.rngPolicy = anchor.rngPolicy;
   if (anchor.clickQueue !== undefined) out.clickQueue = anchor.clickQueue;
+  if (anchor.joystick !== undefined) out.joystick = anchor.joystick;
   if (anchor.soundRemainder !== undefined) out.soundRemainder = anchor.soundRemainder;
   return out;
 }
@@ -563,6 +569,7 @@ export function historyBootSemantic(
   if (boot.directionQueue !== undefined) out.directionQueue = boot.directionQueue;
   if (boot.inputLines !== undefined) out.inputLines = boot.inputLines;
   if (boot.clickQueue !== undefined) out.clickQueue = boot.clickQueue;
+  if (boot.joystick !== undefined) out.joystick = boot.joystick;
   if (boot.clock !== undefined) out.clock = boot.clock;
   if (boot.soundRemainder !== undefined) out.soundRemainder = boot.soundRemainder;
   // Early PAL writers bound timing in replay state before adding the boot
@@ -816,6 +823,11 @@ function eventCause(
       return { kind: "direction", dir: int(value["dir"], "direction", 0xff) };
     case "release":
       return { kind: "release" };
+    case "joystick": {
+      const sample = value["sample"];
+      if (sample !== null && !isJoystickSample(sample)) fail("joystick sample is invalid.");
+      return { kind: "joystick", sample: sample === null ? null : { ...sample } };
+    }
     case "click":
       return {
         kind: "click",
@@ -1000,6 +1012,12 @@ function fingerprint(value: unknown): HistoryFingerprint {
   return { v, hash: text(value["hash"], "fingerprint hash", 64) };
 }
 
+function readJoystick(value: unknown): JoystickSample | null {
+  if (value === null) return null;
+  if (!isJoystickSample(value, 65535)) fail("joystick input is invalid.");
+  return { ...value };
+}
+
 function anchor(value: unknown, options?: { allowWindow?: boolean }): HistoryAnchor {
   if (!isObj(value)) fail("anchor must be an object.");
   const reason = value["reason"];
@@ -1026,6 +1044,7 @@ function anchor(value: unknown, options?: { allowWindow?: boolean }): HistoryAnc
     ...(value["clickQueue"] !== undefined
       ? { clickQueue: clickPairs(value["clickQueue"], "anchor clickQueue") }
       : {}),
+    ...(value["joystick"] !== undefined ? { joystick: readJoystick(value["joystick"]) } : {}),
     requestSerial: int(value["requestSerial"], "anchor requestSerial"),
     rng: int(value["rng"], "anchor rng", 0xffff),
     ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
@@ -1124,6 +1143,7 @@ export function validateHistoryBoot(
     out.inputLines = stringList(value["inputLines"], "boot inputLines");
   if (value["clickQueue"] !== undefined)
     out.clickQueue = clickPairs(value["clickQueue"], "boot clickQueue");
+  if (value["joystick"] !== undefined) out.joystick = readJoystick(value["joystick"]);
   if (value["clock"] !== undefined) out.clock = clock(value["clock"]);
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);

@@ -13,7 +13,7 @@ import {
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
 import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
-import { createGamepadPollState, PAGE_CONTROLS, stepGamepadPoll } from "./useGameKeys.ts";
+import { connectedGamepad, PAGE_CONTROLS } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -55,6 +55,7 @@ const {
   sendDirection,
   sendKey,
   sendClick,
+  sendJoystick,
   submitPrompt,
 } = engine;
 const presentation = usePresentation();
@@ -123,11 +124,13 @@ function readKeyboard(): void {
 function onFocusMove(): void {
   setTimeout(readKeyboard, 0);
 }
-const gamepadState = createGamepadPollState();
 let gamepadTimer: ReturnType<typeof setInterval> | null = null;
+let gamepadButtons = [false, false];
 function pollGamepad(): void {
   if (
     state.phase !== "running" ||
+    document.hidden ||
+    !document.hasFocus() ||
     !state.inputReady ||
     state.paused ||
     agentBlocksGame.value ||
@@ -135,16 +138,31 @@ function pollGamepad(): void {
     state.historyView.active
   )
     return;
-  const pads = typeof navigator !== "undefined" ? navigator.getGamepads?.() : undefined;
-  const pad = pads ? Array.from(pads).find((p) => p && p.connected !== false) : undefined;
-  stepGamepadPoll(pad, gamepadState, performance.now(), {
-    profileId: state.profile,
-    modal: state.modal,
-    holdToMove: state.holdToMove,
-    sendDirection,
-    sendKey: onVirtualKey,
-  });
+  const sample = connectedGamepad();
+  const buttons = [Boolean(sample?.button1), Boolean(sample?.button2)];
+  if (state.prompt) {
+    sendJoystick(null);
+    for (let i = 0; i < 2; i++) {
+      const pressed = buttons[i]!;
+      const wasPressed = gamepadButtons[i]!;
+      if (screenPresentation.value === "iigs" ? pressed && !wasPressed : wasPressed && !pressed)
+        onVirtualKey(i === 0 ? 0x0101 : 0x0201);
+    }
+  } else sendJoystick(sample);
+  gamepadButtons = buttons;
 }
+function releaseGamepad(): void {
+  gamepadButtons = [false, false];
+  sendJoystick(null);
+}
+watch(
+  () =>
+    state.paused || agentBlocksGame.value || state.historyView.active || state.walkthrough.active,
+  (blocked) => {
+    if (blocked) releaseGamepad();
+  },
+);
+
 onMounted(() => {
   document.addEventListener("keydown", onHelpEscape, true);
   document.addEventListener("pointerdown", onHelpOutside);
@@ -152,12 +170,17 @@ onMounted(() => {
   document.addEventListener("focusout", onFocusMove);
   window.addEventListener("focus", onFocusMove);
   window.addEventListener("blur", onFocusMove);
+  window.addEventListener("blur", releaseGamepad);
+  document.addEventListener("visibilitychange", releaseGamepad);
   gamepadTimer = setInterval(pollGamepad, 50);
   readKeyboard();
 });
 onBeforeUnmount(() => {
   // The next game screen mounts its own canvas and stage.
   presentation.closeScreen();
+  releaseGamepad();
+  window.removeEventListener("blur", releaseGamepad);
+  document.removeEventListener("visibilitychange", releaseGamepad);
   if (gamepadTimer !== null) {
     clearInterval(gamepadTimer);
     gamepadTimer = null;
@@ -333,7 +356,7 @@ function onScreenContextMenu(ev: MouseEvent): void {
     const now = performance.now();
     if (now - amigaRightClickAt <= 500) {
       amigaRightClickAt = -1000;
-      sendKey(0x0401);
+      sendKey(0x0401, undefined, true);
     } else {
       amigaRightClickAt = now;
     }

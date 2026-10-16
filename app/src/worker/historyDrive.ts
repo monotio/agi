@@ -209,6 +209,8 @@ function captureSemanticState(
   if (template.directionQueue !== undefined)
     out.directionQueue = [...ctx.run.input.deferredMovement];
   if (template.inputLines !== undefined) out.inputLines = [...ctx.run.input.inputBuffer];
+  if (template.joystick !== undefined)
+    out.joystick = ctx.run.input.joystick === null ? null : { ...ctx.run.input.joystick };
   if (template.clickQueue !== undefined)
     out.clickQueue = ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]);
   if (template.clock !== undefined) out.clock = ctx.run.clocks.cycle.snapshot();
@@ -419,6 +421,9 @@ export function openHistoryDrive(
           directionQueue: anchor ? anchor.directionQueue : (segment.boot.directionQueue ?? []),
           inputLines: anchor ? anchor.inputLines : (segment.boot.inputLines ?? []),
           clickQueue: anchor ? (anchor.clickQueue ?? []) : (segment.boot.clickQueue ?? []),
+          ...((anchor ?? segment.boot).joystick !== undefined
+            ? { joystick: (anchor ?? segment.boot).joystick! }
+            : {}),
           ...(clock ? { clock } : {}),
           ...(soundRemainder !== undefined ? { soundRemainder } : {}),
         },
@@ -549,6 +554,9 @@ export function openHistoryDrive(
         // the tape when the host's frame mirror lagged the engine's.
         if (ctx.run.input.deferredMovement.length < 19) ctx.run.input.deferredMovement.push(0);
         ctx.fns.flushDeferredMovement();
+        return;
+      case "joystick":
+        ctx.fns.onJoystick({ type: "joystick", sample: cause.sample });
         return;
       case "click":
         ctx.fns.onClick({ type: "click", x: cause.x, y: cause.y });

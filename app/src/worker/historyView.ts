@@ -458,6 +458,12 @@ export function createHistoryView(
       inputQueue: [...scratch.run.input.keyQueue],
       directionQueue: [...scratch.run.input.deferredMovement],
       inputLines: [...scratch.run.input.inputBuffer],
+      ...(scratch.run.input.joystickObserved
+        ? {
+            joystick:
+              scratch.run.input.joystick === null ? null : { ...scratch.run.input.joystick },
+          }
+        : {}),
       ...(scratch.run.input.clickQueue.length > 0
         ? { clickQueue: scratch.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),

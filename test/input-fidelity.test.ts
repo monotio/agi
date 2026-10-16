@@ -1233,3 +1233,76 @@ test("IIgs text.screen clicks include the top row; priority display clicks are n
     "priority graphics keep the text-mode bit clear",
   );
 });
+
+test("a joystick single-click deadline runs on elapsed time and survives a host checkpoint", () => {
+  class JoyHost extends Host {
+    joy = { x: 0, y: 0, button1: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const source = "set.key(1,1,7); return;";
+  const engine = game(source, host, PROFILES["amiga-2.202"]);
+  engine.tick();
+  engine.flags[8] = 1;
+  engine.vars[15] = 2;
+  host.joy.button1 = true;
+  engine.tick();
+  host.joy.button1 = false;
+  engine.tick();
+  const image = engine.recordingImage(true)!;
+  const replay = engine.captureReplayState(true);
+  const resumed = game(source, host, PROFILES["amiga-2.202"]);
+  resumed.restoreImage(image);
+  resumed.restoreReplayState(replay);
+  resumed.advanceClock(101);
+  resumed.tick();
+  assert.equal(
+    resumed.controllers[7],
+    1,
+    "elapsed native timer ticks expire the pending single after restore",
+  );
+  resumed.tick();
+  assert.equal(resumed.controllers[7], 0, "the same release is consumed once");
+});
+
+test("a host checkpoint of PC joystick calibration still calibrates on Enter after restore", () => {
+  class JoyHost extends Host {
+    joy = { x: 100, y: 100, button1: false };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const source = "if (!isset(f200)) {set(f200);init.joy();} return;";
+  const engine = game(source, host, PROFILES["2.936"]);
+  engine.tick();
+  const image = engine.recordingImage(true)!;
+  const replay = engine.captureReplayState(true);
+  const resumed = game(source, host, PROFILES["2.936"]);
+  resumed.restoreImage(image);
+  resumed.restoreReplayState(replay);
+  host.keys.push(13);
+  resumed.tick();
+  host.joy.x = 180;
+  resumed.tick();
+  assert.equal(resumed.vars[6], 3);
+});
+
+test("a touch acknowledgement of joystick calibration follows the Enter path", () => {
+  class JoyHost extends Host {
+    joy = { x: 100, y: 100 };
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  const host = new JoyHost();
+  const engine = game("if (!isset(f200)) {set(f200);init.joy();} return;", host, PROFILES["2.936"]);
+  engine.tick();
+  engine.ackPrint();
+  engine.tick();
+  host.joy.x = 180;
+  engine.tick();
+  assert.equal(engine.vars[6], 3);
+});

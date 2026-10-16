@@ -7,8 +7,7 @@
  */
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
-import { AGI_KEY, translatePlatformKey } from "../../../src/runtime/keys.ts";
-import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
+import { translatePlatformKey, type JoystickSample } from "../../../src/runtime/keys.ts";
 import { FUNCTION_KEYS } from "./gameControls.ts";
 
 /** Minimal subset of the W3C Gamepad object used by the platform joystick poller. */
@@ -18,124 +17,29 @@ export interface GamepadInputLike {
   readonly buttons?: readonly { readonly pressed: boolean }[];
 }
 
-export interface GamepadPollState {
-  prevDir: number;
-  prevBtn0: boolean;
-  prevBtn1: boolean;
-  btn0ReleaseAt: number;
-  btn1ReleaseAt: number;
-}
-
-export function createGamepadPollState(): GamepadPollState {
+/** Convert the browser's stick/D-pad snapshot without inventing native key events. */
+export function gamepadSample(pad: GamepadInputLike | null | undefined): JoystickSample | null {
+  if (!pad || pad.connected === false) return null;
+  const axis = (index: number): number => {
+    const value = pad.axes?.[index] ?? 0;
+    return Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0;
+  };
+  const up = Boolean(pad.buttons?.[12]?.pressed),
+    down = Boolean(pad.buttons?.[13]?.pressed);
+  const left = Boolean(pad.buttons?.[14]?.pressed),
+    right = Boolean(pad.buttons?.[15]?.pressed);
   return {
-    prevDir: 0,
-    prevBtn0: false,
-    prevBtn1: false,
-    btn0ReleaseAt: -1000,
-    btn1ReleaseAt: -1000,
+    x: left || right ? Number(right) - Number(left) : axis(0),
+    y: up || down ? Number(down) - Number(up) : axis(1),
+    button1: Boolean(pad.buttons?.[0]?.pressed),
+    button2: Boolean(pad.buttons?.[1]?.pressed),
   };
 }
 
-/**
- * Sample one browser Gamepad snapshot into the active profile's original
- * joystick semantics: 8-way direction edge transitions (`JoyDir`) and
- * primary/secondary button edge releases (`WaitJoyButton` / `JoyButton`
- * single/double-click words `0x0101..0x0401` on PC and Amiga, and `0x0101`/`0x0201`
- * or modal `0x0d` on Apple IIgs).
- */
-export function stepGamepadPoll(
-  pad: GamepadInputLike | null | undefined,
-  pollState: GamepadPollState,
-  nowMs: number,
-  options: {
-    readonly profileId: string | null;
-    readonly modal: ModalKind | null;
-    readonly holdToMove: boolean;
-    readonly sendDirection: (dir: number) => void;
-    readonly sendKey: (code: number) => void;
-  },
-): void {
-  if (!pad || pad.connected === false) {
-    if (pollState.prevDir !== 0) {
-      pollState.prevDir = 0;
-      if (options.modal === null) {
-        if (options.holdToMove) options.sendDirection(0);
-        else options.sendKey(0xf500);
-      }
-    }
-    pollState.prevBtn0 = false;
-    pollState.prevBtn1 = false;
-    return;
-  }
-
-  const up = Boolean(pad.buttons?.[12]?.pressed);
-  const down = Boolean(pad.buttons?.[13]?.pressed);
-  const left = Boolean(pad.buttons?.[14]?.pressed);
-  const right = Boolean(pad.buttons?.[15]?.pressed);
-  const ax = pad.axes?.[0] ?? 0;
-  const ay = pad.axes?.[1] ?? 0;
-  const dx = right || ax >= 0.5 ? 1 : left || ax <= -0.5 ? -1 : 0;
-  const dy = down || ay >= 0.5 ? 1 : up || ay <= -0.5 ? -1 : 0;
-  const dir =
-    dx === 0 && dy < 0
-      ? 1
-      : dx > 0 && dy < 0
-        ? 2
-        : dx > 0 && dy === 0
-          ? 3
-          : dx > 0 && dy > 0
-            ? 4
-            : dx === 0 && dy > 0
-              ? 5
-              : dx < 0 && dy > 0
-                ? 6
-                : dx < 0 && dy === 0
-                  ? 7
-                  : dx < 0 && dy < 0
-                    ? 8
-                    : 0;
-
-  if (dir !== pollState.prevDir) {
-    pollState.prevDir = dir;
-    if (dir !== 0) {
-      options.sendDirection(dir);
-    } else if (options.modal === null) {
-      if (options.holdToMove) options.sendDirection(0);
-      else options.sendKey(0xf500);
-    }
-  }
-
-  const btn0 = Boolean(pad.buttons?.[0]?.pressed);
-  const btn1 = Boolean(pad.buttons?.[1]?.pressed);
-  const presentation =
-    options.profileId !== null && Object.hasOwn(PROFILES, options.profileId)
-      ? PROFILES[options.profileId as ProfileId].presentation
-      : "pc";
-
-  if (pollState.prevBtn0 && !btn0) {
-    if (presentation === "iigs") {
-      options.sendKey(options.modal !== null ? AGI_KEY.ENTER : 0x0101);
-    } else if (nowMs - pollState.btn0ReleaseAt <= 350) {
-      pollState.btn0ReleaseAt = -1000;
-      options.sendKey(0x0301);
-    } else {
-      pollState.btn0ReleaseAt = nowMs;
-      options.sendKey(0x0101);
-    }
-  }
-  if (pollState.prevBtn1 && !btn1) {
-    if (presentation === "iigs") {
-      options.sendKey(options.modal !== null ? AGI_KEY.ENTER : 0x0201);
-    } else if (nowMs - pollState.btn1ReleaseAt <= 350) {
-      pollState.btn1ReleaseAt = -1000;
-      options.sendKey(0x0401);
-    } else {
-      pollState.btn1ReleaseAt = nowMs;
-      options.sendKey(0x0201);
-    }
-  }
-  pollState.prevBtn0 = btn0;
-  pollState.prevBtn1 = btn1;
+/** Sample the first connected controller for boot and the mounted play surface. */
+export function connectedGamepad(): JoystickSample | null {
+  const pads = typeof navigator === "undefined" ? undefined : navigator.getGamepads?.();
+  return gamepadSample(pads ? Array.from(pads).find((p) => p && p.connected !== false) : null);
 }
 
 /** What the keyboard routing needs from PlayArea's exposed API. */

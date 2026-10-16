@@ -1,3 +1,4 @@
+import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
 import type { GadgetLabel } from "../../../src/runtime/textSurface.ts";
 import type { RoomLaunchRequest } from "./roomLaunch.ts";
@@ -217,6 +218,7 @@ export interface PreviewUpdateCandidateMessage {
 export interface BootMessage {
   amigaRegion?: "ntsc" | "pal";
   type: "boot";
+  joystick?: JoystickSample | null;
   files: Record<string, Uint8Array>;
   words: [string, number][];
   sessionId?: number;
@@ -277,8 +279,9 @@ export type WorkerInbound =
   | { type: "projectPlay"; id?: number; restart?: boolean }
   | BootMessage
   | { type: "pause"; paused: boolean }
-  | { type: "key"; code: number; sessionId?: number }
+  | { type: "key"; code: number; sessionId?: number; pointer?: boolean }
   | { type: "click"; x: number; y: number; sessionId?: number }
+  | { type: "joystick"; sample: JoystickSample | null }
   | {
       type: "direction";
       dir: number;

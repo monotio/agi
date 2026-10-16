@@ -26,7 +26,12 @@
  */
 
 import type { AgiProfile, ProfileId } from "./profile.ts";
-import { validateContinuation, type ParkedContinuation } from "./replayState.ts";
+import {
+  validateContinuation,
+  validateJoystickState,
+  type JoystickReplayState,
+  type ParkedContinuation,
+} from "./replayState.ts";
 import { TEXT_COLS, TEXT_ROWS, TITLE_FILL_PIXELS } from "./textSurface.ts";
 
 /** Bytes of the leading description header (spec "Save-file envelope"). */
@@ -1685,6 +1690,7 @@ interface HostDraw {
 
 /** Host-only text and draw ages; these never enter an authentic save.game file. */
 export interface HostPresentation {
+  joystick?: JoystickReplayState;
   cells: Uint8Array;
   written: Uint32Array;
   seq: number;
@@ -1765,11 +1771,14 @@ export function encodeHostImage(
     ? new TextEncoder().encode(JSON.stringify(continuation))
     : new Uint8Array(0);
   const timingBytes =
-    amigaRegion === "pal" || titleFillRuns !== undefined
+    amigaRegion === "pal" || titleFillRuns !== undefined || presentation?.joystick !== undefined
       ? new TextEncoder().encode(
           JSON.stringify({
             ...(amigaRegion === "pal" ? { amigaRegion } : {}),
             ...(titleFillRuns !== undefined ? { titleFill: titleFillRuns } : {}),
+            ...(presentation?.joystick !== undefined
+              ? { joystick: validateJoystickState(presentation.joystick) }
+              : {}),
           }),
         )
       : new Uint8Array(0);
@@ -1914,13 +1923,24 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       typeof timing !== "object" ||
       Array.isArray(timing) ||
       Object.keys(timing).length === 0 ||
-      Object.keys(timing).some((k) => k !== "amigaRegion" && k !== "titleFill")
+      Object.keys(timing).some((k) => k !== "amigaRegion" && k !== "titleFill" && k !== "joystick")
     )
       throw new RangeError("host autosave region is invalid");
     if ("amigaRegion" in timing) {
       if (timing.amigaRegion !== "pal" && timing.amigaRegion !== "ntsc")
         throw new RangeError("host autosave region is invalid");
       result.amigaRegion = timing.amigaRegion;
+    }
+    if ("joystick" in timing) {
+      if (!result.presentation)
+        throw new RangeError("host autosave joystick requires presentation");
+      const state = validateJoystickState(timing.joystick);
+      if (
+        state.calibration !== null &&
+        result.continuation?.modals[state.calibration]?.kind !== "print"
+      )
+        throw new RangeError("host autosave joystick calibration is missing its window");
+      result.presentation.joystick = state;
     }
     if ("titleFill" in timing) {
       const runs = timing.titleFill;
