@@ -268,6 +268,12 @@ export interface Frame {
    * identifiable layer instead of unowned band-15 pixels.
    */
   preview?: Uint8Array;
+  /** The PC display when it is not the default EGA (src/runtime/display.ts). */
+  display?: "cga-rgb";
+  /** The running Amiga region when it is PAL. */
+  region?: "pal";
+  /** CGA only: 1 where a cel drew the pixel, for the driver's cel colours. */
+  cel?: Uint8Array;
 }
 
 /** Decodes 40x25 [char, attr] text buffer into 25 display rows. */

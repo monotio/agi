@@ -22,7 +22,7 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { crtFramePoint } from "../three/crtAmount.ts";
-import { stageScreenWidth } from "./viewportLayout.ts";
+import { displayAspect, stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 import { amigaPointerCursor } from "./amigaPointer.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
@@ -243,7 +243,7 @@ watch(layoutDragging, (dragging) => {
 const stageStyle = computed(() => {
   const box = stageBox.value;
   if (props.touchControls || !box || box.width <= 0 || box.height <= 0) return undefined;
-  const ratio = props.originalAspect ? 4 / 3 : FRAME_WIDTH / FRAME_HEIGHT;
+  const ratio = displayAspect(state.profile, state.amigaRegion, props.originalAspect);
   return { "--game-width": `${stageScreenWidth(box.width, box.height, ratio)}px` };
 });
 /**
@@ -275,7 +275,7 @@ const screenCursor = computed(() => {
   if (profile === null || !Object.hasOwn(PROFILES, profile)) return undefined;
   if (PROFILES[profile as ProfileId].presentation !== "amiga") return undefined;
   const width = parseFloat(stageStyle.value?.["--game-width"] ?? "");
-  const ratio = props.originalAspect ? 4 / 3 : FRAME_WIDTH / FRAME_HEIGHT;
+  const ratio = displayAspect(state.profile, state.amigaRegion, props.originalAspect);
   const sx = width > 0 ? width / FRAME_WIDTH : 3;
   const sy = width > 0 ? width / ratio / FRAME_HEIGHT : 3;
   return amigaPointerCursor(sx, sy);

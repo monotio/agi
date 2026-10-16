@@ -36,7 +36,7 @@ import { readCrtAmount } from "./settings/crtPreference.ts";
 import SetupPanel from "./home/SetupPanel.vue";
 import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
 import StartOverNote from "./play/StartOverNote.vue";
-import { nextViewportLayout } from "./play/viewportLayout.ts";
+import { displayAspect, gameAspectStyle, nextViewportLayout } from "./play/viewportLayout.ts";
 import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
@@ -109,7 +109,7 @@ const engine = useEngine(
       playArea.value?.handlePromptType(text);
     },
     onScreenReset: () => presentation.forgetFrame(),
-    onAppearance: (id, files) => presentation.setProfile(id, files),
+    onAppearance: (id, files, pcDisplay) => presentation.setProfile(id, files, pcDisplay),
   },
 );
 provideEngine(engine);
@@ -684,7 +684,10 @@ watch(
       'original-aspect': originalAspect,
       'workspace-focus': creating && workspaceEditor.focus.value,
     }"
-    :style="{ '--layout-height': `${viewport.height}px` }"
+    :style="{
+      '--layout-height': `${viewport.height}px`,
+      ...gameAspectStyle(displayAspect(state.profile, state.amigaRegion, originalAspect)),
+    }"
   >
     <div class="shell">
       <CreateKeyboard

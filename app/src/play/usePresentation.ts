@@ -19,6 +19,7 @@ import {
   loadAppearance,
   type Appearance,
 } from "../render/appearance.ts";
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import type { DebugViewMode } from "../inspector/debugView.ts";
 import type { Frame } from "../engine/useEngine.ts";
 
@@ -33,10 +34,16 @@ export function createPresentation() {
   let stage: AgiStage | null = null;
   let crtAmount = 1;
   const lastFrame = shallowRef<Frame | null>(null);
-  /** The running profile's colours, font and layout. */
+  /** The running profile's colours, font and layout on the running display. */
   let appearance: Appearance = PC_APPEARANCE;
-  /** The same look as a ref, for Studio previews that repaint when a lazy platform look arrives. */
+  /**
+   * The profile's own look as a ref, for Studio previews that repaint when a
+   * lazy platform look arrives. Studio shows the game's colours on every display.
+   */
   const look = shallowRef<Appearance>(PC_APPEARANCE);
+  /** The PC display the running engine reports on its frames. */
+  let display: PcDisplay = "ega";
+  let profileFiles: ReadonlyMap<string, Uint8Array> | null = null;
   /** The running game's profile id, null before one loads. */
   const profileId = shallowRef<string | null>(null);
   /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
@@ -63,6 +70,10 @@ export function createPresentation() {
    * no-GPU fallback) and upload it to the GPU stage when one exists.
    */
   function renderFrameNow(frame: Frame, textOverride?: Uint8Array): void {
+    if ((frame.display ?? "ega") !== display) {
+      display = frame.display ?? "ega";
+      resolveLook();
+    }
     const mode = debugViewMode.value;
     // Explode composites normally — its GPU layers sample this texture and mask
     // against the priority buffer. With no stage it falls back to the flat
@@ -85,6 +96,7 @@ export function createPresentation() {
         text: textOverride ?? frame.text,
         windowOverlay: frame.windowOverlay,
         picRow: frame.picRow,
+        celPixels: frame.cel,
         ...look,
       },
       composed,
@@ -203,18 +215,43 @@ export function createPresentation() {
   }
 
   let profileRequest = 0;
-  /** Select this game's look immediately; repaint when a lazy platform look finishes loading. */
-  function setProfile(id: string | null, files?: ReadonlyMap<string, Uint8Array> | null): void {
+  /**
+   * Take the look of the current profile and display as far as it is loaded;
+   * when a lazy look arrives, repaint the last frame at once, paused or not.
+   * A later profile or display change cancels the earlier request.
+   */
+  function resolveLook(): void {
     const request = ++profileRequest;
-    appearance = appearanceForProfile(id, files);
-    look.value = appearance;
+    const id = profileId.value;
+    const files = profileFiles;
+    const wanted = display;
+    appearance = appearanceForProfile(id, files, wanted);
+    look.value = appearanceForProfile(id, files);
+    void Promise.all([loadAppearance(id, files, wanted), loadAppearance(id, files)]).then(
+      ([next, own]) => {
+        if (request !== profileRequest) return;
+        look.value = own;
+        if (next === appearance) return;
+        appearance = next;
+        repaint();
+      },
+    );
+  }
+
+  /**
+   * Select this game's look immediately; repaint when a lazy platform look
+   * finishes loading. `pcDisplay` is the display the boot asks for, so its look
+   * loads with the game; frames then report the display the engine runs.
+   */
+  function setProfile(
+    id: string | null,
+    files?: ReadonlyMap<string, Uint8Array> | null,
+    pcDisplay: PcDisplay = "ega",
+  ): void {
     profileId.value = id;
-    void loadAppearance(id, files).then((next) => {
-      if (request !== profileRequest || next === appearance) return;
-      appearance = next;
-      look.value = next;
-      repaint();
-    });
+    profileFiles = files ?? null;
+    display = pcDisplay;
+    resolveLook();
   }
 
   /** Re-composite with a text overlay (the live prompt echo). */

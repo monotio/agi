@@ -48,6 +48,12 @@ export function displayAspect(
   return profile?.startsWith("amiga-") && region === "pal" ? 128 / 75 : 4 / 3;
 }
 
+/** The `--game-ratio` and `--game-aspect` custom properties for one display aspect. */
+export function gameAspectStyle(ratio: number): Record<"--game-ratio" | "--game-aspect", string> {
+  const aspect = ratio === 8 / 5 ? "8 / 5" : ratio === 4 / 3 ? "4 / 3" : "128 / 75";
+  return { "--game-ratio": `calc(${aspect})`, "--game-aspect": aspect };
+}
+
 /** Fit the active image without allowing it to cover the controls around it. */
 export function computeStageFit(
   availableWidth: number,

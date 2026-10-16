@@ -83,6 +83,8 @@ export interface TextHook {
   profileKind?: ProfileDetectionKind | null;
   /** The interpreter is parked between cycles (remix freeze). */
   paused: boolean;
+  /** The PC display of the last presented frame. */
+  pcDisplay?: "ega" | "cga-rgb";
   /** Interpreter cycles completed since boot; stops advancing while paused. */
   cycle: number;
   /**
@@ -205,6 +207,10 @@ export interface EngineState {
   omittedLogEntries?: number;
   /** The running shake.screen step: display offset and IIgs colours. */
   shake: ShakeFrame | null;
+  /** The PC display the running engine uses, from its frames. */
+  pcDisplay: "ega" | "cga-rgb";
+  /** The running Amiga region, from the engine's frames; the stage aspect follows it. */
+  amigaRegion: "ntsc" | "pal";
   /** Active blocking prompt (0x76 get.num / 0x73 get.string), if any. */
   prompt: PromptState | null;
   /** Active sound playback state */
