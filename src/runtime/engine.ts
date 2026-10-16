@@ -28,12 +28,7 @@ import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
-import {
-  cgaRgbViewPayload,
-  effectivePcDisplay,
-  MONITOR_TYPE,
-  type PcDisplay,
-} from "./display.ts";
+import { cgaRgbViewPayload, effectivePcDisplay, MONITOR_TYPE, type PcDisplay } from "./display.ts";
 import {
   detectProfile,
   detectProfileDecision,
@@ -9226,7 +9221,9 @@ export class Engine {
           }
         : {}),
     });
-    if (owner) for (let i = 0; i < owner.visual.length; i++) if (owner.visual[i]! >= 0) this.stampMask[i] = 0;
+    if (owner)
+      for (let i = 0; i < owner.visual.length; i++)
+        if (owner.visual[i]! >= 0) this.stampMask[i] = 0;
     this.pictureRevealInstant = true;
     this.lastPicture = num;
     this.presentationDirty = true;
