@@ -38,7 +38,7 @@ export function normalizeFrame(
 }
 
 /** Screen coordinates, including all 25 text rows; the input band includes spare rows. */
-export const REGIONS: Record<string, Rectangle> = {
+const REGIONS: Record<string, Rectangle> = {
   status: { x: 0, y: 0, width: 320, height: 8 },
   play: { x: 0, y: 8, width: 320, height: 168 },
   input: { x: 0, y: 176, width: 320, height: 24 },

@@ -6,16 +6,17 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureSkip, fixtureDir } from "../test/fixtures.ts";
 import { openContainer } from "../src/container/container.ts";
-import { Engine } from "../src/runtime/engine.ts";
+import { Engine, HostWait } from "../src/runtime/engine.ts";
 import { CycleClock } from "../src/runtime/cycleClock.ts";
 import { detectProfile, PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
@@ -39,7 +40,7 @@ interface Step {
   capture?: string;
   engine?: Wait;
 }
-interface Scenario {
+export interface Scenario {
   fixture: string;
   profile: ProfileId;
   machine: string;
@@ -129,7 +130,8 @@ function findMedia(hash: string, root: string): string | null {
   return null;
 }
 
-function captureEngine(s: Scenario, output: string) {
+/** Render the engine side independently while iterating on a local scene script. */
+export function captureEngine(s: Scenario, output: string) {
   const files = new Map<string, Uint8Array>();
   const dir = fixtureDir(s.fixture);
   for (const name of readdirSync(dir))
@@ -151,6 +153,11 @@ function captureEngine(s: Scenario, output: string) {
   const engine = new Engine(
     container,
     {
+      waitKey() {
+        const key = keys.shift();
+        if (key === undefined) throw new HostWait();
+        return key;
+      },
       print() {},
       displayAt() {},
       statusLine() {},
@@ -207,11 +214,22 @@ function captureEngine(s: Scenario, output: string) {
     while (!matches() && tick < limit) advance();
     if (!matches())
       throw new Error(
-        `Engine did not reach ${JSON.stringify(wait)}; room ${engine.vars[0]}, modal ${engine.modalKind}: ${rows().join("|")}`,
+        `Engine did not reach ${JSON.stringify(wait)}; room ${engine.vars[0]}, modal ${engine.modalKind}, host ${JSON.stringify(engine.hostInteraction)}, cycles ${engine.completedCycleSerial}: ${rows().join("|")}`,
       );
-    if (step.key) keys.push(KEYS[step.key]);
+    if (step.key) {
+      if (engine.awaitingHostAnswer) engine.deliverHostAnswer(KEYS[step.key]);
+      else keys.push(KEYS[step.key]);
+    }
     if (step.input !== undefined) input = step.input;
-    if (!step.capture) continue;
+    if (!step.capture) {
+      const limit = tick + 600;
+      do {
+        advance();
+      } while ((keys.length || input !== null) && tick < limit);
+      if (keys.length || input !== null)
+        throw new Error("Input was not consumed within ten seconds.");
+      continue;
+    }
     const rgba = new Uint8Array(320 * 200 * 4);
     compositeFrame({ ...engine.getPresentation(), picRow: engine.displayBase }, rgba);
     const rgb = normalizeFrame(
@@ -244,6 +262,14 @@ async function main() {
   const s = JSON.parse(readFileSync(manifest, "utf8")) as Scenario;
   validate(s);
   const output = resolve(destination ?? `.local/mame-diff/${s.machine}`);
+  const within = relative(resolve("."), output);
+  if (
+    !within.startsWith("..") &&
+    spawnSync("git", ["check-ignore", "--quiet", output]).status !== 0
+  )
+    throw new Error(
+      "Output inside the repository must be gitignored (for example .local/mame-diff). ",
+    );
   mkdirSync(output, { recursive: true });
   const skip = (reason: string) => {
     json(join(output, "result.json"), { status: "skipped", reason });
@@ -280,7 +306,9 @@ async function main() {
   const events = [...(s.boot ?? []).map((e) => ({ at: e.at, boot: e.text })), ...s.steps].sort(
     (a, b) => a.at - b.at,
   );
-  const script = `local events=${lua(events)}\nlocal output=${lua(output)}\nlocal idx=1\nlocal releases={}\nlocal dumped=false\nemu.register_frame_done(function()\n local now=manager.machine.time:as_double()\n if not dumped then\n  for tag,p in pairs(manager.machine.ioport.ports) do for name,f in pairs(p.fields) do print('PORT '..tag..' '..name) end end\n  dumped=true\n end\n for i=#releases,1,-1 do local r=releases[i]; if now>=r.at then r.field:set_value(0);table.remove(releases,i) end end\n while idx<=#events and now>=events[idx].at do\n  local e=events[idx]\n  print('EVENT '..idx..' '..now)\n  if e.capture then\n   local count=0\n   for tag,screen in pairs(manager.machine.screens) do count=count+1;screen:snapshot(output..'/'..e.capture..'-mame.png');print('CAPTURE '..e.capture..' '..tag..' '..now) end\n   if count~=1 then error('Expected one screen') end\n  elseif e.fields then\n   for _,name in ipairs(e.fields) do\n    local found=0\n    for tag,p in pairs(manager.machine.ioport.ports) do for fname,f in pairs(p.fields) do if fname==name then f:set_value(1);table.insert(releases,{field=f,at=now+0.15});found=found+1 end end end\n    if found~=1 then error('Expected one field for '..name..', found '..found) end\n   end\n  elseif e.key then\n   local codes={Enter='{ENTER}',Escape='{ESC}',F9='{F9}',Space=' '}\n   manager.machine.natkeyboard:post_coded(codes[e.key])\n  elseif e.boot then manager.machine.natkeyboard:post_coded(e.boot)\n  elseif e.input then manager.machine.natkeyboard:post(e.input..'\\r') end\n  idx=idx+1\n end\nend)\n`;
+  const driver = readFileSync(new URL("./mame-diff/drive.lua", import.meta.url), "utf8");
+  const script = `local events=${lua(events)}\nlocal output=${lua(output)}\n${driver}`;
+  const machineWork = mkdtempSync(join(output, "machine-"));
   const scriptPath = join(output, "drive.lua");
   writeFileSync(scriptPath, script);
   const args = [
@@ -305,9 +333,9 @@ async function main() {
     "-autoboot_script",
     scriptPath,
     "-cfg_directory",
-    join(output, "cfg"),
+    join(machineWork, "cfg"),
     "-nvram_directory",
-    join(output, "nvram"),
+    join(machineWork, "nvram"),
     "-snapshot_directory",
     output,
   ];
@@ -316,6 +344,12 @@ async function main() {
     mame: version.stdout.trim(),
     args,
     media: mediaHashes,
+    harnessSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
+    luaSha256: sha256(Buffer.from(driver)),
+    compositorSha256: sha256(
+      readFileSync(new URL("../app/src/render/composite.ts", import.meta.url)),
+    ),
+    worktreeStatus: spawnSync("git", ["status", "--porcelain"], { encoding: "utf8" }).stdout.trim(),
     revision: spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim(),
   });
   console.log(`Capturing ${s.fixture} on ${s.machine} (${s.seconds} emulated seconds)…`);
