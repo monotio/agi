@@ -17,7 +17,11 @@ test("Undo rewind on a text title screen names the screen and keeps Undo availab
       if (!isset(f200)) {
         set(f200); v50 = 1; load.pic(v50); draw.pic(v50); show.pic(); accept.input();
       }
-      if (said("title")) { text.screen(); display(5, 5, "A text title screen"); }
+      if (said("title")) {
+        text.screen(); display(5, 5, "A text title screen");
+        wait: if (!have.key()) { goto wait; }
+        graphics();
+      }
       return;`,
       { dictionary: new Map([["title", 1]]) },
     ).payload,
@@ -52,10 +56,14 @@ test("Undo rewind on a text title screen names the screen and keeps Undo availab
   const notice = page.getByTestId("history-error");
   await expect(notice).toBeVisible();
   await expect(notice).toHaveText(
-    "The game is showing a text screen. Continue past it, then rewind.",
+    "The game is showing a text screen. Continue past it and try Undo rewind again.",
   );
   await expect(undo).toBeEnabled();
   expect((await textHook(page)).textMode).toBe(true);
+  await page.locator("canvas.game-surface:visible").click();
+  await page.keyboard.press("Space");
+  await expect.poll(async () => (await textHook(page)).textMode).toBe(false);
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   for (const [width, height] of [
     [1063, 815],
     [1440, 900],

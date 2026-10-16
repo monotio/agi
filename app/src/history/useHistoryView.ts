@@ -1085,7 +1085,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           departing.reason === "starting"
             ? "The game is still starting. Play a moment, then rewind."
             : departing.reason === "text-mode"
-              ? "The game is showing a text screen. Continue past it, then rewind."
+              ? `The game is showing a text screen. Continue past it and try ${verb} again.`
               : "The paused session can't be kept while a game prompt is open.";
         return false;
       }
@@ -1304,6 +1304,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       }
       v.error = "";
       stopWatch();
+      const play = !v.active && !v.parked;
       if (!v.active) pauseAtLive();
       const done = await swapSessions(
         owner,
@@ -1334,7 +1335,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
         true,
         true,
       );
-      if (done && stillOwned(owner)) deps.logAgent("log", "history: rewound to the kept session");
+      if (stillOwned(owner)) {
+        if (done) deps.logAgent("log", "history: rewound to the kept session");
+        else if (play) resumeLive();
+      }
     } catch (error) {
       // Same gate as Resume from here: a stale swap's failure never lands
       // on the replacement's surface.

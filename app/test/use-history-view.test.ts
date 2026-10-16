@@ -648,11 +648,12 @@ test("Undo rewind on a text screen explains how to continue without blaming a pr
   await undoing;
   assert.equal(
     state.historyView.error,
-    "The game is showing a text screen. Continue past it, then rewind.",
+    "The game is showing a text screen. Continue past it and try Undo rewind again.",
   );
   assert.deepEqual(takes, [], "no adoption was requested");
   assert.equal(sessionState.hold, null, "authoring is released");
   assert.equal(state.powerUp.busy, false);
+  assert.equal(state.historyView.parked, false, "a running game keeps accepting player input");
   assert.equal((await loadRetainedBranches(target.locator)).length, 1, "Undo stays available");
 });
 
