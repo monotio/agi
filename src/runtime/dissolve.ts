@@ -16,7 +16,7 @@ export type PictureReveal = AgiProfile["showPictureReveal"];
 const CELLS_PER_ROW = 80;
 const CELLS = CELLS_PER_ROW * 168;
 /** Register states the loop walks: every nonzero 14-bit state, 1 last. */
-export const DISSOLVE_STEPS = 16383;
+const DISSOLVE_STEPS = 16383;
 
 /**
  * 68000 cycles of the whole Amiga loop, summed over the 16,383 states from
