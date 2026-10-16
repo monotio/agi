@@ -353,6 +353,13 @@ export function createHistoryView(
         starting = false;
       }
     }
+    const interaction = engine?.hostInteraction?.kind;
+    const prompt =
+      engine?.hostInteractionPending &&
+      (interaction === "getstring" ||
+        interaction === "getnum" ||
+        interaction === "saveDialog" ||
+        interaction === "confirm");
     ctx.ports.control({
       type: "historyRetained",
       id: msg.id,
@@ -361,7 +368,19 @@ export function createHistoryView(
         h.segment === null
           ? null
           : { segment: h.segment, seq: h.seq, tick: ctx.run.cycle.tickCount - h.tickBase },
-      ...(starting ? { reason: "starting" as const } : {}),
+      ...(boot === null
+        ? {
+            reason: prompt
+              ? ("prompt" as const)
+              : ctx.fns.debugCaptureBlocked()
+                ? ("busy" as const)
+                : engine?.textModeActive
+                  ? ("text-mode" as const)
+                  : starting
+                    ? ("starting" as const)
+                    : ("busy" as const),
+          }
+        : {}),
     });
   }
 

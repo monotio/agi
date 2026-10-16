@@ -1031,7 +1031,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     dropBranch?: string,
     /**
      * Whether the departing session joins the kept branches once the swap
-     * lands. It is staged either way, so an uncertain swap keeps its copy.
+     * lands. Undo start over discards the fresh session without capturing it.
      */
     keepDeparting = true,
     reservationOwned = false,
@@ -1068,7 +1068,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // the settle pass either way.
       let departing;
       try {
-        departing = await deps.query("historyRetain", {}, 10_000);
+        departing = keepDeparting ? await deps.query("historyRetain", {}, 10_000) : null;
       } catch (error) {
         session?.releaseAdoption();
         throw error;
@@ -1079,25 +1079,31 @@ export function useHistoryView(deps: HistoryViewDeps) {
         session?.releaseAdoption();
         return false;
       }
-      if (departing.boot === null) {
+      if (departing !== null && departing.boot === null) {
         session?.releaseAdoption();
         v.error =
           departing.reason === "starting"
-            ? "The game is still starting. Play a moment, then rewind."
-            : "The paused session can't be kept while a game prompt is open.";
+            ? `The game is still starting. Play a moment and try ${verb} again.`
+            : departing.reason === "text-mode"
+              ? `The game is showing a text screen. Continue past it and try ${verb} again.`
+              : departing.reason === "prompt"
+                ? `A game prompt is open. Finish it and try ${verb} again.`
+                : `The game can't keep this moment yet. Continue the game and try ${verb} again.`;
         return false;
       }
-      const candidate = {
-        id: crypto.randomUUID(),
-        boot: departing.boot,
-        from: departing.from,
-        retainedAt: Date.now(),
-        // The departing session's authoring state goes into the record — a
-        // later Undo rewind reinstalls exactly this.
-        ...(session ? { session: session.snapshotAuthoring() } : {}),
-      };
+      const candidate = departing?.boot
+        ? {
+            id: crypto.randomUUID(),
+            boot: departing.boot,
+            from: departing.from,
+            retainedAt: Date.now(),
+            // The departing session's authoring state goes into the record — a
+            // later Undo rewind reinstalls exactly this.
+            ...(session ? { session: session.snapshotAuthoring() } : {}),
+          }
+        : null;
       try {
-        await stageRetainedOriginal(target, candidate, lifetime);
+        if (candidate) await stageRetainedOriginal(target, candidate, lifetime);
       } catch (error) {
         session?.releaseAdoption();
         throw error;
@@ -1126,7 +1132,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         if (stillOwned(owner)) {
           closeHistory();
           pauseAtLive();
-          view().error = `${verb}'s outcome is uncertain (${String(error)}). The kept session is held for recovery.`;
+          view().error = `${verb}'s outcome is uncertain (${String(error)}). ${candidate ? "The kept session is held for recovery." : "Play is paused. Open the timeline to choose where to continue."}`;
         }
         await refreshMeta(target.locator);
         return false;
@@ -1134,7 +1140,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (!reply.ok) {
         session?.releaseAdoption();
         try {
-          await clearStagedOriginal(target, candidate.id, lifetime);
+          if (candidate) await clearStagedOriginal(target, candidate.id, lifetime);
         } catch {
           await refreshMeta(target.locator);
         }
@@ -1174,8 +1180,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         return true;
       }
       try {
-        if (keepDeparting) await commitStagedOriginal(target, candidate.id, dropBranch, lifetime);
-        else await clearStagedOriginal(target, candidate.id, lifetime);
+        if (candidate) await commitStagedOriginal(target, candidate.id, dropBranch, lifetime);
       } catch (error) {
         if (stillOwned(owner)) {
           closeHistory();
@@ -1302,6 +1307,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       }
       v.error = "";
       stopWatch();
+      const play = !v.active && !v.parked;
       if (!v.active) pauseAtLive();
       const done = await swapSessions(
         owner,
@@ -1332,7 +1338,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
         true,
         true,
       );
-      if (done && stillOwned(owner)) deps.logAgent("log", "history: rewound to the kept session");
+      if (stillOwned(owner)) {
+        if (done) deps.logAgent("log", "history: rewound to the kept session");
+        else if (play) resumeLive();
+      }
     } catch (error) {
       // Same gate as Resume from here: a stale swap's failure never lands
       // on the replacement's surface.

@@ -180,6 +180,7 @@ export interface AutosaveControllerContext {
   readonly state: {
     installedGames?: readonly InstalledGameDescriptor[] | null | undefined;
     resumed: boolean;
+    checkpointProblem?: string;
     leaving?: boolean;
   };
   readonly getBootedGame: () => BootedGame | null;
@@ -821,6 +822,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         return false;
       const stored = writeAutosave(localStorage, target, record);
       if (!stored) {
+        ctx.state.checkpointProblem =
+          "Browser storage refused your progress. Free some space, then keep playing to try again.";
         ctx.logAgent("log", "autosave failed: browser storage rejected the save record");
         return false;
       }
@@ -852,6 +855,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         ctx.getRunScope?.() !== captured.run
       )
         return false;
+      ctx.state.checkpointProblem = "";
       ctx.onAutosaveStored?.(stored.cycle);
       lastAutosave = stored;
       lastAutosaveScope = {
@@ -1782,6 +1786,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     lastAutosave = null;
     lastAutosaveScope = null;
     ctx.state.resumed = false;
+    ctx.state.checkpointProblem = "";
     if (resumeCaptionTimer !== null) {
       clearTimeout(resumeCaptionTimer);
       resumeCaptionTimer = null;

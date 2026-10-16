@@ -33,6 +33,7 @@ export const VAR_WRITES: Readonly<Record<string, readonly number[]>> = {
   rindirect: [0],
   random: [2],
   "get.posn": [1, 2],
+  "mouse.posn": [0, 1],
   "last.cel": [1],
   "current.cel": [1],
   "current.loop": [1],

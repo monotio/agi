@@ -8,6 +8,8 @@
  */
 import { test } from "node:test";
 import { Engine } from "../../src/runtime/engine.ts";
+import { createDebugController } from "../src/worker/debugController.ts";
+import { installDebugController } from "../src/worker/debugLoader.ts";
 import { createHistoryView } from "../src/worker/historyView.ts";
 import { openHistoryDrive } from "../src/worker/historyDrive.ts";
 import { installProjectRestart } from "../src/worker/projectRestart.ts";
@@ -473,6 +475,71 @@ test("a game paused before its first room draws is refused as still starting", (
   assert.ok(kept?.type === "historyRetained" && kept.boot, "after a moment of play it is kept");
   assert.equal(kept.reason, undefined);
   ctx.fns.stopTimers();
+});
+
+test("Undo on a text title screen names the text screen and leaves the game in place", () => {
+  const h = viewHarness(gameContainer(['text.screen(); display(2, 2, "Title screen"); return;']));
+  const { ctx, send, tick } = h;
+  tick(2);
+  send({ type: "pause", paused: true });
+  assert.equal(ctx.run.engine!.textModeActive, true);
+  const before = ctx.run.engine!.readState();
+  send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "text-mode");
+  assert.deepEqual(ctx.run.engine!.readState(), before, "the title screen stays in place");
+  ctx.fns.stopTimers();
+});
+
+for (const [cause, source, reason] of [
+  ["a prompt on a text screen", 'text.screen(); get.num("Number?", v80);', "prompt"],
+  ["a leave.window banner", 'set(f15); print("Banner");', "busy"],
+  ["a timed clock wait", "v49 = 20; v11 = 0; wait: if (v49 > v11) { goto wait; }", "busy"],
+  ["an instruction debugger stop", "", "busy"],
+] as const) {
+  test(`Undo names ${cause} without inventing an open prompt`, () => {
+    const h = viewHarness(
+      gameContainer([`v50 = 1; load.pic(v50); draw.pic(v50); show.pic(); ${source} return;`], (c) =>
+        c.putResource("picture", 1, PICTURE_1),
+      ),
+    );
+    const { ctx, send, tick } = h;
+    if (cause === "an instruction debugger stop") {
+      installDebugController(ctx, createDebugController(ctx));
+      send({ type: "debugAttach", id: 20 });
+      send({ type: "debugPause", id: 21, epoch: ctx.run.debugger.epoch });
+      assert.ok(ctx.run.engine!.executionStopInfo);
+    } else tick(2);
+    send({ type: "pause", paused: true });
+    assert.equal(ctx.run.engine!.hostInteractionPending, reason === "prompt");
+    send({ type: "historyRetain", id: 1 });
+    const reply = h.control.findLast((m) => m.type === "historyRetained");
+    assert.ok(reply?.type === "historyRetained");
+    assert.equal(reply.boot, null);
+    assert.equal(reply.reason, reason);
+    ctx.fns.stopTimers();
+  });
+}
+
+test("Undo during room preparation never claims that a prompt is open", () => {
+  const h = viewHarness(
+    gameContainer(
+      ["v50 = 1; load.pic(v50); draw.pic(v50); show.pic(); new.room(7); return;"],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+    { authorRooms: true },
+  );
+  h.tick(2);
+  assert.equal(h.ctx.run.engine!.hostInteraction?.kind, "room");
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "busy");
+  h.ctx.fns.stopTimers();
 });
 
 // Player rule: rewinding never trades a restored checkpoint for the game's start. Paused before

@@ -715,13 +715,15 @@ export type WorkerControl =
    * resumable). `from` is the position the departing session sits at in its
    * own open segment — the restore's provenance. `reason: "starting"` marks a
    * null boot whose only obstacle is the first room not having drawn yet.
+   * `reason: "text-mode"` marks a text screen that cannot be captured.
+   * An open host prompt takes precedence; other unsafe boundaries report busy.
    */
   | {
       type: "historyRetained";
       id: number;
       boot: HistoryBoot | null;
       from: { segment: string; seq: number; tick: number } | null;
-      reason?: "starting";
+      reason?: "starting" | "text-mode" | "prompt" | "busy";
     }
   | {
       type: "historyTaken";

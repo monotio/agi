@@ -195,6 +195,8 @@ export interface EngineState {
   powerUp: PowerUpUiState;
   /** This boot restored an autosave: the resume caption is showing. */
   resumed: boolean;
+  /** A rejected checkpoint write: shown until storage succeeds or the game leaves. */
+  checkpointProblem: string;
   /**
    * A Start over left earlier sessions on the timeline: the stage's note
    * offers Undo start over until the new run is under way.

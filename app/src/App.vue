@@ -796,6 +796,13 @@ watch(
           </template>
           <template #screen-notes>
             <StartOverNote />
+            <UiToast
+              v-if="state.checkpointProblem && !creating"
+              tone="warn"
+              data-testid="checkpoint-notice"
+            >
+              {{ state.checkpointProblem }}
+            </UiToast>
             <UiToast v-if="state.entryProblem" tone="warn" data-testid="entry-notice">
               {{ state.entryProblem }}
             </UiToast>

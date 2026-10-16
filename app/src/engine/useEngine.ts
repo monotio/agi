@@ -173,6 +173,7 @@ export function useEngine(
       error: "",
     },
     resumed: false,
+    checkpointProblem: "",
     startOverNote: false,
     gameEnded: null,
     otherTab: false,
@@ -294,6 +295,7 @@ export function useEngine(
     owner: crypto.randomUUID(),
     lock: withCheckpointLock,
     changed(lost) {
+      state.checkpointProblem = "";
       state.otherTab = lost;
       link.getWorker()?.postMessage({
         type: "playOwner",
@@ -380,6 +382,7 @@ export function useEngine(
    * refused turn does, and the stage's note says it while it is closed.
    */
   function tellBehindStorage(): void {
+    state.checkpointProblem = "";
     projectSession?.stopWrites();
     autosaveController.handleRecoveryError(STALE_SAVE_MESSAGE);
     logAgent("error", STALE_SAVE_MESSAGE);
@@ -396,6 +399,7 @@ export function useEngine(
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {
+    state.checkpointProblem = "";
     projectSession?.stopWrites("removed");
     autosaveController.handleRecoveryError(PROJECT_REMOVED_MESSAGE);
     logAgent("error", PROJECT_REMOVED_MESSAGE);
@@ -464,6 +468,7 @@ export function useEngine(
   };
   link.deps.playOwnershipRetained = () => {
     const active = progressOwnership.generation() !== undefined;
+    state.checkpointProblem = "";
     state.otherTab = !active;
     if (active) resumeEngine("otherTab");
     else pauseEngine("otherTab");
@@ -1051,8 +1056,9 @@ export function useEngine(
 
   /** Undo start over: back to where the earlier session ended. */
   async function undoStartOver(): Promise<boolean> {
-    startOverNote.hide();
-    return historyView!.undoStartOver();
+    const undone = await historyView!.undoStartOver();
+    if (undone) startOverNote.hide();
+    return undone;
   }
 
   const updateAiConfig = createAiConfigUpdater({
@@ -1226,6 +1232,7 @@ export function useEngine(
   ): Promise<boolean> {
     const prior = projectMode;
     if (mode === "create") {
+      state.checkpointProblem = "";
       state.entryProblem = "";
       state.returnNote = null;
     }
@@ -1484,7 +1491,10 @@ export function useEngine(
         }
       }
     },
-    takePlayBack: () => progressOwnership.takeBack(),
+    takePlayBack: () => {
+      state.checkpointProblem = "";
+      return progressOwnership.takeBack();
+    },
     async getConversationAgent() {
       const controller = await loadAuthoringController();
       for (;;) {

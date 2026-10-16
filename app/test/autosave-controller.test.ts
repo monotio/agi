@@ -212,6 +212,49 @@ test("readAutosave, clearAutosave, and lastGameKey manage localStorage entries",
   }
 });
 
+test("Play names rejected checkpoint storage and offers a next step until progress is saved", async (t) => {
+  installLocalStorageMock(t);
+  const game: BootedGame = {
+    installed: true,
+    title: "Checkpoint proof",
+    revision: testRevision("checkpoint-proof"),
+    files: {},
+    words: [],
+    folder: "checkpoint-proof",
+  };
+  const state = { resumed: false, checkpointProblem: "" };
+  const stored: number[] = [];
+  const controller = useAutosaveController({
+    state,
+    getBootedGame: () => game,
+    getWorker: () => null,
+    onAutosaveStored: (cycle) => stored.push(cycle),
+    logAgent: () => {},
+    isInstalledGame: () => true,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+    retireFailedRecovery: () => {},
+  });
+  const write = localStorage.setItem;
+  localStorage.setItem = () => {
+    throw new Error("quota");
+  };
+  controller.handleAutosave({ image: "first", cycle: 1, room: 1 });
+  await controller.getAutosaveWrite();
+  assert.equal(
+    state.checkpointProblem,
+    "Browser storage refused your progress. Free some space, then keep playing to try again.",
+  );
+  assert.deepEqual(stored, [], "a rejected checkpoint is never reported as saved");
+  assert.equal(controller.lastAutosaveRecord(), null);
+  localStorage.setItem = write;
+  controller.handleAutosave({ image: "second", cycle: 2, room: 1 });
+  await controller.getAutosaveWrite();
+  assert.equal(state.checkpointProblem, "", "a successful checkpoint clears the notice");
+  assert.deepEqual(stored, [2]);
+});
+
 test("useAutosaveController stores autosave and notifies lifecycle callbacks", async (t) => {
   installLocalStorageMock(t);
   let storedCycle: number | null = null;
