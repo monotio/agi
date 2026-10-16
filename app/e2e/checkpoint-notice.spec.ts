@@ -33,7 +33,7 @@ test("Play explains refused checkpoint storage and clears the notice when progre
   const notice = page.getByTestId("checkpoint-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toHaveText(
-    "Browser storage refused your progress. Free some browser storage, then keep playing to try again.",
+    "Browser storage refused your progress. Free some space, then keep playing to try again.",
   );
   expect((await textHook(page)).autosave).toBe(-1);
   for (const [width, height] of [

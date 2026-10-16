@@ -823,7 +823,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       const stored = writeAutosave(localStorage, target, record);
       if (!stored) {
         ctx.state.checkpointProblem =
-          "Browser storage refused your progress. Free some browser storage, then keep playing to try again.";
+          "Browser storage refused your progress. Free some space, then keep playing to try again.";
         ctx.logAgent("log", "autosave failed: browser storage rejected the save record");
         return false;
       }

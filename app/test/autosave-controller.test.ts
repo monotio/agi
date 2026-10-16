@@ -244,7 +244,7 @@ test("Play names rejected checkpoint storage and offers a next step until progre
   await controller.getAutosaveWrite();
   assert.equal(
     state.checkpointProblem,
-    "Browser storage refused your progress. Free some browser storage, then keep playing to try again.",
+    "Browser storage refused your progress. Free some space, then keep playing to try again.",
   );
   assert.deepEqual(stored, [], "a rejected checkpoint is never reported as saved");
   assert.equal(controller.lastAutosaveRecord(), null);
