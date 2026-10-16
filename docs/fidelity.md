@@ -7581,14 +7581,67 @@ raster. This does not establish analogue output or every adapter's BIOS font.
 The 2.001 booter's full adapter census remains unverified here.
 
 **Monitor switch.** PQ1 2.903 `0x7872..0x78ad` admits `toggle.monitor`
-only on computer type 0, outside text mode, when the monitor type is neither
-EGA (3) nor Hercules (2). It XORs monitor type with 1 and reloads/redraws the
-picture: this exchanges composite (0) and RGB (1) on CGA. It does not change
-v26, which startup copied at `0x1081..0x1084`. PCjr/Tandy and MCGA computer
-types bypass the switch. Equivalent XOR sites are 2.089 `0x6eb1`, 2.230
-`0x6e6a`, 2.272 `0x6f06`, 2.411 `0x75ae`, 2.440 `0x76cb`, 2.917 `0x78a9`
-and 2.936 `0x7970`. The engine's opcode remains a no-op; compositor support
-alone does not close this behavior or install a player setting.
+only on computer type 0, outside room 0, when the monitor type is neither
+EGA (3) nor Hercules (2). The room test is `cmp byte [0x0009],0`: the
+variables start at `DS:0x0009`, as ResetAll's v20 write to `0x001d` and v26
+write to `0x0023` show, so it reads v0. It XORs the monitor type with 1 and
+reloads and redraws the picture inside a cursor save and restore: this
+exchanges composite (0) and RGB (1) on CGA. It does not change v26.
+PCjr/Tandy and MCGA computer types bypass the switch. The XOR sites are
+2.089 `0x6eb1`, 2.230 `0x6e6a`, 2.272 `0x6f06`, 2.411 `0x75ae`, 2.439
+`0x76cb`, 2.440 `0x76d3`, 2.903 `0x7896`, 2.915 `0x7895`, 2.917 `0x78a9`,
+2.936 `0x7970`, 3.002.086 `0x7daf`, 3.002.102 and 3.002.107 `0x7dc7`, and
+3.002.149 `0x7c84`. Every gate from 2.411 on has the same four tests;
+2.089..2.272 test computer type, v0 and EGA, since they have no Hercules
+driver. The engine implements the gate and the XOR and keeps the switched
+monitor type in its replay state.
+
+**Start options and v26.** From 2.411 on the start routine reads one-letter
+options: `-c` composite (0), `-r` RGB (1), `-e` EGA (3), `-h` Hercules (2),
+`-v` MCGA (4), and computer types `-p` (0), `-t` (2) and `-s` (8) (2.903
+`0x00c4..0x014a`). Without an option, detection (2.903 `0x40ab..0x41c4`)
+picks Hercules, then MCGA, then EGA, and leaves a CGA card in composite
+mode (0). 2.089..2.272 read no options and pick EGA or else 0 (2.089
+`0x3a67..0x3ab0`), so their CGA start is composite and RGB is reached only
+through `toggle.monitor`. Every CGA overlay sets background 1 and palette 0
+only when the monitor type is nonzero (`CGA_GRAF.OVL` `0x00db` from 2.411
+on, `0x00c3` in 2.089). ResetAll copies the monitor type into v26 from
+2.411 on (2.411 and 2.439 `0x104b`, 2.440 `0x1053`, 2.903 `0x1081`, 2.915,
+2.917 and 2.936 `0x1086`, 3.002.086 `0x12c5`, 3.002.102 and 3.002.107
+`0x12db`, 3.002.149 `0x1294`). The 2.903+ RestoreGame tail copies it again
+(2.903 `0x2650`, 2.915 `0x2655`, 2.917 and 2.936 `0x2657`, 3.002.086
+`0x2934`, 3.002.102 and 3.002.107 `0x294a`, 3.002.149 `0x28e9`). The
+constant 3 recorded under F-OPCORE-04-adjacent and F-persistence-03 is this
+copy on an EGA machine. The app therefore offers CGA for 2.411 and later,
+which start in RGB with `-r` and give v26 the value 1. It offers EGA alone
+for 2.001..2.272.
+
+**Cel colours.** The overlay's view conversion (`CGA_GRAF.OVL`
+`0x0037..0x00da`) runs as each view loads. It copies the cel table to a
+scratch table, then for every cel sets the scratch entry of that cel's
+transparent colour to the transparent code before converting the cel's
+runs. The entry stays set for the later cels of the same load, so a later
+cel's pixels in an earlier cel's transparent colour become transparent. A
+loop whose offset equals the previous loop's is skipped. The screen copy
+(`0x01b5..0x0214`) writes the buffer's low nibbles to video memory
+unchanged. A buffer pixel therefore keeps the code of the routine that last
+wrote it: picture patterns for picture drawing, cel codes for objects,
+`add.to.pic` stamps and the `show.obj` preview. The engine reproduces the
+conversion's transparency and reports each pixel's cel provenance. The
+compositor maps cel pixels through the cel table and picture pixels through
+the row patterns. Applying the row patterns to cel-mapped colours instead
+raised the CGA cross-check mismatch from 202, 30 and 22 pixels to 751, 328
+and 514. After `toggle.monitor` selects composite, new views load through
+the composite table at `AGIDATA.OVL + 0x1d3a`. That belongs to the
+composite display, so a CGA session keeps the RGB conversion and look
+until composite is implemented.
+
+**Display choice across sessions.** The display is a setting for the next
+start, and a resumed autosave starts with the current choice. The Amiga
+region is different: it travels with saves and autosaves because it sets
+the game clock, which the saved state depends on. The display's only trace
+in game state is v26, which the save already carries, so restoring on
+another display matches carrying a save disk to another machine.
 
 **Remaining adapter work.** Hercules is a separate monochrome raster:
 PQ1's driver programs a 720×348 display, places the 640×336 picture at
@@ -7602,9 +7655,7 @@ later text rows have two blank scanlines followed by the glyph (14 in all).
 The file must come from the player's copy when this path is implemented. Composite programs CGA control `0x1a` and
 colour `0x27` (`CGA_GRAF.OVL` `0x00f8..0x0113`); its 640-pixel signal and
 colour decoding are distinct from RGB mode. Neither path is approximated
-by a palette here. CGA RGB also needs the original drawing provenance for
-cels baked by `add.to.pic` and the scratch `show.obj` preview, beyond the
-animated-sprite ownership input.
+by a palette here.
 
 ### Display geometry
 
@@ -7612,8 +7663,9 @@ The active image remains 320×200 on PC, IIgs and the inspected Amiga builds.
 At the logical NTSC/EGA pixel width:height of 5:6 it has aspect 4:3. With
 PAL Amiga pixel width:height 16:15, the same 200-line active window has
 aspect 128:75; a complete 320×256 PAL field would be 4:3. The geometry
-helpers distinguish these and retain an 8:5 square-pixel option. The PAL
-helper still needs wiring to the running region in the Play layout.
+helpers distinguish these and retain an 8:5 square-pixel option. Play
+takes the region from the running engine's frames, never from the
+next-start preference.
 
 CRT overscan, blank borders, screen position and calibration belong to the
 physical monitor. The app's optional CRT scanlines, glow and curved glass

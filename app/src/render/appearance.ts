@@ -27,6 +27,8 @@ export type Appearance = PlatformAppearance & {
   readonly alternatePicturePairs?: Appearance["picturePairs"];
   readonly spritePairs?: Appearance["picturePairs"];
   readonly cgaRgb?: boolean;
+  /** Hardware colour of screen areas nothing has drawn; transparent when absent. */
+  readonly background?: readonly [number, number, number];
 };
 
 const PC_EARLY_DISPLAYS: readonly PcDisplay[] = ["ega", "cga-rgb", "tandy", "pcjr"];

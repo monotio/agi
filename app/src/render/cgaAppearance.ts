@@ -22,6 +22,8 @@ export const CGA_RGB_APPEARANCE: Appearance = {
   hasGlyph: HAS_GLYPH,
   layout: "pc",
   cgaRgb: true,
+  // CGA_GRAF sets the background register to blue, which mode 4 shows for code 0.
+  background: CGA_RGB[0],
   palette: CGA_TEXT.map((index) => CGA_RGB[index as 0 | 1 | 2 | 3]),
   picturePairs: cgaPairs(CGA_PICTURE_EVEN),
   alternatePicturePairs: cgaPairs(CGA_PICTURE_ODD),

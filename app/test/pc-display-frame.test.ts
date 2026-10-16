@@ -89,6 +89,8 @@ test("a CGA frame shows picture patterns by row and cel colours for stamps and o
     [BROWN, BLUE, BROWN, BLUE],
     "the moving object",
   );
+  // Rows nothing has drawn show the blue background register, as on the card.
+  assert.deepEqual([pixel(out, 0, 0), pixel(out, 319, 199)], [BLUE, BLUE]);
 });
 
 test("the same frame on EGA shows green everywhere", () => {

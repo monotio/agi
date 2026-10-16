@@ -284,7 +284,15 @@ export function compositeFrame(
 ): void {
   const look = input.appearance ?? PC_APPEARANCE;
   const palette = look.palette;
-  out.fill(0);
+  const background = text === "only" ? undefined : look.background;
+  if (background) {
+    for (let o = 0; o < out.length; o += 4) {
+      out[o] = background[0];
+      out[o + 1] = background[1];
+      out[o + 2] = background[2];
+      out[o + 3] = 255;
+    }
+  } else out.fill(0);
   const priority = mode === "visual" ? undefined : input.priority;
   const splitX = Math.round(Math.min(Math.max(splitAt, 0), 1) * PIC_WIDTH);
   // Picture band: each logical pixel doubled horizontally.
