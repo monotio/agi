@@ -86,8 +86,11 @@ reviews of one push at a time miss properties of the whole system.
 - A profile covers what the player sees and hears as well as what the game does: palette, font
   metrics, prompts, menus, dialogs, pointer, sound and timing per platform. Fonts are the project's
   own drawings with each original's exact metrics; original system fonts are never loaded or
-  shipped. A look claim needs a frame comparison against the original interpreter, and the
-  coverage table in `docs/fidelity.md` records each aspect's evidence per platform.
+  shipped. The original binary decides semantics and the values it encodes. MAME runs of the
+  original interpreter are a cross-check, not ground truth: MAME also emulates the graphics and
+  sound chips, so explain each difference instead of copying MAME's output. Only real hardware
+  settles chip output. The coverage table in `docs/fidelity.md` records each aspect's evidence
+  per platform.
 - Where the specification is silent or builds disagree, the original interpreter in a contributor's
   local `games/*` fixtures is the reference. Record each finding in `docs/fidelity.md` with build,
   binary hash, addresses and conclusion, and keep facts apart from inference. Code comments cite the
