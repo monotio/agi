@@ -150,8 +150,7 @@ export function intuitionMenuChrome(
         ? null
         : {
             ...pulldown,
-            highlighted:
-              item !== null && pulldown.items[item]?.enabled === true ? item : null,
+            highlighted: item !== null && pulldown.items[item]?.enabled === true ? item : null,
           },
   };
 }

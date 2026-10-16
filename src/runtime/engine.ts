@@ -58,6 +58,8 @@ import {
   type SaveDialog,
   type SaveDialogNeed,
   type SaveSlot,
+  closeSaveDialogSurface,
+  saveDialogPointerKey,
 } from "./saveDialog.ts";
 import {
   intuitionItemAt,
@@ -1001,6 +1003,8 @@ export class Engine {
   /** Last selected/entered save description; set.simple copies at most 31 bytes. */
   private saveDescription = "";
   private saveDialogMode: "save" | "restore" | null = null;
+  /** The live selector while one is open, for its gadgets and clicks (synchronous hosts included). */
+  private saveDialog: SaveDialog | null = null;
   /**
    * Object-0/global-direction coupling selector (save block 1): player.control
    * couples object 0 to the global direction byte, program.control decouples it.
@@ -2445,8 +2449,9 @@ export class Engine {
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     if (pending?.kind === "saveDialog") {
-      pending.dialog.text.restore(pending.dialog.saved);
+      closeSaveDialogSurface(pending.dialog);
       this.saveDialogMode = null;
+      this.saveDialog = null;
     }
     if (pending?.kind === "confirm") {
       if (this.modal?.serial === pending.modalSerial) this.closeModal();
@@ -2499,6 +2504,7 @@ export class Engine {
       if (step.done) {
         this.pendingInteraction = null;
         this.saveDialogMode = null;
+        this.saveDialog = null;
         this.controllers.fill(0);
         if (pending.mode === "restore" && step.image !== null) this.beginRestore(step.image);
         return;
@@ -3422,6 +3428,9 @@ export class Engine {
   pointerKeyAt(x: number, y: number): number | null {
     if (this.profile.clickMove === "none") return null;
     if (this.pendingInteraction?.kind === "confirm") return this.confirmGadgetAt(x, y);
+    // The Amiga save dialog's gadgets: OK/Save/Restore post Enter, Cancel
+    // posts Escape, and each slot line's invisible gadget posts its slot.
+    if (this.saveDialog !== null) return saveDialogPointerKey(this.saveDialog, x, y);
     const modal = this.modal;
     if (modal !== null) {
       if (
@@ -3737,8 +3746,15 @@ export class Engine {
         this.text,
         this.signature,
         this.host.promptSaveDescription !== undefined,
+        {
+          platform: this.profile.presentation === "amiga" ? "amiga" : "pc",
+          displayBase: this.displayBaseRow,
+          gameId: this.signature,
+          cursor: this.inputPrompt.charCodeAt(0) || 0x5f,
+        },
       ),
     };
+    this.saveDialog = pending.dialog;
     try {
       this.driveSaveDialog(pending, undefined);
     } finally {
@@ -3746,6 +3762,7 @@ export class Engine {
       // any other exit clears it.
       if (this.pendingInteraction !== pending) {
         this.saveDialogMode = null;
+        this.saveDialog = null;
         this.controllers.fill(0);
       }
     }
@@ -3996,7 +4013,9 @@ export class Engine {
 
   private get nativeMenuModal(): (Modal & { kind: "menu"; native: NativeMenuState }) | null {
     const m = this.modal;
-    return m?.kind === "menu" && m.native ? (m as Modal & { kind: "menu"; native: NativeMenuState }) : null;
+    return m?.kind === "menu" && m.native
+      ? (m as Modal & { kind: "menu"; native: NativeMenuState })
+      : null;
   }
 
   /** The open strip as the host paints it, or undefined while no native menu is open. */
@@ -4037,7 +4056,7 @@ export class Engine {
     const n = m.native;
     const title = intuitionTitleAt(intuitionTitles(this.menu), x, y);
     let heading = n.heading;
-    let item = n.item;
+    let item: number | null;
     if (title !== null && this.menu[title]!.enabled) {
       heading = title;
       item = null;
@@ -4100,7 +4119,8 @@ export class Engine {
    * set nothing here (docs/fidelity.md "Original native menu dispatch").
    */
   private nativeMenuSelect(n: NativeMenuState): void {
-    const item = n.heading === null || n.item === null ? undefined : this.menu[n.heading]?.items[n.item];
+    const item =
+      n.heading === null || n.item === null ? undefined : this.menu[n.heading]?.items[n.item];
     if (!item || !item.enabled) return;
     if (item.id < 128) this.pendingController = item.id;
     this.closeModal();
@@ -4378,6 +4398,7 @@ export class Engine {
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;
+    this.saveDialog = null;
     this.inputQueue.clear();
     for (const event of state.inputQueue) this.inputQueue.enqueue(event);
     this.menu = state.menu;
@@ -4797,6 +4818,7 @@ export class Engine {
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;
+    this.saveDialog = null;
     this.stopSound();
 
     // 1. Scalar, signature, parser, object, inventory, replay, logic-resume,
@@ -6660,7 +6682,10 @@ export class Engine {
    * pixels in and two down from the fill's corner (F-persistence-05-gadgets).
    */
   private presentationGadgets(): GadgetLabel[] | undefined {
-    const win = this.modal?.kind === "print" ? this.modal.saved.window : undefined;
+    const win =
+      this.modal?.kind === "print"
+        ? this.modal.saved.window
+        : (this.saveDialog?.window ?? undefined);
     if (win?.gadgets === undefined) return undefined;
     return win.gadgets.map((g) => {
       const row = g.label.y0 >> 3;
@@ -9085,6 +9110,7 @@ export class Engine {
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;
+    this.saveDialog = null;
     const soundEnabled = this.flags[F_SOUND_ENABLED]!;
     this.playingSound = null;
     this.soundDoneFlag = null;
