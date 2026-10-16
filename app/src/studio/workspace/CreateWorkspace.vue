@@ -93,6 +93,7 @@ import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
 import { derivedLogicSource } from "../logic/logicWorkspace.ts";
 import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
 import { createWorkspacePending } from "./workspacePending.ts";
+import { createWorkspaceHistorySummary } from "./workspaceHistorySummary.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
@@ -474,6 +475,7 @@ const {
   profile: () => profile.value.id,
 });
 const historyState = shallowRef<ProjectHistoryState>();
+const historySummary = createWorkspaceHistorySummary();
 const optimistic = shallowRef<Record<string, ProjectContent>>({});
 let offDrafts: (() => void) | undefined;
 let draftKeys = "";
@@ -566,7 +568,7 @@ function refresh(): void {
         );
       });
     });
-  } else traceUnderlays.value = {};
+  } else if (Object.keys(traceUnderlays.value).length) traceUnderlays.value = {};
   const draftStatus = session.drafts().status();
   writeConflict.value =
     capture.save.state === "conflict" || draftStatus.error.includes("another tab");
@@ -575,6 +577,7 @@ function refresh(): void {
     session.pendingChanges || editor.busy.value || draftStatus.pending || !!draftStatus.error;
   if (writeConflict.value) editor.error.value = "";
   historyState.value = capture.history;
+  historySummary.update(capture.history);
   editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
     capture.save.state === "saved"
@@ -588,11 +591,9 @@ function refresh(): void {
       : capture.save.state === "pending" || capture.save.state === "saving"
         ? "Saving…"
         : capture.save.message;
-  editor.canUndo.value =
-    draftStatus.canUndo ||
-    !!capture.history.commits.find((commit) => commit.id === capture.history.cursor)?.parent;
-  editor.canRedo.value =
-    draftStatus.canRedo || (!draftStatus.canUndo && capture.history.future.length > 0);
+  const navigation = historySummary.read(draftStatus);
+  editor.canUndo.value = navigation.canUndo;
+  editor.canRedo.value = navigation.canRedo;
 }
 function attach(): void {
   const next = engine.getProjectSession();
@@ -601,6 +602,7 @@ function attach(): void {
     session = next;
     sessionOpen.value = session !== null;
     offDrafts?.();
+    historySummary.update(undefined);
     optimistic.value = {};
     deletedParts.value = [];
     partRemovalReview.value = undefined;
@@ -1459,9 +1461,12 @@ function draftChanged(force = false): void {
   if (!session || retired) return;
   const drafts = session.drafts();
   const changes = pendingParts.changes(snapshot.value, drafts.changes());
-  deletedParts.value = changes
-    .filter((change) => change.content === null)
-    .map((change) => change.key);
+  const deleted = changes.filter((change) => change.content === null).map((change) => change.key);
+  if (
+    deleted.length !== deletedParts.value.length ||
+    deleted.some((key, index) => key !== deletedParts.value[index])
+  )
+    deletedParts.value = deleted;
   const next: Record<string, ProjectContent> = {};
   for (const { key, content: value } of changes) if (value !== null) next[key] = value;
   const metadata = { world: next["world"], bindings: next["bindings"] };
@@ -1477,19 +1482,17 @@ function draftChanged(force = false): void {
   const parts = pendingParts.parts(snapshot.value, changes);
   if (parts.slice().sort().join("\0") !== draftMembership.value.slice().sort().join("\0"))
     draftMembership.value = parts;
-  const textChanged = changes.some(
-    ({ key, content }) =>
-      (key === "notes" || key.startsWith("logic:")) && optimistic.value[key] !== content,
+  const contentChanged = changes.some(
+    ({ key, content }) => content !== null && optimistic.value[key] !== content,
   );
-  if (force || keys !== draftKeys || textChanged) {
+  if (force || membershipChanged || contentChanged) {
     optimistic.value = next;
     draftKeys = keys;
   } else Object.assign(optimistic.value, next);
   const state = drafts.status();
-  const history = session.capture().history;
-  editor.canUndo.value =
-    state.canUndo || !!history.commits.find((commit) => commit.id === history.cursor)?.parent;
-  editor.canRedo.value = state.canRedo || (!state.canUndo && history.future.length > 0);
+  const navigation = historySummary.read(state);
+  editor.canUndo.value = navigation.canUndo;
+  editor.canRedo.value = navigation.canRedo;
   if (!state.error && editor.error.value === draftError) editor.error.value = "";
   draftError = state.error;
   editor.changeCount.value = parts.length;
