@@ -315,7 +315,7 @@ directions and back, five ticks per count. The IIgs moves nothing: it flashes
 sixteen random colours each tick for five ticks per count, drawing them from
 the game's random numbers. On the Amiga and the IIgs, a picture shown after
 `draw.pic` dissolves in two pixels at a time in a fixed scrambled order; PC
-pictures appear at once.
+pictures appear at once. The engine shows every picture at once for now.
 
 **Evidence:**
 [Original shake.screen and picture reveal](#original-shakescreen-and-picture-reveal),
@@ -4056,7 +4056,12 @@ picture is copied at once, after `draw.pic` it dissolves (Amiga `h215+0x2e0`, II
 `0x3480`: each of the 13,440 cells, two AGI pixels wide (row `s / 80`, x `2 * (s mod 80)`), once,
 in a fixed order, with no waits. Its speed is the CPU's. MAME measured 48 to 50 frames (about
 800 ms) on an A500 and 27 to 28 frames (about 460 ms) on a IIgs, at a constant rate. `new.room`
-has no screen effect on any platform.
+has no screen effect on any platform. On the Amiga, the dissolve's limit drops by `0xa0` cells
+when `h132+0x20` is set (meaning not settled), and `restore.game` also ends in it (`h156+0x29a`).
+
+Engine divergence (open): every platform shows the picture at once. Matching the original means
+blocking the pass for the dissolve, as for the shake, which every engine the worker creates
+(live, replay, history, room launch) must do alike to keep recorded tapes consistent.
 
 ### Original cel handling and priority table
 
