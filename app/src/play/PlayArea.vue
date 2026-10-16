@@ -60,6 +60,7 @@ const {
   sendDirection,
   sendKey,
   sendClick,
+  sendMenu,
   sendJoystick,
   submitPrompt,
 } = engine;
@@ -191,6 +192,8 @@ onMounted(() => {
   readKeyboard();
 });
 onBeforeUnmount(() => {
+  clearLongPress();
+  if (menuMoveFrame) window.cancelAnimationFrame(menuMoveFrame);
   // The next game screen mounts its own canvas and stage.
   presentation.closeScreen();
   releaseGamepad();
@@ -361,8 +364,134 @@ const screenPresentation = computed(() => {
   return PROFILES[profile as ProfileId].presentation;
 });
 
+/**
+ * The Amiga menu strip (docs/fidelity.md "Original native menu dispatch"):
+ * the game can open it now, so the right mouse button is Intuition's. The
+ * touch and keyboard paths (a long press on the title bar, the Menu button)
+ * are host access, not original behavior.
+ */
+const amigaMenuReady = computed(
+  () =>
+    screenPresentation.value === "amiga" &&
+    state.menuAvailable &&
+    state.phase === "running" &&
+    !state.walkthrough.active &&
+    !state.historyView.active &&
+    !state.paused &&
+    !agentBlocksGame.value &&
+    !state.prompt,
+);
+/** The strip is open: on Amiga profiles the menu modal is always the native strip. */
+const amigaMenuOpen = computed(
+  () => screenPresentation.value === "amiga" && state.modal === "menu",
+);
+/** Clicks and taps on the Amiga save dialog select its gadgets and slot lines. */
+const amigaDialogOpen = computed(
+  () =>
+    screenPresentation.value === "amiga" && (state.modal === "save" || state.modal === "restore"),
+);
+let menuDrag = false;
+let menuMovePending: { x: number; y: number } | null = null;
+let menuMoveFrame = 0;
+let longPressTimer = 0;
+let longPressFired = false;
+const LONG_PRESS_MS = 500;
+/** Rows 0..10 are the title bar; a long press there opens the strip on touch. */
+const TITLE_BAR_BOTTOM = 10;
+
+function clearLongPress(): void {
+  if (longPressTimer) window.clearTimeout(longPressTimer);
+  longPressTimer = 0;
+}
+
+function queueMenuMove(point: { x: number; y: number }): void {
+  menuMovePending = point;
+  if (menuMoveFrame) return;
+  menuMoveFrame = window.requestAnimationFrame(() => {
+    menuMoveFrame = 0;
+    if (menuMovePending && menuDrag) sendMenu("move", menuMovePending.x, menuMovePending.y);
+    menuMovePending = null;
+  });
+}
+
+/** A pointer position clamped onto the frame, so a drag past the edge still reads as outside. */
+function menuPoint(ev: MouseEvent): { x: number; y: number } | null {
+  const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
+  const rect = canvas?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  const x = Math.floor(((ev.clientX - rect.left) * 320) / rect.width);
+  const y = Math.floor(((ev.clientY - rect.top) * 200) / rect.height);
+  return { x: Math.min(319, Math.max(0, x)), y: Math.min(199, Math.max(0, y)) };
+}
+
 function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
+  if (ev.button === 2 && ev.pointerType === "mouse" && amigaMenuReady.value) {
+    const point = menuPoint(ev);
+    if (!point) return;
+    ev.preventDefault();
+    menuDrag = true;
+    try {
+      (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+    } catch {
+      /* No active pointer. */
+    }
+    sendMenu("open", point.x, point.y);
+    return;
+  }
+  clearLongPress();
+  longPressFired = false;
+  if (ev.pointerType !== "mouse" && ev.isPrimary && amigaMenuReady.value) {
+    const point = screenFramePoint(ev);
+    if (!point || point.y > TITLE_BAR_BOTTOM) return;
+    longPressTimer = window.setTimeout(() => {
+      longPressTimer = 0;
+      longPressFired = true;
+      sendMenu("open", point.x, point.y, true);
+    }, LONG_PRESS_MS);
+  }
+}
+
+function onScreenPointerMove(ev: PointerEvent): void {
+  presentation.onScreenPointerMove(ev);
+  if (menuDrag) {
+    const point = menuPoint(ev);
+    if (point) queueMenuMove(point);
+    return;
+  }
+  if (longPressTimer && ev.pointerType !== "mouse") {
+    const point = screenFramePoint(ev);
+    if (!point || point.y > TITLE_BAR_BOTTOM) clearLongPress();
+  }
+}
+
+function onScreenPointerUp(ev: PointerEvent): void {
+  clearLongPress();
+  if (!menuDrag || ev.button !== 2) return;
+  menuDrag = false;
+  menuMovePending = null;
+  try {
+    (ev.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId);
+  } catch {
+    /* Capture already gone. */
+  }
+  const point = menuPoint(ev);
+  sendMenu("release", point?.x ?? -1, point?.y ?? -1);
+}
+
+function onScreenPointerCancel(): void {
+  clearLongPress();
+  if (!menuDrag) return;
+  menuDrag = false;
+  menuMovePending = null;
+  sendMenu("cancel", 0, 0);
+}
+
+/** The touch Menu button: open the strip without a button and keep it open. */
+function onTouchMenu(): void {
+  resumeAudio();
+  if (!amigaMenuReady.value) return;
+  sendMenu("open", -1, -1, true);
 }
 
 /** Right-click offers the current room's actions while Create is armed; Amiga Play gets its right button. */
@@ -374,7 +503,14 @@ function onScreenContextMenu(ev: MouseEvent): void {
     gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
     return;
   }
-  if (screenPresentation.value === "amiga") onAmigaRightButton(ev);
+  if (screenPresentation.value !== "amiga") return;
+  // Intuition owns the right button while the strip can open or is open;
+  // the double-click word belongs to the game only when the verify fails.
+  if (amigaMenuReady.value || amigaMenuOpen.value || menuDrag) {
+    ev.preventDefault();
+    return;
+  }
+  onAmigaRightButton(ev);
 }
 
 /**
@@ -408,6 +544,16 @@ function onScreenClick(ev: MouseEvent): void {
   if (state.phase !== "running") return;
   // The tape is a recording — screen clicks can't interact with it.
   if (state.historyView.active) return;
+  // The release that ended a long press opened the strip; it is not a tap on it.
+  if (longPressFired) {
+    longPressFired = false;
+    return;
+  }
+  if (amigaMenuOpen.value && ev.button === 0 && !state.walkthrough.active) {
+    const point = screenFramePoint(ev);
+    if (point) sendMenu("tap", point.x, point.y);
+    return;
+  }
   if (state.walkthrough.active) {
     if (advanceDialog()) return;
     if (state.walkthrough.status === "paused") {
@@ -428,8 +574,10 @@ function onScreenClick(ev: MouseEvent): void {
   if (props.touchControls && screenPointerType !== "mouse") {
     if (state.modal !== null) {
       // The tap's screen pixel lets the worker select an Amiga confirmation
-      // gadget (Restart / Cancel, Quit / Continue) under it.
-      if (state.modal !== "save" && state.modal !== "restore")
+      // gadget (Restart / Cancel, Quit / Continue) under it, or a save
+      // dialog's OK / Cancel gadget or slot line.
+      if (amigaDialogOpen.value) sendScreenClick(ev);
+      else if (state.modal !== "save" && state.modal !== "restore")
         dismissModal(screenFramePoint(ev) ?? undefined);
       return;
     }
@@ -490,7 +638,8 @@ function sendScreenClick(ev: MouseEvent): void {
     state.modal !== null &&
     state.modal !== "print" &&
     state.modal !== "showObj" &&
-    state.modal !== "showPri"
+    state.modal !== "showPri" &&
+    !amigaDialogOpen.value
   )
     return;
   const point = screenFramePoint(ev);
@@ -877,7 +1026,9 @@ defineExpose({
         @click="onScreenClick"
         @contextmenu="onScreenContextMenu"
         @pointerdown="onScreenPointerDown"
-        @pointermove="presentation.onScreenPointerMove"
+        @pointermove="onScreenPointerMove"
+        @pointerup="onScreenPointerUp"
+        @pointercancel="onScreenPointerCancel"
       >
         <canvas
           v-show="!!gpuBackend"
@@ -982,8 +1133,10 @@ defineExpose({
       :navigating="state.modal !== null"
       :hold="state.holdToMove"
       :profile="state.profile"
+      :menu="amigaMenuReady"
       @direction="onTouchDirection"
       @key="onVirtualKey"
+      @menu="onTouchMenu"
       @keyboard="inputEl?.focus({ preventScroll: true })"
     />
 
@@ -1067,6 +1220,9 @@ defineExpose({
               <li>Arrows or numpad to walk</li>
               <li>Enter answers a message</li>
               <li v-if="escOpensMenu">Esc for the game menu</li>
+              <li v-if="amigaMenuReady && !touchControls">
+                Hold the right mouse button for the game menu
+              </li>
               <li>Shift+Tab leaves the game</li>
               <li v-if="touchControls">Type opens the keyboard · Keys opens F1–F10</li>
             </ul>

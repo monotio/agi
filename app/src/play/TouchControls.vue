@@ -5,13 +5,20 @@ import { FUNCTION_KEYS } from "./gameControls.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiSelect from "../ui/UiSelect.vue";
 
-const { disabled, navigating, hold, profile } = defineProps<{
+const { disabled, navigating, hold, profile, menu } = defineProps<{
   disabled: boolean;
   navigating: boolean;
   hold: boolean;
   profile: string | null;
+  /** The game's Amiga menu strip can open now: offer it, since touch has no right button. */
+  menu: boolean;
 }>();
-const emit = defineEmits<{ direction: [direction: number]; key: [code: number]; keyboard: [] }>();
+const emit = defineEmits<{
+  direction: [direction: number];
+  key: [code: number];
+  keyboard: [];
+  menu: [];
+}>();
 const active = ref<number>();
 const assistiveHeld = ref(false);
 let pointer: number | null = null;
@@ -167,6 +174,9 @@ onBeforeUnmount(() => {
         <button type="button" :disabled @click="emit('key', AGI_KEY.ENTER)">Enter</button>
         <button type="button" :disabled @click="emit('key', AGI_KEY.ESCAPE)">Esc</button>
         <button type="button" :disabled @click="emit('key', AGI_KEY.SPACE)">Space</button>
+        <button v-if="menu" type="button" :disabled data-testid="touch-menu" @click="emit('menu')">
+          Menu
+        </button>
       </div>
     </div>
     <p class="movement-help">
