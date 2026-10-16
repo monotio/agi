@@ -67,11 +67,12 @@ export async function inspectGame(game: PreviewWorkerInbound): Promise<GameInspe
       engine.tick();
       const state = engine.readState();
       visible = state.pictureShown || engine.textCells.some((b, i) => i % 2 === 0 && b > 32);
-      if (engine.modalKind) {
+      // An Amiga/IIgs picture dissolve ends on the clock; the opening is the picture after it.
+      if (engine.modalKind && !engine.clockModalOpen) {
         needsInput = true;
         break;
       }
-      if (tick >= 3 && visible) break;
+      if (tick >= 3 && visible && !engine.clockModalOpen) break;
       engine.advanceClock(50);
     }
   } catch (error) {

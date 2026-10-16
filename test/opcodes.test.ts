@@ -825,6 +825,7 @@ test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask appl
     );
     const engine = new Engine(container, new TestHost(), DICT, { profile });
     engine.tick();
+    engine.advanceClock(1000); // the Amiga and IIgs dissolve the picture in first
     const o1 = engine.screenObjects[1]!;
     o1.x = 20;
     o1.y = 1;

@@ -24,6 +24,41 @@ test("preview stops at an unanswered modal and leaves source resources untouched
   assert.deepEqual(files, before);
 });
 
+test("an Amiga opening shows its picture once the dissolve has finished", async () => {
+  // docs/fidelity.md "Original picture dissolve": show.pic after draw.pic holds
+  // the game for 801 ms on Amiga 2.202; the opening is the whole picture.
+  const container = createContainer();
+  container.putResource("picture", 0, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      "if (!isset(f200)) { set(f200); load.pic(v0); draw.pic(v0); show.pic(); } return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const opening = await inspectGame({
+    files: Object.fromEntries(container.files),
+    words: [],
+    profile: "amiga-2.202",
+  });
+  assert.equal(opening.status, "ready");
+  // Amiga games start with the picture at the top (picture row 0 = screen line 0).
+  const blue = Array.from(opening.rgba.subarray(0, 4));
+  for (const [x, y] of [
+    [319, 0],
+    [160, 90],
+    [0, 167],
+    [319, 167],
+  ])
+    assert.deepEqual(
+      Array.from(opening.rgba.subarray((y! * 320 + x!) * 4, (y! * 320 + x!) * 4 + 4)),
+      blue,
+      `picture colour at (${x}, ${y})`,
+    );
+  assert.notDeepEqual(blue, [0, 0, 0, 255], "the picture, not the black screen it dissolved from");
+});
+
 test("preview never invents an answer to a game's text prompt", async () => {
   const container = createContainer();
   container.putResource(

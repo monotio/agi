@@ -193,7 +193,7 @@ test("amiga-2.082: prints retain f15 while timed windows clear v21", () => {
 for (const profile of ["2.001", "2.089", "amiga-2.082", "2.936", "3.002.149"] as const) {
   test(`${profile}: show.pic closes persistent windows only in profiles where ShowPic calls Reset(15)`, () => {
     const e = game(
-      'set(f15);print("Window.");assignn(v60,0);load.pic(v60);draw.pic(v60);show.pic();increment(v200);return;',
+      'set(f15);print("Window.");assignn(v60,0);load.pic(v60);overlay.pic(v60);show.pic();increment(v200);return;',
       profile,
     );
     e.tick();

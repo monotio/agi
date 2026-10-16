@@ -57,7 +57,7 @@ function boot(profile: ProfileId, setup: string, after = "") {
 }
 
 const TWO_OBJECTS = `
-  load.pic(v250); draw.pic(v250); show.pic(); load.view(0); assignn(v251, 1);
+  load.pic(v250); overlay.pic(v250); show.pic(); load.view(0); assignn(v251, 1);
   animate.obj(o0); set.view(o0, 0); position(o0, 0, 40);
   step.size(o0, v251); step.time(o0, v251); draw(o0);
   animate.obj(o1); set.view(o1, 0); position(o1, 150, 160);

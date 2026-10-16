@@ -22,7 +22,7 @@ function engine(
     "logic",
     0,
     assembleLogic(
-      "if(!isset(f200)){set(f200);load.pic(v0);draw.pic(v0);show.pic();" + source + "}return;",
+      "if(!isset(f200)){set(f200);load.pic(v0);overlay.pic(v0);show.pic();" + source + "}return;",
       { profile: PROFILES[profile], dictionary: new Map() },
     ).payload,
   );
