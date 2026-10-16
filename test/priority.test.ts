@@ -352,3 +352,79 @@ test("priorityForY follows a non-default base", () => {
   assert.equal(priorityForY(114, 60), 10); // 5 + floor(540 / 108)
   assert.equal(priorityForY(167, 60), 14); // 5 + floor(1070 / 108)
 });
+
+test("MakeObjList PriToY uses (pri - 5) * 12 + 48 before set.pri.base, 168 on 2.936/3.002.086 table mode, and downward pri_tbl scan on 3.002.102/149 table mode", () => {
+  // Default priority table (default_pri_flag != 0): PriToY(9) = (9 - 5) * 12 + 48 = 96.
+  // o0 has fixed priority 9 (key 96, painted at priority 9); o1 has fixed priority 9
+  // or baseline at y = 97 with fixed priority? No: if o0 has fixed priority 9 (key 96)
+  // and o1 is at y = 97 with release.priority (band priority 9 at y = 97, key 97),
+  // both paint at priority 9! In default mode, o0 (key 96) draws before o1 (key 97),
+  // so o1's color (2) wins the overlap at (20, 96).
+  const defaultMode = game(
+    `${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 9); return;`,
+    "2.936",
+  );
+  defaultMode.tick();
+  assert.equal(
+    defaultMode.getFrame().visual[96 * 160 + 20],
+    2,
+    "default mode: PriToY(9)=96 sorts before baseline y=97",
+  );
+
+  // On 2.936 and 3.002.086 after set.pri.base(48), default_pri_flag == 0 and PriToY starts
+  // at y = 168 (DS:[pri_tbl + 168] == 0 < 9), returning 168. Now o0 (key 168) draws AFTER
+  // o1 (key 97), so o0's color (1) wins the equal-priority overlap at (20, 96)!
+  const tableMode2936 = game(
+    `set.pri.base(48); ${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 9); return;`,
+    "2.936",
+  );
+  tableMode2936.tick();
+  assert.equal(
+    tableMode2936.getFrame().visual[96 * 160 + 20],
+    1,
+    "2.936 table mode: PriToY(9)=168 sorts after baseline y=97",
+  );
+
+  // On 3.002.149 after set.pri.base(48), PriToY starts at y = 167 and decrements while
+  // pri_tbl[y] >= 9, returning y = 95. So o0 (key 95) draws BEFORE o1 (key 97), and o1 (2) wins!
+  const tableMode3149 = game(
+    `set.pri.base(48); ${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 9); return;`,
+    "3.002.149",
+  );
+  tableMode3149.tick();
+  assert.equal(
+    tableMode3149.getFrame().visual[96 * 160 + 20],
+    2,
+    "3.002.149 table mode: PriToY(9)=95 sorts before baseline y=97",
+  );
+});
+
+test("InsertObj runs MirrorCell per object during frame composition so two objects sharing a mirrored view draw in their own loop orientations", () => {
+  const engine = game(`
+    load.view(1);
+    animate.obj(o0); set.view(o0, 1); position(o0, 10, 100); fix.loop(o0); set.loop(o0, 0); draw(o0); stop.cycling(o0);
+    animate.obj(o1); set.view(o1, 1); position(o1, 30, 100); fix.loop(o1); set.loop(o1, 1); draw(o1); stop.cycling(o1);
+    return;
+  `);
+  engine.patchResources([
+    {
+      kind: "view",
+      num: 1,
+      payload: new Uint8Array([
+        0, 0, 2, 0, 0, 9, 0, 9, 0, 1, 3, 0, 2, 1, 0x80, 0x11, 0x21, 0,
+      ]),
+    },
+  ]);
+  engine.tick();
+  const frame = engine.getFrame();
+  assert.deepEqual(
+    Array.from(frame.visual.slice(100 * 160 + 10, 100 * 160 + 12)),
+    [1, 2],
+    "o0 at loop 0 draws unmirrored [1, 2]",
+  );
+  assert.deepEqual(
+    Array.from(frame.visual.slice(100 * 160 + 30, 100 * 160 + 32)),
+    [2, 1],
+    "o1 at loop 1 draws mirrored [2, 1]",
+  );
+});

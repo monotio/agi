@@ -1463,23 +1463,28 @@ directly off the machine code; each entry names the finding it settles.
   0x7E7C) is operand-fetch + store to the horizon global DS:0x12D and
   returns; no object relocation — enforcement is lazy via the MoveObjs clamp
   and GoodPos.
-- **F-motion-10 (fact; engine matches on verified profiles `2.936` and `3.002.149`).** new.room object loop (2.936 kq3
-  core 0x1792, loop body 0x17B6, record stride 0x2B; also verified on 3.002.149
-  gr1 below): `and word
-[si+0x25],0xffbe / or word [si+0x25],0x10` — drawn (0x01) and animated
-  membership (0x40) clear, the update-partition bit (0x10) is set on every
-  record, and EVERY OTHER control bit survives, including pending-reposition
-  (0x0400) and the initial animation delay (0x1000) (contrast unanimate.all
-  — action 0x22 handler 0x53D — whose loop clears 0x41 only and does not
-  set 0x10). Word stores NULL viewptr (+0x08), celptr (+0x10) and save
-  (+0x14); byte stores of 1 write movefreq (+0x00), moveclk (+0x01),
-  stepsize (+0x1E), cyclefreq (+0x1F) and cycleclk (+0x20) — cadence offsets
-  cross-checked against MoveObjs (0x1542: moveclk dec/reload from movefreq)
-  and the Animate sweep (0x5EF: cycleclk/cyclefreq). x (+0x03), y (+0x05)
-  and dir (+0x21) are preserved. Engine: gated by
-  `profile.newRoomPreservesReposAndCycleDelay` (`true` on `2.936` and
-  `3.002.149`; other profiles keep their previous clear of `newlyPositioned`
-  and `cycleDelay` until verified).
+- **F-motion-10 (fact; engine matches across all 18 profiles).** new.room object loop (PC
+  `NewRoom` core / object-reset loop, record stride `0x2b`: `2.001` ddp
+  `0x1493`/`0x14b7`, `2.089` sq1 `0x1641`/`0x1665`, `2.230` xmas
+  `0x1666`/`0x168a`, `2.272` xmas `0x16a1`/`0x16c5`, `2.411` kq1
+  `0x1702`/`0x1726`, `2.439` sq1 `0x1706`/`0x172a`, `2.440` lsl1
+  `0x1702`/`0x1726`, `2.903` bc `0x1720`/`0x1744`, `2.915`/`2.917` mh1/kq1
+  `0x1720`/`0x1744`, `2.936` kq3 `0x1792`/`0x17b6`, `3.002.086` kq4
+  `0x1af4`/`0x1b18`, `3.002.102`/`3.002.107` dmdp/bc `0x1afe`/`0x1b22`,
+  `3.002.149` gr1 `0x1a0a`/`0x1a2e`; Amiga `NewRoom`, record stride `0x3e`:
+  `2.082` sq1 `h12+0x3e..0x60`, `2.176..2.333` kq2/sq2/pq1/gr/mh2
+  `h14+0x3e..0x60`; IIgs `1.014` sq2 `seg2+0x0046..0x009a`, record stride
+  `0x30`): `and word [si+0x25],0xffbe / or word [si+0x25],0x10` on PC,
+  `andi.w #$ffbe,$30(a2) / ori.w #$0010,$30(a2)` on Amiga, and `lda [$02],y;
+  and #$ffbe; ora #$0010; sta [$02],y` at `+$27` on IIgs — drawn (`0x01`) and
+  animated membership (`0x40`) clear, the update-partition bit (`0x10`) is set
+  on every record, and EVERY OTHER control bit survives, including
+  pending-reposition (`0x0400`) and the initial animation delay (`0x1000`)
+  (contrast `unanimate.all` — action `0x22` — whose loop clears `0x41` only and
+  does not set `0x10`). Null stores clear `viewptr`, `celptr` and `save`; unit
+  stores write `movefreq = 1`, `moveclk = 1`, `stepsize = 1`, `cyclefreq = 1`
+  and `cycleclk = 1`; `x`, `y` and `dir` are preserved. Engine:
+  `profile.newRoomPreservesReposAndCycleDelay` is `true` across all 18 profiles.
 - **F-motion-12 (fact; engine matches on valid placement; documented divergence on unusual input when no legal position exists).**
   `FindPosn` (`2.936` kq3 `0x593a`): if `y <= horizon` and `!IGNRHRZ`, sets
   `y = horizon + 1` before testing; spiral legs `x--`/`y++`/`x++`/`y--` with leg
@@ -1865,65 +1870,89 @@ room 3.
 
 #### Wave-3 add.to.pic verdicts
 
-Static disassembly of the decoded LSL1 2.440 image, the decoded KQ3 2.936 image
-and the KQ4 3.002.086 code body.
+Static disassembly across all 21 shipped binaries: 15 PC (`2.001..3.002.149`),
+6 Amiga (`2.082..2.333`), and Apple IIgs (`1.014`).
 
-- **F-VIEWS-03 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic control box anchor (2.440
-  lsl1 0x2CCC, 2.936 kq3 0x2D52, 3.002.086 kq4 0x5BEA): on `2.936` and
-  `3.002.086`, the AddToPic core stores the script x/y into a scratch animation
-  entry, forces pri 15, calls FindPosn (0x593A — may relocate x/y), then
-  objinpic (0x57CF) feeds InsertObj and the control box from the SAME entry
-  fields ([bp+3]/[bp+5]). On `2.440`, `AddToPic` (`0x2CCC`) calls `ObjInPic`
-  (`0x55F0`) directly without calling `FindPosn`. Engine: relocation is gated
-  separately by `profile.addToPicRelocation` (`true` on `2.936` and
-  `3.002.086`; `false` on `2.440` and other profiles).
-- **F-VIEWS-04 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic packing (2.440 lsl1
-  handlers 0x2BF4/0x2C44, 2.936 kq3 0x2C7A/0x2CCA, 3.002.086 kq4 0x2F3F): margin is `shl 4` ORed into the
-  priority byte (byte store — margin ≥ 16 truncates away); objinpic masks the
-  packed byte `and ah,0x0F` before use, and a zero nibble triggers the
-  y-priority lookup. Over-range priority operands are nibble-truncated by
-  construction. Engine: gated by `profile.addToPicPacking` (`true`
-  on `2.440`, `2.936` and `3.002.086`).
-- **F-VIEWS-09 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic box gate (2.440 lsl1
-  objinpic 0x561B, 2.936 kq3 0x57FA, 3.002.086 kq4 0x5C15): the sole skip condition is
-  `cmp byte [entry+0x24],0x3F; ja` on the packed margin|priority byte —
-  the margin operand reaches the gate nibble-truncated (F-VIEWS-04's byte
-  store), so margins 16..19 (and every margin ≡ 0..3 mod 16) still draw a
-  truncated-color box while margins with a truncated nibble ≥ 4 skip it.
-  No y-range guard exists; the box top is bounded by
-  the pri_tbl band scan and shadow-ram top only. Engine: gated by
-  `profile.addToPicPacking` (`true` on `2.440`, `2.936` and `3.002.086`).
-- **F-VIEWS-12 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** Narrow-cel control box
-  (2.440 lsl1 0x5688, 2.936 kq3 0x5867, 3.002.086 kq4 0x5C82): the top-row loop is
-  `mov cl,al; sub cl,2; … loop` with no zero test (`CH = 0` from the preceding
-  vertical loop) — a valid 1-pixel-wide cel with a truncated margin nibble `< 4`
-  wraps `CL` to `0xFF` (`CX = 255`) and stamps 255 consecutive shadow-RAM cells
-  starting at `(x, topY)` (for example, a 1×2 cel at `(20, 80)`, priority `15`,
-  margin `1` writes `1` into `(20..159, 79)` and `(0..114, 80)`, including
-  `(21, 79)`), and a valid 2-pixel-wide cel wraps `CX = 0` in `loop` to `65536`
-  iterations marching across the 160×168 priority surface. Engine: gated by
-  `profile.addToPicPacking` (`true` on `2.440`, `2.936` and `3.002.086`).
-- **F-picture-06 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic
-  control box (2.440 lsl1 objinpic 0x55F0 / 2.936 kq3 0x57CF / 3.002.086 kq4 body 0x5BEA,
-  instruction-identical): the cel blit runs first (a runtime-loaded OBJS
-  overlay routine — kq3 loads IBM_OBJS.OVL/HGC_OBJS.OVL at paragraph 0x9DB
-  and calls its third entry at 0x9DB6), then the box is gated on the whole
-  packed margin|priority byte ≤ 0x3F (the gate is owned by F-VIEWS-09), so a
-  truncated margin nibble of 0..3 draws it. Height: a counter starts at 1
-  and walks up from row y−1 while pri_tbl[row] == pri_tbl[y], stopping at
-  row 0 (`or cl,cl; jz` at 0x5808) — the walk, and therefore the box top,
-  is bounded by y+1 rows; box height = min(cel ydim, walked rows) (`cmp
-ah,dh / jna` at 0x582D). Paint per cell: `and es:[di],0x0F / or
-es:[di],packed&0xF0` — the truncated margin nibble into the shadow byte's
-  high nibble, low nibble preserved. Geometry: the bottom row paints all
-  width cells at (x,y); each of the height−1 rows above paints only the two
-  edge columns; the top row then paints its width−2 interior cells; a
-  height-1 box is the bottom row only (`dec cl; jz` at 0x5851). The top-row
-  count runs as a 16-bit LOOP with CH=0, so widths below 3 wrap `CX` to 255
-  (width 1) or 65536 (width 2) cells across shadow RAM (`F-VIEWS-12`).
-  The engine's control-box stamp matches the nibble-truncated gate
-  (`F-VIEWS-04`/`F-VIEWS-09`), the band walk, the height cap, the
-  bottom/edges/top geometry and the narrow-cel `LOOP` wrap (`F-VIEWS-12`).
+- **F-VIEWS-03 (fact; engine matches across all 18 profiles).** add.to.pic
+  control box anchor (PC `AddToPic` core → `FindPosn` → `ObjInPic`: `2.001` ddp
+  `0x274c` → `0x4ea3` → `0x532a`, `2.089` sq1 `0x2be9` → `0x515c` → `0x5697`,
+  `2.230` xmas `0x2b85` → `0x515d` → `0x55e4`, `2.272` xmas `0x2c07` → `0x51f9`
+  → `0x5680`, `2.411` kq1 `0x2bc1` → `0x575d` → `0x5be4`, `2.439` sq1 `0x2cc8`
+  → `0x585c` → `0x5ce3`, `2.440` lsl1 `0x2ccc` → `0x5858` → `0x5cdf`, `2.903`
+  bc `0x2cca` → `0x5879` → `0x5d00`, `2.915`/`2.917` mh1/kq1 `0x2cca` → `0x587a`
+  → `0x5d01`, `2.936` kq3 `0x2d52` → `0x593a` → `0x5dcf`, `3.002.086` kq4
+  `0x3017` → `0x5d57` → `0x5bea`, `3.002.102`/`3.002.107` dmdp/bc `0x3021` →
+  `0x5d6d` → `0x5c00`, `3.002.149` gr1 `0x2ff1` → `0x5b6a` → `0x5a06`; Amiga
+  `AddToPic` → `FindPosn` → `ObjInPic`: `2.082` sq1 `h42+0xd6` → `h88+0x0` →
+  `h101+0x0`, `2.176..2.333` kq2/sq2/pq1/gr/mh2 `h60+0xd6` → `h122+0x0` →
+  `h136+0x0`; IIgs `1.014` sq2 `seg2+0x28eb` → `collide+0x1ae` → `main+0x1279`):
+  every binary stores the script `x`/`y` into a scratch animation entry with
+  `pri = 15` and `control = IGNRHRZ | IGNROBJS` (`0x0208`), calls `FindPosn` to
+  relocate out-of-bounds `x`/`y` into screen bounds before overwriting
+  `entry.pri = pri | (margin << 4)`, and then calls `ObjInPic`, which feeds
+  `InsertObj` and the control box from the relocated entry coordinates. Engine:
+  `profile.addToPicRelocation` is `true` across all 18 profiles.
+- **F-VIEWS-04 (fact; engine matches across all 18 profiles).** add.to.pic
+  packing (PC `add.to.pic` / `add.to.pic.v` handlers and `AddToPic`: `2.001`
+  `0x2674`/`0x26c4`/`0x274c`, `2.089` `0x2b11`/`0x2b61`/`0x2be9`, `2.230`
+  `0x2aad`/`0x2afd`/`0x2b85`, `2.272` `0x2b2f`/`0x2b7f`/`0x2c07`, `2.411`
+  `0x2ae9`/`0x2b39`/`0x2bc1`, `2.439` `0x2bf0`/`0x2c40`/`0x2cc8`, `2.440`
+  `0x2bf4`/`0x2c44`/`0x2ccc`, `2.903` `0x2bf2`/`0x2c42`/`0x2cca`,
+  `2.915`/`2.917` `0x2bf2`/`0x2c42`/`0x2cca`, `2.936`
+  `0x2c7a`/`0x2cca`/`0x2d52`, `3.002.086` `0x2f3f`/`0x2f8f`/`0x3017`,
+  `3.002.102`/`3.002.107` `0x2f49`/`0x2f99`/`0x3021`, `3.002.149`
+  `0x2f19`/`0x2f69`/`0x2ff1`; Amiga `h42+0x00`/`+0x60`/`+0xd6` on `2.082` and
+  `h60+0x00`/`+0x60`/`+0xd6` on `2.176..2.333`; IIgs `1.014`
+  `seg2+0x284b`/`+0x288d`/`+0x28eb`): `margin` is shifted left 4 and ORed into
+  the priority byte (`entry.pri = (pri & 0xff) | ((margin & 0x0f) << 4)`). In
+  `ObjInPic` on `2.089..3.002.149`, all six Amiga builds, and IIgs `1.014`,
+  `(entry.pri & 0x0f) === 0` substitutes `pri_tbl[y]` into the low nibble before
+  calling `InsertObj`; in `2.001` (`ObjInPic` `0x532a`), `ObjInPic` calls
+  `InsertObj` directly without that zero-nibble substitution, so `priority === 0`
+  draws at priority `0`. Engine: `profile.addToPicPacking` is `true` across all
+  18 profiles, and `2.001` (`action0x8f === "max-drawn-objects"`) skips the
+  zero-nibble `pri_tbl[y]` substitution.
+- **F-VIEWS-09 (fact; engine matches across all 18 profiles).** add.to.pic box
+  gate (PC `ObjInPic`: `2.001` `0x5332`, `2.089` `0x56c2`, `2.230` `0x560f`,
+  `2.272` `0x56ab`, `2.411` `0x5c0f`, `2.439` `0x5d0e`, `2.440` `0x5d0a`,
+  `2.903` `0x5d2b`, `2.915`/`2.917` `0x5d2c`, `2.936` `0x5dfa`, `3.002.086`
+  `0x5c15`, `3.002.102`/`3.002.107` `0x5c2b`, `3.002.149` `0x5a31`; Amiga
+  `h101+0x3e` on `2.082` and `h136+0x3e` on `2.176..2.333`; IIgs `1.014`
+  `main+0x129a`): the sole skip condition is `packed > 0x3f` (`cmp byte
+  [entry+0x24],0x3f; ja` on PC, `cmpi.b #$3f,$2f(a2); bhi` on Amiga, `cmp #$40;
+  bcs` on IIgs) — margins with `(margin & 0x0f) <= 3` and `pri <= 63` draw a
+  `(margin & 0x0f)` control box while packed bytes `> 0x3f` skip it. Engine:
+  `profile.addToPicPacking` is `true` across all 18 profiles.
+- **F-VIEWS-12 (fact; engine matches across all 18 profiles).** Narrow-cel
+  control box (PC `ObjInPic` top-row loop: `2.001` `0x539f`, `2.089` `0x572f`,
+  `2.230` `0x567c`, `2.272` `0x5718`, `2.411` `0x5c7c`, `2.439` `0x5d7b`,
+  `2.440` `0x5d77`, `2.903` `0x5d98`, `2.915`/`2.917` `0x5d99`, `2.936`
+  `0x5e67`, `3.002.086` `0x5c82`, `3.002.102`/`3.002.107` `0x5c98`, `3.002.149`
+  `0x5a9e`; Amiga `h101+0xea` on `2.082` and `h136+0xea` on `2.176..2.333`; IIgs
+  `1.014` `main+0x1327`): on all 15 PC builds, the top-row loop is `mov cl,al;
+  sub cl,2; … loop` with no zero test (`CH = 0` from the preceding vertical
+  loop) — a valid 1-pixel-wide cel with `packed <= 0x3f` wraps `CL` to `0xff`
+  (`CX = 255`) and stamps 255 consecutive shadow-RAM cells starting at
+  `(x + 1, topY)`, and a 2-pixel-wide cel wraps `CX = 0` in `loop` to `65536`
+  iterations marching across the 160×168 priority surface. On all six Amiga
+  builds (`subq.w #3,d2; bmi.b done; dbra d2,loop`) and IIgs `1.014` (`sec; sbc
+  #$0003; bmi done`), a signed branch skips the top-row interior loop cleanly
+  when `width <= 2`. Engine: the 8086 `LOOP` wrap runs when
+  `profile.addToPicPacking && profile.presentation === "pc"`, and Amiga/IIgs
+  skip the interior top span when `width <= 2`.
+- **F-picture-06 (fact; engine matches across all 18 profiles).** add.to.pic
+  control box (all 15 PC builds, 6 Amiga builds, and IIgs `1.014`, addresses in
+  `F-VIEWS-03`/`F-VIEWS-09`/`F-VIEWS-12` above): the cel blit (`InsertObj`) runs
+  first, then the box is gated on the packed `margin|priority` byte `<= 0x3f`
+  (`F-VIEWS-09`). Height: a counter starts at 1 and walks up from row `y - 1`
+  while `pri_tbl[row] == pri_tbl[y]`, stopping at row 0 — box height =
+  `min(cel.height, walked rows)`. Paint per cell writes the truncated margin
+  nibble into the priority channel (`and es:[di],0x0f / or es:[di],packed&0xf0`
+  on PC, `andi.b #$0f,(a0) / or.b d3,(a0)` on Amiga, nibble mask/OR in
+  `$05`/`$09` on IIgs). Geometry: the bottom row paints all `width` cells at
+  `(x, y)`; each of the `height - 1` rows above paints only the two edge
+  columns; when `height > 1`, the top row then paints its `width - 2` interior
+  cells (with the 8086 `LOOP` wrap on PC when `width <= 2`, `F-VIEWS-12`).
 
 ### Text under later graphics
 
@@ -2124,46 +2153,56 @@ cel.width) / 2)` at baseline 167 with priority 15 and blits the cel onto the
 
 #### Wave-4 view verdicts
 
-Static disassembly of the decoded KQ3 2.936 image (`4b50c681…`, runtime
-offsets; `IBM_OBJS.OVL` `44f738f0…` loads at runtime base `0x9DB0`).
+Static disassembly across all 21 shipped binaries: 15 PC (`2.001..3.002.149`
+plus `IBM_OBJS.OVL`), 6 Amiga (`2.082..2.333`), and Apple IIgs (`1.014`).
 
-- **F-VIEWS-07 (fact; engine matches on verified profile `2.936`).**
-  Fixed priority > 15 (`2.936` kq3): `set.priority` (`0x7A80`) and
-  `set.priority.v` (`0x7B08`) store the operand byte unmasked at record `+0x24`
-  (matching the engine). The per-frame draw key (`0x4CBB`) for a stored
-  priority of `16..255` finds no band ≥ `pri` and exits with key `168` — the
-  engine's key matches for over-range values too. The `InsertObj` blit
-  (`IBM_OBJS.OVL` `0xC5`) derives the compared/stamped priority with four
-  byte-wide `shl bh,1`, an implicit `(pri & 0x0F) << 4`: a stored `17` blits as
-  priority `1`. Engine: gated by `profile.originalCelBlitClippingAndPriorityMask`
-  (`true` on `2.936`; other profiles keep their previous unmasked priority
-  comparison until verified).
-- **F-VIEWS-04-detail (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`; completes the wave-3 entry).**
-  The nibble truncation applies to BOTH blit and box (`objinpic` `0x55F0` /
-  `0x57CF` + `InsertObj`): `objinpic` masks `and ah,0x0F` for the y-priority
-  zero test and band fold-in; `InsertObj` loads the packed byte raw but its
-  byte-wide shifts truncate to `(pri & 0x0F) << 4` for both the dest compare
-  and the shadow-ram stamp; the box gate `cmp byte [entry+0x24],0x3F` and box
-  color `and dl,0xF0` use the full packed byte by design. Gated by
-  `profile.addToPicPacking` (`true` on `2.440`, `2.936` and `3.002.086`).
-- **F-VIEWS-09-adjacent (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`; confirms wave 3).**
-  Re-verified on lsl1 `2.440` and kq3 `2.936`: `InsertObj` runs BEFORE the box
-  gate (the cel is always blitted; only the box is conditional), the sole skip
-  condition is the packed byte `> 0x3F`, and no y-range compare exists anywhere
-  in `objinpic`. A margin operand of `16..31` truncates away in the handler's
-  byte-wide packing, drawing a `(margin & 0x0f)` control box when
-  `profile.addToPicPacking` is `true` (`2.440`, `2.936` and `3.002.086`).
-- **F-VIEWS-11 (fact; engine matches on verified profile `2.936` for `vdesc == 0`; malformed-input-only for out-of-bounds `vdesc`).** `show.obj` description (`2.936` kq3
-  core `0x5EDB`): the `vdesc` word at `view+3` is loaded little-endian, added
-  to the view base, and passed straight to `WindowPrint` — no zero test, no
-  bounds check, no fallback. On a valid view with no description (`vdesc == 0`),
-  `show.obj` in `2.936` passes `view + 0` (the raw view header bytes up to the
-  first `0x00` byte) to `WindowPrint`. Engine: gated by
-  `profile.showObjUncheckedDescOffset` (`true` on `2.936`, where the engine
-  decodes the raw view bytes starting at offset `0` up to the first `0x00` byte
-  when `descOffset === 0`; `false` on the other 19 profiles, which keep empty
-  description text `""` until verified); out-of-bounds `vdesc >= length`
-  requires a corrupt view resource (malformed-input-only).
+- **F-VIEWS-07 (fact; engine matches across all 18 profiles).**
+  Fixed priority > 15 and control-pixel priority scan (PC `IBM_OBJS.OVL`
+  `InsertObj`: `2.001`/`2.089` `+0x00ad..0x0184`, `2.230..3.002.149`
+  `+0x00b0..0x0187`; Amiga `InsertObj`: `2.082` `h112+0x0000..0x013a`,
+  `2.176..2.333` `h149+0x0000..0x013a`; IIgs `1.014` `InsertObj`
+  `main+0x1013..0x1115`): `set.priority` and `set.priority.v` store the operand
+  byte unmasked into the object record's priority field (`+0x24` on PC, `+$2f`
+  on Amiga, `+$26` on IIgs). The `InsertObj` blit derives the compared and
+  stamped priority from the low nibble only (`shl bh,1` × 4 on PC, `lsl.b #4,d0`
+  on Amiga, `(pri & 0x0f)` nibble tables on IIgs): a stored `17` blits as
+  priority `1`. When the destination priority at `(x, y)` is a control value
+  (`<= 2`, i.e., `<= 0x20` in the high nibble), `InsertObj` scans downward row
+  by row (`+160` bytes per row) until it finds a row with priority `> 2` or
+  reaches the bottom of the 168-row picture surface: if `y = 167` still holds
+  `<= 2`, all 15 PC builds fall back to priority `0` (`mov bl,0` at
+  `IBM_OBJS.OVL+0x014d`/`+0x0150`), whereas all six Amiga builds (`moveq #$40,d2`
+  at `h112+0x0104` / `h149+0x0104`) and IIgs `1.014` (`lda #$0004` at
+  `main+0x10d6`) fall back to priority `4`. Engine:
+  `profile.originalCelBlitClippingAndPriorityMask` is `true` across all 18
+  profiles, and `drawCel` uses `controlScanFallbackPriority: 0` on PC and `4`
+  on Amiga and IIgs.
+- **F-VIEWS-04-detail (fact; engine matches across all 18 profiles; completes the wave-3 entry).**
+  The nibble truncation applies to BOTH blit and box (`ObjInPic` + `InsertObj`
+  across all 21 binaries): `ObjInPic` masks `and ah,0x0f` for the y-priority
+  zero test and band fold-in (on `2.089+`, Amiga, and IIgs); `InsertObj` loads
+  the packed byte raw and shifts/masks its low nibble `(pri & 0x0f)` for both
+  the destination comparison and the priority stamp; the box gate (`<= 0x3f`)
+  and box color (`(packed >> 4) & 0x0f`) use the full packed byte by design.
+- **F-VIEWS-09-adjacent (fact; engine matches across all 18 profiles; confirms wave 3).**
+  Verified across all 21 binaries: `InsertObj` runs BEFORE the box gate (the cel
+  is always blitted; only the box is conditional), the sole skip condition is
+  the packed byte `> 0x3f`, and no y-range compare exists anywhere in
+  `ObjInPic`. A margin operand of `16..31` truncates away in the handler's
+  byte-wide packing, drawing a `(margin & 0x0f)` control box.
+- **F-VIEWS-11 (fact; engine matches across all 18 profiles for `vdesc == 0`; malformed-input-only for out-of-bounds `vdesc`).** `show.obj` description (PC `ShowObj`
+  core: `2.001` `0x542c`, `2.089` `0x57aa`, `2.230` `0x56f7`, `2.272` `0x5793`,
+  `2.411` `0x5cf7`, `2.439` `0x5df6`, `2.440` `0x5df2`, `2.903` `0x5e13`,
+  `2.915`/`2.917` `0x5e14`, `2.936` `0x5edb`, `3.002.086` `0x630d`,
+  `3.002.102`/`3.002.107` `0x6323`, `3.002.149` `0x6127`; Amiga: `2.082`
+  `h103+0x7c`, `2.176..2.333` `h138+0x7c`; IIgs `1.014` `seg2+0x3e62`): in every
+  binary, the 16-bit little-endian `vdesc` word at `view+3` is loaded, added
+  directly to `viewPtr`, and passed to `WindowPrint` without testing for `0`. On
+  a valid view with no description (`vdesc == 0`), `ShowObj` formats the
+  NUL-terminated bytes starting at offset `0` of the view header. Engine:
+  `profile.showObjUncheckedDescOffset` is `true` across all 18 profiles;
+  out-of-bounds `vdesc >= length` requires a corrupt view resource
+  (malformed-input-only).
 
 ### Original string slot addressing
 
@@ -3768,13 +3807,16 @@ body; brush tables read from the hash-pinned overlays.
   (`cmp byte [color],0xF / jz`, `cmp byte [pri],0x40 / jz`); visual channel
   selected before priority (`test bh,0xF` first); seed masked pixel must equal
   the background mask or the fill is ignored; Y test is an 8-bit `cmp al,0xA7`.
-- **F-picture-04 (fact; engine matches on verified profiles `2.936` and `3.002.086`).** show.pri.screen (2.936 kq3 0x731B
-  / 3.002.086 kq4 body 0x775A): `showPri=1; BackToScrn; WaitAcAb; BackToScrn;
-showPri=0` — no window close. ChkAcAb (kq3 0x45F0) accepts only 0x0D
-  (ENTER) and 0x1B (ESC); SPACE is ignored. The wait is a private blocking
-  loop (logic frozen). Engine: gated by `profile.showPriScreenPreservesWindow`
-  (`true` on `2.936` and `3.002.086`; other profiles keep their previous window
-  close on `show.pri.screen` until verified).
+- **F-picture-04 (fact; engine matches across all 18 profiles).** show.pri.screen
+  (PC handler: `2.001` `0x69ea`, `2.089` `0x6cc9`, `2.230` `0x6c88`, `2.272`
+  `0x6d24`, `2.411` `0x6f59`, `2.439` `0x70a5`, `2.440` `0x7054`, `2.903`
+  `0x7245`, `2.915`/`2.917` `0x7254`, `2.936` `0x731b`, `3.002.086` `0x775a`,
+  `3.002.102`/`3.002.107` `0x7772`, `3.002.149` `0x7659`; Amiga: `2.082`
+  `h123+0x0`, `2.176..2.333` `h177+0x0`; IIgs `1.014` `seg2+0x3ec2`): in every
+  binary, `show.pri.screen` sets `showPri = 1`, calls `BackToScrn`, waits on
+  `WaitAcAb`, sets `showPri = 0`, and calls `BackToScrn` again without calling
+  `CloseWindow`. Engine: `profile.showPriScreenPreservesWindow` is `true` across
+  all 18 profiles.
 - **F-picture-09 (fact; engine matches).** PC picture core (2.936 kq3 /
   3.002.086 kq4): brush row-word tables at ovl DS+0x1629 (kq3) / DS+0x1699
   (kq4) via 8-pointer tables DS+0x1619/0x1689 — byte-exact ROW_WORDS_V2 incl.
@@ -3794,34 +3836,77 @@ al,0xFF; jz done; sub al,0xF0; jc top; cmp al,0xA; ja top; call [bx+tbl]`
 
 ### Original cel handling and priority table
 
-Static disassembly of the decoded KQ3 2.936 image and the KQ4 3.002.086 code
-body (instruction-identical on MirrorCell).
+Static disassembly across all 21 shipped binaries: 15 PC (`2.001..3.002.149`
+plus `IBM_OBJS.OVL`), 6 Amiga (`2.082..2.333`), and Apple IIgs (`1.014`).
 
-- **F-VIEWS-01 (fact; engine matches).** Cel mirroring (2.936 kq3 MirrorCell
-  0x587D / 3.002.086 kq4 0x5C98, instruction-identical): InsertObj tests
-  skipclr bit 0x80 at blit entry and calls MirrorCell when the stored loop
-  bits (skipclr 0x70, >>4) differ from the animation entry's loop;
-  MirrorCell rewrites those bits in place in the loaded resource, rebuilds
-  the mirrored cel in a 2048-byte stack buffer — leading skip = xdim − pixel
-  total emitted in ≤15-pixel chunks, fill bytes reversed per row via
-  std/lodsb/cld/stosb — and rep-movsb's it back over the original cel.
-  Orientation field is 0x70 (mod 8), not 0x30.
-- **F-VIEWS-05 (fact; engine matches on verified profile `2.936`).** Cel placement adjustment (2.936
-  kq3): none exists in the blit — InsertObj computes top = y − ydim + 1 and
-  plots. SetCel (0x3CCB) persistently clamps the object instead: x+xsize >
-  160 → x := 160 − xsize; y−ysize < −1 → y := ysize−1 (then horizon+1 unless
-  IGNRHRZ); both set REPOS (0x0400). A negative top never shifts x left — the
-  spec's `left += top` rule is not corroborated. Engine: gated by
-  `profile.originalCelBlitClippingAndPriorityMask` (`true` on `2.936`; other
-  profiles keep their previous placement adjustment until verified).
-- **F-VIEWS-06 (fact; engine matches).** Priority table build (2.936 kq3
-  initpri 0x56A2 / set.pri.base 0x4D10; 3.002.086 kq4 0x5AB6 / 0x513E):
-  default is rep-stosb 48×4 then 12-row bands to 14. set.pri.base rebuilds
-  all 168 entries as y<base→4 else min(15, 5 + trunc((y−base)·168 /
-  trunc((168−base)·168/10))); the double truncation is numerically identical
-  to 5+floor((y−base)·10/(168−base)) for every base 0..168 (verified
-  exhaustively). kq4's initpri only runs when pri_tbl[0]==0xFF. No y>167
-  saturation — table reads are unguarded xlat.
+- **F-VIEWS-01 (fact; engine matches across all 18 profiles).** Cel mirroring
+  (`MirrorCell` / `MirrorLoop`: PC `2.001` and `2.089` have no `MirrorLoop` or
+  `MirrorCell` — `SetLoop` `0x34d7`/`0x35c7` and `SetCel` `0x35ae`/`0x36a2` only
+  store pointers; `2.230` `SetLoop` `0x350d` calls `MirrorLoop` `0x50af` with a
+  2-bit `0x30` mask (`F-VIEWS-02`, `F-VIEWS-08`); `2.272` `0x572e`, `2.411`
+  `0x5c92`, `2.439` `0x5d91`, and `2.440` `0x5d8d` call `MirrorCell` from both
+  `_SetCel` and `InsertObj` using a 2-bit stored-loop mask `and al,0x30; shr
+  al,4`; `2.903` `0x5dae`, `2.915`/`2.917` `0x5daf`, `2.936` `0x587d`,
+  `3.002.086` `0x5c98`, `3.002.102`/`3.002.107` `0x5cae`, and `3.002.149`
+  `0x5ab4` widen `MirrorCell`'s mask to 3 bits `and al,0x70; shr al,4`; Amiga
+  `2.082` `h102+0x0` and `2.176`/`2.202`/`2.310` `h137+0x0` call `MirrorCell`
+  from `_SetCel` and `InsertObj` (`h112`/`h149`) with a 2-bit mask `andi.w #$30,d0;
+  asr.w #4,d0`, whereas `2.316` and `2.333` `h137+0x0` widen it to 3 bits
+  `andi.w #$70,d0; asr.w #4,d0`; IIgs `1.014` `MirrorCell` `main+0x135a` is
+  called from `_SetCel` (`seg2+0x6081`) and `InsertObj` (`main+0x1013`) with a
+  3-bit mask `and #$0070; lsr × 4`): `MirrorCell` tests `skipclr & 0x80` and,
+  when `((skipclr >> 4) & mask) !== entry.loop`, rewrites the stored orientation
+  bits to `(entry.loop & mask) << 4` and reverses the cel's row runs in place in
+  the loaded view resource. Because `InsertObj` also invokes `MirrorCell` before
+  blitting each object on `2.272+`, Amiga, and IIgs, two objects sharing the
+  same cel on mirrored loops (`0` and `1`) each orient the shared cel for their
+  own blit during `MakeObjList`. Engine: gated by `profile.celMirrorLoopMask`
+  (`0` on `2.001`/`2.089`, `3` on `2.230..2.440` and `amiga-2.082..2.310`, `7`
+  on `2.903..3.002.149`, `amiga-2.316..2.333`, and `iigs-1.014`) and per-object
+  `selectViewCel` in `composePresentation()`.
+- **F-VIEWS-05 (fact; engine matches across all 18 profiles).** Cel placement
+  adjustment and in-place clipping (PC `_SetCel`: `2.001` `0x35c9`, `2.089`
+  `0x36bd`, `2.230` `0x35ff`, `2.272` `0x36ba`, `2.411` `0x3baa`, `2.439`
+  `0x3cb3`, `2.440` `0x3caf`, `2.903` `0x3cc6`, `2.915`/`2.917` `0x3cc7`,
+  `2.936` `0x3ccb`, `3.002.086` `0x3f84`, `3.002.102`/`3.002.107` `0x3f8e`,
+  `3.002.149` `0x3f5e`; Amiga `_SetCel`: `2.082` `h51+0xb4`, `2.176..2.333`
+  `h69+0xb4`; IIgs `1.014` `_SetCel` `seg2+0x6081`; `InsertObj` in
+  `IBM_OBJS.OVL`, Amiga `h112`/`h149`, and IIgs `main+0x1013`): across all 21
+  binaries, `_SetCel` persistently clamps the object when `x + xsize > 160` (`x
+  := 160 - xsize`, setting `REPOS` `0x0400`) and when `y - ysize < -1` (`y :=
+  ysize - 1`, then `horizon + 1` if `y <= horizon && !IGNRHRZ`, setting `REPOS`
+  `0x0400`), while `InsertObj` computes `top = y - ydim + 1` and clips rows with
+  `top < 0` (`ydim += top; top = 0`) and columns with `x + xdim > 160` (`xdim =
+  160 - x`) in place without shifting `x`. Engine:
+  `profile.originalCelBlitClippingAndPriorityMask` is `true` across all 18
+  profiles.
+- **F-VIEWS-06 (fact; engine matches across all 18 profiles).** Priority table
+  build and `MakeObjList` / `PriToY` draw order (PC `MakeObjList`: `2.001`
+  `0x49ee`, `2.089` `0x4ca9`, `2.230` `0x4c19`, `2.272` `0x4cb5`, `2.411`
+  `0x4beb`, `2.439` `0x4cf4`, `2.440` `0x4cf0`, `2.903` `0x4bf6`,
+  `2.915`/`2.917` `0x4bf7`, `2.936` `0x4c93`, `3.002.086` `0x50c1`,
+  `3.002.102`/`3.002.107` `0x50d7`, `3.002.149` `0x4fb8`; PC `PriToY` /
+  `set.pri.base`: `2.936` `0x4cb6`/`0x4d10`, `3.002.086` `0x50e4`/`0x513e`,
+  `3.002.102`/`3.002.107` `0x50fa`/`0x5146`, `3.002.149` `0x4fdb`/`0x5027`;
+  Amiga `MakeObjList`: `2.082` `h80+0x00`, `2.176..2.333` `h112+0x00`; IIgs
+  `1.014` `MakeObjList` / `PriToY`: `main+0x14d6` / `main+0x154d`): default
+  `initpri` fills 48 rows of priority 4 followed by 12-row bands `5..14` (`y =
+  167` is priority 14). On `2.936` and `3.002.x`, `set.pri.base` (`0xae`) clears
+  `default_pri_flag` (`0`) and rebuilds all 168 entries as `y < base → 4` else
+  `min(15, 5 + floor((y - base) * 10 / (168 - base)))`. When `MakeObjList`
+  computes the effective `y` key (`0..255`) for a fixed-priority object, every
+  build with `default_pri_flag != 0` (always true on `2.001..2.917`, Amiga, and
+  IIgs, and true before `set.pri.base` runs on `2.936..3.002.149`) uses the
+  closed form `PriToY(pri) = ((pri - 5) * 12 + 48) & 0xff`. Once `set.pri.base`
+  clears `default_pri_flag` on `2.936` and `3.002.086`, `PriToY` starts its
+  downward scan at `i = 168` (`0xa8`), reading the zero byte immediately past
+  `pri_tbl[0..167]` so `pri === 0` wraps to `255` (`-1`) and `pri > 0` breaks
+  immediately with `168`; on `3.002.102`, `3.002.107`, and `3.002.149`, `PriToY`
+  starts at `i = 167` (`0xa7`) and decrements `i` while `i >= 0 &&
+  pri_tbl[i] >= pri` (`-1` for `pri === 0`, highest row with `pri_tbl[y] < pri`
+  for `1 <= pri <= 14`, and `167` for `pri >= 15`). Engine: `priToY()` in
+  `src/runtime/engine.ts` matches both the default closed form and the
+  post-`set.pri.base` `2.936`/`3.002.086` vs `3.002.102+` scan.
 
 ### Original script capacity and version handlers
 

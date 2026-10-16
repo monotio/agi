@@ -433,6 +433,14 @@ export interface AgiProfile {
   /** Packed loop-header orientation/mirroring nibble; unique to 2.230 (conformance matrix, "View loop encoding"). */
   readonly packedViewLoopHeader: boolean;
   /**
+   * Bitmask for the stored loop-index field in `MirrorCell` (`(cel[2] >> 4) & mask`):
+   * - `0`: no loop or cel mirroring exists (`2.001`, `2.089`).
+   * - `3`: 2-bit loop orientation (`0x30`, `2.230`, `2.272..2.440`, `amiga-2.082..2.310`).
+   * - `7`: 3-bit loop orientation (`0x70`, `2.903..3.002.149`, `amiga-2.316..2.333`, `iigs-1.014`).
+   * (docs/fidelity.md "Original cel handling and priority table", F-VIEWS-01).
+   */
+  readonly celMirrorLoopMask: 0 | 3 | 7;
+  /**
    * Object-distance action 0x45 saturates at 254 (later PC and Amiga), at 255
    * on the IIgs — where a far object reads like an undrawn one — or wraps its
    * low byte (null, early profiles).
@@ -537,26 +545,26 @@ export interface AgiProfile {
   readonly clampExactZeroLeftBoundary: boolean;
   /**
    * Whether add.to.pic packs (margin << 4) | priority into a byte, auto-derives
-   * priority when the low nibble is 0, and gates the control box on
-   * packed <= 0x3f (verified on 2.440, 2.936 and 3.002.086; docs/fidelity.md
-   * "Original add.to.pic control box", F-VIEWS-04, F-VIEWS-09).
+   * priority when the low nibble is 0 (2.089+ and Amiga/IIgs), and gates the
+   * control box on packed <= 0x3f (verified across all 18 profiles;
+   * docs/fidelity.md "Original add.to.pic control box", F-VIEWS-04, F-VIEWS-09).
    */
   readonly addToPicPacking: boolean;
   /**
    * Whether add.to.pic runs the scratch-entry FindPosn relocation spiral before
-   * objinpic (verified on 2.936 and 3.002.086; docs/fidelity.md, F-VIEWS-03).
+   * objinpic (verified across all 18 profiles; docs/fidelity.md, F-VIEWS-03).
    */
   readonly addToPicRelocation: boolean;
   /**
    * Whether the cel blit clips negative-top and right-edge rows/columns in
    * place without shifting left and masks priority to its low nibble (verified
-   * on 2.936; docs/fidelity.md, F-VIEWS-05, F-VIEWS-07).
+   * across all 18 profiles; docs/fidelity.md, F-VIEWS-05, F-VIEWS-07).
    */
   readonly originalCelBlitClippingAndPriorityMask: boolean;
   /**
    * Whether new.room's object reset preserves newlyPositioned (0x0400) and
-   * cycleDelay (0x1000) across room transitions (verified on 2.936 and
-   * 3.002.149; docs/fidelity.md, F-motion-10).
+   * cycleDelay (0x1000) across room transitions (verified across all 18
+   * profiles; docs/fidelity.md, F-motion-10).
    */
   readonly newRoomPreservesReposAndCycleDelay: boolean;
   /**
@@ -567,14 +575,14 @@ export interface AgiProfile {
   readonly menuHomeEndUnconditional: boolean;
   /**
    * Whether show.pri.screen preserves an open text window across the priority
-   * screen modal (verified on 2.936 and 3.002.086; docs/fidelity.md,
+   * screen modal (verified across all 18 profiles; docs/fidelity.md,
    * F-picture-04).
    */
   readonly showPriScreenPreservesWindow: boolean;
   /**
    * Whether show.obj on a descriptionless view (vdesc == 0) formats the raw
-   * view header bytes from offset 0 (verified on 2.936; docs/fidelity.md,
-   * F-VIEWS-11).
+   * view header bytes from offset 0 (verified across all 18 profiles;
+   * docs/fidelity.md, F-VIEWS-11).
    */
   readonly showObjUncheckedDescOffset: boolean;
 
@@ -694,6 +702,7 @@ const BASE_2936: AgiProfile = {
   positionActionOrder: "store-together",
   earlierPartitionOrder: "drawing-key",
   packedViewLoopHeader: false,
+  celMirrorLoopMask: 7,
   objectDistanceCap: 254,
   targetMotionDeferred: false,
   movementClear: "later",
@@ -710,13 +719,13 @@ const BASE_2936: AgiProfile = {
   confirmCursor: "kept",
   statusLineGate: "unconditional",
   clampExactZeroLeftBoundary: false,
-  addToPicPacking: false,
-  addToPicRelocation: false,
-  originalCelBlitClippingAndPriorityMask: false,
-  newRoomPreservesReposAndCycleDelay: false,
+  addToPicPacking: true,
+  addToPicRelocation: true,
+  originalCelBlitClippingAndPriorityMask: true,
+  newRoomPreservesReposAndCycleDelay: true,
   menuHomeEndUnconditional: false,
-  showPriScreenPreservesWindow: false,
-  showObjUncheckedDescOffset: false,
+  showPriScreenPreservesWindow: true,
+  showObjUncheckedDescOffset: true,
   pictureMaxCommand: 0xfa,
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
@@ -749,6 +758,7 @@ const BASE_EARLY: AgiProfile = {
   directionLoops: "exact-four",
   preLogicDirectionMirror: false,
   directionLoopTiming: "every-pass",
+  celMirrorLoopMask: 3,
   objectDistanceCap: null,
   targetMotionDeferred: true,
   movementClear: "early",
@@ -865,6 +875,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     parserDefaultsLoneAAndI: false,
     parserStripsPunctuation: false,
     positionActionOrder: "place-when-drawn",
+    celMirrorLoopMask: 0,
     statusLineFormat: "booter-2.001",
     windowFrameGeometry: "pc-2.001",
     sound: "booter-2.001",
@@ -876,6 +887,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     wordSequenceTailTerminator: false,
     positionActionOrder: "place-when-drawn",
     earlierPartitionOrder: "object-number",
+    celMirrorLoopMask: 0,
     statusLineFormat: "early-2.089",
     saveBlocks: 4,
   },
@@ -904,6 +916,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     releaseGateAction: "unavailable",
     directionLoops: "exact-four",
+    celMirrorLoopMask: 3,
     patternProfile: "point-2.411",
     restartPromptBypassedByF16: false,
     restoreRewritesMachineState: false,
@@ -918,7 +931,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     releaseGateAction: "unavailable",
     directionLoops: "exact-four",
-    addToPicPacking: true,
+    celMirrorLoopMask: 3,
     restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,
     sound: "early-2.440",
@@ -933,13 +946,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   },
   "2.936": {
     ...BASE_2936,
-    addToPicPacking: true,
-    addToPicRelocation: true,
-    originalCelBlitClippingAndPriorityMask: true,
-    newRoomPreservesReposAndCycleDelay: true,
     menuHomeEndUnconditional: true,
-    showPriScreenPreservesWindow: true,
-    showObjUncheckedDescOffset: true,
   },
   // version_profiles.md "AGI 3.002.086 profile"; conformance matrix "3.002.086 variant selection".
   "3.002.086": {
@@ -948,9 +955,6 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xb1,
     extraActions: "v3-086",
     clampExactZeroLeftBoundary: true,
-    addToPicPacking: true,
-    addToPicRelocation: true,
-    showPriScreenPreservesWindow: true,
   },
   // version_profiles.md "AGI 3.002.102 profile"; conformance matrix "3.002.102 variant selection".
   "3.002.102": {
@@ -982,7 +986,6 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     timedPrintClearsV21: true,
     directionLoops: "four-or-more-f20",
     roomAliases: null,
-    newRoomPreservesReposAndCycleDelay: true,
     // GR1 3.002.149's measured envelope (docs/fidelity.md, sound player audit).
     soundEnvelope: "3.002",
   },
@@ -1101,6 +1104,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     inputLineEditCap: "prompt-40",
     stringSlots: 13,
     directionLoops: "exact-four",
+    celMirrorLoopMask: 3,
     windowFrameGeometry: "amiga",
     presentation: "amiga",
     palette: "amiga",
@@ -1116,7 +1120,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   },
   // Amiga "PQ" 2.310 / "GR" 2.316 / "MH2" 2.333: the shared 2.31x generation
   // (BASE_AMIGA_31X above; docs/fidelity.md "Amiga interpreter profiles").
-  "amiga-2.310": { ...BASE_AMIGA_31X, id: "amiga-2.310" },
+  "amiga-2.310": { ...BASE_AMIGA_31X, id: "amiga-2.310", celMirrorLoopMask: 3 },
   "amiga-2.316": { ...BASE_AMIGA_31X, id: "amiga-2.316" },
   "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333" },
   // Apple IIgs "SQ2.SYS16" 1.014 (SQ2 IIgs; docs/fidelity.md "Apple IIgs

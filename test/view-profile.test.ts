@@ -262,3 +262,62 @@ describe("2.230 packed orientation writeback", () => {
     );
   });
 });
+
+describe("per-cel MirrorCell orientation mask across profiles (F-VIEWS-01)", () => {
+  it("never mirrors on 2.001 and 2.089 where neither MirrorLoop nor MirrorCell exists", () => {
+    for (const id of ["2.001", "2.089"] as const) {
+      const view = views.parseView(fiveSharedLoops(2, 0x80), PROFILES[id]);
+      assert.deepEqual([...views.selectViewCel(view, 1, 0)!.pixels], [1, 2, 0], id);
+      assert.deepEqual([...views.selectViewCel(view, 4, 0)!.pixels], [1, 2, 0], id);
+    }
+  });
+
+  it("uses 2-bit loop mask (0x30) on 2.272..2.440 and amiga-2.082..2.310, re-mirroring loop >= 4 every selection", () => {
+    for (const id of [
+      "2.272",
+      "2.411",
+      "2.440",
+      "amiga-2.082",
+      "amiga-2.176",
+      "amiga-2.202",
+      "amiga-2.310",
+    ] as const) {
+      const view = views.parseView(fiveSharedLoops(2, 0x80), PROFILES[id]);
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [0, 2, 1],
+        `${id}: first selection at loop 4 mirrors`,
+      );
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [1, 2, 0],
+        `${id}: repeat selection at loop 4 mirrors again because (4 & 3) != 4`,
+      );
+    }
+  });
+
+  it("uses 3-bit loop mask (0x70) on 2.917..3.002.149, amiga-2.316..2.333, and iigs-1.014, keeping loop 4..7 stable", () => {
+    for (const id of [
+      "2.917",
+      "2.936",
+      "3.002.086",
+      "3.002.102",
+      "3.002.149",
+      "amiga-2.316",
+      "amiga-2.333",
+      "iigs-1.014",
+    ] as const) {
+      const view = views.parseView(fiveSharedLoops(2, 0x80), PROFILES[id]);
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [0, 2, 1],
+        `${id}: first selection at loop 4 mirrors`,
+      );
+      assert.deepEqual(
+        [...views.selectViewCel(view, 4, 0)!.pixels],
+        [0, 2, 1],
+        `${id}: repeat selection at loop 4 stays mirrored`,
+      );
+    }
+  });
+});

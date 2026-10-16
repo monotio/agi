@@ -764,6 +764,8 @@ export class Engine {
   horizon = 36;
   /** Priority bands are independent of the movement horizon and are not saved. */
   private priorityBase = 48;
+  /** True while the default priority table is active (before set.pri.base runs). */
+  private defaultPriTable = true;
 
   private readonly logics = new Map<number, LogicResource>();
   private readonly pictures = new Set<number>();
@@ -3741,6 +3743,7 @@ export class Engine {
     this.terminated = state.terminated;
     this.statusRefreshRequested = state.statusRefreshRequested;
     this.priorityBase = state.priorityBase;
+    this.defaultPriTable = state.priorityBase === 48;
     this.vars[V_KEY] = state.key;
     this.flags[1] = state.egoHidden;
     this.flags[F_INPUT_READY] = state.inputReady;
@@ -4568,18 +4571,19 @@ export class Engine {
     }
     const usePacking = this.profile.addToPicPacking;
     let packed = (priority & 0xff) | ((margin & 0x0f) << 4);
-    if ((packed & 0x0f) === 0) {
+    if ((packed & 0x0f) === 0 && this.profile.action0x8f !== "max-drawn-objects") {
       packed |= priorityForY(y, this.priorityBase) & 0x0f;
     }
     const drawPriority = usePacking
       ? packed & 0x0f
-      : (priority & 0x0f) === 0
+      : (priority & 0x0f) === 0 && this.profile.action0x8f !== "max-drawn-objects"
         ? priorityForY(y, this.priorityBase)
         : priority;
     const covered = new Set<number>();
     drawCel(this.surface, c, x, y, {
       priority: drawPriority,
       clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
+      controlScanFallbackPriority: this.profile.presentation === "pc" ? 0 : 4,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
@@ -4642,10 +4646,10 @@ export class Engine {
    * A margin below four outlines a control box in the priority screen: the
    * baseline row, both side columns and a top row. The box is as tall as the
    * run of rows sharing the baseline's priority band, capped at the cel height
-   * (docs/fidelity.md, "Original add.to.pic control box"). On the verified PC
-   * builds with AddToPic byte packing (2.440, 2.936, 3.002.086), the top-row
-   * 8086 `loop` sets CL = (width - 2) & 0xff and increments DI before each
-   * write, wrapping CX for width <= 2 (F-VIEWS-12).
+   * (docs/fidelity.md, "Original add.to.pic control box"). On PC builds, the
+   * top-row 8086 `loop` sets CL = (width - 2) & 0xff and increments DI before
+   * each write, wrapping CX for width <= 2 (F-VIEWS-12); 68000 Amiga (`bmi`)
+   * and 65816 IIgs (`bmi`) skip the top inner span when width <= 2.
    */
   private stampControlBox(
     x: number,
@@ -4672,7 +4676,7 @@ export class Engine {
       stamp(right, y - up);
     }
     if (rows > 1) {
-      if (this.profile.addToPicPacking) {
+      if (this.profile.addToPicPacking && this.profile.presentation === "pc") {
         const cl = (cel.width - 2) & 0xff;
         const count = cl === 0 ? 0x10000 : cl;
         let di = ((y - rows + 1) * SCREEN_WIDTH + left) & 0xffff;
@@ -5717,6 +5721,31 @@ export class Engine {
   }
 
   /**
+   * PriToY effective baseline y for fixed-priority objects in MakeObjList
+   * (docs/fidelity.md "Original cel handling and priority table"). While
+   * defaultPriTable is active, every build uses the closed form
+   * (pri - 5) * 12 + 48. Once set.pri.base clears defaultPriTable on 2.936+,
+   * 2.936 and 3.002.086 start the downward scan at i = 168 (reading 0 past
+   * pri_tbl[0..167] and breaking at 168 for pri > 0, or wrapping to -1 for
+   * pri === 0), whereas 3.002.102+ starts at i = 167 and scans down for the
+   * highest row with pri_tbl[y] < pri.
+   */
+  private priToY(pri: number): number {
+    if (this.defaultPriTable) {
+      return ((pri - 5) * 12 + 48) & 0xff;
+    }
+    if (pri === 0) return -1;
+    if (this.profile.id === "2.936" || this.profile.id === "3.002.086") {
+      return SCREEN_HEIGHT;
+    }
+    let y = SCREEN_HEIGHT - 1;
+    while (y >= 0 && priorityForY(y, this.priorityBase) >= pri) {
+      y--;
+    }
+    return y;
+  }
+
+  /**
    * Composite the presentable frame into reusable scratch buffers and update
    * the cached presentation product.
    */
@@ -5733,7 +5762,8 @@ export class Engine {
     };
 
     // Stable sorting retains object-number order for equal drawing keys.
-    // Positive fixed priorities sort after every baseline in the table mode.
+    // Fixed priorities map through PriToY (default closed form before
+    // set.pri.base, table scan after).
     // Entries carry the object number so the ownership channel records an
     // identity the host can match against readObjects(), not a sort position.
     const active = this.objects
@@ -5743,19 +5773,25 @@ export class Engine {
         if (a.o.earlierPartition !== b.o.earlierPartition) return a.o.earlierPartition ? -1 : 1;
         if (a.o.earlierPartition && this.profile.earlierPartitionOrder === "object-number")
           return 0;
-        const aKey = a.o.fixedPriority ? (a.o.priority === 0 ? -1 : SCREEN_HEIGHT) : a.o.y;
-        const bKey = b.o.fixedPriority ? (b.o.priority === 0 ? -1 : SCREEN_HEIGHT) : b.o.y;
+        const aKey = a.o.fixedPriority ? this.priToY(a.o.priority) : a.o.y;
+        const bKey = b.o.fixedPriority ? this.priToY(b.o.priority) : b.o.y;
         return aKey - bKey;
       });
 
+    const controlScanFallbackPriority = this.profile.presentation === "pc" ? 0 : 4;
     for (const { o, num } of active) {
       const view = this.views.get(o.view);
-      const cel = view && readViewCel(view, o.loop, o.cel);
+      const cel =
+        view &&
+        (this.profile.packedViewLoopHeader
+          ? readViewCel(view, o.loop, o.cel)
+          : selectViewCel(view, o.loop, o.cel));
       if (!cel) continue;
       const pri = o.fixedPriority ? o.priority : priorityForY(o.y, this.priorityBase);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
         clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
+        controlScanFallbackPriority,
         onPixel: (index: number) => {
           this.scratchOwnership[index] = num + 1;
         },
@@ -5772,6 +5808,7 @@ export class Engine {
         drawCel(frame, cel, Math.trunc((SCREEN_WIDTH - 1 - cel.width) / 2), SCREEN_HEIGHT - 1, {
           priority: 15,
           clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
+          controlScanFallbackPriority,
           onPixel: (index: number) => {
             this.scratchPreview[index] = 1;
           },
@@ -7955,7 +7992,10 @@ export class Engine {
         // the IIgs the slot is discard.sound (docs/fidelity.md "Apple IIgs
         // sound discard").
         if (this.profile.extraActions === "iigs") this.discardSoundRecorded(a(0));
-        else if (this.profile.priorityBaseAction === "effect") this.priorityBase = a(0);
+        else if (this.profile.priorityBaseAction === "effect") {
+          this.priorityBase = a(0);
+          this.defaultPriTable = false;
+        }
         return next;
       case 0xaf:
         // On the IIgs this slot is fade.sound: it arms the heartbeat
@@ -8341,6 +8381,7 @@ export class Engine {
     this.blockRect = null;
     this.horizon = 36;
     this.priorityBase = 48;
+    this.defaultPriTable = true;
     this.lastPicture = 0;
     this.keyReleaseGate = 0;
     this.inputQueue.clear();

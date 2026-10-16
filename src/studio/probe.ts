@@ -30,7 +30,7 @@ export interface ProbeInput {
   priorityBase?: number | undefined;
   /** Builds whose set.pri.base is a stub keep the default base. */
   profile: Pick<AgiProfile, "priorityBaseAction"> &
-    Partial<Pick<AgiProfile, "originalCelBlitClippingAndPriorityMask">>;
+    Partial<Pick<AgiProfile, "originalCelBlitClippingAndPriorityMask" | "presentation">>;
 }
 
 interface ProbeCell {
@@ -76,6 +76,8 @@ export function probeActor(input: ProbeInput): ProbeResult {
   const bandPriority = priorityForY(baselineY, base);
   const drawPriority = input.priority === "band" ? bandPriority : input.priority;
   const clipMask = input.profile.originalCelBlitClippingAndPriorityMask ?? false;
+  const fallbackPri =
+    input.profile.presentation !== undefined && input.profile.presentation !== "pc" ? 4 : 0;
 
   const cells = SCREEN_WIDTH * SCREEN_HEIGHT;
   const drawnMask = new Uint8Array(cells);
@@ -90,6 +92,7 @@ export function probeActor(input: ProbeInput): ProbeResult {
       drawnMask[cell] = 1;
     },
     clipMask,
+    fallbackPri,
   );
   // At priority 15 no comparison value exceeds the drawing priority, so this
   // visits every opaque cell the blit places.
@@ -103,6 +106,7 @@ export function probeActor(input: ProbeInput): ProbeResult {
       if (drawnMask[cell] === 0) hiddenMask[cell] = 1;
     },
     clipMask,
+    fallbackPri,
   );
 
   const byValue: ProbeCell[][] = [[], [], [], []];

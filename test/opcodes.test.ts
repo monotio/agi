@@ -570,7 +570,7 @@ test("version prints the host string, or the binary-verified interpreter banner 
   }
 });
 
-test("F-motion-10: new.room preserves newlyPositioned and cycleDelay only on verified profiles (2.936, 3.002.149)", () => {
+test("F-motion-10: new.room preserves newlyPositioned and cycleDelay across all 18 binary-verified profiles", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const container = createContainer();
@@ -616,10 +616,9 @@ test("F-motion-10: new.room preserves newlyPositioned and cycleDelay only on ver
     engine.vars[80] = 1;
     engine.tick();
     assert.equal(engine.readState().room, 2, id);
-    const expected = id === "2.936" || id === "3.002.149";
-    assert.equal(profile.newRoomPreservesReposAndCycleDelay, expected, id);
-    assert.equal(o1.newlyPositioned, expected, `${id}: newlyPositioned across new.room`);
-    assert.equal(o1.cycleDelay, expected, `${id}: cycleDelay across new.room`);
+    assert.equal(profile.newRoomPreservesReposAndCycleDelay, true, id);
+    assert.equal(o1.newlyPositioned, true, `${id}: newlyPositioned across new.room`);
+    assert.equal(o1.cycleDelay, true, `${id}: cycleDelay across new.room`);
     assert.equal(o1.active, false, `${id}: active cleared across new.room`);
     assert.equal(o1.update, false, `${id}: update cleared across new.room`);
   }
@@ -673,7 +672,7 @@ test("F-IN-15: DoMenu Home and End select disabled endpoints only on verified pr
   }
 });
 
-test("F-picture-04: show.pri.screen preserves text window only on verified profiles (2.936, 3.002.086)", () => {
+test("F-picture-04: show.pri.screen preserves text window across all 18 binary-verified profiles", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const container = createContainer();
@@ -695,17 +694,16 @@ test("F-picture-04: show.pri.screen preserves text window only on verified profi
     engine.tick();
     assert.equal(host.showPriCalls, 1, id);
     engine.ackPrint();
-    const expected = id === "2.936" || id === "3.002.086";
-    assert.equal(profile.showPriScreenPreservesWindow, expected, id);
+    assert.equal(profile.showPriScreenPreservesWindow, true, id);
     assert.equal(
       engine.getPresentation().windowOverlay.some((b) => b !== 0),
-      expected,
+      true,
       `${id}: windowOverlay after show.pri.screen`,
     );
   }
 });
 
-test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation (2.936, 3.002.086) and byte packing (2.440, 2.936, 3.002.086) apply on their verified profiles", () => {
+test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing apply across all 18 binary-verified profiles, and 2.001 keeps priority 0", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const container = createContainer();
@@ -726,6 +724,7 @@ test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation (2.936, 3.002.08
          load.view(1);
          add.to.pic(1, 0, 0, 158, 1, 0, 1);
          add.to.pic(1, 0, 0, 20, 80, 69, 0);
+         add.to.pic(1, 0, 0, 40, 80, 0, 4);
          show.pic();
          return;`,
         { dictionary: DICT, profile },
@@ -734,42 +733,36 @@ test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation (2.936, 3.002.08
     const engine = new Engine(container, new TestHost(), DICT, { profile });
     engine.tick();
 
-    const verifiedReloc = id === "2.936" || id === "3.002.086";
-    const verifiedPacking = id === "2.440" || id === "2.936" || id === "3.002.086";
-    assert.equal(profile.addToPicRelocation, verifiedReloc, `${id}.addToPicRelocation`);
-    assert.equal(profile.addToPicPacking, verifiedPacking, `${id}.addToPicPacking`);
-    if (verifiedReloc) {
+    assert.equal(profile.addToPicRelocation, true, `${id}.addToPicRelocation`);
+    assert.equal(profile.addToPicPacking, true, `${id}.addToPicPacking`);
+    // In 2.001, ObjInPic (0x532a) calls InsertObj directly without substituting
+    // pri_tbl[y] when (pri & 0x0f) == 0, so pri=0 draws with priority 0 (which loses
+    // to background priority 4); on 2.089+ and Amiga/IIgs, pri=0 substitutes pri_tbl[y].
+    if (id === "2.001") {
+      assert.equal(engine.surface.visual[3 * 160 + 156], 15, `${id}: pri=0 occluded by bg pri 4`);
+      assert.equal(engine.surface.priority[80 * 160 + 40], 4, `${id}: pri=0 leaves bg pri 4`);
+    } else {
       assert.equal(engine.surface.visual[3 * 160 + 156], 2, `${id}: relocated cel at (156,3)`);
       assert.equal(
-        engine.surface.priority[3 * 160 + 156],
-        1,
-        `${id}: relocated control box at (156,3)`,
-      );
-    } else {
-      assert.equal(engine.surface.priority[3 * 160 + 156], 4, `${id}: no relocation to y=3`);
-      assert.equal(
-        engine.surface.priority[1 * 160 + 158],
-        1,
-        `${id}: control box at un-relocated (158,1)`,
+        engine.surface.priority[80 * 160 + 40],
+        7,
+        `${id}: pri=0 substitutes pri_tbl[80]=7`,
       );
     }
-    if (verifiedPacking) {
-      assert.equal(
-        engine.surface.priority[80 * 160 + 20],
-        5,
-        `${id}: packed 0x45 > 0x3f skips box`,
-      );
-    } else {
-      assert.equal(
-        engine.surface.priority[80 * 160 + 20],
-        0,
-        `${id}: margin 0 < 4 stamps control box 0`,
-      );
-    }
+    assert.equal(
+      engine.surface.priority[3 * 160 + 156],
+      1,
+      `${id}: relocated control box at (156,3)`,
+    );
+    assert.equal(
+      engine.surface.priority[80 * 160 + 20],
+      5,
+      `${id}: packed 0x45 > 0x3f skips box`,
+    );
   }
 });
 
-test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask apply only on verified profile (2.936)", () => {
+test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask apply across all 18 binary-verified profiles", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const container = createContainer();
@@ -807,20 +800,14 @@ test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask appl
     o1.x = 20;
     o1.y = 1;
     const frame = engine.getFrame();
-    const verified = id === "2.936";
-    assert.equal(profile.originalCelBlitClippingAndPriorityMask, verified, id);
-    if (verified) {
-      assert.equal(frame.visual[0 * 160 + 20], 6, `${id}: negative top clipped in place at x=20`);
-      assert.equal(frame.visual[0 * 160 + 19], 15, `${id}: x=19 untouched`);
-      assert.equal(frame.priority[0 * 160 + 20], 7, `${id}: priority 23 (0x17) masked to 7`);
-    } else {
-      assert.equal(frame.visual[0 * 160 + 19], 5, `${id}: negative top shifted left to x=19`);
-      assert.equal(frame.priority[0 * 160 + 19], 23, `${id}: priority 23 unmasked`);
-    }
+    assert.equal(profile.originalCelBlitClippingAndPriorityMask, true, id);
+    assert.equal(frame.visual[0 * 160 + 20], 6, `${id}: negative top clipped in place at x=20`);
+    assert.equal(frame.visual[0 * 160 + 19], 15, `${id}: x=19 untouched`);
+    assert.equal(frame.priority[0 * 160 + 20], 7, `${id}: priority 23 (0x17) masked to 7`);
   }
 });
 
-test("F-VIEWS-12: narrow add.to.pic cels wrap the top-row control-box counter in 8-bit CL", () => {
+test("F-VIEWS-12: narrow add.to.pic cels wrap the top-row control-box counter in 8-bit CL on PC and skip on Amiga/IIgs", () => {
   const container = createContainer();
   container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
   // Loop 0 cel 0: 1x2 cel (color 2); cel 1: 2x2 cel (color 3)
@@ -872,9 +859,9 @@ test("F-VIEWS-12: narrow add.to.pic cels wrap the top-row control-box counter in
   assert.equal(engine.surface.priority[0], 2, "65536-iteration wrap reaches pixel 0");
   assert.equal(engine.surface.priority[26879], 2, "65536-iteration wrap reaches last pixel");
 
-  // Evidence gate: only profiles with verified 8086 AddToPic packing (2.440, 2.936, 3.002.086)
-  // wrap the narrow-cel top-row counter; other profiles (including amiga-2.333) leave unrelated
-  // priority pixels untouched.
+  // All 15 PC builds (2.001..3.002.149) wrap the 8086 CL counter (`mov cl, al; sub cl, 2; loop`);
+  // Amiga (`subq.w #2, d2; bmi`) and IIgs (`sbc #$0002; tax; bmi`) skip the top-row interior loop
+  // when width <= 2.
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const c = createContainer();
@@ -905,7 +892,7 @@ test("F-VIEWS-12: narrow add.to.pic cels wrap the top-row control-box counter in
     e.tick();
     assert.equal(
       e.surface.priority[0],
-      profile.addToPicPacking ? 1 : 4,
+      profile.presentation === "pc" ? 1 : 4,
       `${id}: pixel 0 priority after 2x2 add.to.pic with margin 1`,
     );
   }
@@ -978,7 +965,7 @@ test("F-motion-12: FindPosn raises y <= horizon to horizon + 1 before spiral and
   );
 });
 
-test("F-VIEWS-11: show.obj on a descriptionless view (vdesc == 0) prints the raw view header prefix on 2.936 and empty text on other profiles", () => {
+test("F-VIEWS-11: show.obj on a descriptionless view (vdesc == 0) prints the raw view header prefix across all 18 binary-verified profiles", () => {
   // Raw view with header bytes [0x41 ('A'), 0x42 ('B'), 1 loop, vdesc=0x0000]
   const rawView = buildView({
     loops: [{ cels: [{ width: 1, height: 1, pixels: [2] }] }],
@@ -1001,11 +988,13 @@ test("F-VIEWS-11: show.obj on a descriptionless view (vdesc == 0) prints the raw
     const engine = new Engine(container, host, DICT, { profile });
     engine.tick();
     assert.equal(engine.modalKind, "showObj", `${id}: opens showObj modal`);
-    if (id === "2.936") {
-      assert.equal(engine.textRow(3).trim(), "AB#", `${id}: formats raw header prefix at vdesc==0`);
-    } else {
-      assert.equal(engine.textRow(3).trim(), "", `${id}: keeps empty text when vdesc==0`);
-    }
+    assert.equal(profile.showObjUncheckedDescOffset, true, `${id}.showObjUncheckedDescOffset`);
+    const expectedRow = profile.presentation === "amiga" ? 2 : 3;
+    assert.equal(
+      engine.textRow(expectedRow).trim(),
+      "AB#",
+      `${id}: formats raw header prefix at vdesc==0`,
+    );
   }
 });
 

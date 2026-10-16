@@ -46,15 +46,15 @@ test("detectProfileDecision reports kind 'binary' for interpreter binaries", () 
 test("a binary naming a build without a promoted profile runs the container fallback and reports the build", () => {
   const files = new Map<string, Uint8Array>([
     ["LOGDIR", new Uint8Array(3)],
-    ["AGIDATA.OVL", new TextEncoder().encode("Adventure Game Interpreter\nVersion 2.903\n")],
+    ["AGIDATA.OVL", new TextEncoder().encode("Adventure Game Interpreter\nVersion 2.426\n")],
   ]);
   const decision = detectProfileDecision(files);
   assert.equal(decision.kind, "binary");
-  assert.equal(decision.build, "2.903");
+  assert.equal(decision.build, "2.426");
   assert.equal(decision.profile.id, "2.936");
   const overridden = detectProfileDecision(files, "2.917");
   assert.equal(overridden.profile.id, "2.917", "an override replaces the profile");
-  assert.equal(overridden.build, "2.903", "but not the identification");
+  assert.equal(overridden.build, "2.426", "but not the identification");
 });
 
 test("detectProfileDecision reports kind 'catalog' for catalogued hash pairs without interpreter binaries", () => {

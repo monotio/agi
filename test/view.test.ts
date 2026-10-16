@@ -347,8 +347,15 @@ describe("drawCel", () => {
     assert.deepEqual(cell(surface, 8, 10), { visual: 6, priority: 0 });
 
     // Column 9 below row 20 is all control value 1: the scan reaches the
-    // bottom, comparison 0, so even priority 0 draws.
+    // bottom, comparison 0 on PC (default), so even priority 0 draws; on
+    // Amiga and IIgs (controlScanFallbackPriority: 4), comparison falls back
+    // to 4, hiding priority 3 and drawing priority 4.
     for (let y = 20; y < 168; y++) surface.priority[y * SCREEN_WIDTH + 9] = 1;
+    drawCel(surface, cel, 9, 20, { priority: 3, controlScanFallbackPriority: 4 });
+    assert.deepEqual(cell(surface, 9, 20), { visual: 15, priority: 1 });
+    drawCel(surface, cel, 9, 20, { priority: 4, controlScanFallbackPriority: 4 });
+    assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
+    surface.visual[20 * SCREEN_WIDTH + 9] = 15;
     drawCel(surface, cel, 9, 20, { priority: 0 });
     assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
   });
