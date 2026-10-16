@@ -163,3 +163,14 @@ test("relativeDraw (0xf7) Y upper clamp: 167 on PC and IIgs vs 159 on Amiga", ()
   }
 });
 
+// docs/fidelity.md F-picture-09 and the MAME cross-check of SQ2 Amiga picture 2:
+// the Amiga clamp (`cmpi.b #$a7,d2; bls; move.b #$9f,d2`) fires only when the
+// wrapped y exceeds 167, so a relative step ending on rows 160..167 keeps its row.
+test("relativeDraw on Amiga keeps rows 160..167 and clamps only beyond 167", () => {
+  // Start (10, 158), delta 0x03 (dx = 0, dy = +3) -> (10, 161).
+  const stream = new Uint8Array([0xf0, 2, 0xf7, 10, 158, 0x03, 0xff]);
+  const surface = createPictureSurface();
+  renderPicture(stream, surface, { profile: PROFILES["amiga-2.202"] });
+  for (const y of [158, 159, 160, 161]) assert.equal(surface.visual[y * 160 + 10], 2, `row ${y}`);
+  assert.equal(surface.visual[162 * 160 + 10], 15);
+});

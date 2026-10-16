@@ -3897,8 +3897,11 @@ DrwPicNC loop `h102+0x0052` (`2.082`) / `h152` (`2.176..2.333`), clrScreen `h114
     at relativeDraw`+0x3d`, for example `2.001` `0x5d2f`, `2.936` `0x669b`). All six Amiga builds
     clamp `y > 0xa7` to `0x9f` (`159`): `cmpi.b #$a7,d2 / bls.w / move.b #$9f,d2` at
     `h102+0x01dc` (`2.082`), `h152+0x04a4` (`2.176`, `2.202`) and `h152+0x0492`
-    (`2.310..2.333`). IIgs `1.014` (`main+0x0c66..0x0cf0`, clamp to `167`) is from the earlier
-    pass.
+    (`2.310..2.333`); rows `160..167` pass unchanged. IIgs `1.014` (`main+0x0c66..0x0cf0`,
+    clamp to `167`) is from the earlier pass. The engine applied the Amiga clamp to every row
+    above `159` until the MAME comparison of SQ2 Amiga picture 2 showed six red cells around
+    `(24..26, 157..161)` that the original draws and the engine left black; the regression in
+    [picture-profile.test.ts](../test/picture-profile.test.ts) failed before the fix.
   - Picture commands: the DrwPicNC loop reads a byte, stops on `0xff`, skips bytes below `0xf0`
     and above the last command (`sub al,0xf0 / jc` then `cmp al,N / ja` back to the read). `N`
     is `0x8` on `2.001..2.272` (`pictureMaxCommand: 0xf8`, `patternProfile: "none"`) and `0xa`
