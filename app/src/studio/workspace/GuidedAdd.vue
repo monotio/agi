@@ -361,6 +361,7 @@ function add(): void {
         v-model:response="response"
         v-model:also="alsoCommands"
         :words
+        :profile="PROFILES[profileId]"
         :reply="kind === 'response'"
         :disabled="busy"
       />

@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { Simulation } from "../src/agent/playtest.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { MESSAGE_KEY } from "../src/logic/resource.ts";
@@ -7,6 +9,7 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { AGI_KEY } from "../src/runtime/keys.ts";
 import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 import { SCREEN_WIDTH } from "../src/types.ts";
+import { buildView } from "../src/view/view.ts";
 
 const DICT = new Map([
   ["save", 200],
@@ -496,7 +499,7 @@ test("log, obj.status.v, show.mem and pause route to the host", () => {
   );
 });
 
-test("version prints the host string, or the engine fallback, without overwriting slot 0", () => {
+test("version prints the host string, or the binary-verified interpreter banner per profile, without overwriting slot 0", () => {
   const source = 'set.string(s0, ">"); version(); return;';
   const host = new TestHost();
   (host as { versionString?: () => string }).versionString = () => "test-interp 9.9";
@@ -505,11 +508,66 @@ test("version prints the host string, or the engine fallback, without overwritin
   assert.deepEqual(host.prints, ["test-interp 9.9"]);
   assert.equal(engine.strings[0], ">");
 
-  const bareHost = new TestHost();
-  const bare = new Engine(gameWith(source), bareHost, DICT);
-  bare.tick();
-  assert.deepEqual(bareHost.prints, ["AGI IS HERE 1.0.0"]);
-  assert.equal(bare.strings[0], ">");
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
+    const profile = PROFILES[id];
+    const bareHost = new TestHost();
+    const container = createContainer();
+    container.putResource("logic", 0, assembleLogic(source, { dictionary: DICT, profile }).payload);
+    const bare = new Engine(container, bareHost, DICT, { profile });
+    bare.tick();
+    const expectedVersion = id.replace(/^(amiga|iigs)-/, "");
+    const expectedSuffix = id === "2.001" ? "\n" : "";
+    assert.deepEqual(
+      bareHost.prints,
+      [`Adventure Game Interpreter\n      Version ${expectedVersion}${expectedSuffix}`],
+      `${id}: exact version() banner`,
+    );
+    assert.equal(bare.strings[0], ">");
+  }
+
+  // Detected Amiga and IIgs editions supply prefixed profileBuild identifiers;
+  // both Engine and PlaytestSession must strip the amiga-/iigs- prefix.
+  const detectedCases: {
+    file: [string, Uint8Array];
+    expectedBuild: string;
+    expectedBanner: string;
+  }[] = [
+    {
+      file: ["KQ2", new Uint8Array([0x00, 0x00, 0x03, 0xf3])],
+      expectedBuild: "amiga-2.176",
+      expectedBanner: "Adventure Game Interpreter\n      Version 2.176",
+    },
+    {
+      file: [
+        "SQ2.SYS16",
+        new TextEncoder().encode("Adventure Game Interpreter\n      Version 1.014"),
+      ],
+      expectedBuild: "iigs-1.014",
+      expectedBanner: "Adventure Game Interpreter\n      Version 1.014",
+    },
+    {
+      file: ["AGIDATA.OVL", new TextEncoder().encode("Version 2.915")],
+      expectedBuild: "2.915",
+      expectedBanner: "Adventure Game Interpreter\n      Version 2.915",
+    },
+  ];
+  for (const { file, expectedBuild, expectedBanner } of detectedCases) {
+    const base = createContainer();
+    base.putResource("logic", 0, assembleLogic(source, { dictionary: DICT }).payload);
+    const files = new Map(base.files);
+    files.set(file[0], file[1]);
+    const detectedContainer = openContainer(files);
+    const detectedHost = new TestHost();
+    const detectedEngine = new Engine(detectedContainer, detectedHost, DICT);
+    assert.equal(detectedEngine.profileKind, "binary");
+    assert.equal(detectedEngine.profileBuild, expectedBuild);
+    detectedEngine.tick();
+    assert.deepEqual(detectedHost.prints, [expectedBanner], `${expectedBuild}: Engine version()`);
+
+    const session = new Simulation(createAgentSessionState(detectedContainer));
+    session.tick();
+    assert.deepEqual(session.messages, [expectedBanner], `${expectedBuild}: Simulation`);
+  }
 });
 
 test("F-motion-10: new.room preserves newlyPositioned and cycleDelay only on verified profiles (2.936, 3.002.149)", () => {
@@ -647,7 +705,7 @@ test("F-picture-04: show.pri.screen preserves text window only on verified profi
   }
 });
 
-test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing apply only on verified profiles (2.936, 3.002.086)", () => {
+test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation (2.936, 3.002.086) and byte packing (2.440, 2.936, 3.002.086) apply on their verified profiles", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const container = createContainer();
@@ -676,19 +734,16 @@ test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing
     const engine = new Engine(container, new TestHost(), DICT, { profile });
     engine.tick();
 
-    const verified = id === "2.936" || id === "3.002.086";
-    assert.equal(profile.addToPicPackingAndRelocation, verified, id);
-    if (verified) {
+    const verifiedReloc = id === "2.936" || id === "3.002.086";
+    const verifiedPacking = id === "2.440" || id === "2.936" || id === "3.002.086";
+    assert.equal(profile.addToPicRelocation, verifiedReloc, `${id}.addToPicRelocation`);
+    assert.equal(profile.addToPicPacking, verifiedPacking, `${id}.addToPicPacking`);
+    if (verifiedReloc) {
       assert.equal(engine.surface.visual[3 * 160 + 156], 2, `${id}: relocated cel at (156,3)`);
       assert.equal(
         engine.surface.priority[3 * 160 + 156],
         1,
         `${id}: relocated control box at (156,3)`,
-      );
-      assert.equal(
-        engine.surface.priority[80 * 160 + 20],
-        5,
-        `${id}: packed 0x45 > 0x3f skips box`,
       );
     } else {
       assert.equal(engine.surface.priority[3 * 160 + 156], 4, `${id}: no relocation to y=3`);
@@ -697,6 +752,14 @@ test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing
         1,
         `${id}: control box at un-relocated (158,1)`,
       );
+    }
+    if (verifiedPacking) {
+      assert.equal(
+        engine.surface.priority[80 * 160 + 20],
+        5,
+        `${id}: packed 0x45 > 0x3f skips box`,
+      );
+    } else {
       assert.equal(
         engine.surface.priority[80 * 160 + 20],
         0,
@@ -755,4 +818,398 @@ test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask appl
       assert.equal(frame.priority[0 * 160 + 19], 23, `${id}: priority 23 unmasked`);
     }
   }
+});
+
+test("F-VIEWS-12: narrow add.to.pic cels wrap the top-row control-box counter in 8-bit CL", () => {
+  const container = createContainer();
+  container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
+  // Loop 0 cel 0: 1x2 cel (color 2); cel 1: 2x2 cel (color 3)
+  container.putResource(
+    "view",
+    1,
+    buildView({
+      loops: [
+        {
+          cels: [
+            { width: 1, height: 2, pixels: [2, 2] },
+            { width: 2, height: 2, pixels: [3, 3, 3, 3] },
+          ],
+        },
+      ],
+    }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         assignn(v50, 1); load.pic(v50); draw.pic(v50);
+         load.view(1);
+         add.to.pic(1, 0, 0, 20, 80, 15, 1);
+         show.pic();
+       }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  // 1x2 cel at (20,80), priority 15, margin 1: rows=2, topY=79, CL=(1-2)&0xff=255.
+  // Stamps 1 from di = 79*160 + 21 (21,79) through 79*160 + 20 + 255 = 12915 (115,80).
+  assert.equal(engine.surface.priority[79 * 160 + 20], 1, "(20,79) left column");
+  assert.equal(engine.surface.priority[79 * 160 + 21], 1, "(21,79) first top-row overrun pixel");
+  assert.equal(engine.surface.priority[80 * 160 + 115], 1, "(115,80) 255th top-row overrun pixel");
+  assert.equal(engine.surface.priority[80 * 160 + 116], 4, "(116,80) untouched beyond 255 steps");
+
+  // 2x2 cel at (20,80), priority 15, margin 2: CL=(2-2)&0xff=0 -> 65536 loop iterations.
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(`add.to.pic(1, 0, 1, 20, 80, 15, 2); return;`, { dictionary: DICT }).payload,
+  );
+  engine.execute(1);
+  assert.equal(engine.surface.priority[0], 2, "65536-iteration wrap reaches pixel 0");
+  assert.equal(engine.surface.priority[26879], 2, "65536-iteration wrap reaches last pixel");
+
+  // Evidence gate: only profiles with verified 8086 AddToPic packing (2.440, 2.936, 3.002.086)
+  // wrap the narrow-cel top-row counter; other profiles (including amiga-2.333) leave unrelated
+  // priority pixels untouched.
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
+    const profile = PROFILES[id];
+    const c = createContainer();
+    c.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
+    c.putResource(
+      "view",
+      1,
+      buildView({
+        loops: [{ cels: [{ width: 2, height: 2, pixels: [3, 3, 3, 3] }] }],
+      }),
+    );
+    c.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `if (!isset(f200)) {
+           set(f200);
+           assignn(v50, 1); load.pic(v50); draw.pic(v50);
+           load.view(1);
+           add.to.pic(1, 0, 0, 20, 80, 15, 1);
+           show.pic();
+         }
+         return;`,
+        { dictionary: DICT, profile },
+      ).payload,
+    );
+    const e = new Engine(c, new TestHost(), DICT, { profile });
+    e.tick();
+    assert.equal(
+      e.surface.priority[0],
+      profile.addToPicPacking ? 1 : 4,
+      `${id}: pixel 0 priority after 2x2 add.to.pic with margin 1`,
+    );
+  }
+});
+
+test("F-motion-12: FindPosn raises y <= horizon to horizon + 1 before spiral and throws when exhausted", () => {
+  const container = createContainer();
+  container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 2, height: 2, pixels: [1, 1, 1, 1] }] }] }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         assignn(v50, 1); load.pic(v50); draw.pic(v50);
+         load.view(1);
+         animate.obj(o0);
+         set.view(o0, 1);
+         position(o0, 20, 10);
+         draw(o0);
+       }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(ego.x, 20, "FindPosn starts at x=20 after raising y to horizon + 1");
+  assert.equal(ego.y, 37, "FindPosn raises y <= horizon (36) to horizon + 1 (37) before spiral");
+
+  // When no valid position exists anywhere on the surface, placeObject throws safely.
+  const exhausted = createContainer();
+  exhausted.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
+  exhausted.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 2, height: 2, pixels: [1, 1, 1, 1] }] }] }),
+  );
+  exhausted.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         assignn(v50, 1); load.pic(v50); draw.pic(v50);
+         load.view(1);
+         animate.obj(o0);
+         set.view(o0, 1);
+         position(o0, 20, 10);
+         obj.on.water(o0);
+         obj.on.land(o0);
+         draw(o0);
+       }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const exhaustedEngine = new Engine(exhausted, new TestHost(), DICT);
+  assert.throws(() => exhaustedEngine.tick(), /no acceptable position/);
+  assert.equal(
+    exhaustedEngine.screenObjects[0]!.y,
+    37,
+    "y <= horizon (36) raised to horizon + 1 (37) before spiral",
+  );
+});
+
+test("F-VIEWS-11: show.obj on a descriptionless view (vdesc == 0) prints the raw view header prefix on 2.936 and empty text on other profiles", () => {
+  // Raw view with header bytes [0x41 ('A'), 0x42 ('B'), 1 loop, vdesc=0x0000]
+  const rawView = buildView({
+    loops: [{ cels: [{ width: 1, height: 1, pixels: [2] }] }],
+  });
+  rawView[0] = 0x41;
+  rawView[1] = 0x42;
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const container = createContainer();
+    container.putResource("view", 1, rawView);
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(`if (!isset(f200)) { set(f200); show.obj(1); } return;`, {
+        dictionary: DICT,
+        profile,
+      }).payload,
+    );
+    const host = new TestHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    engine.tick();
+    assert.equal(engine.modalKind, "showObj", `${id}: opens showObj modal`);
+    if (id === "2.936") {
+      assert.equal(engine.textRow(3).trim(), "AB#", `${id}: formats raw header prefix at vdesc==0`);
+    } else {
+      assert.equal(engine.textRow(3).trim(), "", `${id}: keeps empty text when vdesc==0`);
+    }
+  }
+});
+
+test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based and clears unpopulated and out-of-bounds slots (including 10 and 14)", () => {
+  const dict = new Map([
+    ["look", 10],
+    ["around", 20],
+  ]);
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         set.game.id(1);
+         set.string(s1, "NONEMPTY");
+         set.string(s2, "NONEMPTY");
+         set.string(s4, "NONEMPTY");
+         set.string(s5, "NONEMPTY");
+         set.string(s3, "look around");
+         parse(s3);
+         word.to.string(s0, 0);
+         word.to.string(s1, 1);
+         word.to.string(s2, 2);
+         word.to.string(s4, 10);
+         word.to.string(s5, 14);
+       }
+       return;
+       #message 1 "TESTID"`,
+      { dictionary: dict },
+    ).payload,
+  );
+  const engine = new Engine(container, new TestHost(), dict);
+  engine.tick();
+  assert.equal(engine.parserCount, 2);
+  assert.equal(engine.strings[0], "look");
+  assert.equal(engine.strings[1], "around");
+  assert.equal(engine.strings[2], "");
+  assert.equal(engine.strings[4], "", "index 10 on populated parser clears to empty string");
+  assert.equal(engine.strings[5], "", "index 14 on populated parser clears to empty string");
+});
+
+test("F-motion-07: direction > 8 is stationary and preserves loop selection", () => {
+  const container = createContainer();
+  container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
+  container.putResource(
+    "view",
+    1,
+    buildView({
+      loops: [
+        { cels: [{ width: 2, height: 1, pixels: [1, 1] }] },
+        { cels: [{ width: 2, height: 1, pixels: [2, 2] }] },
+      ],
+    }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         assignn(v50, 1); load.pic(v50); draw.pic(v50);
+         load.view(1);
+         animate.obj(o0);
+         set.view(o0, 1);
+         set.loop(o0, 1);
+         position(o0, 20, 80);
+         assignn(v60, 2);
+         step.size(o0, v60);
+         assignn(v62, 1);
+         step.time(o0, v62);
+         draw(o0);
+         program.control();
+         assignn(v61, 9);
+         set.dir(o0, v61);
+         show.pic();
+       }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(ego.direction, 9);
+  assert.equal(ego.loop, 1);
+  assert.equal(ego.x, 20);
+  assert.equal(ego.y, 80);
+});
+
+test("F-motion-16: invalid set.loop and set.cel store requested indices without error recovery and mh2 Logic 192 draws after valid loop", () => {
+  const container = createContainer();
+  container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf2, 4, 0xf8, 0, 0, 0xff]));
+  container.putResource(
+    "view",
+    69,
+    buildView({
+      loops: [
+        {
+          cels: [
+            { width: 2, height: 1, pixels: [1, 1] },
+            { width: 4, height: 1, pixels: [1, 1, 1, 1] },
+          ],
+        },
+        { cels: [{ width: 3, height: 1, pixels: [2, 2, 2] }] },
+      ],
+    }),
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         assignn(v50, 1); load.pic(v50); draw.pic(v50);
+         load.view(69);
+         animate.obj(o2);
+         set.view(o2, 69);
+         set.loop(o2, 5);
+         set.cel(o2, 4);
+         animate.obj(o3);
+         set.view(o3, 69);
+         set.cel(o3, 1);
+         set.loop(o3, 2);
+         position(o3, 40, 100);
+         animate.obj(o4);
+         set.loop(o4, 3);
+         set.cel(o4, 2);
+         assignn(v100, 1);
+         return;
+       }
+       if (!isset(f201)) {
+         set(f201);
+         set.loop(o3, 1);
+         draw(o3);
+       }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, new TestHost(), DICT);
+  assert.doesNotThrow(() => engine.tick());
+  assert.equal(engine.vars[17], 0, "no runtime error code latched in v17");
+  assert.equal(engine.vars[18], 0, "no runtime error value latched in v18");
+  assert.equal(engine.vars[100], 1, "logic pass completes without error-recovery longjmp");
+  assert.equal(engine.screenObjects[2]!.loop, 5, "loop > loopCount stores requested loop");
+  assert.equal(engine.screenObjects[2]!.cel, 4, "cel >= celCount stores requested cel");
+  assert.equal(engine.screenObjects[3]!.loop, 2, "loop == loopCount stores requested loop");
+  assert.equal(engine.screenObjects[3]!.cel, 0, "set.loop clamps cel >= celCount to 0");
+  assert.equal(engine.screenObjects[3]!.width, 4, "invalid loop preserves prior cel width");
+  assert.equal(engine.screenObjects[4]!.loop, 3, "set.loop without loaded view stores loop");
+  assert.equal(engine.screenObjects[4]!.cel, 2, "set.cel without loaded view stores cel");
+
+  assert.doesNotThrow(() => engine.tick());
+  assert.equal(engine.screenObjects[3]!.active, true);
+  assert.equal(engine.screenObjects[3]!.loop, 1);
+  assert.equal(engine.screenObjects[3]!.width, 3);
+});
+
+test("F-text-04: off-screen print.at wraps at column 39 to textLeft and caps newlines at row 24", () => {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         print.at("ABCDEF", 5, 37, 10);
+       }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  assert.equal(engine.textRow(6).slice(37, 40), "ABC", "first 3 chars on row 6 cols 37..39");
+  assert.equal(
+    engine.textRow(7).slice(37, 40),
+    "DEF",
+    "column 39 wrap continues on row 7 at col 37",
+  );
+  engine.ackPrint();
+  assert.equal(engine.textRow(6).slice(37, 40), "   ", "CloseWndw restores the 1-row window box");
+  assert.equal(
+    engine.textRow(7).slice(37, 40),
+    "DEF",
+    "wrapped row outside the window box persists after dismissal",
+  );
+
+  const container2 = createContainer();
+  container2.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         print.at("Row1\\nRow2", 23, 5, 10);
+       }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine2 = new Engine(container2, new TestHost(), DICT);
+  engine2.tick();
+  assert.equal(engine2.textRow(24).slice(5, 9), "Row2", "newline at row 24 stays on row 24");
 });

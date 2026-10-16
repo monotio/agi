@@ -1428,14 +1428,31 @@ directly off the machine code; each entry names the finding it settles.
   0x6EA1) is a single `mov byte [rec+0x22],0` after the record index; it
   never touches userCtrl/v6, so ego stays under program control until
   player.control.
-- **F-motion-07 (fact; known divergence on valid input).** Direction deltas (2.936 kq3): xs/ys
-  9-word tables at DS+0xA61/0xA73 indexed `imul word [bx+0xA61]` with the raw
-  direction byte — no bounds check; dir>8 reads the following data (the
-  move.obj direction table at DS+0xA85). Loop-select tables DS+0x8DD/0x8E7
-  likewise indexed unchecked. Known divergence on valid input when a script
-  passes an out-of-range direction operand `> 8`: the engine treats directions
-  outside `1..8` as stationary (`dx = 0, dy = 0`) rather than reading adjacent
-  data-segment tables.
+- **F-motion-07 (fact; engine matches on valid directions `0..8`; documented divergence on unusual input `direction > 8`).**
+  Direction deltas (`2.936` kq3): `xs`/`ys` 9-word tables at `DS:0x0a61`/`DS:0x0a73`
+  are indexed `imul word [bx+0x0a61]` with the raw direction byte — no bounds
+  check, so `direction > 8` in `MoveObjs` (`0x1542`) reads the following words
+  in `AGIDATA.OVL` (the `move.obj` direction table at `DS:0x0a85`), and
+  `Animate` (`0x0563`) likewise indexes the `twoLoop`/`fourLoop` tables at
+  `DS:0x08dd`/`DS:0x08e7` unchecked, whereas `ChkBlock` (`0x06d9`) uses an
+  8-case switch (`1..8`) and leaves `direction > 8` stationary. Runtime
+  reachability in shipped games is not established: no literal `set.dir` or
+  `v6` constant outside `0..8` appears in the 2,425 decoded `LOGIC` resources
+  across the 25 unpacked AGI fixtures, but `set.dir(oA, vB)` reads a runtime
+  variable whose dynamic range across all play paths is not settled by static
+  scan. (Across the fixture set, unreadable `LOGIC` directory entries are `sq2`
+  `2.936`, `sq2-amiga` `amiga-2.202`, and `sq2-iigs` `iigs-1.014` `LOGIC.141`
+  where `LOGDIR[141]` points to `VOL.0:131071` past EOF; `xmas-dos-2.230`
+  `2.230` with 83 `LOGDIR` entries and `xmas-dos-2.272` `2.272` with 72 `LOGDIR`
+  entries pointing to unshipped `VOL.1`/`VOL.2`; plus `ddp-booter` `2.001`,
+  stored as a raw booter floppy image `disk1.img`. Disassembler `// !!` decoding
+  warnings occur in 3 of the 2,425 decoded `LOGIC` resources: `mh1` `3.002.102`
+  `LOGIC.159` at offset 443, `xmas-dos-2.272` `2.272` `LOGIC.99` at offsets
+  265/274, and `sq1-amiga` `amiga-2.082` `LOGIC.99` with 18 warnings at offsets
+  0/10 and 22..125.) Engine: `directionDelta` returns `[0, 0]` and `selectLoop`
+  preserves `obj.loop` for `direction > 8` so an out-of-range direction leaves
+  the object stationary with its current loop rather than reading build-specific
+  adjacent `AGIDATA.OVL` bytes; emulating the unchecked overread is deferred.
 - **F-motion-08 (fact; engine matches).** Footprint flag timing (2.936 kq3):
   MoveObjs calls Collide (0x4719) before CanBHere (0x56B8) with
   short-circuit; the f3/f0 Set/Reset calls live at CanBHere 0x572B-0x574C
@@ -1462,13 +1479,24 @@ directly off the machine code; each entry names the finding it settles.
   `profile.newRoomPreservesReposAndCycleDelay` (`true` on `2.936` and
   `3.002.149`; other profiles keep their previous clear of `newlyPositioned`
   and `cycleDelay` until verified).
-- **F-motion-12 (fact; known divergence on valid input).** FindPosn (2.936 kq3 0x593A): spiral
-  legs x--/y++/x++/y-- with leg length incremented after the down and up
-  legs; the only exits are GoodPos∧¬Collide∧CanBHere acceptance. No bound or
-  iteration cap — when valid picture geometry and object placement leave no
-  acceptable candidate on the 160×168 surface, the original loops indefinitely
-  (nontermination), whereas the engine throws after exhausting the bounding
-  spiral so the worker does not hang.
+- **F-motion-12 (fact; engine matches on valid placement; documented divergence on unusual input when no legal position exists).**
+  `FindPosn` (`2.936` kq3 `0x593a`): if `y <= horizon` and `!IGNRHRZ`, sets
+  `y = horizon + 1` before testing; spiral legs `x--`/`y++`/`x++`/`y--` with leg
+  length incremented after the down and up legs; the only exits are
+  `GoodPos ∧ ¬Collide ∧ CanBHere` acceptance. No bound or iteration cap — when
+  no acceptable candidate exists on the 160×168 surface, the original loops
+  indefinitely. Runtime reachability of spiral exhaustion in shipped games is
+  not established: whether any dynamic combination of object footprint width,
+  horizon, priority/water/control-line restrictions, and other solid objects'
+  coordinates can leave zero legal positions across all reachable play states
+  cannot be proved by static `PICTURE`/`LOGIC` inspection (and the `LOGIC` scan
+  has the unreadable entries and decoding warnings listed in `F-motion-07`).
+  Engine: applies the initial `y = horizon + 1` adjustment and searches the
+  exact spiral covering the 160×168 surface; if no acceptable position exists
+  anywhere on the surface, `placeObject` throws
+  `new Error("no acceptable position for object")` rather than hanging the
+  worker thread in an infinite loop or latching an unserialized mid-instruction
+  stall; emulating the unbounded hang is deferred.
 - **F-motion-13 (fact; engine matches).** Movement clamps (2.936 kq3 0x159B):
   X then Y, each an else-if chain; Y order top (y-ysize<-1) → bottom (>167) →
   horizon (!IGNRHRZ ∧ y≤horizon → horizon+1, border 1). Top clamp pre-empts
@@ -1513,17 +1541,33 @@ offsets), the Amiga hunk executables (`2.082..2.333`), and IIgs `SQ2.SYS16`
   previously claimed `stop.motion`/`start.motion` both clear direction and
   motion on every build; every address it cited was a `stop.motion` handler.
   The corrected bullet stands there.
-- **F-motion-16 (fact; known divergence on valid input).** `set.loop`/`set.cel` bounds (`2.936`
-  kq3): `SetLoop` `0x3BB7` — `viewptr` NULL → `Error(6)`; `loop > loopcnt` →
-  `Error(5)` (`jnc`, so `loop == loopcnt` passes and `_SetLoop` `0x3C1B` reads
-  one word past the loop-offset table). `SetCel` `0x3CCB` — `viewptr` NULL →
-  `Error(10)`; `cel >= celcnt` → `Error(8)` (strict `ja`). `_SetLoop` clamps
-  `cel` to `0` when `cel >=` the new `celcnt`. `draw` `0x0A06`: unanimated
-  record → `Error(19)`, `celptr` NULL → `Error(20)`. `Error` `0x3FE8` never
-  returns — its tail is a `longjmp` (`0x7EEF`). Known divergence on valid input
-  when a script passes an out-of-range loop/cel index or calls `set.loop` /
-  `set.cel` before `set.view` (the engine leaves the loop/cel unchanged until
-  `draw`, which throws matching `Error(20)`).
+- **F-motion-16 (fact; engine matches on valid indices; documented divergence on unusual input for `Error(errNum, errVal)` recovery and out-of-bounds `set.loop`/`set.cel`).**
+  `set.loop`/`set.cel` bounds (`2.936` kq3): `SetLoop` `0x3BB7` — `viewptr` NULL
+  → `Error(6)`; `loop > loopcnt` → `Error(5)` (`jnc`, so `loop == loopcnt`
+  passes and `_SetLoop` `0x3C1B` reads one word past the loop-offset table).
+  `SetCel` `0x3CCB` — `viewptr` NULL → `Error(10)`; `cel >= celcnt` → `Error(8)`
+  (strict `ja`). `_SetLoop` clamps `cel` to `0` when `cel >=` the new `celcnt`.
+  `draw` `0x0A06`: unanimated record → `Error(19)`, `celptr` NULL → `Error(20)`.
+  `Error` `0x3FE8` stores `var[17] = errNum`, `var[18] = errVal` and `longjmp`s
+  (`0x7EEF`) back to the main cycle before Logic 0. Runtime reachability of
+  Errors `5`, `6`, `8`, `10`, `19`, and `20` in shipped games is not
+  established: while static inspection of the 2,425 decoded `LOGIC` resources
+  finds `mh2` (`3.002.149`) / `mh2-amiga` (`amiga-2.333`) `LOGIC.192` (room 192,
+  `"the fall into Hell"`), which executes `set.loop(o3, 2)` (`loop == loopcnt`)
+  on 2-loop `view 69` while `o3` is undrawn and then sets `set.loop(o3, 0)` or
+  `set.loop(o3, 1)` before `draw(o3)`, dynamic reachability through `set.loop.v`,
+  `set.cel.v`, `set.view.v`, and conditional `draw` paths across all play states
+  is not settled by static scan (and is subject to the unreadable `LOGIC`
+  entries and decoding warnings listed in `F-motion-07`). Engine: `setLoop`
+  (`set.loop`/`set.loop.v`) stores the requested loop index and clamps
+  `obj.cel` to `0` when `obj.cel >= celCount`. `setCel`
+  (`set.cel`/`set.cel.v`) retains the requested cel index, including an invalid
+  index. Both update cel dimensions (`xsize`/`ysize`) when a valid cel exists,
+  without entering `Error(errNum, errVal)` recovery or latching `v17`/`v18`;
+  `draw` throws if a drawn object still lacks an assigned
+  view or valid cel rather than silently skipping the draw or corrupting the
+  frame via a mid-script `longjmp`. `Error(errNum, errVal)` `longjmp` recovery
+  and the `loop == loopcnt` header overread are deferred.
 - **F-motion-17 (fact; engine matches).** Amiga click-move update (`MH2`
   `2.333`, shared across `2.082..2.333`): the direction dispatcher (`h16+0x24c`
   in `2.333`, `h13+0x246` in `2.082`) jumps motion types 3 (`move.obj`) and 4
@@ -1787,10 +1831,13 @@ by inference.
 
 Static disassembly of the descrambled LSL1 2.440 and KQ3 2.936 images (hashes
 under [Original string slot addressing](#original-string-slot-addressing)).
-The `add.to.pic` handlers at 0x2c7a/0x2cca (2.936) pack the margin operand into
-the high nibble of the priority byte and call the shared core at 0x2d52, which
-stamps the cel through the routine at 0x57cf (2.936) / 0x55f0 (2.440). The two
-routines are instruction-for-instruction identical apart from data addresses.
+The `add.to.pic` handlers at `0x2bf4`/`0x2c44` (`2.440`) and `0x2c7a`/`0x2cca`
+(`2.936`) pack the margin operand into the high nibble of the priority byte and
+call the shared core at `0x2ccc` (`2.440`) / `0x2d52` (`2.936`), which stamps
+the cel through `ObjInPic` at `0x55f0` (`2.440`) / `0x57cf` (`2.936`). The two
+`ObjInPic` routines are instruction-for-instruction identical apart from data
+addresses (`2.440` calls `ObjInPic` directly without `FindPosn`, while `2.936`
+calls `FindPosn` before `ObjInPic`).
 
 Fact: after the cel is drawn, the routine returns if the packed byte exceeds
 0x3f, which is a margin of four or more. Otherwise it counts rows upward from
@@ -1799,11 +1846,11 @@ count at the cel height, and writes the margin into the priority nibble of: the
 whole baseline row across the cel width; the first and last column of each
 higher row; and the columns strictly between them on the top row. A box one row
 tall is the baseline row alone. Fact: a priority operand whose low nibble is
-zero takes the baseline's band. Not modelled: the top-row loop counts
-`width - 2` in an eight-bit register without a zero test, so a cel narrower
-than three pixels overruns in the original. No routine was executed; 2.903 and
-the v3 builds were not inspected, and the engine applies the same box to every
-profile by inference.
+zero takes the baseline's band. Fact: the top-row loop counts `width - 2` in an
+eight-bit register (`CL`) without a zero test before `loop` (`CX`), so on the
+verified profiles (`2.440`, `2.936`, `3.002.086`, gated by
+`profile.addToPicPacking`) a 1-pixel-wide cel stamps 255 cells and a
+2-pixel-wide cel stamps 65536 cells across the 160×168 priority surface.
 
 **Behavioral witness:** Police Quest logic 26 places Dooley's car with margin 0 and
 then positions an officer beside it; with a baseline-only line the placement
@@ -1817,43 +1864,46 @@ room 3.
 
 #### Wave-3 add.to.pic verdicts
 
-Static disassembly of the decoded KQ3 2.936 image and the KQ4 3.002.086 code
-body; the two builds are instruction-identical on these paths.
+Static disassembly of the decoded LSL1 2.440 image, the decoded KQ3 2.936 image
+and the KQ4 3.002.086 code body.
 
-- **F-VIEWS-03 (fact; engine matches on verified profiles `2.936` and `3.002.086`).** add.to.pic control box anchor (2.936
-  kq3 0x2D52, 3.002.086 kq4 0x5BEA): the AddToPic core stores the script x/y
-  into a scratch animation entry, forces pri 15, calls FindPosn (0x593A — may
-  relocate x/y), then objinpic (0x57CF) feeds InsertObj and the control box
-  from the SAME entry fields ([bp+3]/[bp+5]). Box and cel are always
-  co-anchored at the possibly-FindPosn-relocated position; there is no
-  blit-level placement shift in this vintage. Engine: gated by
-  `profile.addToPicPackingAndRelocation` (`true` on `2.936` and `3.002.086`;
-  other profiles keep their previous behavior until verified).
-- **F-VIEWS-04 (fact; engine matches on verified profiles `2.936` and `3.002.086`).** add.to.pic packing (2.936 kq3
-  handler 0x2C7A, 3.002.086 kq4 0x2F3F): margin is `shl 4` ORed into the
+- **F-VIEWS-03 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic control box anchor (2.440
+  lsl1 0x2CCC, 2.936 kq3 0x2D52, 3.002.086 kq4 0x5BEA): on `2.936` and
+  `3.002.086`, the AddToPic core stores the script x/y into a scratch animation
+  entry, forces pri 15, calls FindPosn (0x593A — may relocate x/y), then
+  objinpic (0x57CF) feeds InsertObj and the control box from the SAME entry
+  fields ([bp+3]/[bp+5]). On `2.440`, `AddToPic` (`0x2CCC`) calls `ObjInPic`
+  (`0x55F0`) directly without calling `FindPosn`. Engine: relocation is gated
+  separately by `profile.addToPicRelocation` (`true` on `2.936` and
+  `3.002.086`; `false` on `2.440` and other profiles).
+- **F-VIEWS-04 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic packing (2.440 lsl1
+  handlers 0x2BF4/0x2C44, 2.936 kq3 0x2C7A/0x2CCA, 3.002.086 kq4 0x2F3F): margin is `shl 4` ORed into the
   priority byte (byte store — margin ≥ 16 truncates away); objinpic masks the
   packed byte `and ah,0x0F` before use, and a zero nibble triggers the
   y-priority lookup. Over-range priority operands are nibble-truncated by
-  construction. Engine: gated by `profile.addToPicPackingAndRelocation` (`true`
-  on `2.936` and `3.002.086`).
-- **F-VIEWS-09 (fact; engine matches on verified profiles `2.936` and `3.002.086`).** add.to.pic box gate (2.936 kq3
-  objinpic 0x57FA, 3.002.086 kq4 0x5C15): the sole skip condition is
+  construction. Engine: gated by `profile.addToPicPacking` (`true`
+  on `2.440`, `2.936` and `3.002.086`).
+- **F-VIEWS-09 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic box gate (2.440 lsl1
+  objinpic 0x561B, 2.936 kq3 0x57FA, 3.002.086 kq4 0x5C15): the sole skip condition is
   `cmp byte [entry+0x24],0x3F; ja` on the packed margin|priority byte —
   the margin operand reaches the gate nibble-truncated (F-VIEWS-04's byte
   store), so margins 16..19 (and every margin ≡ 0..3 mod 16) still draw a
   truncated-color box while margins with a truncated nibble ≥ 4 skip it.
   No y-range guard exists; the box top is bounded by
   the pri_tbl band scan and shadow-ram top only. Engine: gated by
-  `profile.addToPicPackingAndRelocation` (`true` on `2.936` and `3.002.086`).
-- **F-VIEWS-12 (fact; known divergence on valid input).** Narrow-cel control box
-  (2.936 kq3 0x5867, 3.002.086 kq4 0x5C82): the top-row loop is
-  `mov cl,al; sub cl,2; … loop` with no zero test — a valid 1-pixel-wide cel
-  with `margin < 4` stamps 255 cells on the top row, and a valid 2-pixel-wide
-  cel wraps `LOOP` to 65536 iterations marching across shadow RAM. Known
-  divergence on valid input: the engine bounds the top-row control-box stroke
-  to the cel's width rather than overrunning adjacent priority-screen rows.
-- **F-picture-06 (fact; engine matches the modeled box).** add.to.pic
-  control box (2.936 kq3 objinpic 0x57CF / 3.002.086 kq4 body 0x5BEA,
+  `profile.addToPicPacking` (`true` on `2.440`, `2.936` and `3.002.086`).
+- **F-VIEWS-12 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** Narrow-cel control box
+  (2.440 lsl1 0x5688, 2.936 kq3 0x5867, 3.002.086 kq4 0x5C82): the top-row loop is
+  `mov cl,al; sub cl,2; … loop` with no zero test (`CH = 0` from the preceding
+  vertical loop) — a valid 1-pixel-wide cel with a truncated margin nibble `< 4`
+  wraps `CL` to `0xFF` (`CX = 255`) and stamps 255 consecutive shadow-RAM cells
+  starting at `(x, topY)` (for example, a 1×2 cel at `(20, 80)`, priority `15`,
+  margin `1` writes `1` into `(20..159, 79)` and `(0..114, 80)`, including
+  `(21, 79)`), and a valid 2-pixel-wide cel wraps `CX = 0` in `loop` to `65536`
+  iterations marching across the 160×168 priority surface. Engine: gated by
+  `profile.addToPicPacking` (`true` on `2.440`, `2.936` and `3.002.086`).
+- **F-picture-06 (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`).** add.to.pic
+  control box (2.440 lsl1 objinpic 0x55F0 / 2.936 kq3 0x57CF / 3.002.086 kq4 body 0x5BEA,
   instruction-identical): the cel blit runs first (a runtime-loaded OBJS
   overlay routine — kq3 loads IBM_OBJS.OVL/HGC_OBJS.OVL at paragraph 0x9DB
   and calls its third entry at 0x9DB6), then the box is gated on the whole
@@ -1868,12 +1918,11 @@ es:[di],packed&0xF0` — the truncated margin nibble into the shadow byte's
   width cells at (x,y); each of the height−1 rows above paints only the two
   edge columns; the top row then paints its width−2 interior cells; a
   height-1 box is the bottom row only (`dec cl; jz` at 0x5851). The top-row
-  count runs as a 16-bit LOOP with CH=0, so widths below 3 overrun — that
-  finding (255 iterations at width 1, 65536 at width 2) is owned by
-  F-VIEWS-12. The engine's control-box stamp matches the nibble-truncated
-  gate (`F-VIEWS-04`/`F-VIEWS-09`), the band walk, the height cap and the
-  bottom/edges/top geometry; only the narrow-cel memory overrun is
-  unmodelled (`F-VIEWS-12`).
+  count runs as a 16-bit LOOP with CH=0, so widths below 3 wrap `CX` to 255
+  (width 1) or 65536 (width 2) cells across shadow RAM (`F-VIEWS-12`).
+  The engine's control-box stamp matches the nibble-truncated gate
+  (`F-VIEWS-04`/`F-VIEWS-09`), the band walk, the height cap, the
+  bottom/edges/top geometry and the narrow-cel `LOOP` wrap (`F-VIEWS-12`).
 
 ### Text under later graphics
 
@@ -2088,29 +2137,32 @@ offsets; `IBM_OBJS.OVL` `44f738f0…` loads at runtime base `0x9DB0`).
   priority `1`. Engine: gated by `profile.originalCelBlitClippingAndPriorityMask`
   (`true` on `2.936`; other profiles keep their previous unmasked priority
   comparison until verified).
-- **F-VIEWS-04-detail (fact; engine matches on verified profiles `2.936` and `3.002.086`; completes the wave-3 entry).**
-  The nibble truncation applies to BOTH blit and box (`objinpic` `0x57CF` +
-  `InsertObj`): `objinpic` masks `and ah,0x0F` for the y-priority zero test and
-  band fold-in; `InsertObj` loads the packed byte raw but its byte-wide shifts
-  truncate to `(pri & 0x0F) << 4` for both the dest compare and the shadow-ram
-  stamp; the box gate `cmp byte [entry+0x24],0x3F` and box color `and dl,0xF0`
-  use the full packed byte by design. Gated by
-  `profile.addToPicPackingAndRelocation` (`true` on `2.936` and `3.002.086`).
-- **F-VIEWS-09-adjacent (fact; engine matches on verified profiles `2.936` and `3.002.086`; confirms wave 3).**
-  Re-verified on kq3 `2.936`: `InsertObj` runs BEFORE the box gate (the cel is
-  always blitted; only the box is conditional), the sole skip condition is the
-  packed byte `> 0x3F`, and no y-range compare exists anywhere in `objinpic`. A
-  margin operand of `16..31` truncates away in the handler's byte-wide packing,
-  drawing a `(margin & 0x0f)` control box when `profile.addToPicPackingAndRelocation`
-  is `true` (`2.936` and `3.002.086`).
-- **F-VIEWS-11 (fact; known divergence on valid input for `vdesc == 0`; malformed-input-only for out-of-bounds `vdesc`).** `show.obj` description (`2.936` kq3
+- **F-VIEWS-04-detail (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`; completes the wave-3 entry).**
+  The nibble truncation applies to BOTH blit and box (`objinpic` `0x55F0` /
+  `0x57CF` + `InsertObj`): `objinpic` masks `and ah,0x0F` for the y-priority
+  zero test and band fold-in; `InsertObj` loads the packed byte raw but its
+  byte-wide shifts truncate to `(pri & 0x0F) << 4` for both the dest compare
+  and the shadow-ram stamp; the box gate `cmp byte [entry+0x24],0x3F` and box
+  color `and dl,0xF0` use the full packed byte by design. Gated by
+  `profile.addToPicPacking` (`true` on `2.440`, `2.936` and `3.002.086`).
+- **F-VIEWS-09-adjacent (fact; engine matches on verified profiles `2.440`, `2.936` and `3.002.086`; confirms wave 3).**
+  Re-verified on lsl1 `2.440` and kq3 `2.936`: `InsertObj` runs BEFORE the box
+  gate (the cel is always blitted; only the box is conditional), the sole skip
+  condition is the packed byte `> 0x3F`, and no y-range compare exists anywhere
+  in `objinpic`. A margin operand of `16..31` truncates away in the handler's
+  byte-wide packing, drawing a `(margin & 0x0f)` control box when
+  `profile.addToPicPacking` is `true` (`2.440`, `2.936` and `3.002.086`).
+- **F-VIEWS-11 (fact; engine matches on verified profile `2.936` for `vdesc == 0`; malformed-input-only for out-of-bounds `vdesc`).** `show.obj` description (`2.936` kq3
   core `0x5EDB`): the `vdesc` word at `view+3` is loaded little-endian, added
   to the view base, and passed straight to `WindowPrint` — no zero test, no
   bounds check, no fallback. On a valid view with no description (`vdesc == 0`),
-  `show.obj` in `2.936` passes `view + 0` (the raw view header bytes) to
-  `WindowPrint`, whereas the engine substitutes `""` when `descOffset === 0`
-  (known divergence on valid input); out-of-bounds `vdesc >= length` requires a
-  corrupt view resource (malformed-input-only).
+  `show.obj` in `2.936` passes `view + 0` (the raw view header bytes up to the
+  first `0x00` byte) to `WindowPrint`. Engine: gated by
+  `profile.showObjUncheckedDescOffset` (`true` on `2.936`, where the engine
+  decodes the raw view bytes starting at offset `0` up to the first `0x00` byte
+  when `descOffset === 0`; `false` on the other 19 profiles, which keep empty
+  description text `""` until verified); out-of-bounds `vdesc >= length`
+  requires a corrupt view resource (malformed-input-only).
 
 ### Original string slot addressing
 
@@ -2220,22 +2272,26 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
   pointer only — they never move v9. Clean parses leave v9 untouched; the
   input phase zeroes v9/v19 before event polling (gr1 0x38D3), so v9==0 after
   a fully-known line.
-- **F-Parser-04 (fact; engine matches).** Ten-word retention (PC Parse cap check:
-  2.001 0x18e0, 2.089 0x1706, 2.230 0x15d1, 2.272 0x166d, 2.411 0x185c, 2.440
-  0x186b, 2.903 0x18a7, 2.917 0x18ac / 0x18F4, 2.936 0x18a8, 3.002.086 0x1b65 /
-  0x1BAD, 3.002.102/3.002.107 0x1b7b, 3.002.149 0x1b34 / 0x1B7C; Amiga: 2.082
-  h19+0x7c, 2.176/2.202 h25+0x7c, 2.310/2.316 h25+0x7e, 2.333 h25+0x80; IIgs
-  1.014 main+0x1f0a `cmp #$000a`): in every binary, the word loop tests
-  `i >= 10` BEFORE each Match call and exits silently — tokens past the tenth
-  retained word are never examined, so an unknown word at position 11+ is not
-  reported and no eleventh text is kept. The cap path (e.g. kq1 0x1940) stores
-  count := 10, then falls through to the `count > 0` check (0x194C), which sets
-  f2; v9 is written only on the unknown-word path (kq1 0x1901: wordPtr[i] :=
-  text pointer, v9 := i+1, count := i+1, SetFlag(2)), so an over-long line of
-  known words leaves v9 clear but still sets f2. WORDS/WORDPTR are 10-slot
-  arrays zeroed at Parse entry (FillMem 0x14 bytes each). Engine: the parser
-  stops at ten retained words and sets f2 whenever the retained count is
-  nonzero across all twenty profiles (field `parserStopsAtTenthWord`).
+- **F-Parser-04 (fact; engine matches).** Ten-word retention (PC `Parse` entry /
+  `cmp di,0xa`: `2.001` `0x1817` / `0x1862`, `2.089` `0x176b` / `0x17b3`, `2.230`
+  `0x16ad` / `0x16f5`, `2.272` `0x174b` / `0x1793`, `2.411` `0x1859` / `0x18a1`,
+  `2.439` `0x1867` / `0x18af`, `2.440` `0x186f` / `0x18b7`, `2.903` `0x18a5` /
+  `0x18ed`, `2.915` `0x18aa` / `0x18f2`, `2.917`/`2.936` `0x18ac` / `0x18f4`,
+  `3.002.086` `0x1b65` / `0x1bad`, `3.002.102`/`3.002.107` `0x1b7b` / `0x1bc3`,
+  `3.002.149` `0x1b34` / `0x1b7c`; Amiga `Parse` entry / `cmpi.w #10,d7`:
+  `2.082` `h37+0x000` / `h37+0x060`, `2.176..2.333` `h54+0x000` / `h54+0x060`;
+  IIgs `1.014` `seg2+0x1a5f` / `seg2+0x1ac8` `sbc #$000a`): in every binary, the
+  word loop tests `i >= 10` BEFORE each `FindWord` call and exits silently —
+  tokens past the tenth retained word are never examined, so an unknown word at
+  position 11+ is not reported and no eleventh text is kept. The cap path (e.g.
+  `kq1` `0x1940`) stores `count := 10`, then falls through to the `count > 0`
+  check (`0x194c`), which sets `f2`; `v9` is written only on the unknown-word
+  path (`kq1` `0x1901`: `wordPtr[i] := text pointer`, `v9 := i+1`, `count := i+1`,
+  `SetFlag(2)`), so an over-long line of known words leaves `v9` clear but still
+  sets `f2`. `WORDS`/`WORDPTR` are 10-slot arrays zeroed at `Parse` entry
+  (`FillMem` `0x14` bytes each). Engine: the parser stops at ten retained words
+  and sets `f2` whenever the retained count is nonzero across all twenty profiles
+  (field `parserStopsAtTenthWord`).
 - **F-Parser-05 (fact; engine matches).** Input-line capacity (PC EditLine:
   2.001 0x3376, 2.089 0x3340, 2.230 0x329f, 2.272 0x332d, 2.411 0x353b, 2.440
   0x3549, 2.903 0x364b, 2.917/2.936 0x3652, 3.002.086 0x39ef, 3.002.102/3.002.107
@@ -2262,55 +2318,119 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
     editLen==0. Engine: the editor applies each profile's exact capacity formula
     across all twenty profiles (fields `originalInputCapacity`, `inputLineEditCap`,
     and `inputWidthActions`).
-- **F-Parser-07 (fact; comment-only divergence).** Dictionary lookup (2.917
-  kq1 Match 0x1A6B / 3.002.086 kq4 0x1D24 / 3.002.149 gr1 0x1CF3): first char
-  (ASCII a-z after ASCII-only tolower, else unknown word) indexes a 26-entry
-  big-endian offset table; the section is scanned LINEARLY via NextToken and
-  every complete match overwrites the result, so duplicate entries resolve
-  last-in-file-order. Words under the wrong letter section are unreachable. A
-  lone 'a' or 'i' token defaults to group 0 before the scan (a real entry can
-  still override). The lookup is not a binary search; only a stale engine
-  comment said so.
+- **F-Parser-07 (fact; engine matches).** Dictionary lookup (PC `FindWord`:
+  `2.001` `0x1961`, `2.089` `0x192a`, `2.230` `0x186c`, `2.272` `0x190a`,
+  `2.411` `0x1a18`, `2.439` `0x1a26`, `2.440` `0x1a2e`, `2.903` `0x1a64`,
+  `2.915` `0x1a69`, `2.917`/`2.936` `0x1a6b`, `3.002.086` `0x1d24`,
+  `3.002.102`/`3.002.107` `0x1d3a`, `3.002.149` `0x1cf3`; Amiga `FindWord`:
+  `2.082` `h37+0x24e`, `2.176..2.333` `h54+0x24e`; IIgs `FindWord`: `1.014`
+  `seg2+0x1c0a`): first char (ASCII `a–z` after `FindWord`'s own ASCII-only
+  `tolower` call on `*line` — `0x1a86` in `2.936`, `0x197c` in `2.001` — else
+  unknown word) indexes a 26-entry big-endian offset table; the section is
+  scanned LINEARLY via `NextToken` (calling `tolower` on each input character,
+  e.g. `0x1b50` in `2.936`, `0x1a11` in `2.001`), requires the byte after a
+  matched dictionary word to be NUL (`0x00`) or `' '` (`0x20`) (`0x1b6d..0x1b75`
+  in `2.936`, `0x1a31..0x1a39` in `2.001`), and every complete match overwrites
+  the result, so duplicate entries resolve last-in-file-order. Words under the
+  wrong letter section are unreachable. On all nineteen profiles from `2.089`
+  onward (plus all Amiga and IIgs profiles; `parserDefaultsLoneAAndI: true`),
+  `FindWord` initializes `retVal = 0` when the remaining input begins with a
+  lone `'a'` or `'i'` token (`word[1] == 0` or `word[1] == ' '`) before scanning
+  the letter section, while an explicit dictionary entry in `WORDS.TOK` still
+  overwrites `retVal` when matched; only `2.001` (`0x1961`,
+  `parserDefaultsLoneAAndI: false`) has no pre-check and requires `'a'`/`'i'` to
+  appear in `WORDS.TOK`.
 
 #### Wave-4 parser verdicts
 
-Static disassembly of SQ1-dos 2.089 (`e31e5e86…`), XMAS 2.230 (`875547de…`),
-XMAS 2.272 (`a0c26b5d…`), KQ2 2.411 (`d99938d6…`) and KQ3 2.936
-(`4b50c681…`); runtime offsets.
+Static disassembly of DDP 2.001 (`424da51a…`), SQ1-dos 2.089 (`e31e5e86…`),
+XMAS 2.230 (`875547de…`), XMAS 2.272 (`a0c26b5d…`), KQ2 2.411 (`d99938d6…`),
+LSL1 2.440 (`c70e2f32…`), KQ1 2.917 (`bf53a4f9…`), KQ3 2.936 (`4b50c681…`),
+KQ4 3.002.086 (`b9b27b40…`),DM 3.002.102 (`7cf6eac9…`), GR 3.002.149
+(`12a52b72…`), Amiga `2.082..2.333` and IIgs 1.014 (`e1a2788f…`); runtime
+offsets.
 
-- **F-Parser-08 (fact; engine matches).** `parse()` slot bound (`2.089` sq1-dos
-  `0x1817` / `2.230` xmas `0x1759` / `2.272` xmas `0x17F7`): `cmp ax,6` — slots
-  `>= 6` are silently skipped (string base `DS:0x1E9`). The bound is `12`
-  (`cmp ax,0xC`, base `DS:0x20D`) only from the 2.4x generation up (`kq3`
-  `2.936` `0x1958`). The engine's per-profile `stringSlots: 6` on the early
-  profiles is the exact original behavior.
-- **F-Parser-09 (fact; engine matches on populated slots; known divergence on valid input for unpopulated or out-of-bounds slots).**
-  `word.to.string` (PC `WordToString`: `2.001` `0x0d4f`, `2.089` `0x0D41`,
-  `2.230` `0x0c7f`, `2.272` `0x0d1b`, `2.411` `0x0D3D`, `2.440` `0x0d4b`,
-  `2.903`/`2.917` `0x0d69`, `2.936` `0x0D70`, `3.002.086` `0x0fc4`,
-  `3.002.102`/`3.002.107` `0x0fda`, `3.002.149` `0x0fd3`; Amiga: `2.082`
-  `h14+0x140`, `2.176..2.333` `h20+0x140`; IIgs `1.014` `seg2+0x389a`): in
-  every shipped binary across all twenty profiles, the word operand is a raw
-  0-based index into `wordPtr` (`wordPtr[wordIndex]`, where `wordIndex = 0` is
-  the first retained token), distinct from the 1-based `%wN` message formatter.
-  A bounded `strcpy` (`n = 40`) copies whatever the slot points at — a NULL slot
-  (`wordPtr` is zeroed at `Parse` entry) reads `DS:0x0000`, and index `>= 11`
-  reinterprets `numWords`/`wordTbl`/`parseLine` bytes as a near pointer. Engine:
-  action `0x76` (`word.to.string`) indexes `parsedWordTexts[wordIndex]` 0-based
-  across all twenty profiles while `%wN` stays 1-based; reading an unpopulated
-  slot (`wordIndex >= parsedWordTexts.length`) or an out-of-bounds slot (`>= 11`)
-  is a known divergence on valid input where the engine writes `""` rather than
-  dereferencing `DS:0x0000` or adjacent parser state.
-- **F-Parser-10 (fact; engine matches).** Parse normalization charset (`2.936`
-  kq3 `Match` `0x1A6B` / `tolower` `0x4FEA` / `MakeLine` `0x199D`): folding is
-  ASCII `A–Z` (`0x41..0x5A` → `0x61..0x7A`) only; the first character must fold
-  into `'a'..'z'` (`0x61..0x7A`) or the token is an unknown word; separators and
-  dropped characters are the ASCII sets `" ,.?!();:[]{}"` and `"'`-\""`(ovl`DS:0xC67`/`0xC75`). Bytes `>= 0x80`in a`parse(sA)`or player input string
-survive verbatim without Unicode/locale folding and become unknown words.
-Engine:`parseSentence`and`lookupPhrase`in`src/runtime/parser.ts`fold
-only ASCII`0x41..0x5A`and gate dictionary section lookup on`0x61..0x7A`,
-preserving all bytes `>= 0x80`verbatim (verified on`2.936`, applied in the
-  shared parser by inference).
+- **F-Parser-08 (fact; engine matches).** `parse()` (`0x75`) slot bound (PC:
+  `2.001` `0x18c6` / `cmp ax,6` at `0x18e5`, `2.089` `0x1817` / `0x1840`,
+  `2.230` `0x1759` / `0x1782`, `2.272` `0x17f7` / `0x1820` with `cmp ax,6`;
+  `2.411` `0x1905` / `0x192e`, `2.439` `0x1913` / `0x193c`, `2.440` `0x191b` /
+  `0x1944`, `2.903` `0x1951` / `0x197a`, `2.915` `0x1956` / `0x197f`,
+  `2.917`/`2.936` `0x1958` / `0x1981`, `3.002.086` `0x1c11` / `0x1c3a`,
+  `3.002.102`/`3.002.107` `0x1c27` / `0x1c50`, `3.002.149` `0x1be0` / `0x1c09`
+  with `cmp ax,0xc`; Amiga: `2.082` `h37+0x112` with `cmpi.w #6`,
+  `2.176..2.333` `h54+0x112` with `cmpi.w #13`; IIgs `1.014`: `seg2+0x1ba1` /
+  `seg2+0x1bd2` with `sbc #$000d`): slots `>= stringSlots` are silently skipped.
+  The engine's per-profile `stringSlots` (`6` on `2.001..2.272` and
+  `amiga-2.082`, `12` on `2.411..3.002.149`, `13` on `amiga-2.176..2.333` and
+  `iigs-1.014`) matches every binary.
+- **F-Parser-09 (fact; engine matches on valid word indices `0..9`; documented divergence on unusual input `wordIndex >= 10`).**
+  `word.to.string` (`0x74`, PC `WordToString`: `2.001` `0x0f17..0x0f4f`, `2.089`
+  `0x0d41`, `2.230` `0x0c23`, `2.272` `0x0c4f`, `2.411` `0x0d3d`,
+  `2.439`/`2.440` `0x0d3d`, `2.903` `0x0d6b`, `2.915`/`2.917`/`2.936`
+  `0x0d70..0x0da8`, `3.002.086` `0x0faf`, `3.002.102`/`3.002.107` `0x0fc5`,
+  `3.002.149` `0x0f7e`; Amiga: `2.082` `h21+0x13a`, `2.176..2.333` `h30+0x13a`;
+  IIgs `1.014` `seg2+0x4c17`): in every shipped binary across all twenty
+  profiles, `WordToString` fetches `s = *code++` and `w = *code++`, computes
+  `string[s]` (`s * 40 + DS:0x020d` in `2.936`), indexes `wordPtr[w]` 0-based
+  directly with **no `w > 10` bounds check** (`lodsb; xor ah,ah; mov bx,ax;
+shl bx,1; push word [bx+0x0c8f]` in `2.936`, `asl.l #2,d0` on Amiga,
+  `asl a; asl a` on IIgs — the `w > 10` test exists only in `Print`'s 1-based
+  `%wN` formatter, not in `WordToString`), and calls
+  `strncpy(string[s], wordPtr[w], 40)` (`0x4de8` in `2.936`, `0x47d5` in
+  `2.001`). A NULL slot (`w < 10` with `w >= parserCount`, since `wordPtr[0..9]`
+  is zeroed at `Parse` entry) reads `DS:0x0000` (`""`), whereas `w >= 10` reads
+  past `wordPtr[9]` into adjacent `DS` state (`DS:0x0ca3` `numWords`/`prevLine`
+  for `w == 10` and `prevLine`/`linebuf` bytes at `DS:0x0ca5+` for `w > 10` in
+  `2.936`) and dereferences that 16-bit word as a `DS` pointer. Across all
+  2,425 decoded `LOGIC` resources in the 25 unpacked AGI fixtures (subject to
+  the unreadable `LOGIC` entries and `// !!` decoding warnings listed in
+  `F-motion-07`), opcode `0x74` (`word.to.string`) is absent (occurring only as
+  the debug string literal `#message 116 "word.to.string"`). Engine: action
+  `0x74` (`word.to.string`) writes `this.parsedWordTexts[wordIndex] ?? ""`
+  (0-based) into `string[s]` while `%wN` remains 1-based; for `wordIndex >= 10`
+  it safely writes `""` rather than dereferencing adjacent `DS` bytes as a
+  pointer, and emulating the `wordPtr` overread is deferred.
+- **F-Parser-10 (fact; engine matches).** Parse normalization (`MakeLine`: PC
+  `2.001` `0x1901..0x1960`, `2.089` `0x185c`, `2.230` `0x179e`, `2.272`
+  `0x183c`, `2.411` `0x194a`, `2.439` `0x1958`, `2.440` `0x1960`, `2.903`
+  `0x1996`, `2.915` `0x199b`, `2.917`/`2.936` `0x199d..0x1a6a`, `3.002.086`
+  `0x1c56`, `3.002.102`/`3.002.107` `0x1c6c`, `3.002.149` `0x1c25`; Amiga
+  `MakeLine`: `2.082` `h37+0x164`, `2.176..2.333` `h54+0x164`; IIgs `MakeLine`:
+  `1.014` `seg2+0x1f0f`): `MakeLine` never calls `tolower`; it copies retained
+  bytes with their original case into `linebuf` (`DS:0x0ba3` in `2.001`,
+  `DS:0x0ca7` in `2.936`). On `2.001` (`0x1901..0x1960`), `MakeLine` collapses
+  runs of `' '` (`0x20`, `0x1914..0x191f`), copies every non-space byte
+  (including punctuation such as `,`, `.`, `?`, `!`, `'`, and `-`) verbatim
+  into `linebuf` (`0x1921..0x1941`), emits a single `' '` (`0x1946`), and trims
+  a trailing `' '` (`0x194b..0x1957`); because `FindWord` (`0x1961..0x1a87`)
+  requires `*di == 0x00 || *di == 0x20` (`0x1a31..0x1a39`) after a dictionary
+  match, attached punctuation on `2.001` prevents a match unless the
+  punctuation is in `WORDS.TOK`. On the other nineteen profiles
+  (`2.089..3.002.149`, Amiga `2.082..2.333`, and IIgs `1.014`), `MakeLine`
+  classifies each input byte by calling `strchr` (PC `2.089` `0x47fc`, `2.230`
+  `0x4762`, `2.272` `0x47ce`, `2.411` `0x4e60`, `2.439` `0x4e8a`, `2.440`
+  `0x4e92`, `2.903` `0x4f95`, `2.915` `0x4f94`, `2.917` `0x4f96`, `2.936`
+  `0x505d`, `3.002.086` `0x5473`, `3.002.102`/`3.002.107` `0x547b`, `3.002.149`
+  `0x5292`; Amiga `2.082` `h87+0x39c`, `2.176` `h121+0x39c`, `2.202`
+  `h121+0x3e2`, `2.310..2.333` `h121+0x3d6`; IIgs `1.014` `etcseg+0x05de`)
+  against two NUL-terminated literal strings in data: the 13-byte separator
+  string `" ,.?!();:[]{}"` (PC `2.089` `DS:0x09f7`, `2.230` `DS:0x09fb`,
+  `2.272` `DS:0x0acf`, `2.411..2.440` `DS:0x0c3f`, `2.903..2.917` `DS:0x0c5f`,
+  `2.936` `DS:0x0c67`, `3.002.086` `DS:0x0c9d`, `3.002.102`/`3.002.107`
+  `DS:0x0cb0`, `3.002.149` `DS:0x0a74`; Amiga `2.082` `h38+0x00`,
+  `2.176..2.333` `h55+0x00`; IIgs `~arrays+0x17ce`) and the 4-byte
+  ignored-punctuation string `"'`-\""` (`DS+0x0e`after the separator string;
+Amiga`h38+0x0e`/`h55+0x0e`; IIgs `~arrays+0x17dc`). `FindWord`(not`MakeLine`) then calls `tolower`(PC`2.001` `0x49b7`, `2.089` `0x4767`,
+`2.230` `0x46ef`, `2.272` `0x475b`, `2.411` `0x4ded`, `2.439` `0x4e17`,
+`2.440` `0x4e1f`, `2.903` `0x4f22`, `2.915` `0x4f21`, `2.917` `0x4f23`,
+`2.936` `0x4fea`at`0x1a86`and`0x1b50`, `3.002.086` `0x5400`,
+`3.002.102`/`3.002.107` `0x5408`, `3.002.149` `0x521f`; Amiga `2.082`
+`h87+0x2ee`, `2.176` `h121+0x2ee`, `2.202..2.333` `h121+0x334`; IIgs `1.014`
+`etcseg+0x04bf`), which folds only ASCII `'A'..'Z'` (`0x41..0x5a`→`0x61..0x7a`), and requires the first character of a token to lie in
+`'a'..'z'` (`0x61..0x7a`) or treats the token as an unknown word. Bytes
+`>= 0x80`in a`parse(sA)`or player input string survive verbatim without
+Unicode/locale folding and become unknown words. Engine:`profile.parserStripsPunctuation` (`false`on`2.001`, `true`on the other 19
+profiles) selects space-only vs separator/ignored-punctuation`MakeLine`normalization in`parseSentence`, and `asciiLower`folds only ASCII`0x41..0x5a` across all twenty profiles.
 - **F-Parser-12 (fact; engine matches on printable/control keys; non-printable scan-word insertion into INLINE is host boundary).**
   Input-line editor keys (`2.411` kq2 `EditLine` `0x353b` / `2.936` kq3
   `0x3652`): key `13` on an empty line is silently consumed (no parse; `v19 =
@@ -3563,21 +3683,22 @@ shl di,1 / add di,0xa`; executed under Unicorn on descrambled kq1 `bf53a4f9…`:
     stamp, and `compositeFrame` renders the exact sub-cell fill and border bars
     for each profile's `windowFrameGeometry` (including `show.obj`), with text
     starting at `(topRow, leftCol)` matching `SetCurPos`.
-- **F-text-04 (fact; engine matches on placement and verbatim print.at
-  overrides; known divergence on valid input for off-screen coordinate memory
-  corruption).** Window placement (PC WindowNoWait: 2.001 0x1da2, 2.089 0x1c06,
-  2.230 0x1b1e, 2.272 0x1bba, 2.411 0x1d5c, 2.440 0x1d6a, 2.903 0x1e47,
-  2.917/2.936 0x1E69, 3.002.086 0x2121, 3.002.102/3.002.107 0x2136, 3.002.149
-  0x20e2; Amiga: 2.082 h40+0x204, 2.176..2.333 h57+0x246; IIgs 1.014
-  seg2+0x2b50): `top = picTop + 1 + ((winBot − 1 − numLines) >> 1)` (`winBot =
-19` on PC 2.001, `20` on all other nineteen builds), `left = (40 − maxLength)
-  > > 1` (`shr`= floor; slack non-negative via the verbose gate); engine
-centering matches.`print.at` row/col overrides are stored VERBATIM (`picTop`still added to row) with no clamping — off-screen overrides write outside the
-window bounds rather than shifting to fit. Engine:`print.at`overrides are
-stored verbatim with`picTop`added across all twenty profiles (field`originalTextWindows`); when a script passes off-screen `print.at` coordinates
-  > > (known divergence on valid input), the saved rectangle is canonicalized so
-  > > checkpoints validate and dismissal restores nothing rather than corrupting
-  > > out-of-bounds video memory.
+- **F-text-04 (fact; engine matches).** Window placement (PC WindowNoWait:
+  2.001 0x1da2, 2.089 0x1c06, 2.230 0x1b1e, 2.272 0x1bba, 2.411 0x1d5c, 2.440
+  0x1d6a, 2.903 0x1e47, 2.917/2.936 0x1E69, 3.002.086 0x2121, 3.002.102/3.002.107
+  0x2136, 3.002.149 0x20e2; Amiga: 2.082 h40+0x204, 2.176..2.333 h57+0x246; IIgs
+  1.014 seg2+0x2b50): `top = picTop + 1 + ((winBot − 1 − numLines) >> 1)`
+  (`winBot = 19` on PC 2.001, `20` on all other nineteen builds), `left = (40 −
+maxLength) >> 1` (`shr` = floor; slack non-negative via the verbose gate);
+  engine centering matches. `print.at` row/col overrides are stored VERBATIM
+  (`picTop` still added to row) with no clamping — off-screen overrides write
+  outside the window bounds rather than shifting to fit. Engine: `print.at`
+  overrides are stored verbatim with `picTop` added across all twenty profiles
+  (field `originalTextWindows`); when a script passes off-screen `print.at`
+  coordinates, `writeModalWindow` wraps horizontally past column `39` (`col >=
+40` advances `row += 1, col = 0`) and caps vertical advancement at row `24`
+  (`row >= 24` stays on row `24`), matching `PutChar` / `SetCurPos`, while the
+  saved rectangle is canonicalized so checkpoints validate.
 - **F-text-08 (fact; engine matches).** Timed print (2.917 kq1 0x1CE8 / 2.936
   kq3): timeOut = sysTimer + v21*10 (dword, 20 Hz → half-second units);
   busy-wait `while (sysTimer < timeOut && ChkAcAb() == -1)` — tick-quantized
@@ -3612,13 +3733,16 @@ body; brush tables read from the hash-pinned overlays.
   (2.936 kq3 colorFill 0x533B / 3.002.086 kq4 body 0x574F): scanline fill whose
   pending-line stack is the CPU stack, seeded with 4×0xFFFF (`B8 FF FF 50 50
 50 50` at 0x5377), popped until start-Y == 0xFF; no SP bound — a
-  pathological fill corrupts the stack rather than aborting (known divergence
-  on valid input: the engine uses a heap-allocated work stack and completes the
-  fill cleanly). Fill with visual 15 or priority 4 is
-  dropped before the seed test (`cmp byte [color],0xF / jz`,
-  `cmp byte [pri],0x40 / jz`); visual channel selected before priority
-  (`test bh,0xF` first); seed masked pixel must equal the background mask or
-  the fill is ignored; Y test is an 8-bit `cmp al,0xA7`.
+  pathological fill pushes `(direction, startX, endX, startY)` words past the
+  8086 stack segment into live C stack frames, return addresses and `DS`
+  globals, whose side effects depend on the instantaneous `SS:SP` call depth and
+  hardware interrupt state rather than a deterministic game-state rule (known
+  divergence on valid input: the engine uses a heap-allocated work stack and
+  completes the fill cleanly rather than corrupting host memory). Fill with
+  visual 15 or priority 4 is dropped before the seed test
+  (`cmp byte [color],0xF / jz`, `cmp byte [pri],0x40 / jz`); visual channel
+  selected before priority (`test bh,0xF` first); seed masked pixel must equal
+  the background mask or the fill is ignored; Y test is an 8-bit `cmp al,0xA7`.
 - **F-picture-04 (fact; engine matches on verified profiles `2.936` and `3.002.086`).** show.pri.screen (2.936 kq3 0x731B
   / 3.002.086 kq4 body 0x775A): `showPri=1; BackToScrn; WaitAcAb; BackToScrn;
 showPri=0` — no window close. ChkAcAb (kq3 0x45F0) accepts only 0x0D
@@ -3720,13 +3844,18 @@ true`).
   `DS+0x0aa5`, `2.936` `0x733c` / `DS+0x0aab`, `3.002.086` `0x7771` /
   `DS+0x0af7`, `3.002.102`/`3.002.107` `0x7789` / `DS+0x0b59`, `3.002.149`
   `0x7670` / `DS+0x0ab1`; Amiga: `2.082` `h124+0x00` / `h125+0x00`,
-  `2.176..2.333` `h178+0x00` / `h179+0x00`; IIgs `1.014` `main+0x1f0a` /
-  `main+0x234c`): across all twenty shipped profiles, `version` takes no
-  bytecode operands, passes the built-in `versionMsg` (`"Adventure Game
-Interpreter\n      Version …"`) to `WindowPrint` — a modal window with
-  key-poll / `var[21]` timeout — and returns with string slot 0 untouched.
-  Engine: `version` displays the version string modally with the `v21` timeout
-  honored and leaves string slot 0 alone across all twenty profiles.
+  `2.176..2.333` `h178+0x00` / `h179+0x00`; IIgs: `1.002`/`1.003`
+  `seg2+0x3ee9` / `seg2+0x3efe`, `1.014` `main+0x1f0a` / `main+0x234c`): across
+  all twenty shipped profiles, `version` takes no bytecode operands, passes the
+  built-in `versionMsg` (`"Adventure Game Interpreter\n      Version 2.001\n"`
+  with trailing newline on `2.001` `DS+0x0934`; `"Adventure Game Interpreter\n      Version <version>"`
+  without trailing newline on all other nineteen profiles, using the exact
+  build number on multi-build profiles `2.439`, `2.915`, `3.002.107` and
+  stripping the `amiga-` / `iigs-` profile prefix) to `WindowPrint` — a modal
+  window with key-poll / `var[21]` timeout — and returns with string slot 0
+  untouched. Engine: `version` displays the exact per-build `versionMsg`
+  modally with the `v21` timeout honored and leaves string slot 0 alone across
+  all twenty profiles.
 
 ### Early PC family (2.089/2.230/2.272)
 
@@ -6439,13 +6568,14 @@ inference distinct when extending the existing hash/address-backed findings.
 Completed loader comparisons, exhaustive RNG and wander probes need not be
 rerun as new discoveries.
 
-| Investigation                          | Current evidence and remaining acceptance                                                                                                                                                                                                                                                                                                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scheduler and modal timing             | [Coupled original IRQ, pacing and modal execution](#original-scheduler-and-modal-timing) covers representative v2/v3 builds, delay changes, backlogs and wait classes. Full-machine interrupt arrival, physical clock accuracy and successful disk-transfer latency remain outside this evidence.                                                                                                               |
-| Startup and restore reconstruction     | [Startup, reconstruction and main-loop control execution](#startup-and-reconstruction-execution) establishes cold defaults, lazy RNG seeding, resource replay, follower reset and same-cycle re-entry in two builds. Actual resource bodies, full DOS startup and object bit 0x8000 remain unverified; controlled file interoperability is covered by the [separate API](#original-save-file-interoperability). |
-| Complete movement and collision passes | [Original dispatcher and movement execution](#original-complete-movement-and-follow-audit) covers seven builds and synthetic terrain/object/cadence vectors. Dispatcher cases intercept graphics and cel binding; separate cases execute the actual cel setter. This does not prove rendered-pixel or full-machine gameplay fidelity.                                                                           |
-| Follow retries and older profiles      | The movement audit executes signed retry edges and stationary RNG rejection/call counts across the listed v2/v3 builds. Earlier profiles absent from that matrix remain unverified; no new profile distinction was inferred.                                                                                                                                                                                    |
-| Chip and device semantics              | [Original sound execution](#signed-adjustment-and-device-2-edges) covers byte arithmetic and device-2 edges in four builds. TI documentation establishes programming formats, but zero-divisor and undocumented continuation behavior across chip variants still require independent hardware evidence.                                                                                                         |
+| Investigation                          | Current evidence and remaining acceptance                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scheduler and modal timing             | [Coupled original IRQ, pacing and modal execution](#original-scheduler-and-modal-timing) covers representative v2/v3 builds, delay changes, backlogs and wait classes. Full-machine interrupt arrival, physical clock accuracy and successful disk-transfer latency remain outside this evidence.                                                                                                                                                                                                                                                                                                                                                                                     |
+| Startup and restore reconstruction     | [Startup, reconstruction and main-loop control execution](#startup-and-reconstruction-execution) establishes cold defaults, lazy RNG seeding, resource replay, follower reset and same-cycle re-entry in two builds. Actual resource bodies, full DOS startup and object bit 0x8000 remain unverified; controlled file interoperability is covered by the [separate API](#original-save-file-interoperability).                                                                                                                                                                                                                                                                       |
+| Complete movement and collision passes | [Original dispatcher and movement execution](#original-complete-movement-and-follow-audit) covers seven builds and synthetic terrain/object/cadence vectors. Dispatcher cases intercept graphics and cel binding; separate cases execute the actual cel setter. This does not prove rendered-pixel or full-machine gameplay fidelity.                                                                                                                                                                                                                                                                                                                                                 |
+| Follow retries and older profiles      | The movement audit executes signed retry edges and stationary RNG rejection/call counts across the listed v2/v3 builds. Earlier profiles absent from that matrix remain unverified; no new profile distinction was inferred.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Chip and device semantics              | [Original sound execution](#signed-adjustment-and-device-2-edges) covers byte arithmetic and device-2 edges in four builds. TI documentation establishes programming formats, but zero-divisor and undocumented continuation behavior across chip variants still require independent hardware evidence.                                                                                                                                                                                                                                                                                                                                                                               |
+| Rare edge behaviors on unusual input   | Documented divergences in `F-motion-07` (`direction > 8` table overread), `F-motion-12` (`FindPosn` spiral exhaustion), `F-motion-16` (`Error(errNum, errVal)` `longjmp` recovery and `loop == loopCnt` overread) and `F-Parser-09` (`word.to.string` index `>= 10` `DS` overread): opcode `0x74` (`word.to.string`) is absent from all 2,425 decoded `LOGIC` resources across the 25 unpacked AGI fixtures, while runtime reachability of the three motion/view edges is not established by static scan (with unreadable `LOGIC` entries and `// !!` decoding warnings listed in `F-motion-07`); safe fallbacks are kept and raw overreads / `longjmp` / hang behavior are deferred. |
 
 The shared object parameter bank at `0x27..0x2a` is already evidenced; it does
 not prove the remaining flags or full-machine save reconstruction across arbitrary games.

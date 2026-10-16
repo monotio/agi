@@ -23,6 +23,7 @@ import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import {
   computeSyncMark,
   HISTORY_FINGERPRINT_VERSION,
+  HISTORY_FORMAT_VERSION,
   historyAnchorSemantic,
   historyBootSemantic,
   historyFingerprint,
@@ -56,6 +57,8 @@ export interface HistoryReplayOptions {
   tailTicks?: number;
   /** Bound on virtual ticks so a corrupt stream cannot run forever. */
   maxTicks?: number;
+  /** Format version of the enclosing HistoryRecording (defaults to HISTORY_FORMAT_VERSION). */
+  recordingVersion?: number;
 }
 
 /** Fold container mutations the recorded events committed before `seq`. */
@@ -256,8 +259,17 @@ export function openHistoryDrive(
   // A segment without split-digest marks was recorded by a released build
   // whose behavior legitimately differs from today's; nothing in it is
   // verified, and a position replay cannot reach is a compatibility notice,
-  // never a divergence or a hard failure.
-  const legacyOnly = segment.sync.every((m) => m.state === undefined);
+  // never a divergence or a hard failure. When a short segment has no sync
+  // marks yet, the segment's own format version (or the enclosing recording's
+  // version, or a v1 host image on its boot/anchor) identifies whether it was
+  // recorded by a released build (versions 1 and 2).
+  const effectiveVersion = segment.version ?? options.recordingVersion ?? HISTORY_FORMAT_VERSION;
+  const legacyOnly =
+    segment.sync.length > 0
+      ? segment.sync.every((m) => m.state === undefined)
+      : effectiveVersion < HISTORY_FORMAT_VERSION ||
+        (segment.boot.image !== undefined && base64ToBytes(segment.boot.image)[33] === 1) ||
+        (segment.anchors[0] !== undefined && base64ToBytes(segment.anchors[0].image)[33] === 1);
 
   const events = segment.events;
   let ei = 0;

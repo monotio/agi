@@ -514,10 +514,15 @@ test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based while %w remai
       assembleLogic(
         `accept.input();
          if (isset(f2)) {
+           set.string(s3, "NONEMPTY");
+           set.string(s4, "NONEMPTY");
+           set.string(s5, "NONEMPTY");
            word.to.string(s1, 0);
            word.to.string(s2, 1);
            word.to.string(s3, 2);
-           set.string(s4, "%w1-%w2");
+           word.to.string(s4, 10);
+           word.to.string(s5, 14);
+           set.string(s0, "%w1-%w2");
          }
          return;`,
         { dictionary: DICT, profile: PROFILES[profile] },
@@ -531,14 +536,145 @@ test("F-Parser-09: word.to.string indexes parsedWordTexts 0-based while %w remai
     assert.equal(engine.strings[1], "open", `${profile}: slot 0 is the first token`);
     assert.equal(engine.strings[2], "door", `${profile}: slot 1 is the second token`);
     assert.equal(engine.strings[3], "", `${profile}: slot 2 past count is empty`);
-    assert.equal(engine.strings[4], "open-door", `${profile}: %w1 and %w2 remain 1-based`);
+    assert.equal(engine.strings[4], "", `${profile}: slot 10 clears to empty`);
+    assert.equal(engine.strings[5], "", `${profile}: slot 14 clears to empty`);
+    assert.equal(engine.strings[0], "open-door", `${profile}: %w1 and %w2 remain 1-based`);
   }
 });
 
-test("F-Parser-10: lowercasing folds only ASCII A-Z (0x41..0x5A) and preserves high bytes", () => {
-  // 0xC0 (\u00c0) is outside 0x41..0x5A and must remain 0xC0 (\u00c0), not \u00e0.
-  assert.deepEqual(parse("\u00c0BC").texts, ["\u00c0bc"]);
-  assert.equal(parse("\u00c0BC").texts[0]!.charCodeAt(0), 0xc0);
+test("F-Parser-07: lone 'a' and 'i' default to group 0 on the 19 verified profiles and are overridden by explicit dictionary entries", () => {
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const run = (line: string, dict: ReadonlyMap<string, number> = DICT) => {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(ACCEPT, { dictionary: dict, profile }).payload,
+      );
+      const host = new Host();
+      const engine = new Engine(container, host, dict, { profile });
+      engine.tick();
+      host.line = line;
+      engine.tick();
+      return {
+        words: [...engine.parsedWords],
+        texts: [...engine.parsedWordTexts],
+        v9: engine.vars[9],
+        f2: engine.flags[2],
+      };
+    };
+
+    if (id === "2.001") {
+      const res = run("open a door");
+      assert.deepEqual(res.words, [11, 0], `${id}: 'a' is unknown when absent from dictionary`);
+      assert.deepEqual(res.texts, ["open", "a"], `${id}: texts stop at unknown 'a'`);
+      assert.equal(res.v9, 2, `${id}: v9 names position 2`);
+      continue;
+    }
+
+    const skippedA = run("open a door");
+    assert.deepEqual(skippedA.words, [11, 13], `${id}: lone 'a' defaults to group 0 (skipped)`);
+    assert.deepEqual(skippedA.texts, ["open", "door"], `${id}: skipped 'a' leaves open door`);
+    assert.equal(skippedA.v9, 0, `${id}: no unknown word for lone 'a'`);
+    assert.equal(skippedA.f2, 1, `${id}: f2 set`);
+
+    const skippedI = run("i look");
+    assert.deepEqual(skippedI.words, [14], `${id}: lone 'i' defaults to group 0 (skipped)`);
+    assert.deepEqual(skippedI.texts, ["look"], `${id}: skipped 'i' leaves look`);
+    assert.equal(skippedI.v9, 0, `${id}: no unknown word for lone 'i'`);
+
+    const multiChar = run("an door");
+    assert.deepEqual(multiChar.words, [0], `${id}: 'an' is not a lone 'a'`);
+    assert.equal(multiChar.v9, 1, `${id}: 'an' is unknown at position 1`);
+
+    const explicitDict = new Map([...DICT, ["i", 50], ["a door", 60]]);
+    const explicitI = run("i look", explicitDict);
+    assert.deepEqual(
+      explicitI.words,
+      [50, 14],
+      `${id}: explicit dictionary entry overrides lone 'i'`,
+    );
+    assert.deepEqual(explicitI.texts, ["i", "look"]);
+
+    const explicitPhrase = run("open a door", explicitDict);
+    assert.deepEqual(
+      explicitPhrase.words,
+      [11, 60],
+      `${id}: longer phrase starting with 'a ' overrides lone 'a' default`,
+    );
+    assert.deepEqual(explicitPhrase.texts, ["open", "a door"]);
+  }
+});
+
+test("F-Parser-10: 2.001 collapses spaces only while 2.089+ strip/split punctuation, and lowercasing folds only ASCII A-Z across all 20 profiles", () => {
+  for (const id of Object.keys(PROFILES) as (keyof typeof PROFILES)[]) {
+    const profile = PROFILES[id];
+    const runLine = (line: string) => {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(ACCEPT, { dictionary: DICT, profile }).payload,
+      );
+      const host = new Host();
+      const engine = new Engine(container, host, DICT, { profile });
+      engine.tick();
+      host.line = line;
+      engine.tick();
+      return {
+        words: [...engine.parsedWords],
+        texts: [...engine.parsedWordTexts],
+        v9: engine.vars[9],
+        f2: engine.flags[2],
+      };
+    };
+
+    // 0xC0 (\u00c0) is outside 0x41..0x5A and must remain 0xC0 (\u00c0), not \u00e0.
+    const highByte = runLine("\u00c0BC");
+    assert.deepEqual(highByte.texts, ["\u00c0bc"], `${id}: folds only ASCII A-Z`);
+    assert.equal(highByte.texts[0]!.charCodeAt(0), 0xc0, `${id}: preserves 0xC0`);
+    assert.equal(highByte.v9, 1, `${id}: non-a..z initial is unknown`);
+
+    // Space collapsing and ASCII case folding apply on every profile.
+    const spaced = runLine("  OPEN   THE   DOOR  ");
+    assert.deepEqual(spaced.words, [11, 13], `${id}: collapses spaces and folds A-Z`);
+    assert.deepEqual(spaced.texts, ["open", "door"]);
+    assert.equal(spaced.v9, 0);
+    assert.equal(spaced.f2, 1);
+
+    const bang = runLine("look!");
+    const apostrophe = runLine("don't");
+    const separated = runLine("open,the.door?");
+    if (id === "2.001") {
+      // 2.001 MakeLine (0x1901) collapses spaces only and FindWord (0x1961) requires
+      // space or NUL after a match, so punctuation stays attached and fails to match.
+      assert.deepEqual(bang.words, [0], `${id}: 'look!' is unknown`);
+      assert.deepEqual(bang.texts, ["look!"], `${id}: preserves '!'`);
+      assert.equal(bang.v9, 1, `${id}: 'look!' sets v9=1`);
+      assert.equal(bang.f2, 1);
+
+      assert.deepEqual(apostrophe.words, [0], `${id}: "don't" keeps apostrophe and is unknown`);
+      assert.deepEqual(apostrophe.texts, ["don't"]);
+      assert.equal(apostrophe.v9, 1);
+
+      assert.deepEqual(separated.words, [0], `${id}: "open,the.door?" stays one token`);
+      assert.deepEqual(separated.texts, ["open,the.door?"]);
+      assert.equal(separated.v9, 1);
+    } else {
+      assert.deepEqual(bang.words, [14], `${id}: strips trailing '!'`);
+      assert.deepEqual(bang.texts, ["look"]);
+      assert.equal(bang.v9, 0);
+
+      assert.deepEqual(apostrophe.words, [10], `${id}: drops apostrophe inside word`);
+      assert.deepEqual(apostrophe.texts, ["dont"]);
+      assert.equal(apostrophe.v9, 0);
+
+      assert.deepEqual(separated.words, [11, 13], `${id}: splits on , . ?`);
+      assert.deepEqual(separated.texts, ["open", "door"]);
+      assert.equal(separated.v9, 0);
+    }
+  }
 });
 
 test("F-Parser-13: echo.line is a no-op before Enter and appends the suffix of lastLine after Enter", () => {

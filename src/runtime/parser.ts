@@ -11,14 +11,19 @@ export function parseSentence(
   line: string,
   dictionary?: ReadonlyMap<string, number>,
   stopAtTenthWord = true,
+  defaultLoneAAndI = true,
+  stripPunctuation = true,
 ) {
   // Spec "Parser normalization"; retain the interpreter's ASCII-only A-Z
-  // folding (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-10).
-  const normalized = line
-    .replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32))
-    .replace(/['`\-"]/g, "")
-    .replace(/[ ,.?!();:[\]{}]+/g, " ")
-    .replace(/ $/, "");
+  // folding and per-profile punctuation handling (docs/fidelity.md "Wave-4
+  // parser verdicts", F-Parser-10).
+  const folded = line.replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32));
+  const normalized = stripPunctuation
+    ? folded
+        .replace(/['`\-"]/g, "")
+        .replace(/[ ,.?!();:[\]{}]+/g, " ")
+        .replace(/ $/, "")
+    : folded.replace(/ +/g, " ").replace(/^ | $/g, "");
   const words: number[] = [];
   const texts: string[] = [];
   const tokens: SentenceToken[] = [];
@@ -38,7 +43,7 @@ export function parseSentence(
       tokens.push({ text: input[index++]!, id: undefined, status: "unread" });
       continue;
     }
-    const { text, id, length } = matchDictionaryPhrase(input, index, dictionary);
+    const { text, id, length } = matchDictionaryPhrase(input, index, dictionary, defaultLoneAAndI);
     index += length;
     if (id === undefined) {
       // docs/fidelity.md, parser unknown-word audit: the unknown has a zero slot.

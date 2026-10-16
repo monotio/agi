@@ -22,6 +22,7 @@ import {
   historyBootSemantic,
   historyFingerprint,
   historySyncDigest,
+  validateHistoryRecording,
   type HistoryAnchor,
   type HistoryBatch,
   type HistoryRecording,
@@ -38,6 +39,7 @@ import { sha256Hex } from "../../src/crypto.ts";
 import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { buildView } from "../../src/view/view.ts";
 import {
+  asReleasedHostImage,
   decodeHostImage,
   decodeSave,
   encodeHostImage,
@@ -1759,4 +1761,174 @@ test("PAL boot fingerprints replay and reject a region switch", () => {
   switched.segments[0]!.boot.amigaRegion = "ntsc";
   h.send({ type: "historyViewStart", id: 3, recording: switched, segment: 0, tick: 0 });
   assert.match(finalView(h.control, 3).error!, /fingerprint/);
+});
+
+test("short recordings with no sync marks select startup semantics from the persisted recording version", () => {
+  const shortGame = gameContainer(
+    [
+      `if (v0 == 0) {
+         if (isset(f11)) { assignn(v40, 77); } else { assignn(v40, 11); }
+         new.room(1);
+       }
+       if (v0 > 0) { call.v(v0); }
+       return;`,
+      `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+    ],
+    (c) => populateViewResources(c),
+  );
+  const h = viewHarness(shortGame, { rngSeed: 0xbeef, profile: "2.936" });
+  h.tick(3);
+  h.send({ type: "pause", paused: true });
+  assert.equal(h.ctx.run.engine!.flags[11], 1);
+  assert.equal(h.ctx.run.engine!.vars[40], 77);
+
+  const rawRecording = asRecording(collectSegments(h.control));
+  rawRecording.segments[0]!.anchors = [];
+  rawRecording.segments[0]!.sync = [];
+  const currentRecording = validateHistoryRecording(rawRecording);
+  assert.equal(currentRecording.version, HISTORY_FORMAT_VERSION);
+  assert.equal(currentRecording.segments[0]!.sync.length, 0);
+
+  // Current short recording (version 3) replays with 2.936 ResetAll f11 = 1 -> v40 = 77.
+  h.send({ type: "historyViewStart", id: 1, recording: currentRecording, segment: 0, tick: 3 });
+  assert.equal(finalView(h.control, 1).error, null);
+  assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], 1);
+  assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], 77);
+  h.send({ type: "historyViewEnd" });
+
+  // Released short recordings (versions 1 and 2) with no sync marks replay with legacy f11 = 0 -> v40 = 11.
+  for (const [idx, releasedVersion] of [1, 2].entries()) {
+    const releasedRecording = validateHistoryRecording({
+      ...structuredClone(currentRecording),
+      version: releasedVersion,
+    });
+    assert.equal(releasedRecording.version, releasedVersion);
+    assert.equal(releasedRecording.segments[0]!.sync.length, 0);
+    h.send({
+      type: "historyViewStart",
+      id: 2 + idx,
+      recording: releasedRecording,
+      segment: 0,
+      tick: 3,
+    });
+    assert.equal(finalView(h.control, 2 + idx).error, null);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], 0);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], 11);
+    h.send({ type: "historyViewEnd" });
+  }
+
+  // An upgraded recording (version 3) whose earlier segments carry version 1 or 2 provenance
+  // replays those segments with legacy startup semantics and new segments with current semantics.
+  const baseSegment = currentRecording.segments[0]!;
+  const upgradedRecording = validateHistoryRecording({
+    ...structuredClone(currentRecording),
+    version: HISTORY_FORMAT_VERSION,
+    segments: [
+      { ...structuredClone(baseSegment), id: "s-v1", version: 1 },
+      { ...structuredClone(baseSegment), id: "s-v2", version: 2 },
+      { ...structuredClone(baseSegment), id: "s-v3" },
+    ],
+  });
+  for (const [segIdx, expected] of [
+    [0, { f11: 0, v40: 11 }],
+    [1, { f11: 0, v40: 11 }],
+    [2, { f11: 1, v40: 77 }],
+  ] as const) {
+    h.send({
+      type: "historyViewStart",
+      id: 10 + segIdx,
+      recording: upgradedRecording,
+      segment: segIdx,
+      tick: 3,
+    });
+    assert.equal(finalView(h.control, 10 + segIdx).error, null);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], expected.f11);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], expected.v40);
+    h.send({ type: "historyViewEnd" });
+  }
+});
+
+test("released retained originals restore through historyViewRestore and still reject tampering", () => {
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef, profile: "2.936" });
+  h.send({ type: "debugWrite", id: 0, flags: [[6, 1]] });
+  h.tick(4);
+  h.ctx.run.engine!.vars[40] = 99;
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 1 });
+  const retained = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyRetained" }> =>
+      m.type === "historyRetained" && m.id === 1,
+  );
+  assert.ok(retained?.boot?.image !== undefined);
+
+  // Convert the retained boot to the released v1 host-image encoding and fingerprint.
+  const releasedImageBytes = asReleasedHostImage(base64ToBytes(retained.boot.image));
+  assert.ok(releasedImageBytes !== null);
+  assert.equal(releasedImageBytes[33], 1);
+  const releasedBoot = structuredClone(retained.boot);
+  releasedBoot.image = bytesToBase64(releasedImageBytes);
+  releasedBoot.fingerprint = historyFingerprint(historyBootSemantic(releasedBoot));
+
+  // Take an earlier history moment so we depart from the retained original.
+  const recording = asRecording(collectSegments(h.control));
+  h.send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: 1 });
+  const opened = finalView(h.control, 2);
+  h.send({
+    type: "historyViewTake",
+    id: 3,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  assert.equal(h.ctx.run.engine!.vars[40], 0);
+
+  // Tampered RNG or save payload on the released retained original must still be rejected.
+  const tamperedRng = structuredClone(releasedBoot);
+  tamperedRng.rng ^= 1;
+  h.send({ type: "historyViewRestore", id: 4, boot: tamperedRng, from: retained.from });
+  const rejectedRng = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 4,
+  );
+  assert.equal(rejectedRng?.ok, false);
+
+  const tamperedImg = structuredClone(releasedBoot);
+  const mutatedBytes = releasedImageBytes.slice();
+  const v40Offset = 38 + 31 + 2 + 7 + 40;
+  mutatedBytes[v40Offset] = mutatedBytes[v40Offset]! ^ 1;
+  tamperedImg.image = bytesToBase64(mutatedBytes);
+  h.send({ type: "historyViewRestore", id: 5, boot: tamperedImg, from: retained.from });
+  const rejectedImg = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 5,
+  );
+  assert.equal(rejectedImg?.ok, false);
+
+  // Forged fingerprint over non-canonical trailing byte in released image is rejected by adoptResumePoint.
+  const nonCanonicalImg = structuredClone(releasedBoot);
+  const paddedBytes = new Uint8Array(releasedImageBytes.length + 1);
+  paddedBytes.set(releasedImageBytes);
+  nonCanonicalImg.image = bytesToBase64(paddedBytes);
+  nonCanonicalImg.fingerprint = historyFingerprint(historyBootSemantic(nonCanonicalImg));
+  h.send({ type: "historyViewRestore", id: 6, boot: nonCanonicalImg, from: retained.from });
+  const rejectedForged = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 6,
+  );
+  assert.equal(rejectedForged?.ok, false);
+
+  // Untampered released retained original restores cleanly.
+  h.send({ type: "historyViewRestore", id: 7, boot: releasedBoot, from: retained.from });
+  const restored = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 7,
+  );
+  assert.deepEqual(restored, {
+    type: "historyViewRestored",
+    id: 7,
+    ok: true,
+    resourceSet: releasedBoot.resourceSet,
+  });
+  assert.equal(h.ctx.run.engine!.vars[40], 99);
 });

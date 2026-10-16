@@ -721,6 +721,17 @@ export class Engine {
   readonly profileKind: ProfileDetectionKind;
   /** The interpreter build the identification named; null when unidentified. */
   readonly profileBuild: string | null;
+
+  /**
+   * The exact CONST versionMsg string action 0x8d (version) passes to
+   * WindowPrint in the shipped interpreter binary (docs/fidelity.md
+   * "Original script capacity and version handlers", F-OPCORE-07).
+   */
+  defaultVersionBanner(): string {
+    const version = (this.profileBuild ?? this.profile.id).replace(/^(amiga|iigs)-/, "");
+    const suffix = this.profile.id === "2.001" ? "\n" : "";
+    return `Adventure Game Interpreter\n      Version ${version}${suffix}`;
+  }
   readonly controllers = new Uint8Array(256);
   readonly surface: PictureSurface = createPictureSurface();
 
@@ -3122,8 +3133,24 @@ export class Engine {
     }
     // The description goes through the same message box as print, so %v, %s
     // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
+    // On verified 2.936, when vdesc == 0, ShowObj computes viewPtr + 0 without
+    // testing for a zero offset and formats the NUL-terminated bytes starting
+    // at byte 0 of the view header (docs/fidelity.md, F-VIEWS-11).
     const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
-    const lines = windowLines(this.expandMessage(view.description ?? ""), 30, maxLines);
+    let rawDescription = view.description;
+    if (rawDescription === undefined) {
+      const raw = this.profile.showObjUncheckedDescOffset
+        ? this.container.getResource("view", viewNum)
+        : null;
+      if (raw) {
+        const nul = raw.indexOf(0);
+        const slice = nul < 0 ? raw : raw.subarray(0, nul);
+        rawDescription = String.fromCharCode(...slice);
+      } else {
+        rawDescription = "";
+      }
+    }
+    const lines = windowLines(this.expandMessage(rawDescription), 30, maxLines);
     const win = placePrintWindow(lines, this.displayBaseRow, this.profile.windowFrameGeometry, {
       row: 2,
     });
@@ -4530,19 +4557,21 @@ export class Engine {
     const view = this.loadView(viewNum);
     const c = selectViewCel(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
-    const packedReloc = this.profile.addToPicPackingAndRelocation;
     // Verified on 2.936 and 3.002.086: AddToPic stores x/y into a scratch entry
-    // with pri=15, IGNRHRZ and IGNROBJS and runs FindPosn before objinpic, then
-    // packs (margin << 4) | priority into a byte and gates the control box on
-    // packed <= 0x3f (docs/fidelity.md, F-VIEWS-03, F-VIEWS-04, F-VIEWS-09).
-    if (packedReloc) {
+    // with pri=15, IGNRHRZ and IGNROBJS and runs FindPosn before objinpic
+    // (docs/fidelity.md, F-VIEWS-03). Verified on 2.440, 2.936 and 3.002.086:
+    // AddToPic packs (margin << 4) | priority into a byte, auto-derives priority
+    // when the low nibble is 0, and gates the control box on packed <= 0x3f
+    // (docs/fidelity.md "Original add.to.pic control box", F-VIEWS-04, F-VIEWS-09).
+    if (this.profile.addToPicRelocation) {
       [x, y] = this.relocateAddToPic(x, y, c.width, c.height);
     }
+    const usePacking = this.profile.addToPicPacking;
     let packed = (priority & 0xff) | ((margin & 0x0f) << 4);
     if ((packed & 0x0f) === 0) {
       packed |= priorityForY(y, this.priorityBase) & 0x0f;
     }
-    const drawPriority = packedReloc
+    const drawPriority = usePacking
       ? packed & 0x0f
       : (priority & 0x0f) === 0
         ? priorityForY(y, this.priorityBase)
@@ -4558,8 +4587,8 @@ export class Engine {
       },
     });
     this.text.dropCells(covered);
-    const boxMargin = packedReloc ? (packed >> 4) & 0x0f : margin;
-    const drawBox = packedReloc ? packed <= 0x3f : margin < 4;
+    const boxMargin = usePacking ? (packed >> 4) & 0x0f : margin;
+    const drawBox = usePacking ? packed <= 0x3f : margin < 4;
     if (drawBox && y >= 0 && y < SCREEN_HEIGHT) {
       this.stampControlBox(x, y, c, boxMargin);
     }
@@ -4613,8 +4642,10 @@ export class Engine {
    * A margin below four outlines a control box in the priority screen: the
    * baseline row, both side columns and a top row. The box is as tall as the
    * run of rows sharing the baseline's priority band, capped at the cel height
-   * (docs/fidelity.md, "Original add.to.pic control box"). The original's
-   * unbounded top-row loop for cels narrower than three pixels is not modelled.
+   * (docs/fidelity.md, "Original add.to.pic control box"). On the verified PC
+   * builds with AddToPic byte packing (2.440, 2.936, 3.002.086), the top-row
+   * 8086 `loop` sets CL = (width - 2) & 0xff and increments DI before each
+   * write, wrapping CX for width <= 2 (F-VIEWS-12).
    */
   private stampControlBox(
     x: number,
@@ -4640,7 +4671,21 @@ export class Engine {
       stamp(left, y - up);
       stamp(right, y - up);
     }
-    if (rows > 1) for (let px = left + 1; px < right; px++) stamp(px, y - rows + 1);
+    if (rows > 1) {
+      if (this.profile.addToPicPacking) {
+        const cl = (cel.width - 2) & 0xff;
+        const count = cl === 0 ? 0x10000 : cl;
+        let di = ((y - rows + 1) * SCREEN_WIDTH + left) & 0xffff;
+        for (let i = 0; i < count; i++) {
+          di = (di + 1) & 0xffff;
+          if (di < this.surface.priority.length) {
+            this.surface.priority[di] = margin;
+          }
+        }
+      } else {
+        for (let px = left + 1; px < right; px++) stamp(px, y - rows + 1);
+      }
+    }
   }
 
   /**
@@ -5410,8 +5455,13 @@ export class Engine {
 
   /** First geometrically valid, collision-free footprint in the specified spiral. */
   private placeObject(obj: ScreenObject): void {
+    // FindPosn raises an object observing the horizon to horizon + 1 before
+    // starting the spiral (docs/fidelity.md, F-motion-12).
+    if (obj.observeHorizon && obj.y <= this.horizon) {
+      obj.y = this.horizon + 1;
+    }
     let x = obj.x;
-    let y = obj.observeHorizon ? Math.max(obj.y, this.horizon + 1) : obj.y;
+    let y = obj.y;
     const originX = x;
     const originY = y;
     let leg = 1;
@@ -5423,8 +5473,8 @@ export class Engine {
       [1, 0],
       [0, -1],
     ] as const;
-    // The furthest legal point is inside this square. Valid game state
-    // supplies an acceptable candidate; an impossible room fails explicitly.
+    // The furthest legal point is inside this square; an arbitrary origin must
+    // not terminate before the spiral reaches the screen.
     const radius =
       Math.max(
         Math.abs(originX),
@@ -5513,17 +5563,17 @@ export class Engine {
     if (!view) return;
     const loops = view.loops.length;
     const d = obj.direction;
-    let target = -1;
+    let target = obj.loop;
     if (loops === 2 || loops === 3) {
-      if (d >= 2 && d <= 4) target = 0;
-      else if (d >= 6 && d <= 8) target = 1;
+      if (d === 2 || d === 3 || d === 4) target = 0;
+      else if (d === 6 || d === 7 || d === 8) target = 1;
     } else if (loops === 4 || (loops > 4 && this.fourLoopTableApplies())) {
-      if (d >= 2 && d <= 4) target = 0;
-      else if (d >= 6 && d <= 8) target = 1;
+      if (d === 1) target = 3;
+      else if (d === 2 || d === 3 || d === 4) target = 0;
       else if (d === 5) target = 2;
-      else if (d === 1) target = 3;
+      else if (d === 6 || d === 7 || d === 8) target = 1;
     }
-    if (target >= 0 && target < loops && target !== obj.loop) this.setLoop(obj, target);
+    if (target !== obj.loop) this.setLoop(obj, target);
   }
 
   /**
@@ -5903,7 +5953,13 @@ export class Engine {
     this.flags[F_INPUT_READY] = 0;
     this.flags[F_SAID_MATCHED] = 0;
     this.lastInputLine = line;
-    const parsed = parseSentence(line, this.dictionary, this.profile.parserStopsAtTenthWord);
+    const parsed = parseSentence(
+      line,
+      this.dictionary,
+      this.profile.parserStopsAtTenthWord,
+      this.profile.parserDefaultsLoneAAndI,
+      this.profile.parserStripsPunctuation,
+    );
     this.parserCount = parsed.count;
     if (parsed.unknownPosition > 0) this.vars[V_WORDS] = parsed.unknownPosition;
     this.parsedWords = parsed.words;
@@ -7612,12 +7668,11 @@ export class Engine {
         }
         return next;
       }
-      case 0x74: {
+      case 0x74:
         // word.to.string indexes wordPtr 0-based across all 20 profiles
         // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-09).
         this.setString(a(0), this.parsedWordTexts[a(1)] ?? "");
         return next;
-      }
       case 0x89:
         // echo.line returns immediately when input is disabled; when enabled,
         // it appends PREVLINE[editLen..] onto INLINE while under the edit cap
@@ -7647,7 +7702,7 @@ export class Engine {
         // F-OPCORE-07). WindowPrint is the routine print calls, winTime
         // included: v21 times the window out.
         this.emitPrint(
-          this.host.versionString?.call(this.host) ?? "AGI IS HERE 1.0.0",
+          this.host.versionString?.call(this.host) ?? this.defaultVersionBanner(),
           undefined,
           true,
           false,

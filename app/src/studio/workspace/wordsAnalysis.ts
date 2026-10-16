@@ -196,7 +196,13 @@ export function sentenceOutcomes(
   profile: AgiProfile = DEFAULT_V2_PROFILE,
 ): SentenceOutcome[] {
   const dictionary = new Map(entries);
-  const parsed = parseSentence(line, dictionary);
+  const parsed = parseSentence(
+    line,
+    dictionary,
+    profile.parserStopsAtTenthWord,
+    profile.parserDefaultsLoneAAndI,
+    profile.parserStripsPunctuation,
+  );
   const result: SentenceOutcome[] = [];
   const state: ParseState = { consumed: false, ready: parsed.count > 0 };
   const running = new Set<number>();

@@ -230,7 +230,9 @@ export class Simulation {
         return true;
       },
       versionString: () =>
-        this.recordedCalls ? (this.recordedValue("version") as string) : `AGI ${state.profile.id}`,
+        this.recordedCalls
+          ? (this.recordedValue("version") as string)
+          : this.engine.defaultVersionBanner(),
       randomByte: () =>
         this.recordedCalls ? (this.recordedValue("random") as number) : randomByte(),
       soundDevice: () => (this.recordedCalls ? (this.recordedValue("soundDevice") as number) : 1),
