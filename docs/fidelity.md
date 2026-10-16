@@ -4375,7 +4375,10 @@ one from the frame before the restore and enters logic 0 when it ends; restores 
 as 26,880 hex digits, and the flag (`pictureRevealInstant`). Tests:
 [dissolve.test.ts](../test/dissolve.test.ts) (hand-computed first states per platform, durations,
 replay round trip mid-dissolve, restore), each of which failed before the change except the
-instant cases, which a reversed profile or host restore made fail.
+instant cases, which a reversed profile or host restore made fail;
+[worker-dissolve.test.ts](../app/test/worker-dissolve.test.ts) (presented frames, and a recording
+made through dissolves replaying from its boot and every anchor) and
+[picture-dissolve.spec.ts](../app/e2e/picture-dissolve.spec.ts).
 
 Cross-check against MAME, each frame against the engine's order at the frame's time (cells
 whose two pictures agree left out): SQ2 Amiga title 0.42%, station 0.61% and room 2 2.58% of
