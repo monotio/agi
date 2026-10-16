@@ -173,6 +173,7 @@ export function useEngine(
       error: "",
     },
     resumed: false,
+    checkpointProblem: "",
     startOverNote: false,
     gameEnded: null,
     otherTab: false,
