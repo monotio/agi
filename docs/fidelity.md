@@ -3614,7 +3614,7 @@ $0080`); `0xb5` is outside `maxAction` (`0xae`).
     `2.272` `0x4dcd`, `2.411` `0x4dec`, `2.440` `0x4e1e`, `2.903` `0x4f35`,
     `2.917`/`2.936` `0x4f36`, `3.002.086` `0x5384`, `3.002.102`/`3.002.107`
     `0x539a`, `3.002.149` `0x51b1`), Amiga `2.082..2.333` (`RAWKEY` `0x2d` ->
-    `0xf500` in `h79`/`h107`), and IIgs `1.014` (`KeyMapPad` `seg2+0x14f1` `'5'`
+    `0xf500` in `h79`/`h107`), and IIgs `1.014` (`KeyMapPad` `~arrays+0x1019` `'5'`
     -> `0xf500`), unmodified Keypad 5 enqueues `{type: 2, value: 0}`. On PC
     **`2.089`** (`0x4d43`) and **`2.230`** (`0x4ce7`), `0x4c` was removed from
     `joyKeyMap` before the explicit `cmp ah, 0x4c` check was added in `2.272`,
@@ -3635,6 +3635,12 @@ $0080`); `0xb5` is outside `maxAction` (`0xae`).
   `WaitAcAb` at `seg2+0x0bc0`). Engine: modals dismiss on Enter/Escape only
   across all twenty profiles (`modalDismissalKeys: "enter-escape"`), with the
   v21 deadline on the print path.
+- **F-IN-11 (fact; pointer acknowledgement).** Amiga `2.082` left-button
+  handling at `h78+0x25c` posts Enter on a text or priority screen; `2.176+`
+  omits that branch. IIgs `1.014` uses its text-mode bit in the click handler
+  (`seg3+0xa6f`), including top-row text clicks. A priority display leaves
+  that bit clear and does not turn its clicks into Enter. Window hits and
+  modal gates are detailed under [Original click-to-walk](#original-click-to-walk).
 - **F-IN-14 (fact; engine matches).** Non-interactive inventory dismiss (PC
   Status: 2.001 0x30b4, 2.089 0x3070, 2.230 0x2fd3, 2.272 0x3061, 2.411 0x3293,
   2.440 0x32a1, 2.903 0x32e2, 2.917/2.936 0x32e9, 3.002.086 0x3680,
@@ -4385,23 +4391,23 @@ Each remaining profile field was classified against the executables' own
 handlers (static disassembly, the dispatch tables above). Values that change
 behavior were confirmed independently at the addresses given (**fact**):
 
-| Build(s)             | Field                        | Value                                 | Evidence                                                                                                                                    |
-| -------------------- | ---------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2.082                | `restartPromptBypassedByF16` | false                                 | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)                                          |
-| 2.082, 2.176+        | `timedPrintClearsV21`        | true                                  | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)                                 |
-| all                  | `heapDiagnosticExtraLine`    | false                                 | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable                                   |
-| 2.176                | `targetMotionDeferred`       | false                                 | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not                                    |
-| 2.176                | `inventorySelector`          | true                                  | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25                              |
-| 2.176                | `pictureMaxCommand`          | 0xfa                                  | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8                                  |
-| 2.176, 2.202, 2.31x  | `patternProfile`             | `short-r1`, `center-row-320`          | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                                         |
-| all                  | `windowFrameGeometry`        | `amiga`                               | `OpenWndw` (Sierra h71+0x0, 2.176+ h97+0x0) draws inclusive `RectFill` (`8·cols+21` × `8·rows+11`) and 1-px red frame                       |
-| all                  | `keypadWordsNormalized`      | false                                 | `ButtonToChar` (`Sierra h62+0xc2`, `2.176+ h84+0xc2`) maps `0x0101/0x0301 -> 0x0d` and `0x0201/0x0401 -> 0x1b` without PC keypad scan words |
-| all                  | `modalDismissalKeys`         | `enter-escape`                        | `ChkAcAb` (Sierra h77+0x84, 2.176+ h105+0x84) accepts only `0x0d` and `0x1b`                                                                |
-| all                  | `inputLineEditCap`           | `prompt-40`                           | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`                                    |
-| all                  | `presentation`               | `amiga`                               | [Amiga screen, font and pointer](#amiga-screen-font-and-pointer): screen title status line, ROM font, own pointer                           |
-| 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                                          |
-| all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)                              |
-| all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)                            |
+| Build(s)             | Field                        | Value                                 | Evidence                                                                                                                                       |
+| -------------------- | ---------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.082                | `restartPromptBypassedByF16` | false                                 | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)                                             |
+| 2.082, 2.176+        | `timedPrintClearsV21`        | true                                  | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)                                    |
+| all                  | `heapDiagnosticExtraLine`    | false                                 | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable                                      |
+| 2.176                | `targetMotionDeferred`       | false                                 | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not                                       |
+| 2.176                | `inventorySelector`          | true                                  | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25                                 |
+| 2.176                | `pictureMaxCommand`          | 0xfa                                  | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8                                     |
+| 2.176, 2.202, 2.31x  | `patternProfile`             | `short-r1`, `center-row-320`          | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                                            |
+| all                  | `windowFrameGeometry`        | `amiga`                               | `OpenWndw` (Sierra h71+0x0, 2.176+ h97+0x0) draws inclusive `RectFill` (`8·cols+21` × `8·rows+11`) and 1-px red frame                          |
+| all                  | `keypadWordsNormalized`      | false                                 | `ButtonToChar` (`Sierra h76+0x278`, `2.176+ h103+0x28e`) maps `0x0101/0x0301 -> 0x0d` and `0x0201/0x0401 -> 0x1b` without PC keypad scan words |
+| all                  | `modalDismissalKeys`         | `enter-escape`                        | `ChkAcAb` (Sierra h77+0x84, 2.176+ h105+0x84) accepts only `0x0d` and `0x1b`                                                                   |
+| all                  | `inputLineEditCap`           | `prompt-40`                           | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`                                       |
+| all                  | `presentation`               | `amiga`                               | [Amiga screen, font and pointer](#amiga-screen-font-and-pointer): screen title status line, ROM font, own pointer                              |
+| 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                                             |
+| all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)                                 |
+| all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)                               |
 
 Fields whose slot is above a build's dispatch bound (see the table above)
 never run there: `menuInteractionGate`, `releaseGateAction`,
@@ -5373,8 +5379,8 @@ is only seen inside a button message. The message pump (Sierra `2.082 h78+0x00`,
   When `DoubleClick` returns non-zero, it enqueues `{1, 0x0401}` via
   `Sierra h75+0x40` / `2.176+ h103+0x40` and clears the stored timestamp so a
   third click starts a fresh pair; otherwise it records `(curSec, curMicro)`.
-  `ButtonToChar` (`Sierra h62+0xc2`, `2.176+ h84+0xc2`) normalizes `0x0401` to
-  `0x1b` (`Escape`), while `set.key(1, 1, c)` binds controller `c` directly to
+  `ButtonToChar` (`Sierra h76+0x278`, `2.176+ h103+0x28e`) normalizes `0x0401` to
+  `0x1b` (`Escape`), while `set.key(1, 4, c)` binds controller `c` directly to
   raw word `0x0401` (used by Manhunter on Amiga/PC for secondary action).
 
 `mouse.posn` (h191+0x3b2) reads only h108+0xc/+0xe: it reports the last
