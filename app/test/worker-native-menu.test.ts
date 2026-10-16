@@ -35,7 +35,9 @@ const MENU_LOGIC = `
     submit.menu();
     set(f14);
     status.line.on();
+    set.key(0, 59, 3);
   }
+  if (controller(3)) { save.game(); }
   if (controller(5)) { assignn(v100, 5); }
   if (controller(24)) { assignn(v100, 24); }
   if (isset(f201)) { reset(f14); }
@@ -77,7 +79,13 @@ function session() {
     return last;
   };
   const causes = () => ctx.history.open.events.map((e) => e.cause);
-  return { ctx, control, send, tick, engine, frame, causes };
+  /** Answer the latest host request of `op` as the main thread would. */
+  const answer = (op: string, response: string): void => {
+    const request = control.filter((m) => m.type === "hostRequest" && m.op === op).at(-1);
+    assert.ok(request && request.type === "hostRequest", `a ${op} request went to the host`);
+    send({ type: "hostAnswer", generation: request.generation, id: request.id, response });
+  };
+  return { ctx, control, send, tick, engine, frame, causes, answer };
 }
 
 test("the strip's pointer events drive the engine, record once per change and replay from history", () => {
@@ -171,4 +179,38 @@ test("host access: a sticky open stays without the button; taps, arrows and Ente
       ["tap", false],
     ],
   );
+});
+
+test("the describe window's Cancel gadget withdraws the description prompt and saves nothing", () => {
+  const s = session();
+  // F1 is bound to controller 3; the game saves on it.
+  s.send({ type: "key", code: 0x3b00 });
+  s.tick(2);
+  s.answer("saveList", "[]");
+  s.tick(2);
+  assert.equal(s.engine().modalKind, "save");
+  // Enter on slot 1 opens the describe window, whose description is a host prompt.
+  s.send({ type: "key", code: 0x0d });
+  s.tick(2);
+  assert.equal(s.engine().hostInteraction?.kind, "saveDialog");
+  const describe = s.control.filter((m) => m.type === "hostRequest" && m.op === "saveDescription");
+  assert.equal(describe.length, 1, "the description prompt went to the host");
+  // A click beside the gadgets changes nothing; the Cancel gadget (x 224..279,
+  // y 107..118 at picture top 1) withdraws the prompt and ends the dialog.
+  s.send({ type: "click", x: 100, y: 112 });
+  assert.equal(s.engine().modalKind, "save");
+  s.send({ type: "click", x: 250, y: 112 });
+  assert.equal(
+    s.control.some((m) => m.type === "interactionCancelled"),
+    true,
+    "the host's prompt is told to close",
+  );
+  s.tick(2);
+  assert.equal(s.engine().modalKind, null);
+  assert.equal(
+    s.control.some((m) => m.type === "hostRequest" && m.op === "saveWrite"),
+    false,
+    "nothing was written",
+  );
+  assert.equal(s.engine().vars[100], 0);
 });
