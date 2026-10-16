@@ -88,12 +88,16 @@ test("an Amiga picture dissolves in over the old one, then the game goes on", as
   await page.getByTestId("input-line").fill("go");
   await page.getByTestId("input-line").press("Enter");
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Here.");
+  // The text can land a frame before the canvas paints the finished picture.
+  const full = 320 * 152;
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { greens: number[] }).greens.at(-1)))
+    .toBe(full);
 
   const { greens, askedForEnter } = await page.evaluate(() => {
     const record = window as typeof window & { greens: number[]; askedForEnter: boolean };
     return { greens: record.greens, askedForEnter: record.askedForEnter };
   });
-  const full = 320 * 152;
   const partial = greens.filter((n) => n > 0 && n < full);
   expect(partial.length, `frames part-way through: ${greens.join(",")}`).toBeGreaterThan(0);
   expect(greens.filter((n) => n > 0)).toEqual(
