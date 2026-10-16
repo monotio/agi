@@ -5717,8 +5717,7 @@ INACTIVEWINDOW until ACTIVEWINDOW; on `2.176..2.333` INACTIVEWINDOW also stops t
 Engine: `frameTiming: "amiga-vblank"` matches the rates for the selected region
 ([amiga-timing.test.ts](../test/amiga-timing.test.ts)). Divergences: the signal-locked pacing
 grid differs from the engine's admission-time clear only when a pass overruns v10 ticks; the
-menu-hold and inactive-window pauses are not modeled, because the app's menus and browser focus
-are not Intuition's.
+menu-hold pause is modelled by the engine's native strip (the game clock stops while the right button holds it); the inactive-window pause is not, because browser focus is not Intuition's.
 
 ### Original Amiga and IIgs pattern brushes
 
@@ -5829,6 +5828,146 @@ until window close. This differs from the inspected Amiga f15 return.
 Full TaskMaster completion routing and original time/audio ownership remain
 separate evidence questions. These IIgs findings are static, with no original
 Toolbox execution claimed.
+
+### Original Amiga menu strip and pull-downs
+
+How the six Amiga interpreters build the Intuition menu strip and how
+Kickstart 1.3 draws it while the right mouse button is held. Facts come
+from the executables ([build table](#amiga-interpreter-profiles); SQ2 2.202
+`557215fbbf431193…` addresses) and from headless MAME 0.289 frames (`a500n`,
+`kick13`) of SQ2 2.202 with the button held; what Kickstart draws on the
+interpreter's behalf is marked as such and MAME is not ground truth.
+
+**Strip construction (fact, SQ2 2.202; the other five builds share the
+routine).** `set.menu` (`h221+0x00`) allocates a 30-byte `Menu` and links
+it: `LeftEdge` = the running width total (`$118d8`, starting at 0),
+`Width` = 8 × (title length + 1) (`h221+0x7a..0x90`, font width `$9e48` =
+8), `TopEdge` 0, `Height` = font height + 1 = 9, `Flags` 1 (MENUENABLED),
+and the title copied as `MenuName`. `set.menu.item` (`h221+0x106`)
+allocates a 34-byte `MenuItem`: `Width` = 8 × (text length) + 8
+(`h221+0x17e..0x198`), `Height` 9, `TopEdge` = the menu's running item
+height (`$118da`), `Flags` `0x52` (ITEMTEXT | ITEMENABLED | HIGHCOMP), the
+controller number in the status byte at +0x1a, and an `IntuiText` with
+FrontPen 0, BackPen 15, DrawMode 1, `LeftEdge` 4 and `TopEdge` 1
+(`h221+0x21e..0x232`). The first item of each menu decides the items'
+shared `LeftEdge` (`h221+0x19c..0x1be`): zero, unless the title's
+`LeftEdge` plus the item width reaches the screen width (`$9f60+8` = 320),
+when it becomes `Menu.Width - itemWidth` so the pull-down opens to the
+left. `submit.menu` calls SetMenuStrip (`h221+0x2a2` through the veneer
+`h245+0x13a`); `enable.item` / `disable.item` (`h221+0x348` / `+0x370`)
+walk the strip and call OnMenu / OffMenu (`h245+0xb8` / `+0xa0`) with the
+item's menu number, so a disabled item is ghosted by Intuition and cannot
+be selected.
+
+**What the player sees (MAME frames, SQ2 2.202; Kickstart draws it).**
+While the right button is held the strip replaces the screen title: rows
+0..9 in pen 15 with the pen 0 line on row 10 and no depth gadgets; titles
+in pen 0 at (`LeftEdge` + 2, 1); the title under the pointer complemented
+over x `LeftEdge + 1 .. LeftEdge + Width`, rows 0..8. Its pull-down box
+is `maxItemWidth + 8` wide and `9 × items + 8` tall, starting at x
+`LeftEdge + itemsLeft - 2` (kept on screen: SQ2's `Sierra` box at 0..87)
+and row 9: a one-pixel pen 0 line top and bottom, two-pixel sides, pen 15
+inside; each item's select box sits four pixels inside the box, 9 rows per
+item, with its text at (+4, +1) in pen 0 (SQ2's `File` box spans 54..173 ×
+9..61 with `Save     <F5>` at (62, 14)). A ghosted item is drawn and then
+erased through Intuition's ghost pattern aligned to the screen: on odd
+rows every pixel with x ≡ 1 (mod 4) returns to pen 15, on even rows x ≡ 3
+(mod 4) (the separator's dashes at row 35 lose x = 65, 73, 81). The
+highlighted item's select box is complemented (inference from HIGHCOMP
+and the item rectangle above; the MAME pointer could not be steered onto
+an item for a frame). Releasing the button over an enabled item selects
+it and anything else cancels; the strip and the title bar swap back at
+once (frames before and after the release).
+
+**Engine.** `src/runtime/nativeMenu.ts` computes the titles, boxes and
+select boxes from the headings `set.menu` built; `Engine.nativeMenuOpen`
+/ `Move` / `Release` run the strip as a menu modal with native state,
+gated by [Original native menu dispatch](#original-native-menu-dispatch)
+(`profile.nativeMenu`, `nativeMenuF14Gate`; the engine also treats a
+parked host wait as the inhibitor), freeze the game clock while open, and
+deliver the released item's controller at the next input phase, dropping
+statuses 128..255. The Amiga look paints the strip from
+`getPresentation().menu` (`app/src/render/composite.ts`). Host access that
+the hardware never had, documented as such: a touch long press on the
+title bar and the touch Menu button open a strip that stays until a tap
+or Esc, and arrow keys move on it. Not modelled: chained NextSelect
+selections, Intuition command keys, the right-button double click while
+the strip is available (Intuition consumes the button then), and the
+pointer sprite. Tests: [native-menu.test.ts](../test/native-menu.test.ts),
+[composite.test.ts](../app/test/composite.test.ts),
+[worker-native-menu.test.ts](../app/test/worker-native-menu.test.ts),
+[amiga-menu.spec.ts](../app/e2e/amiga-menu.spec.ts).
+
+### Original Amiga save and restore dialogs
+
+The Amiga `save.game` / `restore.game` dialogs are AGI text windows the
+interpreter draws through WindowPrint with Intuition gadgets, not a file
+requester. Facts from the executables (SQ2 2.202 `557215fbbf431193…`
+addresses; the same strings and call shapes are in `Sierra` 2.082
+`h10`/`h47`/`h49`, `KQ2` 2.176 and `PQ`/`GR`/`MH2` 2.31x `h13`/`h66`/`h69`)
+and from headless MAME 0.289 frames of SQ2 2.202's save and restore
+sequences.
+
+**Windows (fact).** The dialog routine `h13+0x256` opens every window
+through `h57+0x224`, which formats the message at a given width
+(`$4b96`), forces the column count to that width when asked, forces the
+row count when given, adds three rows when gadget labels are passed
+(`h57+0x2b6..0x2d0`), centres the window like a message window
+(`topRow = ((19 - rows) >> 1) + 1 + picTop`, `leftCol = (40 - cols) >> 1`,
+`h57+0x346..0x3b2`) and attaches the two gadgets of
+F-persistence-05-gadgets. The steps and their strings (`h14`):
+
+- Volume: `"         SAVE GAME\n%sdo you wish to save this game?\n\n%s\n\n"`
+  (`h14+0x47`; `%s` = `"\nOn which volume or in which directory "` and
+  `"(For example, \"Save:\" or \"/Save\")"`), width 31, gadgets `OK` /
+  `Cancel`, the directory typed on the input row (`h13+0xcc`); the
+  default directory is `"Save"` (`h14+0x00`) and the typed answer is
+  lowercased by the line editor, so the file names start `save/`. Restore
+  uses `"        RESTORE GAME\n\n%sis the game that you want to restore?…"`.
+- Slots: `"Select the slot in which you wish to save the game."` /
+  `"Select the game which you wish to restore."` at width 34 with the
+  columns forced to 34 and the rows forced to `count + 3` (`h13+0x360..
+0x3aa`), then gadgets `OK` / `Cancel`. The save list holds all twelve
+  slots (`h13+0x2be`), the restore list only existing files; each line is
+  `" - %s"` at the window's left column from row `top + 3`, the pointer
+  glyph 0xbb (`h13+0x6e4`) on the current line, and an invisible 240 × 8
+  BOOLGADGET with id `0x100 + i` from column `left + 3` on each line
+  (`h13+0x742..0x7b4`), whose click posts a type `0x0a` event the loop
+  takes as that slot (`h13+0x484`). Up and Down wrap (`h13+0x53c..0x5ee`),
+  Enter selects, Escape cancels. The initial line is the newest file by
+  date (`h13+0x2a4`); the engine starts on the first line, having no file
+  dates. No files: `"There are no games to\nrestore in\n\n%s"` with no
+  gadgets.
+- Describe: `"How would you like to describe this saved game?\n\n"` at width
+  31, columns forced, gadgets `OK` / `Cancel`, the current description
+  edited on row `bottom - 3` in the front pen on the background pen
+  (`h13+0x7a..0x8c`, editor `h30+0x188`, 31 bytes).
+- Confirm: `"About to save the game\ndescribed as:\n\n%s\n\nin file:\n%s"`
+  with gadgets `Save` / `Cancel` (`h69+0x32..0x72`, `h70`), or
+  `"About to restore the game\ndescribed as:\n\n%s\n\nfrom file:\n%s"` with
+  `Restore` / `Cancel` (`h66+0x46..0x72`, `h67`), width 35, columns from the
+  longest line; the file is `"%s%s%ssg.%d"` (`h207+0x00`): the directory, `/`
+  unless it ends in `:` or `/`, the game id and the slot number.
+- 2.31x only strings, not modelled: `"   Sorry, this disk is full.\n…"` and
+  `"Use the arrow keys to move\nthe pointer to your name,\nthen press RETURN\n"`.
+
+**Frames (MAME, SQ2 2.202).** The twelve-line save window spans text rows
+2..19 at columns 3..36 (frame x 14..306, y 10..164), its `OK` fill at x
+24..63 and `Cancel` at 240..295, rows 147..158; the describe window is 31
+columns wide at rows 8..14 with the input row on row 11; the confirm
+window's columns follow the longest line (28 for the 28-character
+description in the frame). The pointer glyph 0xbb is
+`00 cc 66 33 66 cc 00 00`.
+
+**Engine.** `src/runtime/saveDialog.ts` renders these windows on the
+Amiga profiles (`platform: "amiga"`), skipping the volume step: the
+default directory answers it, so a player saves straight to a slot and
+the confirm window names the file as the original does after accepting
+the default. Gadgets and slot lines answer clicks and taps through
+`Engine.pointerKeyAt`. A rejected write shows the engine's own notice in
+a window. The PC and IIgs profiles keep the spec-derived selector. Tests:
+[save-dialog.test.ts](../test/save-dialog.test.ts),
+[amiga-menu.spec.ts](../app/e2e/amiga-menu.spec.ts).
 
 ### Original click-to-walk
 

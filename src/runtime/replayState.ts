@@ -30,7 +30,12 @@ type SerializedModal =
       selected: number;
       interactive: boolean;
     }
-  | { kind: "menu"; saved: SerializedSavedRect }
+  | {
+      kind: "menu";
+      saved: SerializedSavedRect;
+      /** The Amiga strip's open title, item and host-held mode; absent for the PC menu. */
+      native?: { heading: number | null; item: number | null; sticky: boolean };
+    }
   | { kind: "showObj"; saved: SerializedSavedRect; view: number }
   | { kind: "showPri" }
   | { kind: "shake"; steps: number; step: number; elapsedMs: number; palette: number[] | null };
@@ -330,8 +335,19 @@ function serializedModal(value: unknown, options?: { allowWindow?: boolean }): S
       };
     }
     case "menu": {
-      const m = record(value, ["kind", "saved"]);
-      return { kind, saved: savedRect(m["saved"], options) };
+      const hasNative = Object.hasOwn(value, "native");
+      const m = record(value, hasNative ? ["kind", "saved", "native"] : ["kind", "saved"]);
+      if (!hasNative) return { kind, saved: savedRect(m["saved"], options) };
+      const n = record(m["native"], ["heading", "item", "sticky"]);
+      return {
+        kind,
+        saved: savedRect(m["saved"], options),
+        native: {
+          heading: nullable(n["heading"]),
+          item: nullable(n["item"]),
+          sticky: bool(n["sticky"]),
+        },
+      };
     }
     case "showObj": {
       const m = record(value, ["kind", "saved", "view"]);

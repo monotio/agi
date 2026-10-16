@@ -239,6 +239,9 @@ interface PresentationState {
   lastStatusBar: string | null | undefined;
   /** Gadget labels of the last published frame, serialized; "" for none. */
   lastGadgetsJson: string;
+  /** The Amiga strip of the last published frame, serialized; "" for none. */
+  lastMenuJson: string;
+  lastMenuAvailable: boolean;
   lastInputEnabled: boolean;
   lastReleaseGate: number;
   lastModal: string | null;
@@ -428,6 +431,7 @@ export interface WorkerFns {
   onKey(msg: Inbound<"key">): void;
   onDirection(msg: Inbound<"direction">): void;
   onClick(msg: Inbound<"click">): void;
+  onMenu(msg: Inbound<"menu">): void;
   onJoystick(msg: Inbound<"joystick">): void;
   pollJoystickInput(): void;
   onInput(msg: Inbound<"input">): void;

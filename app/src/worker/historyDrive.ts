@@ -561,6 +561,15 @@ export function openHistoryDrive(
       case "click":
         ctx.fns.onClick({ type: "click", x: cause.x, y: cause.y });
         return;
+      case "menu":
+        ctx.fns.onMenu({
+          type: "menu",
+          op: cause.op,
+          x: cause.x,
+          y: cause.y,
+          sticky: cause.sticky,
+        });
+        return;
       case "input":
         ctx.fns.onInput({ type: "input", text: cause.text });
         return;

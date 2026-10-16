@@ -147,6 +147,10 @@ test("a numbered PAL save restores the region and both session clocks", () => {
       { slot: 1, image: Buffer.from(image.subarray(0, 40)).toString("base64") },
     ]),
   });
+  // Enter picks the slot; the Amiga dialog then asks "About to restore the
+  // game" with Restore / Cancel, and a second Enter confirms.
+  onWorkerMessage(ctx, { type: "key", code: 13 });
+  ctx.fns.tickEngine();
   onWorkerMessage(ctx, { type: "key", code: 13 });
   ctx.fns.tickEngine();
   const restore = control.findLast((m) => m.type === "hostRequest" && m.op === "restore");

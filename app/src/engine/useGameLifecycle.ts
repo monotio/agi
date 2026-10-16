@@ -210,6 +210,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.inputEnabled = false;
     state.inputReady = false;
     state.holdToMove = false;
+    state.menuAvailable = false;
     state.waitingForKey = false;
     state.gameEdit = null;
     state.rows = [];

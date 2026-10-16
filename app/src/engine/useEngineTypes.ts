@@ -156,6 +156,8 @@ export interface EngineState {
   /** The worker has started logic and published its input mode. */
   inputReady: boolean;
   holdToMove: boolean;
+  /** The Amiga menu strip can open now; the play UI offers its touch and help access. */
+  menuAvailable: boolean;
   waitingForKey: boolean;
   gameEdit: { text: string } | null;
   phase: "idle" | "loading" | "running" | "error";

@@ -227,6 +227,7 @@ test("the window frame renders the decoded sub-cell OpenWndw fill and bars acros
 // position. Expected pixels are hand-computed from the recorded geometry.
 import { appearanceForProfile, loadAppearance } from "../src/render/appearance.ts";
 import { AMIGA_FONT } from "../src/render/fontAmiga.ts";
+import type { NativeMenuChrome } from "../../src/runtime/nativeMenu.ts";
 import { AMIGA_PALETTE, AMIGA_PALETTE_2_082, AMIGA_PALETTE_2_31X } from "../src/render/palette.ts";
 
 const amiga = await loadAppearance("amiga-2.202");
@@ -1108,4 +1109,86 @@ test("accepted restart.game preserves picture top on PC 2.936 and IIgs 1.014 whi
       `${profileId}: displayBase after accepted restart.game`,
     );
   }
+});
+
+test("the Amiga menu strip: Kickstart's bar over the title, titles 2 px in, the active title complemented", () => {
+  const input = fixture();
+  const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+  // SQ2's strip with File open and nothing highlighted, as measured on MAME.
+  const menu: NativeMenuChrome = {
+    titles: [
+      { text: "Sierra", left: 0, width: 56, highlighted: false },
+      { text: "File", left: 56, width: 40, highlighted: true },
+    ],
+    pulldown: {
+      x0: 54,
+      y0: 9,
+      x1: 173,
+      y1: 61,
+      highlighted: null,
+      items: [
+        { text: "Save     <F5>", enabled: true, x0: 58, y0: 13, x1: 169, y1: 21 },
+        { text: "Restore  <F7>", enabled: true, x0: 58, y0: 22, x1: 169, y1: 30 },
+        { text: "-------------", enabled: false, x0: 58, y0: 31, x1: 169, y1: 39 },
+      ],
+    },
+  };
+  compositeFrame({ ...input, appearance: amiga, statusBar: "Score", menu }, out);
+  for (const y of [0, 8, 9])
+    assert.deepEqual(pixelAt(out, 250, y), AMIGA_PALETTE[15], `bar row ${y}`);
+  assert.deepEqual(pixelAt(out, 250, 10), AMIGA_PALETTE[0], "the bar's bottom line");
+  assert.deepEqual(pixelAt(out, 300, 5), AMIGA_PALETTE[15], "no depth gadgets on the strip");
+  // "Sierra": the S glyph's top row lit from column 2 of the glyph, drawn at x = 2, y = 1.
+  const sLead = Math.clz32(AMIGA_FONT[0x53 * 8]!) - 24;
+  assert.deepEqual(pixelAt(out, 2 + sLead, 1), AMIGA_PALETTE[0], "title text at (2, 1)");
+  assert.deepEqual(pixelAt(out, 2 + sLead, 0), AMIGA_PALETTE[15]);
+  // "File" is complemented over x 57..96, rows 0..8: pen 0 ground, pen 15 glyphs.
+  assert.deepEqual(pixelAt(out, 57, 0), AMIGA_PALETTE[0], "highlight starts at LeftEdge + 1");
+  assert.deepEqual(pixelAt(out, 56, 0), AMIGA_PALETTE[15], "LeftEdge itself stays white");
+  assert.deepEqual(
+    pixelAt(out, 96, 8),
+    AMIGA_PALETTE[0],
+    "highlight ends at LeftEdge + Width, row 8",
+  );
+  assert.deepEqual(pixelAt(out, 20, 9), AMIGA_PALETTE[15], "row 9 outside the box stays white");
+  const fLead = Math.clz32(AMIGA_FONT[0x46 * 8]!) - 24;
+  assert.deepEqual(pixelAt(out, 58 + fLead, 1), AMIGA_PALETTE[15], "the F glyph in pen 15");
+  // The pull-down: a 1 px top and bottom line, 2 px sides, white inside.
+  assert.deepEqual(pixelAt(out, 100, 9), AMIGA_PALETTE[0], "top line on row 9");
+  assert.deepEqual(pixelAt(out, 54, 20), AMIGA_PALETTE[0], "left side");
+  assert.deepEqual(pixelAt(out, 55, 20), AMIGA_PALETTE[0]);
+  assert.deepEqual(pixelAt(out, 56, 20), AMIGA_PALETTE[15], "interior");
+  assert.deepEqual(pixelAt(out, 172, 20), AMIGA_PALETTE[0], "right side");
+  assert.deepEqual(pixelAt(out, 173, 20), AMIGA_PALETTE[0]);
+  assert.deepEqual(pixelAt(out, 174, 20), AMIGA_PALETTE[15], "picture beside the box");
+  assert.deepEqual(pixelAt(out, 100, 61), AMIGA_PALETTE[0], "bottom line");
+  assert.deepEqual(pixelAt(out, 100, 62), AMIGA_PALETTE[15], "picture below the box");
+  // Item text at (x0 + 8, y0 + 5 + 9 i): "Save" begins with the S glyph at x 62, y 14.
+  assert.deepEqual(pixelAt(out, 62 + sLead, 14), AMIGA_PALETTE[0], "first item text");
+  const rLead = Math.clz32(AMIGA_FONT[0x52 * 8]!) - 24;
+  assert.deepEqual(pixelAt(out, 62 + rLead, 23), AMIGA_PALETTE[0], "second item text");
+  // The ghosted separator: its dashes (glyph row 3, y 35) lose every pixel where x % 4 == 1.
+  assert.deepEqual(pixelAt(out, 63, 35), AMIGA_PALETTE[0]);
+  assert.deepEqual(pixelAt(out, 65, 35), AMIGA_PALETTE[15], "ghost pattern");
+  assert.deepEqual(pixelAt(out, 66, 35), AMIGA_PALETTE[0]);
+  assert.deepEqual(pixelAt(out, 73, 35), AMIGA_PALETTE[15]);
+  // A highlighted item complements its select box.
+  menu.pulldown!.highlighted = 1;
+  compositeFrame({ ...input, appearance: amiga, statusBar: "Score", menu }, out);
+  assert.deepEqual(pixelAt(out, 58, 22), AMIGA_PALETTE[0], "select box corner");
+  assert.deepEqual(pixelAt(out, 169, 30), AMIGA_PALETTE[0], "select box far corner");
+  assert.deepEqual(pixelAt(out, 170, 30), AMIGA_PALETTE[15], "outside the box");
+  assert.deepEqual(pixelAt(out, 62 + rLead, 23), AMIGA_PALETTE[15], "text in pen 15");
+  assert.deepEqual(pixelAt(out, 100, 21), AMIGA_PALETTE[15], "the item above is not touched");
+  // The PC look never draws a strip.
+  compositeFrame({ ...input, menu }, out);
+  assert.deepEqual(pixelAt(out, 250, 9), EGA_PALETTE[15]);
+  assert.deepEqual(pixelAt(out, 100, 61), EGA_PALETTE[15]);
+});
+
+test("the Amiga font draws the save dialog's pointer glyph 0xbb as the MAME frames show it", () => {
+  assert.deepEqual(
+    Array.from(AMIGA_FONT.subarray(0xbb * 8, 0xbb * 8 + 8)),
+    [0x00, 0xcc, 0x66, 0x33, 0x66, 0xcc, 0x00, 0x00],
+  );
 });

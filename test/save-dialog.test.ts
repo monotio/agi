@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
@@ -398,4 +398,247 @@ test("native description editor and final write use the same 30-character capaci
   });
   assert.deepEqual(limits, [30]);
   assert.deepEqual(writes, ["A".repeat(30)], "defensively bound an overlong host reply");
+});
+
+// ---- Amiga: the original WindowPrint dialogs (docs/fidelity.md "Original Amiga save and restore dialogs") ----
+
+import { PROFILES } from "../src/runtime/profile.ts";
+import { TEXT_COLS, attr } from "../src/runtime/textSurface.ts";
+
+/** Row `r` of the engine's cells as text, with transparent cells as spaces. */
+function rowText(engine: Engine, r: number): string {
+  let s = "";
+  for (let c = 0; c < TEXT_COLS; c++)
+    s += String.fromCharCode(engine.textCells[(r * TEXT_COLS + c) * 2]! || 0x20);
+  return s;
+}
+
+function amigaSetup(
+  action: "save" | "restore",
+  keys: number[],
+  slots: { slot: number; description: string }[] = [],
+  suspend = false,
+) {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); configure.screen(1, 22, 0); set.game.id("sq2"); }
+       if (isset(f12)) { assignn(v101, 1); return; } ${action}.game(); assignn(v100, 99); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const writes: { slot: number | undefined; bytes: Uint8Array }[] = [];
+  const reads: number[] = [];
+  const screens: { rows: string[]; gadgets: unknown; cells: Uint8Array }[] = [];
+  let failWrite = false;
+  const queued: number[] = [];
+  const host: EngineHost = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => queued.splice(0),
+    listSaveGames: () => files,
+    waitKey() {
+      const p = engine.getPresentation();
+      screens.push({
+        rows: Array.from({ length: 25 }, (_, r) => rowText(engine, r)),
+        gadgets: p.gadgets,
+        cells: p.text,
+      });
+      const key = keys.shift();
+      if (key === undefined && suspend) throw new HostWait();
+      return key ?? 0x1b;
+    },
+    saveGame(bytes, slot) {
+      writes.push({ bytes, slot });
+      return !failWrite;
+    },
+    restoreGame(slot) {
+      reads.push(slot ?? 0);
+      return files.find((f) => f.slot === slot)?.bytes ?? null;
+    },
+  };
+  const engine = new Engine(container, host, new Map(), { profile: PROFILES["amiga-2.202"] });
+  // The first cycle only initializes the game (f12 short-circuits the save).
+  engine.flags[12] = 1;
+  engine.tick();
+  const files: SaveSlot[] = slots.map(({ slot, description }) => {
+    const bytes = engine.serialize();
+    const desc = new TextEncoder().encode(description);
+    bytes.set(desc.subarray(0, 30), 0);
+    bytes[Math.min(desc.length, 30)] = 0;
+    return { slot, bytes };
+  });
+  engine.flags[12] = 0;
+  return {
+    engine,
+    writes,
+    reads,
+    screens,
+    pressKeys: (...codes: number[]) => queued.push(...codes),
+    failWrite: () => (failWrite = true),
+  };
+}
+
+const amigaGadget = (p: unknown, i: number) =>
+  (p as { x0: number; y0: number; x1: number; y1: number; pen: number; text: string }[])[i]!;
+
+test("Amiga save: the slot window lists twelve slots at 34 columns with the pointer, OK and Cancel", () => {
+  const s = amigaSetup("save", [0x1b], [{ slot: 2, description: "At the well" }]);
+  s.engine.tick();
+  const [screen] = s.screens;
+  assert.equal(screen!.rows[2], "   Select the slot in which you wish    ");
+  assert.equal(screen!.rows[3], "   to save the game.                    ");
+  assert.equal(screen!.rows[4], " ".repeat(40));
+  assert.equal(screen!.rows[5], "   »-" + " ".repeat(35));
+  assert.equal(screen!.rows[6], "    - At the well                       ");
+  assert.equal(screen!.rows[16], "    -                                   ");
+  assert.equal(screen!.rows[17], " ".repeat(40), "three rows for the gadgets");
+  const ok = amigaGadget(screen!.gadgets, 0);
+  const cancel = amigaGadget(screen!.gadgets, 1);
+  assert.deepEqual([ok.x0, ok.y0, ok.x1, ok.y1, ok.pen, ok.text], [24, 147, 63, 158, 2, " OK "]);
+  assert.deepEqual(
+    [cancel.x0, cancel.y0, cancel.x1, cancel.y1, cancel.pen, cancel.text],
+    [240, 147, 295, 158, 4, "Cancel"],
+  );
+  assert.equal(s.writes.length, 0, "Escape saves nothing");
+  assert.equal(s.engine.vars[100], 99);
+  assert.equal(
+    s.engine.getPresentation().windowOverlay.every((v) => v === 0),
+    true,
+    "the window is gone",
+  );
+});
+
+test("Amiga save: arrows move the pointer with wrap, Enter opens the describe window, typing and Enter confirm into the game's file", () => {
+  const up = 0x4800;
+  const down = 0x5000;
+  const s = amigaSetup("save", [up, down, down, 13, 0x61, 0x62, 13, 13]);
+  s.engine.tick();
+  assert.equal(s.screens[0]!.rows[5]!.charCodeAt(3), 0xbb);
+  assert.equal(
+    s.screens[1]!.rows[16]!.charCodeAt(3),
+    0xbb,
+    "Up from the first slot wraps to slot 12",
+  );
+  assert.equal(s.screens[2]!.rows[5]!.charCodeAt(3), 0xbb, "Down wraps back to slot 1");
+  assert.equal(s.screens[3]!.rows[6]!.charCodeAt(3), 0xbb);
+  // The describe window: 31 columns, the question, a blank row, the input row in pen 0.
+  const describe = s.screens[4]!;
+  assert.equal(describe.rows[8], "    How would you like to describe      ");
+  assert.equal(describe.rows[9], "    this saved game?                    ");
+  assert.equal(describe.rows[10], " ".repeat(40));
+  assert.equal(describe.rows[11], "    _" + " ".repeat(35));
+  assert.equal(
+    describe.cells[(11 * TEXT_COLS + 4) * 2 + 1],
+    attr(15, 0),
+    "white on black input row",
+  );
+  assert.equal(describe.cells[(11 * TEXT_COLS + 34) * 2 + 1], attr(15, 0));
+  assert.equal(amigaGadget(describe.gadgets, 0).text, " OK ");
+  assert.equal(s.screens[6]!.rows[11], "    ab_" + " ".repeat(33));
+  const confirm = s.screens[7]!;
+  assert.deepEqual(confirm.rows.slice(6, 13), [
+    "         About to save the game         ",
+    "         described as:                  ",
+    "                                        ",
+    "         ab                             ",
+    "                                        ",
+    "         in file:                       ",
+    "         save/sq2sg.2                   ",
+  ]);
+  assert.equal(amigaGadget(confirm.gadgets, 0).text, "Save");
+  assert.equal(amigaGadget(confirm.gadgets, 1).text, "Cancel");
+  assert.equal(s.writes[0]?.slot, 2);
+  assert.equal(decodeSave(s.writes[0]!.bytes, s.engine.profile).description, "ab");
+});
+
+test("Amiga save: an occupied slot's description is edited in place, and Escape at any window saves nothing", () => {
+  for (const keys of [[0x1b], [13, 0x1b], [13, 13, 0x1b]]) {
+    const s = amigaSetup("save", keys, [{ slot: 1, description: "At the well" }]);
+    s.engine.tick();
+    assert.equal(s.writes.length, 0);
+    assert.equal(s.engine.vars[100], 99);
+  }
+  const s = amigaSetup("save", [13, 0x73, 13, 13], [{ slot: 1, description: "At the well" }]);
+  s.engine.tick();
+  assert.equal(s.screens[1]!.rows[11], "    At the well_" + " ".repeat(24));
+  assert.equal(decodeSave(s.writes[0]!.bytes, s.engine.profile).description, "At the wells");
+});
+
+test("Amiga restore: only existing games list, the confirm names the file, and no games shows the original notice", () => {
+  const s = amigaSetup(
+    "restore",
+    [down(), 13, 13],
+    [
+      { slot: 3, description: "Cave" },
+      { slot: 7, description: "Shop" },
+    ],
+  );
+  s.engine.tick();
+  const list = s.screens[0]!;
+  assert.equal(list.rows[7], "   Select the game which you wish to    ");
+  assert.equal(list.rows[8], "   restore.                             ");
+  assert.equal(list.rows[10], "   »- Cave" + " ".repeat(30));
+  assert.equal(list.rows[11], "    - Shop                              ");
+  assert.equal(list.rows[12], " ".repeat(40));
+  const confirm = s.screens[2]!;
+  assert.deepEqual(confirm.rows.slice(6, 13), [
+    "       About to restore the game        ",
+    "       described as:                    ",
+    "                                        ",
+    "       Shop                             ",
+    "                                        ",
+    "       from file:                       ",
+    "       save/sq2sg.7                     ",
+  ]);
+  assert.equal(amigaGadget(confirm.gadgets, 0).text, "Restore");
+  assert.deepEqual(s.reads, [7]);
+  const none = amigaSetup("restore", [13]);
+  none.engine.tick();
+  assert.deepEqual(none.screens[0]!.rows.slice(9, 13), [
+    "         There are no games to          ",
+    "         restore in                     ",
+    "                                        ",
+    "         save                           ",
+  ]);
+  assert.equal(none.screens[0]!.gadgets, undefined);
+  assert.deepEqual(none.reads, []);
+  assert.equal(none.engine.vars[100], 99);
+  function down() {
+    return 0x5000;
+  }
+});
+
+test("Amiga: a click on a slot line, on OK or on Cancel answers the window like the original gadgets", () => {
+  const s = amigaSetup("save", [], [{ slot: 1, description: "At the well" }], true);
+  // Click on slot 4's line selects it (the invisible gadget covers the text from column 6).
+  s.engine.tick();
+  assert.equal(s.engine.modalKind, "save");
+  assert.equal(s.engine.pointerKeyAt(10, 70), null, "the pointer column is not a gadget");
+  assert.equal(s.engine.pointerKeyAt(100, 70), 0x0a03);
+  assert.equal(s.engine.pointerKeyAt(30, 150), 13, "OK");
+  assert.equal(s.engine.pointerKeyAt(250, 150), 0x1b, "Cancel");
+  s.engine.deliverHostAnswer(0x0a03);
+  s.engine.tick();
+  assert.equal(s.engine.modalKind, "save");
+  s.engine.deliverHostAnswer(0x1b);
+  s.engine.tick();
+  assert.equal(s.engine.modalKind, null);
+  assert.equal(s.writes.length, 0);
+});
+
+test("Amiga: a rejected write shows its notice in a window and the game goes on", () => {
+  const s = amigaSetup("save", [13, 13, 13, 13]);
+  s.failWrite();
+  s.engine.tick();
+  assert.ok(s.screens.some((screen) => screen.rows.some((r) => r.includes("Unable to save"))));
+  assert.equal(s.engine.vars[100], 99);
+  assert.equal(
+    s.engine.getPresentation().windowOverlay.every((v) => v === 0),
+    true,
+  );
 });

@@ -27,7 +27,7 @@ import {
   useWalkthroughController,
   createInitialWalkthroughState,
 } from "../walkthrough/useWalkthroughController.ts";
-import { useInputController } from "../play/useInputController.ts";
+import { useInputController, type MenuOp } from "../play/useInputController.ts";
 import { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { useAuthoringController } from "../authoring/useAuthoringController.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
@@ -141,6 +141,7 @@ export function useEngine(
     inputEnabled: false,
     inputReady: false,
     holdToMove: false,
+    menuAvailable: false,
     waitingForKey: false,
     gameEdit: null,
     phase: "idle",
@@ -327,7 +328,7 @@ export function useEngine(
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
-  const { sendInput, sendEdit, sendDirection, sendKey, sendClick, sendJoystick } = input;
+  const { sendInput, sendEdit, sendDirection, sendKey, sendClick, sendMenu, sendJoystick } = input;
   const startOverNote = useStartOverNote(state);
 
   let executionDebug: ReturnType<typeof createExecutionDebugLink> | undefined;
@@ -1600,6 +1601,10 @@ export function useEngine(
     sendClick: (x: number, y: number, sessionId?: number) => {
       startOverNote.noteInput();
       sendClick(x, y, sessionId);
+    },
+    sendMenu: (op: MenuOp, x: number, y: number, sticky?: boolean) => {
+      startOverNote.noteInput();
+      sendMenu(op, x, y, sticky);
     },
     dismissModal,
     submitPrompt,

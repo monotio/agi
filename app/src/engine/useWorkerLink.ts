@@ -363,6 +363,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.inputEnabled = msg.inputEnabled;
         state.inputReady = msg.inputReady;
         state.holdToMove = msg.holdToMove;
+        state.menuAvailable = msg.menuAvailable === true;
         publishText(msg.text, (msg.modal as ModalKind | null) ?? null, msg.textMode);
         latestFrame = {
           visual: msg.visual,
@@ -372,6 +373,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           picRow: msg.picRow,
           statusBar: msg.statusBar,
           ...(msg.gadgets ? { gadgets: msg.gadgets } : {}),
+          ...(msg.menu ? { menu: msg.menu } : {}),
           cycle: msg.cycle,
           patchGeneration: msg.patchGeneration,
         };

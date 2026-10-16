@@ -68,6 +68,8 @@ export function newRunSession(now: number): RunSession {
       lastTextMode: false,
       lastStatusBar: undefined,
       lastGadgetsJson: "",
+      lastMenuJson: "",
+      lastMenuAvailable: false,
       lastInputEnabled: false,
       lastReleaseGate: 0,
       lastModal: null,
