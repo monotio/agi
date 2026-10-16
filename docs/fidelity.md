@@ -6584,3 +6584,24 @@ Controlled file bytes and mapped-state imports are covered by the
 cadence assertions while widening each investigation. Store probe
 commands, tool versions and controlled inputs alongside private outputs; publish
 only concise findings and independently authored expected vectors.
+
+### PC fonts and display adapters
+
+**Font evidence.** PQ1 PC 2.936 (`START.EXE` SHA-256
+`db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7`),
+load-relative `0x2c4e..0x2c72`, copies eight glyph rows from
+`F000:FA6E + character × 8` into its drawing buffer. The graphics text uses
+this BIOS typeface, rather than the Tandy character-generator typeface.
+The app's `font8x8.ts` recreates the printable BIOS graphics bitmap design
+pixel for pixel in its own packed table, credited as a recreation. No ROM
+or font file ships, and neither build nor runtime reads one. The optional
+local-reference test compares codes `0x20..0x7f` against the Tandy 1000 SX
+BIOS (`8040328.u41`, reference offset `0x7a6e`); the released engine window
+and cursor aliases `0x01..0x07` retain their checkpoint-compatible masks.
+
+The aligned MAME 0.289 `t1000sx` PQ1 opening, message and restart scenes
+changed from 264 / 1,791 / 956 differing RGB pixels to 30 / 30 / 22 after
+the recreation. The status and play regions agree exactly in all three;
+the remaining differences occupy the prompt/cursor area at rows 184–191.
+These are raw 320×200 comparisons without masks or colour adjustment.
+They establish the sampled graphics typeface, not every PC adapter's font.
