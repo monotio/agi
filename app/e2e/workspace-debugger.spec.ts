@@ -129,9 +129,10 @@ for (const size of [{ width: 1440, height: 900 }]) {
     await page.keyboard.press("Control+`");
     await reviewShot(page, `debugger-${size.width}-breakpoint`);
     await page.keyboard.press("F10");
+    // The 30-column print window wraps the line after "sunny" (docs/fidelity.md F-text-01).
     await expect
       .poll(async () => (await textHook(page)).rows.join("\n"))
-      .toContain("sunny clearing");
+      .toMatch(/sunny\s+clearing/);
     await page.keyboard.press("Control+`");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("workspace-debug-status")).toContainText("Paused");
@@ -223,7 +224,7 @@ test("stopped edits keep the running source, value edits and watches inspect MAI
   await page.getByRole("button", { name: "Return to editing", exact: true }).click();
   await editor.getByRole("textbox", { name: "Editor content", exact: true }).focus();
   await page.keyboard.press("F5");
-  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toMatch(/sunny\s+clearing/);
   await page.keyboard.press("Control+`");
   await page.keyboard.press("Enter");
   await page.getByTestId("workspace-update-menu").click();
