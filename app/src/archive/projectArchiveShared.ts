@@ -6,6 +6,7 @@
  * Conversation validation lives in `projectConversation.ts`, where the
  * entry composables reach it without anchoring these archive helpers.
  */
+import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import type { ZipFileInput } from "./zip.ts";
 import { publicGameMetadata, isPlayableFileName } from "../project/gameMetadata.ts";
 import { buildObjectFile } from "../../../src/agent/agentState.ts";
@@ -31,7 +32,7 @@ export function gameEntries(
   if (supplyInventory && !files.has("OBJECT"))
     files.set("OBJECT", buildObjectFile([], detectProfile(files, data.library?.profile)));
   const entries = [...files]
-    .filter(([name]) => isPlayableFileName(name))
+    .filter(([name]) => isPlayableFileName(name) || isAuxiliaryFileName(name))
     .map(([name, bytes]) => ({ name, data: bytes }) as ZipFileInput);
   entries.push({
     name: "GAME.JSON",

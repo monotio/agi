@@ -1065,3 +1065,45 @@ test("interpreter executables stay in the playable file set so detection can rea
   ])
     assert.equal(isPlayableFileName(name), false, name);
 });
+
+test("optional game fonts survive import, captured builds, remix and both exports without changing revision", async (t) => {
+  installLocalStorage(t);
+  const { captureProjectBuild } = await import("../../src/authoring/projectBuild.ts");
+  const base = game('display(4, 1, "Font auxiliary"); return;');
+  const font = Uint8Array.of(1, 2, 3);
+  const files = { ...base, AgiFont: font };
+  assert.equal(await gameRevision(files), await gameRevision(base));
+  const opened = readGameFiles(new Map(Object.entries(files)));
+  assert.deepEqual(opened.files["AGIFONT"], font);
+  const build = captureProjectBuild({
+    files: opened.files,
+    profileId: "2.936",
+    sources: {},
+    bindings: {},
+  });
+  assert.deepEqual(build.files().get("AGIFONT"), font);
+  const id = await addLibraryGame(opened, "Font auxiliary", "zip", opening);
+  t.after(() => clearCachedGame(id));
+  const remixId = await copyLibraryGame(id);
+  t.after(() => clearCachedGame(remixId));
+  const remix = (await loadAuthoredGame(remixId))!;
+  assert.deepEqual(remix.files["AGIFONT"], font);
+  for (const zip of [buildPublicGameZip(remix), await buildProjectZip(remix)]) {
+    assert.deepEqual((await readGameZip(zip)).files["AGIFONT"], font);
+  }
+});
+
+test("re-importing the same resources with a different optional font preserves both copies", async (t) => {
+  installLocalStorage(t);
+  const base = game('display(4, 1, "Auxiliary editions"); return;');
+  const plain = readGameFiles(new Map(Object.entries(base)));
+  const withFont = readGameFiles(new Map(Object.entries({ ...base, AGIFONT: Uint8Array.of(9) })));
+  const plainId = await addLibraryGame(plain, "Plain", "zip", opening);
+  t.after(() => clearCachedGame(plainId));
+  const fontId = await addLibraryGame(withFont, "Font", "zip", opening);
+  t.after(() => clearCachedGame(fontId));
+  assert.notEqual(plainId, fontId);
+  assert.deepEqual((await loadAuthoredGame(fontId))!.files["AGIFONT"], Uint8Array.of(9));
+  assert.equal(await addLibraryGame(withFont, "Font again", "zip", opening), fontId);
+  assert.equal(await addLibraryGame(plain, "Plain again", "zip", opening), plainId);
+});

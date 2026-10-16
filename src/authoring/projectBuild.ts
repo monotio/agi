@@ -1,5 +1,9 @@
 import { openContainer } from "../container/container.ts";
-import { canonicalResourceName, isPlayableFileName } from "../container/playableFiles.ts";
+import {
+  canonicalResourceName,
+  isPlayableFileName,
+  isAuxiliaryFileName,
+} from "../container/playableFiles.ts";
 import { sha256Hex } from "../crypto.ts";
 import type { LogicSourceMap } from "../logic/assembler.ts";
 import { parseWordsTok } from "../logic/words.ts";
@@ -53,7 +57,8 @@ export function captureProjectBuild(input: ProjectBuildInput) {
   if (!profile) throw new Error(`Unknown build profile: ${input.profileId}`);
   const owned = new Map<string, Uint8Array>();
   for (const [name, bytes] of Object.entries(input.files)) {
-    if (isPlayableFileName(name)) owned.set(canonicalResourceName(name), new Uint8Array(bytes));
+    if (isPlayableFileName(name) || isAuxiliaryFileName(name))
+      owned.set(canonicalResourceName(name), new Uint8Array(bytes));
   }
   const container = openContainer(owned, { profile });
   const words = owned.get("WORDS.TOK");
