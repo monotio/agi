@@ -202,13 +202,18 @@ export function createInput(ctx: WorkerContext) {
       deliverQueuedKey();
       return;
     }
-    if (
-      engine.modalKind !== null ||
-      engine.awaitingKey ||
-      engine.awaitingHostAnswer ||
-      engine.profile.clickMove === "none"
-    )
+    if (engine.awaitingKey) {
+      const answer = engine.pointerKeyAt(x, y);
+      if (answer === null) return;
+      ctx.fns.historyRecord({ kind: "click", x, y });
+      ctx.run.input.keyQueue.unshift(answer);
+      deliverQueuedKey();
       return;
+    }
+    if (engine.awaitingHostAnswer) return;
+    if (engine.modalKind !== null || engine.textModeActive || engine.profile.clickMove === "none") {
+      if (engine.pointerKeyAt(x, y) === null) return;
+    }
     ctx.fns.historyRecord({ kind: "click", x, y });
     ctx.run.input.clickQueue.push([x, y]);
   }

@@ -7,7 +7,136 @@
  */
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
+import { AGI_KEY, translatePlatformKey } from "../../../src/runtime/keys.ts";
+import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { FUNCTION_KEYS, registeredKey, pcKey } from "./gameControls.ts";
+
+/** Minimal subset of the W3C Gamepad object used by the platform joystick poller. */
+export interface GamepadInputLike {
+  readonly connected?: boolean;
+  readonly axes?: readonly number[];
+  readonly buttons?: readonly { readonly pressed: boolean }[];
+}
+
+export interface GamepadPollState {
+  prevDir: number;
+  prevBtn0: boolean;
+  prevBtn1: boolean;
+  btn0ReleaseAt: number;
+  btn1ReleaseAt: number;
+}
+
+export function createGamepadPollState(): GamepadPollState {
+  return {
+    prevDir: 0,
+    prevBtn0: false,
+    prevBtn1: false,
+    btn0ReleaseAt: -1000,
+    btn1ReleaseAt: -1000,
+  };
+}
+
+/**
+ * Sample one browser Gamepad snapshot into the active profile's original
+ * joystick semantics: 8-way direction edge transitions (`JoyDir`) and
+ * primary/secondary button edge releases (`WaitJoyButton` / `JoyButton`
+ * single/double-click words `0x0101..0x0401` on PC and Amiga, and `0x0101`/`0x0201`
+ * or modal `0x0d` on Apple IIgs).
+ */
+export function stepGamepadPoll(
+  pad: GamepadInputLike | null | undefined,
+  pollState: GamepadPollState,
+  nowMs: number,
+  options: {
+    readonly profileId: string | null;
+    readonly modal: ModalKind | null;
+    readonly holdToMove: boolean;
+    readonly sendDirection: (dir: number) => void;
+    readonly sendKey: (code: number) => void;
+  },
+): void {
+  if (!pad || pad.connected === false) {
+    if (pollState.prevDir !== 0) {
+      pollState.prevDir = 0;
+      if (options.modal === null) {
+        if (options.holdToMove) options.sendDirection(0);
+        else options.sendKey(0xf500);
+      }
+    }
+    pollState.prevBtn0 = false;
+    pollState.prevBtn1 = false;
+    return;
+  }
+
+  const up = Boolean(pad.buttons?.[12]?.pressed);
+  const down = Boolean(pad.buttons?.[13]?.pressed);
+  const left = Boolean(pad.buttons?.[14]?.pressed);
+  const right = Boolean(pad.buttons?.[15]?.pressed);
+  const ax = pad.axes?.[0] ?? 0;
+  const ay = pad.axes?.[1] ?? 0;
+  const dx = right || ax >= 0.5 ? 1 : left || ax <= -0.5 ? -1 : 0;
+  const dy = down || ay >= 0.5 ? 1 : up || ay <= -0.5 ? -1 : 0;
+  const dir =
+    dx === 0 && dy < 0
+      ? 1
+      : dx > 0 && dy < 0
+        ? 2
+        : dx > 0 && dy === 0
+          ? 3
+          : dx > 0 && dy > 0
+            ? 4
+            : dx === 0 && dy > 0
+              ? 5
+              : dx < 0 && dy > 0
+                ? 6
+                : dx < 0 && dy === 0
+                  ? 7
+                  : dx < 0 && dy < 0
+                    ? 8
+                    : 0;
+
+  if (dir !== pollState.prevDir) {
+    pollState.prevDir = dir;
+    if (dir !== 0) {
+      options.sendDirection(dir);
+    } else if (options.modal === null) {
+      if (options.holdToMove) options.sendDirection(0);
+      else options.sendKey(0xf500);
+    }
+  }
+
+  const btn0 = Boolean(pad.buttons?.[0]?.pressed);
+  const btn1 = Boolean(pad.buttons?.[1]?.pressed);
+  const presentation =
+    options.profileId !== null && Object.hasOwn(PROFILES, options.profileId)
+      ? PROFILES[options.profileId as ProfileId].presentation
+      : "pc";
+
+  if (pollState.prevBtn0 && !btn0) {
+    if (presentation === "iigs") {
+      options.sendKey(options.modal !== null ? AGI_KEY.ENTER : 0x0101);
+    } else if (nowMs - pollState.btn0ReleaseAt <= 350) {
+      pollState.btn0ReleaseAt = -1000;
+      options.sendKey(0x0301);
+    } else {
+      pollState.btn0ReleaseAt = nowMs;
+      options.sendKey(0x0101);
+    }
+  }
+  if (pollState.prevBtn1 && !btn1) {
+    if (presentation === "iigs") {
+      options.sendKey(options.modal !== null ? AGI_KEY.ENTER : 0x0201);
+    } else if (nowMs - pollState.btn1ReleaseAt <= 350) {
+      pollState.btn1ReleaseAt = -1000;
+      options.sendKey(0x0401);
+    } else {
+      pollState.btn1ReleaseAt = nowMs;
+      options.sendKey(0x0201);
+    }
+  }
+  pollState.prevBtn0 = btn0;
+  pollState.prevBtn1 = btn1;
+}
 
 /** What the keyboard routing needs from PlayArea's exposed API. */
 export interface KeyTarget {
@@ -165,7 +294,7 @@ export function useGameKeys(deps: {
       state.waitingForKey ||
       (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
     ) {
-      const key = pcKey(ev);
+      const key = translatePlatformKey(ev, state.profile) ?? pcKey(ev);
       if (key !== undefined) {
         ev.preventDefault();
         sendKey(key);
@@ -182,6 +311,19 @@ export function useGameKeys(deps: {
 
     if (area()?.movementKeyDown(ev)) return;
 
+    const nativeKey = translatePlatformKey(ev, state.profile);
+    if (
+      nativeKey !== undefined &&
+      (nativeKey === 0xf500 ||
+        nativeKey === 0xff00 ||
+        ((nativeKey & 0xff) === 0 && nativeKey >= 0x3b00 && nativeKey <= 0x4400) ||
+        state.controls.some((b) => b.key === nativeKey))
+    ) {
+      ev.preventDefault();
+      area()?.triggerKey(nativeKey);
+      return;
+    }
+
     const shortcut = registeredKey(ev, state.controls);
     if (shortcut !== undefined) {
       ev.preventDefault();
@@ -190,7 +332,7 @@ export function useGameKeys(deps: {
     }
 
     if (!state.inputEnabled) {
-      const code = pcKey(ev);
+      const code = translatePlatformKey(ev, state.profile) ?? pcKey(ev);
       if (code !== undefined) {
         ev.preventDefault();
         sendKey(code);

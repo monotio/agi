@@ -13,7 +13,7 @@ import {
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
 import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
-import { PAGE_CONTROLS } from "./useGameKeys.ts";
+import { createGamepadPollState, PAGE_CONTROLS, stepGamepadPoll } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -28,7 +28,7 @@ import { amigaPointerCursor } from "./amigaPointer.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
 import { pcKey, movementDirection } from "./gameControls.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
-import { AGI_KEY, DIRECTION_KEYS } from "../../../src/runtime/keys.ts";
+import { AGI_KEY, DIRECTION_KEYS, translatePlatformKey } from "../../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../../src/runtime/textSurface.ts";
 
 const props = defineProps<{
@@ -123,6 +123,28 @@ function readKeyboard(): void {
 function onFocusMove(): void {
   setTimeout(readKeyboard, 0);
 }
+const gamepadState = createGamepadPollState();
+let gamepadTimer: ReturnType<typeof setInterval> | null = null;
+function pollGamepad(): void {
+  if (
+    state.phase !== "running" ||
+    !state.inputReady ||
+    state.paused ||
+    agentBlocksGame.value ||
+    state.walkthrough.active ||
+    state.historyView.active
+  )
+    return;
+  const pads = typeof navigator !== "undefined" ? navigator.getGamepads?.() : undefined;
+  const pad = pads ? Array.from(pads).find((p) => p && p.connected !== false) : undefined;
+  stepGamepadPoll(pad, gamepadState, performance.now(), {
+    profileId: state.profile,
+    modal: state.modal,
+    holdToMove: state.holdToMove,
+    sendDirection,
+    sendKey: onVirtualKey,
+  });
+}
 onMounted(() => {
   document.addEventListener("keydown", onHelpEscape, true);
   document.addEventListener("pointerdown", onHelpOutside);
@@ -130,11 +152,16 @@ onMounted(() => {
   document.addEventListener("focusout", onFocusMove);
   window.addEventListener("focus", onFocusMove);
   window.addEventListener("blur", onFocusMove);
+  gamepadTimer = setInterval(pollGamepad, 50);
   readKeyboard();
 });
 onBeforeUnmount(() => {
   // The next game screen mounts its own canvas and stage.
   presentation.closeScreen();
+  if (gamepadTimer !== null) {
+    clearInterval(gamepadTimer);
+    gamepadTimer = null;
+  }
   document.removeEventListener("keydown", onHelpEscape, true);
   document.removeEventListener("pointerdown", onHelpOutside);
   document.removeEventListener("focusin", onFocusMove);
@@ -271,18 +298,46 @@ watch(splitAt, () => presentation.repaint());
 
 /** Pointer type of the last screen press; the click event carries none. */
 let screenPointerType = "mouse";
+let amigaRightClickAt = -1000;
+
+const screenPresentation = computed(() => {
+  const profile = state.profile;
+  if (profile === null || !Object.hasOwn(PROFILES, profile)) return "pc";
+  return PROFILES[profile as ProfileId].presentation;
+});
 
 function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
 }
 
-/** Right-click offers the current room's actions while Create is armed; Play keeps the browser menu. */
+/** Right-click offers the current room's actions while Create is armed; Amiga Play maps right double-click to 0x0401. */
 function onScreenContextMenu(ev: MouseEvent): void {
-  if (!roomMenuArmed.value) return;
-  const room = engine.roomMap?.currentRoom.value ?? null;
-  if (room === null) return;
-  ev.preventDefault();
-  gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
+  if (roomMenuArmed.value) {
+    const room = engine.roomMap?.currentRoom.value ?? null;
+    if (room === null) return;
+    ev.preventDefault();
+    gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
+    return;
+  }
+  if (
+    screenPresentation.value === "amiga" &&
+    state.phase === "running" &&
+    !state.walkthrough.active &&
+    !state.historyView.active &&
+    !state.paused &&
+    !agentBlocksGame.value &&
+    state.modal === null &&
+    !state.prompt
+  ) {
+    ev.preventDefault();
+    const now = performance.now();
+    if (now - amigaRightClickAt <= 500) {
+      amigaRightClickAt = -1000;
+      sendKey(0x0401);
+    } else {
+      amigaRightClickAt = now;
+    }
+  }
 }
 
 function onScreenClick(ev: MouseEvent): void {
@@ -315,13 +370,23 @@ function onScreenClick(ev: MouseEvent): void {
         dismissModal(screenFramePoint(ev) ?? undefined);
       return;
     }
+    if (
+      screenClickMove.value !== "none" &&
+      state.inputEnabled &&
+      !state.waitingForKey &&
+      !state.textMode &&
+      !hasKeyPrompt.value
+    ) {
+      sendScreenClick(ev);
+      return;
+    }
     // A tap is Enter, which wakes have.key() on title screens and prompts —
     // or, on a "press any key" screen whose script maps Enter, the key the
     // hint names instead.
     sendKey(hasKeyPrompt.value ? (keyPromptKeys.value[0]?.[0] ?? AGI_KEY.ENTER) : AGI_KEY.ENTER);
     return;
   }
-  // A mouse click is also pointer input on click-move profiles (Amiga, IIgs).
+  // A mouse click is also pointer input on Amiga and IIgs profiles.
   if (screenPointerType === "mouse") sendScreenClick(ev);
   inputEl.value?.focus({ preventScroll: true });
 }
@@ -351,14 +416,20 @@ function screenFramePoint(ev: MouseEvent): { x: number; y: number } | null {
 }
 
 /**
- * Click-to-walk, and the gadgets of an Amiga confirmation window: the
- * worker's engine decides what a click on an open message window means
- * (a gadget under it, or nothing), so a print window lets the click through.
+ * Click-to-walk, open message/object windows, and the gadgets of an Amiga
+ * confirmation window: the worker's engine decides what a click on an open
+ * window or screen means (a gadget or window hit under it, or click-to-walk).
  */
 function sendScreenClick(ev: MouseEvent): void {
-  if (screenClickMove.value === "none") return;
+  if (screenPresentation.value === "pc") return;
   if (state.walkthrough.active || state.paused || agentBlocksGame.value) return;
-  if (state.modal === null ? state.waitingForKey : state.modal !== "print") return;
+  if (
+    state.modal !== null &&
+    state.modal !== "print" &&
+    state.modal !== "showObj" &&
+    state.modal !== "showPri"
+  )
+    return;
   const point = screenFramePoint(ev);
   if (point) sendClick(point.x, point.y);
 }
@@ -465,7 +536,7 @@ function onModalKey(ev: KeyboardEvent): void {
       ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
       : state.modal;
   if (state.waitingForKey || activeModal === "save" || activeModal === "restore") {
-    const code = pcKey(ev);
+    const code = translatePlatformKey(ev, state.profile) ?? pcKey(ev);
     if (code !== undefined) {
       ev.preventDefault();
       sendKey(code);
@@ -575,17 +646,28 @@ function onVirtualKey(code: number): void {
   resumeAudio();
   if (state.phase !== "running" || agentBlocksGame.value || composing.value) return;
   if (state.prompt) {
-    if (code === AGI_KEY.ENTER || code === AGI_KEY.ESCAPE) {
-      submitPrompt(code === AGI_KEY.ESCAPE ? "" : promptLine.value, code === AGI_KEY.ESCAPE);
-    } else if (code === AGI_KEY.BACKSPACE) {
+    const promptCode =
+      code === 0x0101 || code === 0x0301
+        ? AGI_KEY.ENTER
+        : code === 0x0201 || code === 0x0401
+          ? screenPresentation.value === "iigs"
+            ? AGI_KEY.ENTER
+            : AGI_KEY.ESCAPE
+          : code;
+    if (promptCode === AGI_KEY.ENTER || promptCode === AGI_KEY.ESCAPE) {
+      submitPrompt(
+        promptCode === AGI_KEY.ESCAPE ? "" : promptLine.value,
+        promptCode === AGI_KEY.ESCAPE,
+      );
+    } else if (promptCode === AGI_KEY.BACKSPACE) {
       promptLine.value = promptLine.value.slice(0, -1);
       echoPrompt();
     } else if (
-      code >= AGI_KEY.SPACE &&
-      code <= 126 &&
+      promptCode >= AGI_KEY.SPACE &&
+      promptCode <= 126 &&
       promptLine.value.length < Math.min(39, state.prompt.maxLen)
     ) {
-      const char = String.fromCharCode(code);
+      const char = String.fromCharCode(promptCode);
       if (state.prompt.kind !== "getnum" || /[0-9]/.test(char)) promptLine.value += char;
       echoPrompt();
     }

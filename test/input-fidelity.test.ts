@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
+import { translatePlatformKey } from "../src/runtime/keys.ts";
 import { PROFILES, type AgiProfile } from "../src/runtime/profile.ts";
 import { buildObjectFile } from "../src/agent/agentState.ts";
 import { buildView } from "../src/view/view.ts";
@@ -537,19 +538,33 @@ test("a keypad Enter delivered as the host answer accepts the quit confirmation"
   assert.equal(host.quits, 1, "the delivered keypad word confirmed the quit");
 });
 
-test("PC profiles normalize keypad words (0x0101/0x0201); Amiga and IIgs profiles have no PC BIOS keypad scanwords", () => {
-  // PC builds (2.001..3.002.149) run ButtonToChar in GetKey/WaitAcAb,
-  // normalizing keypad-5/button-1 (0x0101, 0x0301) to Enter (0x0D) and
-  // keypad-0/button-2 (0x0201, 0x0401) to Escape (0x1B). Amiga (2.082..2.333)
-  // and IIgs (1.014) have no PC BIOS keypad scanword translation (path-absent).
+test("PC, Amiga and IIgs profiles preserve 0x0101..0x0401 for set.key and normalize them in GetKey per platform", () => {
+  // All 20 binaries store 16-bit (type, value) event words in the 20-slot
+  // eventQueue and bind 0x0101..0x0401 in set.key across PC, Amiga and IIgs.
+  // In GetKey (have.key, confirmations, modals):
+  // - PC (all 13 builds) and Amiga (2.082 h76+0x278, 2.176..2.333 h103+0x28e)
+  //   ButtonToChar maps 0x0101/0x0301 -> 0x0d (CR) and 0x0201/0x0401 -> 0x1b (ESC).
+  // - Apple IIgs 1.014 (eventseg+0x351) ButtonToChar maps all four
+  //   0x0101..0x0401 -> 0x0d (CR), and GetUserInput (seg2+0x1638) rewrites
+  //   unmapped 0x0101/0x0201 -> 0x0d before v19 and EditLine.
   for (const profile of [
     "2.089",
     "2.411",
     "2.936",
     "3.002.149",
+    "amiga-2.082",
     "amiga-2.316",
     "iigs-1.014",
   ] as const) {
+    // 1. set.key(1, 4, 7) matches 0x0401 on every platform
+    const mappedHost = new Host();
+    const mappedEngine = game("set.key(1,4,7); return;", mappedHost, PROFILES[profile]);
+    mappedEngine.tick();
+    mappedHost.keys.push(0x0401);
+    mappedEngine.tick();
+    assert.equal(mappedEngine.controllers[7], 1, `${profile}: set.key(1,4,7) matches 0x0401`);
+
+    // 2. have.key() calls GetKey -> ButtonToChar
     class LateHost extends Host {
       polls = 0;
       override takeKeys(): number[] {
@@ -572,9 +587,10 @@ test("PC profiles normalize keypad words (0x0101/0x0201); Amiga and IIgs profile
     engine.tick();
     engine.flags[201] = 1;
     engine.tick();
-    const expected = PROFILES[profile].keypadWordsNormalized ? 0x1b : 0x01;
+    const expected = profile === "iigs-1.014" ? 0x0d : 0x1b;
     assert.equal(engine.vars[100], expected, `${profile}: have.key() on 0x0201`);
 
+    // 3. quit(0) confirmation normalizes 0x0101 to Enter (0x0d) on all platforms
     class KeypadHost extends Host {
       quits = 0;
       answers = [0x0101, 0x1b];
@@ -588,10 +604,127 @@ test("PC profiles normalize keypad words (0x0101/0x0201); Amiga and IIgs profile
     const quitHost = new KeypadHost();
     const quitEngine = game("quit(0); return;", quitHost, PROFILES[profile]);
     quitEngine.tick();
+    assert.equal(quitHost.quits, 1, `${profile}: quit(0) confirmation on 0x0101`);
+  }
+
+  // 4. On IIgs 1.014, unmapped 0x0101/0x0201 in GetUserInput become 0x0d (Enter)
+  // before v19 and EditLine (seg2+0x1638..0x1654).
+  const iigsHost = new Host();
+  const iigsEngine = game(
+    "if (!isset(f200)) { set(f200); accept.input(); } return;",
+    iigsHost,
+    PROFILES["iigs-1.014"],
+  );
+  iigsEngine.tick();
+  iigsHost.keys.push(0x61, 0x0201);
+  iigsEngine.tick();
+  assert.equal(iigsEngine.vars[19], 0x0d, "iigs-1.014: unmapped 0x0201 stores 0x0d in v19");
+});
+
+test("F-IN-01: direction events clear ego.motionMode under player control on 2.272+, Amiga and IIgs, and leave it intact on 2.001..2.230", () => {
+  for (const id of [
+    "2.001",
+    "2.089",
+    "2.230",
+    "2.272",
+    "2.411",
+    "2.936",
+    "3.002.149",
+    "amiga-2.082",
+    "amiga-2.202",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const host = new Host();
+    const engine = game("return;", host, PROFILES[id]);
+    engine.tick();
+    engine.screenObjects[0]!.motionMode = 1; // MOTION_WANDER while under player control
+    host.keys.push(0x4d00);
+    engine.tick();
+    const omitsClear = id === "2.001" || id === "2.089" || id === "2.230";
     assert.equal(
-      quitHost.quits,
-      PROFILES[profile].keypadWordsNormalized ? 1 : 0,
-      `${profile}: quit(0) confirmation on 0x0101`,
+      engine.screenObjects[0]!.motionMode,
+      omitsClear ? 1 : 0,
+      `${id}: direction event motionMode clear`,
+    );
+  }
+});
+
+test("Keypad 5 (0xf500) stops ego on 2.001, 2.272+, Amiga and IIgs, but is ignored on 2.089 and 2.230", () => {
+  for (const id of [
+    "2.001",
+    "2.089",
+    "2.230",
+    "2.272",
+    "2.936",
+    "3.002.149",
+    "amiga-2.082",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const host = new Host();
+    const engine = game("return;", host, PROFILES[id]);
+    engine.tick();
+    host.keys.push(0x4d00); // start moving East (dir 3)
+    engine.tick();
+    assert.equal(engine.vars[6], 3, `${id}: moving East`);
+    host.keys.push(0xf500); // Keypad 5
+    engine.tick();
+    const ignored = id === "2.089" || id === "2.230";
+    assert.equal(engine.vars[6], ignored ? 3 : 0, `${id}: Keypad 5 stop behavior`);
+  }
+});
+
+test("Amiga and IIgs left-clicking inside an unlabeled print or show.obj window dismisses it; clicking outside leaves it open", () => {
+  class ClickHost extends Host {
+    clicks: [number, number][] = [];
+    takePointerClicks(): readonly (readonly [number, number])[] {
+      return this.clicks.splice(0);
+    }
+  }
+  for (const id of ["amiga-2.082", "amiga-2.202", "amiga-2.316", "iigs-1.014"] as const) {
+    const host = new ClickHost();
+    const engine = game(
+      'if (!isset(f200)) { set(f200); print("Hello world"); } return;',
+      host,
+      PROFILES[id],
+    );
+    engine.tick();
+    assert.equal(engine.modalKind, "print", `${id}: print modal opened`);
+    // Click far outside the centered window (top-left corner (10, 10))
+    host.clicks.push([10, 10]);
+    engine.tick();
+    assert.equal(engine.modalKind, "print", `${id}: click outside window keeps modal open`);
+    // Click inside the centered window (center of screen (160, 88))
+    host.clicks.push([160, 88]);
+    engine.tick();
+    assert.equal(engine.modalKind, null, `${id}: click inside window dismisses modal`);
+  }
+});
+
+test("Amiga and IIgs left-click on text.screen or show.pri.screen enqueues Enter only on amiga-2.082 and iigs-1.014", () => {
+  class ClickHost extends Host {
+    clicks: [number, number][] = [];
+    takePointerClicks(): readonly (readonly [number, number])[] {
+      return this.clicks.splice(0);
+    }
+  }
+  for (const id of ["amiga-2.082", "amiga-2.202", "amiga-2.316", "iigs-1.014"] as const) {
+    const host = new ClickHost();
+    const engine = game(
+      "if (!isset(f200)) { set(f200); show.pri.screen(); } return;",
+      host,
+      PROFILES[id],
+    );
+    engine.tick();
+    assert.equal(engine.modalKind, "showPri", `${id}: show.pri.screen modal opened`);
+    host.clicks.push([160, 100]);
+    engine.tick();
+    const dismisses = id === "amiga-2.082" || id === "iigs-1.014";
+    assert.equal(
+      engine.modalKind,
+      dismisses ? null : "showPri",
+      `${id}: show.pri.screen click behavior`,
     );
   }
 });
@@ -652,5 +785,304 @@ test("all profile families store v19 before the line editor, require Enter/Escap
       null,
       `${profile}: WaitEvent closes bare status() on any event`,
     );
+  }
+});
+
+test("translatePlatformKey implements PC, Amiga and Apple IIgs native key translation", () => {
+  // Amiga: Help -> F1 (0x3b00), Alt+Help -> 0xff00, Delete -> 0x7f, Ctrl+X -> 0x18 on 2.082 / 0x03 on 2.176+, Amiga+Q -> 0x0171
+  assert.equal(translatePlatformKey({ key: "Help", code: "Help" }, "amiga-2.202"), 0x3b00);
+  assert.equal(
+    translatePlatformKey({ key: "Help", code: "Help", altKey: true }, "amiga-2.202"),
+    0xff00,
+  );
+  assert.equal(translatePlatformKey({ key: "Delete", code: "Delete" }, "amiga-2.202"), 0x7f);
+  assert.equal(
+    translatePlatformKey({ key: "x", code: "KeyX", ctrlKey: true }, "amiga-2.082"),
+    0x18,
+  );
+  assert.equal(
+    translatePlatformKey({ key: "x", code: "KeyX", ctrlKey: true }, "amiga-2.202"),
+    0x03,
+  );
+  assert.equal(
+    translatePlatformKey({ key: "z", code: "KeyZ", altKey: true }, "amiga-2.202"),
+    0x2c00,
+  );
+  assert.equal(
+    translatePlatformKey({ key: "q", code: "KeyQ", metaKey: true }, "amiga-2.202"),
+    0x0171,
+  );
+
+  // Amiga Meta-qualified word (0x0171) matches set.key(113, 1, c)
+  const amigaHost = new Host();
+  const amigaEngine = game("set.key(113, 1, 9); return;", amigaHost, PROFILES["amiga-2.202"]);
+  amigaEngine.tick();
+  amigaHost.keys.push(0x0171);
+  amigaEngine.tick();
+  assert.equal(amigaEngine.controllers[9], 1);
+
+  // Apple IIgs: Shift+1..0 (!..)) -> F1..F10 (0x3b00..0x4400), Option+D -> 0x2000, Option+/ -> 0xff00 (sound toggle), Delete -> 0x08
+  assert.equal(
+    translatePlatformKey({ key: "!", code: "Digit1", shiftKey: true }, "iigs-1.014"),
+    0x3b00,
+  );
+  assert.equal(
+    translatePlatformKey({ key: ")", code: "Digit0", shiftKey: true }, "iigs-1.014"),
+    0x4400,
+  );
+  assert.equal(
+    translatePlatformKey({ key: "d", code: "KeyD", altKey: true }, "iigs-1.014"),
+    0x2000,
+  );
+  assert.equal(
+    translatePlatformKey({ key: "/", code: "Slash", altKey: true }, "iigs-1.014"),
+    0xff00,
+  );
+  assert.equal(translatePlatformKey({ key: "Delete", code: "Delete" }, "iigs-1.014"), 0x08);
+
+  // IIgs Option+/ (0xff00) toggles f9 (F_SOUND_ENABLED) in GetUserInput
+  const iigsHost = new Host();
+  const iigsEngine = game("return;", iigsHost, PROFILES["iigs-1.014"]);
+  iigsEngine.tick();
+  const beforeSound = iigsEngine.flags[9];
+  iigsHost.keys.push(0xff00);
+  iigsEngine.tick();
+  assert.equal(iigsEngine.flags[9], beforeSound ? 0 : 1);
+
+  // Keypad 5 (Numpad5) produces 0xf500 except on 2.089 and 2.230
+  assert.equal(translatePlatformKey({ key: "Clear", code: "Numpad5" }, "2.936"), 0xf500);
+  assert.equal(translatePlatformKey({ key: "5", code: "Numpad5" }, "amiga-2.202"), 0xf500);
+  assert.equal(translatePlatformKey({ key: "5", code: "Numpad5" }, "iigs-1.014"), 0xf500);
+  assert.equal(translatePlatformKey({ key: "Clear", code: "Numpad5" }, "2.089"), undefined);
+  assert.equal(translatePlatformKey({ key: "Clear", code: "Numpad5" }, "2.230"), undefined);
+});
+
+test("Amiga right-button double-click enqueues 0x0401 when no window is open, and persistent f15 windows follow Amiga vs IIgs click rules", () => {
+  class ClickHost extends Host {
+    clicks: [number, number][] = [];
+    takePointerClicks(): readonly (readonly [number, number])[] {
+      return this.clicks.splice(0);
+    }
+  }
+  const amigaHost = new ClickHost();
+  const amigaEngine = game("set.key(1, 4, 12); return;", amigaHost, PROFILES["amiga-2.316"]);
+  amigaEngine.tick();
+  assert.equal(amigaEngine.pointerRightDoubleClick(), true);
+  amigaEngine.tick();
+  assert.equal(
+    amigaEngine.controllers[12],
+    1,
+    "Amiga right double-click triggers 0x0401 controller",
+  );
+
+  // Non-Amiga ignores pointerRightDoubleClick
+  const pcHost = new ClickHost();
+  const pcEngine = game("set.key(1, 4, 12); return;", pcHost, PROFILES["2.936"]);
+  pcEngine.tick();
+  assert.equal(pcEngine.pointerRightDoubleClick(), false);
+
+  // Persistent f15 window on Amiga 2.316 vs IIgs 1.014
+  for (const id of ["amiga-2.316", "iigs-1.014"] as const) {
+    const host = new ClickHost();
+    const container = createContainer();
+    container.putResource(
+      "view",
+      0,
+      buildView({
+        loops: [
+          { cels: [{ width: 6, height: 12, transparentColor: 0, pixels: new Uint8Array(72) }] },
+        ],
+      }),
+    );
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+        if (!isset(f200)) {
+          set(f200);
+          load.view(0);
+          animate.obj(o0);
+          set.view(o0, 0);
+          assignn(v10, 1);
+          step.size(o0, v10);
+          step.time(o0, v10);
+          position(o0, 20, 120);
+          draw(o0);
+          set(f15);
+          print("persistent");
+        }
+        return;
+      `,
+        { dictionary: new Map() },
+      ).payload,
+    );
+    const engine = new Engine(container, host, undefined, { profile: PROFILES[id] });
+    engine.tick();
+    assert.equal(engine.modalKind, null, `${id}: f15 print is non-blocking`);
+    if (id === "amiga-2.316") {
+      assert.equal(
+        engine.pointerRightDoubleClick(),
+        false,
+        "Amiga right double-click suppressed while persistent window is open",
+      );
+    }
+
+    // Clicking outside persistent window: blocks click-to-walk on Amiga (while latching f19), starts click-to-walk on IIgs
+    host.clicks.push([2, 140]);
+    engine.tick();
+    if (id === "amiga-2.316") {
+      assert.equal(
+        engine.flags[19],
+        1,
+        "Amiga 2.316 sets f19 on click even when persistent window blocks walk",
+      );
+      assert.equal(engine.vars[6], 0, "Amiga 2.316 persistent window blocks click-to-walk");
+    } else {
+      assert.notEqual(
+        engine.vars[6],
+        0,
+        "IIgs 1.014 persistent window allows click-to-walk outside window",
+      );
+    }
+
+    // Clicking inside persistent window enqueues Enter (0x0d) -> v19 = 13
+    host.clicks.push([160, 88]);
+    engine.tick();
+    assert.equal(engine.vars[19], 0x0d, `${id}: clicking inside persistent window enqueues Enter`);
+  }
+});
+
+test("init.joy and joystick polling follow PC, Amiga and Apple IIgs binary rules", () => {
+  class JoyHost extends Host {
+    joy: { x: number; y: number; button1?: boolean; button2?: boolean } | null = null;
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+
+  // 1. Disconnected joystick on PC and IIgs: init.joy opens no modal and leaves joy disabled
+  for (const id of ["2.936", "iigs-1.014"] as const) {
+    const host = new JoyHost();
+    const engine = game("if (!isset(f200)) { set(f200); init.joy(); } return;", host, PROFILES[id]);
+    engine.tick();
+    assert.equal(engine.modalKind, null, `${id}: disconnected init.joy opens no modal`);
+  }
+
+  // 2. PC connected joystick calibration (50% deadzone), axis movement, and f8/v15 button FSM
+  {
+    const host = new JoyHost();
+    host.joy = { x: 100, y: 100, button1: false, button2: false };
+    const engine = game(
+      `
+      if (!isset(f200)) {
+        set(f200);
+        set.key(1, 1, 1);
+        set.key(1, 2, 2);
+        set.key(1, 3, 3);
+        set.key(1, 4, 4);
+        init.joy();
+      }
+      return;
+    `,
+      host,
+      PROFILES["3.002.149"],
+    );
+    engine.tick();
+    assert.equal(engine.modalKind, "print", "PC init.joy opens calibration prompt when connected");
+    host.keys.push(0x0d); // Press Enter to calibrate at (100, 100) -> deadzone [50, 150]
+    engine.tick();
+    assert.equal(engine.modalKind, null, "Enter closes PC calibration prompt");
+
+    // Deflect right (x = 160 > 150) -> direction 3
+    host.joy = { x: 160, y: 100, button1: false, button2: false };
+    engine.tick();
+    assert.equal(engine.vars[6], 3, "PC joystick right deflection sets egoDir = 3");
+
+    // Center (x = 100, y = 100) -> direction 0
+    host.joy = { x: 100, y: 100, button1: false, button2: false };
+    engine.tick();
+    assert.equal(engine.vars[6], 0, "PC joystick return to center sets egoDir = 0");
+
+    // Button 1 single-click with f8 = 0 -> immediate 0x0101 on release
+    host.joy = { x: 100, y: 100, button1: true, button2: false };
+    engine.tick();
+    host.joy = { x: 100, y: 100, button1: false, button2: false };
+    engine.tick();
+    assert.equal(engine.controllers[1], 1, "PC button 1 release with f8=0 triggers 0x0101");
+
+    // Button 1 double-click with f8 = 1 -> 0x0301 on second release
+    engine.flags[8] = 1;
+    engine.vars[15] = 5;
+    host.joy = { x: 100, y: 100, button1: true, button2: false };
+    engine.tick();
+    host.joy = { x: 100, y: 100, button1: false, button2: false };
+    engine.tick();
+    assert.equal(
+      engine.controllers[1],
+      0,
+      "PC button 1 first release with f8=1 waits for double-click",
+    );
+    host.joy = { x: 100, y: 100, button1: true, button2: false };
+    engine.tick();
+    host.joy = { x: 100, y: 100, button1: false, button2: false };
+    engine.tick();
+    assert.equal(engine.controllers[3], 1, "PC button 1 second release with f8=1 triggers 0x0301");
+  }
+
+  // 3. Amiga joystick enabled at boot without calibration modal; double-click on button 1 emits 0x0401
+  {
+    const host = new JoyHost();
+    host.joy = { x: 0, y: -1, button1: false, button2: false };
+    const engine = game(
+      "if (!isset(f200)) { set(f200); set.key(1, 1, 1); set.key(1, 4, 4); init.joy(); } return;",
+      host,
+      PROFILES["amiga-2.202"],
+    );
+    engine.tick();
+    assert.equal(engine.modalKind, null, "Amiga init.joy opens no modal");
+    assert.equal(engine.vars[6], 1, "Amiga digital joystick up sets egoDir = 1");
+
+    host.joy = { x: 0, y: 0, button1: false, button2: false };
+    engine.flags[8] = 1;
+    engine.vars[15] = 5;
+    engine.tick();
+    host.joy = { x: 0, y: 0, button1: true, button2: false };
+    engine.tick();
+    host.joy = { x: 0, y: 0, button1: false, button2: false };
+    engine.tick();
+    host.joy = { x: 0, y: 0, button1: true, button2: false };
+    engine.tick();
+    host.joy = { x: 0, y: 0, button1: false, button2: false };
+    engine.tick();
+    assert.equal(engine.controllers[4], 1, "Amiga button 1 double-click triggers 0x0401");
+  }
+
+  // 4. Apple IIgs joystick calibration via button press (75% deadzone) and button -> Enter (0x0d)
+  {
+    const host = new JoyHost();
+    host.joy = { x: 100, y: 100, button1: false, button2: false };
+    const engine = game(
+      "if (!isset(f200)) { set(f200); init.joy(); } return;",
+      host,
+      PROFILES["iigs-1.014"],
+    );
+    engine.tick();
+    assert.equal(engine.modalKind, "print", "IIgs init.joy opens calibration prompt");
+    host.joy = { x: 100, y: 100, button1: true, button2: false };
+    engine.tick();
+    assert.equal(engine.modalKind, null, "IIgs joystick button press calibrates and closes prompt");
+    // Deadzone is [25, 175]; x = 40 is still inside deadzone on IIgs (whereas < 50 is outside on PC)
+    host.joy = { x: 40, y: 100, button1: false, button2: false };
+    engine.tick();
+    assert.equal(engine.vars[6], 0, "IIgs x=40 stays inside [25, 175] deadzone");
+    // x = 20 < 25 deflects left -> direction 7
+    host.joy = { x: 20, y: 100, button1: false, button2: false };
+    engine.tick();
+    assert.equal(engine.vars[6], 7, "IIgs x=20 deflects left (dir 7)");
+    // Button press posts Enter (0x0d)
+    host.joy = { x: 20, y: 100, button1: true, button2: false };
+    engine.tick();
+    assert.equal(engine.vars[19], 0x0d, "IIgs joystick button posts Enter (0x0d)");
   }
 });
