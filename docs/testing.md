@@ -962,6 +962,9 @@ Other execution failures exit nonzero. A completed capture records
 `status: "captured"`; this means measurements exist, not that frames agree.
 Inspect each original/ours pair before interpreting its numbers. A boot screen,
 a different animation phase or a different message is not a fidelity result.
+MAME also emulates the graphics hardware, so its frames are a cross-check, not
+ground truth: the original binary decides the values it encodes, and each
+difference needs an explanation rather than a copy of MAME's output.
 
 The supplied scripts cover SQ2 Amiga 2.202 (`a500n`, `kick13`), SQ2 IIgs 1.014
 (`apple2gsr1`, self-booting two-disk 2MG set; no separate GS/OS disk required),
