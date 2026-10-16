@@ -54,6 +54,38 @@ export function docVolume(level: number, volume: number): number {
   return Math.max(1, Math.floor(255 * levelAmplitude(index)) + rounding);
 }
 
+/** TOOL025 +09cc..0a4b: 128-entry symmetric log-triangle LFO table. */
+function iigsVibratoTable(index: number): number {
+  const i = index & 0x7f;
+  if (i === 0) return 0;
+  if (i <= 64) return Math.min(126, Math.floor(32.076573 + 15.854 * Math.log2(i + 0.192)));
+  return Math.min(126, Math.floor(31.57865 + 15.936 * Math.log2(128 - i - 0.216)));
+}
+
+/**
+ * TOOL025 +0686..0749: one Note Synthesizer vibrato update. Advances the
+ * 8-bit LFO phase by vibratoSpeed, folds negative phases by one's complement,
+ * scales through the DOC volume curve, and returns the signed 1/256-semitone
+ * pitch offset applied to both oscillators.
+ */
+export function vibratoStep(
+  phase: number,
+  speed: number,
+  depth: number,
+): { phase: number; offset: number } {
+  const sum0 = (phase & 0xff) + (speed & 0xff);
+  const carry0 = sum0 > 0xff ? 1 : 0;
+  const nextPhase = sum0 & 0xff;
+  const negative = (nextPhase & 0x80) !== 0;
+  const lookup = negative ? nextPhase ^ 0xff : nextPhase;
+  const sum1 = iigsVibratoTable(lookup) + (depth & 0xff) + carry0;
+  const carry1 = sum1 > 0xff ? 1 : 0;
+  const level = ((sum1 & 0xff) + carry1 - 0x80) & 0xff;
+  if ((level & 0x80) !== 0) return { phase: nextPhase, offset: 0 };
+  const magnitude = docVolume(level, 127);
+  return { phase: nextPhase, offset: negative ? -(magnitude * 2 + 2) : magnitude * 2 };
+}
+
 /**
  * TOOL025's signed 8.8 envelope updates. NoteOn performs the first update;
  * crossing a breakpoint clamps the level and arms the next segment.
@@ -123,6 +155,10 @@ interface Voice {
   readonly volume: GainNode;
   readonly envelope: GainNode;
   readonly sources: AudioBufferSourceNode[];
+  readonly oscillators: readonly { source: AudioBufferSourceNode; wave: IigsWave; carry: number }[];
+  readonly noteStarted: number;
+  vibratoPhase: number;
+  vibratoTick: number;
   started: number;
   volumeLevel: number;
   readonly ended: Set<AudioBufferSourceNode>;
@@ -130,6 +166,8 @@ interface Voice {
 
 /** The rate the wave buffers are built at; playbackRate supplies the pitch. */
 const BUFFER_RATE = 44100;
+/** Bound pre-scheduled vibrato steps on sustained or slow-decay contours. */
+const MAX_VIBRATO_SECONDS = 10;
 
 export class IigsSynth {
   private readonly voices = new Map<number, Voice>();
@@ -282,9 +320,11 @@ export class IigsSynth {
     envelope.connect(volumeGain);
     volumeGain.connect(this.destination);
     const sources: AudioBufferSourceNode[] = [];
+    const oscillators: { source: AudioBufferSourceNode; wave: IigsWave; carry: number }[] = [];
     const waves = [waveFor(instrument.a, semitone), waveFor(instrument.b, semitone)];
     const a = waves[0];
     const pitchCarry = a && semitone * 256 + (a.relPitch & 0xffff) > 0xffff ? 1 : 0;
+    const hasVibrato = instrument.vibratoDepth > 0 && instrument.vibratoSpeed > 0;
     for (const [half, wave] of waves.entries()) {
       // docMode bit 0 halts the oscillator: that half of the pair is silent.
       if (!wave || (wave.docMode & 1) !== 0) continue;
@@ -294,11 +334,15 @@ export class IigsSynth {
       // Mode 1 is one-shot; free-run, sync and swap loop the table here
       // (swap's A/B hand-off is not modelled). A zero byte halts either.
       source.loop = !table.halts && ((wave.docMode >> 1) & 3) !== 1;
-      const byteRate = iigsByteRate(semitone, wave, half === 0 ? 0 : pitchCarry);
-      source.playbackRate.setValueAtTime(byteRate / BUFFER_RATE, now);
+      const carry = half === 0 ? 0 : pitchCarry;
+      if (!hasVibrato) {
+        const byteRate = iigsByteRate(semitone, wave, carry);
+        source.playbackRate.setValueAtTime(byteRate / BUFFER_RATE, now);
+      }
       source.connect(envelope);
       source.start(now);
       sources.push(source);
+      oscillators.push({ source, wave, carry });
     }
     const { points, levels, sustained, duration } = envelopePoints(instrument, 0, 0);
     const voice: Voice = {
@@ -313,6 +357,10 @@ export class IigsSynth {
       volume: volumeGain,
       envelope,
       sources,
+      oscillators,
+      noteStarted: now,
+      vibratoPhase: 0,
+      vibratoTick: 0,
       started: now,
       volumeLevel: volume,
       ended: new Set(),
@@ -328,6 +376,7 @@ export class IigsSynth {
       };
     envelope.gain.setValueAtTime(0, now);
     this.schedule(voice, now, points);
+    this.scheduleVibrato(voice);
     // Keep loop sources available behind the DOC-volume gate: NoteOff can
     // replace a finite contour with a longer or sustaining release. The
     // next allocation or transport stop retires these bounded generators.
@@ -355,6 +404,28 @@ export class IigsSynth {
     voice.envelope.gain.cancelScheduledValues(now);
     voice.endsAt = sustained ? Infinity : now + duration;
     this.schedule(voice, now, points);
+    this.scheduleVibrato(voice);
+  }
+
+  /**
+   * TOOL025 +03ef and +0581..0591: NoteOn runs an initial vibrato step at
+   * tick 0; the 60 Hz heartbeat toggles bit 7 of the voice status byte so
+   * subsequent vibrato updates run on odd ticks (1, 3, 5, ...) across NoteOff.
+   */
+  private scheduleVibrato(voice: Voice): void {
+    const { vibratoDepth, vibratoSpeed } = voice.instrument;
+    if (vibratoDepth <= 0 || vibratoSpeed <= 0 || !voice.oscillators.length) return;
+    const limit = Math.min(voice.endsAt, voice.started + MAX_VIBRATO_SECONDS);
+    while (voice.noteStarted + voice.vibratoTick / UPDATE_HZ < limit - 1e-9) {
+      const at = voice.noteStarted + voice.vibratoTick / UPDATE_HZ;
+      const step = vibratoStep(voice.vibratoPhase, vibratoSpeed, vibratoDepth);
+      voice.vibratoPhase = step.phase;
+      for (const { source, wave, carry } of voice.oscillators) {
+        const byteRate = iigsByteRate(voice.note, wave, carry + step.offset);
+        source.playbackRate.setValueAtTime(byteRate / BUFFER_RATE, at);
+      }
+      voice.vibratoTick = voice.vibratoTick === 0 ? 1 : voice.vibratoTick + 2;
+    }
   }
 
   private retainUntilEnded(voice: Voice): void {

@@ -590,3 +590,58 @@ it("reusing a host voice handle replaces its previous oscillator pair", () => {
   instance.stop(2);
   assert.equal(sources[1]!.stops.at(-1), 2);
 });
+
+it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators across NoteOff", () => {
+  // TOOL025+0686..0749 with SQ2 program 16's vibratoDepth=66, vibratoSpeed=25:
+  // step 0 (at=0, phase=25):     lfo[25]=105, 105+66-128=43,  vol[43]=6  -> +12
+  // step 1 (at=1/60, phase=50):  lfo[50]=121, 121+66-128=59,  vol[59]=13 -> +26
+  // step 2 (at=3/60, phase=75):  lfo[75]=120, 120+66-128=58,  vol[58]=12 -> +24
+  // step 3 (at=5/60, phase=100): lfo[100]=106, 106+66-128=44, vol[44]=7  -> +14
+  // step 4 (at=7/60, phase=125): lfo[125]=54,  54+66-128=-8   (bmi)      ->   0
+  // step 5 (at=9/60, phase=150): lfo[150^255=105]=102, 102+66-128=40, vol[40]=5, eor #$ffff; asl a -> -12
+  const { ctx, sources } = fakeContext();
+  const vibratoInst: IigsInstrument = {
+    ...INSTRUMENT,
+    vibratoDepth: 66,
+    vibratoSpeed: 25,
+    releaseSegment: 2,
+    b: [wave(127, 0x30, 0x00)],
+    envelope: [
+      flat(127, 32512),
+      flat(0, 32512),
+      flat(0, 2048),
+      ...Array.from({ length: 5 }, () => flat(0, 0)),
+    ],
+  };
+  const instance = new IigsSynth(ctx as unknown as BaseAudioContext, {} as AudioNode, {
+    doc: new Uint8Array(0x10000).fill(0x90),
+    bank: { programs: [vibratoInst], defaultInstrument: vibratoInst },
+  });
+  instance.output(
+    { kind: "iigs", event: "note-on", voice: 0, channel: 0, note: 50, volume: 127, program: 0 },
+    0,
+  );
+  // Release at 0 replaces the 1-tick contour with a 16-tick release without resetting vibrato phase.
+  instance.output({ kind: "iigs", event: "note-off", voice: 0 }, 0);
+  const scanHz = 7159090 / 8 / 34;
+  const expectedRate = (offset: number) => {
+    const pitch = (50 * 256 + offset) & 0x7fff & ~1;
+    const freq =
+      Math.floor(20905.466 * 2 ** ((pitch % 3072) / 3072)) >> (10 - Math.floor(pitch / 3072));
+    return (scanHz * freq) / 512 / 44100;
+  };
+  const expectedOffsets: [number, number][] = [
+    [0, 12],
+    [1 / 60, 26],
+    [3 / 60, 24],
+    [5 / 60, 14],
+    [7 / 60, 0],
+    [9 / 60, -12],
+  ];
+  for (const source of [sources[0]!, sources[1]!]) {
+    assert.deepEqual(
+      source.playbackRate.writes.slice(0, 6),
+      expectedOffsets.map(([at, offset]) => [expectedRate(offset), at]),
+    );
+  }
+});

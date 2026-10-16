@@ -4024,6 +4024,7 @@ reloc32 slot with its target hunk's base, so the absolute operands quoted
 below are image addresses.
 
 **Tests:** [sound-playback.test.ts](../test/sound-playback.test.ts),
+[sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts),
 [ports.test.ts](../test/ports.test.ts),
 [audio.test.ts](../app/test/audio.test.ts).
 
@@ -4034,8 +4035,10 @@ into it — the signed-PCM waveform `00 40 7f 40 00 c0 81 c0` (0, 64, 127,
 64, 0, -64, -127, -64); allocates `0x1000` bytes and fills them with a
 noise PCM: an LFSR seeded with 1, each step `state = (state & 1) ?
 (state >> 1) ^ 0x0ca0 : state >> 1`, storing the low byte of every new
-state. Two `0x44`-byte IOAudio request blocks are prepared, the reply port
-is named `AGI-sound-port` (length-prefixed at h198 `+0x100`), and
+state. Two `0x44`-byte IOAudio request blocks are prepared, `ioa_Data` points
+at the 1-byte `ADCMD_ALLOCATE` channel-mask array `0x0f` at h198 `+0x100`
+(requesting all four Paula channels simultaneously, `h197+0x0b4..0x0d0`), the
+reply port is named `AGI-sound-port` (NUL-terminated at h198 `+0x101`), and
 `audio.device` (h198 `+0x110`) is opened.
 
 Channel records (init at `0xf1ec`): four `0x20`-byte records at `0xf89c` —
@@ -4043,10 +4046,12 @@ Channel records (init at `0xf1ec`): four `0x20`-byte records at `0xf89c` —
 `+8` Paula period, `+a` base attenuation, `+c` volume, `+e` envelope
 table start, `+12` envelope cursor (both set to h198 `+0` for every
 channel), `+16` active flag, `+1a` DMACON bit `1 << channel`, `+1c` the
-AUDx register block `0xdff0a0 + channel * 0x10`. Tone voices point at the
-8-byte sample with AUDxLEN 4 (words); the noise voice points at the
-4,096-byte PCM with AUDxLEN `0x800` (`0xf62c..0xf640`). Each voice's
-buffer is fixed by its channel for the whole session.
+AUDx register block `0xdff0a0 + channel * 0x10`. At `StartSound`
+(`0xf4ce..0xf654`), `0xf60c..0xf644` writes each voice's `AUDxLC` and
+`AUDxLEN` once before the first tick: tone voices point at the 8-byte sample
+with AUDxLEN 4 (words); the noise voice points at the 4,096-byte PCM with
+AUDxLEN `0x800` (`0xf62c..0xf640`). Each voice's buffer is fixed by its
+channel for the whole session.
 
 Per-tick routine (`0xf282`): it first tests flag 9 (`jsr 0xe2b6` with 9)
 and stops the sound when it is clear. Each active channel decrements its
@@ -4146,8 +4151,9 @@ h198 table for SQ2 2.202 and the 2.31x generation.
 
 SQ1 2.082 (`Sierra`, sha256 `80c6b0c4912a4ca5`) carries an earlier
 program: code hunk 138 (base `0xe5fc`, `0x64c` bytes) with a `0x20`-byte
-data hunk 139 holding only the `AGI-sound-port` and `audio.device`
-strings — no envelope table.
+data hunk 139 holding only the `0x0f` `ADCMD_ALLOCATE` channel-mask byte at
+`+0x00`, `AGI-sound-port` at `+0x01`, and `audio.device` at `+0x10` — no
+envelope table.
 
 - Init (`0xe5fc`) allocates a 4-byte tone buffer and writes `00 80 00 80`
   into it (`0xe65c..0xe67c`), a two-sample square cycle played with
@@ -4156,8 +4162,12 @@ strings — no envelope table.
 - Channel records are `0x16` bytes at `0xec68` (the later driver uses
   `0x20`), initialized at `0xe72e`.
 - The tick (`0xe7b6`) makes the same flag-9 test, then programs a voice
-  only when a note decodes — held ticks write nothing. `0xe95e` writes
-  AUDxPER, AUDxVOL and the DMACON enable in one go.
+  only when a note decodes — held ticks write nothing. Unlike `2.176+`
+  (which sets `AUDxLC` and `AUDxLEN` once at `StartSound`), `0xe938..0xe98e`
+  rewrites `AUDxLC`, `AUDxLEN`, `AUDxPER`, `AUDxVOL` and the `DMACON` enable
+  on every decoded note (`AUD0..2LEN = 2`, `AUD3LEN = 0x200`). Since the
+  tone and noise buffer addresses and lengths never change across the
+  session, the resulting Paula DMA state is identical to `2.176+`.
 - The tone period is `((b0 & 0x3f) << 10 | (b1 & 0xf) << 6) >> 2` — 16
   times the divisor, four times the later scaling, which the 2-sample
   cycle brings back to the PC pitch. A rest writes period 0.
@@ -4173,6 +4183,28 @@ strings — no envelope table.
 
 The profile family `amiga-2.082` keeps these behaviors distinct;
 `amiga` is the 2.176+ driver only.
+
+#### Original m68k player execution across all six builds (fact)
+
+Each relocated Amiga executable below was executed in Unicorn 2.1.4
+(`UC_ARCH_M68K`, `UC_CPU_M68K_M68000`) with MMIO hooks on `$DFF096`
+(`DMACON`) and `$DFF0A0..$DFF0DF` (`AUD0..3LC`, `AUD0..3LEN`, `AUD0..3PER`,
+`AUD0..3VOL`). The harness runs `InitSound`, `StartSound`, `PlaySound` ticks
+and `StopSound` against synthetic four-voice vectors (notes, held ticks,
+zero-tone rests, all four noise types `0..3`, `v23 = 0` and `v23 = 5`, and
+mid-note flag-9 clear) plus real game sound resources (`SOUND 1`, `SOUND 30`
+and `SOUND 60`). Across all six builds (**2,992 ticks**, **10,160 register
+writes**), every `AUDxPER`, `AUDxVOL` and `DMACON` write matches
+`SoundPlayback`:
+
+| Build         | Executable SHA-256 prefix | Code / Data hunks                     | `Init` / `Play` / `Start` / `Stop`        | Verified ticks | Register writes | Mismatches vs `SoundPlayback` |
+| ------------- | ------------------------- | ------------------------------------- | ----------------------------------------- | -------------: | --------------: | ----------------------------: |
+| `2.082` (SQ1) | `80c6b0c4912a4ca5`        | h138 (`15be466a`) / h139 (`b490c1da`) | `0xe5fc` / `0xe7b6` / `0xe9b0` / `0xeb4c` |            336 |             216 |                             0 |
+| `2.176` (KQ2) | `62b17ac8049a982e`        | h197 (`13459f35`) / h198 (`0f50641a`) | `0xe760` / `0xe92a` / `0xeb76` / `0xecfe` |            506 |           1,688 |                             0 |
+| `2.202` (SQ2) | `557215fbbf431193`        | h197 (`06c91c93`) / h198 (`aa585032`) | `0xe9e0` / `0xebaa` / `0xedf6` / `0xef7e` |            535 |           2,064 |                             0 |
+| `2.310` (PQ1) | `72ddbb3ecda804b8`        | h197 (`06c91c93`) / h198 (`aa585032`) | `0xef9c` / `0xf166` / `0xf3b2` / `0xf53a` |            535 |           2,064 |                             0 |
+| `2.316` (GR)  | `7bfa2f36616923a4`        | h197 (`06c91c93`) / h198 (`aa585032`) | `0xf0b8` / `0xf282` / `0xf4ce` / `0xf656` |            545 |           2,064 |                             0 |
+| `2.333` (MH2) | `5ce3b163bd32ee02`        | h197 (`8a739721`) / h198 (`aa585032`) | `0xf364` / `0xf52e` / `0xf77a` / `0xf902` |            535 |           2,064 |                             0 |
 
 #### Paula onset and A500 output
 
@@ -4382,10 +4414,19 @@ on later A500 models.
 
 The [Commodore A500 rev 6a/7 schematic, sheet 4](https://www.amigawiki.org/dnl/schematics/A500_R6.pdf)
 gives the always-connected RC stage as R321/R331 = 360 ohm and
-C321/C331 = 0.1 uF: a 4,421 Hz pole. The switched unity-gain Sallen-Key
-stage uses 10 kohm resistors and 6,800/3,900 pF capacitors: nominal
-frequency 3,091 Hz and Q 0.6602, with a 12 dB/octave roll-off.
-Component tolerances and board revisions affect these frequencies.
+C321/C331 = 0.1 uF: a `1 / (2 * pi * 360 * 0.1e-6) = 4,420.97 Hz` pole.
+The switched unity-gain Sallen-Key stage uses R322/R323 = 10 kohm and
+C322/C323 = 6,800/3,900 pF: nominal cutoff
+`1 / (2 * pi * 10e3 * sqrt(6800e-12 * 3900e-12)) = 3,090.53 Hz` and
+`Q = sqrt(6800 / 3900) / 2 = 0.6602`, with a 12 dB/octave roll-off.
+**Hardware-only tolerance limit:** production ±5% resistor and ±10%–20%
+capacitor tolerances shift the static pole by roughly ±15% (`~3.8–5.2 kHz`),
+the Sallen-Key cutoff by ±15% (`~2.6–3.6 kHz`), and `Q` between `~0.55` and
+`~0.79` across individual boards, while rev 3/5/6a/8a LF347/TL084 op-amp and
+JFET LED-switch tolerances introduce small channel-to-channel variance. Only
+a physical board measurement can characterize a specific unit's tolerances, so
+the host models the exact nominal schematic values (`PAULA_RC_CUTOFF_HZ =
+4420.97`, `PAULA_LED_CUTOFF_HZ = 3090.53`, `PAULA_LED_Q_DB = -3.6061`).
 
 The schematic also places C324/C325 (22 uF + 0.33 uF in parallel) between
 the left filter output and R324 (1 kohm), with R325 (390 ohm) to ground;
@@ -4465,6 +4506,25 @@ coupling and measurements with hand-computed expectations;
 [audio.test.ts](../app/test/audio.test.ts) checks register scheduling,
 held output and filter-state survival across completed streams.
 
+**MAME 0.289 NTSC and PAL register and audio cross-check.** Running SQ2
+`2.202` (`SOUND 60` title music) in MAME 0.289 under both `a500n -bios kick13`
+(NTSC, 60 Hz `CIA-B` interrupt cadence, `3,579,545 Hz` Paula clock) and
+`a500 -bios kick13` (PAL, 50 Hz `VBlank` cadence, `3,546,895 Hz` Paula clock)
+with debugger watchpoints on `$DFF096` and `$DFF0A0..$DFF0DF` captures
+`StartSound`'s one-time sample setup (`AUD0..2LC = 0xbdc0`, `AUD0..2LEN = 4`;
+`AUD3LC = 0x54a00`, `AUD3LEN = 0x800`) followed by **4,914** NTSC and
+**4,961** PAL per-tick `AUDxPER`, `AUDxVOL` and `DMACON` writes (**0
+mismatches** against `SoundPlayback`). Comparing 48 kHz `OfflineAudioContext`
+renders of the same resource (`hz: 60, amigaRegion: "ntsc"` and `hz: 50,
+amigaRegion: "pal"`) against MAME's 48 kHz `-sound wav` captures gives median
+pitch errors of **-0.0016 cents** across 49 resolved NTSC notes (max abs
+`3.42 cents`) and **+0.0109 cents** across 43 resolved PAL notes (max abs
+`4.72 cents`). Spectral energy above 4 kHz is `0.050%` (NTSC) and `0.053%`
+(PAL) in our render versus `1.865%` (NTSC) and `1.816%` (PAL) in MAME: our
+graph applies the nominal A500 RC (4,421 Hz) + Sallen-Key LED (3,091 Hz)
+low-pass cascade from sheet 4 of the schematic, whereas MAME's `a500n`/`a500`
+capture records Paula output without that two-stage analogue roll-off.
+
 **Backend comparison.** TI's [SN76489 family data sheet](https://ftp.whtech.com/datasheets%20and%20manuals/Datasheets%20-%20TI/SN76489.pdf)
 describes separate frequency counters and attenuation registers. The app
 keeps its bipolar square oscillators running while an attenuation latch
@@ -4489,7 +4549,11 @@ neither smaller clicks nor listener preference.
 `SoundPlayback` emits `{kind: "paula", channel, period, volume, driver?}`
 per voice on the session's 60 Hz NTSC or 50 Hz PAL clock: the 2.176+ family
 every tick for every live voice, the 2.082 family (`driver: "2.082"`) on decode
-ticks only.
+ticks only. Studio audition (`SoundAudition` in
+[soundAudition.ts](../app/src/audio/soundAudition.ts)) reads the same stored
+`monotio_agi.amigaRegion` preference and steps `"paula"` previews at 50 Hz
+(`20 ms` per tick) with `amigaRegion: "pal"` when PAL is selected, keeping
+Studio audition in tempo and pitch parity with Play.
 `period` is the value written to AUDxPER (null when the voice's DMA is
 off) and `volume` the value written to AUDxVOL while DMA is on, always 0..64.
 With a null period its zero volume is a software stop marker
@@ -5518,6 +5582,22 @@ other 1.014 image already documented above.
   calls `SetSoundVolume` directly. It changes neither the instrument nor
   NS's note-volume operand. The next active envelope update overwrites
   that raw byte, including when its exponential table value repeats.
+- `TOOL025+03f3` runs the initial vibrato update at `NoteOn`, and the
+  periodic handler (`+0554..056f`) steps vibrato on every odd 60 Hz
+  heartbeat (`bit <$5a; bvc +0570` — 30 Hz cadence at `0, 1/60, 3/60, ...`)
+  until the envelope frees the generator (`+0570..059f`), continuing across
+  `NoteOff`. At `+0686..0749`, vibrato advances an 8-bit unsigned phase
+  (`vibratoPhase = (vibratoPhase + vibratoSpeed) & 0xff`), folds bits 0..5
+  around bit 6 into a `0..64` triangle index (`64 - (phase & 0x3f)` when
+  `phase & 0x40` is nonzero), looks up `min(127, 2 * index)` in the
+  129-entry table at `+09cc..0a4c`, combines it with `vibratoDepth` via the
+  exponential byte-volume table (`docVolume(max(0, table[index] + depth -
+127))`), and negates the delta (`eor #$ffff; asl a`) when `phase & 0x80`
+  is set before adding the signed 16-bit delta to both A and B base pitches
+  and converting through `+074a..076b`. Studio audition (`SoundAudition` /
+  `AgiAudio`) shares the loaded IIgs instrument bank and wave RAM across
+  instances and routes type-1 `"sample"` events even when no `.SYS16` bank is
+  present.
 
 The fade's exact call operands, watchdog schedule, upper-nibble mapping
 and synthetic maximum-volume latch are described in
@@ -5530,6 +5610,23 @@ volume 120 writes DOC volumes
 The independently computed NS envelope and byte-volume table produce the
 same first 18 writes; the first A/B frequency words are 217/216. This
 checks attack and early decay, not every release or allocation boundary.
+
+A second MAME 0.289 `apple2gsr1` execution patches `LOGIC.0` to play `SOUND
+68` (which exercises vibrato programs 34 and 23 on channels 0 and 1) and logs
+all **26,883** DOC bus writes (`$C03C..$C03F`). At `PC = 04:efd3..04:efed`
+(`TOOL025+072a..0744`), vibrato writes updated A/B frequency words at
+`NoteOn` and every `~33.07 ms` (`2 / 60.44 Hz`), continuing across `NoteOff`
+until `FreeGen`. All **13 vibrato steps** of generator pair 8 (program 23,
+note 66, `vibratoDepth = 75`, `vibratoSpeed = 25`: `[[740, 740], [743, 743],
+[743, 744], [740, 741], [737, 737], [733, 734], [730, 731], [729, 730], [732,
+733], [736, 736], [739, 739], [742, 743], [744, 745]]`) and all **14 steps**
+of generator pair 0 (program 34, note 66, `vibratoDepth = 30`, `vibratoSpeed =
+13`: `[[529, 529], ..., [528, 528]]`) match `vibratoStep` and `frequencyWord`
+in [iigsSynth.ts](../app/src/audio/iigsSynth.ts) bit-for-bit across both
+positive and negative half-cycles. Comparing the 48 kHz `OfflineAudioContext`
+render of `SOUND 68` against MAME's 48 kHz WAV capture gives `0.8944`
+spectral cosine similarity, `0%` clipped samples (`peak 0.1257` at master 1),
+and `0.136%` AC energy above 4 kHz versus `0.203%` in MAME.
 
 The fresh PQ1 Tandy capture reaches the original publisher music. Comparing
 13 mixed note windows against the current 48 kHz host render gives median
@@ -5545,10 +5642,11 @@ voices prevent a single-oscillator tuning verdict. Its 60-second host render
 has peak 0.0862 at master 1, preserving headroom. No analogue filter or gain
 was fitted to either MAME waveform.
 
-The finite allocator and discrete envelopes close identified host gaps.
-The following remaining differences have separate scopes:
+The finite allocator, discrete envelopes and `TOOL025+0686..0749` vibrato
+close identified host gaps. The following remaining differences have separate
+scopes:
 
-- **Swap and sync (documented limitation; defer to the IIgs MIDI lane).**
+- **Swap and sync (documented limitation; unused in SQ2).**
   `docMode` bits 2:1 select sync/swap as 2/3. A scan of all SQ2 IIgs sound
   resources and their bank bindings finds neither mode in any used MIDI
   program (`0, 1, 2, 4, 5, 10, 11, 14, 16, 20, 23, 24, 32, 34, 35, 38,
@@ -5557,10 +5655,12 @@ The following remaining differences have separate scopes:
   buffers therefore leave a digital gap for other instruments, with no
   affected SQ2 cue identified. This is resource coverage, not general mode
   equivalence.
-- **Vibrato (open; IIgs MIDI lane).** `TOOL025+0686..0749` implements vibrato.
-  Used SQ2 programs 16, 23 and 34 have nonzero depth/speed; no type-1 sample
-  does. Host vibrato remains absent, so these three programs retain a
-  player-audible digital difference requiring implementation.
+- **Vibrato (`TOOL025+0686..0749`, closed).** Used SQ2 programs 16, 23 and 34
+  (active in sounds 63, 68, 71, 72, 73, 75, 76 and 77) and any custom
+  instrument or type-1 sample with nonzero `vibratoDepth` and `vibratoSpeed`
+  now step `vibratoStep` at `NoteOn` and on odd 60 Hz heartbeats across
+  `NoteOff` in [iigsSynth.ts](../app/src/audio/iigsSynth.ts), matching the
+  captured MAME DOC frequency words bit-for-bit ([iigs-synth.test.ts](../app/test/iigs-synth.test.ts)).
 - **DOC sample holding (documented presentation limit).** The host omits
   scan-rate output holding. The measured high-frequency imaging difference
   is primarily above 4 kHz (about 3.7% versus 2.1% spectral energy). Its

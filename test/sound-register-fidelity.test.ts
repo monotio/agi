@@ -232,3 +232,104 @@ it("2.001 PC Speaker advances muted rows and gates completion silence with flag 
   });
   assert.deepEqual(sound.stop(), [{ kind: "speaker", divisor: null }]);
 });
+
+it("Amiga 2.082..2.333 profiles match the Unicorn-verified h139/h198 Paula register streams", () => {
+  // Ch0: dur=3, div=254, att=2, then dur=2, rest (div=0, att=15), then FF FF
+  // Ch1: dur=2, div=500, att=0, then FF FF
+  // Ch2: FF FF
+  // Ch3 (noise): dur=2, type=1 (0xe1), att=3, then dur=2, type=6 (0xe6), att=1, then FF FF
+  const payload = Uint8Array.of(
+    8,
+    0,
+    20,
+    0,
+    27,
+    0,
+    29,
+    0,
+    3,
+    0,
+    0x0f,
+    0x8e,
+    0x92,
+    2,
+    0,
+    0x00,
+    0x80,
+    0x9f,
+    0xff,
+    0xff,
+    2,
+    0,
+    0x1f,
+    0xa4,
+    0xb0,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    2,
+    0,
+    0x00,
+    0xe1,
+    0xf3,
+    2,
+    0,
+    0x00,
+    0xe6,
+    0xf1,
+    0xff,
+    0xff,
+  );
+
+  // 2.082 (h139): decode-tick-only writes, 16x tone divisor, {6, 3, 1, 1} noise periods, v23 subtraction.
+  const s2082 = new SoundPlayback(detectProfile(new Map(), "amiga-2.082"), payload, 1);
+  assert.deepEqual(s2082.tick(true, 1).outputs, [
+    { kind: "paula", driver: "2.082", channel: 0, period: 4064, volume: 59 },
+    { kind: "paula", driver: "2.082", channel: 1, period: 8000, volume: 64 },
+    { kind: "paula", driver: "2.082", channel: 2, period: null, volume: 0 },
+    { kind: "paula", driver: "2.082", channel: 3, period: 3, volume: 55 },
+  ]);
+  assert.deepEqual(s2082.tick(true, 1).outputs, []);
+  assert.deepEqual(s2082.tick(true, 1).outputs, [
+    { kind: "paula", driver: "2.082", channel: 1, period: null, volume: 0 },
+    { kind: "paula", driver: "2.082", channel: 3, period: 1, volume: 64 },
+  ]);
+
+  // 2.176 (KQ2 h198): per-tick writes, 4x tone divisor, ignores v23, signed attack [-2, -3, -2, -1, 0...].
+  const s2176 = new SoundPlayback(detectProfile(new Map(), "amiga-2.176"), payload, 5);
+  assert.deepEqual(s2176.tick(true, 5).outputs, [
+    { kind: "paula", channel: 0, period: 1016, volume: 64 },
+    { kind: "paula", channel: 1, period: 2000, volume: 64 },
+    { kind: "paula", channel: 2, period: null, volume: 0 },
+    { kind: "paula", channel: 3, period: 1024, volume: 59 },
+  ]);
+  assert.deepEqual(s2176.tick(true, 5).outputs, [
+    { kind: "paula", channel: 0, period: 1016, volume: 64 },
+    { kind: "paula", channel: 1, period: 2000, volume: 64 },
+    { kind: "paula", channel: 3, period: 1024, volume: 64 },
+  ]);
+
+  // 2.202, 2.310, 2.316, 2.333: identical h198 decay stream [2, 1, 0, ...] across all four builds.
+  let reference: unknown = null;
+  for (const id of ["amiga-2.202", "amiga-2.310", "amiga-2.316", "amiga-2.333"] as const) {
+    const sound = new SoundPlayback(detectProfile(new Map(), id), payload, 1);
+    const trace = [];
+    for (let t = 0; t < 6; t++) {
+      const res = sound.tick(true, 5);
+      trace.push(res);
+      if (res.complete) break;
+    }
+    if (reference === null) {
+      reference = trace;
+      assert.deepEqual(trace[0]?.outputs, [
+        { kind: "paula", channel: 0, period: 1016, volume: 46 },
+        { kind: "paula", channel: 1, period: 2000, volume: 55 },
+        { kind: "paula", channel: 2, period: null, volume: 0 },
+        { kind: "paula", channel: 3, period: 1024, volume: 42 },
+      ]);
+    } else {
+      assert.deepEqual(trace, reference, id);
+    }
+  }
+});
