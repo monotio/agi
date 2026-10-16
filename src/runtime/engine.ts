@@ -892,6 +892,12 @@ export class Engine {
   /** Joystick polling enabled (on at boot on Amiga via InitEvents -> InitJoy; calibrated by init.joy on PC/IIgs). */
   private joyEnabled = false;
   private joyObserved = false;
+  /**
+   * init.joy found no host sample on PC or IIgs. Browsers reveal a Gamepad
+   * only after its first button press, so the first sample brings the stick
+   * online at its nominal center (docs/fidelity.md F-IN-17).
+   */
+  private joyInitPending = false;
   private joyClockMs = 0;
   /** Modal serial of an active init.joy (0x8b) calibration prompt on PC or IIgs. */
   private joyCalibratingModalSerial: number | null = null;
@@ -3378,6 +3384,14 @@ export class Engine {
     );
   }
 
+  /**
+   * Engine-level form of the right double-click, used by tests. The app does
+   * not call it: PlayArea's `onAmigaRightButton` pairs the clicks and sends
+   * key 0x0401 with `pointer: true`, and the worker (`onKey` in
+   * app/src/worker/input.ts) admits it only while
+   * `pointerRightDoubleClickAllowed` holds. Native right-button work (menus)
+   * belongs on that path.
+   */
   pointerRightDoubleClick(): boolean {
     return this.pointerRightDoubleClickAllowed && this.inputQueue.enqueueKey(0x0401);
   }
@@ -3412,6 +3426,7 @@ export class Engine {
       thresholds: [this.joyXMin, this.joyXMax, this.joyYMin, this.joyYMax],
       direction: this.lastJoyDir,
       buttons: this.joyButtons.map((b) => ({ ...b })),
+      ...(this.joyInitPending ? { pendingInit: true as const } : {}),
       calibration:
         this.joyCalibratingModalSerial === null
           ? null
@@ -3428,6 +3443,7 @@ export class Engine {
     this.joyYMin = state?.thresholds[2] ?? -0.5;
     this.joyYMax = state?.thresholds[3] ?? 0.5;
     this.lastJoyDir = state?.direction ?? 0;
+    this.joyInitPending = state?.pendingInit === true;
     this.joyButtons[0] = state ? { ...state.buttons[0]! } : { state: 0, deadline: 0 };
     this.joyButtons[1] = state ? { ...state.buttons[1]! } : { state: 0, deadline: 0 };
     this.joyCalibratingModalSerial =
@@ -3464,7 +3480,10 @@ export class Engine {
       return;
     }
     const sample = this.host.sampleJoystick?.() ?? null;
-    if (sample !== null) this.joyObserved = true;
+    // An unseen pad keeps native state from here so a checkpoint carries the
+    // pending calibration.
+    this.joyObserved = true;
+    this.joyInitPending = sample === null;
     if (sample === null || sample.x === 0 || sample.y === 0) {
       this.joyEnabled = false;
       this.inputQueue.clear();
@@ -3487,13 +3506,7 @@ export class Engine {
       // keyboard key accepts calibration (F-IN-17).
       const sample = this.host.sampleJoystick?.();
       if (sample === null || sample === undefined) return;
-      const cx = sample.x;
-      const cy = sample.y;
-      this.joyXMin = Math.trunc(cx / 4);
-      this.joyXMax = cx + Math.trunc(cx / 2) + Math.trunc(cx / 4);
-      this.joyYMin = Math.trunc(cy / 4);
-      this.joyYMax = cy + Math.trunc(cy / 2) + Math.trunc(cy / 4);
-      this.joyEnabled = true;
+      this.calibrateJoystick(sample.x, sample.y);
       this.joyButtons[0].state = sample.button1 || sample.button2 ? 1 : 0;
       this.joyCalibratingModalSerial = null;
       this.closeModal();
@@ -3504,13 +3517,10 @@ export class Engine {
     const fireWord = rawKey >= 0x0101 && rawKey <= 0x0401 && (rawKey & 0xff) === 1;
     if (earlyPC ? fireWord : byte === AGI_KEY.ENTER) {
       const sample = this.host.sampleJoystick?.();
-      const cx = sample && sample.x !== 0 ? sample.x : 100;
-      const cy = sample && sample.y !== 0 ? sample.y : 100;
-      this.joyXMin = cx - Math.trunc(cx / 2);
-      this.joyXMax = Math.trunc((3 * cx) / 2);
-      this.joyYMin = cy - Math.trunc(cy / 2);
-      this.joyYMax = Math.trunc((3 * cy) / 2);
-      this.joyEnabled = true;
+      this.calibrateJoystick(
+        sample && sample.x !== 0 ? sample.x : 100,
+        sample && sample.y !== 0 ? sample.y : 100,
+      );
       this.joyCalibratingModalSerial = null;
       this.closeModal();
       this.inputQueue.clear();
@@ -3520,6 +3530,23 @@ export class Engine {
       this.closeModal();
       this.inputQueue.clear();
     }
+  }
+
+  /** Accept a center: PC halves it, the IIgs uses its two shifts (F-IN-17). */
+  private calibrateJoystick(cx: number, cy: number): void {
+    if (this.profile.presentation === "iigs") {
+      this.joyXMin = Math.trunc(cx / 4);
+      this.joyXMax = cx + Math.trunc(cx / 2) + Math.trunc(cx / 4);
+      this.joyYMin = Math.trunc(cy / 4);
+      this.joyYMax = cy + Math.trunc(cy / 2) + Math.trunc(cy / 4);
+    } else {
+      this.joyXMin = cx - Math.trunc(cx / 2);
+      this.joyXMax = Math.trunc((3 * cx) / 2);
+      this.joyYMin = cy - Math.trunc(cy / 2);
+      this.joyYMax = Math.trunc((3 * cy) / 2);
+    }
+    this.joyEnabled = true;
+    this.joyInitPending = false;
   }
 
   private pollJoystick(sample = this.host.sampleJoystick?.() ?? null): void {
@@ -3545,6 +3572,8 @@ export class Engine {
       }
       return;
     }
+    // Browser axes are normalized, so 128 is the stick's true center.
+    if (this.joyInitPending) this.calibrateJoystick(128, 128);
     if (!this.joyEnabled) return;
     const isAmiga = this.profile.presentation === "amiga";
     const isIIgs = this.profile.presentation === "iigs";
@@ -8753,7 +8782,10 @@ export class Engine {
     const id = this.profile.id;
     const isAmiga = this.profile.windowFrameGeometry === "amiga";
     const isIIgs = this.profile.windowFrameGeometry === "iigs";
-    if (!this.restartPending) this.joyEnabled = isAmiga;
+    if (!this.restartPending) {
+      this.joyEnabled = isAmiga;
+      this.joyInitPending = false;
+    }
     this.joyCalibratingModalSerial = null;
     this.lastJoyDir = 0;
     // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,

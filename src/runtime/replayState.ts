@@ -76,9 +76,13 @@ export interface JoystickReplayState {
   direction: number;
   buttons: { state: 0 | 1 | 2 | 3; deadline: number }[];
   calibration: number | null;
+  /** init.joy found no pad; the first sample brings it online (optional). */
+  pendingInit?: true;
 }
 
 export function validateJoystickState(value: unknown): JoystickReplayState {
+  const pending =
+    value !== null && typeof value === "object" && Object.hasOwn(value, "pendingInit");
   const s = record(value, [
     "enabled",
     "clockMs",
@@ -86,7 +90,9 @@ export function validateJoystickState(value: unknown): JoystickReplayState {
     "direction",
     "buttons",
     "calibration",
+    ...(pending ? ["pendingInit"] : []),
   ]);
+  if (pending && s["pendingInit"] !== true) throw new Error("Replay joystick state is invalid.");
   const thresholds = array(s["thresholds"], 4, (v) => number(v, -65535, 131070, false));
   const buttons = array(s["buttons"], 2, (v) => {
     const b = record(v, ["state", "deadline"]);
@@ -109,6 +115,7 @@ export function validateJoystickState(value: unknown): JoystickReplayState {
     direction: number(s["direction"], 0, 8),
     buttons,
     calibration: s["calibration"] === null ? null : number(s["calibration"], 0, 63),
+    ...(pending ? { pendingInit: true as const } : {}),
   };
 }
 

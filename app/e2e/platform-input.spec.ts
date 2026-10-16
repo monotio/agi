@@ -223,3 +223,36 @@ for (const profile of ["2.936", "amiga-2.202", "iigs-1.014"]) {
       .toContain("Primary action");
   });
 }
+
+test("a Gamepad revealed after the game started walks the hero without a calibration window", async ({
+  page,
+}) => {
+  // Browsers list a pad only after its first button press, which comes
+  // after logic 0 has run init.joy.
+  await page.addInitScript(() => {
+    const pad = {
+      connected: true,
+      axes: [0, 0],
+      buttons: Array.from({ length: 16 }, () => ({ pressed: false })),
+    };
+    const state = { pad, revealed: false };
+    (window as unknown as { gamepadState: typeof state }).gamepadState = state;
+    Object.defineProperty(navigator, "getGamepads", {
+      value: () => [state.revealed ? pad : null],
+    });
+  });
+  await boot(page, "2.936", true);
+  await waitForCycles(page, 2);
+  expect((await textHook(page)).modal).toBeNull();
+  await page.evaluate(() => {
+    const state = (
+      window as unknown as {
+        gamepadState: { revealed: boolean; pad: { axes: number[] } };
+      }
+    ).gamepadState;
+    state.revealed = true;
+    state.pad.axes[0] = 0.9;
+  });
+  await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 3");
+  expect((await textHook(page)).modal).toBeNull();
+});

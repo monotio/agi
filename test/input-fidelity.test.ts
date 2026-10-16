@@ -1492,3 +1492,39 @@ test("the joystick double-press interval counts the 20 Hz clock, or BIOS ticks o
   assert.equal(singleAfter("2.936"), 500);
   assert.equal(singleAfter("2.001"), 550);
 });
+
+test("a Gamepad first seen after init.joy found none comes online at its nominal center", () => {
+  // Browsers reveal a Gamepad only after its first button press, so logic 0's
+  // init.joy runs before the pad is visible. A stick that was there all along
+  // works in the original; the first sample stands in for the calibration.
+  class JoyHost extends Host {
+    joy: { x: number; y: number; button1?: boolean } | null = null;
+    sampleJoystick() {
+      return this.joy;
+    }
+  }
+  for (const id of ["2.936", "iigs-1.014"] as const) {
+    const source = "if (!isset(f200)) { set(f200); init.joy(); } return;";
+    const host = new JoyHost();
+    const engine = game(source, host, PROFILES[id]);
+    engine.tick();
+    assert.equal(engine.modalKind, null, `${id}: no pad, no calibration window`);
+    // The pending calibration survives a checkpoint.
+    const image = engine.recordingImage(true)!;
+    const state = engine.captureReplayState(true);
+    const resumed = game(source, host, PROFILES[id]);
+    resumed.restoreImage(image);
+    resumed.restoreReplayState(state);
+    for (const run of [engine, resumed]) {
+      host.joy = { x: 128, y: 128, button1: false };
+      run.tick();
+      assert.equal(run.modalKind, null, `${id}: comes online without a window`);
+      assert.equal(run.vars[6], 0, `${id}: centered`);
+      host.joy = { x: 255, y: 128, button1: false };
+      run.tick();
+      assert.equal(run.vars[6], 3, `${id}: full right walks east`);
+      host.joy = null;
+      run.tick();
+    }
+  }
+});

@@ -3828,8 +3828,15 @@ ax,[si+2]`; `A2 1C 00 mov [0x1c],al`; `83 3E D3 05 00 cmp word [0x5d3],0`;
     PC `2.089` and later, in `65536/1193182` s units on `2.001`, and in the
     selected region's tick on Amiga. Disconnecting or relinquishing
     play ownership cancels held directions and button state without a fire
-    release. Optional host checkpoint and recording fields retain calibration,
-    native deadlines and samples; released files omit them unchanged.
+    release. Browsers reveal a Gamepad only after its first button press, so
+    `init.joy` in logic 0 usually finds no host sample on PC and IIgs. The
+    original reads a connected stick whenever it polls; the engine therefore
+    keeps that `init.joy` pending and brings the first sample online without a
+    window, calibrated at the normalized center 128 (an adapter choice: the
+    browser has already calibrated its axes). A player who declines with
+    Escape keeps the stick off. Optional host checkpoint and recording fields
+    retain calibration, the pending state, native deadlines and samples;
+    released files omit them unchanged.
 
 ### Original window and status-line text
 

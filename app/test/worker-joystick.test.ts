@@ -302,3 +302,31 @@ test("Gamepad cancellation during a recorded string prompt precedes its answer",
     engine.captureReplayState(true).inputQueue,
   );
 });
+
+test("a Gamepad revealed after logic 0's init.joy comes online and replays identically", () => {
+  // Browsers hide a pad until its first button press; the original reads a
+  // connected stick whenever it polls (docs/fidelity.md F-IN-17).
+  const source = "if (!isset(f200)) {set(f200); init.joy();} return;";
+  const { ctx, sample } = setup("2.936", source);
+  const engine = ctx.run.engine!;
+  ctx.fns.tickEngine();
+  assert.equal(engine.modalKind, null);
+  const image = engine.recordingImage(true)!;
+  const state = engine.captureReplayState(true);
+  const tape = new OperationRecorder();
+  ctx.run.recording.recording = { tape, events: [], printed: [], tainted: null };
+  sample(0, 0, true);
+  ctx.fns.pollJoystickInput();
+  sample(0.9, 0, false);
+  ctx.fns.pollJoystickInput();
+  ctx.fns.tickEngine();
+  assert.equal(engine.vars[6], 3, "the revealed pad walks the hero");
+  const sim = new Simulation(createAgentSessionState(gameContainer([source]), PROFILES["2.936"]));
+  sim.engine.restoreImage(image, { preservePresentation: true });
+  sim.replay(validateRecordedReplay({ state, operations: tape.operations }));
+  assert.equal(sim.engine.vars[6], 3);
+  assert.deepEqual(
+    sim.engine.captureReplayState(true).joystick,
+    engine.captureReplayState(true).joystick,
+  );
+});
