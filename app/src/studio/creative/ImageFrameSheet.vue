@@ -23,7 +23,7 @@ import {
 } from "../../../../src/creative/imageFrameGeometry.ts";
 import type { Rect } from "../../../../src/creative/catalog.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
-import { EGA_PALETTE } from "../../render/palette.ts";
+import { paletteCss, useGamePalette, useGamePaletteLook } from "../../render/useGamePalette.ts";
 import UiButton from "../../ui/UiButton.vue";
 
 const props = defineProps<{
@@ -85,8 +85,10 @@ function loopName(loop: number): string {
   const mirror = props.mirrors[loop];
   return `${name} · loop ${loop}${mirror != null ? ` (mirrors ${directions[mirror]?.toLowerCase() ?? `loop ${mirror}`})` : ""}`;
 }
-const colours = [11, 13, 10, 14, 9, 12, 3, 6].map(
-  (index) => `rgb(${EGA_PALETTE[index]!.join(" ")})`,
+const palette = useGamePalette();
+const gameLook = useGamePaletteLook();
+const colours = computed(() =>
+  [11, 13, 10, 14, 9, 12, 3, 6].map((index) => paletteCss(palette.value, index)),
 );
 const active = computed(() => boxes.value.find((f) => f.id === selected.value.at(-1)));
 const scale = computed(() => zoom.value ?? fitScale.value);
@@ -109,6 +111,7 @@ const preview = computed(() => {
           props.profile,
           props.background,
           props.backgroundTransparent,
+          gameLook.value,
         )
       : null;
   } catch {
@@ -179,7 +182,7 @@ watch(
   { flush: "post", immediate: true },
 );
 watch(
-  [animation, previewCel],
+  [animation, previewCel, palette],
   () => {
     const target = animation.value,
       cel = previewCel.value;
@@ -189,7 +192,10 @@ watch(
     const pixels = new ImageData(cel.width, cel.height);
     for (let i = 0; i < cel.pixels.length; i++) {
       const colour = cel.pixels[i]!;
-      pixels.data.set([...EGA_PALETTE[colour]!, colour === cel.transparentColor ? 0 : 255], i * 4);
+      pixels.data.set(
+        [...palette.value[colour]!, colour === cel.transparentColor ? 0 : 255],
+        i * 4,
+      );
     }
     target.getContext("2d")!.putImageData(pixels, 0, 0);
   },
@@ -496,7 +502,7 @@ function regionStyle(frame: FrameBox) {
     top: `${frame.region.y * scale.value}px`,
     width: `${frame.region.width * scale.value}px`,
     height: `${frame.region.height * scale.value}px`,
-    "--loop-colour": colours[frame.loop],
+    "--loop-colour": colours.value[frame.loop],
   };
 }
 const thumbnails = computed(() => {
@@ -514,7 +520,10 @@ const thumbnails = computed(() => {
     const pixels = new ImageData(cel.width, cel.height);
     for (let i = 0; i < cel.pixels.length; i++) {
       const colour = cel.pixels[i]!;
-      pixels.data.set([...EGA_PALETTE[colour]!, colour === cel.transparentColor ? 0 : 255], i * 4);
+      pixels.data.set(
+        [...palette.value[colour]!, colour === cel.transparentColor ? 0 : 255],
+        i * 4,
+      );
     }
     target.getContext("2d")!.putImageData(pixels, 0, 0);
     return target.toDataURL();

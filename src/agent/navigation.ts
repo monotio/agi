@@ -1,7 +1,8 @@
 import { scanFootprint } from "../runtime/controlCheck.ts";
 import { decodeSave } from "../runtime/persistence.ts";
 import type { Engine } from "../runtime/engine.ts";
-import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import { encodePngRgb } from "../picture/png.ts";
+import { EGA_TABLE, type ColourTable } from "../runtime/colourTables.ts";
 import { walkableBounds, walkableMask } from "../runtime/walkable.ts";
 import {
   anchorClearance,
@@ -427,6 +428,7 @@ export function renderNavigationSnapshot(
   run: NavigationState,
   target: Target,
   plan = planWalk(run, target),
+  palette: ColourTable = EGA_TABLE,
 ): NavigationSnapshot {
   validateTarget(target);
   for (const point of [plan.from, ...plan.waypoints])
@@ -451,7 +453,7 @@ export function renderNavigationSnapshot(
   }
   for (let y = 0; y < 168; y++)
     for (let x = 0; x < 160; x++) {
-      pixel(0, x, y, EGA_RGB[frame.visual[y * 160 + x]!]!);
+      pixel(0, x, y, palette[frame.visual[y * 160 + x]!]!);
       const v = e.surface.priority[y * 160 + x]!;
       pixel(
         1,

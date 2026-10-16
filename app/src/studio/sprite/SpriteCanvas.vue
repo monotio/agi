@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
 import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
-import { celRgba, EGA_PALETTE } from "../../render/palette.ts";
+import { celRgba } from "../../render/palette.ts";
+import { useGamePalette } from "../../render/useGamePalette.ts";
 import {
   backdropCells,
   DEFAULT_BACKDROP,
@@ -80,6 +81,7 @@ const TINTS = {
 } as const;
 
 const canvas = useTemplateRef("canvas");
+const palette = useGamePalette();
 const width = computed(() => cel.width * 2 * zoom);
 const height = computed(() => cel.height * zoom);
 
@@ -98,6 +100,7 @@ function blit(context: CanvasRenderingContext2D, source: SpriteCel, tint?: Onion
       rgb: TINTS[tint.side],
       alpha: tint.distance === 1 ? 0.45 : tint.distance === 2 ? 0.28 : 0.18,
     },
+    palette.value,
   );
   scratch.getContext("2d")!.putImageData(image, 0, 0);
   const unitX = 2 * zoom * dpr;
@@ -130,7 +133,7 @@ watchEffect(
     for (let y = 0; y < cel.height; y++)
       for (let x = 0; x < cel.width; x++) {
         const value = cells[y * cel.width + x]!;
-        const [r, g, b] = value >= 0 ? EGA_PALETTE[value]! : [0, 0, 0];
+        const [r, g, b] = value >= 0 ? palette.value[value]! : [0, 0, 0];
         context.fillStyle = value >= 0 ? `rgb(${r} ${g} ${b})` : checker[value === -1 ? 0 : 1]!;
         context.fillRect(x * unitX, y * unitY, unitX, unitY);
       }

@@ -68,6 +68,7 @@ import type { ProjectHistoryState } from "../../../../src/authoring/projectHisto
 import type { ProjectSession } from "../../project/projectSession.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
+import { useGamePalette, useGamePaletteVars } from "../../render/useGamePalette.ts";
 import { workspaceStudioContext } from "./studioContext.ts";
 import type { PlayHereTarget } from "../../../../src/runtime/playHere.ts";
 import type { BindingKind } from "../../../../src/agent/authoringState.ts";
@@ -260,6 +261,8 @@ function setContextTarget(element: Element | ComponentPublicInstance | null): vo
 }
 const commands = useOptionalCommands();
 const presentation = usePresentation();
+useGamePaletteVars(() => props.creating);
+const gamePalette = useGamePalette();
 const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
 const phoneQuery = window.matchMedia("(max-width: 600px)");
 const phoneWidth = ref(phoneQuery.matches);
@@ -562,7 +565,10 @@ function refresh(): void {
         traceUnderlays.value = Object.fromEntries(
           capture.snapshot.keys
             .filter((key) => key.startsWith("picture:"))
-            .map((key) => [key, presentTrace(session!, key, imageTraceUnderlay(documents, key))]),
+            .map((key) => [
+              key,
+              presentTrace(session!, key, imageTraceUnderlay(documents, key, gamePalette.value)),
+            ]),
         );
       });
     });
@@ -622,6 +628,7 @@ function attach(): void {
   }
   refresh();
 }
+watch(gamePalette, () => refresh());
 watch(() => [engine.state.phase, engine.state.patchTick, engine.state.status], attach, {
   immediate: true,
 });

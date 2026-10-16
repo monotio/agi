@@ -10,7 +10,7 @@ import { openSprite } from "../../../../src/view/spriteDocument.ts";
 import { openContainer } from "../../../../src/container/container.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
-import { EGA_RGB } from "../../../../src/picture/png.ts";
+import { useGamePalette } from "../../render/useGamePalette.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { guidedPlacement, type GuidedPlacement } from "../../play/guidedPlacement.ts";
@@ -101,6 +101,7 @@ const rooms = computed(
       .find((group) => group.label === "ROOMS")
       ?.entries.filter((row) => !row.child && row.room !== props.room) ?? [],
 );
+const palette = useGamePalette();
 const roomImages = computed(() => {
   const images = { ...props.thumbnails };
   const container = props.snapshot.lastAdmissibleBuild
@@ -125,7 +126,7 @@ const roomImages = computed(() => {
     canvas.height = 168;
     const image = new ImageData(160, 168);
     for (let index = 0; index < surface.visual.length; index++) {
-      const rgb = EGA_RGB[surface.visual[index]! & 15]!;
+      const rgb = palette.value[surface.visual[index]! & 15]!;
       image.data.set([...rgb, 255], index * 4);
     }
     canvas.getContext("2d")!.putImageData(image, 0, 0);

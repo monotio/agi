@@ -8,7 +8,7 @@ import { roomEntryProblem } from "../../../../src/runtime/roomEntry.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectBindings.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
-import { EGA_PALETTE } from "../../render/palette.ts";
+import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
@@ -403,6 +403,7 @@ function setHeroY(event: Event): void {
 // ---- Canvas rendering for hero position ----------------------------------
 
 const heroCanvas = useTemplateRef("heroCanvas");
+const palette = useGamePalette();
 
 function renderHeroStage(): void {
   const canvasEl = heroCanvas.value;
@@ -417,7 +418,7 @@ function renderHeroStage(): void {
     for (let y = 0; y < 168; y++) {
       for (let x = 0; x < 160; x++) {
         const color = surface.visual[y * 160 + x] ?? 0;
-        const rgba = EGA_PALETTE[color] ?? [0, 0, 0];
+        const rgba = palette.value[color] ?? [0, 0, 0];
         const offset = (y * 160 + x) * 4;
         imgData.data[offset] = rgba[0]!;
         imgData.data[offset + 1] = rgba[1]!;
@@ -427,7 +428,7 @@ function renderHeroStage(): void {
     }
     ctx.putImageData(imgData, 0, 0);
   } else {
-    ctx.fillStyle = `rgb(${EGA_PALETTE[0]!.join(" ")})`;
+    ctx.fillStyle = paletteCss(palette.value, 0);
     ctx.fillRect(0, 0, 160, 168);
   }
 
@@ -437,7 +438,7 @@ function renderHeroStage(): void {
     const hx = Math.max(0, Math.min(159, hero.x));
     const hy = Math.max(0, Math.min(167, hero.y));
 
-    ctx.strokeStyle = `rgb(${EGA_PALETTE[14]!.join(" ")})`;
+    ctx.strokeStyle = paletteCss(palette.value, 14);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(hx, hy, 4, 0, 2 * Math.PI);

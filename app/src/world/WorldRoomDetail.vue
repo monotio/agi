@@ -18,7 +18,7 @@ import UiField from "../ui/UiField.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
-import { EGA_RGB } from "../../../src/picture/png.ts";
+import { useGamePalette } from "../render/useGamePalette.ts";
 import {
   getOrExtractCheckpoints,
   loadWalkthrough,
@@ -73,6 +73,7 @@ const heading = useTemplateRef("heading");
 
 const thumbCanvas = useTemplateRef("thumbCanvas");
 const thumbKind = ref<string>("");
+const palette = useGamePalette();
 
 function paintThumb(): void {
   const canvas = thumbCanvas.value;
@@ -84,7 +85,7 @@ function paintThumb(): void {
   if (!thumb) return;
   const img = ctx.createImageData(160, 168);
   for (let i = 0; i < thumb.pixels.length; i++) {
-    const rgb = EGA_RGB[thumb.pixels[i]! & 0x0f]!;
+    const rgb = palette.value[thumb.pixels[i]! & 0x0f]!;
     img.data[i * 4] = rgb[0];
     img.data[i * 4 + 1] = rgb[1];
     img.data[i * 4 + 2] = rgb[2];
@@ -99,7 +100,7 @@ function paintThumb(): void {
 }
 
 watch(
-  [() => node.room, () => map.thumbVersion.value],
+  [() => node.room, () => map.thumbVersion.value, palette],
   async () => {
     if (compact) return;
     thumbKind.value = map.thumbnailFor(node.room)?.kind ?? "";

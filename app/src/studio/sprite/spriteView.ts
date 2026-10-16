@@ -367,8 +367,11 @@ function luminance([r, g, b]: readonly [number, number, number]): number {
  * (0) or white (15), whichever contrasts more with it (at least 4.5:1 on
  * each of the 16).
  */
-export function swatchInk(colour: number): "var(--agi-0)" | "var(--agi-15)" {
-  const l = luminance(EGA_PALETTE[colour] ?? [0, 0, 0]);
+export function swatchInk(
+  colour: number,
+  palette: readonly (readonly [number, number, number])[] = EGA_PALETTE,
+): "var(--agi-0)" | "var(--agi-15)" {
+  const l = luminance(palette[colour] ?? [0, 0, 0]);
   return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? "var(--agi-0)" : "var(--agi-15)";
 }
 

@@ -35,6 +35,10 @@ export function createPresentation() {
   const lastFrame = shallowRef<Frame | null>(null);
   /** The running profile's colours, font and layout. */
   let appearance: Appearance = PC_APPEARANCE;
+  /** The same look as a ref, for Studio previews that repaint when a lazy platform look arrives. */
+  const look = shallowRef<Appearance>(PC_APPEARANCE);
+  /** The running game's profile id, null before one loads. */
+  const profileId = shallowRef<string | null>(null);
   /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
   const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
   /** Text-only composite feeding the exploded view's front plane. */
@@ -202,9 +206,12 @@ export function createPresentation() {
   function setProfile(id: string | null, files?: ReadonlyMap<string, Uint8Array> | null): void {
     const request = ++profileRequest;
     appearance = appearanceForProfile(id, files);
+    look.value = appearance;
+    profileId.value = id;
     void loadAppearance(id, files).then((next) => {
       if (request !== profileRequest || next === appearance) return;
       appearance = next;
+      look.value = next;
       repaint();
     });
   }
@@ -344,6 +351,8 @@ export function createPresentation() {
       return appearance;
     },
     setPaletteOverride,
+    look,
+    profileId,
     testMode,
     canvasEl,
     gpuCanvasEl,
@@ -376,6 +385,11 @@ const presentationKey: InjectionKey<Presentation> = Symbol("agi-presentation");
 
 export function providePresentation(presentation: Presentation): void {
   provide(presentationKey, presentation);
+}
+
+/** The presentation when App.vue provides one; Studio harnesses mount without it. */
+export function useOptionalPresentation(): Presentation | undefined {
+  return inject(presentationKey, undefined);
 }
 
 export function usePresentation(): Presentation {
