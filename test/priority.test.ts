@@ -428,15 +428,20 @@ test("InsertObj runs MirrorCell per object during frame composition so two objec
 test("PriToY's closed form is a signed word, so fixed priority 0 draws before every baseline", () => {
   // docs/fidelity.md F-VIEWS-06: PriToY returns (0 - 5) * 12 + 48 = -12 as a
   // 16-bit word and MakeObjList picks the smallest key with a signed compare.
-  // Picture 0 fills the priority channel with control value 2 (signal), so every
-  // comparison falls through to the PC fallback 0 and both objects paint all
-  // their pixels: draw order alone decides the overlap at (20, 96).
+  // Picture 0 fills the priority channel with control value 2 (signal) and
+  // draws control 0 along row 167, so every scan ends holding 0 (the PC rule,
+  // F-VIEWS-07) and both objects paint all their pixels: draw order alone
+  // decides the overlap at (20, 96).
   const engine = game(
     `load.pic(v0); draw.pic(v0); show.pic(); ${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 0); return;`,
     "2.917",
   );
   engine.patchResources([
-    { kind: "picture", num: 0, payload: Uint8Array.of(0xf2, 2, 0xf8, 0, 0, 0xff) },
+    {
+      kind: "picture",
+      num: 0,
+      payload: Uint8Array.of(0xf2, 2, 0xf8, 0, 0, 0xf2, 0, 0xf6, 0, 167, 159, 167, 0xff),
+    },
   ]);
   engine.tick();
   const frame = engine.getFrame();

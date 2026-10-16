@@ -483,8 +483,12 @@ export interface DrawCelOptions {
   priority?: number;
   /** Whether to clip negative-top and right-edge rows/columns in place and mask priority to 4 bits (F-VIEWS-05, F-VIEWS-07). */
   clipInPlaceAndMaskPriority?: boolean;
-  /** Fallback comparison priority when the downward control-pixel scan reaches row 167 without finding > 2 (0 on PC, 4 on Amiga/IIgs). */
-  controlScanFallbackPriority?: number;
+  /**
+   * Comparison priority when the downward control-pixel scan finds no value
+   * above 2: 4 on Amiga and IIgs; omitted (null) for the PC rule, which keeps
+   * row 167's control value, or 0 on row 167 itself (F-VIEWS-07).
+   */
+  controlScanFallbackPriority?: number | null;
   /** Observe pixels that survive transparency and priority tests (for visibility bookkeeping). */
   onPixel?(index: number): void;
 }
@@ -504,8 +508,8 @@ export interface DrawCelOptions {
  * Composition: transparent source pixels never modify the destination. Every
  * other source pixel is tested independently against the priority/control
  * channel: a destination value above 2 is the comparison value; values 0..2
- * scan downward in the same column for the first value above 2 (or
- * `controlScanFallbackPriority`, 0 on PC and 4 on Amiga/IIgs, if none).
+ * scan downward in the same column for the first value above 2 (if none:
+ * row 167's control value on PC, `controlScanFallbackPriority` 4 on Amiga/IIgs).
  * The pixel draws when the comparison value is <= the drawing priority p,
  * replacing the visual color. Control values 0..2 survive the paint; other
  * destination priority values become p.
@@ -518,7 +522,7 @@ export function drawCel(
   opts?: DrawCelOptions,
 ): void {
   const clipMask = opts?.clipInPlaceAndMaskPriority ?? false;
-  const fallback = opts?.controlScanFallbackPriority ?? 0;
+  const fallback = opts?.controlScanFallbackPriority ?? null;
   const rawP = opts?.priority ?? 15;
   const p = clipMask ? rawP & 0x0f : rawP;
   forEachPaintedPixel(
@@ -553,7 +557,7 @@ export function forEachPaintedPixel(
   p: number,
   visit: (cell: number, color: number) => void,
   clipInPlaceAndMaskPriority = false,
-  controlScanFallbackPriority = 0,
+  controlScanFallbackPriority: number | null = null,
 ): void {
   if (clipInPlaceAndMaskPriority) p &= 0x0f;
   let left = x;
@@ -579,7 +583,13 @@ export function forEachPaintedPixel(
       const cell = dy * SCREEN_WIDTH + dx;
       let comparison = surface.priority[cell]!;
       if (comparison <= 2) {
-        comparison = controlScanFallbackPriority;
+        // PC keeps the last control value it read: row 167's, or 0 when the
+        // pixel is on row 167 itself. Amiga and IIgs fall back to a constant.
+        comparison =
+          controlScanFallbackPriority ??
+          (dy === SCREEN_HEIGHT - 1
+            ? 0
+            : surface.priority[(SCREEN_HEIGHT - 1) * SCREEN_WIDTH + dx]!);
         for (let sy = dy + 1; sy < SCREEN_HEIGHT; sy++) {
           const below = surface.priority[sy * SCREEN_WIDTH + dx]!;
           if (below > 2) {

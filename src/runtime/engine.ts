@@ -4632,7 +4632,7 @@ export class Engine {
     drawCel(this.surface, c, x, y, {
       priority: drawPriority,
       clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
-      controlScanFallbackPriority: this.profile.presentation === "pc" ? 0 : 4,
+      controlScanFallbackPriority: this.profile.presentation === "pc" ? null : 4,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
@@ -5822,7 +5822,7 @@ export class Engine {
         return aKey - bKey;
       });
 
-    const controlScanFallbackPriority = this.profile.presentation === "pc" ? 0 : 4;
+    const controlScanFallbackPriority = this.profile.presentation === "pc" ? null : 4;
     for (const { o, num } of active) {
       const view = this.views.get(o.view);
       const cel =

@@ -77,7 +77,7 @@ export function probeActor(input: ProbeInput): ProbeResult {
   const drawPriority = input.priority === "band" ? bandPriority : input.priority;
   const clipMask = input.profile.originalCelBlitClippingAndPriorityMask ?? false;
   const fallbackPri =
-    input.profile.presentation !== undefined && input.profile.presentation !== "pc" ? 4 : 0;
+    input.profile.presentation !== undefined && input.profile.presentation !== "pc" ? 4 : null;
 
   const cells = SCREEN_WIDTH * SCREEN_HEIGHT;
   const drawnMask = new Uint8Array(cells);

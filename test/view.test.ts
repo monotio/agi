@@ -346,10 +346,11 @@ describe("drawCel", () => {
     drawCel(surface, cel, 8, 10, { priority: 4 });
     assert.deepEqual(cell(surface, 8, 10), { visual: 6, priority: 0 });
 
-    // Column 9 below row 20 is all control value 1: the scan reaches the
-    // bottom, comparison 0 on PC (default), so even priority 0 draws; on
-    // Amiga and IIgs (controlScanFallbackPriority: 4), comparison falls back
-    // to 4, hiding priority 3 and drawing priority 4.
+    // Column 9 below row 20 is all control value 1. On PC the scan stops at
+    // row 167 holding that row's control value, 1 (docs/fidelity.md F-VIEWS-07,
+    // KQ3 IBM_OBJS.OVL +0x0116..0x0133): priority 0 stays hidden, priority 1
+    // draws. On Amiga and IIgs the scan runs past the buffer and falls back to
+    // 4, hiding priority 3 and drawing priority 4.
     for (let y = 20; y < 168; y++) surface.priority[y * SCREEN_WIDTH + 9] = 1;
     drawCel(surface, cel, 9, 20, { priority: 3, controlScanFallbackPriority: 4 });
     assert.deepEqual(cell(surface, 9, 20), { visual: 15, priority: 1 });
@@ -357,7 +358,12 @@ describe("drawCel", () => {
     assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
     surface.visual[20 * SCREEN_WIDTH + 9] = 15;
     drawCel(surface, cel, 9, 20, { priority: 0 });
+    assert.deepEqual(cell(surface, 9, 20), { visual: 15, priority: 1 });
+    drawCel(surface, cel, 9, 20, { priority: 1 });
     assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
+    // A control pixel on row 167 itself scans nothing: comparison 0.
+    drawCel(surface, cel, 9, 167, { priority: 0 });
+    assert.deepEqual(cell(surface, 9, 167), { visual: 6, priority: 1 });
   });
 
   it("shifts left to fit the right edge and clips rows below the bottom", () => {
