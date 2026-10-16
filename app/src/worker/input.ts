@@ -189,12 +189,24 @@ export function createInput(ctx: WorkerContext) {
     const y = Number(msg.y);
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 319 || y < 0 || y > 199)
       return;
+    if (ctx.fns.debugStoppedHeld()) return;
+    // The Amiga confirmation's gadgets (Restart / Cancel, Quit / Continue)
+    // are selectable: a click on one answers the parked wait with that
+    // gadget's choice, recorded as the click so a replay selects it again.
+    // The engine lays out the gadgets; a click beside them is dropped.
+    if (engine.hostInteraction?.kind === "confirm" && engine.awaitingHostAnswer) {
+      const answer = engine.confirmGadgetAt(x, y);
+      if (answer === null) return;
+      ctx.fns.historyRecord({ kind: "click", x, y });
+      ctx.run.input.keyQueue.unshift(answer);
+      deliverQueuedKey();
+      return;
+    }
     if (
       engine.modalKind !== null ||
       engine.awaitingKey ||
       engine.awaitingHostAnswer ||
-      engine.profile.clickMove === "none" ||
-      ctx.fns.debugStoppedHeld()
+      engine.profile.clickMove === "none"
     )
       return;
     ctx.fns.historyRecord({ kind: "click", x, y });
@@ -219,8 +231,24 @@ export function createInput(ctx: WorkerContext) {
     ctx.fns.postFrame();
   }
 
-  function onDismissPrint(): void {
+  /**
+   * A tap on the open modal. With its screen position, a tap on one of the
+   * Amiga confirmation's gadgets selects that gadget like a click; any other
+   * tap acknowledges the window, answering a confirmation with its cancel key.
+   */
+  function onDismissPrint(msg?: Inbound<"dismissPrint">): void {
     if (!ctx.run.engine || !ctx.run.owner.active || ctx.fns.debugStoppedHeld()) return;
+    if (
+      msg !== undefined &&
+      typeof msg.x === "number" &&
+      typeof msg.y === "number" &&
+      ctx.run.engine.hostInteraction?.kind === "confirm" &&
+      ctx.run.engine.awaitingHostAnswer &&
+      ctx.run.engine.confirmGadgetAt(msg.x, msg.y) !== null
+    ) {
+      onClick({ type: "click", x: msg.x, y: msg.y });
+      return;
+    }
     ctx.run.recording.recording?.tape.record(["ack"]);
     ctx.fns.historyRecord({ kind: "dismiss" });
     const pending = ctx.run.engine.hostInteraction;

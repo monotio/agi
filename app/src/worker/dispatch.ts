@@ -670,7 +670,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "dismissPrint") {
-      ctx.fns.onDismissPrint();
+      ctx.fns.onDismissPrint(msg);
       return;
     }
     if (msg.type === "key") {

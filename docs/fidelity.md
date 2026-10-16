@@ -2817,7 +2817,12 @@ to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`, IIgs
   profiles (`windowFrameGeometry === "amiga"`) and the PC/IIgs Enter/Escape
   confirmation strings on all other profiles, with Enter accepting and Escape
   cancelling across all profiles (fields `originalRestartRestore` and
-  `exitAlwaysImmediate`).
+  `exitAlwaysImmediate`). On the Amiga profiles each gadget label is a
+  selectable target (`confirmGadgetAt`): a click or tap on Restart or Quit
+  accepts, on Cancel or Continue declines. The binaries record the labels,
+  not the gadget boxes, so the engine's hit regions are its own label cells
+  plus half a cell either side, from the blank line above the labels to the
+  window's bottom edge (inference).
 - **F-OPCORE-04-adjacent (fact; engine matches).** `ResetAll` tail (PC: `2.001`
   `0x106d..0x10fe`, `2.089` `0x0ed6..0x1002`, `2.230` `0x0e50..0x0f57`, `2.272`
   `0x0e7c..0x0f85`, `2.411` `0x0f6a..0x1086`, `2.439` `0x0f70..0x10a4`, `2.440`

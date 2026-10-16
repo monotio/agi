@@ -404,3 +404,122 @@ test("F-persistence-05: Amiga restart.game and quit(0) display their verified pr
     );
   }
 });
+
+test("F-persistence-05: Amiga confirmation gadgets are selectable at their label cells; PC and IIgs confirmations have none", () => {
+  const AMIGA = [
+    "amiga-2.082",
+    "amiga-2.176",
+    "amiga-2.202",
+    "amiga-2.310",
+    "amiga-2.316",
+    "amiga-2.333",
+  ] as const;
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (isset(f6)) { assignn(v90, 1); return; }
+       if (equaln(v80, 1)) { restart.game(); assignn(v81, 1); return; }
+       if (equaln(v80, 2)) { quit(0); assignn(v82, 1); return; }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const open = (id: string, action: 1 | 2): Engine => {
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+        waitKey() {
+          throw new HostWait();
+        },
+      },
+      new Map(),
+      { profile: id as keyof typeof PROFILES },
+    );
+    engine.vars[80] = action;
+    engine.tick();
+    assert.equal(engine.modalKind, "print", `${id} confirmation window is open`);
+    assert.equal(engine.awaitingKey, true, `${id} confirmation waits for its answer`);
+    return engine;
+  };
+
+  // Hand-computed layout (textSurface placePrintWindow, display base row 1):
+  // both windows are 3 lines, so textTop = 1 + ((20 - 1 - 3) >> 1) + 1 = 10
+  // and the gadget line is text row 12 (pixel rows 96..103). The restart
+  // window is 17 columns wide (textLeft 11): "Restart" fills columns 11..17
+  // (x 88..143) and "Cancel" columns 22..27 (x 176..223). The quit window is
+  // 27 columns wide (textLeft 6): "Quit" fills columns 6..9 (x 48..79) and
+  // "Continue" columns 25..32 (x 200..263). A gadget's hit region is its
+  // label cells plus half a cell (4 px) on each side, from the blank line
+  // above the labels (y 88) down to the window's bottom edge (y 108).
+  for (const id of AMIGA) {
+    const restart = open(id, 1);
+    assert.equal(restart.textRow(12).indexOf("Restart    Cancel"), 11, `${id} restart gadget line`);
+    assert.equal(restart.confirmGadgetAt(115, 99), 13, `${id} Restart gadget centre accepts`);
+    assert.equal(restart.confirmGadgetAt(84, 88), 13, `${id} Restart gadget top-left corner`);
+    assert.equal(restart.confirmGadgetAt(147, 108), 13, `${id} Restart gadget bottom-right corner`);
+    assert.equal(restart.confirmGadgetAt(199, 99), 27, `${id} Cancel gadget centre cancels`);
+    assert.equal(restart.confirmGadgetAt(172, 88), 27, `${id} Cancel gadget top-left corner`);
+    assert.equal(restart.confirmGadgetAt(227, 108), 27, `${id} Cancel gadget bottom-right corner`);
+    assert.equal(restart.confirmGadgetAt(160, 99), null, `${id} the gap between the gadgets`);
+    assert.equal(restart.confirmGadgetAt(83, 99), null, `${id} left of Restart`);
+    assert.equal(restart.confirmGadgetAt(228, 99), null, `${id} right of Cancel`);
+    assert.equal(restart.confirmGadgetAt(115, 87), null, `${id} the prompt line`);
+    assert.equal(restart.confirmGadgetAt(115, 109), null, `${id} below the window frame`);
+
+    const quit = open(id, 2);
+    assert.equal(
+      quit.textRow(12).indexOf("Quit               Continue"),
+      6,
+      `${id} quit gadget line`,
+    );
+    assert.equal(quit.confirmGadgetAt(63, 99), 13, `${id} Quit gadget centre accepts`);
+    assert.equal(quit.confirmGadgetAt(44, 88), 13, `${id} Quit gadget top-left corner`);
+    assert.equal(quit.confirmGadgetAt(83, 108), 13, `${id} Quit gadget bottom-right corner`);
+    assert.equal(quit.confirmGadgetAt(231, 99), 27, `${id} Continue gadget centre cancels`);
+    assert.equal(quit.confirmGadgetAt(196, 88), 27, `${id} Continue gadget top-left corner`);
+    assert.equal(quit.confirmGadgetAt(267, 108), 27, `${id} Continue gadget bottom-right corner`);
+    assert.equal(quit.confirmGadgetAt(140, 99), null, `${id} the gap between the gadgets`);
+    assert.equal(quit.confirmGadgetAt(43, 99), null, `${id} left of Quit`);
+    assert.equal(quit.confirmGadgetAt(268, 99), null, `${id} right of Continue`);
+    assert.equal(quit.confirmGadgetAt(63, 87), null, `${id} the prompt line`);
+
+    // The gadget answer resolves the wait exactly like its key: Restart
+    // restarts, Cancel resumes after the opcode.
+    restart.deliverHostAnswer(restart.confirmGadgetAt(115, 99));
+    restart.tick();
+    assert.equal(restart.vars[90], 1, `${id} Restart gadget restarts`);
+    quit.deliverHostAnswer(quit.confirmGadgetAt(231, 99));
+    quit.tick();
+    assert.equal(quit.vars[82], 1, `${id} Continue gadget resumes`);
+    assert.equal(
+      quit.readState().terminated,
+      false,
+      `${id} Continue gadget keeps the game running`,
+    );
+  }
+
+  // PC and IIgs builds show the Enter/Escape prompts with no gadgets: every
+  // point of their windows misses (2.001..2.230 quit without a prompt).
+  for (const id of ["2.001", "2.089", "2.936", "3.002.149", "iigs-1.014"] as const) {
+    const restart = open(id, 1);
+    for (let y = 0; y < 200; y += 4)
+      for (let x = 0; x < 320; x += 4)
+        assert.equal(
+          restart.confirmGadgetAt(x, y),
+          null,
+          `${id} restart has no gadget at ${x},${y}`,
+        );
+    if (PROFILES[id].exitAlwaysImmediate) continue;
+    const quit = open(id, 2);
+    for (let y = 0; y < 200; y += 4)
+      for (let x = 0; x < 320; x += 4)
+        assert.equal(quit.confirmGadgetAt(x, y), null, `${id} quit has no gadget at ${x},${y}`);
+  }
+});

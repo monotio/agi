@@ -432,6 +432,26 @@ class ContinuationAbort {
 }
 
 /**
+ * Amiga restart/quit confirmations (docs/fidelity.md F-persistence-05): the
+ * prompt and the two Intuition gadget labels every Amiga build 2.082..2.333
+ * passes to WindowPrint, the accepting gadget first. `gap` is the blank
+ * columns between the labels on the engine's gadget line.
+ */
+const AMIGA_CONFIRM_GADGETS: Record<
+  "restart" | "quit",
+  { prompt: string; accept: string; cancel: string; gap: number }
+> = {
+  restart: { prompt: "Restart the game?", accept: "Restart", cancel: "Cancel", gap: 4 },
+  quit: { prompt: "Quit the game, or continue?", accept: "Quit", cancel: "Continue", gap: 15 },
+};
+
+/** The Amiga confirmation window's text: the prompt, a blank line, the gadget line. */
+function amigaConfirmText(action: "restart" | "quit"): string {
+  const g = AMIGA_CONFIRM_GADGETS[action];
+  return `${g.prompt}\n\n${g.accept}${" ".repeat(g.gap)}${g.cancel}`;
+}
+
+/**
  * Internal control-flow signal: the host cannot answer an interaction
  * synchronously (the worker's request crosses the SAB bridge and its response
  * arrives on a later event-loop pass). runLogicStack catches it exactly like
@@ -3023,12 +3043,12 @@ export class Engine {
       action === "restart"
         ? original
           ? amiga
-            ? "Restart the game?\n\nRestart    Cancel"
+            ? amigaConfirmText("restart")
             : "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
           : "Restart the game?\nENTER: yes   ESC: continue"
         : original
           ? amiga
-            ? "Quit the game, or continue?\n\nQuit               Continue"
+            ? amigaConfirmText("quit")
             : "Press ENTER to quit.\nPress ESC to keep playing."
           : "Quit the game?\nENTER: yes   ESC: continue",
       undefined,
@@ -3049,6 +3069,39 @@ export class Engine {
         if (this.modal?.serial === pending.modalSerial) this.closeModal();
       }
     }
+  }
+
+  /**
+   * The gadget under screen pixel (x, y) of the parked Amiga confirmation,
+   * as the answer its wait takes: Enter for the accepting gadget (Restart,
+   * Quit), Escape for the declining one (Cancel, Continue), or null when no
+   * confirmation waits, the profile's prompt has no gadgets, or the point
+   * misses both. The window's own layout places the labels (docs/fidelity.md
+   * F-persistence-05 records the labels, not the gadget boxes): a gadget
+   * covers its label cells plus half a cell either side, from the blank line
+   * above the labels down to the window's bottom edge, so the two never meet.
+   */
+  confirmGadgetAt(x: number, y: number): number | null {
+    const pending = this.pendingInteraction;
+    if (pending?.kind !== "confirm" || this.profile.windowFrameGeometry !== "amiga") return null;
+    if (!this.profile.originalRestartRestore) return null;
+    const modal = this.modal;
+    if (modal?.kind !== "print" || modal.serial !== pending.modalSerial) return null;
+    const win = modal.saved.window;
+    if (win === undefined) return null;
+    const gadgets = AMIGA_CONFIRM_GADGETS[pending.action];
+    const row = win.textTop + 2;
+    const y0 = 8 * (row - 1);
+    if (y < y0 || y > win.y1) return null;
+    let col = win.textLeft;
+    for (const [label, answer] of [
+      [gadgets.accept, AGI_KEY.ENTER],
+      [gadgets.cancel, AGI_KEY.ESCAPE],
+    ] as const) {
+      if (x >= 8 * col - 4 && x <= 8 * (col + label.length) + 3) return answer;
+      col += label.length + gadgets.gap;
+    }
+    return null;
   }
 
   /** The adapter supplies an available directory; the engine owns selection and text. */

@@ -291,7 +291,10 @@ function onScreenClick(ev: MouseEvent): void {
   // mode: `any-pointer: coarse` also matches hybrid laptops with a mouse.
   if (props.touchControls && screenPointerType !== "mouse") {
     if (state.modal !== null) {
-      if (state.modal !== "save" && state.modal !== "restore") dismissModal();
+      // The tap's screen pixel lets the worker select an Amiga confirmation
+      // gadget (Restart / Cancel, Quit / Continue) under it.
+      if (state.modal !== "save" && state.modal !== "restore")
+        dismissModal(screenFramePoint(ev) ?? undefined);
       return;
     }
     // A tap is Enter, which wakes have.key() on title screens and prompts —
@@ -313,30 +316,33 @@ const screenClickMove = computed(() => {
 });
 
 /**
- * Click-to-walk: map a mouse click on the visible surface into the 320x200
- * frame's pixels. The canvas fills `.screen`'s content box (its 2px border
- * stays outside the frame), so the canvas rect is the exact map.
+ * Map a pointer event on the visible surface into the 320x200 frame's
+ * pixels. The canvas fills `.screen`'s content box (its 2px border stays
+ * outside the frame), so the canvas rect is the exact map.
  */
-function sendScreenClick(ev: MouseEvent): void {
-  if (screenClickMove.value === "none") return;
-  if (
-    state.walkthrough.active ||
-    state.paused ||
-    agentBlocksGame.value ||
-    state.modal !== null ||
-    state.waitingForKey
-  ) {
-    return;
-  }
+function screenFramePoint(ev: MouseEvent): { x: number; y: number } | null {
   const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
   const rect = canvas?.getBoundingClientRect();
-  if (!rect || rect.width <= 0 || rect.height <= 0) return;
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
   const point = crtFramePoint(
     (ev.clientX - rect.left) / rect.width,
     (ev.clientY - rect.top) / rect.height,
     gpuBackend.value ? props.crtAmount : 0,
   );
-  if (point) sendClick(Math.floor(point.x), Math.floor(point.y));
+  return point ? { x: Math.floor(point.x), y: Math.floor(point.y) } : null;
+}
+
+/**
+ * Click-to-walk, and the gadgets of an Amiga confirmation window: the
+ * worker's engine decides what a click on an open message window means
+ * (a gadget under it, or nothing), so a print window lets the click through.
+ */
+function sendScreenClick(ev: MouseEvent): void {
+  if (screenClickMove.value === "none") return;
+  if (state.walkthrough.active || state.paused || agentBlocksGame.value) return;
+  if (state.modal === null ? state.waitingForKey : state.modal !== "print") return;
+  const point = screenFramePoint(ev);
+  if (point) sendClick(point.x, point.y);
 }
 
 let pendingInputFocus: Element | null | undefined;
