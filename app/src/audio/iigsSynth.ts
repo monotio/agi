@@ -158,6 +158,8 @@ interface Voice {
   started: number;
   volumeLevel: number;
   readonly ended: Set<AudioBufferSourceNode>;
+  readonly oneShotControls: Map<AudioBufferSourceNode, AudioBufferSourceNode>;
+  readonly firstHeartbeat: number;
 }
 
 /** The rate the wave buffers are built at; playbackRate supplies the pitch. */
@@ -170,6 +172,7 @@ export class IigsSynth {
   private readonly channelNotes = Array.from({ length: 16 }, () => new Array<number>(14).fill(-1));
   private onDisposed: (() => void) | null = null;
   private readonly sourceStops = new WeakMap<AudioBufferSourceNode, number>();
+  private readonly modulationBuffers = new WeakMap<IigsInstrument, Map<number, AudioBuffer>>();
   private readonly buffers = new Map<number, { buffer: AudioBuffer; halts: boolean }>();
   private readonly ctx: BaseAudioContext;
   private readonly destination: AudioNode;
@@ -314,6 +317,7 @@ export class IigsSynth {
     envelope.connect(volumeGain);
     volumeGain.connect(this.destination);
     const sources: AudioBufferSourceNode[] = [];
+    const oneShotControls = new Map<AudioBufferSourceNode, AudioBufferSourceNode>();
     const waves = [waveFor(instrument.a, semitone), waveFor(instrument.b, semitone)];
     const a = waves[0];
     const pitchCarry = a && semitone * 256 + (a.relPitch & 0xffff) > 0xffff ? 1 : 0;
@@ -344,28 +348,39 @@ export class IigsSynth {
         // complete integer phase cycle. No timers or duration cap are needed.
         const firstHeartbeat = now + 1 / UPDATE_HZ;
         source.playbackRate.setValueAtTime(0, firstHeartbeat);
-        const offsets: number[] = [];
-        let phase = initial.phase;
-        do {
-          const step = vibratoStep(phase, instrument.vibratoSpeed, instrument.vibratoDepth);
-          phase = step.phase;
-          offsets.push(step.offset);
-        } while (phase !== initial.phase);
-        const framesPerStep = (BUFFER_RATE * 2) / UPDATE_HZ;
-        const buffer = this.ctx.createBuffer(1, offsets.length * framesPerStep, BUFFER_RATE);
-        const data = buffer.getChannelData(0);
-        for (const [i, offset] of offsets.entries())
-          data.fill(
-            iigsByteRate(semitone, wave, carry + offset) / BUFFER_RATE,
-            i * framesPerStep,
-            (i + 1) * framesPerStep,
-          );
+        let cached = this.modulationBuffers.get(instrument);
+        if (!cached) {
+          cached = new Map();
+          this.modulationBuffers.set(instrument, cached);
+        }
+        const key = semitone * 2 + half;
+        let buffer = cached.get(key);
+        if (!buffer) {
+          const offsets: number[] = [];
+          let phase = initial.phase;
+          do {
+            const step = vibratoStep(phase, instrument.vibratoSpeed, instrument.vibratoDepth);
+            phase = step.phase;
+            offsets.push(step.offset);
+          } while (phase !== initial.phase);
+          const framesPerStep = (BUFFER_RATE * 2) / UPDATE_HZ;
+          buffer = this.ctx.createBuffer(1, offsets.length * framesPerStep, BUFFER_RATE);
+          const data = buffer.getChannelData(0);
+          for (const [i, offset] of offsets.entries())
+            data.fill(
+              iigsByteRate(semitone, wave, carry + offset) / BUFFER_RATE,
+              i * framesPerStep,
+              (i + 1) * framesPerStep,
+            );
+          cached.set(key, buffer);
+        }
         const modulation = this.ctx.createBufferSource();
         modulation.buffer = buffer;
         modulation.loop = true;
         modulation.connect(source.playbackRate);
         modulation.start(firstHeartbeat);
         sources.push(modulation);
+        if (!source.loop) oneShotControls.set(source, modulation);
       }
     }
     const { points, levels, sustained, duration } = envelopePoints(instrument, 0, 0);
@@ -384,16 +399,12 @@ export class IigsSynth {
       started: now,
       volumeLevel: volume,
       ended: new Set(),
+      oneShotControls,
+      firstHeartbeat: now + 1 / UPDATE_HZ,
     };
-    for (const source of sources)
-      source.onended = () => {
-        voice.ended.add(source);
-        if (voice.ended.size === voice.sources.length) {
-          voice.volume.disconnect();
-          this.retiring.delete(voice);
-          this.finishDisposal();
-        }
-      };
+    for (const source of sources) this.trackCompletion(voice, source);
+    for (const control of oneShotControls.values())
+      if (Number.isFinite(voice.endsAt)) this.stopSource(control, voice.endsAt);
     envelope.gain.setValueAtTime(0, now);
     this.schedule(voice, now, points);
     // Keep loop sources available behind the DOC-volume gate: NoteOff can
@@ -402,6 +413,20 @@ export class IigsSynth {
     this.voices.set(id, voice);
     this.slots[slot] = voice;
     if (channel >= 0) this.channelNotes[channel]![slot] = semitone;
+  }
+
+  private trackCompletion(voice: Voice, source: AudioBufferSourceNode): void {
+    source.onended = () => {
+      voice.ended.add(source);
+      source.disconnect();
+      const control = voice.oneShotControls.get(source);
+      if (control) this.stopSource(control, this.ctx.currentTime);
+      if (voice.ended.size === voice.sources.length) {
+        voice.volume.disconnect();
+        this.retiring.delete(voice);
+        this.finishDisposal();
+      }
+    };
   }
 
   /** NoteOff: the envelope jumps to the release segment from its current level. */
@@ -422,6 +447,24 @@ export class IigsSynth {
     if (clearMapping && voice.channel >= 0) this.channelNotes[voice.channel]![voice.slot] = -1;
     voice.envelope.gain.cancelScheduledValues(now);
     voice.endsAt = sustained ? Infinity : now + duration;
+    // A scheduled stop cannot be cancelled. Replace only controls with an
+    // old finite deadline, preserving the original heartbeat's loop phase.
+    for (const [carrier, control] of voice.oneShotControls) {
+      if (voice.ended.has(carrier)) continue;
+      if (this.sourceStops.has(control)) {
+        this.stopSource(control, now);
+        const next = this.ctx.createBufferSource();
+        next.buffer = control.buffer;
+        next.loop = true;
+        next.connect(carrier.playbackRate);
+        const start = Math.max(now, voice.firstHeartbeat);
+        next.start(start, (start - voice.firstHeartbeat) % control.buffer!.duration);
+        voice.sources.push(next);
+        voice.oneShotControls.set(carrier, next);
+        this.trackCompletion(voice, next);
+        if (Number.isFinite(voice.endsAt)) this.stopSource(next, voice.endsAt);
+      } else if (Number.isFinite(voice.endsAt)) this.stopSource(control, voice.endsAt);
+    }
     this.schedule(voice, now, points);
   }
 

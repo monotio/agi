@@ -5680,7 +5680,9 @@ scopes:
   instrument or type-1 sample with nonzero `vibratoDepth` and `vibratoSpeed`
   now step `vibratoStep` at `NoteOn` and on odd 60 Hz heartbeats across
   `NoteOff` in [iigsSynth.ts](../app/src/audio/iigsSynth.ts), matching the
-  captured MAME DOC frequency words bit-for-bit ([iigs-synth.test.ts](../app/test/iigs-synth.test.ts)).
+  captured MAME DOC frequency words bit-for-bit in the private execution evidence.
+  [iigs-synth.test.ts](../app/test/iigs-synth.test.ts) separately asserts hand-computed
+  pitch offsets and their scheduled playback rates.
 - **DOC sample holding (documented presentation limit).** The host omits
   scan-rate output holding. The measured high-frequency imaging difference
   is primarily above 4 kHz (about 3.7% versus 2.1% spectral energy). Its

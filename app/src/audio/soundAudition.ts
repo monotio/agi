@@ -9,6 +9,7 @@
 
 import { SoundPlayback, booterSoundRows } from "../../../src/sound/sound.ts";
 import { PROFILES, type AgiProfile, type ProfileId } from "../../../src/runtime/profile.ts";
+import { readAmigaRegion } from "../settings/amigaRegion.ts";
 import type { AgiAudio } from "./AgiAudio.ts";
 
 export const AUDITION_TICK_HZ = 60;
@@ -549,12 +550,7 @@ export class SoundAudition {
   // ---- transport internals ----
 
   private captureAmigaRegion(): void {
-    try {
-      this.amigaRegion =
-        globalThis.localStorage?.getItem("monotio_agi.amigaRegion") === "pal" ? "pal" : "ntsc";
-    } catch {
-      this.amigaRegion = "ntsc";
-    }
+    this.amigaRegion = readAmigaRegion();
   }
 
   private tickHz(): number {

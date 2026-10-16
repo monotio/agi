@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { IigsSynth, envelopePoints, levelAmplitude, docVolume } from "../src/audio/iigsSynth.ts";
+import {
+  IigsSynth,
+  envelopePoints,
+  levelAmplitude,
+  docVolume,
+  vibratoStep,
+} from "../src/audio/iigsSynth.ts";
 import type { IigsInstrument, IigsWave } from "../../src/sound/iigsBank.ts";
 
 // docs/fidelity.md "IIgs sound": Note Synthesizer envelopes and DOC wave
@@ -73,6 +79,7 @@ function fakeContext() {
     playbackRate: ReturnType<typeof param>;
     stopped: boolean;
     starts: number[];
+    offsets: number[];
     stops: number[];
     onended: (() => void) | null;
   }[] = [];
@@ -84,9 +91,9 @@ function fakeContext() {
       gains.push(gain);
       return gain;
     },
-    createBuffer: (_channels: number, length: number) => {
+    createBuffer: (_channels: number, length: number, sampleRate: number) => {
       const data = new Float32Array(length);
-      return { data, length, getChannelData: () => data };
+      return { data, length, duration: length / sampleRate, getChannelData: () => data };
     },
     createBufferSource: () => {
       const source = {
@@ -95,10 +102,12 @@ function fakeContext() {
         loop: false,
         playbackRate: param(),
         starts: [] as number[],
+        offsets: [] as number[],
         stops: [] as number[],
         onended: null as (() => void) | null,
-        start(at: number) {
+        start(at: number, offset = 0) {
           this.starts.push(at);
+          this.offsets.push(offset);
         },
         stop(at: number) {
           this.stops.push(at);
@@ -595,10 +604,17 @@ it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators acr
   // TOOL025+0686..0749 with SQ2 program 16's vibratoDepth=66, vibratoSpeed=25:
   // step 0 (at=0, phase=25):     lfo[25]=105, 105+66-128=43,  vol[43]=6  -> +12
   // step 1 (at=1/60, phase=50):  lfo[50]=121, 121+66-128=59,  vol[59]=13 -> +26
-  // step 2 (at=3/60, phase=75):  lfo[75]=120, 120+66-128=58,  vol[58]=12 -> +24
+  // step 2 (at=3/60, phase=75):  lfo[75]=122, 122+66-128=60,  vol[60]=14 -> +28
   // step 3 (at=5/60, phase=100): lfo[100]=106, 106+66-128=44, vol[44]=7  -> +14
   // step 4 (at=7/60, phase=125): lfo[125]=54,  54+66-128=-8   (bmi)      ->   0
-  // step 5 (at=9/60, phase=150): lfo[150^255=105]=102, 102+66-128=40, vol[40]=5, eor #$ffff; asl a -> -12
+  // step 5 (at=9/60, phase=150): lfo[150^255=105]=103, 103+66-128=41, vol[41]=6, eor #$ffff; asl a -> -14
+  let phase = 0;
+  const offsets = Array.from({ length: 6 }, () => {
+    const step = vibratoStep(phase, 25, 66);
+    phase = step.phase;
+    return step.offset;
+  });
+  assert.deepEqual(offsets, [12, 26, 28, 14, 0, -14]);
   const { ctx, sources } = fakeContext();
   const vibratoInst: IigsInstrument = {
     ...INSTRUMENT,
@@ -633,10 +649,10 @@ it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators acr
   const expectedOffsets: [number, number][] = [
     [0, 12],
     [1 / 60, 26],
-    [3 / 60, 24],
+    [3 / 60, 28],
     [5 / 60, 14],
     [7 / 60, 0],
-    [9 / 60, -12],
+    [9 / 60, -14],
   ];
   for (const [carrier, modulation] of [
     [sources[0]!, sources[1]!],
@@ -673,4 +689,99 @@ it("sustained vibrato loops through phase wrap beyond ten seconds and stops with
   assert.notEqual(modulation.buffer!.data[0], modulation.buffer!.data[4 * 1470]);
   instance.stop(12);
   assert.equal(modulation.stops.at(-1), 12);
+});
+
+it("repeated vibrato notes share control buffers per instrument, note and half", () => {
+  const { ctx, sources } = fakeContext();
+  const instrument: IigsInstrument = {
+    ...INSTRUMENT,
+    vibratoDepth: 66,
+    vibratoSpeed: 25,
+    b: [wave(127, 0x30, 0)],
+  };
+  const other = { ...instrument, vibratoDepth: 75 };
+  const instance = new IigsSynth(ctx as unknown as BaseAudioContext, {} as AudioNode, {
+    doc: new Uint8Array(0x10000).fill(0x90),
+    bank: { programs: [instrument, other], defaultInstrument: instrument },
+  });
+  for (const [voice, note, program] of [
+    [0, 50, 0],
+    [1, 50, 0],
+    [2, 51, 0],
+    [3, 50, 1],
+  ])
+    instance.output({
+      kind: "iigs",
+      event: "note-on",
+      voice: voice!,
+      channel: 0,
+      note: note!,
+      volume: 127,
+      program: program!,
+    });
+  assert.equal(sources[1]!.buffer, sources[5]!.buffer);
+  assert.equal(sources[3]!.buffer, sources[7]!.buffer);
+  assert.notEqual(sources[1]!.buffer, sources[3]!.buffer);
+  assert.notEqual(sources[1]!.buffer, sources[9]!.buffer);
+  assert.notEqual(sources[1]!.buffer, sources[13]!.buffer);
+});
+
+it("one-shot vibrato controls stop at a finite envelope end and when the carrier finishes", () => {
+  const { ctx, sources } = fakeContext();
+  const instrument: IigsInstrument = {
+    ...INSTRUMENT,
+    vibratoDepth: 66,
+    vibratoSpeed: 25,
+    a: [wave(127, 0x10, 2)],
+    envelope: [flat(127, 32512), flat(0, 256), ...Array.from({ length: 6 }, () => flat(0, 0))],
+  };
+  const instance = new IigsSynth(ctx as unknown as BaseAudioContext, {} as AudioNode, {
+    doc: new Uint8Array(0x10000).fill(0x90),
+    bank: { programs: [instrument], defaultInstrument: instrument },
+  });
+  instance.output({
+    kind: "iigs",
+    event: "note-on",
+    voice: 0,
+    channel: 0,
+    note: 50,
+    volume: 127,
+    program: 0,
+  });
+  assert.deepEqual(sources[1]!.stops, [127 / 60]);
+  ctx.currentTime = 0.01;
+  sources[0]!.onended!();
+  assert.equal(sources[1]!.stops.at(-1), 0.01);
+});
+
+it("one-shot vibrato continues when NoteOff extends a finite contour into sustain", () => {
+  const { ctx, sources } = fakeContext();
+  const instrument: IigsInstrument = {
+    ...INSTRUMENT,
+    vibratoDepth: 66,
+    vibratoSpeed: 25,
+    releaseSegment: 3,
+    a: [wave(127, 0x10, 2)],
+    envelope: [
+      flat(127, 32512),
+      flat(0, 256),
+      flat(0, 0),
+      flat(127, 0),
+      ...Array.from({ length: 4 }, () => flat(0, 0)),
+    ],
+  };
+  const instance = new IigsSynth(ctx as unknown as BaseAudioContext, {} as AudioNode, {
+    doc: new Uint8Array(0x10000).fill(0x90),
+    bank: { programs: [instrument], defaultInstrument: instrument },
+  });
+  instance.output(
+    { kind: "iigs", event: "note-on", voice: 0, channel: 0, note: 50, volume: 127, program: 0 },
+    0,
+  );
+  instance.output({ kind: "iigs", event: "note-off", voice: 0 }, 0.1);
+  assert.equal(sources.length, 3, "replace the control whose finite stop cannot be cancelled");
+  assert.equal(sources[2]!.buffer, sources[1]!.buffer);
+  assert.deepEqual(sources[2]!.stops, []);
+  assert.deepEqual(sources[2]!.starts, [0.1]);
+  assert.deepEqual(sources[2]!.offsets, [0.1 - 1 / 60]);
 });
