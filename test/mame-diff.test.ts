@@ -30,6 +30,17 @@ test("normalization crops before nearest-neighbour sampling and never adjusts co
     normalizeFrame({ width: 4, height: 3, rgba }, { x: 1, y: 1, width: 2, height: 1 }, 2, 1),
     new Uint8Array([17, 34, 51, 68, 85, 102]),
   );
+  const scaled = normalizeFrame(
+    {
+      width: 4,
+      height: 1,
+      rgba: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]),
+    },
+    { x: 0, y: 0, width: 4, height: 1 },
+    2,
+    1,
+  );
+  assert.deepEqual(scaled, new Uint8Array([0, 255, 0, 255, 255, 255]));
   assert.throws(
     () => normalizeFrame({ width: 4, height: 3, rgba }, { x: 3, y: 0, width: 2, height: 1 }),
     /crop/i,
