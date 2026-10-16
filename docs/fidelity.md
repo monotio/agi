@@ -3576,24 +3576,37 @@ profile, opcode 0x8f does not look up a message.
 
 ### PC booter sound rows
 
-A 2.001 sound payload (sounds 1..26) is a stream of rows: raw SN76489 register writes terminated by a
-zero byte, one row per timer tick; an empty row (two adjacent terminators) writes nothing that tick.
-Playback completes at payload exhaustion and silences the chip.
+A 2.001 sound payload (sounds 1..26) is a row period byte followed by a stream of rows: raw SN76489
+register writes terminated by a zero byte, one row per `period` timer ticks; an empty row (two adjacent
+terminators) writes nothing in its slot. Playback completes on the tick after the last row and silences the chip.
 
-**Disassembly evidence:** load-module offset 0x7473..0x75B3:
+**Row period (fact; decoded executable SHA-256 `424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`).**
+The start routine at `0x7408..0x746a` stores the payload bounds in `[0x122a]` / `[0x122c]`, reads the
+first byte (`mov al,[di]` at `0x7422`, after `inc [0x122a]` at `0x741e`) into `[0x122e]` and zeroes the
+countdown `[0x1230]`. The cursor therefore starts one byte in: the period byte is never written to the
+chip or the speaker. On device 0 (speaker) a zero period branches to cleanup `0x4b96` at `0x743d`, which returns
+early because the sound is inactive (see the speaker entry's recovery note); with a nonzero device (chip) it activates normally. Each tick the reader
+(`0x746b`) first compares the cursor with the end (`0x7473..0x747c`, cleanup on exhaustion), then
+`dec [0x1230]` and returns while the result is positive (`jng` at `0x7486`); otherwise it reloads
+`[0x1230]` from `[0x122e]` (`0x748b`) and consumes one row. The countdown starts at zero, so row 0 plays
+on tick 1 and later rows every `period` ticks; a chip-path period of zero decrements to -1 and plays
+every tick like period 1. Exhaustion is seen on the next tick regardless of the countdown.
+Hand-computed streams in
+[sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts) failed before the fix.
+Earlier hosts wrote the period byte to the chip as a stray register byte.
 
-- Playback check at 0x7473 compares the current row pointer `[0x122a]` against payload end `[0x122c]`.
-  On exhaustion (`jc 0x7482` not taken), calls 0x4b96 which silences all channels (`0x9f`, `0xbf`, `0xdf`, `0xff`
-  sent to port 0xc0) and sets the completion flag.
-- Row byte decoding loop at 0x74a1 compares `byte [di]` against 0. Non-zero bytes are written via 0x75b3
-  to port 0xc0 (or converted to 8253 timer 2 frequency divisor at ports 0x43/0x42 for PC speaker), advancing
-  `[0x122a]`. A zero byte branches to 0x7556, terminating the row for the current tick.
-- Routine 0x75b3 checks sound enabled flag f9 at 0x75bb (`call 0x6ad5`) before writing to the chip; if f9 is
-  cleared, chip writes are bypassed.
-- Sound playback is driven by the timer interrupt hook on INT 0x1C (installed at load-module offset 0x4bba
-  pointing to 0x76d7, which calls 0x73c5 on every timer tick).
-
-**Tests:** [sound-playback.test.ts](../test/sound-playback.test.ts).
+**Completion (fact, both devices).** The row loop ends at `0x7556` (`jmp` from the exhaustion test
+at `0x7494..0x749a`, the zero terminator at `0x74a1..0x74a6`, or a finished device-0 selector), which
+only does `inc [0x122a]` and returns: it never calls cleanup. Cleanup `0x4b96` is reached only from
+the entry test at `0x7473..0x747c`, on a later tick, before the countdown. It clears the active word
+`[0x0e74]` (`0x4ba2`), sets the completion flag through `0x6aba` with the stored index `[0x0e80]`
+(`0x4ba8..0x4bac`) and then runs `0x7560`: on a chip device (`[0x0d42]` nonzero, `0x7565`) that
+writes `9f bf df ff` straight to port `0xc0` (`0x7577..0x75ac`, not flag-9 gated). The chip therefore
+completes one tick after its final row, like the speaker, even when the final row has no terminator
+(the cursor then ends one past the end). Earlier hosts completed the chip path on the final row's
+tick. A 2.001 sound of `n` rows with period `p` completes on tick `2 + (n - 1) * p`.
+The addresses come from static disassembly of the decoded executable; no emulator run covers the
+chip device.
 
 #### Wave-3 booter sound verdict
 
@@ -7056,12 +7069,14 @@ and offline preview, including snapshot continuation and speaker stop.
 Regressions in [sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts)
 failed before implementation.
 
-**Bounds and remaining scope.** On malformed truncated pairs the host uses
+**Bounds and remaining scope.** A speaker sound with period 0 branches to cleanup `0x4b96`
+at `0x743d` while inactive: `cmp word [0xe74],0` / `jz 0x4bb5` (`0x4b9b..0x4ba0`) returns
+early, so the original never sets the completion flag and never completes. The host
+completes it on tick 1 as a deliberate bounded recovery. On malformed truncated pairs the host uses
 zero for a missing continuation; original code reads past the payload. Unknown
 selectors are ignored by the host; the original can loop without advancing.
 Those are bounded recovery policies, not original valid-resource behavior.
-The existing PSG row path still completes on its final row and does not apply
-2.001 device-2 attenuation conversion. Those separate paths are outside this
+The PSG row path does not apply 2.001 device-2 attenuation conversion. Those separate paths are outside this
 speaker correction. No new MAME or real-hardware speaker measurement was made.
 
 ### Original games through MAME audio

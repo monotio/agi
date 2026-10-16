@@ -77,7 +77,7 @@ to 900 pixels wide.
 
 Each original interpreter played SOUND through its own machine's hardware. The
 interpreter turns a SOUND into that machine's register writes, one set per
-60 Hz tick, and the app's audio graph renders them. These spectrograms render
+tick (60 Hz on most machines; PAL Amiga and booter builds keep their own timing), and the app's audio graph renders them. These spectrograms render
 two of the tutorial's own SOUNDs that way:
 
 ![Spectrograms of the tutorial's opening music and lever sound on PC speaker, PCjr and Tandy, and Amiga](sound-platforms.png)

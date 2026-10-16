@@ -7,7 +7,7 @@
  * stored resources or persisted project state.
  */
 
-import { SoundPlayback, booterSoundRows } from "../../../src/sound/sound.ts";
+import { SoundPlayback, booterSoundPeriod, booterSoundRows } from "../../../src/sound/sound.ts";
 import { PROFILES, type AgiProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import { readAmigaRegion } from "../settings/amigaRegion.ts";
 import type { AgiAudio } from "./AgiAudio.ts";
@@ -116,10 +116,14 @@ function laneControlOf(family: RenderFamily): AuditionLaneControls {
   return "unsupported";
 }
 
-/** The header-declared extent: summed lane durations, word 0 as 65,536. */
+/**
+ * The header-declared span: summed lane durations, word 0 as 65,536. For booter
+ * rows it is rows x max(period, 1), not the playback extent (no cleanup tick).
+ */
 function authoredExtent(payload: Uint8Array, family: RenderFamily): number | null {
   if (family === "iigs") return null;
-  if (family === "booter") return booterSoundRows(payload).length;
+  if (family === "booter")
+    return booterSoundRows(payload).length * Math.max(booterSoundPeriod(payload), 1);
   if (payload.length < 8) return null;
   let max = 0;
   for (let ch = 0; ch < 4; ch++) {

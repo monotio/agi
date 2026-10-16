@@ -624,30 +624,32 @@ describe("amiga kq2 envelope (docs/fidelity.md, original Amiga sound player)", (
 
 describe("pc booter 2.001 row streams", () => {
   it("splits payload into zero-terminated rows, keeping empty and unterminated rows", () => {
-    assert.deepEqual(booterSoundRows(Uint8Array.of(0x80, 0x02, 0, 0, 0x9f, 0)), [
+    assert.deepEqual(booterSoundRows(Uint8Array.of(1, 0x80, 0x02, 0, 0, 0x9f, 0)), [
       [0x80, 0x02],
       [],
       [0x9f],
     ]);
-    assert.deepEqual(booterSoundRows(Uint8Array.of(0x80, 0x02)), [[0x80, 0x02]]);
+    assert.deepEqual(booterSoundRows(Uint8Array.of(1, 0x80, 0x02)), [[0x80, 0x02]]);
     assert.deepEqual(booterSoundRows(new Uint8Array(0)), []);
   });
 
-  it("emits one row per tick and completes at payload exhaustion", () => {
+  it("emits one row per period (1 here) and completes on the tick after the last row", () => {
     const profile = detectProfile(new Map(), "2.001");
-    const payload = Uint8Array.of(0x80, 0x02, 0, 0, 0x9f, 0);
+    const payload = Uint8Array.of(1, 0x80, 0x02, 0, 0, 0x9f, 0);
     const sound = new SoundPlayback(profile, payload, 1);
-    assert.equal(sound.durationTicks, 3);
+    assert.equal(sound.durationTicks, 4);
     assert.deepEqual(sound.tick(true, 0), {
       outputs: [{ kind: "psg", bytes: [0x80, 0x02] }],
       complete: false,
     });
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(true, 0), {
-      outputs: [
-        { kind: "psg", bytes: [0x9f] },
-        { kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] },
-      ],
+      outputs: [{ kind: "psg", bytes: [0x9f] }],
+      complete: false,
+    });
+    // The exhaustion check (0x7473) runs on the tick after the last row.
+    assert.deepEqual(sound.tick(true, 0), {
+      outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
       complete: true,
     });
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
@@ -661,7 +663,8 @@ describe("pc booter 2.001 row streams", () => {
     // (0x74B0/0x7482), and the done flag is set only from the exhaustion
     // path (0x747C → 0x4B96).
     const profile = detectProfile(new Map(), "2.001");
-    const sound = new SoundPlayback(profile, Uint8Array.of(0x80, 0x02, 0, 0x9f, 0), 1);
+    const sound = new SoundPlayback(profile, Uint8Array.of(1, 0x80, 0x02, 0, 0x9f, 0), 1);
+    assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(false, 0), {
       outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
@@ -717,12 +720,13 @@ describe("pc booter 2.001 row streams", () => {
 
   it("snapshots and restores the row position", () => {
     const profile = detectProfile(new Map(), "2.001");
-    const payload = Uint8Array.of(0x80, 0x02, 0, 0x84, 0, 0x9f, 0);
+    const payload = Uint8Array.of(1, 0x80, 0x02, 0, 0x84, 0, 0x9f, 0);
     const sound = new SoundPlayback(profile, payload, 1);
     sound.tick(true, 0);
     const restored = new SoundPlayback(profile, payload, 1);
     restored.restore(sound.snapshot());
     assert.deepEqual(bytes(restored.tick(true, 0).outputs), [0x84]);
+    assert.equal(restored.tick(true, 0).complete, false);
     assert.equal(restored.tick(true, 0).complete, true);
   });
 });

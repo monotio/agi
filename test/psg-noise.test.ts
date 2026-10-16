@@ -149,7 +149,7 @@ it("profiles carry their representative hardware on noise control writes", () =>
   ] as const) {
     const profile = PROFILES[id];
     assert.equal(profile.psgNoise, chip);
-    const resource = id === "2.001" ? Uint8Array.of(0xe4, 0) : payload;
+    const resource = id === "2.001" ? Uint8Array.of(1, 0xe4, 0) : payload;
     const event = new SoundPlayback(profile, resource, 1)
       .tick(true, 0)
       .outputs.find((event) => event.kind === "psg" && event.bytes[0] === 0xe4);
