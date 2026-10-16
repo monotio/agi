@@ -1,5 +1,5 @@
 /**
- * Authentic AGI save-file envelope, clean-room from Peter Kelly's agi-re behavioral
+ * Released engine save-file envelope, clean-room from Peter Kelly's agi-re behavioral
  * specification: "Rooms, Replay, and Persistence" (save-file envelope, the
  * per-profile block-1 partitions, the block-2 object record, block-3 inventory
  * payload, block-4 replay-pair storage, block-5 logic-resume grammar, and the
@@ -8,7 +8,10 @@
  * The engine owns game state; this module owns bytes. It has no dependency on
  * the engine, on Node, or on the browser: `encodeSave` turns a portable
  * `SaveState` into the real file image and `decodeSave` turns an image back,
- * preserving every reserved byte the file supplied.
+ * preserving reserved state bytes. Original interpreter files use savFile.ts:
+ * the released codec retains its PC flag/mode packing, 2.230 block count,
+ * Amiga v3 inventory treatment and IIgs envelope byte order for archive readers.
+ * See docs/fidelity.md "Original save-file interoperability".
  *
  * Framing (spec "Save-file envelope"):
  *

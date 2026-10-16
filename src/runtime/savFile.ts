@@ -11,6 +11,7 @@ import {
   decodeSave,
   encodeSave,
   type SaveState,
+  type Block1Layout,
 } from "./persistence.ts";
 
 // [original flag, portable flag, inverted]. The same assignments occur in
@@ -47,7 +48,7 @@ const sources = new WeakMap<SaveState, Source>();
 
 function nativeProfile(profile: AgiProfile): AgiProfile {
   if (profile.id === "2.001")
-    throw new RangeError("Interpreter 2.001 saves several slot files; it has no single .SAV file");
+    throw new RangeError("Interpreter 2.001 saves disk sectors; it has no standalone .SAV file");
   if (profile.id === "2.230") return { ...profile, saveBlocks: 4 };
   if (["amiga-2.310", "amiga-2.316", "amiga-2.333"].includes(profile.id))
     return { ...profile, saveBlock3Xor: true };
@@ -58,9 +59,9 @@ function word(bytes: Uint8Array, at: number, be = false): number {
   return be ? (bytes[at]! << 8) | bytes[at + 1]! : bytes[at]! | (bytes[at + 1]! << 8);
 }
 
-function blocksOf(bytes: Uint8Array, profile: AgiProfile): Uint8Array[] {
+function blocksOf(bytes: Uint8Array, profile: AgiProfile, released = false): Uint8Array[] {
   if (bytes.length < 31) throw new RangeError("Original save ends inside its description");
-  const be = profile.id === "iigs-1.014";
+  const be = released && profile.id === "iigs-1.014";
   const blocks: Uint8Array[] = [];
   let at = 31;
   for (let i = 0; i < profile.saveBlocks; i++) {
@@ -89,6 +90,20 @@ function envelope(header: Uint8Array, blocks: readonly Uint8Array[], be: boolean
   return result;
 }
 
+function reverseFlagBytes(blocks: Uint8Array[], layout: Block1Layout): void {
+  if (layout.kind !== "pc") return;
+  const state = blocks[0]!;
+  const flags = 0x107;
+  // PC Set/Reset use 0x80 >> (n & 7). Amiga, IIgs and the released host
+  // codec use 1 << (n & 7); reverse only the original PC flag bank.
+  for (let at = flags; at < flags + 32; at++) {
+    let value = state[at]!;
+    value = ((value & 0x55) << 1) | ((value >>> 1) & 0x55);
+    value = ((value & 0x33) << 2) | ((value >>> 2) & 0x33);
+    state[at] = (value << 4) | (value >>> 4);
+  }
+}
+
 /** Decode an original file to portable game state, retaining its unmodeled bytes. */
 export function decodeOriginalSav(bytes: Uint8Array, profile: AgiProfile): SaveState {
   const native = nativeProfile(profile);
@@ -107,7 +122,11 @@ export function decodeOriginalSav(bytes: Uint8Array, profile: AgiProfile): SaveS
       if (word(resume, at, be) > 255)
         throw new RangeError("Original save logic-resume number exceeds 255");
   }
-  const state = decodeSave(bytes, native);
+  // Released IIgs host images use big-endian lengths. The original writer
+  // emits low then high, like PC and Amiga; only the envelope is converted.
+  const released = blocks.map((block) => block.slice());
+  reverseFlagBytes(released, block1Layout(native));
+  const state = decodeSave(envelope(bytes, released, native.id === "iigs-1.014"), native);
   if (block1Layout(native).kind === "pc") {
     for (let i = 0; i < state.objects.length; i++) {
       const object = state.objects[i]!;
@@ -152,7 +171,8 @@ export function encodeOriginalSav(state: SaveState, profile: AgiProfile): Uint8A
     return { ...object, state: flags, motionMode, cycleMode };
   });
   const encoded = encodeSave({ ...state, objects }, native);
-  const blocks = blocksOf(encoded, native);
+  const blocks = blocksOf(encoded, native, true);
+  reverseFlagBytes(blocks, layout);
   const source = sources.get(state);
   if (source && source.profile !== profile.id)
     throw new RangeError("Original save state belongs to a different interpreter profile");
@@ -180,7 +200,7 @@ export function encodeOriginalSav(state: SaveState, profile: AgiProfile): Uint8A
     if (native.saveBlocks >= 5 && JSON.stringify(state.logicResume) === source.resume)
       blocks[blocks.length - 1] = source.blocks.at(-1)!;
   }
-  const result = envelope(encoded, blocks, layout.kind === "iigs");
+  const result = envelope(encoded, blocks, false);
   // Avoid the legacy encoder's u16 length wrapping on large object/inventory blocks.
   decodeOriginalSav(result, profile);
   return result;
@@ -190,6 +210,7 @@ export function encodeOriginalSav(state: SaveState, profile: AgiProfile): Uint8A
 export function importOriginalSav(engine: Engine, bytes: Uint8Array): void {
   const state = decodeOriginalSav(bytes, engine.profile);
   const current = decodeSave(engine.serialize(), engine.profile);
+  const itemBytes = engine.readState().inventory.length * engine.profile.inventoryEntryBytes;
   if (!state.signature.every((byte, i) => byte === current.signature[i]))
     throw new RangeError("Original save belongs to a different game signature");
   if (state.objects.length !== current.objects.length)
@@ -198,8 +219,7 @@ export function importOriginalSav(engine: Engine, bytes: Uint8Array): void {
     state.inventory.length !== current.inventory.length ||
     !state.inventory.every(
       (byte, i) =>
-        (i < engine.itemNames().length * engine.profile.inventoryEntryBytes &&
-          i % engine.profile.inventoryEntryBytes === 2) ||
+        (i < itemBytes && i % engine.profile.inventoryEntryBytes === 2) ||
         byte === current.inventory[i],
     )
   )
