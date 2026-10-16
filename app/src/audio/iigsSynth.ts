@@ -165,6 +165,9 @@ interface Voice {
 /** The rate the wave buffers are built at; playbackRate supplies the pitch. */
 const BUFFER_RATE = 44100;
 
+/** K-rate pitch controls need only 300 frames per 30 Hz vibrato step. */
+const CONTROL_RATE = 9000;
+
 export class IigsSynth {
   private readonly voices = new Map<number, Voice>();
   private readonly retiring = new Set<Voice>();
@@ -363,8 +366,8 @@ export class IigsSynth {
             phase = step.phase;
             offsets.push(step.offset);
           } while (phase !== initial.phase);
-          const framesPerStep = (BUFFER_RATE * 2) / UPDATE_HZ;
-          buffer = this.ctx.createBuffer(1, offsets.length * framesPerStep, BUFFER_RATE);
+          const framesPerStep = (CONTROL_RATE * 2) / UPDATE_HZ;
+          buffer = this.ctx.createBuffer(1, offsets.length * framesPerStep, CONTROL_RATE);
           const data = buffer.getChannelData(0);
           for (const [i, offset] of offsets.entries())
             data.fill(

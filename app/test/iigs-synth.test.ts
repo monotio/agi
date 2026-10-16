@@ -662,7 +662,7 @@ it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators acr
     assert.deepEqual(carrier.playbackRate.writes.at(-1), [0, 1 / 60]);
     assert.deepEqual(modulation.starts, [1 / 60]);
     for (const [i, [, offset]] of expectedOffsets.slice(1).entries())
-      assert.equal(modulation.buffer!.data[i * 1470], Math.fround(expectedRate(offset)));
+      assert.equal(modulation.buffer!.data[i * 300], Math.fround(expectedRate(offset)));
     assert.deepEqual(modulation.stops, [], "NoteOff keeps the same vibrato cycle");
   }
 });
@@ -683,10 +683,10 @@ it("sustained vibrato loops through phase wrap beyond ten seconds and stops with
   assert.equal(modulation.loop, true);
   assert.equal(
     modulation.buffer!.data.length,
-    256 * 1470,
-    "speed 25 returns to the same phase after 256 updates",
+    256 * 300,
+    "a 9 kHz control holds each of 256 updates for 300 frames",
   );
-  assert.notEqual(modulation.buffer!.data[0], modulation.buffer!.data[4 * 1470]);
+  assert.notEqual(modulation.buffer!.data[0], modulation.buffer!.data[4 * 300]);
   instance.stop(12);
   assert.equal(modulation.stops.at(-1), 12);
 });
