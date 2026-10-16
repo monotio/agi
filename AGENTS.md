@@ -84,9 +84,11 @@ reviews of one push at a time miss properties of the whole system.
   variants. A no-op is valid only where the specification says so. `test/games.test.ts` checks
   dispatch coverage; each opcode's semantics needs its own assertions.
 - A profile covers what the player sees and hears as well as what the game does: palette, font
-  metrics, prompts, menus, dialogs, pointer, sound and timing per platform. Fonts are the project's
-  own drawings with each original's exact metrics; original system fonts are never loaded or
-  shipped. The original binary decides semantics and the values it encodes. MAME runs of the
+  metrics, prompts, menus, dialogs, pointer, sound and timing per platform. When a game's own
+  files include its font, such as the Apple IIgs `AGIFONT`, the player's copy is used at runtime.
+  Otherwise the font is the project's own drawing with the original's exact metrics. The project
+  never ships original fonts and never asks players for ROMs, and a game without its font file
+  still plays. The original binary decides semantics and the values it encodes. MAME runs of the
   original interpreter are a cross-check, not ground truth: MAME also emulates the graphics and
   sound chips, so explain each difference instead of copying MAME's output. Only real hardware
   settles chip output. The coverage table in `docs/fidelity.md` records each aspect's evidence
