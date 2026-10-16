@@ -1528,11 +1528,12 @@ offsets), the Amiga hunk executables (`2.082..2.333`), and IIgs `SQ2.SYS16`
   `set.cel.v`, `set.view.v`, and conditional `draw` paths across all play states
   is not settled by static scan (and is subject to the unreadable `LOGIC`
   entries and decoding warnings listed in `F-motion-07`). Engine: `setLoop`
-  (`set.loop`/`set.loop.v`) and `setCel` (`set.cel`/`set.cel.v`) store the
-  requested indices (`obj.loop = loop`, `obj.cel = cel`), clamp `obj.cel` to `0`
-  when `obj.cel >= celCount`, and update cel dimensions (`xsize`/`ysize`) when a
-  valid cel exists, without entering `Error(errNum, errVal)` recovery or
-  latching `v17`/`v18`; `draw` throws if a drawn object still lacks an assigned
+  (`set.loop`/`set.loop.v`) stores the requested loop index and clamps
+  `obj.cel` to `0` when `obj.cel >= celCount`. `setCel`
+  (`set.cel`/`set.cel.v`) retains the requested cel index, including an invalid
+  index. Both update cel dimensions (`xsize`/`ysize`) when a valid cel exists,
+  without entering `Error(errNum, errVal)` recovery or latching `v17`/`v18`;
+  `draw` throws if a drawn object still lacks an assigned
   view or valid cel rather than silently skipping the draw or corrupting the
   frame via a mid-script `longjmp`. `Error(errNum, errVal)` `longjmp` recovery
   and the `loop == loopcnt` header overread are deferred.

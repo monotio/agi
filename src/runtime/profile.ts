@@ -365,7 +365,7 @@ export interface AgiProfile {
   /**
    * Exact line-editor character-cap formula from the binary disassembly
    * (docs/fidelity.md "Original input, menu and modal handling"):
-   * - `"early-35"`: `min(v24, 35)` (PC 2.001..2.230).
+   * - `"early-35"`: `35` (PC 2.001..2.230).
    * - `"prompt-40"`: `min(v24, 40 - strlen(s0) - (promptByte !== 0 ? 1 : 0))`
    *   (PC 2.272, 3.002.149, Amiga 2.082..2.333).
    * - `"dialogue-36"`: `min(v24, (dialogueOpen ? 36 : 40) - strlen(s0) - (promptByte !== 0 ? 1 : 0))`

@@ -115,7 +115,15 @@ const meanings = computed(() =>
   ),
 );
 const skipped = computed(() => groups.value.find((group) => group.id === 0)!);
-const parsed = computed(() => parseSentence(sentence.value, new Map(entries.value)));
+const parsed = computed(() =>
+  parseSentence(
+    sentence.value,
+    new Map(entries.value),
+    props.profile.parserStopsAtTenthWord,
+    props.profile.parserDefaultsLoneAAndI,
+    props.profile.parserStripsPunctuation,
+  ),
+);
 const outcomes = computed(() =>
   sentenceOutcomes(sentence.value, entries.value, props.documents, props.room, props.profile),
 );
@@ -506,6 +514,7 @@ function dismissGhosts(event: KeyboardEvent): void {
                 v-model:response="teachResponse"
                 v-model:also="teachAlso"
                 :words="teachWords"
+                :profile
                 :disabled="readOnly"
               />
               <details v-if="teachResponse && teachPreview?.ok" open>
