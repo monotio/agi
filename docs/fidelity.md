@@ -2518,23 +2518,23 @@ In multi-channel AGI sound resources (such as King's Quest II Sound 6, the two-v
 hymn in Room 71), unused channels or rest notes are encoded with `tone = 0` and attenuation 15
 (`0x0f`, silence).
 
-Two failure modes arise if hardware latching semantics and rest notes are not modeled accurately:
+The command stream and backend latching have separate responsibilities:
 
 1. If an audio presentation backend treats non-latch data bytes as attenuation updates, a stray
    `0x00` byte (e.g. from an unsuppressed tone update or stream data) written while an attenuation
    register is latched will be interpreted as attenuation `0` (0 dB / 100% volume), producing an
    unintended maximum-volume stuck note or drone.
-2. `SoundPlayback` suppresses frequency writes when `tone = 0`, leaving inactive
-   voice divisors untouched. Original KQ1/MH1/GR1 routines emit these writes.
-   Suppression is a deliberate presentation divergence, not reproduced original
-   command-stream behavior. Resolve chip/device semantics before changing it.
+2. `SoundPlayback` emits both `0x00` tone bytes before a zero-tone rest's attenuation,
+   matching the original KQ1/MH1/GR1 command streams. `AgiAudio` and
+   `renderSoundPreview` ignore non-latch continuation bytes while an attenuation
+   or noise register is latched, preventing those bytes from raising its volume.
 
 **Specification:** The AGI behavioral specification documents the 5-byte note structure and treats
 control attenuation `0x0f` as silence. It gives tone 0 no rest meaning of its own and does not detail
 the TI SN76489 chip latching state machine.
 
 **Tests:** [audio.test.ts](../app/test/audio.test.ts) (rejection of data bytes on attenuation latches),
-[sound-playback.test.ts](../test/sound-playback.test.ts) (rest note tone suppression).
+[sound-playback.test.ts](../test/sound-playback.test.ts) (both zero tone bytes before rest attenuation).
 
 ### Original save and restart audit
 
@@ -5468,8 +5468,8 @@ Play, Studio audition and offline preview through the shared sequencer.
 The earlier [PC booter row finding](#pc-booter-sound-rows) remains distinct:
 2.001's decoded executable SHA-256 is
 `424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`;
-`7473..75b3` consumes raw zero-terminated port-write rows. Its row tests
-continue to pass; this DOS probe does not execute that separate row player.
+`7473..75b3` consumes device-specific rows. The 72 DOS vectors above do not
+execute that separate row player; its speaker execution is covered below.
 
 **Speaker (fact and rendering).** The early drivers compare the full
 control byte with `9f`; common drivers additionally use base attenuation 15. Thus raw `bf` in the first channel enables the early speaker path.
@@ -5545,21 +5545,88 @@ voices prevent a single-oscillator tuning verdict. Its 60-second host render
 has peak 0.0862 at master 1, preserving headroom. No analogue filter or gain
 was fitted to either MAME waveform.
 
-The finite allocator and discrete envelopes close identified host gaps,
-but complete IIgs digital equivalence remains open. Swap and sync still
-use independent looping buffers; DOC scan-rate sample holding and vibrato
-are not implemented. The intro uses free-running/one-shot waves, so it
-cannot validate those modes. Web Audio interpolation, mono mixing versus
-MAME's separate DOC output channels, and native heartbeat phase remain
-comparison limits. Real hardware is needed for silicon continuation/reset
-behavior, DAC/master-volume transfer and analogue output filtering. Those
-hardware questions do not excuse the outstanding digital swap/sync work.
+The finite allocator and discrete envelopes close identified host gaps.
+The following remaining differences have separate scopes:
+
+- **Swap and sync (documented limitation; defer to the IIgs MIDI lane).**
+  `docMode` bits 2:1 select sync/swap as 2/3. A scan of all SQ2 IIgs sound
+  resources and their bank bindings finds neither mode in any used MIDI
+  program (`0, 1, 2, 4, 5, 10, 11, 14, 16, 20, 23, 24, 32, 34, 35, 38,
+40, 41, 42, 43`) or type-1 sample. All 98 sample waves use mode 0 or 1;
+  swap waves exist only in unused bank programs. The host's independent
+  buffers therefore leave a digital gap for other instruments, with no
+  affected SQ2 cue identified. This is resource coverage, not general mode
+  equivalence.
+- **Vibrato (open; IIgs MIDI lane).** `TOOL025+0686..0749` implements vibrato.
+  Used SQ2 programs 16, 23 and 34 have nonzero depth/speed; no type-1 sample
+  does. Host vibrato remains absent, so these three programs retain a
+  player-audible digital difference requiring implementation.
+- **DOC sample holding (documented presentation limit).** The host omits
+  scan-rate output holding. The measured high-frequency imaging difference
+  is primarily above 4 kHz (about 3.7% versus 2.1% spectral energy). Its
+  audible effect cannot be isolated from the hardware's analogue
+  reconstruction filtering by the present mixed-output comparison. Keep
+  that uncertainty separate from the exact frequency/volume words.
+- **Release heartbeat phase (documented timing limit).** The temporary
+  target and release decrement follow the original tool code, but the
+  first host update uses the event heartbeat. Its phase can differ by at
+  most one 60 Hz tick (16.7 ms). This is not expected to be perceptible;
+  a native release trace would settle the phase.
+- **Per-build voice balance (documented acoustic limit).** Digital
+  attenuation and volume tables match the binary evidence. The captures
+  do not isolate every voice, and acoustic balance depends on real
+  hardware gain, speaker and analogue filtering. The mixed MAME results
+  cannot certify a per-build acoustic balance match.
+
+Web Audio interpolation and mono mixing versus MAME's separate DOC channels
+also limit comparison. Real hardware is needed for silicon continuation/reset
+behavior, DAC/master-volume transfer and analogue output filtering.
 
 Hand-computed regressions live in
 [sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts),
 [sound-preview.test.ts](../test/sound-preview.test.ts),
 [audio.test.ts](../app/test/audio.test.ts) and
 [iigs-synth.test.ts](../app/test/iigs-synth.test.ts).
+
+### 2.001 speaker row execution
+
+**Original-execution evidence.** Build 2.001 decoded executable SHA-256
+`424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`;
+load-module reader `746b..755f`, speaker writer `7607..766a`, cleanup
+`4b96..4bb8` / `7560..7575`. Unicorn 2.1.4 executes the unchanged reader,
+writer and cleanup, substituting only the flag-9 query and hardware port
+input (port 61 returns `a0`); port outputs are captured. Four synthetic
+payloads, each with flag 9 set/clear, cover 40 entries including completed
+entries. All PIT/control writes and completion entries match the host.
+This establishes the command stream, not the physical speaker waveform.
+
+**Facts.** Device 0 dispatches on the high nibble (`74c1..7553`). Selector
+`80` consumes two bytes, computes `12 * ((first & 15) | ((second & 63) << 4))`
+and calls the writer. Selector `90` consumes one byte and calls the writer
+with zero only for exact `9f`. Selectors `a0/c0/e0` skip pairs and
+`b0/d0/f0` skip single bytes. A pair's second byte can be zero without
+ending the row. The writer gates every call on flag 9; zero disables the
+speaker instead of programming PIT count 65,536. Nonzero counts write
+`b6` to port 43, low/high bytes to port 42, then set port-61 bits 0/1.
+The reader checks exhaustion at its next entry, so the final row holds
+for its tick and cleanup occurs one entry later. Speaker cleanup also
+passes through the flag-9 gate, including on an empty payload.
+
+**Hand calculation.** `81 23` gives 6732 (`1a4c`, PIT bytes `4c 1a`);
+`81 00` gives 12; `80 00` switches off; `8f 3f` gives 12276 (`2ff4`);
+an unterminated `82 02` gives 408 (`0198`). Empty rows hold the last tone.
+The shared sequencer now selects this speaker path for Play, Studio audition
+and offline preview, including snapshot continuation and speaker stop.
+Regressions in [sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts)
+failed before implementation.
+
+**Bounds and remaining scope.** On malformed truncated pairs the host uses
+zero for a missing continuation; original code reads past the payload. Unknown
+selectors are ignored by the host; the original can loop without advancing.
+Those are bounded recovery policies, not original valid-resource behavior.
+The existing PSG row path still completes on its final row and does not apply
+2.001 device-2 attenuation conversion. Those separate paths are outside this
+speaker correction. No new MAME or real-hardware speaker measurement was made.
 
 ### Original games through MAME audio
 

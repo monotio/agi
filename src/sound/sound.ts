@@ -156,13 +156,20 @@ export function parseSound(payload: Uint8Array): AgiSound {
  * PC booter 2.001 sound payload (docs/fidelity.md pc-booter-sound-rows): rows
  * of raw SN76489 register writes, each row terminated by a zero byte, one row
  * per sound tick. A row of no writes (two adjacent terminators) skips its
- * tick. A trailing row without a terminator still plays.
+ * tick. A trailing row without a terminator still plays. Speaker decoding
+ * consumes tone pairs together, including a zero continuation byte.
  */
-export function booterSoundRows(payload: Uint8Array): readonly (readonly number[])[] {
+export function booterSoundRows(
+  payload: Uint8Array,
+  speaker = false,
+): readonly (readonly number[])[] {
   const rows: number[][] = [];
   let start = 0;
   for (let i = 0; i < payload.length; i++) {
-    if (payload[i] !== 0) continue;
+    if (payload[i] !== 0) {
+      if (speaker && (payload[i]! & 0x90) === 0x80) i++;
+      continue;
+    }
     rows.push([...payload.subarray(start, i)]);
     start = i + 1;
   }
@@ -569,12 +576,8 @@ export class SoundPlayback {
         : profile.soundEnvelope === "3.002"
           ? V3_ENVELOPE_TABLE
           : DEFAULT_ENVELOPE_TABLE;
-    // The booter payload is already raw chip writes; there is no speaker rendition.
     this.single =
-      profile.sound === "booter-2.001" ||
-      profile.sound === "amiga" ||
-      profile.sound === "amiga-2.082" ||
-      profile.sound === "iigs"
+      profile.sound === "amiga" || profile.sound === "amiga-2.082" || profile.sound === "iigs"
         ? false
         : this.device === 0 || (profile.sound === "common" && this.device === 8);
     if (profile.sound === "iigs") {
@@ -607,7 +610,7 @@ export class SoundPlayback {
     }
     this.iigsEvents = null;
     if (profile.sound === "booter-2.001") {
-      const rows = booterSoundRows(payload);
+      const rows = booterSoundRows(payload, this.single);
       const placeholder: SoundNote = {
         tone: 0,
         control: 0,
@@ -618,7 +621,7 @@ export class SoundPlayback {
         volume: 0,
       };
       this.rows = rows;
-      this.durationTicks = rows.length;
+      this.durationTicks = rows.length + (this.single ? 1 : 0);
       this.channels = [
         {
           notes: rows.map(() => placeholder),
@@ -714,19 +717,35 @@ export class SoundPlayback {
     }
     adjustment &= 255;
     if (this.rows) {
-      // One zero-terminated row per tick; completion is payload exhaustion.
+      // One row per tick. The speaker reader checks exhaustion on its next
+      // entry (docs/fidelity.md "2.001 speaker row execution").
       const channel = this.channels[0]!;
       if (!channel.terminated) {
         const row = this.rows[channel.cursor++];
-        if (row === undefined || channel.cursor >= this.rows.length) channel.terminated = true;
-        if (row !== undefined && row.length > 0 && enabled)
+        if (row === undefined || (!this.single && channel.cursor >= this.rows.length))
+          channel.terminated = true;
+        if (row !== undefined && this.single && enabled) {
+          for (let i = 0; i < row.length; i++) {
+            const byte = row[i]!;
+            const selector = byte & 0xf0;
+            if (selector === 0x80) {
+              const divisor = 12 * ((byte & 15) | (((row[++i] ?? 0) & 63) << 4));
+              outputs.push({ kind: "speaker", divisor: divisor === 0 ? null : divisor });
+            } else if (selector === 0x90) {
+              if (byte === 0x9f) outputs.push({ kind: "speaker", divisor: null });
+            } else if ((byte & 0x90) === 0x80) i++;
+          }
+        } else if (row !== undefined && row.length > 0 && enabled)
           outputs.push({
             kind: "psg",
             bytes: row,
             ...(row.some((byte) => (byte & 0xf0) === 0xe0) ? { chip: this.profile.psgNoise } : {}),
           });
       }
-      if (channel.terminated) outputs.push(...this.stop());
+      if (channel.terminated) {
+        const stopped = this.stop();
+        if (!this.single || enabled) outputs.push(...stopped);
+      }
       return { outputs, complete: !this.active };
     }
     if (this.iigsEvents) {

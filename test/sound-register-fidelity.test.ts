@@ -151,3 +151,84 @@ it("early PC speaker rests compare the full control byte while common players us
   const sound = new SoundPlayback(detectProfile(new Map(), "2.936"), payload, 0);
   assert.deepEqual(sound.tick(true, 0).outputs, [{ kind: "speaker", divisor: null }]);
 });
+
+it("2.001 PC Speaker plays only channel 0 and completes on the next entry", () => {
+  // Original 7473..7556 / 7607..766a: 12 * (0x23 * 16 + 1)
+  // = 6732 = 0x1a4c (PIT bytes 4c 1a). Other tone pairs and
+  // attenuation selectors are skipped; only the full 9f byte silences.
+  const sound = new SoundPlayback(
+    detectProfile(new Map(), "2.001"),
+    Uint8Array.of(
+      0x81,
+      0x23,
+      0x94,
+      0xa2,
+      0x15,
+      0xb0,
+      0xc3,
+      0x16,
+      0xd0,
+      0xe4,
+      0x17,
+      0xf0,
+      0,
+      0,
+      0x9e,
+      0x9f,
+      0,
+    ),
+    0,
+  );
+  assert.equal(sound.durationTicks, 4);
+  assert.deepEqual(sound.tick(true, 255), {
+    outputs: [{ kind: "speaker", divisor: 6732 }],
+    complete: false,
+  });
+  const held = sound.snapshot();
+  assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
+  assert.deepEqual(sound.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: null }],
+    complete: false,
+  });
+  assert.deepEqual(sound.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: null }],
+    complete: true,
+  });
+  assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
+  sound.restore(held);
+  assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
+});
+
+it("2.001 PC Speaker consumes zero continuation bytes and gates zero divisors off", () => {
+  // 81 00 => 12; 80 00 => speaker off; 8f 3f =>
+  // 12 * 1023 = 12276 = 0x2ff4. Embedded pair zeros are not row ends.
+  const sound = new SoundPlayback(
+    detectProfile(new Map(), "2.001"),
+    Uint8Array.of(0x81, 0, 0x90, 0, 0x80, 0, 0, 0x8f, 0x3f, 0),
+    0,
+  );
+  for (const divisor of [12, null, 12276])
+    assert.deepEqual(sound.tick(true, 0), {
+      outputs: [{ kind: "speaker", divisor }],
+      complete: false,
+    });
+  assert.deepEqual(sound.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: null }],
+    complete: true,
+  });
+});
+
+it("2.001 PC Speaker advances muted rows and gates completion silence with flag 9", () => {
+  for (const payload of [Uint8Array.of(0x82, 2), new Uint8Array()]) {
+    const sound = new SoundPlayback(detectProfile(new Map(), "2.001"), payload, 0);
+    if (payload.length) assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
+    assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: true });
+  }
+  const sound = new SoundPlayback(detectProfile(new Map(), "2.001"), Uint8Array.of(0x82, 2), 0);
+  // 12 * 34 = 408 = 0x0198, even without a final row terminator.
+  assert.deepEqual(sound.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: 408 }],
+    complete: false,
+  });
+  assert.deepEqual(sound.stop(), [{ kind: "speaker", divisor: null }]);
+});
