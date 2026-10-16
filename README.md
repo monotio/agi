@@ -61,11 +61,11 @@ interpreters.
 
 Sound follows the machine: emulated Paula on the Amiga, Ensoniq wavetable on the IIgs, and the Tandy
 chip or PC speaker on a PC. **Settings → Advanced… → Sound chip** picks the PC one. The picture
-fills a 4:3 frame like a monitor of the day; **Settings → Original 4:3** switches to square pixels.
-Mouse clicks walk the hero on the Amiga and IIgs, as they did on the originals. Text uses this
-project's own 8 × 8 drawings, or the player's AGIFONT when an IIgs game includes it.
-The IIgs profile uses its original palette and font metrics;
-native IIgs menus and the mouse pointer still differ from the original. Fan-made games run too.
+fills a 4:3 frame; **Settings → Original 4:3** switches to square pixels. Mouse clicks walk the
+hero on the Amiga and IIgs. Amiga and IIgs games use their own palettes, fonts, status line and
+mouse pointer. PC text uses this project's own 8 × 8 drawings. A game's own AGIFONT file is used
+when the player's copy has one. Native IIgs menus and the Standard File dialog, and the Hercules
+and composite displays, are not built yet. Fan-made games run too.
 [Testing compatibility](docs/testing.md#testing-compatibility) lists the exact
 editions, disk-image formats and builds.
 
@@ -111,8 +111,10 @@ change. [Building with AI](docs/ai.md) covers templates, reviews, budgets and pr
 
 ## Save and share
 
-Games, saves and history live in your browser. The game's own Save and Restore use the authentic AGI
-save format. The app also saves as you play, so **Resume** picks up where you left off.
+Games, saves and history live in your browser. The game's own Save and Restore keep their files in the app.
+Original `.SAV` files can be imported and exported for 19 of the 20 original interpreters
+(booter 2.001 saves whole disk sectors). The app also saves as you play, so **Resume** picks up
+where you left off.
 
 | Settings → This game → **Download…** | What you get                                                                                                                                                                                                                       |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -140,17 +142,18 @@ foundation of this independent implementation.** It documents the formats, obser
 interpreter versions, and is published under
 [CC0](https://github.com/peterkelly/agi-re/blob/main/LICENSE). Thank you, Peter.
 
-## As close to the originals as we could get
+## Checked against the originals
 
 Every Sierra AGI game shipped with its own build of the interpreter, and the builds do not quite
-agree. On a PC, a wandering guard whose countdown runs out walks 256 more steps before he turns; on
+agree. The 20 original builds we read run as 18 profiles, because a few builds behave
+like a sibling build and share its profile. On a PC, a wandering guard whose countdown runs out walks 256 more steps before he turns; on
 an Amiga he turns every 7 to 51 steps. Details like that decide whether a puzzle is fair, so the
 engine keeps them.
 
 Sometimes a game needs more than the specification says, or builds disagree. Then the original
 interpreters' machine code was read, and often run with controlled inputs. That covers PC builds
 2.089 to 3.002.149, the Amiga and the Apple IIgs. Each finding is written down with its evidence and
-held in place by a test. Full-game walkthroughs of thirteen games replay keystroke by keystroke.
+held in place by a test. Some gaps remain, and the fidelity notes list them. Full-game walkthroughs of thirteen games replay keystroke by keystroke.
 [Interpreter compatibility](docs/fidelity.md) tells the whole story.
 
 The engine is a TypeScript AGI interpreter with no runtime dependencies. It reads AGI v2 and v3
