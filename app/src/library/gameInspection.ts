@@ -1,3 +1,4 @@
+import { appearanceForProfile } from "../render/appearance.ts";
 import { Engine, type EngineHost } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { compositeFrame } from "../render/composite.ts";
@@ -82,6 +83,7 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
   const rgba = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
     {
+      appearance: appearanceForProfile(engine.profile.id, engine.containerFiles),
       visual: presentation.visual,
       text: presentation.text,
       windowOverlay: presentation.windowOverlay,

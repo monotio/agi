@@ -3,6 +3,7 @@
  * frames/renderFrame handlers. Pure functions of the worker context —
  * importable under Node.
  */
+import { appearanceForProfile } from "../render/appearance.ts";
 import type { Engine } from "../../../src/runtime/engine.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
@@ -150,6 +151,7 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.ports.presentation(
       {
         type: "frame",
+        appearance: appearanceForProfile(ctx.run.engine.profile.id, ctx.run.engine.containerFiles),
         visual: frame.visual,
         priority: frame.priority,
         text,

@@ -367,6 +367,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.holdToMove = msg.holdToMove;
         publishText(msg.text, (msg.modal as ModalKind | null) ?? null, msg.textMode);
         latestFrame = {
+          appearance: msg.appearance,
           visual: msg.visual,
           priority: msg.priority,
           text: msg.text,

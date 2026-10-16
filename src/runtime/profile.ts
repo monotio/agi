@@ -445,6 +445,8 @@ export interface AgiProfile {
    * text").
    */
   readonly originalTextWindows: boolean;
+  /** Platform presentation assets; docs/fidelity.md "Apple IIgs presentation". */
+  readonly presentation: "pc" | "amiga" | "iigs";
   /**
    * Status-line formatting variant (docs/fidelity.md "Original window and
    * status-line text"):
@@ -617,6 +619,7 @@ const BASE_2936: AgiProfile = {
   printConsumesF15: true,
   timedPrintClearsV21: true,
   originalTextWindows: true,
+  presentation: "pc",
   statusLineFormat: "common",
   windowFrameGeometry: "pc",
   clampExactZeroLeftBoundary: false,
@@ -1022,6 +1025,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // the 2.936 contract; docs/fidelity.md "IIgs profile fields verified
     // from the handlers".
     id: "iigs-1.014",
+    presentation: "iigs",
     maxAction: 0xb1,
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",

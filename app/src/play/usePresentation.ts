@@ -62,6 +62,7 @@ export function createPresentation() {
     const exploded = mode === "explode" && stage !== null;
     compositeFrame(
       {
+        appearance: frame.appearance,
         visual: frame.visual,
         priority: frame.priority,
         text: textOverride ?? frame.text,
@@ -76,6 +77,7 @@ export function createPresentation() {
     if (exploded) {
       compositeFrame(
         {
+          appearance: frame.appearance,
           visual: frame.visual,
           priority: frame.priority,
           text: textOverride ?? frame.text,
@@ -94,7 +96,13 @@ export function createPresentation() {
       const picVisual = frame.picVisual ?? frame.visual;
       const picPriority = frame.picPriority ?? frame.priority;
       compositeFrame(
-        { visual: picVisual, priority: picPriority, text: frame.text, picRow: frame.picRow },
+        {
+          appearance: frame.appearance,
+          visual: picVisual,
+          priority: picPriority,
+          text: frame.text,
+          picRow: frame.picRow,
+        },
         composedPic,
         "visual",
         0.5,

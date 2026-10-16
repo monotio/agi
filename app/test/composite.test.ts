@@ -1,3 +1,4 @@
+import { appearanceForProfile } from "../src/render/appearance.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compositeFrame, FRAME_HEIGHT, FRAME_WIDTH } from "../src/render/composite.ts";
@@ -219,4 +220,88 @@ test("the window frame renders the decoded sub-cell OpenWndw fill and bars acros
   assert.deepEqual(pixelAt(iigsOut, 145, 90), WHITE, "IIgs left bar is 1px wide");
   assert.deepEqual(pixelAt(iigsOut, 175, 90), RED, "IIgs 1px right bar at x=175");
   assert.deepEqual(pixelAt(iigsOut, 174, 90), WHITE, "IIgs right bar is 1px wide");
+});
+
+test("a supplied platform appearance colours pictures, glyphs and window pixels", () => {
+  const input = fixture();
+  input.visual.fill(1);
+  input.text[0] = 65;
+  input.text[1] = 0x21;
+  const palette = Array.from({ length: 16 }, () => [0, 0, 0] as [number, number, number]);
+  palette[1] = [0, 0, 255];
+  palette[2] = [0, 136, 0];
+  palette[4] = [204, 0, 0];
+  const font = new Uint8Array(256 * 8);
+  font[65 * 8] = 0x40; // Synthetic glyph: only column 1 of row 0 is lit.
+  const windowOverlay = new Uint8Array(320 * 200);
+  windowOverlay[319] = 5;
+  const out = new Uint8Array(320 * 200 * 4);
+  const platformInput = {
+    ...input,
+    windowOverlay,
+    appearance: { palette, font, hasGlyph: new Uint8Array(256).fill(1), layout: "iigs" as const },
+  };
+  compositeFrame(platformInput, out);
+  assert.deepEqual(pixelAt(out, 0, 8), [0, 0, 255], "picture index 1");
+  assert.deepEqual(pixelAt(out, 1, 0), [0, 0, 255], "supplied glyph foreground");
+  assert.deepEqual(pixelAt(out, 0, 0), [0, 136, 0], "glyph background");
+  assert.deepEqual(pixelAt(out, 319, 0), [204, 0, 0], "window border index 4");
+  compositeFrame(platformInput, out, "visual", 0.5, "only");
+  assert.deepEqual(pixelAt(out, 1, 0), [0, 0, 255], "exploded text uses the font");
+  assert.equal(out[8 * 320 * 4 + 3], 0, "text plane leaves picture transparent");
+});
+
+test("platform fonts preserve the engine's private frame and cursor glyphs", () => {
+  const input = fixture();
+  input.text[0] = 1; // Private horizontal frame stroke: full row 3.
+  input.text[1] = 0x0f;
+  input.text[2] = 7; // Private cursor: full rows 6 and 7.
+  input.text[3] = 0x0f;
+  const out = new Uint8Array(320 * 200 * 4);
+  compositeFrame(
+    {
+      ...input,
+      appearance: {
+        palette: EGA_PALETTE,
+        font: new Uint8Array(2048),
+        hasGlyph: new Uint8Array(256).fill(1),
+        layout: "iigs",
+      },
+    },
+    out,
+  );
+  assert.deepEqual(pixelAt(out, 0, 3), [255, 255, 255]);
+  assert.deepEqual(pixelAt(out, 7, 3), [255, 255, 255]);
+  assert.deepEqual(pixelAt(out, 0, 2), [0, 0, 0]);
+  assert.deepEqual(pixelAt(out, 8, 6), [255, 255, 255]);
+  assert.deepEqual(pixelAt(out, 15, 7), [255, 255, 255]);
+});
+
+test("IIgs cells keep an eight-pixel advance, baseline seven and exact foreground/background", () => {
+  const input = fixture();
+  input.text[0] = 65;
+  input.text[1] = 0x21;
+  input.text[2] = 103;
+  input.text[3] = 0x4f;
+  input.text[4] = 59;
+  input.text[5] = 0x21;
+  input.text[6] = 65;
+  input.text[7] = 0x21;
+  const out = new Uint8Array(320 * 200 * 4);
+  compositeFrame({ ...input, appearance: appearanceForProfile("iigs-1.014") }, out);
+  // Hand-drawn A at x=0 and x=24; the semicolon cannot advance the next cell by 9.
+  const rows = [0x38, 0x44, 0x44, 0x7c, 0x44, 0x44, 0x44, 0];
+  for (const left of [0, 24]) {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        assert.deepEqual(
+          pixelAt(out, left + x, y),
+          rows[y]! & (128 >> x) ? [0, 0, 255] : [0, 136, 0],
+        );
+      }
+    }
+  }
+  assert.deepEqual(pixelAt(out, 10, 7), [255, 255, 255], "g descender occupies row 7");
+  assert.deepEqual(pixelAt(out, 8, 7), [204, 0, 0], "descender row background");
+  assert.deepEqual(pixelAt(out, 10, 8), [255, 255, 255], "cell ends before the next row");
 });

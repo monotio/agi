@@ -1,3 +1,4 @@
+import type { Appearance } from "../render/appearance.ts";
 import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
 import type { RoomLaunchRequest } from "./roomLaunch.ts";
 import type { HostRngState } from "../../../src/runtime/rng.ts";
@@ -907,6 +908,7 @@ export type WorkerControl =
 export type WorkerPresentation =
   | {
       type: "frame";
+      appearance?: Appearance | undefined;
       visual: Uint8Array;
       priority: Uint8Array;
       text: Uint8Array;

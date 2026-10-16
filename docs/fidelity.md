@@ -321,9 +321,12 @@ v21 when it closes. `obj.status.v` is a real modal window, not a log line.
 
 ### Text beyond ASCII
 
-The originals drew text with each machine's own font. This project draws it
-with its own 8×8 font (`app/src/render/font8x8.ts`) in the same 40 × 25 character
-grid, so letter shapes are the project's, not Sierra's or IBM's.
+The originals drew text with each machine's own font. This project uses its own
+MIT 8×8 drawings in the same 40 × 25 character grid. `app/src/render/font8x8.ts`
+serves the PC; `app/src/render/fontIigs.ts` supplies the IIgs coverage and metrics
+(see [Apple IIgs presentation](#apple-iigs-presentation)). A player's IIgs `AGIFONT`, when included with their game, overrides the project
+font at runtime. No original glyphs ship with the project; a missing or invalid
+font uses the project drawings.
 
 A scan of every logic message in the catalogued releases found these
 characters outside printable ASCII, apart from line breaks:
@@ -2209,7 +2212,7 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
   2.001 0x3376, 2.089 0x3340, 2.230 0x329f, 2.272 0x332d, 2.411 0x353b, 2.440
   0x3549, 2.903 0x364b, 2.917/2.936 0x3652, 3.002.086 0x39ef, 3.002.102/3.002.107
   0x3a05, 3.002.149 0x3961; Amiga: 2.082 h63+0x136, 2.176..2.333 h85+0x13c; IIgs
-  1.014 seg3+0x0f75 `sec; lda #$0027; sbc`): in every binary, a character is
+  1.014 seg2+0x16f8..0x1726): in every binary, a character is
   accepted only while `editLen < maxLen` and excess keys are silently rejected. Four
   `inputLineEditCap` formulas exist across the twenty shipped binaries:
   - `"early-35"` on PC 2.001, 2.089, and 2.230 (fixed literal `0x23 = 35` —
@@ -2222,8 +2225,9 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
   - `"prompt-40"` on PC 2.272 and 3.002.149 and all six Amiga builds
     (`min(var[24], 40 − strlen(s0) − (promptByte≠0))`, with actions 163/164
     either above the dispatch bound or pure no-op stubs).
-  - `"iigs-39"` on IIgs 1.014 (`min(var[24], 39 − strlen(s0))` at
-    `seg3+0x0f75`, without subtracting the cursor byte).
+  - `"iigs-39"` on IIgs 1.014 (`min(var[24], 39 − strlen(s0) − (cursor≠0))` at
+    `seg2+0x16f8..0x1726`; see the corrected disassembly in
+    [Apple IIgs presentation](#apple-iigs-presentation)).
     The edit buffer INLINE and the accepted-line buffer PREVLINE are separate
     42-byte buffers: Enter copies INLINE→PREVLINE then Parses INLINE; echo.line
     appends `PREVLINE[editLen..]` onto INLINE; cancel.line emits physical backspaces until
@@ -3290,7 +3294,7 @@ read byte-exact from the hash-pinned data segments.
   0x2e2e, 2.089 0x2dee, 2.230 0x3169, 2.272 0x31f7, 2.411 0x33dd, 2.440 0x33eb,
   2.903 0x34b6, 2.917/2.936 0x34bd, 3.002.086 0x385a, 3.002.102/3.002.107
   0x3870, 3.002.149 0x380b; Amiga: 2.082 h62+0x36, 2.176..2.333 h84+0x36; IIgs
-  1.014 statusseg+0x0000): `ClearLine(statusRow, 0xFF)` and `SetTextAtr(0, 15)`,
+  1.014 statusseg+0x07a1): clear the status row to white and `SetTextAtr(0, 15)`,
   followed by one of three profile-selected string layouts (`statusLineFormat`):
   - `"booter-2.001"` on PC 2.001 (`0x2e2e`, `DS+0x0aa9`): col 1
     `printf("Score:%d  ", v3)` (two trailing spaces, omitting `of %d`) and col 30
@@ -4764,6 +4768,123 @@ edition, resolved by the same reader. Extra files: `SIERRASTANDARD`
 (sha256 `5978fce553c17b2903ab57e82745c3f00677abea4fef909b116275bf19953610`), and the `SQ2.1`/`SQ2.2`/
 `SQ2.3` disk-name strings inside the binary.
 
+#### Apple IIgs presentation
+
+Evidence is SQ2 2.0A interpreter 1.014, `SQ2.SYS16`, SHA-256
+`e1a2788f92cb76220e5ac228945bf2eaf7f3a97208f0c3af2ae81d947407717f`.
+Addresses below are **named OMF segment offsets**, decoded with 16-bit A/X
+(`probe-interpreter-iigs.py --m 0 --x 0`). They are not flat file addresses.
+The [Apple IIgs Toolbox Reference, volume 2](https://mirrors.apple2.org.za/ftp.apple.asimov.net/documentation/programming/65816_gs/Apple%20IIGS%20Toolbox%20Reference%20Volume%202.pdf),
+chapter 16, defines the QuickDraw II font record and toolbox calls.
+
+- **Palette (fact; implemented).** `~arrays+0x0e67` contains sixteen RGB12
+  little-endian words, in AGI index order:
+  `0000 000f 0080 00db 0c00 0b7d 0850 0bbb 0777 00bf 00e0 00fd 0f98 0d9f 0ee0 0fff`.
+  `initscrseg+0x0087..0x0093` passes this table to `SetColorTable` (`$0e04`),
+  table zero. The picture copy at `main+0x158d..0x1599` masks with `$0f0f`
+  and duplicates each index nibble horizontally. Text calls `SetForeColor`
+  (`$a004`) and `SetBackColor` (`$a204`) at `seg2+0x52f0..0x5306`, so text
+  and pictures share that index mapping. RGB8 conversion repeats each nibble
+  (`f→255`, `8→136`), matching MAME's captured colour values.
+- **Game font (metrics verified; optional player font and project fallback).** `initmachseg+0x016f`
+  opens the path `data/AgiFont` at `~arrays+0x0e0e`. After loading its handle,
+  `+0x0280` saves the previous font; `+0x029b` and `+0x02c1` call `SetFont`
+  (`$9404`) for the game and saved ports. The fixture's 2,126-byte `AGIFONT`
+  has SHA-256 `5978fce553c17b2903ab57e82745c3f00677abea4fef909b116275bf19953610`.
+  Its Mac-style record starts at byte 12: characters 0–255, `widMax=8`,
+  `kernMax=-30`, height 8, ascent 7, descent 1, leading 0, `rowWords=66`.
+  The strike begins at byte 38 (132 bytes per row); location table at 1094;
+  offset/width table at 1610. Each width entry's low byte is advance and high
+  byte is offset plus the negative kernMax; `$ffff` selects glyph 256.
+  Blank defined glyphs remain blank. `seg2+0x504b..0x5078` sets the cursor to
+  `(8*column, 8*row+7)`; `seg2+0x539e` calls `DrawChar` (`$a404`). Thus the
+  interpreter's fixed cell placement, rather than each glyph's advance,
+  determines text positions. Status, messages and input use this path.
+  The renderer decodes a player's optional `AGIFONT` into fixed 8×8 cells.
+  It validates the record and table bounds, monotonic strike locations and
+  the verified eight-row, seven-ascent, one-descent metrics. Missing or invalid
+  data falls back to a packed 2 KiB table of the project's own MIT drawings,
+  adapted from its existing ASCII art with independently drawn accents and
+  Mac Roman symbols. No original glyphs ship with the project. `AGIFONT` is
+  auxiliary data: import, captured builds, remix and export preserve it, while
+  the canonical playable set and resource revisions exclude it. Metadata establishes defined codes
+  0, 9, 13, 17–20 and 32–216; blank codes are 0, 9, 13, 32, 37, 127, 202 and 216. Other codes select a project-drawn replacement box. Raw advances are
+  zero for 0/13, nine for semicolon and eight otherwise; the interpreter's
+  fixed eight-pixel placement supersedes these. Baseline is seven, ascent
+  seven and descent one. Engine-private frame/cursor codes 1–7 retain the
+  project's own shapes; those UI primitives are separate from game glyphs.
+- **Input (fact; behavior correction separate).** `seg2+0x19cd` (`WriteInput`) formats string 0
+  at `+0x19ff..0x1a1c`, draws the edit buffer at `+0x1a22..0x1a28`, then calls
+  `WriteCur` at `+0x1a2e`. `WriteCur` (`+0x18bd`) reads byte `$0135`;
+  `set.cursor.char` writes the first message byte there at `+0x19ba`.
+  This is a suffix cursor, not the prompt prefix. SQ2 LOGIC 104 sets string
+  0 to `>` and the cursor to `_`: the visible empty line is `>_`.
+  `EditLine` at `seg2+0x16f8` subtracts `strlen(s0)` from 39, then
+  `+0x171b..0x1726` subtracts one if the cursor is nonzero, bounded by v24.
+  Earlier evidence incorrectly named `seg3+0x0f75` (menu construction) and
+  omitted this cursor deduction. The capacity correction is recorded here;
+  prompt composition and edit capacity belong to the input behavior correction,
+  rather than this palette/font change.
+- **Status (fact; already implemented).** At `statusseg+0x07a1..0x0861` the interpreter draws black
+  on white: column 1 `Score:%d of %d  `, column 30 `Sound:%s` with `on ` or
+  `off` (strings at `~arrays+0x1660..0x167e`). It uses the game font above. The captured status pixels match,
+  excluding glyph interiors and the original mouse arrow overlapping the top-left corner.
+- **Message windows (fact; already implemented).** `seg2+0x4a62..0x4b84`
+  uses `PaintRect` and a one-pixel `FrameRect`, red index 4 inset by two
+  pixels. Inclusive bounds are `[8*left-10, 8*(left+cols)+9]` by
+  `[8*top-5, 8*(top+rows)+4]`. See F-Text-03 for the common placement and
+  wrapping contract. MAME message-frame pixels match after palette selection;
+  glyph interiors use project drawings. Differences outside the window are
+  described below.
+- **Screen mode (fact); physical aspect (unverified).**
+  `initscrseg+0x00fe..0x010d` constructs a 320×200 port; `main+0x1584`
+  writes the Super Hi-Res screen at `$e1:2000`. A picture pixel occupies
+  two horizontal display pixels; text cells are 8×8. MAME 0.289's
+  `apple2gsr1` screenshot is 704×231 with an active 640×200 rectangle at
+  `(32,16)`. Halving that rectangle horizontally gives the native 320×200
+  grid. This proves raster geometry, not a physical monitor's pixel aspect.
+  The app's existing 4:3/square-pixel setting is unchanged.
+- **Menus and mouse (observed divergence; not implemented).** A headless
+  MAME capture with the Sierra menu open shows a 13-pixel menu bar, text
+  beginning at y=3, and glyph shapes different from AGIFONT (including
+  lowercase `i` and `l`). The interpreter constructs native menus in `seg3`;
+  the executable has no `SetSysFont` (`$b204`) call. Inference: these are
+  QuickDraw's system-font menus, not the game-port font. The precise system
+  font bitmap source and menu geometry still require separate binary
+  verification. The app currently retains its cell-based menus and browser
+  pointer. An original arrow at x=0..6, y=0..9 accounts for 41 differing
+  pixels in otherwise exact title/chapter captures. These captures do not
+  establish full native-menu or mouse-cursor fidelity.
+
+Verification: headless MAME 0.289, `apple2gsr1`, original disk-image SHA-256
+`b0f08338a2ccb8706097c62b40e537ba53fe9d22c7d8dfeedeebae6ec271b553` and
+`6c3b701e0983ecdf709450a8563b93bf016e55c4bd589a4339835ebfa9210596`.
+Nearest-neighbour normalization only. Frame comparisons mask foreground glyph
+pixels within occupied text cells, leaving background pixels, cell spacing,
+window frames and all other pixels subject to exact comparison. Unit tests
+assert 8×8 cells, baseline seven, eight-pixel advance, character coverage and
+exact foreground/background RGB values. The native pointer and later animated
+poses remain divergences; these captures do not establish full look fidelity.
+With the player's font, the title and chapter captures differ at 41 native-pointer
+pixels and 26 input-line pixels: the current input path places the cursor before
+text and omits string 0. That composition belongs to the input behavior correction.
+The later beep/message captures additionally differ in the animated character and
+broom region; independently timed captures do not establish identical animation
+phase. Palette, status text and message-window pixels outside those regions match.
+These are cross-checks of the binary findings, not a zero-difference target.
+Commercial resources and captured frames remain local evidence.
+
+| Aspect         | Evidence                                        | Coverage                                                   |
+| -------------- | ----------------------------------------------- | ---------------------------------------------------------- |
+| Palette        | RGB12 table and MAME frames                     | Exact 16-colour mapping                                    |
+| Game font      | Font metadata and fixed-cell DrawChar placement | Player font or project drawings; exact metrics and colours |
+| Status         | `statusseg+0x07a1..0x0861`, captured row        | Text placement/colours; pointer remains different          |
+| Input          | `seg2+0x19cd..0x1a2e`                           | Binary order verified; input correction separate           |
+| Message window | `seg2+0x4a62..0x4b84`, captured chapter frame   | Exact frame geometry; glyph interiors masked               |
+| Raster         | 320×200 port and 640×200 MAME active area       | Exact logical geometry; existing aspect setting            |
+| Menus          | Native-menu capture and `seg3`                  | Divergence; cell menus remain                              |
+| Mouse pointer  | Original arrow in captured status corner        | Divergence; browser pointer remains                        |
+
 #### OMF layout (fact)
 
 `SQ2.SYS16` is a GS/OS load file: 43 sequential OMF segment records, not a
@@ -5167,7 +5288,7 @@ Values that change behavior, confirmed at the addresses given (**fact**):
 | `heapDiagnosticExtraLine`     | false                   | `show.mem` (memmgrseg+0xc1) prints heapsize, now/max, max script and "Sys RAM"; no "rm.0" line                               |
 | `patternProfile`              | `center-row-320`        | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                          |
 | `windowFrameGeometry`         | `iigs`                  | `OpenWndw` (`seg2+0x4a62..0x4b84`): `_PaintRect` white fill (`8·cols+20` × `8·rows+10`) plus 1-px red `_FrameRect` inset 2   |
-| `inputLineEditCap`            | `iigs-39`               | `EditLine` (`seg3+0x0f75` `sec; lda #$0027; sbc`): `min(var[24], 39 - strlen(s0))` without subtracting the cursor byte       |
+| `inputLineEditCap`            | `iigs-39`               | `EditLine` (`seg2+0x16f8..0x1726`): `min(var[24], 39 - strlen(s0) - (cursor != 0))`                                          |
 | `keypadWordsNormalized`       | false                   | `GetLine` (`seg2+0x1333`): line editor reads character bytes without PC scan-code word substitution                          |
 | `playerControlMotionClear`    | `on-control-transition` | `player.control` (`motionseg+0x02b2`): `lda $011d; bne ret` skips clearing ego motion `+0x38` when `$011d` is already 1      |
 | `restoreRewritesMachineState` | false                   | `RestoreGame` (`savegameseg+0x036e..0x04a2`) writes `f12 = 1` without touching `v20`, `v22`, `v26`, or `f11`                 |
@@ -5194,9 +5315,10 @@ false, `targetMotionDeferred` false, `inventorySelector` true,
 (`seg2+0x3d36`), `keyByteStoredBeforeEdit` true (`seg2+0x1113`),
 `modalDismissalKeys` `enter-escape` (`ChkAcAb` `seg2+0x0b79..0x0bbf`),
 `inventoryListEndsOnAnyEvent` true (`statusseg+0x0206`),
-`originalTextWindows` true and `statusLineFormat` `common` (`seg2+0x2af7`),
+`originalTextWindows` true (`seg2+0x2bcb..0x2c13`) and `statusLineFormat` `common`
+(`statusseg+0x07a1..0x0861`),
 `parserStopsAtTenthWord` true (`main+0x1f35`), `originalInputCapacity` true
-(`seg3+0x0f75`), `originalRestartRestore` true and `restartCursorMemory` false
+(`seg2+0x16f8..0x1726`), `originalRestartRestore` true and `restartCursorMemory` false
 (`seg2+0x01e8`, `savegameseg+0x036e`), and `soundStopsBeforeFault` true
 (`soundseg+0x004a`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.

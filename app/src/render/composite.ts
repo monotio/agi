@@ -1,16 +1,17 @@
 /**
  * Frame compositor: the engine's 160x168 visual buffer and 40x25 text
- * surface become one 320x200 RGBA frame, exactly the EGA presentation the
- * spec describes (a text column is four logical picture pixels, a text row
- * eight logical rows; the display base row offsets the picture).
+ * surface become one 320x200 RGBA frame, with the profile’s presentation assets. Each
+ * text column spans four logical picture pixels and each row spans
+ * eight logical rows; the display base row offsets the picture.
  *
  * Both presentation paths draw this same frame: the three.js stage uploads
  * it as a texture, the Canvas2D fallback (and the Playwright pixel probe)
  * putImageData it.
  */
+import type { Appearance } from "./appearance.ts";
 import { EGA_PALETTE } from "./palette.ts";
 import { FONT, HAS_GLYPH } from "./font8x8.ts";
-import { TEXT_COLS, TEXT_ROWS } from "../../../src/runtime/textSurface.ts";
+import { GLYPH_CURSOR, TEXT_COLS, TEXT_ROWS } from "../../../src/runtime/textSurface.ts";
 
 /** Codes already reported as missing from the font, once per page. */
 const reportedGlyphs = new Uint8Array(256);
@@ -53,6 +54,8 @@ const PRIORITY_TINTS: readonly [number, number, number][] = [
 ];
 
 export interface CompositeInput {
+  /** Presentation assets selected by profile and optional player font. */
+  appearance?: Appearance | undefined;
   /** 160x168 visual nibbles. */
   visual: Uint8Array;
   /** 160x168 priority nibbles; required by the debug view modes. */
@@ -61,7 +64,7 @@ export interface CompositeInput {
   text: Uint8Array;
   /**
    * Optional 320x200 sub-cell window border overlay (`0` = transparent,
-   * `1 + EGA colour` = opaque pixel) painted into the window's outer cells
+   * `1 + palette index` = opaque pixel) painted into the window's outer cells
    * before interior text cells overwrite it.
    */
   windowOverlay?: Uint8Array | undefined;
@@ -84,6 +87,8 @@ export function compositeFrame(
   splitAt = 0.5,
   text: "compose" | "skip" | "only" = "compose",
 ): void {
+  const palette = input.appearance?.palette ?? EGA_PALETTE;
+  const font = input.appearance?.font ?? FONT;
   out.fill(0);
   const priority = mode === "visual" ? undefined : input.priority;
   const splitX = Math.round(Math.min(Math.max(splitAt, 0), 1) * PIC_WIDTH);
@@ -96,7 +101,7 @@ export function compositeFrame(
     let o = y * FRAME_WIDTH * 4;
     for (let px = 0; px < PIC_WIDTH; px++) {
       const i = src + px;
-      let [r, g, b] = EGA_PALETTE[input.visual[i]! & 0x0f]!;
+      let [r, g, b] = palette[input.visual[i]! & 0x0f]!;
       if (mode === "priority") {
         [r, g, b] = EGA_PALETTE[(priority?.[i] ?? 15) & 0x0f]!;
       } else if (mode === "split") {
@@ -132,7 +137,7 @@ export function compositeFrame(
       const at = (row * TEXT_COLS + col) * 2;
       const ch = input.text[at]!;
       if (ch === 0) continue;
-      if (!HAS_GLYPH[ch] && !reportedGlyphs[ch]) {
+      if (!(input.appearance?.hasGlyph ?? HAS_GLYPH)[ch] && !reportedGlyphs[ch]) {
         // A translated or fan game can print codes past ASCII; say so
         // rather than leave a silent blank.
         reportedGlyphs[ch] = 1;
@@ -141,10 +146,10 @@ export function compositeFrame(
         );
       }
       const a = input.text[at + 1]!;
-      const fg = EGA_PALETTE[a & 0x0f]!;
-      const bg = EGA_PALETTE[(a >> 4) & 0x0f]!;
+      const fg = palette[a & 0x0f]!;
+      const bg = palette[(a >> 4) & 0x0f]!;
       for (let gy = 0; gy < 8; gy++) {
-        const bits = FONT[ch * 8 + gy]!;
+        const bits = (ch <= GLYPH_CURSOR ? FONT : font)[ch * 8 + gy]!;
         let o = ((row * 8 + gy) * FRAME_WIDTH + col * 8) * 4;
         for (let gx = 0; gx < 8; gx++) {
           const c = bits & (0x80 >> gx) ? fg : bg;
@@ -164,7 +169,7 @@ export function compositeFrame(
     for (let i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++) {
       const v = overlay[i]!;
       if (v === 0) continue;
-      const c = EGA_PALETTE[(v - 1) & 0x0f]!;
+      const c = palette[(v - 1) & 0x0f]!;
       const o = i * 4;
       out[o] = c[0];
       out[o + 1] = c[1];

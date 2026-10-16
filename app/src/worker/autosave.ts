@@ -1,3 +1,4 @@
+import { appearanceForProfile } from "../render/appearance.ts";
 /**
  * The autosave snapshot and the flush/checkpoint messages around it. Pure
  * functions of the worker context — importable under Node.
@@ -74,6 +75,7 @@ export function createAutosave(ctx: WorkerContext) {
     try {
       const presentation = ctx.run.engine.getPresentation();
       const frame = {
+        appearance: appearanceForProfile(ctx.run.engine.profile.id, ctx.run.engine.containerFiles),
         visual: presentation.visual,
         text: presentation.text,
         windowOverlay: presentation.windowOverlay,

@@ -140,3 +140,46 @@ test("arming then disarming a channel ships a frame for each transition", () => 
     "disarming publishes a frame without the payload so the host can clear it",
   );
 });
+
+test("IIgs frames carry the project font and palette across replacement", async () => {
+  const { Engine } = await import("../../src/runtime/engine.ts");
+  const { ctx, presentation } = workerHarness(gameContainer(["return;"]));
+  const files = new Map(ctx.run.engine!.containerFiles);
+  const { openContainer } = await import("../../src/container/container.ts");
+  ctx.run.engine = new Engine(openContainer(files), ctx.host!, new Map(), {
+    profile: "iigs-1.014",
+  });
+  ctx.fns.postFrame();
+  const iigs = presentation.filter((message) => message.type === "frame").at(-1)!;
+  assert.equal(iigs.type, "frame");
+  assert.deepEqual(iigs.appearance?.palette[1], [0, 0, 255]);
+  assert.equal(iigs.appearance?.font[65 * 8], 0x38);
+  ctx.run.engine = new Engine(gameContainer(["return;"]), ctx.host!, new Map());
+  ctx.run.presentation.lastText = null;
+  ctx.fns.postFrame();
+  const pc = presentation.filter((message) => message.type === "frame").at(-1)!;
+  assert.equal(pc.type, "frame");
+  assert.equal(pc.appearance?.layout, "pc", "the PC replacement cannot retain the IIgs font");
+});
+
+test("player fonts reach frames and disappear when the replacement game lacks them", async () => {
+  const { iigsFontFixture } = await import("./iigsFontFixture.ts");
+  const { onWorkerMessage } = await import("../src/worker/dispatch.ts");
+  const { ctx, presentation } = workerHarness(gameContainer(["return;"]));
+  const files = Object.fromEntries(ctx.run.engine!.containerFiles);
+  for (const supplied of [true, false]) {
+    onWorkerMessage(ctx, {
+      type: "boot",
+      profile: "iigs-1.014",
+      files: {
+        ...files,
+        ...(supplied ? { AGIFONT: iigsFontFixture() } : {}),
+      },
+      words: [],
+    });
+    ctx.fns.stopTimers();
+    ctx.fns.postFrame();
+    const frame = presentation.filter((message) => message.type === "frame").at(-1)!;
+    assert.equal(frame.appearance?.font[65 * 8], supplied ? 64 : 56);
+  }
+});

@@ -1,3 +1,4 @@
+import type { Appearance } from "../render/appearance.ts";
 import type { AgentChats } from "../../../src/agent/chats.ts";
 import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
@@ -230,6 +231,7 @@ export function findInstalledFolder(
 }
 
 export interface Frame {
+  appearance?: Appearance | undefined;
   visual: Uint8Array;
   priority: Uint8Array;
   /** 40x25 [char, attr] text cells. */
