@@ -764,7 +764,7 @@ export class Engine {
   horizon = 36;
   /** Priority bands are independent of the movement horizon and are not saved. */
   private priorityBase = 48;
-  /** True while the default priority table is active (before set.pri.base runs). */
+  /** True until set.pri.base rebuilds the priority table; selects PriToY's form. */
   private defaultPriTable = true;
 
   private readonly logics = new Map<number, LogicResource>();
@@ -3678,6 +3678,7 @@ export class Engine {
   private replayState(continuation = this.captureContinuation()): EngineReplayState {
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
+      ...(this.defaultPriTable ? {} : { priorityTableRebuilt: true as const }),
       clockRemainderMs: this.clockRemainderMs,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -3743,7 +3744,7 @@ export class Engine {
     this.terminated = state.terminated;
     this.statusRefreshRequested = state.statusRefreshRequested;
     this.priorityBase = state.priorityBase;
-    this.defaultPriTable = state.priorityBase === 48;
+    this.defaultPriTable = state.priorityTableRebuilt !== true;
     this.vars[V_KEY] = state.key;
     this.flags[1] = state.egoHidden;
     this.flags[F_INPUT_READY] = state.inputReady;
@@ -5721,27 +5722,21 @@ export class Engine {
   }
 
   /**
-   * PriToY effective baseline y for fixed-priority objects in MakeObjList
-   * (docs/fidelity.md "Original cel handling and priority table"). While
-   * defaultPriTable is active, every build uses the closed form
-   * (pri - 5) * 12 + 48. Once set.pri.base clears defaultPriTable on 2.936+,
-   * 2.936 and 3.002.086 start the downward scan at i = 168 (reading 0 past
-   * pri_tbl[0..167] and breaking at 168 for pri > 0, or wrapping to -1 for
-   * pri === 0), whereas 3.002.102+ starts at i = 167 and scans down for the
-   * highest row with pri_tbl[y] < pri.
+   * PriToY: the sort key MakeObjList gives a fixed-priority object
+   * (docs/fidelity.md F-VIEWS-06). With the default table, the key is the
+   * signed word (pri - 5) * 12 + 48, so fixed priority 0 gives -12 and sorts
+   * first. After set.pri.base rebuilds the table, the scan starts at
+   * `profile.priorityTableScanStart`: 168 reads the zero byte past the
+   * 168-entry table and returns 168 for every pri > 0; 167 returns the lowest
+   * row whose band is below pri. Fixed priority 0 returns -1; the 167-start
+   * builds have no lower bound there and never return (a documented divergence
+   * on unusual input).
    */
   private priToY(pri: number): number {
-    if (this.defaultPriTable) {
-      return ((pri - 5) * 12 + 48) & 0xff;
-    }
+    if (this.defaultPriTable) return (pri - 5) * 12 + 48;
     if (pri === 0) return -1;
-    if (this.profile.id === "2.936" || this.profile.id === "3.002.086") {
-      return SCREEN_HEIGHT;
-    }
-    let y = SCREEN_HEIGHT - 1;
-    while (y >= 0 && priorityForY(y, this.priorityBase) >= pri) {
-      y--;
-    }
+    let y = this.profile.priorityTableScanStart;
+    while (y >= 0 && (y >= SCREEN_HEIGHT ? 0 : priorityForY(y, this.priorityBase)) >= pri) y--;
     return y;
   }
 

@@ -457,6 +457,13 @@ export interface AgiProfile {
    */
   readonly celMirrorLoopMask: 0 | 3 | 7;
   /**
+   * First row PriToY reads once set.pri.base has replaced the default table:
+   * 168 (one past the table, a zero byte) on 2.936 and 3.002.086, 167 on
+   * 3.002.102 and later (docs/fidelity.md F-VIEWS-06). Builds whose
+   * set.pri.base is a stub never leave the closed form.
+   */
+  readonly priorityTableScanStart: 167 | 168;
+  /**
    * Object-distance action 0x45 saturates at 254 (later PC and Amiga), at 255
    * on the IIgs — where a far object reads like an undrawn one — or wraps its
    * low byte (null, early profiles).
@@ -719,6 +726,7 @@ const BASE_2936: AgiProfile = {
   earlierPartitionOrder: "drawing-key",
   packedViewLoopHeader: false,
   celMirrorLoopMask: 7,
+  priorityTableScanStart: 168,
   objectDistanceCap: 254,
   targetMotionDeferred: false,
   movementClear: "later",
@@ -981,6 +989,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     releaseGateAction: "set",
     releaseGateClearAction: true,
     directionLoops: "four-or-more-f20",
+    priorityTableScanStart: 167,
     // MH1 3.002.107's measured envelope; the conformance matrix promotes that
     // build to this profile (docs/fidelity.md, sound player audit).
     soundEnvelope: "3.002",
@@ -990,6 +999,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_V3,
     id: "3.002.149",
     maxAction: 0xb5,
+    priorityTableScanStart: 167,
     extraActions: "v3-full",
     keyMapCapacity: 49,
     releaseGateAction: "set",

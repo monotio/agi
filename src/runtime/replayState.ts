@@ -70,6 +70,8 @@ export interface PlaybackState {
 }
 export interface EngineReplayState {
   amigaRegion?: "ntsc" | "pal";
+  /** Present once set.pri.base has replaced the default priority table (PriToY). */
+  priorityTableRebuilt?: true;
   clockRemainderMs: number;
   pictureShown: boolean;
   terminated: boolean;
@@ -396,9 +398,12 @@ export function validateEngineReplayState(
     "patchGeneration",
     "continuation",
   ];
-  const hasRegion =
-    value !== null && typeof value === "object" && Object.hasOwn(value, "amigaRegion");
-  const s = record(value, hasRegion ? [...fields, "amigaRegion"] : fields);
+  const optional = ["amigaRegion", "priorityTableRebuilt"].filter(
+    (key) => value !== null && typeof value === "object" && Object.hasOwn(value, key),
+  );
+  const s = record(value, [...fields, ...optional]);
+  if (s["priorityTableRebuilt"] !== undefined && s["priorityTableRebuilt"] !== true)
+    throw new Error("Replay priority table marker must be true.");
   if (s["amigaRegion"] !== undefined && s["amigaRegion"] !== "pal" && s["amigaRegion"] !== "ntsc")
     throw new Error("Replay region must be ntsc or pal.");
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
@@ -431,6 +436,7 @@ export function validateEngineReplayState(
   }
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
+    ...(s["priorityTableRebuilt"] === true ? { priorityTableRebuilt: true as const } : {}),
     clockRemainderMs: number(
       s["clockRemainderMs"],
       0,
