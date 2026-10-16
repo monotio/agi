@@ -583,10 +583,10 @@ table and the app draws the picture, text and windows through it.
 
 Text is the system font `topaz.font` at 8 px, which the interpreter asks
 Intuition to open from the Kickstart ROM; no game disk carries a font. The app
-draws it with its own 8×8 font, an independent design to the same metrics
-(capitals on rows 0..6, lowercase on rows 2..6 with descenders on row 7, an
-8 px advance) in the same bold spirit; the ROM's glyphs are never shipped,
-read or copied, and a test against a contributor's ROM keeps it that way. The status line is the screen title: Kickstart draws it in an 11 px
+draws it with its own table, a pixel-for-pixel recreation of the Amiga Topaz 8
+bitmap design (a bitmap typeface design carries no ROM data; no ROM or font
+file ships and none is read at run time), and a test against a contributor's
+ROM keeps the table exact. The status line is the screen title: Kickstart draws it in an 11 px
 title bar with the screen depth gadgets at the right, which hides the top
 three picture rows while the status line is on. The configured status row plays no
 part, and a picture starting at row 0 never shows the bar. The input row
@@ -4107,20 +4107,21 @@ engine has none of; the arrow is the player's cursor over the screen, drawn
 by the app as its own arrow in those colours and hot spot
 (`app/src/play/amigaPointer.ts`). SQ1 2.082 reads only `data/pointer`.
 
-**Glyph shapes (decision).** The font the player saw is Commodore's ROM
-Topaz 8. The app ships no original glyphs and never reads a ROM: its Amiga
-font (`app/src/render/fontAmiga.ts`) is an independent design to Topaz's
-metrics (8 px cell and advance, capitals on rows 0..6, lowercase on rows
-2..6, descenders on row 7), a bold two-pixel stroke on a six-column body
-with cut corners, drawn without the ROM strike in view. With a contributor's
-Kickstart 1.3 ROM present, `app/test/font-amiga-provenance.test.ts` decodes
-the ROM's Topaz strike (`0x9134`, stride `0xc0`, CharLoc table `0x9734`)
-and fails if any printable glyph beyond single-stroke marks matches ours.
-Text therefore lands on the same cells and rows as the original while every
-letter's bitmap is this project's own; against the MAME frames the
-remaining differences are the glyph bitmaps themselves, the redrawn depth
-gadgets, the emulator's pointer parked at the top-left corner, and the
-animation phase of moving objects.
+**Glyph shapes (decision).** The font the player saw is the ROM's Topaz 8.
+The app's Amiga font (`app/src/render/fontAmiga.ts`) is a recreation of the
+Amiga Topaz 8 bitmap design, kept as this project's own table and matched
+pixel for pixel for printable ASCII: bitmap typeface designs carry no ROM
+data, so no ROM or font file ships and nothing is read from a ROM at build
+or run time, and the font is neither the original file nor endorsed. The
+table was transcribed from the interpreter's own screen output (every
+printable character typed on the SQ2 input line under MAME) and checked
+glyph by glyph against a contributor's Kickstart 1.3 ROM by
+`app/test/font-amiga-provenance.test.ts`, which decodes the ROM's Topaz
+strike (`0x9134`, stride `0xc0`, CharLoc table `0x9734`) when the ROM is
+present, skips otherwise, and asserts identity for 0x20..0x7e. Against the
+MAME frames the remaining differences are the redrawn depth gadgets, the
+emulator's pointer parked at the top-left corner, and the animation phase
+of moving objects.
 
 ### Amiga directory absence
 

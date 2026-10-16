@@ -6,12 +6,12 @@ import { fileURLToPath } from "node:url";
 import { AMIGA_FONT } from "../src/render/fontAmiga.ts";
 
 /**
- * Provenance rule (AGENTS.md, docs/fidelity.md "Amiga screen, font and
- * pointer"): the Amiga font is this project's own design to Topaz 8's
- * metrics, never the ROM's bitmaps. With a contributor's Kickstart 1.3 ROM
- * at hand the test decodes the ROM's 8 px Topaz strike and asserts that no
- * printable glyph beyond single-stroke marks coincides with ours. Without
- * the ROM it skips; the ROM is never read at runtime.
+ * Fidelity rule (AGENTS.md, docs/fidelity.md "Amiga screen, font and
+ * pointer"): the Amiga font is a recreation of the Topaz 8 bitmap design,
+ * kept as this project's own table and matched pixel for pixel. With a
+ * contributor's Kickstart 1.3 ROM at hand the test decodes the ROM's 8 px
+ * Topaz strike and asserts that every printable glyph equals ours. Without
+ * the ROM it skips; the ROM is never read at build or run time.
  */
 const ROM = join(
   fileURLToPath(new URL("../../games/_roms/roms/a500n/", import.meta.url)),
@@ -22,9 +22,6 @@ const STRIKE = 0x9134;
 const STRIDE = 0xc0;
 const CHAR_LOC = 0x9734;
 const LO_CHAR = 32;
-
-/** Marks a single stroke draws the same way in any 8×8 font of these metrics. */
-const TRIVIAL = new Set([" ", ".", ",", "-", "|", "_", "'", ":", ";", "`", '"', "!", "="]);
 
 function romGlyph(rom: Uint8Array, code: number): number[] {
   const at = CHAR_LOC + 4 * (code - LO_CHAR);
@@ -42,19 +39,18 @@ function romGlyph(rom: Uint8Array, code: number): number[] {
   return rows;
 }
 
-test("the Amiga font shares no glyph beyond single-stroke marks with the Kickstart Topaz strike", (t) => {
+test("the Amiga font matches the Kickstart Topaz 8 strike pixel for pixel", (t) => {
   if (!existsSync(ROM)) return t.skip("no local Kickstart 1.3 ROM");
   const rom = new Uint8Array(readFileSync(ROM));
   assert.equal(rom.length, 262144, "Kickstart 1.3 is 256 KiB");
-  const same: string[] = [];
+  const differing: string[] = [];
   for (let code = 0x20; code <= 0x7e; code++) {
     const ours = Array.from(AMIGA_FONT.subarray(code * 8, code * 8 + 8));
-    if (ours.every((row, y) => row === romGlyph(rom, code)[y]))
-      same.push(String.fromCharCode(code));
+    const theirs = romGlyph(rom, code);
+    if (!ours.every((row, y) => row === theirs[y]))
+      differing.push(
+        `${JSON.stringify(String.fromCharCode(code))}: ours ${ours.map((b) => b.toString(16).padStart(2, "0")).join("")}, ROM ${theirs.map((b) => b.toString(16).padStart(2, "0")).join("")}`,
+      );
   }
-  assert.deepEqual(
-    same.filter((ch) => !TRIVIAL.has(ch)),
-    [],
-    `glyphs identical to the ROM strike: ${JSON.stringify(same)}`,
-  );
+  assert.deepEqual(differing, [], "glyphs that differ from the ROM strike");
 });
