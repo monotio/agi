@@ -1,0 +1,79 @@
+{
+  "fixture": "pq1",
+  "profile": "2.936",
+  "machine": "t1000sx",
+  "media": [
+    {
+      "slot": "-flop1",
+      "path": "../../.local/mame-diff/boot720.img"
+    },
+    {
+      "slot": "-flop2",
+      "path": "../../.local/mame-diff/pq1-720.img"
+    }
+  ],
+  "crop": {
+    "x": 0,
+    "y": 0,
+    "width": 320,
+    "height": 200
+  },
+  "seconds": 300,
+  "steps": [
+    {
+      "at": 185,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 18000
+      }
+    },
+    {
+      "at": 210,
+      "capture": "opening",
+      "engine": {
+        "room": 6,
+        "modal": null,
+        "maxMs": 120000
+      }
+    },
+    {
+      "at": 220,
+      "input": "look"
+    },
+    {
+      "at": 240,
+      "capture": "message",
+      "engine": {
+        "advanceMs": 1000,
+        "modal": "print"
+      }
+    },
+    {
+      "at": 250,
+      "key": "Enter"
+    },
+    {
+      "at": 260,
+      "key": "F9",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 280,
+      "capture": "restart",
+      "engine": {
+        "advanceMs": 200,
+        "text": "Press ENTER",
+        "modal": "print"
+      }
+    }
+  ],
+  "args": ["-isa_fdc:fdc_xt:fdc:1", "35dd"],
+  "boot": [
+    {
+      "at": 120,
+      "text": "{ESC}"
+    }
+  ]
+}

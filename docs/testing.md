@@ -937,6 +937,126 @@ match. Spectrograms of commercial games stay private under
 original resources and mocked provider replies; generated recordings stay under
 `.captures/` until reviewed and edited.
 
+## Original interpreter frame comparison
+
+`scripts/mame-diff.ts` is an opt-in local comparison against an original
+interpreter running on MAME. It never runs in `npm run check` or CI. Supply your
+own ROMs, boot media and game fixtures; all images, disk copies and results stay
+in an ignored output directory. MAME runs with `-video none -sound none` and
+headless keyboard automation, without opening a window. The Node side uses the
+real `Engine`, `CycleClock`, sound heartbeat and shipped CPU frame compositor.
+It does not exercise the browser GPU, scaling or CRT effects.
+
+```bash
+node --experimental-strip-types scripts/mame-diff.ts \
+  scripts/mame-diff/amiga.json /absolute/path/to/roms .local/mame-diff/amiga
+node --experimental-strip-types scripts/mame-diff.ts \
+  scripts/mame-diff/iigs.json /absolute/path/to/roms .local/mame-diff/iigs
+node --experimental-strip-types scripts/mame-diff.ts \
+  scripts/mame-diff/pc.json /absolute/path/to/roms .local/mame-diff/pc
+```
+
+An optional fourth argument selects the MAME executable. Missing MAME, ROMs,
+resource fixtures or disk media produce `SKIP` and `result.json` with a reason.
+Other execution failures exit nonzero. A completed capture records
+`status: "captured"`; this means measurements exist, not that frames agree.
+Inspect each original/ours pair before interpreting its numbers. A boot screen,
+a different animation phase or a different message is not a fidelity result.
+MAME also emulates the graphics hardware, so its frames are a cross-check, not
+ground truth: the original binary decides the values it encodes, and each
+difference needs an explanation rather than a copy of MAME's output.
+
+The supplied scripts cover SQ2 Amiga 2.202 (`a500n`, `kick13`), SQ2 IIgs 1.014
+(`apple2gsr1`, self-booting two-disk 2MG set; no separate GS/OS disk required),
+and PQ1 PC 2.936 (`t1000sx`, FreeDOS). Fixture resources resolve through
+`test/fixtures.ts`; source disk images resolve recursively under `games/` by
+SHA-256. Each disk is copied before boot, and each run gets fresh configuration
+and NVRAM directories. ROMs are read from the supplied absolute directory.
+Do not point media paths at a previous run's writable disk copies.
+
+### PC boot media
+
+The PC script expects `.local/mame-diff/boot720.img` and `pq1-720.img`, prepared
+locally with your own FreeDOS boot disk and PQ1 fixture. Use a 720 KiB FreeDOS
+boot image, with `FDCONFIG.SYS` selecting its command interpreter directly and
+`FDAUTO.BAT` changing to B and running `start -t`. For FreeDOS 1.4's floppy
+edition, these files are sufficient (use DOS line endings):
+
+```text
+FILES=40
+BUFFERS=20
+LASTDRIVE=Z
+SHELL=\FREEDOS\BIN\COMMAND.COM \FREEDOS\BIN /E:2048 /P=\FDAUTO.BAT
+```
+
+```text
+@echo off
+set PATH=A:\FREEDOS\BIN
+B:
+start -t
+```
+
+With `mtools`, create the game disk using
+`mformat -C -i .local/mame-diff/pq1-720.img -f 720 ::`, then copy the PQ1
+interpreter, overlays, directories, vocabulary, inventory and volumes 0–2 with
+`mcopy -i IMAGE FILE ::`. Volume 3 does not fit on this disk and is not used by
+these opening-room scenes; this recipe does not cover later gameplay. Keep the
+complete resource fixture for Node. The manifest records the actual disk hashes
+and every Node input file hash. PQ1's joystick calibration is dismissed by the
+MAME-only boot action; the shared Enter skips the game title.
+
+### Scene scripts and measurements
+
+Copy a supplied JSON script into `.local/` to adapt it. Its fields are:
+
+- `fixture`, `profile`, `machine`, optional `bios` and device `args` select the
+  game and hardware. The detected resource profile must match the requested one.
+- `media` supplies a floppy `slot` and either a content `sha256` or a `path`
+  relative to the JSON file. If both are supplied, the path's bytes must match.
+- `crop` gives integer source-screen coordinates before normalization to
+  320×200 RGB. The supplied crops are Amiga `(74,46,640,400)`, IIgs
+  `(32,16,640,200)` and PC `(0,0,320,200)`, measured on MAME 0.289 raw screen
+  snapshots. Reinspect crops when changing hardware or MAME versions.
+- `seconds` bounds the original run. `boot` contains MAME-only bootstrap input
+  with `at` in emulated seconds and natural-keyboard coded `text`, such as
+  `{ENTER}`. Keep these separate from the game scene sequence.
+- Each ordered `steps` entry has `at` and one of `key`, `input` or `capture`.
+  Keys are Enter, Escape, F9 or Space; `fields` optionally selects exact MAME
+  keyboard field names instead of natural-keyboard codes. `input` submits the
+  same command line to both engines. `capture` names the output scene.
+- A step's `engine` wait runs before its action: `advanceMs` advances a fixed
+  interval, then optional `room`, `modal` (including `null`) and `text`
+  predicates must match within `maxMs` (default 120 seconds). Confirmations are
+  `print` modals. Node consumes each input before proceeding; blocking key
+  requests park through `HostWait`, preserving visible prompts. The IIgs broom
+  sequence needs a five-second wait before its key, so the moving broom has
+  reached its destination. This is a game-state dependency, not a test retry.
+
+The game input order is shared; boot time and host pacing differ, so the two
+runs use explicit MAME times and Node state predicates rather than assuming
+that equal elapsed seconds identify equal scenes. MAME scene correspondence
+is verified visually. Node uses `rngDraw` with state 1 and zero-state reseed 1; the original's RNG is
+not replaced. Animated objects, cursor blink and mouse position may therefore
+differ. Record these limits instead of hiding them with a tolerance or mask.
+
+Outputs include raw `*-mame.png`, cropped `*-original.png`, `*-ours.png` and
+absolute per-channel `*-diff.png` (black means exact agreement), plus:
+
+- `result.json`: exact differing RGB pixels out of 64,000, RGB palette
+  histograms for both frames, and counts and mismatch bounds per region.
+  Bounds use full-screen coordinates: status rows 0–7, play rows 8–175,
+  input/spare rows 176–199. No colour correction, palette remapping or masking
+  is applied. Normalization samples the centre of each nearest-neighbour cell.
+- `engine.json`: checkpoint room, modal, text rows, tick, RNG seed, profile and
+  resource hashes.
+- `provenance.json`, `drive.lua`, `mame.log`: version, revision, exact scene
+  script, command line, disk hashes, input times and keyboard field inventory.
+
+Keep the entire output private. Compare static scene content separately in the
+review notes when animation phases differ. The metric tests use synthetic RGB
+pixels and need no original media:
+`node --test --experimental-strip-types test/mame-diff.test.ts`.
+
 ## Original interpreter audio comparison
 
 MAME can supply a second audio reference by running a contributor's original

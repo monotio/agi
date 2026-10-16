@@ -11,6 +11,8 @@ const config: KnipConfig = {
         "scripts/benchmark-media.ts",
         "scripts/capture-feedback.ts",
         "scripts/generate-logic-reference.ts",
+        // Private-media comparison documented in docs/testing.md.
+        "scripts/mame-diff.ts",
         // Spawned as a shell string by app/playwright.production.config.ts
         // (webServer command), which knip cannot resolve as an import.
         "scripts/serve-production.ts",
