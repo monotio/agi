@@ -121,9 +121,11 @@ test("the death box offers restore, restart and quit on the text surface", async
   await expectModal(page, null);
 
   // Choice 3 is Quit: the engine's own confirmation window opens over the
-  // box, and ESC declines back to the still-dead world.
+  // box with the original 2.936 wording (docs/fidelity.md F-persistence-05),
+  // and ESC declines back to the still-dead world.
   await page.keyboard.press("3");
-  await expect.poll(() => screenText(page)).toContain("Quit the game?");
+  await expect.poll(() => screenText(page)).toContain("Press ENTER to quit.");
+  expect(await screenText(page)).toContain("Press ESC to keep playing.");
   await page.keyboard.press("Escape");
   await expect.poll(() => screenText(page)).toContain("You have died.");
 
