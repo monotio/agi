@@ -29,6 +29,12 @@ import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
 import {
+  cgaRgbViewPayload,
+  effectivePcDisplay,
+  MONITOR_TYPE,
+  type PcDisplay,
+} from "./display.ts";
+import {
   detectProfile,
   detectProfileDecision,
   interpreterTiming,
@@ -762,6 +768,19 @@ export class Engine {
   /** Selected interpreter profile: the single source of version-variant behavior. */
   readonly profile: AgiProfile;
   private sessionAmigaRegion: AmigaRegion = "ntsc";
+  /**
+   * The PC display adapter this session runs on, fixed at construction like
+   * the hardware (src/runtime/display.ts). EGA unless the profile verifies CGA.
+   */
+  readonly pcDisplay: PcDisplay;
+  /**
+   * The original's monitor type: EGA 3, CGA RGB 1, composite 0. ResetAll and
+   * the 2.903+ restore tail copy it into v26; toggle.monitor flips it on CGA
+   * (docs/fidelity.md "PC fonts and display adapters").
+   */
+  private monitorType: number;
+  /** add.to.pic pixels on the picture surface: CGA shows them with the cel table. */
+  private readonly stampMask = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
 
   get amigaRegion(): AmigaRegion {
     return this.sessionAmigaRegion;
@@ -1152,6 +1171,7 @@ export class Engine {
     options?: {
       restarted?: boolean;
       amigaRegion?: AmigaRegion;
+      pcDisplay?: PcDisplay;
       profile?: ProfileId | AgiProfile;
       instructionBudget?: number;
       executionBudgetPolicy?: ExecutionBudgetPolicy;
@@ -1183,6 +1203,8 @@ export class Engine {
     const decision = detectProfileDecision(container.files, options?.profile);
     this.profile = decision.profile;
     this.amigaRegion = options?.amigaRegion ?? "ntsc";
+    this.pcDisplay = effectivePcDisplay(this.profile, options?.pcDisplay);
+    this.monitorType = MONITOR_TYPE[this.pcDisplay];
     this.profileKind = decision.kind;
     this.profileBuild = decision.build;
     this.inputQueue = new InputQueue(this.profile.keypadWordsNormalized);
@@ -1697,7 +1719,7 @@ export class Engine {
           takeKeys: () => [],
         },
         this.dictionary,
-        { profile: this.profile, amigaRegion: this.amigaRegion },
+        { profile: this.profile, amigaRegion: this.amigaRegion, pcDisplay: this.pcDisplay },
       );
       // Never call the live prepareRoom hook from a speculative entry: it
       // may start authoring or write resources. An entry that needs a missing
@@ -1814,7 +1836,10 @@ export class Engine {
       } else if (change.kind === "view") {
         const parsed = staged.viewParses.get(change.num);
         if (parsed !== undefined && this.views.has(change.num)) {
-          this.views.set(change.num, parsed);
+          this.views.set(
+            change.num,
+            this.pcDisplay === "cga-rgb" ? this.parseLoadedView(change.newPayload) : parsed,
+          );
           this.presentationDirty = true;
         }
       } else if (change.kind === "sound") {
@@ -1833,6 +1858,8 @@ export class Engine {
     }
     if (staged.surface !== null) {
       this.surface.visual.set(staged.surface.visual);
+      // A recomposed picture carries no add.to.pic stamps (previewPictureComposition.ts).
+      this.stampMask.fill(0);
       this.surface.priority.set(staged.surface.priority);
       this.presentationDirty = true;
     }
@@ -4372,6 +4399,9 @@ export class Engine {
     if (joystick && continuation === null) joystick.calibration = null;
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
+      ...(this.monitorType === MONITOR_TYPE[this.pcDisplay]
+        ? {}
+        : { monitorType: this.monitorType }),
       ...(this.defaultPriTable ? {} : { priorityTableRebuilt: true as const }),
       ...(this.booterClockPhase === 0 ? {} : { booterClockPhase: this.booterClockPhase }),
       ...(this.profile.showPictureReveal === "instant"
@@ -4428,7 +4458,7 @@ export class Engine {
     for (const num of state.viewCache.loaded) {
       const payload = this.container.getResource("view", num);
       if (!payload) throw new Error("Recorded view resource is missing.");
-      views.set(num, parseView(payload, this.profile));
+      views.set(num, this.parseLoadedView(payload));
     }
     let sound: SoundPlayback | null = null;
     if (state.sound) {
@@ -4438,6 +4468,11 @@ export class Engine {
       sound.restore(state.sound.playback);
     }
     this.amigaRegion = state.amigaRegion ?? "ntsc";
+    // toggle.monitor flips only a CGA card between RGB and composite.
+    this.monitorType =
+      this.pcDisplay === "cga-rgb" && (state.monitorType === 0 || state.monitorType === 1)
+        ? state.monitorType
+        : MONITOR_TYPE[this.pcDisplay];
     this.clockRemainderMs = state.clockRemainderMs;
     this.pictureShown = state.pictureShown;
     this.terminated = state.terminated;
@@ -4837,7 +4872,7 @@ export class Engine {
         },
       },
       this.dictionary,
-      { profile: this.profile },
+      { profile: this.profile, pcDisplay: this.pcDisplay },
     );
     try {
       candidate.applyRestore(image, screen);
@@ -4998,7 +5033,7 @@ export class Engine {
       // state exactly instead.
       if (screen === null && this.profile.restoreRewritesMachineState) {
         this.vars[20] = 0;
-        this.vars[26] = 3;
+        this.vars[26] = this.monitorType;
         if ((this.host.soundDevice?.() ?? 1) === 0) {
           this.vars[22] = 1;
         } else {
@@ -5067,6 +5102,7 @@ export class Engine {
       if (globalScanStart !== undefined) this.scanStart.set(0, globalScanStart);
     }
     this.surface.reset();
+    this.stampMask.fill(0);
     this.pictureShown = false;
 
     const recording = this.replayRecording;
@@ -5491,6 +5527,7 @@ export class Engine {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
         this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow);
+        this.stampMask[pixel] = 1;
       },
     });
     this.text.dropCells(covered);
@@ -6894,6 +6931,25 @@ export class Engine {
   getPreviewMask(): Uint8Array | null {
     this.ensurePresentationCurrent();
     return this.modal?.kind === "showObj" ? this.scratchPreview.slice() : null;
+  }
+
+  /**
+   * Per-pixel cel provenance of the composed frame: 1 where a cel drew the
+   * visible pixel (a screen object, an add.to.pic stamp or the show.obj
+   * preview), 0 where the picture did. The CGA driver gives cels their own
+   * colour table (docs/fidelity.md "PC fonts and display adapters"). Fresh
+   * copy — the host may transfer it.
+   */
+  getCelPixels(): Uint8Array {
+    this.ensurePresentationCurrent();
+    const out = this.stampMask.slice();
+    const ownership = this.scratchOwnership;
+    for (let i = 0; i < out.length; i++) if (ownership[i] !== 0) out[i] = 1;
+    if (this.modal?.kind === "showObj") {
+      const preview = this.scratchPreview;
+      for (let i = 0; i < out.length; i++) if (preview[i] !== 0) out[i] = 1;
+    }
+    return out;
   }
 
   /**
@@ -8687,9 +8743,20 @@ export class Engine {
       case 0x8b:
         this.initJoy();
         return next;
-      // toggle.monitor: spec places the alternate display mode outside the
-      // full-EGA target this engine implements.
+      // toggle.monitor: on a PC CGA card outside room 0 the original flips the
+      // monitor type between RGB (1) and composite (0); EGA and Hercules
+      // ignore it and v26 keeps its value (docs/fidelity.md "PC fonts and
+      // display adapters"). Amiga and IIgs keep their no-op.
       case 0x8c:
+        if (
+          this.profile.presentation === "pc" &&
+          this.vars[0] !== 0 &&
+          this.monitorType !== 3 &&
+          this.monitorType !== 2
+        ) {
+          this.monitorType ^= 1;
+          this.presentationDirty = true;
+        }
         return next;
       case 0x8d: {
         // version: the handler pushes the CONST version string and calls
@@ -9129,6 +9196,7 @@ export class Engine {
   /** draw.pic: clear logical picture state, then decode the loaded picture. */
   private drawPicture(num: number): void {
     this.surface.reset();
+    this.stampMask.fill(0);
     renderPicture(this.picturePayload(num), this.surface, { profile: this.profile });
     this.text.clearPictureTitleFill(this.displayBaseRow);
     this.pictureShown = false;
@@ -9140,9 +9208,17 @@ export class Engine {
   /** overlay.pic: decode over the logical picture without clearing it first. */
   private overlayPicture(num: number): void {
     const stamp = this.text.hasTitleFill ? ++this.text.seq : 0;
+    // Picture pixels drawn over a stamp show the picture colours again.
+    const owner = this.stampMask.includes(1)
+      ? {
+          visual: new Int32Array(SCREEN_WIDTH * SCREEN_HEIGHT).fill(-1),
+          priority: new Int32Array(SCREEN_WIDTH * SCREEN_HEIGHT).fill(-1),
+        }
+      : undefined;
     renderPicture(this.picturePayload(num), this.surface, {
       overlay: true,
       profile: this.profile,
+      ...(owner ? { owner } : {}),
       ...(this.text.hasOverlay || this.text.hasTitleFill
         ? {
             onCellWrite: (pixel: number) =>
@@ -9150,6 +9226,7 @@ export class Engine {
           }
         : {}),
     });
+    if (owner) for (let i = 0; i < owner.visual.length; i++) if (owner.visual[i]! >= 0) this.stampMask[i] = 0;
     this.pictureRevealInstant = true;
     this.lastPicture = num;
     this.presentationDirty = true;
@@ -9238,12 +9315,25 @@ export class Engine {
     return payload;
   }
 
+  /**
+   * A view as the interpreter holds it after loading. The CGA driver converts
+   * each view as it loads (src/runtime/display.ts). The composite table that
+   * applies after toggle.monitor arrives with the composite display, so a CGA
+   * session keeps the RGB conversion.
+   */
+  private parseLoadedView(payload: Uint8Array): AgiView {
+    return parseView(
+      this.pcDisplay === "cga-rgb" ? cgaRgbViewPayload(payload) : payload,
+      this.profile,
+    );
+  }
+
   private loadView(num: number): AgiView {
     const cached = this.views.get(num);
     if (cached) return cached;
     const payload = this.container.getResource("view", num);
     if (!payload) throw new Error(`view resource ${num} not in container`);
-    const view = parseView(payload, this.profile);
+    const view = this.parseLoadedView(payload);
     this.views.set(num, view);
     if (!this.viewOrder.includes(num)) this.viewOrder.push(num);
     return view;
@@ -9349,6 +9439,7 @@ export class Engine {
     this.inputQueue.clear();
     this.inputWidthCap = null;
     this.surface.reset();
+    this.stampMask.fill(0);
     this.pictureShown = false;
     this.text.clear();
     this.presentationDirty = true;
@@ -9397,6 +9488,8 @@ export class Engine {
       this.flags[11] = soundOn ? 1 : 0;
     }
     this.vars[24] = this.profile.inputLineEditCap === "early-35" ? 0 : isIIgs ? 40 : 41;
+    // PC 2.411+ copies the monitor type; 2.001..2.272 leave v26 at 0
+    // (docs/fidelity.md "PC fonts and display adapters").
     this.vars[26] =
       id === "2.001" ||
       id === "2.089" ||
@@ -9405,7 +9498,9 @@ export class Engine {
       id === "amiga-2.082" ||
       isIIgs
         ? 0
-        : 3;
+        : this.profile.presentation === "pc"
+          ? this.monitorType
+          : 3;
     this.flags[F_NEW_ROOM] = 1;
   }
 

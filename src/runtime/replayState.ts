@@ -136,6 +136,8 @@ export function validateJoystickState(value: unknown): JoystickReplayState {
 export interface EngineReplayState {
   joystick?: JoystickReplayState;
   amigaRegion?: "ntsc" | "pal";
+  /** The PC monitor type after toggle.monitor changed it (src/runtime/display.ts). */
+  monitorType?: number;
   /** Present once set.pri.base has replaced the default priority table (PriToY). */
   priorityTableRebuilt?: true;
   /** 2.001 ticks since the last clock refresh, when nonzero. */
@@ -514,6 +516,7 @@ export function validateEngineReplayState(
   ];
   const optional = [
     "amigaRegion",
+    "monitorType",
     "priorityTableRebuilt",
     "booterClockPhase",
     "pictureRevealInstant",
@@ -559,6 +562,7 @@ export function validateEngineReplayState(
     throw new Error("Replay joystick calibration is missing its window.");
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
+    ...(s["monitorType"] !== undefined ? { monitorType: number(s["monitorType"], 0, 4) } : {}),
     ...(s["priorityTableRebuilt"] === true ? { priorityTableRebuilt: true as const } : {}),
     ...(s["booterClockPhase"] !== undefined
       ? { booterClockPhase: number(s["booterClockPhase"], 1, 17) }
