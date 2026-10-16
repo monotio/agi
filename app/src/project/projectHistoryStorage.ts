@@ -29,6 +29,9 @@ export function hydrateProjectHistory(
   rows: ReadonlyMap<string, unknown>,
 ): PortableProjectHistory {
   historyBlobKeys(id, history);
+  const images = history.commits.some((commit) =>
+    Object.keys(commit.documents).some((key) => key.startsWith("attachment:")),
+  );
   let total = 0;
   const blobs = Object.fromEntries(
     history.blobs.map((hash) => {
@@ -47,8 +50,14 @@ export function hydrateProjectHistory(
       const size = typeof content === "string" ? content.length * 2 : content.length;
       total += size;
       if (
-        size > PROJECT_HISTORY_LIMITS.maxBlobBytes ||
-        total > PROJECT_HISTORY_LIMITS.maxTotalBytes
+        size >
+          (images && content instanceof Uint8Array
+            ? PROJECT_HISTORY_LIMITS.maxImageBlobBytes
+            : PROJECT_HISTORY_LIMITS.maxBlobBytes) ||
+        total >
+          (images
+            ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes
+            : PROJECT_HISTORY_LIMITS.maxTotalBytes)
       )
         throw new Error("Stored project History exceeds its blob payload limit.");
       return [
@@ -98,8 +107,11 @@ export function projectHistoryWrites(
   previous: StoredProjectHistory | undefined,
   next: PortableProjectHistory | undefined,
   rows: ReadonlyMap<string, unknown>,
+  replaced: StoredProjectHistory | undefined = previous,
 ): { puts: unknown[]; deletes: string[] } {
   historyBlobKeys(id, previous);
+  // Old headers authorize garbage collection, never skipping a replacement write.
+  historyBlobKeys(id, replaced);
   if (next === undefined) return { puts: [], deletes: [] };
   const state = sealedProjectHistory(next, sha256Hex) ?? readProjectHistory(next, sha256Hex);
   const existing = new Set(previous?.blobs ?? []);
@@ -109,7 +121,7 @@ export function projectHistoryWrites(
     if (existing.has(hash)) continue;
     const content = state.blobs[hash]!;
     const key = projectHistoryBlobKey(id, hash);
-    const row = rows.get(key) as
+    const row = (previous === undefined ? undefined : rows.get(key)) as
       { projectId?: unknown; format?: unknown; version?: unknown; content?: unknown } | undefined;
     if (row !== undefined) {
       if (
@@ -133,7 +145,7 @@ export function projectHistoryWrites(
   }
   return {
     puts,
-    deletes: (previous?.blobs ?? [])
+    deletes: (replaced?.blobs ?? [])
       .filter((hash) => !retained.has(hash))
       .map((hash) => projectHistoryBlobKey(id, hash)),
   };
@@ -146,7 +158,8 @@ export function projectHistoryWriteKeys(
   next: PortableProjectHistory | undefined,
 ): string[] {
   historyBlobKeys(id, previous);
-  const existing = new Set(previous?.blobs ?? []);
+  if (previous === undefined) return [];
+  const existing = new Set(previous.blobs);
   return Object.keys(next?.blobs ?? {})
     .filter((hash) => !existing.has(hash))
     .map((hash) => projectHistoryBlobKey(id, hash));

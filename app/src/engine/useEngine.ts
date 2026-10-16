@@ -615,8 +615,23 @@ export function useEngine(
     game: BootedGame,
     worker: Worker | null,
   ): Promise<ProjectSession | null> {
+    if (!game.authoredGame)
+      throw new Error("The project is unavailable. Reopen the game to continue.");
+    if (!game.installed && game.authoredGame.projectHistory === undefined) {
+      try {
+        const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+        if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+        game.authoredGame = saved.data;
+      } catch (error) {
+        if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+        if (error instanceof ResourceCommitError && error.behindStorage) {
+          if (error.removed) tellRemoved();
+          else tellBehindStorage();
+        }
+        throw error;
+      }
+    }
     const data = game.authoredGame;
-    if (!data) throw new Error("The project is unavailable. Reopen the game to continue.");
     const reply = await link.query("projectCreate", {
       progressMode: "play",
       ...(data.workspace ? { documents: data.workspace } : {}),
@@ -1354,6 +1369,34 @@ export function useEngine(
       if (projectSessionOpeningError !== undefined)
         return refuseOpening(projectSessionOpeningError);
       if (projectSession?.runToken !== openingRun) return false;
+    }
+    // The worker needs the saved cursor before granting a Play-booted game's
+    // first editing lane; opening the main-thread session happens afterwards.
+    if (!game.installed && game.authoredGame.projectHistory === undefined) {
+      try {
+        const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+        if (
+          change !== projectModeChange ||
+          projectMode !== mode ||
+          !retainGameOwner(projectSession, projectOpenEpoch) ||
+          link.getWorker() !== worker ||
+          state.phase !== "running"
+        )
+          return false;
+        game.authoredGame = saved.data;
+      } catch (cause) {
+        if (
+          change === projectModeChange &&
+          lifecycle.getBootedGame() === game &&
+          link.getWorker() === worker &&
+          cause instanceof ResourceCommitError &&
+          cause.behindStorage
+        ) {
+          if (cause.removed) tellRemoved();
+          else tellBehindStorage();
+        }
+        return refuseOpening(cause);
+      }
     }
     // A Play conversation can open the admission lane without entering Create.
     // Complete the requested worker transition even when that lane already exists.

@@ -152,7 +152,10 @@ function checkedHistory(
     Object.keys(record(record(commit)["documents"])).some((key) => key.startsWith("attachment:")),
   );
   const storedBlobs = record(envelope["blobs"]);
-  if (Object.keys(storedBlobs).length > PROJECT_HISTORY_LIMITS.maxBlobs)
+  if (
+    Object.keys(storedBlobs).length >
+    PROJECT_HISTORY_LIMITS.maxBlobs + (pendingAppend ? maxDocuments : 0)
+  )
     invalid("blob count exceeds the limit.");
   let total = 0;
   const attachments: Record<string, string> = Object.create(null);
@@ -198,7 +201,8 @@ function checkedHistory(
     total += typeof content === "string" ? content.length * 2 : content.length;
     if (
       total >
-      (images ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes : PROJECT_HISTORY_LIMITS.maxTotalBytes)
+      (images ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes : PROJECT_HISTORY_LIMITS.maxTotalBytes) *
+        (pendingAppend ? 2 : 1)
     )
       invalid("blob payloads exceed the total limit.");
     checked.push({ key, content });

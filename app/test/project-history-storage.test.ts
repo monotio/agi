@@ -541,3 +541,132 @@ test("a runnable body read can omit History while editable reads still verify ev
   records.set(key, { ...(records.get(key) as object), content: "corrupt" });
   await assert.rejects(storage.loadAuthoredGame(request.projectId), /hash/);
 });
+
+for (const writer of ["save", "commit"] as const) {
+  for (const corruption of ["missing", "content"] as const) {
+    test(`unconditional ${writer} heals a ${corruption} stored History blob`, async () => {
+      const { request } = capture(`history-heal-${writer}-${corruption}`);
+      await storage.commitProject(request);
+      const key = [...records.keys()].find((key) =>
+        String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+      )!;
+      if (corruption === "missing") records.delete(key);
+      else records.set(key, { ...(records.get(key) as object), content: "corrupt" });
+      await assert.rejects(storage.loadAuthoredGame(request.projectId));
+      if (writer === "save")
+        assert.equal(await storage.saveAuthoredGame(request.projectId, request.data), true);
+      else {
+        // Creation can encounter orphan rows from an earlier lifetime.
+        records.delete(request.projectId);
+        await storage.commitProject({ ...request, commitId: "replace" });
+      }
+      assert.deepEqual(
+        (await storage.loadAuthoredGame(request.projectId))!.projectHistory,
+        request.data.projectHistory,
+      );
+    });
+  }
+}
+
+for (const unsupported of [false, true]) {
+  test(`metadata updates keep a remembered ${unsupported ? "unsupported" : "corrupt"} History classification`, async () => {
+    const { request } = capture(`history-remembered-${unsupported}`);
+    await storage.commitProject(request);
+    const key = [...records.keys()].find((key) =>
+      String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+    )!;
+    records.set(key, {
+      ...(records.get(key) as object),
+      ...(unsupported ? { version: 999 } : { content: "corrupt" }),
+    });
+    await assert.rejects(storage.loadAuthoredGame(request.projectId));
+    const before = structuredClone(records.get(request.projectId));
+    assert.equal(await storage.renameAuthoredGame(request.projectId, "Renamed"), false);
+    assert.equal(await storage.setLibraryGameProfile(request.projectId, "2.936"), false);
+    assert.deepEqual(records.get(request.projectId), before);
+    assert.equal(
+      (await storage.listUnsupportedStoredProjects()).find(
+        (entry) => entry.projectId === request.projectId,
+      )?.state,
+      unsupported ? "unsupported" : "corrupt",
+    );
+  });
+}
+
+test("initial authored capture preserves its sealed History without expanding binary blobs", async () => {
+  const { history, documents, request } = capture("history-initial-seal");
+  const next = { ...documents, "view:1": Uint8Array.of(231, 17) };
+  history.record(next, { label: "View", origin: "view", author: "creator", time: 2 });
+  history.record(documents, { label: "Back", origin: "view", author: "creator", time: 3 });
+  const portable = history.capturePortable();
+  let expansions = 0;
+  const from = Array.from;
+  Array.from = ((value: unknown, ...args: unknown[]) => {
+    if (value instanceof Uint8Array && value[0] === 231) expansions++;
+    return Reflect.apply(from, Array, [value, ...args]);
+  }) as typeof Array.from;
+  try {
+    const saved = await storage.saveAuthoredGameCapture(request.projectId, {
+      ...request.data,
+      workspace: writeProjectWorkspace(documents),
+      projectHistory: portable,
+    });
+    assert.ok(saved);
+    assert.equal(expansions, 0);
+  } finally {
+    Array.from = from;
+  }
+});
+
+test("replacing a project heals target blobs and reclaims the previous History's unused rows", async () => {
+  const { request } = capture("history-replace-cleanup");
+  await storage.commitProject(request);
+  const oldKeys = [...records.keys()].filter((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  );
+  const history = new ProjectHistory(sha256Hex);
+  const documents = { "logic:1": "// Replacement\nreturn;" };
+  history.record(documents, {
+    label: "Replacement",
+    origin: "template",
+    author: "creator",
+    time: 2,
+  });
+  assert.equal(
+    await storage.saveAuthoredGame(request.projectId, {
+      ...request.data,
+      workspace: writeProjectWorkspace(documents),
+      projectHistory: history.capturePortable(),
+    }),
+    true,
+  );
+  for (const key of oldKeys) assert.equal(records.has(key), false);
+  assert.deepEqual(
+    (await storage.loadAuthoredGame(request.projectId))!.projectHistory!.commits.map(
+      (commit) => commit.id,
+    ),
+    history.capture().commits.map((commit) => commit.id),
+  );
+});
+
+test("stored image History reopens a blob above the ordinary 8 MiB limit", async () => {
+  const { request } = capture("history-image-allowance");
+  const history = new ProjectHistory(sha256Hex);
+  const bytes = new Uint8Array(9 * 1024 * 1024);
+  history.record(
+    { [`attachment:${"a".repeat(64)}`]: bytes },
+    { label: "Image", origin: "agent", author: "agent", time: 1 },
+  );
+  const { workspace: _workspace, ...data } = request.data;
+  assert.equal(
+    await storage.saveAuthoredGame(request.projectId, {
+      ...data,
+      projectHistory: history.capturePortable(),
+    }),
+    true,
+  );
+  const reopened = (await storage.loadAuthoredGame(request.projectId))!.projectHistory!;
+  const blob = Object.values(reopened.blobs)[0]!;
+  assert.equal(blob.type, "bytes");
+  assert.equal(blob.type === "bytes" ? blob.bytes.length : 0, bytes.length);
+});

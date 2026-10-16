@@ -21,6 +21,7 @@ import {
   PROJECT_HISTORY_LIMITS,
   type PortableProjectHistory,
 } from "./projectHistoryCodec.ts";
+import { pruneProjectHistory } from "./projectHistoryPruning.ts";
 import type { ProjectModel, ProjectProposal } from "./projectModel.ts";
 
 interface HistoryTotals {
@@ -62,6 +63,8 @@ export class ProjectHistory {
 
   constructor(digest: ProjectDigest, state?: ProjectHistoryState) {
     this.digest = digest;
+    const offered = state === undefined ? undefined : snapshots.get(state);
+    const sealed = offered?.digest === digest ? offered : undefined;
     this.state =
       state === undefined
         ? Object.freeze({
@@ -71,10 +74,10 @@ export class ProjectHistory {
             future: Object.freeze([]),
             tags: Object.freeze({}),
           })
-        : snapshots.get(state)?.digest === digest
-          ? snapshots.get(state)!.state
+        : sealed !== undefined
+          ? sealed.state
           : checkProjectHistoryState(state, digest);
-    if (state !== undefined && snapshots.get(state)?.digest !== digest) {
+    if (state !== undefined && sealed === undefined) {
       // An imported history may carry unused blobs. Reclaim them once at admission,
       // so sealed captures can be saved without scanning every retained manifest.
       const reachable = new Set(
@@ -89,18 +92,19 @@ export class ProjectHistory {
         ),
       });
     }
-    this.forkBase = state === undefined ? undefined : snapshots.get(state)?.state;
+    this.forkBase = sealed?.state;
     for (const commit of this.state.commits) Object.freeze(commit.changed);
-    this.totals = (state === undefined ? undefined : snapshots.get(state)?.totals) ?? {
-      entries: this.state.commits.reduce(
-        (sum, commit) => sum + Object.keys(commit.documents).length,
-        0,
-      ),
-      bytes: Object.values(this.state.blobs).reduce<number>(
+    this.totals = sealed?.totals ?? this.measureTotals();
+  }
+
+  private measureTotals(state: ProjectHistoryState = this.state): HistoryTotals {
+    return {
+      entries: state.commits.reduce((sum, commit) => sum + Object.keys(commit.documents).length, 0),
+      bytes: Object.values(state.blobs).reduce<number>(
         (sum, content) => sum + (typeof content === "string" ? content.length * 2 : content.length),
         0,
       ),
-      images: this.state.commits.some((commit) =>
+      images: state.commits.some((commit) =>
         Object.keys(commit.documents).some((key) => key.startsWith("attachment:")),
       ),
     };
@@ -221,35 +225,58 @@ export class ProjectHistory {
       changed,
     };
     const commit = Object.freeze({ ...body, id: projectCommitId(body, this.digest) });
-    // All retained data is already checked and privately owned. Check only the append.
-    const totals = this.checkAppend(commit, blobs, newBytes);
-    this.state = Object.freeze({
-      ...this.state,
-      blobs: Object.freeze(blobs),
-      commits: Object.freeze([...this.state.commits, commit]),
-      cursor: commit.id,
-      future: Object.freeze([]),
-    });
-    this.totals = totals;
+    const next = this.checkCandidate(commit, blobs, newBytes);
+    this.state = next.state;
+    this.totals = next.totals;
     return commit;
   }
 
-  private checkAppend(
+  private checkCandidate(
     commit: ProjectHistoryCommit,
     blobs: Readonly<Record<string, ProjectContent>>,
     newBytes = 0,
-  ): HistoryTotals {
-    const limits = PROJECT_HISTORY_LIMITS;
-    if (this.state.commits.length >= limits.maxCommits)
-      throw new Error("Invalid project history: commit count exceeds the limit.");
-    if (Object.keys(blobs).length > limits.maxBlobs)
-      throw new Error("Invalid project history: blob count exceeds the limit.");
+  ): { state: ProjectHistoryState; totals: HistoryTotals } {
     const keys = Object.keys(commit.documents);
     const totals = {
       entries: this.totals.entries + keys.length,
       bytes: this.totals.bytes + newBytes,
       images: this.totals.images || keys.some((key) => key.startsWith("attachment:")),
     };
+    const limits = PROJECT_HISTORY_LIMITS;
+    const candidate = {
+      ...this.state,
+      blobs,
+      commits: [...this.state.commits, commit],
+      cursor: commit.id,
+      future: [],
+    };
+    if (
+      candidate.commits.length > limits.maxCommits ||
+      Object.keys(blobs).length > limits.maxBlobs ||
+      totals.bytes > (totals.images ? limits.maxImageTotalBytes : limits.maxTotalBytes)
+    ) {
+      const state = pruneProjectHistory(candidate, this.digest).state;
+      return {
+        state,
+        totals: this.measureTotals(state),
+      };
+    }
+    // Retained data is checked and privately owned. Only the new metadata is validated.
+    this.checkAppend(commit, totals);
+    return {
+      state: Object.freeze({
+        ...candidate,
+        blobs: Object.freeze(blobs),
+        commits: Object.freeze(candidate.commits),
+        future: Object.freeze(candidate.future),
+      }),
+      totals,
+    };
+  }
+
+  private checkAppend(commit: ProjectHistoryCommit, totals: HistoryTotals): void {
+    const limits = PROJECT_HISTORY_LIMITS;
+    const keys = Object.keys(commit.documents);
     if (keys.length > limits.maxDocuments || totals.entries > limits.maxManifestEntries)
       throw new Error("Invalid project history: manifest exceeds the limit.");
     if (totals.bytes > (totals.images ? limits.maxImageTotalBytes : limits.maxTotalBytes))
@@ -264,7 +291,6 @@ export class ProjectHistory {
     );
     if (this.state.commits.some((entry) => entry.id === commit.id))
       throw new Error("Invalid project history: duplicate commit identity.");
-    return totals;
   }
 
   tag(name: string, id: string): void {
@@ -322,7 +348,7 @@ export class ProjectHistory {
     };
     const commit = { ...body, id: projectCommitId(body, this.digest) };
     // Validate the Restore and its bounds before issuing an editable proposal.
-    this.checkAppend(commit, this.state.blobs);
+    this.checkCandidate(commit, this.state.blobs);
     return this.action(model, id, "restore", origin);
   }
 

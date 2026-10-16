@@ -1,12 +1,7 @@
 /** Explicit retention policy: oldest unpinned commits first, preserving their identities. */
-import {
-  checkProjectHistoryForPruning,
-  readProjectHistory,
-  writeProjectHistory,
-  PROJECT_HISTORY_LIMITS,
-} from "./projectHistoryCodec.ts";
+import { checkProjectHistoryForPruning, PROJECT_HISTORY_LIMITS } from "./projectHistoryCodec.ts";
 import type { ProjectHistoryState } from "./projectHistoryData.ts";
-import type { ProjectDigest } from "./projectContent.ts";
+import type { ProjectContent, ProjectDigest } from "./projectContent.ts";
 
 export function pruneProjectHistory(
   state: ProjectHistoryState,
@@ -15,18 +10,24 @@ export function pruneProjectHistory(
 ): { readonly state: ProjectHistoryState; readonly removed: readonly string[] } {
   const checked = checkProjectHistoryForPruning(state, digest);
   const maxCommits = limits.maxCommits ?? PROJECT_HISTORY_LIMITS.maxCommits;
-  const maxBytes = limits.maxBytes ?? PROJECT_HISTORY_LIMITS.maxTotalBytes;
+  const byteCeiling = () =>
+    commits.some((commit) =>
+      Object.keys(commit.documents).some((key) => key.startsWith("attachment:")),
+    )
+      ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes
+      : PROJECT_HISTORY_LIMITS.maxTotalBytes;
+  const commits = [...checked.commits];
+  const maxBytes = limits.maxBytes ?? byteCeiling();
   if (
     !Number.isSafeInteger(maxCommits) ||
     maxCommits < 1 ||
     maxCommits > PROJECT_HISTORY_LIMITS.maxCommits ||
     !Number.isSafeInteger(maxBytes) ||
     maxBytes < 0 ||
-    maxBytes > PROJECT_HISTORY_LIMITS.maxTotalBytes
+    maxBytes > byteCeiling()
   )
     throw new Error("Invalid project History retention limit.");
   const pinned = new Set([checked.cursor, ...checked.future, ...Object.values(checked.tags)]);
-  const commits = [...checked.commits];
   const removed: string[] = [];
   const reachable = () =>
     new Set(
@@ -39,7 +40,11 @@ export function pruneProjectHistory(
       const content = checked.blobs[hash]!;
       return sum + (typeof content === "string" ? content.length * 2 : content.length);
     }, 0);
-  while (commits.length > maxCommits || bytes() > maxBytes) {
+  while (
+    commits.length > maxCommits ||
+    bytes() > Math.min(maxBytes, byteCeiling()) ||
+    reachable().size > PROJECT_HISTORY_LIMITS.maxBlobs
+  ) {
     const index = commits.findIndex((commit) => !pinned.has(commit.id));
     if (index < 0) throw new Error("Pinned project History exceeds its retention limit.");
     removed.push(commits.splice(index, 1)[0]!.id);
@@ -53,14 +58,22 @@ export function pruneProjectHistory(
     ),
   ].sort();
   const hashes = reachable();
-  const next = {
-    ...checked,
-    commits,
-    blobs: Object.fromEntries(Object.entries(checked.blobs).filter(([hash]) => hashes.has(hash))),
-    prunedParents,
-  };
+  // A subset of the checked commits preserves identities and metadata. Only its
+  // explicit missing-parent boundaries and reachable blobs change during eviction.
+  for (const commit of commits) Object.freeze(commit.changed);
+  const blobs: Record<string, ProjectContent> = Object.create(null);
+  for (const [hash, content] of Object.entries(checked.blobs))
+    if (hashes.has(hash)) blobs[hash] = content;
+  const next = Object.freeze({
+    commits: Object.freeze(commits),
+    blobs: Object.freeze(blobs),
+    cursor: checked.cursor,
+    future: checked.future,
+    tags: checked.tags,
+    ...(prunedParents.length === 0 ? {} : { prunedParents: Object.freeze(prunedParents) }),
+  });
   return Object.freeze({
-    state: readProjectHistory(writeProjectHistory(next, digest), digest),
+    state: next,
     removed: Object.freeze(removed),
   });
 }

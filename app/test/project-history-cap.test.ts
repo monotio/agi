@@ -179,3 +179,30 @@ test("reopening recognizes a durable receipt for edit 417 before clearing its jo
   reopened.dispose();
   assert.equal((await loadAuthoredGame(projectId))!.projectHistory!.commits.length, 418);
 });
+
+test("closing before edit 1,025 commits replays and prunes its journal, then accepts another edit", async () => {
+  const projectId = await storedProject(1024, "history-journal-1025");
+  const owner = await open(projectId);
+  assert.equal((await edit(owner, "// Pending 1025\nreturn;")).status, "committed");
+  for (const callback of [...frames.values()]) callback(0);
+  frames.clear();
+  assert.ok([...values.keys()].some((key) => key.startsWith("monotio_agi.project-writes.")));
+  owner.dispose();
+  const recovered = (await loadAuthoredGame(projectId))!;
+  assert.equal(recovered.projectHistory!.commits.length, 1024);
+  assert.deepEqual(
+    recovered.projectHistory!.blobs[
+      recovered.projectHistory!.commits.at(-1)!.documents["logic:0"]!
+    ],
+    { type: "text", text: "// Pending 1025\nreturn;" },
+  );
+  assert.equal(
+    [...values.keys()].filter((key) => key.startsWith("monotio_agi.project-writes.")).length,
+    0,
+  );
+  const reopened = await open(projectId);
+  assert.equal((await edit(reopened, "// After 1025\nreturn;")).status, "committed");
+  await reopened.flush();
+  reopened.dispose();
+  assert.equal((await loadAuthoredGame(projectId))!.projectHistory!.commits.length, 1024);
+});

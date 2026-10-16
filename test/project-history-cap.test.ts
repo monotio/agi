@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ProjectModel } from "../src/authoring/projectModel.ts";
 import { ProjectHistory } from "../src/authoring/projectHistory.ts";
 import {
   PROJECT_HISTORY_LIMITS,
@@ -63,4 +64,71 @@ test("the manifest ceiling permits every retained version to hold every document
     PROJECT_HISTORY_LIMITS.maxManifestEntries,
     PROJECT_HISTORY_LIMITS.maxCommits * PROJECT_HISTORY_LIMITS.maxDocuments,
   );
+});
+
+test("record and Restore keep accepting edits after version 1,024 and reopen with exact documents", () => {
+  const state = largeProjectHistory(1024);
+  const history = new ProjectHistory(sha256Hex, state);
+  const documents = Object.fromEntries(
+    Object.entries(state.commits.at(-1)!.documents).map(([key, hash]) => [
+      key,
+      state.blobs[hash!]!,
+    ]),
+  );
+  const next = { ...documents, "logic:0": "// Version 1025\nreturn;" };
+  const recorded = history.record(next, {
+    label: "Next",
+    origin: "logic",
+    author: "creator",
+    time: 1025,
+  })!;
+  assert.equal(history.capture().commits.length, 1024);
+  assert.equal(history.capture().commits[0]!.id, state.commits[1]!.id);
+  assert.equal(history.capture().cursor, recorded.id);
+  const model = new ProjectModel({ documents: next, digest: sha256Hex });
+  const target = state.commits[1]!;
+  const restore = history.restore(model, target.id, {
+    label: "Restore",
+    author: "creator",
+    time: 1026,
+  });
+  model.apply(model.issueApplication(restore.proposal));
+  history.accept(restore);
+  assert.equal(model.capture().read("logic:0")!.content, "// Edit 1\nreturn;");
+  const reopened = readProjectHistory(history.capturePortable(), sha256Hex);
+  assert.equal(reopened.commits.length, 1024);
+  assert.equal(
+    reopened.blobs[reopened.commits.at(-1)!.documents["logic:0"]!],
+    "// Edit 1\nreturn;",
+  );
+  history.record(
+    { ...next, "logic:0": "// After Restore\nreturn;" },
+    { label: "Again", origin: "logic", author: "creator", time: 1027 },
+  );
+  assert.equal(history.capture().commits.length, 1024);
+});
+
+test("Restore refuses all-pinned overflow before issuing a proposal", () => {
+  const state = largeProjectHistory(1024);
+  const history = new ProjectHistory(sha256Hex, {
+    ...state,
+    tags: Object.fromEntries(state.commits.map((commit, i) => [`Version ${i}`, commit.id])),
+  });
+  const documents = Object.fromEntries(
+    Object.entries(state.commits.at(-1)!.documents).map(([key, hash]) => [
+      key,
+      state.blobs[hash!]!,
+    ]),
+  );
+  const model = new ProjectModel({ documents, digest: sha256Hex });
+  assert.throws(
+    () =>
+      history.restore(model, state.commits[0]!.id, {
+        label: "Restore",
+        author: "creator",
+        time: 1025,
+      }),
+    /Pinned/,
+  );
+  assert.equal(model.capture().revision, 0);
 });

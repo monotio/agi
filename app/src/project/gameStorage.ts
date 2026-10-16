@@ -566,18 +566,20 @@ async function writeCurrentBody(
           body.editHistory = value.editHistory;
         }
         try {
-          const keys = historyModule.projectHistoryWriteKeys(
-            data.projectId,
-            value?.editHistory,
-            history,
-          );
+          const previous =
+            options?.expectedGeneration !== undefined &&
+            !rememberedProjectReadError(data.projectId, value?.generation, lifetime)
+              ? value?.editHistory
+              : undefined;
+          const keys = historyModule.projectHistoryWriteKeys(data.projectId, previous, history);
           const rows = new Map<string, unknown>();
           const finish = () => {
             const changes = historyModule.projectHistoryWrites(
               data.projectId,
-              value?.editHistory,
+              previous,
               history,
               rows,
+              value?.editHistory,
             );
             for (const key of changes.deletes) store.delete(key);
             store.put(body);
@@ -792,6 +794,10 @@ async function readBody(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
     );
   const data = readStoredBody(stored, projectId);
+  if (!includeHistory) {
+    const remembered = rememberedProjectReadError(projectId, data.generation, lifetime);
+    if (remembered) throw remembered;
+  }
   try {
     if (includeHistory && stored.editHistory !== undefined) {
       for (const key of historyBlobKeys(projectId, stored.editHistory)) {
@@ -1224,9 +1230,18 @@ export async function commitProject(
           return { result: { ...finished, changed: true }, puts: finished.puts };
         };
         const outcome = admit();
+        const previous =
+          request.expected !== null &&
+          !rememberedProjectReadError(
+            request.projectId,
+            current?.generation,
+            liveLifetime(previousLifetime),
+          )
+            ? current?.editHistory
+            : undefined;
         const reads = historyModule.projectHistoryWriteKeys(
           request.projectId,
-          current?.editHistory,
+          previous,
           "result" in outcome && outcome.result.changed ? history : undefined,
         );
         return {
@@ -1235,9 +1250,10 @@ export async function commitProject(
             const settled = "complete" in outcome ? outcome.complete(rows) : outcome;
             const changes = historyModule.projectHistoryWrites(
               request.projectId,
-              current?.editHistory,
+              previous,
               settled.result.changed ? history : undefined,
               rows,
+              current?.editHistory,
             );
             return {
               result: settled.result,
@@ -1481,16 +1497,35 @@ export function saveAuthoredGameCapture(
   data: Omit<CachedGameData, "projectId" | "authoredAt">,
   options?: ProjectWriteOptions,
 ): Promise<{ data: CachedGameData; lifetime: string } | null> {
+  let saved: CachedGameData;
+  try {
+    const { projectHistory, ...body } = data;
+    saved = structuredClone({
+      ...body,
+      projectId,
+      authoredAt: new Date().toISOString(),
+    }) as CachedGameData;
+    if (projectHistory !== undefined)
+      saved.projectHistory =
+        sealedProjectHistory(projectHistory, sha256Hex) !== undefined
+          ? projectHistory
+          : structuredClone(projectHistory);
+  } catch (error) {
+    console.error("Project storage failed:", error);
+    return Promise.resolve(null);
+  }
   return serializeWrite(projectId, async () => {
     try {
       const gen = options?.expectedGeneration;
-      const saved = structuredClone({ ...data, projectId, authoredAt: new Date().toISOString() });
       const lifetime = await writeBody(saved, {
         expectedGeneration: gen,
         expectedLifetime: options?.expectedLifetime,
         requireNew: options?.requireNew,
       });
-      return { data: structuredClone(saved), lifetime };
+      const { projectHistory: savedHistory, ...savedBody } = saved;
+      const captured: CachedGameData = structuredClone(savedBody);
+      if (savedHistory !== undefined) captured.projectHistory = savedHistory;
+      return { data: captured, lifetime };
     } catch (error) {
       console.error("Project storage failed:", error);
       return null;

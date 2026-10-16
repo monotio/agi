@@ -1000,7 +1000,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       if (bootOptions?.useCached) {
         // Start the authoring stack's download while storage reads the world.
         if (getCachedGameMeta(projectId)?.roomGeneration) void loadAuthoring().catch(() => {});
-        const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
+        const loaded = await loadAuthoredGameWithHistoryLifetime(
+          projectId,
+          options.getProjectMode?.() === "create",
+        );
         // Superseded while storage answered: the newer flow owns the slot,
         // the session and the worker this boot would still spawn.
         if (!isCurrent()) return;

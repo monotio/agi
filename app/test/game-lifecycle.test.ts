@@ -1013,3 +1013,31 @@ test("a refused opening keeps the running game's picture; leaving the game drops
   state.phase = "running";
   assert.equal(screen.corner(), null, "the next screen waits for its own game's frame");
 });
+
+for (const mode of ["play", "create"] as const) {
+  test(`${mode} cached boot ${mode === "play" ? "omits" : "loads"} edit History`, async (t) => {
+    const { ProjectHistory } = await import("../../src/authoring/projectHistory.ts");
+    const { sha256Hex } = await import("../../src/crypto.ts");
+    const history = new ProjectHistory(sha256Hex);
+    history.record(
+      { "logic:0": "return;" },
+      { label: "Opening", origin: "template", author: "creator", time: 0 },
+    );
+    const projectId = testProjectId(`boot-history-${mode}`);
+    await saveAuthoredGame(projectId, {
+      title: "History boot",
+      files: { "VOL.0": Uint8Array.of(1) },
+      words: [],
+      projectHistory: history.capturePortable(),
+    });
+    t.after(() => clearCachedGame(projectId));
+    const { lifecycle } = bootHarness({ getProjectMode: () => mode });
+    await lifecycle.bootAuthoredGame("", STUB_CONFIG, { projectId, useCached: true });
+    const game = lifecycle.getBootedGame();
+    assert.ok(game);
+    assert.equal(
+      game.authoredGame?.projectHistory?.commits.length,
+      mode === "play" ? undefined : 1,
+    );
+  });
+}
