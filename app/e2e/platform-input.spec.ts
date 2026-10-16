@@ -69,11 +69,27 @@ for (const profile of ["amiga-2.082", "amiga-2.202", "iigs-1.014"]) {
     await expect
       .poll(async () => (await textHook(page)).rows.join("\n"))
       .toContain(profile === "amiga-2.202" ? "Control 3" : "Control 24");
+    // The browser keeps Command shortcuts; a word the game binds reaches it.
+    const input = page.getByTestId("input-line");
+    const pasteKept = await input.evaluate((el) => {
+      const ev = new KeyboardEvent("keydown", {
+        key: "v",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      el.dispatchEvent(ev);
+      return !ev.defaultPrevented;
+    });
+    expect(pasteKept).toBe(true);
+    if (profile.startsWith("amiga-")) {
+      await input.dispatchEvent("keydown", { key: "x", code: "KeyX", metaKey: true });
+      await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Command X");
+    }
     await page.keyboard.press(profile === "iigs-1.014" ? "Shift+Digit1" : "F1");
     await expect.poll(async () => (await textHook(page)).modal).toBe("print");
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await textHook(page)).modal).toBeNull();
-    const input = page.getByTestId("input-line");
     await input.dispatchEvent("keydown", { key: "6", code: "Numpad6", location: 3 });
     await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(80);
     await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Direction 3");
@@ -98,24 +114,21 @@ for (const profile of ["amiga-2.082", "amiga-2.202", "iigs-1.014"]) {
 
 test.describe(() => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
-  test("phone keys expose Amiga fire actions and native modified letters @phone", async ({
+  test("phone keys expose the Amiga fire button and native modified letters @phone", async ({
     page,
   }) => {
     await boot(page, "amiga-2.316");
     const pad = page.getByTestId("touch-controls");
     await expect(pad).toBeVisible();
     await pad.getByText("Keys", { exact: true }).tap();
-    await pad.getByRole("button", { name: "Button 4", exact: true }).tap();
+    await expect(pad.getByRole("button", { name: "Fire 2", exact: true })).toHaveCount(0);
+    await pad.getByRole("button", { name: "Fire twice", exact: true }).tap();
     await expect.poll(async () => (await textHook(page)).modal).toBe("print");
     await pad.getByRole("button", { name: "Enter", exact: true }).tap();
     await expect.poll(async () => (await textHook(page)).modal).toBeNull();
     await pad.getByRole("combobox", { name: "Key modifier" }).selectOption("ctrl");
     await pad.getByRole("button", { name: "Ctrl+X", exact: true }).tap();
     await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Control 3");
-    await expect(pad.locator('option[value="meta"]')).toHaveCount(1);
-    await pad.getByRole("combobox", { name: "Key modifier" }).selectOption("meta");
-    await pad.getByRole("button", { name: "Command+X", exact: true }).tap();
-    await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Command X");
     await pad.getByRole("button", { name: "F2", exact: true }).tap();
     await expect(await gameHint(page, "prompt-hint")).toBeVisible();
     await pad.getByRole("button", { name: "Sound", exact: true }).tap();

@@ -27,6 +27,18 @@ const directions = [
   { dir: 5, angle: 90, name: "south" },
   { dir: 4, angle: 45, name: "southeast" },
 ];
+/**
+ * The joystick button words each machine can make (F-IN-17): two PC buttons
+ * with their double presses, one Amiga button whose double press (or a right
+ * double-click) makes 0x0401, and none on the IIgs, whose buttons press Enter.
+ */
+const fireKeys = computed<Record<string, number>>(() =>
+  profile === "iigs-1.014"
+    ? {}
+    : profile?.startsWith("amiga-")
+      ? { Fire: 0x0101, "Fire twice": 0x0401 }
+      : { "Fire 1": 0x0101, "Fire 2": 0x0201, "Fire 1 twice": 0x0301, "Fire 2 twice": 0x0401 },
+);
 const extraKeys = computed<Record<string, number>>(() => ({
   ...FUNCTION_KEYS,
   Tab: AGI_KEY.TAB,
@@ -34,20 +46,12 @@ const extraKeys = computed<Record<string, number>>(() => ({
   Insert: AGI_KEY.INSERT,
   Delete: translatePlatformKey({ key: "Delete" }, profile) ?? AGI_KEY.DELETE,
   "Scroll Lock": 0x4600,
-  Stop: 0xf500,
-  "Button 1": 0x0101,
-  "Button 2": 0x0201,
-  "Button 3": 0x0301,
-  "Button 4": 0x0401,
+  // Keypad 5 stops the hero, except on 2.089 and 2.230 (F-IN-07).
+  ...(profile === "2.089" || profile === "2.230" ? {} : { Stop: 0xf500 }),
+  ...fireKeys.value,
   ...(profile?.startsWith("amiga-") || profile === "iigs-1.014" ? { Sound: 0xff00 } : {}),
 }));
-const modifier = ref<"none" | "ctrl" | "alt" | "meta">("none");
-watch(
-  () => profile,
-  (value) => {
-    if (modifier.value === "meta" && !value?.startsWith("amiga-")) modifier.value = "none";
-  },
-);
+const modifier = ref<"none" | "ctrl" | "alt">("none");
 const letters = "abcdefghijklmnopqrstuvwxyz".split("");
 
 function press(event: PointerEvent, dir: number): void {
@@ -196,7 +200,6 @@ onBeforeUnmount(() => {
           <option value="none">Letters</option>
           <option value="ctrl">Ctrl + letter</option>
           <option value="alt">Alt + letter</option>
-          <option v-if="profile?.startsWith('amiga-')" value="meta">Command + letter</option>
         </UiSelect>
       </label>
       <div class="key-grid letters">
@@ -213,7 +216,6 @@ onBeforeUnmount(() => {
                   key: letter,
                   ctrlKey: modifier === 'ctrl',
                   altKey: modifier === 'alt',
-                  metaKey: modifier === 'meta',
                 },
                 profile,
               ) ?? letter.charCodeAt(0),
@@ -223,7 +225,7 @@ onBeforeUnmount(() => {
           {{
             modifier === "none"
               ? letter
-              : `${modifier === "ctrl" ? "Ctrl" : modifier === "meta" ? "Command" : "Alt"}+${letter.toUpperCase()}`
+              : `${modifier === "ctrl" ? "Ctrl" : "Alt"}+${letter.toUpperCase()}`
           }}
         </button>
       </div>

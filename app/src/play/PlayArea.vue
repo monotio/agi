@@ -13,7 +13,7 @@ import {
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
 import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
-import { connectedGamepad, PAGE_CONTROLS } from "./useGameKeys.ts";
+import { connectedGamepad, nativeGameKey, PAGE_CONTROLS } from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -28,7 +28,12 @@ import { amigaPointerCursor } from "./amigaPointer.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
 import { movementDirection } from "./gameControls.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
-import { AGI_KEY, DIRECTION_KEYS, translatePlatformKey } from "../../../src/runtime/keys.ts";
+import {
+  AGI_KEY,
+  DIRECTION_KEYS,
+  translatePlatformKey,
+  type JoystickSample,
+} from "../../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../../src/runtime/textSurface.ts";
 
 const props = defineProps<{
@@ -126,6 +131,14 @@ function onFocusMove(): void {
 }
 let gamepadTimer: ReturnType<typeof setInterval> | null = null;
 let gamepadButtons = [false, false];
+/** The last sample posted; the worker hears only changes, never a 60 Hz stream. */
+let gamepadSent = "null";
+function postGamepad(sample: JoystickSample | null): void {
+  const text = JSON.stringify(sample);
+  if (text === gamepadSent) return;
+  gamepadSent = text;
+  sendJoystick(sample);
+}
 function pollGamepad(): void {
   if (
     state.phase !== "running" ||
@@ -141,18 +154,20 @@ function pollGamepad(): void {
   const sample = connectedGamepad();
   const buttons = [Boolean(sample?.button1), Boolean(sample?.button2)];
   if (state.prompt) {
-    sendJoystick(null);
-    for (let i = 0; i < 2; i++) {
+    postGamepad(null);
+    // The Amiga gameport has one fire button (F-IN-17).
+    for (let i = 0; i < (screenPresentation.value === "amiga" ? 1 : 2); i++) {
       const pressed = buttons[i]!;
       const wasPressed = gamepadButtons[i]!;
       if (screenPresentation.value === "iigs" ? pressed && !wasPressed : wasPressed && !pressed)
         onVirtualKey(i === 0 ? 0x0101 : 0x0201);
     }
-  } else sendJoystick(sample);
+  } else postGamepad(sample);
   gamepadButtons = buttons;
 }
 function releaseGamepad(): void {
   gamepadButtons = [false, false];
+  gamepadSent = "null";
   sendJoystick(null);
 }
 watch(
@@ -561,7 +576,7 @@ function onPromptKey(ev: KeyboardEvent): void {
 function onModalKey(ev: KeyboardEvent): void {
   // The queue classifies native direction words; every other key remains a
   // raw modal key, including function keys on a bare inventory wait.
-  const code = translatePlatformKey(ev, state.profile);
+  const code = nativeGameKey(ev, state.profile, state.controls);
   if (code === undefined) return;
   ev.preventDefault();
   sendKey(code);

@@ -42,6 +42,22 @@ export function connectedGamepad(): JoystickSample | null {
   return gamepadSample(pads ? Array.from(pads).find((p) => p && p.connected !== false) : null);
 }
 
+/**
+ * The native key word for a physical key, or undefined when the browser keeps
+ * it. The Command key belongs to the browser (copy, paste, reload) unless the
+ * game binds the word it makes: no shipped game binds an Amiga-qualified word
+ * (docs/fidelity.md "Original input, menu and modal handling", F-IN-16).
+ */
+export function nativeGameKey(
+  ev: KeyboardEvent,
+  profile: string | null,
+  controls: readonly { readonly key: number }[],
+): number | undefined {
+  const key = translatePlatformKey(ev, profile);
+  if (key === undefined || !ev.metaKey) return key;
+  return controls.some((binding) => binding.key === key) ? key : undefined;
+}
+
 /** What the keyboard routing needs from PlayArea's exposed API. */
 export interface KeyTarget {
   readonly inputEl: HTMLInputElement | null;
@@ -198,7 +214,7 @@ export function useGameKeys(deps: {
       state.waitingForKey ||
       (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
     ) {
-      const key = translatePlatformKey(ev, state.profile);
+      const key = nativeGameKey(ev, state.profile, state.controls);
       if (key !== undefined) {
         ev.preventDefault();
         sendKey(key);
@@ -215,22 +231,14 @@ export function useGameKeys(deps: {
 
     if (area()?.movementKeyDown(ev)) return;
 
-    const nativeKey = translatePlatformKey(ev, state.profile);
-    // The browser edits the command draft; unbound Delete clears its selection.
-    const editingDelete =
-      ev.key === "Delete" &&
-      ev.target === area()?.inputEl &&
-      !ev.ctrlKey &&
-      !ev.altKey &&
-      !ev.metaKey;
+    // Bound keys, Keypad 5 (stop) and the native sound switch reach the game.
+    // Unbound keys keep their browser meaning (editing the command draft):
+    // the original's input phase ignores them (F-Parser-12).
+    const nativeKey = nativeGameKey(ev, state.profile, state.controls);
     if (
       nativeKey !== undefined &&
       (nativeKey === 0xf500 ||
         nativeKey === 0xff00 ||
-        (nativeKey >= 0x100 && !editingDelete) ||
-        ev.ctrlKey ||
-        ev.altKey ||
-        ev.metaKey ||
         state.controls.some((b) => b.key === nativeKey))
     ) {
       ev.preventDefault();
@@ -239,7 +247,7 @@ export function useGameKeys(deps: {
     }
 
     if (!state.inputEnabled) {
-      const code = translatePlatformKey(ev, state.profile);
+      const code = nativeGameKey(ev, state.profile, state.controls);
       if (code !== undefined) {
         ev.preventDefault();
         sendKey(code);
