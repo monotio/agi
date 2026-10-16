@@ -453,8 +453,34 @@ export function createResourceCommit(
                 authoringState: candidate.authoringState,
                 changedDocuments: resolved.patches.map(({ kind, num }) => `${kind}:${num}`),
               });
+        let projectHistory = stored.projectHistory;
+        if (projectHistory !== undefined && workspace !== undefined) {
+          const [
+            { ProjectHistory },
+            { readProjectHistory },
+            { readProjectWorkspace },
+            { sha256Hex },
+          ] = await Promise.all([
+            import("../../../src/authoring/projectHistory.ts"),
+            import("../../../src/authoring/projectHistoryCodec.ts"),
+            import("../../../src/authoring/projectWorkspace.ts"),
+            import("../../../src/crypto.ts"),
+          ]);
+          const history = new ProjectHistory(
+            sha256Hex,
+            readProjectHistory(projectHistory, sha256Hex),
+          );
+          history.record(readProjectWorkspace(workspace), {
+            label: "Update",
+            origin: "guided",
+            author: "creator",
+            time: Date.now(),
+          });
+          projectHistory = history.capturePortable();
+        }
         data = {
           ...stored,
+          ...(projectHistory === undefined ? {} : { projectHistory }),
           files,
           words,
           references,

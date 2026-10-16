@@ -12,10 +12,7 @@ import {
   ProjectHistory,
   type ProjectHistoryAction,
 } from "../../../src/authoring/projectHistory.ts";
-import {
-  readProjectHistory,
-  writeProjectHistory,
-} from "../../../src/authoring/projectHistoryCodec.ts";
+import { readProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
 import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
@@ -582,7 +579,7 @@ function createSession(
         source: data.imported ? "zip" : "authored",
       }),
       workspace: writeProjectWorkspace(snapshot.documents()),
-      projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+      projectHistory: history.capturePortable(),
       ...(typeof image.documents()["world"] === "string"
         ? {
             authoringState: {
@@ -641,6 +638,7 @@ function createSession(
     beforeCommit?.();
     if (!current() || autosave.status().state === "conflict")
       throw new Error("Project session is closed for writes.");
+    let prospectiveHistory: ProjectHistory | undefined;
     const documentChanges = proposal.changes();
     const tests = proposal.documents()["tests"];
     if (
@@ -659,8 +657,8 @@ function createSession(
       // Documents about the game save and undo independently of its executable build.
       const application = model.issueApplication(proposal);
       if (action === undefined) {
-        const prospective = new ProjectHistory(sha256Hex, history.capture());
-        prospective.record(proposal.documents(), metadata);
+        prospectiveHistory = new ProjectHistory(sha256Hex, history.capture());
+        prospectiveHistory.record(proposal.documents(), metadata);
       }
       beforeCommit?.();
       const before = model.capture();
@@ -670,6 +668,7 @@ function createSession(
         { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
       );
       if (action !== undefined) history.accept(action);
+      else if (prospectiveHistory !== undefined) history.acceptRecorded(prospectiveHistory);
       else history.record(snapshot.documents(), metadata);
       recordOperation({
         kind: "edit",
@@ -722,7 +721,8 @@ function createSession(
       preflight() {
         beforeCommit?.();
         if (action === undefined) {
-          const prospective = new ProjectHistory(sha256Hex, history.capture());
+          prospectiveHistory = new ProjectHistory(sha256Hex, history.capture());
+          const prospective = prospectiveHistory;
           if (beforeNumberDocuments)
             prospective.record(beforeNumberDocuments, {
               ...metadata,
@@ -761,6 +761,17 @@ function createSession(
       },
     });
     const { prepared, outcome, changes } = edit;
+    // Preparation can add coordinated metadata edits, such as removing a Launch
+    // that points at a removed room. Seal that actual candidate before publication.
+    if (action === undefined && prepared.proposal !== proposal) {
+      prospectiveHistory = new ProjectHistory(sha256Hex, history.capture());
+      if (beforeNumberDocuments)
+        prospectiveHistory.record(beforeNumberDocuments, {
+          ...metadata,
+          label: "Edits before number change",
+        });
+      prospectiveHistory.record(prepared.proposal.documents(), metadata);
+    }
     beforeCommit?.();
     if (
       prepared.compiled === undefined &&
@@ -794,8 +805,6 @@ function createSession(
       pendingPreparedRoom = pendingImage !== undefined && preparedRoom;
     }
     diagnostics = prepared.diagnostics;
-    if (action === undefined && beforeNumberDocuments)
-      history.record(beforeNumberDocuments, { ...metadata, label: "Edits before number change" });
     const before = model.capture();
     const snapshot = model.apply(prepared.application);
     partDrafts?.rebase(
@@ -803,6 +812,7 @@ function createSession(
       { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
     );
     if (action !== undefined) history.accept(action);
+    else if (prospectiveHistory !== undefined) history.acceptRecorded(prospectiveHistory);
     else history.record(snapshot.documents(), metadata);
     recordOperation({
       kind: "edit",

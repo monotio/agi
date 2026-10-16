@@ -68,3 +68,20 @@ export function changedProjectManifest(
       .filter((key) => (before[key] ?? null) !== (after[key] ?? null)),
   );
 }
+
+// Internal process-local seal. Imported/structured-cloned envelopes have no capability.
+const portableStates = new WeakMap<object, { state: ProjectHistoryState; digest: ProjectDigest }>();
+export function sealPortableProjectHistory(
+  portable: object,
+  state: ProjectHistoryState,
+  digest: ProjectDigest,
+): void {
+  portableStates.set(portable, { state, digest });
+}
+export function sealedProjectHistory(
+  portable: object,
+  digest: ProjectDigest,
+): ProjectHistoryState | undefined {
+  const sealed = portableStates.get(portable);
+  return sealed?.digest === digest ? sealed.state : undefined;
+}

@@ -5,9 +5,10 @@ import {
   writeProjectHistory,
   type PortableProjectHistory,
 } from "../../../src/authoring/projectHistoryCodec.ts";
+import { sealedProjectHistory } from "../../../src/authoring/projectHistoryData.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 import {
-  projectDocumentId,
+  diffProjectDocuments,
   sameProjectContent,
   type ProjectContent,
 } from "../../../src/authoring/projectContent.ts";
@@ -62,21 +63,24 @@ export function hydrateProjectHistory(
 }
 export function checkedProjectHistory(data: CachedGameData): PortableProjectHistory | undefined {
   if (data.projectHistory === undefined) return undefined;
-  const state = readProjectHistory(data.projectHistory, sha256Hex);
-  const reachable = new Set(
-    state.commits.flatMap((commit) =>
-      Object.values(commit.documents).filter((hash): hash is string => hash !== null),
-    ),
-  );
-  const history = writeProjectHistory(
-    {
-      ...state,
-      blobs: Object.fromEntries(
-        Object.entries(state.blobs).filter(([hash]) => reachable.has(hash)),
-      ),
-    },
-    sha256Hex,
-  );
+  const sealed = sealedProjectHistory(data.projectHistory, sha256Hex);
+  const state = sealed ?? readProjectHistory(data.projectHistory, sha256Hex);
+  const reachable =
+    sealed !== undefined
+      ? undefined
+      : new Set(state.commits.flatMap((commit) => Object.values(commit.documents)));
+  const history =
+    sealed !== undefined
+      ? data.projectHistory
+      : writeProjectHistory(
+          {
+            ...state,
+            blobs: Object.fromEntries(
+              Object.entries(state.blobs).filter(([hash]) => reachable!.has(hash)),
+            ),
+          },
+          sha256Hex,
+        );
   if (data.workspace !== undefined) {
     const cursor = state.commits.find((commit) => commit.id === state.cursor);
     const documents = Object.fromEntries(
@@ -84,10 +88,7 @@ export function checkedProjectHistory(data: CachedGameData): PortableProjectHist
         .filter((entry): entry is [string, string] => entry[1] !== null)
         .map(([key, hash]) => [key, state.blobs[hash]!]),
     );
-    if (
-      projectDocumentId(documents, sha256Hex) !==
-      projectDocumentId(readProjectWorkspace(data.workspace), sha256Hex)
-    )
+    if (diffProjectDocuments(documents, readProjectWorkspace(data.workspace)).length > 0)
       throw new Error("Project documents differ from the History cursor.");
   }
   return history;
@@ -98,12 +99,15 @@ export function projectHistoryWrites(
   next: PortableProjectHistory | undefined,
   rows: ReadonlyMap<string, unknown>,
 ): { puts: unknown[]; deletes: string[] } {
-  if (previous !== undefined) hydrateProjectHistory(id, previous, rows);
+  historyBlobKeys(id, previous);
   if (next === undefined) return { puts: [], deletes: [] };
-  const state = readProjectHistory(next, sha256Hex);
+  const state = sealedProjectHistory(next, sha256Hex) ?? readProjectHistory(next, sha256Hex);
+  const existing = new Set(previous?.blobs ?? []);
   const retained = new Set(Object.keys(state.blobs));
   const puts: unknown[] = [];
-  for (const [hash, content] of Object.entries(state.blobs)) {
+  for (const hash of Object.keys(state.blobs)) {
+    if (existing.has(hash)) continue;
+    const content = state.blobs[hash]!;
     const key = projectHistoryBlobKey(id, hash);
     const row = rows.get(key) as
       { projectId?: unknown; format?: unknown; version?: unknown; content?: unknown } | undefined;
@@ -133,4 +137,17 @@ export function projectHistoryWrites(
       .filter((hash) => !retained.has(hash))
       .map((hash) => projectHistoryBlobKey(id, hash)),
   };
+}
+
+/** Read only offered keys absent from the transaction's checked header. */
+export function projectHistoryWriteKeys(
+  id: string,
+  previous: StoredProjectHistory | undefined,
+  next: PortableProjectHistory | undefined,
+): string[] {
+  historyBlobKeys(id, previous);
+  const existing = new Set(previous?.blobs ?? []);
+  return Object.keys(next?.blobs ?? {})
+    .filter((hash) => !existing.has(hash))
+    .map((hash) => projectHistoryBlobKey(id, hash));
 }

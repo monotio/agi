@@ -40,7 +40,8 @@ function capture(name: string) {
 }
 
 test("body, History, blobs, cursor and receipt abort together and retry exactly", async () => {
-  const { request } = capture("history-abort");
+  const { request, history } = capture("history-abort");
+  request.data.projectHistory = history.capturePortable();
   const before = new Map(records);
   const nativeSet = records.set;
   records.set = function (key, value) {
@@ -166,7 +167,7 @@ test("binary History blobs use owned byte rows and hydrate exact portable conten
     author: "creator",
     time: 2,
   })!;
-  const offered = writeProjectHistory(history.capture(), sha256Hex);
+  const offered = history.capturePortable();
   const pending = storage.commitProject({
     ...request,
     data: { ...request.data, workspace: writeProjectWorkspace(next), projectHistory: offered },
@@ -327,4 +328,216 @@ test("History rejection is scoped to lifetime and successful validation clears i
     ),
     false,
   );
+});
+
+test("an Update reads and writes only newly added History blobs", async () => {
+  const { history, documents, request } = capture("history-delta-io");
+  const first = await storage.commitProject(request);
+  const changed = { ...documents, "view:1": Uint8Array.of(13, 29) };
+  history.record(changed, { label: "View", origin: "view", author: "creator", time: 2 });
+  const get = records.get;
+  const set = records.set;
+  const reads: string[] = [];
+  const writes: string[] = [];
+  records.get = function (key) {
+    reads.push(String(key));
+    return get.call(this, key);
+  };
+  records.set = function (key, value) {
+    writes.push(String(key));
+    return set.call(this, key, value);
+  };
+  try {
+    await storage.commitProject({
+      ...request,
+      commitId: "delta",
+      expected: first.receipt.saved,
+      data: {
+        ...request.data,
+        workspace: writeProjectWorkspace(changed),
+        projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+      },
+    });
+    const prefix = `project-history/${request.projectId}/blobs/`;
+    assert.equal(reads.filter((key) => key.startsWith(prefix)).length, 1);
+    assert.equal(writes.filter((key) => key.startsWith(prefix)).length, 1);
+  } finally {
+    records.get = get;
+    records.set = set;
+  }
+  assert.deepEqual(
+    (await storage.loadAuthoredGame(request.projectId))!.projectHistory,
+    writeProjectHistory(history.capture(), sha256Hex),
+  );
+});
+
+test("metadata writers preserve History without reading its blob rows", async () => {
+  const { request } = capture("history-metadata-io");
+  await storage.commitProject(request);
+  const before = structuredClone(
+    (records.get(request.projectId) as { editHistory: unknown }).editHistory,
+  );
+  const get = records.get;
+  const reads: string[] = [];
+  records.get = function (key) {
+    reads.push(String(key));
+    return get.call(this, key);
+  };
+  try {
+    assert.equal(await storage.renameAuthoredGame(request.projectId, "Renamed"), true);
+    assert.equal(await storage.setLibraryGameProfile(request.projectId, "2.936"), true);
+    assert.equal(
+      reads.some((key) => key.startsWith(`project-history/${request.projectId}/`)),
+      false,
+    );
+    assert.deepEqual(
+      (get.call(records, request.projectId) as { editHistory: unknown }).editHistory,
+      before,
+    );
+  } finally {
+    records.get = get;
+  }
+});
+
+test("a blob newly attached to a project checks existing row ownership, version and content", async () => {
+  for (const corruption of [
+    { projectId: "another-owner" },
+    { version: 999 },
+    { content: "wrong" },
+  ]) {
+    const { history, documents, request } = capture(`history-row-${Object.keys(corruption)[0]}`);
+    const first = await storage.commitProject(request);
+    const changed = { ...documents, "view:1": Uint8Array.of(14, 15) };
+    const commit = history.record(changed, {
+      label: "View",
+      origin: "view",
+      author: "creator",
+      time: 2,
+    })!;
+    const key = `project-history/${request.projectId}/blobs/${commit.documents["view:1"]}`;
+    records.set(key, {
+      projectId: key,
+      format: "monotio.agi.project-history-blob",
+      version: 1,
+      content: Uint8Array.of(14, 15),
+      ...corruption,
+    });
+    const before = structuredClone(records.get(request.projectId));
+    await assert.rejects(
+      storage.commitProject({
+        ...request,
+        commitId: "delta",
+        expected: first.receipt.saved,
+        data: {
+          ...request.data,
+          workspace: writeProjectWorkspace(changed),
+          projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+        },
+      }),
+      /version|hash/,
+    );
+    assert.deepEqual(records.get(request.projectId), before);
+  }
+});
+
+test("sealed Update saves never expand retained binary History into number arrays", async () => {
+  const { history, documents, request } = capture("history-sealed-bytes");
+  for (let i = 0; i < 400; i++)
+    history.record(
+      { ...documents, "view:1": Uint8Array.of(213, i >> 8, i & 255) },
+      { label: "View", origin: "view", author: "creator", time: i + 2 },
+    );
+  const initialDocuments = { ...documents, "view:1": Uint8Array.of(213, 1, 143) };
+  const first = await storage.commitProject({
+    ...request,
+    data: {
+      ...request.data,
+      workspace: writeProjectWorkspace(initialDocuments),
+      projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+    },
+  });
+  const changed = { ...documents, "view:1": Uint8Array.of(214, 7) };
+  history.record(changed, { label: "View", origin: "view", author: "creator", time: 500 });
+  const from = Array.from;
+  let oldArrays = 0;
+  Array.from = ((value: unknown, ...args: unknown[]) => {
+    if (value instanceof Uint8Array && value[0] === 213 && !(value[1] === 1 && value[2] === 143))
+      oldArrays++;
+    return Reflect.apply(from, Array, [value, ...args]);
+  }) as typeof Array.from;
+  try {
+    await storage.commitProject({
+      ...request,
+      commitId: "sealed",
+      expected: first.receipt.saved,
+      data: {
+        ...request.data,
+        workspace: writeProjectWorkspace(changed),
+        projectHistory: history.capturePortable(),
+      },
+    });
+    assert.equal(oldArrays, 0);
+  } finally {
+    Array.from = from;
+  }
+});
+
+test("a receipt from the released candidate encoding still acknowledges its exact retry", async () => {
+  const { request } = capture("history-legacy-retry");
+  await storage.commitProject(request);
+  const key = `commit/${request.projectId}/${request.commitId}`;
+  const stored = records.get(key) as { receipt: storage.ProjectCommitReceipt };
+  // Fixed legacy receipt for this candidate, produced by the released writer.
+  const candidateHash = "37e49a213c58a8216551a273e299db950e905e354207667d8c055c68da559b75";
+  records.set(key, { ...stored, receipt: { ...stored.receipt, candidateHash } });
+  const before = structuredClone(records.get(request.projectId));
+  assert.equal((await storage.commitProject(request)).receipt.candidateHash, candidateHash);
+  assert.deepEqual(records.get(request.projectId), before);
+});
+
+test("a sealed capture reclaims unreferenced blobs from an imported history", async () => {
+  const { request } = capture("history-sealed-unreachable");
+  const { projectContentHash } = await import("../../src/authoring/projectContent.ts");
+  const { readProjectHistory } = await import("../../src/authoring/projectHistoryCodec.ts");
+  const orphan = projectContentHash("unused", sha256Hex);
+  const portable = {
+    ...request.data.projectHistory!,
+    blobs: {
+      ...request.data.projectHistory!.blobs,
+      [orphan]: { type: "text" as const, text: "unused" },
+    },
+  };
+  const history = new ProjectHistory(sha256Hex, readProjectHistory(portable, sha256Hex));
+  await storage.commitProject({
+    ...request,
+    data: { ...request.data, projectHistory: history.capturePortable() },
+  });
+  assert.equal(records.has(`project-history/${request.projectId}/blobs/${orphan}`), false);
+});
+
+test("a runnable body read can omit History while editable reads still verify every blob", async () => {
+  const { request } = capture("history-play-body");
+  await storage.commitProject(request);
+  const get = records.get;
+  const reads: string[] = [];
+  records.get = function (key) {
+    reads.push(String(key));
+    return get.call(this, key);
+  };
+  try {
+    const loaded = await storage.loadAuthoredGameWithHistoryLifetime(request.projectId, false);
+    assert.ok(loaded);
+    assert.equal(loaded.data.projectHistory, undefined);
+    assert.equal(
+      reads.some((key) => key.startsWith(`project-history/${request.projectId}/`)),
+      false,
+    );
+  } finally {
+    records.get = get;
+  }
+  const key = [...records.keys()].find((key) =>
+    String(key).startsWith(`project-history/${request.projectId}/blobs/`),
+  )!;
+  records.set(key, { ...(records.get(key) as object), content: "corrupt" });
+  await assert.rejects(storage.loadAuthoredGame(request.projectId), /hash/);
 });
