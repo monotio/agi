@@ -1893,6 +1893,25 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
 }
 
 /**
+ * Re-stamp a current host image with the released version-1 header byte when
+ * its continuation carries no v2-only fields (`saved.window`), so a scratch
+ * replay can verify a released anchor's or boot's semantic fingerprint
+ * against the restored engine state without mutating the stored recording.
+ */
+export function asReleasedHostImage(bytes: Uint8Array): Uint8Array | null {
+  try {
+    if (bytes.length < HOST_IMAGE_HEADER || bytes[HOST_IMAGE_MAGIC.length] !== HOST_IMAGE_VERSION)
+      return null;
+    const copy = bytes.slice();
+    copy[HOST_IMAGE_MAGIC.length] = 1;
+    decodeHostImage(copy);
+    return copy;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Save filename stem for a slot: the runtime signature followed by `SG.` and
  * the slot number (spec "Save names and signatures"). An empty signature
  * produces `SG.1`.

@@ -463,6 +463,37 @@ export interface AgiProfile {
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
   readonly clampExactZeroLeftBoundary: boolean;
+  /**
+   * Whether add.to.pic runs the scratch-entry FindPosn relocation spiral,
+   * packs (margin << 4) | priority into a byte, and gates the control box on
+   * packed <= 0x3f (verified on 2.936 and 3.002.086; docs/fidelity.md,
+   * F-VIEWS-03, F-VIEWS-04, F-VIEWS-09).
+   */
+  readonly addToPicPackingAndRelocation: boolean;
+  /**
+   * Whether the cel blit clips negative-top and right-edge rows/columns in
+   * place without shifting left and masks priority to its low nibble (verified
+   * on 2.936; docs/fidelity.md, F-VIEWS-05, F-VIEWS-07).
+   */
+  readonly originalCelBlitClippingAndPriorityMask: boolean;
+  /**
+   * Whether new.room's object reset preserves newlyPositioned (0x0400) and
+   * cycleDelay (0x1000) across room transitions (verified on 2.936 and
+   * 3.002.149; docs/fidelity.md, F-motion-10).
+   */
+  readonly newRoomPreservesReposAndCycleDelay: boolean;
+  /**
+   * Whether menu Home and End load the first/last menu heading unconditionally
+   * without scanning for an enabled item (verified on 2.936; docs/fidelity.md,
+   * F-IN-15).
+   */
+  readonly menuHomeEndUnconditional: boolean;
+  /**
+   * Whether show.pri.screen preserves an open text window across the priority
+   * screen modal (verified on 2.936 and 3.002.086; docs/fidelity.md,
+   * F-picture-04).
+   */
+  readonly showPriScreenPreservesWindow: boolean;
 
   // ---- pictures ----
   /** Highest dispatched picture command byte: 0xf8 in the early profiles, 0xfa later. */
@@ -589,6 +620,11 @@ const BASE_2936: AgiProfile = {
   statusLineFormat: "common",
   windowFrameGeometry: "pc",
   clampExactZeroLeftBoundary: false,
+  addToPicPackingAndRelocation: false,
+  originalCelBlitClippingAndPriorityMask: false,
+  newRoomPreservesReposAndCycleDelay: false,
+  menuHomeEndUnconditional: false,
+  showPriScreenPreservesWindow: false,
   pictureMaxCommand: 0xfa,
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
@@ -797,6 +833,11 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   },
   "2.936": {
     ...BASE_2936,
+    addToPicPackingAndRelocation: true,
+    originalCelBlitClippingAndPriorityMask: true,
+    newRoomPreservesReposAndCycleDelay: true,
+    menuHomeEndUnconditional: true,
+    showPriScreenPreservesWindow: true,
   },
   // version_profiles.md "AGI 3.002.086 profile"; conformance matrix "3.002.086 variant selection".
   "3.002.086": {
@@ -805,6 +846,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xb1,
     extraActions: "v3-086",
     clampExactZeroLeftBoundary: true,
+    addToPicPackingAndRelocation: true,
+    showPriScreenPreservesWindow: true,
   },
   // version_profiles.md "AGI 3.002.102 profile"; conformance matrix "3.002.102 variant selection".
   "3.002.102": {
@@ -836,6 +879,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     timedPrintClearsV21: true,
     directionLoops: "four-or-more-f20",
     roomAliases: null,
+    newRoomPreservesReposAndCycleDelay: true,
     // GR1 3.002.149's measured envelope (docs/fidelity.md, sound player audit).
     soundEnvelope: "3.002",
   },

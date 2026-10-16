@@ -183,26 +183,29 @@ export class TextSurface {
     let changed = false;
     for (const i of indices) {
       if (i < 0 || i >= TEXT_COLS * TEXT_ROWS) continue;
-      if (this.hasOverlay) {
-        const row = (i / TEXT_COLS) | 0;
-        const col = i % TEXT_COLS;
-        const y0 = row * 8;
-        const x0 = col * 8;
-        for (let dy = 0; dy < 8; dy++) {
-          const base = (y0 + dy) * OVERLAY_WIDTH + x0;
-          for (let dx = 0; dx < 8; dx++) {
-            if (this.overlay[base + dx] !== 0) {
-              this.overlay[base + dx] = 0;
-              this.overlayWritten[base + dx] = 0;
-              changed = true;
-            }
-          }
-        }
-      }
       if (this.cells[i * 2] === 0) continue;
       this.cells[i * 2] = 0;
       this.cells[i * 2 + 1] = 0;
       this.written[i] = 0;
+      changed = true;
+    }
+    if (changed) this.dirty++;
+  }
+
+  /** Drop the two 320x200 window-overlay pixels covered by a painted 160x168 picture pixel. */
+  dropPicturePixelOverlay(pixel: number, baseRow: number): void {
+    if (!this.hasOverlay) return;
+    const oIdx = baseRow * 8 * OVERLAY_WIDTH + pixel * 2;
+    if (oIdx < 0 || oIdx + 1 >= this.overlay.length) return;
+    let changed = false;
+    if (this.overlay[oIdx] !== 0) {
+      this.overlay[oIdx] = 0;
+      this.overlayWritten[oIdx] = 0;
+      changed = true;
+    }
+    if (this.overlay[oIdx + 1] !== 0) {
+      this.overlay[oIdx + 1] = 0;
+      this.overlayWritten[oIdx + 1] = 0;
       changed = true;
     }
     if (changed) this.dirty++;

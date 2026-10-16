@@ -3000,9 +3000,13 @@ export class Engine {
   }
 
   private showPriScreen(): void {
-    // Original show.pri.screen sets showPri=1, blits the priority screen, waits
-    // on ChkAcAb, and restores the visual screen without calling CloseWindow
-    // (docs/fidelity.md "Original picture drawing and fill", F-picture-04).
+    // Verified on 2.936 and 3.002.086: show.pri.screen sets showPri=1, blits the
+    // priority screen, waits on ChkAcAb, and restores the visual screen without
+    // calling CloseWindow (docs/fidelity.md "Original picture drawing and fill",
+    // F-picture-04).
+    if (!this.profile.showPriScreenPreservesWindow) {
+      this.closeWindowOnTop();
+    }
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showPri" });
     this.host.showPriScreen?.();
   }
@@ -3278,12 +3282,16 @@ export class Engine {
         this.menuHeading = this.nextEnabledHeading(this.menuHeading, -1);
         break;
       case 6:
-        // DoMenu End (value 6) loads menuBase->prev unconditionally (F-IN-15).
-        this.menuHeading = this.menu.length - 1;
+        // Verified on 2.936: DoMenu End (value 6) loads menuBase->prev unconditionally (F-IN-15).
+        this.menuHeading = this.profile.menuHomeEndUnconditional
+          ? this.menu.length - 1
+          : this.nextEnabledHeading(0, -1);
         break;
       case 8:
-        // DoMenu Home (value 8) loads menuBase unconditionally (F-IN-15).
-        this.menuHeading = 0;
+        // Verified on 2.936: DoMenu Home (value 8) loads menuBase unconditionally (F-IN-15).
+        this.menuHeading = this.profile.menuHomeEndUnconditional
+          ? 0
+          : this.nextEnabledHeading(this.menu.length - 1, 1);
         break;
     }
     this.drawMenu();
@@ -4330,29 +4338,38 @@ export class Engine {
     const view = this.loadView(viewNum);
     const c = selectViewCel(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
-    // AddToPic stores x/y into a scratch entry with pri=15, IGNRHRZ and
-    // IGNROBJS and runs FindPosn before objinpic, so both the cel blit and the
-    // control box use the relocated coordinates (docs/fidelity.md, F-VIEWS-03).
-    [x, y] = this.relocateAddToPic(x, y, c.width, c.height);
-    // Handler packs (margin << 4) | priority into a single byte; objinpic
-    // substitutes the baseline band when the low nibble is zero, blits with
-    // the low nibble, and gates the control box on packed <= 0x3f
-    // (docs/fidelity.md, F-VIEWS-04, F-VIEWS-09).
+    const packedReloc = this.profile.addToPicPackingAndRelocation;
+    // Verified on 2.936 and 3.002.086: AddToPic stores x/y into a scratch entry
+    // with pri=15, IGNRHRZ and IGNROBJS and runs FindPosn before objinpic, then
+    // packs (margin << 4) | priority into a byte and gates the control box on
+    // packed <= 0x3f (docs/fidelity.md, F-VIEWS-03, F-VIEWS-04, F-VIEWS-09).
+    if (packedReloc) {
+      [x, y] = this.relocateAddToPic(x, y, c.width, c.height);
+    }
     let packed = (priority & 0xff) | ((margin & 0x0f) << 4);
     if ((packed & 0x0f) === 0) {
       packed |= priorityForY(y, this.priorityBase) & 0x0f;
     }
+    const drawPriority = packedReloc
+      ? packed & 0x0f
+      : (priority & 0x0f) === 0
+        ? priorityForY(y, this.priorityBase)
+        : priority;
     const covered = new Set<number>();
     drawCel(this.surface, c, x, y, {
-      priority: packed & 0x0f,
+      priority: drawPriority,
+      clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
+        this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow);
       },
     });
     this.text.dropCells(covered);
-    if (packed <= 0x3f && y >= 0 && y < SCREEN_HEIGHT) {
-      this.stampControlBox(x, y, c, (packed >> 4) & 0x0f);
+    const boxMargin = packedReloc ? (packed >> 4) & 0x0f : margin;
+    const drawBox = packedReloc ? packed <= 0x3f : margin < 4;
+    if (drawBox && y >= 0 && y < SCREEN_HEIGHT) {
+      this.stampControlBox(x, y, c, boxMargin);
     }
     this.presentationDirty = true;
   }
@@ -5494,6 +5511,7 @@ export class Engine {
       const pri = o.fixedPriority ? o.priority : priorityForY(o.y, this.priorityBase);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
+        clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
         onPixel: (index: number) => {
           this.scratchOwnership[index] = num + 1;
         },
@@ -5509,6 +5527,7 @@ export class Engine {
       if (cel)
         drawCel(frame, cel, Math.trunc((SCREEN_WIDTH - 1 - cel.width) / 2), SCREEN_HEIGHT - 1, {
           priority: 15,
+          clipInPlaceAndMaskPriority: this.profile.originalCelBlitClippingAndPriorityMask,
           onPixel: (index: number) => {
             this.scratchPreview[index] = 1;
           },
@@ -7367,11 +7386,9 @@ export class Engine {
         // it appends PREVLINE[editLen..] onto INLINE while under the edit cap
         // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-13).
         if (this.inputAccepted) {
-          if (this.editLine.length < this.acceptedLine.length) {
-            this.editLine = (this.editLine + this.acceptedLine.slice(this.editLine.length)).slice(
-              0,
-              this.inputCapacity(),
-            );
+          const cap = this.inputCapacity();
+          if (this.editLine.length < this.acceptedLine.length && this.editLine.length < cap) {
+            this.editLine += this.acceptedLine.slice(this.editLine.length, cap);
           }
           this.drawInputRow();
         }
@@ -7766,12 +7783,17 @@ export class Engine {
     this.sounds.clear();
     for (const num of this.logics.keys()) if (num !== 0) this.logics.delete(num);
     for (const num of this.scanStart.keys()) if (num !== 0) this.scanStart.delete(num);
-    // The original object loop writes flags &= ~0x41; flags |= 0x10: drawn and
-    // animated membership clear, every record rejoins the updating partition,
-    // and newlyPositioned (0x0400) and cycleDelay (0x1000) are preserved
-    // (docs/fidelity.md "Original new.room sequence", F-motion-10).
+    // Verified on 2.936 and 3.002.149: the object loop writes flags &= ~0x41;
+    // flags |= 0x10 so drawn and animated membership clear, every record
+    // rejoins the updating partition, and newlyPositioned (0x0400) and
+    // cycleDelay (0x1000) are preserved (docs/fidelity.md "Original new.room
+    // sequence", F-motion-10).
     for (const o of this.objects) {
       o.stepSize = o.stepTime = o.stepCount = o.cycleTime = o.cycleCount = 1;
+      if (!this.profile.newRoomPreservesReposAndCycleDelay) {
+        o.newlyPositioned = false;
+        o.cycleDelay = false;
+      }
       o.earlierPartition = false;
     }
     this.unanimateAll();

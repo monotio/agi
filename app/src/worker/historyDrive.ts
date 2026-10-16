@@ -15,6 +15,7 @@ import { detachedHost, replaceRun } from "./runSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
+import { asReleasedHostImage } from "../../../src/runtime/persistence.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
@@ -420,12 +421,21 @@ export function openHistoryDrive(
     const fingerprint = anchor !== null ? anchor.fingerprint : segment.boot.fingerprint;
     if (fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
       throw new Error(`resume point carries fingerprint version ${fingerprint.v}`);
-    const actual = historyFingerprint(
-      captureSemanticState(
-        ctx,
-        anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
-      ),
+    const semantic = captureSemanticState(
+      ctx,
+      anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
     );
+    let actual = historyFingerprint(semantic);
+    if (actual.hash !== fingerprint.hash && semantic.image !== undefined) {
+      const releasedImage = asReleasedHostImage(base64ToBytes(semantic.image));
+      if (releasedImage !== null) {
+        const candidateFingerprint = historyFingerprint({
+          ...semantic,
+          image: bytesToBase64(releasedImage),
+        });
+        if (candidateFingerprint.hash === fingerprint.hash) actual = candidateFingerprint;
+      }
+    }
     if (actual.hash !== fingerprint.hash)
       throw new Error(
         `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,

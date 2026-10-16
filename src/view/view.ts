@@ -478,6 +478,8 @@ function decodeCel(payload: Uint8Array, celStart: number): LoadedCel {
 export interface DrawCelOptions {
   /** Drawing object's priority, 0..15. Defaults to 15 (preview semantics). */
   priority?: number;
+  /** Whether to clip negative-top and right-edge rows/columns in place and mask priority to 4 bits (F-VIEWS-05, F-VIEWS-07). */
+  clipInPlaceAndMaskPriority?: boolean;
   /** Observe pixels that survive transparency and priority tests (for visibility bookkeeping). */
   onPixel?(index: number): void;
 }
@@ -489,7 +491,10 @@ export interface DrawCelOptions {
  * Placement (spec order): top = yBaseline - height + 1; a negative top shifts
  * left X left and the baseline down (a position adjustment, not clipping);
  * a cel extending past the right edge shifts left to fit; destination cells
- * outside the 160x168 surface are skipped.
+ * outside the 160x168 surface are skipped. When `clipInPlaceAndMaskPriority`
+ * is enabled (verified on 2.936; F-VIEWS-05, F-VIEWS-07), negative-top and
+ * right-edge overflow clip in place without shifting `left`, and `priority`
+ * is masked to its low nibble.
  *
  * Composition: transparent source pixels never modify the destination. Every
  * other source pixel is tested independently against the priority/control
@@ -506,14 +511,24 @@ export function drawCel(
   yBaseline: number,
   opts?: DrawCelOptions,
 ): void {
-  const p = (opts?.priority ?? 15) & 0x0f;
-  forEachPaintedPixel(surface, cel, x, yBaseline, p, (cell, color) => {
-    surface.visual[cell] = color;
-    // A control pixel keeps its control value under a painted cel; only its
-    // colour changes (docs/fidelity.md, "Original cel blit over control pixels").
-    if (surface.priority[cell]! > 2) surface.priority[cell] = p;
-    opts?.onPixel?.(cell);
-  });
+  const clipMask = opts?.clipInPlaceAndMaskPriority ?? false;
+  const rawP = opts?.priority ?? 15;
+  const p = clipMask ? rawP & 0x0f : rawP;
+  forEachPaintedPixel(
+    surface,
+    cel,
+    x,
+    yBaseline,
+    p,
+    (cell, color) => {
+      surface.visual[cell] = color;
+      // A control pixel keeps its control value under a painted cel; only its
+      // colour changes (docs/fidelity.md, "Original cel blit over control pixels").
+      if (surface.priority[cell]! > 2) surface.priority[cell] = p;
+      opts?.onPixel?.(cell);
+    },
+    clipMask,
+  );
 }
 
 /**
@@ -529,10 +544,20 @@ export function forEachPaintedPixel(
   yBaseline: number,
   p: number,
   visit: (cell: number, color: number) => void,
+  clipInPlaceAndMaskPriority = false,
 ): void {
-  p &= 0x0f;
-  const left = x;
-  const top = yBaseline - cel.height + 1;
+  if (clipInPlaceAndMaskPriority) p &= 0x0f;
+  let left = x;
+  let top = yBaseline - cel.height + 1;
+  if (!clipInPlaceAndMaskPriority) {
+    if (top < 0) {
+      left += top;
+      top = 0;
+    }
+    if (left + cel.width > SCREEN_WIDTH) {
+      left = SCREEN_WIDTH - cel.width;
+    }
+  }
   const firstY = Math.max(0, top);
   const bottom = Math.min(top + cel.height, SCREEN_HEIGHT);
   for (let dy = firstY; dy < bottom; dy++) {

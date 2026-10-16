@@ -353,14 +353,16 @@ describe("drawCel", () => {
     assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
   });
 
-  it("clips pixels past the right and bottom edges without shifting x", () => {
+  it("shifts left to fit the right edge and clips rows below the bottom", () => {
     const surface = createPictureSurface();
     const cel = makeCel(4, 1, 0, [1, 2, 3, 4]);
-    // F-VIEWS-05: Obj2V does not shift x when left + width > 160; pixels at 158..159 land, 160..161 clip.
+    // 158 + 4 > 160 -> left becomes 156, all four pixels land at 156..159.
     drawCel(surface, cel, 158, 5, { priority: 7 });
-    assert.deepEqual(cell(surface, 157, 5), { visual: 15, priority: 4 });
-    assert.deepEqual(cell(surface, 158, 5), { visual: 1, priority: 7 });
-    assert.deepEqual(cell(surface, 159, 5), { visual: 2, priority: 7 });
+    assert.deepEqual(cell(surface, 155, 5), { visual: 15, priority: 4 });
+    assert.deepEqual(cell(surface, 156, 5), { visual: 1, priority: 7 });
+    assert.deepEqual(cell(surface, 157, 5), { visual: 2, priority: 7 });
+    assert.deepEqual(cell(surface, 158, 5), { visual: 3, priority: 7 });
+    assert.deepEqual(cell(surface, 159, 5), { visual: 4, priority: 7 });
 
     // Baseline 169 with height 3: top = 167; rows at 168 and 169 clip away.
     const tall = makeCel(1, 3, 0, [5, 6, 7]);
@@ -368,11 +370,29 @@ describe("drawCel", () => {
     assert.deepEqual(cell(surface, 3, 167), { visual: 5, priority: 7 });
   });
 
-  it("clips negative top rows in place and masks priority to its low nibble (F-VIEWS-05, F-VIEWS-07)", () => {
+  it("treats a negative top as a position adjustment, not clipping", () => {
     const surface = createPictureSurface();
     const cel = makeCel(1, 3, 0, [5, 6, 7]);
+    // top = 1 - 3 + 1 = -1 -> left 20 - 1 = 19, baseline 1 + 1 = 2, top = 0;
+    // all three rows still draw, one pixel further left than requested.
+    drawCel(surface, cel, 20, 1, { priority: 7 });
+    assert.deepEqual(cell(surface, 19, 0), { visual: 5, priority: 7 });
+    assert.deepEqual(cell(surface, 19, 1), { visual: 6, priority: 7 });
+    assert.deepEqual(cell(surface, 19, 2), { visual: 7, priority: 7 });
+    assert.deepEqual(cell(surface, 20, 0), { visual: 15, priority: 4 });
+  });
+
+  it("clips negative top and right edge in place and masks priority to its low nibble when clipInPlaceAndMaskPriority is set (F-VIEWS-05, F-VIEWS-07)", () => {
+    const surface = createPictureSurface();
+    const wide = makeCel(4, 1, 0, [1, 2, 3, 4]);
+    drawCel(surface, wide, 158, 5, { priority: 7, clipInPlaceAndMaskPriority: true });
+    assert.deepEqual(cell(surface, 157, 5), { visual: 15, priority: 4 });
+    assert.deepEqual(cell(surface, 158, 5), { visual: 1, priority: 7 });
+    assert.deepEqual(cell(surface, 159, 5), { visual: 2, priority: 7 });
+
+    const cel = makeCel(1, 3, 0, [5, 6, 7]);
     // top = 1 - 3 + 1 = -1 -> row -1 clips away; rows 0 and 1 land at column 20 with priority (0x17 & 0x0f) = 7.
-    drawCel(surface, cel, 20, 1, { priority: 0x17 });
+    drawCel(surface, cel, 20, 1, { priority: 0x17, clipInPlaceAndMaskPriority: true });
     assert.deepEqual(cell(surface, 20, 0), { visual: 6, priority: 7 });
     assert.deepEqual(cell(surface, 20, 1), { visual: 7, priority: 7 });
     assert.deepEqual(cell(surface, 19, 0), { visual: 15, priority: 4 });

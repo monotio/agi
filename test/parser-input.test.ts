@@ -580,4 +580,33 @@ test("F-Parser-13: echo.line is a no-op before Enter and appends the suffix of l
   engine.flags[201] = 1;
   engine.tick();
   assert.equal(engine.inputEdit, "xyok");
+
+  // Press Enter on "xyok" so acceptedLine is 4 chars, then type 3 chars "abc".
+  host.keys.push(0x0d, 0x61, 0x62, 0x63);
+  engine.tick();
+  assert.equal(engine.lastInputLine, "xyok");
+  assert.equal(engine.inputEdit, "abc");
+
+  // Lowering v24 (max input length) below already-typed length must never delete typed characters.
+  engine.vars[24] = 2;
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "abc");
+
+  // Growing the prompt (s0) so remaining row capacity is < 3 must also never delete typed characters.
+  engine.vars[24] = 40;
+  engine.strings[0] = ">".repeat(38);
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "abc");
+
+  // Raising capacity to 3 while 1 char "z" is typed appends only the 2 chars that fit ("z" + "yo" = "zyo").
+  engine.strings[0] = "";
+  engine.vars[24] = 3;
+  host.keys.push(0x08, 0x08, 0x08, 0x7a);
+  engine.tick();
+  assert.equal(engine.inputEdit, "z");
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.inputEdit, "zyo");
 });

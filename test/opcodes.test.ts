@@ -5,6 +5,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { MESSAGE_KEY } from "../src/logic/resource.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { AGI_KEY } from "../src/runtime/keys.ts";
+import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 import { SCREEN_WIDTH } from "../src/types.ts";
 
 const DICT = new Map([
@@ -511,152 +512,247 @@ test("version prints the host string, or the engine fallback, without overwritin
   assert.equal(bare.strings[0], ">");
 });
 
-test("F-motion-10: new.room preserves newlyPositioned (0x0400) and cycleDelay (0x1000) while clearing other object flags", () => {
-  const container = createContainer();
-  container.putResource("picture", 1, new Uint8Array([0xff]));
-  container.putResource("picture", 2, new Uint8Array([0xff]));
-  container.putResource(
-    "view",
-    1,
-    new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0x0f, 0x21, 0x00]),
-  );
-  container.putResource(
-    "logic",
-    0,
-    assembleLogic(
-      `if (!isset(f200)) {
-         set(f200);
-         load.view(1);
-         animate.obj(o1);
-         set.view(o1, 1);
-         position(o1, 40, 80);
-         return;
-       }
-       if (equaln(v80, 1)) {
-         assignn(v80, 2);
-         new.room(2);
-       }
-       return;`,
-      { dictionary: DICT },
-    ).payload,
-  );
-  container.putResource("logic", 2, assembleLogic("return;", { dictionary: DICT }).payload);
-  const engine = new Engine(container, new TestHost(), DICT);
-  engine.execute(0);
-  const o1 = engine.screenObjects[1]!;
-  o1.newlyPositioned = true;
-  o1.cycleDelay = true;
-  o1.active = true;
-  o1.update = true;
-  engine.vars[80] = 1;
-  engine.tick();
-  assert.equal(engine.readState().room, 2);
-  assert.equal(o1.newlyPositioned, true, "bit 0x0400 (POSN) preserved across new.room");
-  assert.equal(o1.cycleDelay, true, "bit 0x1000 (ONLAND/cycleDelay) preserved across new.room");
-  assert.equal(o1.active, false, "other flags cleared across new.room");
-  assert.equal(o1.update, false);
+test("F-motion-10: new.room preserves newlyPositioned and cycleDelay only on verified profiles (2.936, 3.002.149)", () => {
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
+    const profile = PROFILES[id];
+    const container = createContainer();
+    container.putResource("picture", 1, new Uint8Array([0xff]));
+    container.putResource("picture", 2, new Uint8Array([0xff]));
+    container.putResource(
+      "view",
+      1,
+      new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0x0f, 0x21, 0x00]),
+    );
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `if (!isset(f200)) {
+           set(f200);
+           load.view(1);
+           animate.obj(o1);
+           set.view(o1, 1);
+           position(o1, 40, 80);
+           return;
+         }
+         if (equaln(v80, 1)) {
+           assignn(v80, 2);
+           new.room(2);
+         }
+         return;`,
+        { dictionary: DICT, profile },
+      ).payload,
+    );
+    container.putResource(
+      "logic",
+      2,
+      assembleLogic("return;", { dictionary: DICT, profile }).payload,
+    );
+    const engine = new Engine(container, new TestHost(), DICT, { profile });
+    engine.execute(0);
+    const o1 = engine.screenObjects[1]!;
+    o1.newlyPositioned = true;
+    o1.cycleDelay = true;
+    o1.active = true;
+    o1.update = true;
+    engine.vars[80] = 1;
+    engine.tick();
+    assert.equal(engine.readState().room, 2, id);
+    const expected = id === "2.936" || id === "3.002.149";
+    assert.equal(profile.newRoomPreservesReposAndCycleDelay, expected, id);
+    assert.equal(o1.newlyPositioned, expected, `${id}: newlyPositioned across new.room`);
+    assert.equal(o1.cycleDelay, expected, `${id}: cycleDelay across new.room`);
+    assert.equal(o1.active, false, `${id}: active cleared across new.room`);
+    assert.equal(o1.update, false, `${id}: update cleared across new.room`);
+  }
 });
 
-test("F-IN-15: DoMenu Home and End select root and rightmost headings unconditionally even when disabled", () => {
-  const container = gameWith(`
-    if (!isset(f200)) {
-      set(f200);
-      set.menu("LeftDisabled");
-      set.menu("MiddleEnabled");
-      set.menu.item("ItemM1", c11);
-      set.menu.item("ItemM2", c12);
-      set.menu("RightDisabled");
-      submit.menu();
-      set(f14);
+test("F-IN-15: DoMenu Home and End select disabled endpoints only on verified profile (2.936)", () => {
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
+    const profile = PROFILES[id];
+    if (profile.menuActions !== "full" || profile.menuInputAction !== "effect") continue;
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `if (!isset(f200)) {
+           set(f200);
+           set.menu("LeftDisabled");
+           set.menu("MiddleEnabled");
+           set.menu.item("ItemM1", c11);
+           set.menu.item("ItemM2", c12);
+           set.menu("RightDisabled");
+           submit.menu();
+           set(f14);
+         }
+         if (equaln(v80, 1)) { assignn(v80, 0); menu.input(); }
+         return;`,
+        { dictionary: DICT, profile },
+      ).payload,
+    );
+    if (profile.menuInteractionGate) {
+      // allow.menu(1) is enabled by default on v3
     }
-    if (equaln(v80, 1)) { assignn(v80, 0); menu.input(); }
-    return;
-  `);
-  const host = new TestHost();
-  const engine = new Engine(container, host, DICT);
-  engine.tick();
-  engine.vars[80] = 1;
-  engine.tick(); // executes menu.input(), setting menuRequested = true
-  engine.tick(); // input phase opens the modal menu
-  assert.equal(engine.modalKind, "menu");
-  // Opening the menu skips disabled heading 0 and lands on enabled heading 1.
-  assert.equal(engine.readMenuState().heading, 1);
-  // End (0x4f00 -> value 6) unconditionally selects the rightmost heading (index 2), even though it is disabled.
-  engine.modalKey(0x4f00);
-  assert.equal(engine.readMenuState().heading, 2);
-  // Home (0x4700 -> value 8) unconditionally selects the root heading (index 0), even though it is disabled.
-  engine.modalKey(0x4700);
-  assert.equal(engine.readMenuState().heading, 0);
-  // Right arrow (0x4d00 -> value 3) uses the enabled-skip loop and advances to heading 1.
-  engine.modalKey(0x4d00);
-  assert.equal(engine.readMenuState().heading, 1);
+    const host = new TestHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    engine.tick();
+    engine.vars[80] = 1;
+    engine.tick();
+    engine.tick();
+    assert.equal(engine.modalKind, "menu", id);
+    assert.equal(engine.readMenuState().heading, 1, id);
+    const unconditional = id === "2.936";
+    assert.equal(profile.menuHomeEndUnconditional, unconditional, id);
+    engine.modalKey(0x4f00);
+    assert.equal(engine.readMenuState().heading, unconditional ? 2 : 1, `${id}: End key`);
+    engine.modalKey(0x4700);
+    assert.equal(engine.readMenuState().heading, unconditional ? 0 : 1, `${id}: Home key`);
+    if (unconditional) {
+      engine.modalKey(0x4d00);
+      assert.equal(engine.readMenuState().heading, 1, `${id}: Right arrow skips disabled`);
+    }
+  }
 });
 
-test("F-picture-04: show.pri.screen does not call CloseWindow on a leave.window banner", () => {
-  const container = gameWith(`
-    #message 1 "Banner"
-    set(f15);
-    print(1);
-    show.pri.screen();
-    return;
-  `);
-  const host = new TestHost();
-  const engine = new Engine(container, host, DICT);
-  host.engine = engine;
-  engine.tick();
-  assert.equal(host.showPriCalls, 1);
-  engine.ackPrint();
-  assert.equal(
-    engine.getPresentation().windowOverlay.some((b) => b !== 0),
-    true,
-    "show.pri.screen leaves the persistent window overlay open",
-  );
+test("F-picture-04: show.pri.screen preserves text window only on verified profiles (2.936, 3.002.086)", () => {
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
+    const profile = PROFILES[id];
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `#message 1 "Banner"
+         set(f15);
+         print(1);
+         show.pri.screen();
+         return;`,
+        { dictionary: DICT, profile },
+      ).payload,
+    );
+    const host = new TestHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    assert.equal(host.showPriCalls, 1, id);
+    engine.ackPrint();
+    const expected = id === "2.936" || id === "3.002.086";
+    assert.equal(profile.showPriScreenPreservesWindow, expected, id);
+    assert.equal(
+      engine.getPresentation().windowOverlay.some((b) => b !== 0),
+      expected,
+      `${id}: windowOverlay after show.pri.screen`,
+    );
+  }
 });
 
-test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocates via FindPosn, ORs priority into packed byte, and gates control box on <= 0x3f", () => {
-  const container = createContainer();
-  container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf8, 0, 0, 0xff]));
-  // 4x4 opaque cel of color 2, transparent 15
-  container.putResource(
-    "view",
-    1,
-    new Uint8Array([
-      0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 4, 4, 0x0f, 0x24, 0x00, 0x24, 0x00, 0x24, 0x00, 0x24, 0x00,
-    ]),
-  );
-  container.putResource(
-    "logic",
-    0,
-    assembleLogic(
-      `assignn(v50, 1); load.pic(v50); draw.pic(v50);
-       load.view(1);
-       // 1) Out-of-bounds y=1 (< height-1=3) and x=158 (158+4 > 160) relocates via FindPosn to (156, 3),
-       //    and priority=0 with margin=1 packs 0x10 | priorityForY(3)=4 -> 0x14 (<= 0x3f, stamps control 1).
-       add.to.pic(1, 0, 0, 158, 1, 0, 1);
-       // 2) priority=0x45, margin=0 -> packed=0x45 (> 0x3f): draws with low nibble priority 5, no control box!
-       add.to.pic(1, 0, 0, 20, 80, 69, 0);
-       show.pic();
-       return;`,
-      { dictionary: DICT },
-    ).payload,
-  );
-  const engine = new Engine(container, new TestHost(), DICT);
-  engine.tick();
+test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing apply only on verified profiles (2.936, 3.002.086)", () => {
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
+    const profile = PROFILES[id];
+    const container = createContainer();
+    container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf8, 0, 0, 0xff]));
+    // 4x4 opaque cel of color 2, transparent 15
+    container.putResource(
+      "view",
+      1,
+      new Uint8Array([
+        0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 4, 4, 0x0f, 0x24, 0x00, 0x24, 0x00, 0x24, 0x00, 0x24, 0x00,
+      ]),
+    );
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `assignn(v50, 1); load.pic(v50); draw.pic(v50);
+         load.view(1);
+         add.to.pic(1, 0, 0, 158, 1, 0, 1);
+         add.to.pic(1, 0, 0, 20, 80, 69, 0);
+         show.pic();
+         return;`,
+        { dictionary: DICT, profile },
+      ).payload,
+    );
+    const engine = new Engine(container, new TestHost(), DICT, { profile });
+    engine.tick();
 
-  // Cel 1 relocated from (158, 1) to (156, 3): top-left pixel is at (156, 0), baseline at (156, 3).
-  assert.equal(engine.surface.visual[3 * 160 + 156], 2, "relocated cel drawn at x=156, y=3");
-  assert.equal(
-    engine.surface.priority[3 * 160 + 156],
-    1,
-    "packed 0x14 <= 0x3f stamped control box 1 on baseline",
-  );
+    const verified = id === "2.936" || id === "3.002.086";
+    assert.equal(profile.addToPicPackingAndRelocation, verified, id);
+    if (verified) {
+      assert.equal(engine.surface.visual[3 * 160 + 156], 2, `${id}: relocated cel at (156,3)`);
+      assert.equal(
+        engine.surface.priority[3 * 160 + 156],
+        1,
+        `${id}: relocated control box at (156,3)`,
+      );
+      assert.equal(
+        engine.surface.priority[80 * 160 + 20],
+        5,
+        `${id}: packed 0x45 > 0x3f skips box`,
+      );
+    } else {
+      assert.equal(engine.surface.priority[3 * 160 + 156], 4, `${id}: no relocation to y=3`);
+      assert.equal(
+        engine.surface.priority[1 * 160 + 158],
+        1,
+        `${id}: control box at un-relocated (158,1)`,
+      );
+      assert.equal(
+        engine.surface.priority[80 * 160 + 20],
+        0,
+        `${id}: margin 0 < 4 stamps control box 0`,
+      );
+    }
+  }
+});
 
-  // Cel 2 at (20, 80) with priority=0x45 (69) and margin=0:
-  // drawn with priority (0x45 & 0x0f) = 5, and since packed 0x45 > 0x3f, NO control box (0) overwrote priority 5!
-  assert.equal(engine.surface.visual[80 * 160 + 20], 2, "cel 2 visual pixel drawn");
-  assert.equal(
-    engine.surface.priority[80 * 160 + 20],
-    5,
-    "packed 0x45 > 0x3f skips control box and keeps cel priority 5",
-  );
+test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask apply only on verified profile (2.936)", () => {
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
+    const profile = PROFILES[id];
+    const container = createContainer();
+    container.putResource("picture", 1, new Uint8Array([0xf0, 15, 0xf8, 0, 0, 0xff]));
+    // 1x3 cel with colors [5, 6, 7], transparent 0
+    container.putResource(
+      "view",
+      1,
+      new Uint8Array([
+        0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 3, 0x00, 0x51, 0x00, 0x61, 0x00, 0x71, 0x00,
+      ]),
+    );
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `if (!isset(f200)) {
+           set(f200);
+           assignn(v50, 1); load.pic(v50); draw.pic(v50);
+           load.view(1);
+           animate.obj(o1);
+           set.view(o1, 1);
+           ignore.horizon(o1);
+           set.priority(o1, 23);
+           draw(o1);
+           show.pic();
+         }
+         return;`,
+        { dictionary: DICT, profile },
+      ).payload,
+    );
+    const engine = new Engine(container, new TestHost(), DICT, { profile });
+    engine.tick();
+    const o1 = engine.screenObjects[1]!;
+    o1.x = 20;
+    o1.y = 1;
+    const frame = engine.getFrame();
+    const verified = id === "2.936";
+    assert.equal(profile.originalCelBlitClippingAndPriorityMask, verified, id);
+    if (verified) {
+      assert.equal(frame.visual[0 * 160 + 20], 6, `${id}: negative top clipped in place at x=20`);
+      assert.equal(frame.visual[0 * 160 + 19], 15, `${id}: x=19 untouched`);
+      assert.equal(frame.priority[0 * 160 + 20], 7, `${id}: priority 23 (0x17) masked to 7`);
+    } else {
+      assert.equal(frame.visual[0 * 160 + 19], 5, `${id}: negative top shifted left to x=19`);
+      assert.equal(frame.priority[0 * 160 + 19], 23, `${id}: priority 23 unmasked`);
+    }
+  }
 });

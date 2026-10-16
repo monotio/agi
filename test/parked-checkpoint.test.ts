@@ -414,3 +414,43 @@ test("2.089 persistent window partially erased by sprite keeps identical border 
     "replay state restore + show.pic text overlay matches uninterrupted execution",
   );
 });
+
+test("2.089 add.to.pic clears window-border overlay only on painted pixels, keeping adjacent (146,84) red", () => {
+  const container = createContainer();
+  container.putResource("picture", 1, PICTURE_1);
+  // 1x1 opaque cel (color 2, transparent 15).
+  const viewPayload = new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0x0f, 0x21, 0x00]);
+  container.putResource("view", 1, viewPayload);
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); assignn(v0, 1); new.room.v(v0); } call.v(v0); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `#message 2 "Hi"
+       if (isset(f5)) {
+         assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+         load.view(1);
+         set(f15); print(2);
+         add.to.pic(1, 0, 0, 72, 76, 15, 4);
+       }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+
+  const engine = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.089" });
+  engine.tick();
+  const overlay = engine.getPresentation().windowOverlay;
+  // Picture pixel (72, 76) covers 320x200 screen pixels (144, 84) and (145, 84) only.
+  // Adjacent border pixel (146, 84) in the same 8x8 text cell must remain red (5 = EGA 4 + 1).
+  assert.equal(overlay[84 * 320 + 144], 0);
+  assert.equal(overlay[84 * 320 + 145], 0);
+  assert.equal(overlay[84 * 320 + 146], 5);
+});
