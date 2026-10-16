@@ -150,7 +150,7 @@ test("profile appearances stay local to the worker while autosaves and inspectio
   t.after(() => ctx.fns.stopTimers());
   const container = gameContainer(
     [
-      'if (!isset(f200)) { set(f200); load.pic(v0); draw.pic(v0); show.pic(); set.text.attribute(1,2); display(3,2,"A"); } return;',
+      'if (!isset(f200)) { set(f200); load.pic(v0); overlay.pic(v0); show.pic(); set.text.attribute(1,2); display(3,2,"A"); } return;',
     ],
     (c) => c.putResource("picture", 0, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff)),
   );
