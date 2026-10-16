@@ -346,7 +346,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     topics: [
       {
         id: "authentic",
-        title: "Checked against originals",
+        title: "Compared with originals",
         body: [
           "AGI IS HERE is an independent interpreter. Its behavior is checked against original Sierra interpreters on PC, Amiga and Apple IIgs, and against recorded runs in an emulator. The fidelity notes record the evidence and the gaps that remain.",
         ],
