@@ -25,9 +25,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 15378,
-  "virtualTicks": 142268,
-  "cycles": 18999,
+  "elapsedMs": 4860,
+  "virtualTicks": 142517,
+  "cycles": 19000,
   "actions": [
     {
       "kind": "key",
@@ -2611,7 +2611,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 96
+      "ticks": 123
     },
     {
       "kind": "key",
@@ -2759,7 +2759,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1033
+      "ticks": 1060
     },
     {
       "kind": "key",
@@ -19659,7 +19659,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1122
+      "ticks": 1128
     },
     {
       "kind": "key",
@@ -20187,7 +20187,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1896
+      "ticks": 2085
     },
     {
       "kind": "key",
@@ -20233,7 +20233,7 @@
       255,
       0,
       2,
-      31,
+      35,
       39,
       0,
       0,

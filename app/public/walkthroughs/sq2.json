@@ -25,9 +25,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 36701,
-  "virtualTicks": 144183,
-  "cycles": 18802,
+  "elapsedMs": 10769,
+  "virtualTicks": 144630,
+  "cycles": 18812,
   "actions": [
     {
       "kind": "advance",
@@ -1035,7 +1035,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 413
+      "ticks": 521
     },
     {
       "kind": "key",
@@ -1231,7 +1231,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 658
+      "ticks": 748
     },
     {
       "kind": "key",
@@ -6759,7 +6759,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 26
+      "ticks": 58
     },
     {
       "kind": "checkpoint",
@@ -6775,7 +6775,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 66
+      "ticks": 61
     },
     {
       "kind": "key",
@@ -10099,7 +10099,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 541
+      "ticks": 568
     },
     {
       "kind": "key",
@@ -11451,7 +11451,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 246
+      "ticks": 234
     },
     {
       "kind": "key",
@@ -11783,7 +11783,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 576
+      "ticks": 603
     },
     {
       "kind": "key",
@@ -12415,7 +12415,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 348
+      "ticks": 411
     },
     {
       "kind": "key",
@@ -13479,7 +13479,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 366
+      "ticks": 423
     },
     {
       "kind": "key",
@@ -14479,7 +14479,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 822
+      "ticks": 825
     },
     {
       "kind": "key",
@@ -17183,6 +17183,14 @@
     },
     {
       "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
       "ticks": 278
     },
     {
@@ -17199,15 +17207,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
+      "ticks": 31
     },
     {
       "kind": "key",
@@ -17743,7 +17743,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1330
+      "ticks": 1387
     },
     {
       "kind": "key",
@@ -18229,7 +18229,7 @@
       255,
       0,
       2,
-      3,
+      10,
       40,
       0,
       0,
@@ -18257,7 +18257,7 @@
       11,
       19,
       14,
-      45,
+      48,
       4,
       100,
       2,
@@ -18291,7 +18291,7 @@
       153,
       97,
       0,
-      3,
+      10,
       0,
       84,
       90,
@@ -18563,7 +18563,7 @@
       1,
       0,
       0,
-      1,
+      0,
       0,
       1,
       0,

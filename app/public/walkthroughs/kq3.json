@@ -26,9 +26,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 45600,
+  "elapsedMs": 14253,
   "virtualTicks": 259402,
-  "cycles": 34064,
+  "cycles": 34037,
   "actions": [
     {
       "kind": "advance",

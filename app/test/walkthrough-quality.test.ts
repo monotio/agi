@@ -10,7 +10,9 @@ const limits: Record<string, { polls: number; cycles: number; actions: number }>
   kq2: { polls: 127000, cycles: 18100, actions: 4600 },
   kq3: { polls: 260000, cycles: 34200, actions: 10600 },
   sq1: { polls: 143500, cycles: 19100, actions: 5100 },
-  sq2: { polls: 144400, cycles: 18900, actions: 4600 },
+  // shake.screen holds the game for its full length (docs/fidelity.md
+  // "Original shake.screen and picture reveal"), adding 447 ticks to SQ2.
+  sq2: { polls: 144800, cycles: 18900, actions: 4600 },
   pq1: { polls: 449000, cycles: 39700, actions: 13500 },
   lsl1: { polls: 146000, cycles: 16000, actions: 5600 },
   bc: { polls: 106000, cycles: 12350, actions: 2400 },
