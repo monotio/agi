@@ -145,8 +145,6 @@ test("keys typed during a shake wait for the next pass, and timers keep running"
   keys.push(0x0d);
   e.tick();
   assert.deepEqual(keys, [0x0d], "the shake reads no input");
-  e.ackPrint();
-  assert.equal(e.modalKind, "shake", "acknowledgement does not end a shake");
   e.advanceClock(1000);
   assert.equal(e.vars[11], 1, "the clock ran through the shake");
   assert.equal(e.modalKind, "shake", "4 units = 32 steps = 2133 ms");

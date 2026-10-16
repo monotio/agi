@@ -53,7 +53,8 @@ export function freshHistoryView(): HistoryViewUiState {
 }
 
 /** Engine modal kinds (the engine draws them on its text surface). */
-export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
+export type ModalKind =
+  "print" | "inventory" | "menu" | "showObj" | "showPri" | "shake" | "save" | "restore";
 
 /** Test/debug hook mirrored onto window.__AGI_TEXT__ every frame. */
 export interface TextHook {

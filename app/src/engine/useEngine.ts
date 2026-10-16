@@ -919,7 +919,8 @@ export function useEngine(
    * tap's screen pixel, an Amiga confirmation gadget under it is selected.
    */
   function dismissModal(point?: { x: number; y: number }): void {
-    if (state.modal === null) return;
+    // The original reads no input while it shakes the screen.
+    if (state.modal === null || state.modal === "shake") return;
     link
       .getWorker()
       ?.postMessage({ type: "dismissPrint", ...(point ?? {}) } satisfies WorkerInbound);

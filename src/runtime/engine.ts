@@ -1790,11 +1790,12 @@ export class Engine {
   /**
    * Host acknowledged the open modal (Enter/Esc/click). For a print window
    * this restores the covered cells; for an interactive inventory it is the
-   * cancel path (v25 = 0xff); for a menu it closes without selection.
+   * cancel path (v25 = 0xff); for a menu it closes without selection. A
+   * shake ignores the player's keys, so only a host override ends it early.
    */
   ackPrint(): void {
     if (this.stopLatch !== null) return; // input is frozen while stopped
-    if (!this.modal || this.modal.kind === "shake") return;
+    if (!this.modal) return;
     if (this.modal.kind === "inventory" && this.modal.interactive)
       this.vars[V_SELECTED_ITEM] = 0xff;
     this.closeModal();
