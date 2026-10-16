@@ -60,9 +60,13 @@ function clickSession(profile: ProfileId, logic = EGO_SETUP) {
       ctx.fns.hostTick();
     }
   };
+  // The IIgs admits a pass after v10 + 1 timer increments (docs/fidelity.md
+  // "Input and pacing"): with v10 = 0 that is one 50 ms increment, three frames.
+  const framesPerPass = profile === "iigs-1.014" ? 3 : 1;
+  const passes = (n = 1): void => tick(n * framesPerPass);
   const clickCauses = () =>
     ctx.history.open.events.filter((e) => e.cause.kind === "click").map((e) => e.cause);
-  return { ctx, control, send, tick, clickCauses };
+  return { ctx, control, send, tick, passes, clickCauses };
 }
 
 test("a click message records the cause and the engine walks ego to it", () => {
@@ -189,11 +193,11 @@ test("a recorded click replays through the history drive", () => {
 
 test("clicking inside an open print window dismisses it on Amiga and IIgs while outside clicks drop", () => {
   for (const profile of ["amiga-2.316", "iigs-1.014"] as const) {
-    const { ctx, send, tick, clickCauses } = clickSession(
+    const { ctx, send, passes, clickCauses } = clickSession(
       profile,
       `if (!isset(f201)) { set(f201); print("Hello"); } return;`,
     );
-    tick(1);
+    passes(1);
     assert.equal(ctx.run.engine!.modalKind, "print");
     // Outside the window (y = 80..103): dropped.
     send({ type: "click", x: 161, y: 108 });
@@ -202,7 +206,7 @@ test("clicking inside an open print window dismisses it on Amiga and IIgs while 
     // Inside the window at (160, 88): queued and dismisses on the next tick.
     send({ type: "click", x: 160, y: 88 });
     assert.deepEqual(clickCauses(), [{ kind: "click", x: 160, y: 88 }]);
-    tick(1);
+    passes(1);
     assert.equal(ctx.run.engine!.modalKind, null);
   }
 });
@@ -249,7 +253,7 @@ test("amiga-2.082 left-click answers a text.screen have.key wait; no build turns
 });
 
 test("iigs-1.014 f15 window lets an outside click walk and accepts a click inside", () => {
-  const { ctx, send, tick } = clickSession(
+  const { ctx, send, passes } = clickSession(
     "iigs-1.014",
     `if (!isset(f200)) {
        set(f200);
@@ -263,25 +267,25 @@ test("iigs-1.014 f15 window lets an outside click walk and accepts a click insid
      if (have.key()) { assignv(v100, v19); }
      return;`,
   );
-  tick(2);
+  passes(2);
   assert.equal(ctx.run.engine!.modalKind, null, "f15 left the window non-blocking");
   // The f15 branch sets $1590, which passes the walk gate at seg3+0xa4b.
   send({ type: "click", x: 161, y: 108 });
-  tick(1);
+  passes(1);
   assert.equal(ctx.run.engine!.screenObjects[0]!.motionMode, 4, "click-move mode");
   // Clicking inside the banner at (30, 24) enqueues Enter (0x0d) for have.key().
   send({ type: "click", x: 30, y: 24 });
-  tick(1);
+  passes(1);
   assert.equal(ctx.run.engine!.vars[100], 0x0d);
 });
 
 test("native sound switches leave a parked have.key wait parked on Amiga and IIgs", () => {
   for (const profile of ["amiga-2.202", "iigs-1.014"] as const) {
-    const { ctx, send, tick } = clickSession(
+    const { ctx, send, passes } = clickSession(
       profile,
       "wait: if (!have.key()) {goto wait;} assignv(v100,v19); return;",
     );
-    tick(1);
+    passes(1);
     assert.equal(ctx.run.engine!.awaitingKey, true);
     assert.equal(ctx.run.engine!.flags[9], 1);
     ctx.run.recording.recording = {
