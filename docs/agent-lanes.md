@@ -103,6 +103,13 @@ person who owns the machine can approve:
 export AGI_AGENT_CMD='codex exec -m <model> -c model_reasoning_effort="high" --dangerously-bypass-approvals-and-sandbox -'
 ```
 
+For a CLI that accepts the prompt as an argument, read the brief from stdin
+into that argument. The owner must approve running this command unsandboxed:
+
+```sh
+export AGI_AGENT_CMD='agy --model <model> --dangerously-skip-permissions --output-format json -p "$(cat)"'
+```
+
 ```sh
 export AGI_AGENT_CMD='<your-agent-cli> exec -'
 scripts/agent-lanes/run-lane.sh parser-fix .local/agent-lanes/briefs/parser-fix.md
