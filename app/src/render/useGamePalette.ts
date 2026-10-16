@@ -12,7 +12,7 @@ import { useOptionalPresentation } from "../play/usePresentation.ts";
 export type Palette = Appearance["palette"];
 
 /** The current game's look. */
-export function useGameLook(): ComputedRef<Appearance> {
+function useGameLook(): ComputedRef<Appearance> {
   const presentation = useOptionalPresentation();
   return computed(() => presentation?.look.value ?? PC_APPEARANCE);
 }
