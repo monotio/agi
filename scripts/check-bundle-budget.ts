@@ -178,7 +178,11 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // Executable-only recording boots and the oversize rotation guard bring
   // the closure to 168.1 kB gzip and 141.1 kB brotli. 1.2.1 left it at
   // 178.5 kB gzip, 149.4 kB brotli, and the warning recurred on main.
-  workers: { gzip: 182_000, brotli: 152_000 },
+  // 1.2.5 adds interpreter behavior that stays synchronous inside the
+  // engine worker: the Amiga menu strip and its save and restore windows,
+  // the picture dissolve, and the PC display adapters with their CGA
+  // tables and cel provenance. Measured 217.2 kB gzip, 180.0 kB brotli.
+  workers: { gzip: 240_000, brotli: 200_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {
