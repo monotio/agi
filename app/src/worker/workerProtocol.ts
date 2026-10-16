@@ -913,8 +913,8 @@ export type WorkerPresentation =
       text: Uint8Array;
       windowOverlay?: Uint8Array;
       picRow: number;
-      /** The status line is shown (the Amiga look draws it as the title bar). */
-      statusBar: boolean;
+      /** The Amiga screen title while the status line shows, else null. */
+      statusBar: string | null;
       /** An open confirmation window's gadgets with their off-grid labels. */
       gadgets?: GadgetLabel[];
       modal: string | null;

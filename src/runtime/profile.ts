@@ -484,6 +484,23 @@ export interface AgiProfile {
    */
   readonly palette: PaletteId;
   /**
+   * What the input row shows (docs/fidelity.md "Amiga screen, font and
+   * pointer"). `"prompt-edit-cursor"`: string 0, the typed text, then the
+   * cursor byte from set.cursor.char — the order every Amiga build's
+   * ShowInput prints (SQ2 h85+0x366 and its siblings). `"cursor-first"`: the
+   * engine's earlier model, the cursor byte before the typed text and no
+   * string 0, kept on the builds whose input routine has not been read.
+   */
+  readonly inputLineOrder: "cursor-first" | "prompt-edit-cursor";
+  /**
+   * Whether the cursor byte leaves the input row while a restart or quit
+   * confirmation is open: `"erased"` on the Amiga builds, whose RestartGame
+   * calls EraseCur before the prompt and WriteCur unconditionally after it
+   * (F-persistence-02); `"kept"` elsewhere until each build's cursor
+   * handling is modelled.
+   */
+  readonly confirmCursor: "kept" | "erased";
+  /**
    * A due movement proposal whose left X is exactly zero reports left-boundary
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
@@ -646,6 +663,8 @@ const BASE_2936: AgiProfile = {
   windowFrameGeometry: "pc",
   presentation: "pc",
   palette: "ega",
+  inputLineOrder: "cursor-first",
+  confirmCursor: "kept",
   clampExactZeroLeftBoundary: false,
   addToPicPackingAndRelocation: false,
   originalCelBlitClippingAndPriorityMask: false,
@@ -767,6 +786,8 @@ const BASE_AMIGA_31X: AgiProfile = {
   windowFrameGeometry: "amiga",
   presentation: "amiga",
   palette: "amiga-2.31x",
+  inputLineOrder: "prompt-edit-cursor",
+  confirmCursor: "erased",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
   // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
   // Fields not listed here were checked against the handlers and match the
@@ -952,6 +973,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     windowFrameGeometry: "amiga",
     presentation: "amiga",
     palette: "amiga-2.082",
+    inputLineOrder: "prompt-edit-cursor",
+    confirmCursor: "erased",
     saveBlocks: 5,
     frameTiming: "amiga-vblank",
     sound: "amiga-2.082",
@@ -995,6 +1018,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     windowFrameGeometry: "amiga",
     presentation: "amiga",
     palette: "amiga",
+    inputLineOrder: "prompt-edit-cursor",
+    confirmCursor: "erased",
     pictureMaxCommand: 0xfa,
     patternProfile: "short-r1",
     restartPromptBypassedByF16: true,
@@ -1025,6 +1050,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     windowFrameGeometry: "amiga",
     presentation: "amiga",
     palette: "amiga",
+    inputLineOrder: "prompt-edit-cursor",
+    confirmCursor: "erased",
     patternProfile: "short-r1",
     restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,

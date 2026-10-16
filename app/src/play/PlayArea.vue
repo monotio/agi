@@ -185,15 +185,20 @@ const stageStyle = computed(() => {
 });
 /**
  * The Amiga interpreter shows its own arrow pointer over the game; the
- * browser's cursor takes that shape over the screen, scaled with it
- * (docs/fidelity.md "Amiga screen, font and pointer").
+ * browser's cursor takes that shape over the screen, scaled like the
+ * frame's pixels in each direction (docs/fidelity.md "Amiga screen, font
+ * and pointer"). It is browser chrome: exported and composed frames carry
+ * no pointer.
  */
 const screenCursor = computed(() => {
   const profile = state.profile;
   if (profile === null || !Object.hasOwn(PROFILES, profile)) return undefined;
   if (PROFILES[profile as ProfileId].presentation !== "amiga") return undefined;
   const width = parseFloat(stageStyle.value?.["--game-width"] ?? "");
-  return amigaPointerCursor(width > 0 ? width / FRAME_WIDTH : 3);
+  const ratio = props.originalAspect ? 4 / 3 : FRAME_WIDTH / FRAME_HEIGHT;
+  const sx = width > 0 ? width / FRAME_WIDTH : 3;
+  const sy = width > 0 ? width / ratio / FRAME_HEIGHT : 3;
+  return amigaPointerCursor(sx, sy);
 });
 const inputLine = ref("");
 const promptLine = ref("");

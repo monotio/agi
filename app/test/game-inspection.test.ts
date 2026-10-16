@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { readGameFiles } from "../src/archive/gameZip.ts";
 import { fixtureSkip, fixtureDir, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 
-test("preview stops at an unanswered modal and leaves source resources untouched", () => {
+test("preview stops at an unanswered modal and leaves source resources untouched", async () => {
   const container = createContainer();
   container.putResource(
     "logic",
@@ -18,13 +18,13 @@ test("preview stops at an unanswered modal and leaves source resources untouched
   );
   const files = Object.fromEntries(container.files);
   const before = structuredClone(files);
-  const opening = inspectGame({ files, words: [] });
+  const opening = await inspectGame({ files, words: [] });
   assert.equal(opening.status, "needs-input");
   assert.ok(opening.rows.join(" ").includes("Hello!"));
   assert.deepEqual(files, before);
 });
 
-test("preview never invents an answer to a game's text prompt", () => {
+test("preview never invents an answer to a game's text prompt", async () => {
   const container = createContainer();
   container.putResource(
     "logic",
@@ -33,7 +33,7 @@ test("preview never invents an answer to a game's text prompt", () => {
       dictionary: new Map(),
     }).payload,
   );
-  const opening = inspectGame({ files: Object.fromEntries(container.files), words: [] });
+  const opening = await inspectGame({ files: Object.fromEntries(container.files), words: [] });
   assert.equal(opening.status, "needs-input");
   assert.ok(opening.rows.join(" ").includes("What is your name?"));
 });
@@ -46,7 +46,7 @@ for (const [targetHash, alias, profile] of [
   test(
     `${alias} opening preview renders local game bytes without authoring or player input`,
     { skip: fixtureSkip(targetHash, ["AGIDATA.OVL"]) },
-    () => {
+    async () => {
       const dir = fixtureDir(targetHash);
       const game = readGameFiles(
         new Map(
@@ -55,7 +55,7 @@ for (const [targetHash, alias, profile] of [
             .map((entry) => [entry.name, new Uint8Array(readFileSync(dir + entry.name))]),
         ),
       );
-      const opening = inspectGame(game);
+      const opening = await inspectGame(game);
       assert.equal(opening.rgba.length, 320 * 200 * 4);
       assert.ok(
         new Set(opening.rgba).size > 2,

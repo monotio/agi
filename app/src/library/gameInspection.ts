@@ -1,6 +1,7 @@
 import { Engine, type EngineHost } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { compositeFrame } from "../render/composite.ts";
+import { loadAppearance } from "../render/appearance.ts";
 import {
   detectProfileDecision,
   type ProfileDetectionKind,
@@ -30,7 +31,7 @@ export type PreviewWorkerOutbound = { result: GameInspection } | { error: string
 class PreviewInput extends Error {}
 
 /** A disposable interpreter, with no authoring, persistence, audio or network capabilities. */
-export function inspectGame(game: PreviewWorkerInbound): GameInspection {
+export async function inspectGame(game: PreviewWorkerInbound): Promise<GameInspection> {
   const stop = (): never => {
     throw new PreviewInput();
   };
@@ -86,6 +87,9 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
       text: presentation.text,
       windowOverlay: presentation.windowOverlay,
       picRow: engine.displayBase,
+      appearance: await loadAppearance(engine.profile.id),
+      statusBar: presentation.statusBar,
+      gadgets: presentation.gadgets,
     },
     rgba,
   );

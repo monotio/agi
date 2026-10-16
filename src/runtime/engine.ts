@@ -812,7 +812,11 @@ export class Engine {
   private blockRect: { left: number; top: number; right: number; bottom: number } | null = null;
   private textMode = false;
   private inputPrompt = "";
-  /** EraseCur ran for an open confirmation prompt; WriteCur follows when it closes (F-persistence-02). */
+  /**
+   * EraseCur ran for an open confirmation prompt; WriteCur follows when it
+   * closes (F-persistence-02). Transient: every path that abandons or
+   * replaces the interpreter state clears it.
+   */
   private cursorErased = false;
   private textFg = 15;
   private textBg = 0;
@@ -2338,6 +2342,7 @@ export class Engine {
     const roomWait = this.roomReentryWaiting();
     const pending = this.pendingInteraction;
     this.pendingInteraction = null;
+    this.cursorErased = false;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     if (pending?.kind === "saveDialog") {
@@ -2788,29 +2793,43 @@ export class Engine {
   /** Status line: score at column 1, sound state at column 30, black on white. */
   private drawStatus(): void {
     if (!this.statusEnabled || this.textMode) return;
-    const a = attr(0, 15);
-    this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
-    // The Amiga line is the screen title: "Score:%d of %d  " from column 0
-    // and "Sound:%s" from column 26 of the 39-byte title, which the host
-    // draws in the title bar (docs/fidelity.md "Amiga screen, font and
-    // pointer"); the PC and IIgs lines start at columns 1 and 30.
-    const amiga = this.profile.presentation === "amiga";
-    this.text.write(this.statusRow, amiga ? 0 : 1, this.statusText(), a);
-    // "Sound:%s" with space-padded "on " on every profile except 2.089, whose
-    // data segment stores unpadded "on\0" (docs/fidelity.md "Original window
-    // and status-line text").
-    const paddedSound =
-      this.profile.originalTextWindows && this.profile.statusLineFormat !== "early-2.089";
-    this.text.write(
-      this.statusRow,
-      amiga ? 26 : 30,
-      paddedSound
-        ? `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`
-        : `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`,
-      a,
-    );
+    // The Amiga line is the screen title, which the interpreter hands to
+    // Intuition and never draws into the play surface; the configured status
+    // row is stored and never read (docs/fidelity.md "Amiga screen, font and
+    // pointer"). The host reads it from `getPresentation().statusBar`.
+    if (this.profile.presentation !== "amiga") {
+      const a = attr(0, 15);
+      this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0x20, a);
+      this.text.write(this.statusRow, 1, this.statusText(), a);
+      this.text.write(this.statusRow, 30, this.soundText(), a);
+    }
     this.statusRefreshRequested = false;
     this.host.statusLine(this.statusText());
+  }
+
+  /**
+   * "Sound:%s" with space-padded "on " on every profile except 2.089, whose
+   * data segment stores unpadded "on\0" (docs/fidelity.md "Original window
+   * and status-line text").
+   */
+  private soundText(): string {
+    const paddedSound =
+      this.profile.originalTextWindows && this.profile.statusLineFormat !== "early-2.089";
+    return paddedSound
+      ? `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on " : "off"}`
+      : `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`;
+  }
+
+  /**
+   * The Amiga screen title while the status line shows, or null: the status
+   * routine formats "Score:%d of %d  " at column 0 and "Sound:%s" at column
+   * 26 of a 39-byte title, and status.line.on is ignored while the picture
+   * starts at row 0 (docs/fidelity.md "Amiga screen, font and pointer").
+   */
+  statusBarText(): string | null {
+    if (this.profile.presentation !== "amiga") return null;
+    if (!this.statusEnabled || this.textMode || this.displayBaseRow === 0) return null;
+    return (this.statusText().padEnd(26) + this.soundText()).padEnd(39).slice(0, 39);
   }
 
   private statusText(): string {
@@ -2829,11 +2848,10 @@ export class Engine {
   }
 
   /**
-   * Input row: the prompt string s0, the edit buffer, then the cursor byte
-   * set.cursor.char chose (spec "Text geometry"; docs/fidelity.md "Amiga
-   * screen, font and pointer": the Amiga ShowInput prints s0, the typed text
-   * and the cursor byte in that order, and the original PC and IIgs
-   * interpreters draw the same line).
+   * Input row, in the profile's `inputLineOrder`: the Amiga ShowInput prints
+   * string 0, the typed text and then the cursor byte (docs/fidelity.md
+   * "Amiga screen, font and pointer"); the other profiles keep the cursor
+   * byte before the typed text (spec "Text geometry").
    */
   private drawInputRow(): void {
     if (this.textMode) return;
@@ -2844,7 +2862,11 @@ export class Engine {
     const a = this.textAttr();
     this.text.fill(this.inputRow, 0, this.inputRow, TEXT_COLS - 1, 0x20, a);
     const cursor = this.cursorErased ? "" : this.inputPrompt;
-    this.text.write(this.inputRow, 0, this.strings[0] + this.editLine + cursor, a);
+    const line =
+      this.profile.inputLineOrder === "prompt-edit-cursor"
+        ? this.strings[0] + this.editLine + cursor
+        : cursor + this.editLine;
+    this.text.write(this.inputRow, 0, line, a);
   }
 
   private acceptLine(line: string): void {
@@ -3120,11 +3142,13 @@ export class Engine {
     // F-persistence-02, F-persistence-05).
     const original = this.profile.originalRestartRestore;
     const amiga = this.profile.windowFrameGeometry === "amiga";
-    // Every build calls EraseCur before the prompt and WriteCur after it
-    // closes (F-persistence-02), so the cursor character leaves the input
-    // row while the window is up.
-    this.cursorErased = true;
-    this.drawInputRow();
+    // The Amiga builds call EraseCur before the prompt and WriteCur
+    // unconditionally after it closes (F-persistence-02), so the cursor
+    // character leaves the input row while the window is up.
+    if (this.profile.confirmCursor === "erased") {
+      this.cursorErased = true;
+      this.drawInputRow();
+    }
     this.emitPrint(
       action === "restart"
         ? original
@@ -3682,6 +3706,7 @@ export class Engine {
     this.inputWidthCap = state.inputWidthCap;
     this.pendingController = state.pendingController;
     this.pendingInteraction = null;
+    this.cursorErased = false;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;
@@ -4039,6 +4064,8 @@ export class Engine {
       }
       this.host.setTextMode?.(false);
     }
+    // A confirmation the restore replaced took its erased cursor with it.
+    this.cursorErased = false;
     // The parked pass restores after presentation: a patch-mismatched
     // continuation peels its windows back onto the snapshot's surface.
     if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
@@ -5733,8 +5760,8 @@ export class Engine {
 
   /**
    * Pixels and text from one completed composition; buffers may be
-   * transferred by the host. `statusBar` says whether the status line is
-   * shown (the Amiga host draws it as the screen title bar), and `gadgets`
+   * transferred by the host. `statusBar` is the Amiga screen title while
+   * the status line shows (the host draws it as the title bar), and `gadgets`
    * lists an open confirmation window's gadgets with their labels, which
    * the Amiga host draws off the cell grid.
    */
@@ -5743,7 +5770,7 @@ export class Engine {
     priority: Uint8Array;
     text: Uint8Array;
     windowOverlay: Uint8Array;
-    statusBar: boolean;
+    statusBar: string | null;
     gadgets?: GadgetLabel[];
   } {
     this.ensurePresentationCurrent();
@@ -5753,7 +5780,7 @@ export class Engine {
       priority: this.cachedPriority.slice(),
       text: this.cachedText.slice(),
       windowOverlay: this.cachedWindowOverlay.slice(),
-      statusBar: this.statusEnabled && !this.textMode,
+      statusBar: this.statusBarText(),
       ...(gadgets ? { gadgets } : {}),
     };
   }
@@ -8158,6 +8185,7 @@ export class Engine {
     this.runResets++;
     this.pendingLogic = null;
     this.pendingInteraction = null;
+    this.cursorErased = false;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
     this.saveDialogMode = null;

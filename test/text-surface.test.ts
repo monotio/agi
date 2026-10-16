@@ -167,11 +167,7 @@ test("status line: score at column 1 and sound state at column 30, black on whit
   assert.ok(row(e2, 0).chars.every((c) => c === 0));
 });
 
-// Player-visible rule: the input row is s0, the typed text, then the cursor
-// character set.cursor.char chose — the originals print the prompt string
-// first and the cursor last (docs/fidelity.md "Amiga screen, font and
-// pointer": the Amiga ShowInput order; the PC and IIgs originals agree).
-test("input line: typed keys, cursor character, backspace, Enter, echo.line, cancel.line, prevent.input", () => {
+test("input line: prompt marker, typed keys, backspace, Enter, echo.line, cancel.line, prevent.input", () => {
   const host = new Host();
   const engine = new Engine(
     gameWith(`
@@ -191,12 +187,12 @@ test("input line: typed keys, cursor character, backspace, Enter, echo.line, can
 
   host.keys.push(0x6c, 0x6f, 0x6f, 0x6b); // l o o k
   engine.tick();
-  assert.equal(engine.textRow(22), "look_" + spaces(35));
+  assert.equal(engine.textRow(22), "_look" + spaces(35));
   assert.equal(engine.inputEdit, "look");
 
   host.keys.push(0x08); // backspace
   engine.tick();
-  assert.equal(engine.textRow(22), "loo_" + spaces(36));
+  assert.equal(engine.textRow(22), "_loo" + spaces(36));
 
   host.keys.push(0x0d); // Enter accepts the line: parsed, row cleared
   engine.tick();
@@ -208,7 +204,7 @@ test("input line: typed keys, cursor character, backspace, Enter, echo.line, can
 
   engine.flags[201] = 1; // echo.line restores the accepted line
   engine.tick();
-  assert.equal(engine.textRow(22), "loo_" + spaces(36));
+  assert.equal(engine.textRow(22), "_loo" + spaces(36));
 
   engine.flags[202] = 1; // cancel.line
   engine.tick();
@@ -219,15 +215,79 @@ test("input line: typed keys, cursor character, backspace, Enter, echo.line, can
   assert.ok(row(engine, 22).chars.every((c) => c === 0));
 });
 
-test("setEditLine mirrors a host-edited line onto the input row after the s0 prompt", () => {
+test("setEditLine mirrors a host-edited line onto the input row", () => {
   const engine = new Engine(
-    gameWith('set.string(s0, ">"); set.cursor.char("_"); accept.input(); return;'),
+    gameWith('set.cursor.char(">"); accept.input(); return;'),
     new Host(),
     DICT,
   );
   engine.tick();
   engine.setEditLine("open door");
-  assert.equal(engine.textRow(22), ">open door_" + spaces(29));
+  assert.equal(engine.textRow(22), ">open door" + spaces(30));
+});
+
+// Player-visible rule on the Amiga: the input row is string 0, the typed
+// text, then the cursor character — the order every Amiga build's ShowInput
+// prints (docs/fidelity.md "Amiga screen, font and pointer"); the cursor
+// leaves the row while a restart confirmation is open and returns after it,
+// also across a save taken during the prompt (F-persistence-02).
+test("Amiga input row: s0 prompt, typed text, then the cursor; erased only during a confirmation", () => {
+  const amigaGame = (source: string) => {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES["amiga-2.202"] }).payload,
+    );
+    return container;
+  };
+  // The confirmation parks on the host until a key arrives, as the worker's does.
+  class ParkingHost extends Host {
+    waitKey(): number {
+      const key = this.keys.shift();
+      if (key === undefined) throw new HostWait();
+      return key;
+    }
+  }
+  const host = new ParkingHost();
+  const engine = new Engine(
+    amigaGame(`
+      configure.screen(1, 22, 0);
+      if (!isset(f200)) { set(f200); set.string(s0, ">"); set.cursor.char("_"); accept.input(); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `),
+    host,
+    DICT,
+    { profile: PROFILES["amiga-2.202"] },
+  );
+  engine.tick();
+  assert.equal(engine.textRow(22), ">_" + spaces(38));
+  host.keys.push(0x6c, 0x6f); // l o
+  engine.tick();
+  assert.equal(engine.textRow(22), ">lo_" + spaces(36));
+
+  const image = engine.serialize();
+
+  engine.flags[201] = 1; // restart.game opens the confirmation; the cursor leaves
+  engine.tick();
+  assert.equal(engine.modalKind, "print");
+  assert.equal(engine.textRow(22), ">lo" + spaces(37));
+  engine.deliverHostAnswer(0x1b); // Escape declines
+  engine.tick();
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.textRow(22), ">lo_" + spaces(36), "WriteCur after the prompt");
+
+  // Restoring a save over an open confirmation replaces the prompt; the
+  // typed line is transient as in any restore, and the cursor comes back.
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.modalKind, "print");
+  engine.restoreImage(image);
+  assert.equal(engine.modalKind, null);
+  host.keys.push(0x6f); // o
+  engine.tick();
+  assert.equal(engine.textRow(22), ">o_" + spaces(37), "the cursor returns after restore");
 });
 
 test("print: solid-framed window centred in the display area, restored on acknowledgement", () => {
@@ -634,14 +694,27 @@ test("status line formatting matches the three profile families (booter-2.001, e
       `${profile} common status line`,
     );
   }
-  // The Amiga line is the 39-byte screen title: "Score:%d of %d  " from
-  // column 0 and "Sound:%s" from column 26 (docs/fidelity.md "Amiga screen,
-  // font and pointer").
-  assert.equal(
-    renderRow("amiga-2.316", true),
-    "Score:5 of 42  " + spaces(11) + "Sound:on " + spaces(5),
-    "amiga-2.316 screen title status line",
+  // The Amiga line is the 39-byte screen title Intuition draws, never a row
+  // of the play surface: "Score:%d of %d  " from column 0 and "Sound:%s"
+  // from column 26 (docs/fidelity.md "Amiga screen, font and pointer").
+  assert.equal(renderRow("amiga-2.316", true), spaces(40), "no status cells on the Amiga");
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      "configure.screen(1, 22, 0); assignn(v3, 5); assignn(v7, 42); set(f9); status.line.on(); return;",
+      { dictionary: DICT, profile: PROFILES["amiga-2.316"] },
+    ).payload,
   );
+  const amiga = new Engine(container, new Host(), DICT, { profile: PROFILES["amiga-2.316"] });
+  amiga.tick();
+  assert.equal(
+    amiga.getPresentation().statusBar,
+    "Score:5 of 42  " + spaces(11) + "Sound:on " + spaces(4),
+    "amiga-2.316 screen title",
+  );
+  assert.equal(amiga.textRow(0), spaces(40), "the title is not on the cell grid");
 });
 
 test("numeric message fields honor explicit zero-padded widths", () => {

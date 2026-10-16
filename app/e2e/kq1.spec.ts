@@ -294,7 +294,7 @@ test("typed input echoes on the engine's input row with the cursor marker", asyn
   await advanceToCourtyard(page);
 
   await page.getByTestId("input-line").fill("open door");
-  await expect.poll(async () => (await textHook(page)).rows[22]).toContain("open door_");
+  await expect.poll(async () => (await textHook(page)).rows[22]).toContain("_open door");
   await page.getByTestId("input-line").press("Enter");
   await expect.poll(async () => (await textHook(page)).rows[22]).not.toContain("open door");
 });

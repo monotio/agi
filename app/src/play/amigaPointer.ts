@@ -38,15 +38,19 @@ const COLOURS: Record<string, [number, number, number]> = {
 export const AMIGA_POINTER_HOTSPOT = { x: 1, y: 0 };
 export const AMIGA_POINTER_SIZE = 16;
 
-/** RGBA pixels of the arrow at `scale` (nearest neighbour), `16·scale` square. */
-export function amigaPointerRgba(scale: number): Uint8ClampedArray<ArrayBuffer> {
-  const size = AMIGA_POINTER_SIZE * scale;
-  const out = new Uint8ClampedArray(new ArrayBuffer(size * size * 4));
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const c = COLOURS[ARROW[Math.floor(y / scale)]![Math.floor(x / scale)]!];
+/**
+ * RGBA pixels of the arrow scaled like the frame's pixels (nearest
+ * neighbour), `16·sx` wide and `16·sy` high.
+ */
+export function amigaPointerRgba(sx: number, sy: number): Uint8ClampedArray<ArrayBuffer> {
+  const width = AMIGA_POINTER_SIZE * sx;
+  const height = AMIGA_POINTER_SIZE * sy;
+  const out = new Uint8ClampedArray(new ArrayBuffer(width * height * 4));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const c = COLOURS[ARROW[Math.floor(y / sy)]![Math.floor(x / sx)]!];
       if (!c) continue;
-      const o = (y * size + x) * 4;
+      const o = (y * width + x) * 4;
       out[o] = c[0];
       out[o + 1] = c[1];
       out[o + 2] = c[2];
@@ -56,26 +60,31 @@ export function amigaPointerRgba(scale: number): Uint8ClampedArray<ArrayBuffer> 
   return out;
 }
 
-const cursors = new Map<number, string>();
+const cursors = new Map<string, string>();
 
 /**
- * A CSS `cursor` value showing the arrow at the given integer scale (1..8,
- * browsers cap cursor images at 128 px), or undefined where canvases are
- * unavailable. Cached per scale.
+ * A CSS `cursor` value showing the arrow scaled like the frame's pixels:
+ * `sx` and `sy` are the screen's horizontal and vertical pixels per frame
+ * pixel, rounded to integers and capped at 8 (browsers cap cursor images at
+ * 128 px). The hot spot scales with them. Undefined where canvases are
+ * unavailable. Cached per size.
  */
-export function amigaPointerCursor(scale: number): string | undefined {
-  const s = Math.max(1, Math.min(8, Math.round(scale)));
-  const cached = cursors.get(s);
+export function amigaPointerCursor(sx: number, sy: number): string | undefined {
+  const cx = Math.max(1, Math.min(8, Math.round(sx)));
+  const cy = Math.max(1, Math.min(8, Math.round(sy)));
+  const key = `${cx}x${cy}`;
+  const cached = cursors.get(key);
   if (cached) return cached;
   if (typeof document === "undefined") return undefined;
-  const size = AMIGA_POINTER_SIZE * s;
+  const width = AMIGA_POINTER_SIZE * cx;
+  const height = AMIGA_POINTER_SIZE * cy;
   const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) return undefined;
-  ctx.putImageData(new ImageData(amigaPointerRgba(s), size, size), 0, 0);
-  const value = `url(${canvas.toDataURL("image/png")}) ${AMIGA_POINTER_HOTSPOT.x * s} ${AMIGA_POINTER_HOTSPOT.y * s}, auto`;
-  cursors.set(s, value);
+  ctx.putImageData(new ImageData(amigaPointerRgba(cx, cy), width, height), 0, 0);
+  const value = `url(${canvas.toDataURL("image/png")}) ${AMIGA_POINTER_HOTSPOT.x * cx} ${AMIGA_POINTER_HOTSPOT.y * cy}, auto`;
+  cursors.set(key, value);
   return value;
 }

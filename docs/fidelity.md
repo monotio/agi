@@ -583,13 +583,15 @@ table and the app draws the picture, text and windows through it.
 
 Text is the system font `topaz.font` at 8 px, which the interpreter asks
 Intuition to open from the Kickstart ROM; no game disk carries a font. The app
-draws it with its own 8×8 font, redrawn to the same metrics (capitals on rows
-0..6, lowercase on rows 2..6 with descenders on row 7, an 8 px advance) and
-shapes as close as a fresh drawing allows; the ROM's glyphs are never shipped
-or read. The status line is the screen title: Kickstart draws it in an 11 px
+draws it with its own 8×8 font, an independent design to the same metrics
+(capitals on rows 0..6, lowercase on rows 2..6 with descenders on row 7, an
+8 px advance) in the same bold spirit; the ROM's glyphs are never shipped,
+read or copied, and a test against a contributor's ROM keeps it that way. The status line is the screen title: Kickstart draws it in an 11 px
 title bar with the screen depth gadgets at the right, which hides the top
-three picture rows while the status line is on. The input row shows string
-0, the typed text and then the cursor character. Confirmation gadgets carry
+three picture rows while the status line is on. The configured status row plays no
+part, and a picture starting at row 0 never shows the bar. The input row
+shows string 0, the typed text and then the cursor character, and the cursor
+leaves the row while a restart or quit prompt is open. Confirmation gadgets carry
 their labels four pixels in and two down from the fill's corner. The
 interpreter also installs its own 16×16 arrow pointer from the game's
 `Pointer` file; the app shows a redrawn arrow in the same colours and hot
@@ -3950,6 +3952,8 @@ behavior were confirmed independently at the addresses given (**fact**):
 | all                  | `inputLineEditCap`           | `prompt-40`                           | `EditLine` (Sierra h63+0x136, 2.176+ h85+0x13c) uses `min(var[24], 40 - strlen(s0) - (promptByte != 0))`              |
 | all                  | `presentation`               | `amiga`                               | [Amiga screen, font and pointer](#amiga-screen-font-and-pointer): screen title status line, ROM font, own pointer     |
 | 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                    |
+| all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)        |
+| all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)      |
 
 Fields whose slot is above a build's dispatch bound (see the table above)
 never run there: `menuInteractionGate`, `releaseGateAction`,
@@ -4016,11 +4020,11 @@ table of three words (R, G, B nibbles) at `h131+0x74` and calls SetRGB4
 (wrapper `h244+0x64`, `-$120(a6)`) for pens 0..15. The tables, as AGI
 colours 0..15 in 12-bit RGB:
 
-| Build(s)                      | Table                                                | Colours 0..15                                                     |
-| ----------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- |
-| SQ1 2.082 (`Sierra`)          | `h94+0x74` (file `0xcef0`)                           | `000 00f 080 0db c00 b7d 850 bbb 777 0bf 0e0 0fd f98 f70 ee0 fff` |
-| KQ2 2.176, SQ2 2.202          | `h131+0x74` (file `0x128fc`, `0x12958`)              | `000 00f 080 0db c00 b7d 850 bbb 777 0bf 0e0 0fd f98 d0f ee0 fff` |
-| PQ 2.310, GR 2.316, MH2 2.333 | `h131+0x74` (file `0x13346c`, `0x136720`, `0x13794`) | `000 00b 0b0 0bb b00 b0b c70 bbb 777 00f 0f0 0ff f00 f0f ff0 fff` |
+| Build(s)                      | Table                                              | Colours 0..15                                                     |
+| ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------- |
+| SQ1 2.082 (`Sierra`)          | `h94+0x74` (file `0xcef0`)                         | `000 00f 080 0db c00 b7d 850 bbb 777 0bf 0e0 0fd f98 f70 ee0 fff` |
+| KQ2 2.176, SQ2 2.202          | `h131+0x74` (file `0x128fc`, `0x12958`)            | `000 00f 080 0db c00 b7d 850 bbb 777 0bf 0e0 0fd f98 d0f ee0 fff` |
+| PQ 2.310, GR 2.316, MH2 2.333 | `h131+0x74` (file `0x1346c`, `0x13720`, `0x13794`) | `000 00b 0b0 0bb b00 b0b c70 bbb 777 00f 0f0 0ff f00 f0f ff0 fff` |
 
 The loop is `h93+0x360` in SQ1 (`lea $9fec`), `h130+0x37a` in KQ2 and
 `h130+0x3b0..0x3b2` in the 2.31x builds (`lea $a5a0`/`$a6d4`/`$a6a0`). The
@@ -4039,29 +4043,48 @@ formats `"Score:%d of %d  "` (`h83+0x5c`) with v3 and v7 into a buffer
 `"on "`/`"off"` at `h83+0x76`/`+0x7a`) at column 26, then calls
 SetWindowTitles(window, -1, buffer) (`h82+0x51c`, wrapper `h245+0x174`,
 `-$114(a6)`) followed by ShowTitle(screen, TRUE) (`h82+0x526..0x530`);
-`status.line.off` runs `h82+0x56c`, ShowTitle(screen, FALSE). The status line
-is therefore the Intuition screen title, which the interpreter never draws
-itself. Kickstart 1.3 renders a screen title bar of ten rows in the block pen
+`status.line.off` runs `h82+0x56c`, ShowTitle(screen, FALSE) followed by a
+RectFill of rows 0..10 in pen 0 (`h82+0x590..0x5bc`). The status line is
+therefore the Intuition screen title, which the interpreter never draws into
+the play surface, and the configured status row plays no part: the
+`configure.screen` handler (`h179+0x1fc`) stores its third operand at
+`$f8a0`, which no other instruction reads; it stores the first operand at
+`$f8a2` (the picture top) and sets `$6a14 = picTop != 0`, and both
+`status.line.on` (`h82+0x548`) and the off path test `$6a14` first, so a
+game whose picture starts at row 0 never shows the title bar. Kickstart 1.3 renders a screen title bar of ten rows in the block pen
 (15) with the title text in the detail pen (0) starting at (2, 1), a bottom
 line in the detail pen on row 10, and the two screen depth gadgets, 17 px
 each, at the right edge in pens 0, 1 and 2 (observed on MAME; the bar, text
 offset and gadget imagery are the ROM's, not the interpreter's). With the
 status line on, picture rows 0..2 lie under the bar. Engine: `drawStatus`
-writes the Amiga columns (0 and 26) and the host draws the bar
+leaves the cell grid alone and reports the 39-byte title through
+`getPresentation().statusBar` (null while hidden, or while the picture top
+is row 0), and the host draws the bar from it
 (`app/src/render/composite.ts`, `drawAmigaTitleBar`) with its own drawing
-of the depth gadgets. The same routine and strings sit at `h82+0x42c` in KQ2
+of the depth gadgets. The pen-0 fill that status.line.off leaves over the
+picture's first rows is not modelled. The same routine and strings sit at `h82+0x42c` in KQ2
 and the 2.31x builds and at `h60+0x28e` (SetWindowTitles) in SQ1.
 
-**Input row (fact).** `ShowInput` (`h85+0x366`) prints, in order, string 0
-(`$f566`, formatted to width 40 by `$44fa`), the edit buffer (`$6e2c`) and
-then the cursor byte (`$6ce6`, writing `$f89a`); `set.cursor.char`
-(`h85+0x338`) stores its message's first byte in `$f89a`, and `EraseCur`
-(`h85+0x2c6`) backspaces over it. The prompt character a player sees is
-string 0 (SQ2's logic 104 sets `">"`), not the cursor byte, and the cursor
-follows the typed text. Engine: `drawInputRow` writes `s0 + edit + cursor`
-on every profile (the original PC interpreter draws the same order, as the
-PQ1 2.936 capture in the mame-diff baseline shows), and erases the cursor
-while a restart or quit confirmation is open (F-persistence-02).
+**Input row (fact, all six builds).** `ShowInput` prints, in order, string
+0 (formatted to width 40), the edit buffer and then the cursor byte:
+SQ2/KQ2 2.202/2.176 `h85+0x366` (s0 `$f566`/`$f52e`, buffer `$6e2c`/`$6e78`,
+cursor write `h85+0x3d6`), PQ/GR/MH2 2.31x `h85+0x36a` (s0
+`$fd06`/`$fe7e`/`$fe5e`, buffer `$745c`/`$7470`/`$7474`), SQ1 2.082
+`h63+0x360` (s0 `$f218`, buffer `$7168`, cursor `h63+0x3d0`).
+`set.cursor.char` (SQ2 `h85+0x338`) stores its message's first byte in the
+cursor variable (`$f89a`), and `EraseCur` (`h85+0x2c6`) backspaces over it.
+The prompt character a player sees is string 0 (SQ2's logic 104 sets `">"`),
+not the cursor byte, and the cursor follows the typed text. Engine: the
+profile field `inputLineOrder` is `"prompt-edit-cursor"` on the six Amiga
+profiles, whose `drawInputRow` writes `s0 + edit + cursor`; `confirmCursor`
+is `"erased"` there, so the cursor leaves the row while a restart or quit
+confirmation is open and returns when it closes (every Amiga RestartGame
+calls EraseCur first and WriteCur unconditionally at the tail,
+F-persistence-02). The PC and IIgs profiles keep the engine's earlier
+cursor-first row and cursor handling until their own input routines are
+read; the PQ1 2.936 frame in the mame-diff baseline shows a prompt glyph
+followed by the cursor, which is an observation, not a reading of the
+binary.
 
 **Gadget labels (fact).** Each confirmation gadget's IntuiText has LeftEdge
 4 and TopEdge 2 inside the gadget (F-persistence-05-gadgets), so the label
@@ -4086,11 +4109,18 @@ by the app as its own arrow in those colours and hot spot
 
 **Glyph shapes (decision).** The font the player saw is Commodore's ROM
 Topaz 8. The app ships no original glyphs and never reads a ROM: its Amiga
-font (`app/src/render/fontAmiga.ts`) is a deliberate redraw to Topaz's
-metrics, so text lands on the same pixels while the strokes are this
-project's own. Against the MAME frames the remaining differences are the
-glyph interiors, the redrawn depth gadgets, the emulator's pointer parked at
-the top-left corner, and the animation phase of moving objects.
+font (`app/src/render/fontAmiga.ts`) is an independent design to Topaz's
+metrics (8 px cell and advance, capitals on rows 0..6, lowercase on rows
+2..6, descenders on row 7), a bold two-pixel stroke on a six-column body
+with cut corners, drawn without the ROM strike in view. With a contributor's
+Kickstart 1.3 ROM present, `app/test/font-amiga-provenance.test.ts` decodes
+the ROM's Topaz strike (`0x9134`, stride `0xc0`, CharLoc table `0x9734`)
+and fails if any printable glyph beyond single-stroke marks matches ours.
+Text therefore lands on the same cells and rows as the original while every
+letter's bitmap is this project's own; against the MAME frames the
+remaining differences are the glyph bitmaps themselves, the redrawn depth
+gadgets, the emulator's pointer parked at the top-left corner, and the
+animation phase of moving objects.
 
 ### Amiga directory absence
 

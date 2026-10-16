@@ -231,8 +231,8 @@ interface PresentationState {
   lastObjectsJson: string;
   lastPicRow: number;
   lastTextMode: boolean;
-  /** Status line shown on the last published frame. */
-  lastStatusBar: boolean | null;
+  /** Amiga title of the last published frame (null when hidden; undefined before the first). */
+  lastStatusBar: string | null | undefined;
   /** Gadget labels of the last published frame, serialized; "" for none. */
   lastGadgetsJson: string;
   lastInputEnabled: boolean;

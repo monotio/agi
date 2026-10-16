@@ -13,7 +13,7 @@ import {
   compositeFrame,
   type ScreenViewMode,
 } from "../render/composite.ts";
-import { PC_APPEARANCE, appearanceForProfile, type Appearance } from "../render/appearance.ts";
+import { PC_APPEARANCE, loadAppearance, type Appearance } from "../render/appearance.ts";
 import type { DebugViewMode } from "../inspector/debugView.ts";
 import type { Frame } from "../engine/useEngine.ts";
 
@@ -170,12 +170,15 @@ export function createPresentation() {
     if (lastFrame.value) renderFrameNow(lastFrame.value);
   }
 
-  /** Draw with the running profile's look; the next frame and any repaint use it. */
+  let profileRequest = 0;
+  /** Draw with the running profile's look once it has loaded; frames before that keep the PC look. */
   function setProfile(id: string | null): void {
-    const next = appearanceForProfile(id);
-    if (next === appearance) return;
-    appearance = next;
-    repaint();
+    const request = ++profileRequest;
+    void loadAppearance(id).then((next) => {
+      if (request !== profileRequest || next === appearance) return;
+      appearance = next;
+      repaint();
+    });
   }
 
   /** Re-composite with a text overlay (the live prompt echo). */

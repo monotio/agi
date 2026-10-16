@@ -4,9 +4,9 @@ import {
   type PreviewWorkerOutbound,
 } from "./gameInspection.ts";
 
-self.onmessage = (event: MessageEvent<PreviewWorkerInbound>) => {
+self.onmessage = async (event: MessageEvent<PreviewWorkerInbound>) => {
   try {
-    const result = inspectGame(event.data);
+    const result = await inspectGame(event.data);
     self.postMessage({ result } satisfies PreviewWorkerOutbound, [result.rgba.buffer]);
   } catch (error) {
     self.postMessage({

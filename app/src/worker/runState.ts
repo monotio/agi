@@ -64,7 +64,7 @@ export function newRunSession(now: number): RunSession {
       lastObjectsJson: "",
       lastPicRow: -1,
       lastTextMode: false,
-      lastStatusBar: null,
+      lastStatusBar: undefined,
       lastGadgetsJson: "",
       lastInputEnabled: false,
       lastReleaseGate: 0,

@@ -111,7 +111,7 @@ export const ACTION_HELP: Record<number, string> = {
   0x69: "Clear full-width text rows from top through bottom, inclusively, using the selected attribute.",
   0x6a: "Enter alternate full-screen text mode, fill its surface, and suppress object graphics updates.",
   0x6b: "Leave alternate text mode, restore graphics updates, and redraw status and input areas.",
-  0x6c: "Use the message's first byte as the cursor character drawn after the typed text; an empty message hides it. The prompt before the text is string 0.",
+  0x6c: "Use the message's first byte as the input cursor character; an empty message hides it. The Amiga builds draw it after string 0 and the typed text.",
   0x6d: "Set foreground/background attributes for text windows and alternate text mode.",
   0x6e: "Shake the visible display for the requested count with paced offsets.",
   0x6f: "Configure the display base, input, and status rows.",

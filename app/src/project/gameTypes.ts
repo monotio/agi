@@ -238,8 +238,8 @@ export interface Frame {
   windowOverlay?: Uint8Array | undefined;
   /** Text row where picture row 0 is presented. */
   picRow: number;
-  /** The status line is shown; the Amiga look draws it as the screen title bar. */
-  statusBar?: boolean;
+  /** The Amiga screen title while the status line shows; the Amiga look draws it as the title bar. */
+  statusBar?: string | null;
   /** An open confirmation window's gadgets, whose labels the Amiga look draws off the grid. */
   gadgets?: GadgetLabel[];
   /** Interpreter cycle this frame completed, when the worker reports it. */

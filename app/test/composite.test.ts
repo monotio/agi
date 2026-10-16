@@ -225,35 +225,37 @@ test("the window frame renders the decoded sub-cell OpenWndw fill and bars acros
 // build's own colour table, the status line as the 11 px screen title bar
 // with the depth gadgets, and gadget labels at the original's off-grid
 // position. Expected pixels are hand-computed from the recorded geometry.
-import { appearanceForProfile } from "../src/render/appearance.ts";
+import { appearanceForProfile, loadAppearance } from "../src/render/appearance.ts";
 import { AMIGA_FONT } from "../src/render/fontAmiga.ts";
 import { AMIGA_PALETTE, AMIGA_PALETTE_2_082, AMIGA_PALETTE_2_31X } from "../src/render/palette.ts";
 
-const amiga = appearanceForProfile("amiga-2.202");
+const amiga = await loadAppearance("amiga-2.202");
 
-test("the Amiga profiles draw the picture through their own colour tables", () => {
+test("the Amiga profiles draw the picture through their own colour tables", async () => {
   const input = fixture();
   input.visual.fill(13); // SQ2's purple building
   const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
   compositeFrame({ ...input, appearance: amiga }, out);
   assert.deepEqual(pixelAt(out, 0, 8), [0xdd, 0x00, 0xff], "SQ2 2.202 colour 13 is $d0f");
-  compositeFrame({ ...input, appearance: appearanceForProfile("amiga-2.082") }, out);
+  compositeFrame({ ...input, appearance: await loadAppearance("amiga-2.082") }, out);
   assert.deepEqual(pixelAt(out, 0, 8), [0xff, 0x77, 0x00], "SQ1 2.082 colour 13 is $f70");
-  compositeFrame({ ...input, appearance: appearanceForProfile("amiga-2.316") }, out);
+  compositeFrame({ ...input, appearance: await loadAppearance("amiga-2.316") }, out);
   assert.deepEqual(pixelAt(out, 0, 8), [0xff, 0x00, 0xff], "Gold Rush! 2.316 colour 13 is $f0f");
   assert.equal(AMIGA_PALETTE[1]!.join(), "0,0,255");
   assert.equal(AMIGA_PALETTE_2_082[13]!.join(), "255,119,0");
   assert.equal(AMIGA_PALETTE_2_31X[6]!.join(), "204,119,0");
   compositeFrame({ ...input, appearance: appearanceForProfile("2.936") }, out);
   assert.deepEqual(pixelAt(out, 0, 8), EGA_PALETTE[13], "the PC keeps EGA");
+  // Before the Amiga look has loaded the synchronous lookup answers the PC look.
+  assert.equal(appearanceForProfile("amiga-2.202"), amiga, "loaded looks answer synchronously");
 });
 
 test("the Amiga status line is the screen title bar: 10 white rows, text at (2,1), a black line on row 10", () => {
   const input = fixture();
-  // "S" at column 0, black on white, as the engine writes the Amiga title.
-  input.text.set([0x53, 0xf0]);
+  // A game text cell on row 0 lies under the bar; the title comes from the frame.
+  input.text.set([0x41, 0x0f]);
   const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
-  compositeFrame({ ...input, appearance: amiga, statusBar: true }, out);
+  compositeFrame({ ...input, appearance: amiga, statusBar: "S" }, out);
   for (const y of [0, 8, 9])
     assert.deepEqual(pixelAt(out, 100, y), AMIGA_PALETTE[15], `bar row ${y} is white`);
   assert.deepEqual(pixelAt(out, 100, 10), AMIGA_PALETTE[0], "row 10 is the bar's bottom line");
@@ -268,9 +270,10 @@ test("the Amiga status line is the screen title bar: 10 white rows, text at (2,1
   assert.deepEqual(pixelAt(out, 286, 0), AMIGA_PALETTE[0], "back gadget border");
   assert.deepEqual(pixelAt(out, 303, 5), AMIGA_PALETTE[0], "front gadget border");
   assert.deepEqual(pixelAt(out, 288, 0), AMIGA_PALETTE[1], "gadget ground is pen 1");
+  assert.deepEqual(pixelAt(out, 100, 1), AMIGA_PALETTE[15], "the row 0 cell is under the bar");
   // With the status line off, row 0 is an ordinary text row again.
-  compositeFrame({ ...input, appearance: amiga, statusBar: false }, out);
-  assert.deepEqual(pixelAt(out, 2 + lead, 0), AMIGA_PALETTE[0], "cell glyph at (lead, 0)");
+  compositeFrame({ ...input, appearance: amiga, statusBar: null }, out);
+  assert.deepEqual(pixelAt(out, 8, 0), AMIGA_PALETTE[0], "the cell's background shows at (8, 0)");
   assert.deepEqual(pixelAt(out, 100, 9), AMIGA_PALETTE[15], "picture row 1 shows");
   assert.deepEqual(pixelAt(out, 100, 10), AMIGA_PALETTE[15], "no bar line");
 });

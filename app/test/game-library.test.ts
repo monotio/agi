@@ -146,17 +146,17 @@ test("folder and ZIP resource identity is independent of path, case and entry or
   );
 });
 
-test("opening inspection captures real text and rejects missing boot resources and runaway logic", () => {
+test("opening inspection captures real text and rejects missing boot resources and runaway logic", async () => {
   const opened = readGameFiles(new Map(Object.entries(game())));
-  const result = inspectGame(opened);
+  const result = await inspectGame(opened);
   assert.equal(result.status, "ready");
   assert.ok(result.rows.join(" ").includes("Hello apprentice"));
   assert.equal(result.rgba.length, 320 * 200 * 4);
-  assert.throws(
+  await assert.rejects(
     () => inspectGame(readGameFiles(new Map(Object.entries(game("call(99); return;"))))),
     /logic.*99/i,
   );
-  assert.throws(
+  await assert.rejects(
     () => inspectGame(readGameFiles(new Map(Object.entries(game("loop: goto loop;"))))),
     /budget/i,
   );

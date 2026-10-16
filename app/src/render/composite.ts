@@ -14,7 +14,6 @@
  * (docs/fidelity.md "Amiga screen, font and pointer").
  */
 import {
-  AMIGA_DEPTH_GADGETS,
   AMIGA_DEPTH_GADGET_WIDTH,
   AMIGA_TITLE_BAR_HEIGHT,
   AMIGA_TITLE_BAR_ROWS,
@@ -83,10 +82,10 @@ export interface CompositeInput {
   /** Colours, font and platform layout; the PC look when omitted. */
   appearance?: Appearance | undefined;
   /**
-   * Whether the status line is shown. On the Amiga layout it is the screen
-   * title bar over rows 0..10, drawn from text row 0's cells.
+   * The Amiga screen title while the status line shows: the Amiga layout
+   * draws it as the title bar over rows 0..10, above every text cell.
    */
-  statusBar?: boolean | undefined;
+  statusBar?: string | null | undefined;
   /** Gadgets whose labels sit off the cell grid (the Amiga layout draws them). */
   gadgets?: readonly GadgetLabel[] | undefined;
 }
@@ -138,29 +137,30 @@ function fillRect(
 }
 
 /**
- * The Amiga screen title bar: rows 0..9 in pen 15 with the status cells'
- * glyphs at (2, 1), the depth gadgets at the right edge and the pen 0 line
- * on row 10 (docs/fidelity.md "Amiga screen, font and pointer").
+ * The Amiga screen title bar: rows 0..9 in pen 15 with the title's glyphs
+ * in pen 0 at (2, 1), the depth gadgets at the right edge and the pen 0
+ * line on row 10 (docs/fidelity.md "Amiga screen, font and pointer").
  */
 function drawAmigaTitleBar(
   out: Uint8ClampedArray | Uint8Array,
   look: Appearance,
-  text: Uint8Array,
+  title: string,
 ): void {
   fillRect(out, 0, 0, FRAME_WIDTH - 1, AMIGA_TITLE_BAR_ROWS - 1, look.palette[15]!);
   const line = AMIGA_TITLE_BAR_HEIGHT - 1;
   fillRect(out, 0, line, FRAME_WIDTH - 1, line, look.palette[0]!);
-  for (let col = 0; col < TEXT_COLS; col++) {
-    const ch = text[col * 2]!;
-    if (ch === 0) continue;
-    const fg = look.palette[text[col * 2 + 1]! & 0x0f]!;
-    drawGlyph(out, look, ch, AMIGA_TITLE_TEXT_X + col * 8, AMIGA_TITLE_TEXT_Y, fg);
+  for (let col = 0; col < Math.min(title.length, TEXT_COLS); col++) {
+    const ch = title.charCodeAt(col) & 0xff;
+    if (ch === 0x20) continue;
+    drawGlyph(out, look, ch, AMIGA_TITLE_TEXT_X + col * 8, AMIGA_TITLE_TEXT_Y, look.palette[0]!);
   }
+  const gadgets = look.titleGadgets;
+  if (!gadgets) return;
   const gx0 = FRAME_WIDTH - 2 * AMIGA_DEPTH_GADGET_WIDTH;
   for (let y = 0; y < AMIGA_TITLE_BAR_ROWS; y++) {
     let o = (y * FRAME_WIDTH + gx0) * 4;
     for (let x = 0; x < 2 * AMIGA_DEPTH_GADGET_WIDTH; x++) {
-      const c = look.palette[AMIGA_DEPTH_GADGETS[y * 2 * AMIGA_DEPTH_GADGET_WIDTH + x]!]!;
+      const c = look.palette[gadgets[y * 2 * AMIGA_DEPTH_GADGET_WIDTH + x]!]!;
       out[o] = c[0];
       out[o + 1] = c[1];
       out[o + 2] = c[2];
@@ -231,9 +231,8 @@ export function compositeFrame(
   if (text === "skip") return;
   // Opaque text cells on top. In "only" mode the picture stayed transparent,
   // so written cells (window backgrounds included) are the sole opaque pixels.
-  // The Amiga title bar takes row 0's cells for itself.
-  const amigaTitle = look.layout === "amiga" && input.statusBar === true;
-  for (let row = amigaTitle ? 1 : 0; row < TEXT_ROWS; row++) {
+  const title = look.layout === "amiga" ? (input.statusBar ?? null) : null;
+  for (let row = 0; row < TEXT_ROWS; row++) {
     for (let col = 0; col < TEXT_COLS; col++) {
       const at = (row * TEXT_COLS + col) * 2;
       const ch = input.text[at]!;
@@ -287,5 +286,6 @@ export function compositeFrame(
         drawGlyph(out, look, g.text.charCodeAt(i) & 0xff, g.textX + 8 * i, g.textY, palette[15]!);
     }
   }
-  if (amigaTitle) drawAmigaTitleBar(out, look, input.text);
+  // The screen title bar lies over everything in the window, text included.
+  if (title !== null) drawAmigaTitleBar(out, look, title);
 }

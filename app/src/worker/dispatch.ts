@@ -4,6 +4,7 @@
  * fake-port context. engine.worker.ts owns the ports that stamp sessionId
  * and suppress presentation while seeking; this module only sees ctx.
  */
+import { loadAppearance } from "../render/appearance.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
@@ -407,6 +408,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         },
       );
       engine.flags[9] = 1;
+      // The look the autosave thumbnails draw with; nothing waits on it.
+      void loadAppearance(engine.profile.id);
       let restored: Extract<WorkerControl, { type: "restored" }> | undefined;
       if (boot.restoreImage) {
         try {
