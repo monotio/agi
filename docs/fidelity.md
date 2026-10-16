@@ -3410,9 +3410,25 @@ profile, opcode 0x8f does not look up a message.
 
 ### PC booter sound rows
 
-A 2.001 sound payload (sounds 1..26) is a stream of rows: raw SN76489 register writes terminated by a
-zero byte, one row per timer tick; an empty row (two adjacent terminators) writes nothing that tick.
-Playback completes at payload exhaustion and silences the chip.
+A 2.001 sound payload (sounds 1..26) is a row period byte followed by a stream of rows: raw SN76489
+register writes terminated by a zero byte, one row per `period` timer ticks; an empty row (two adjacent
+terminators) writes nothing in its slot. Playback completes at payload exhaustion and silences the chip.
+
+**Row period (fact; decoded executable SHA-256 `424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`).**
+The start routine at `0x7408..0x746a` stores the payload bounds in `[0x122a]` / `[0x122c]`, reads the
+first byte (`mov al,[di]` at `0x7422`, after `inc [0x122a]` at `0x741e`) into `[0x122e]` and zeroes the
+countdown `[0x1230]`. The cursor therefore starts one byte in: the period byte is never written to the
+chip or the speaker. On device 0 (speaker) a zero period branches to cleanup `0x4b96` at `0x743d` and the
+sound never activates; with a nonzero device (chip) it activates normally. Each tick the reader
+(`0x746b`) first compares the cursor with the end (`0x7473..0x747c`, cleanup on exhaustion), then
+`dec [0x1230]` and returns while the result is positive (`jng` at `0x7486`); otherwise it reloads
+`[0x1230]` from `[0x122e]` (`0x748b`) and consumes one row. The countdown starts at zero, so row 0 plays
+on tick 1 and later rows every `period` ticks; a chip-path period of zero decrements to -1 and plays
+every tick like period 1. Exhaustion is seen on the next tick regardless of the countdown.
+Hand-computed streams in
+[sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts) failed before the fix.
+Earlier hosts wrote the period byte to the chip as a stray register byte. The chip path still ends on
+the tick of its final row (see the speaker entry below for the speaker's next-entry cleanup).
 
 **Disassembly evidence:** load-module offset 0x7473..0x75B3:
 

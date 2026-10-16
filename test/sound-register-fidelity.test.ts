@@ -159,6 +159,7 @@ it("2.001 PC Speaker plays only channel 0 and completes on the next entry", () =
   const sound = new SoundPlayback(
     detectProfile(new Map(), "2.001"),
     Uint8Array.of(
+      1,
       0x81,
       0x23,
       0x94,
@@ -204,7 +205,7 @@ it("2.001 PC Speaker consumes zero continuation bytes and gates zero divisors of
   // 12 * 1023 = 12276 = 0x2ff4. Embedded pair zeros are not row ends.
   const sound = new SoundPlayback(
     detectProfile(new Map(), "2.001"),
-    Uint8Array.of(0x81, 0, 0x90, 0, 0x80, 0, 0, 0x8f, 0x3f, 0),
+    Uint8Array.of(1, 0x81, 0, 0x90, 0, 0x80, 0, 0, 0x8f, 0x3f, 0),
     0,
   );
   for (const divisor of [12, null, 12276])
@@ -219,18 +220,84 @@ it("2.001 PC Speaker consumes zero continuation bytes and gates zero divisors of
 });
 
 it("2.001 PC Speaker advances muted rows and gates completion silence with flag 9", () => {
-  for (const payload of [Uint8Array.of(0x82, 2), new Uint8Array()]) {
+  for (const payload of [Uint8Array.of(1, 0x82, 2), new Uint8Array()]) {
     const sound = new SoundPlayback(detectProfile(new Map(), "2.001"), payload, 0);
     if (payload.length) assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: true });
   }
-  const sound = new SoundPlayback(detectProfile(new Map(), "2.001"), Uint8Array.of(0x82, 2), 0);
+  const sound = new SoundPlayback(detectProfile(new Map(), "2.001"), Uint8Array.of(1, 0x82, 2), 0);
   // 12 * 34 = 408 = 0x0198, even without a final row terminator.
   assert.deepEqual(sound.tick(true, 0), {
     outputs: [{ kind: "speaker", divisor: 408 }],
     complete: false,
   });
   assert.deepEqual(sound.stop(), [{ kind: "speaker", divisor: null }]);
+});
+
+it("2.001 uses the first payload byte as the row period and never writes it to the chip", () => {
+  // Original start routine 0x7408..0x7440 (decoded executable 424da51a...):
+  // [122e] = byte[payload]; the row cursor [122a] starts one byte later.
+  // 0x7482..0x748e: the tick countdown [1230] starts at 0, so row 0 plays on
+  // tick 1, then reloads from the period; exhaustion (0x7473) is checked first.
+  // PSG device 1, period 3: rows at ticks 1 and 4, the last row completes.
+  const psg = new SoundPlayback(
+    detectProfile(new Map(), "2.001"),
+    Uint8Array.of(3, 0x80, 0x02, 0, 0x9f, 0),
+    1,
+  );
+  assert.equal(psg.durationTicks, 4);
+  assert.deepEqual(psg.tick(true, 0), {
+    outputs: [{ kind: "psg", bytes: [0x80, 0x02] }],
+    complete: false,
+  });
+  for (let tick = 2; tick <= 3; tick++)
+    assert.deepEqual(psg.tick(true, 0), { outputs: [], complete: false });
+  assert.deepEqual(psg.tick(true, 0), {
+    outputs: [
+      { kind: "psg", bytes: [0x9f] },
+      { kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] },
+    ],
+    complete: true,
+  });
+  // A zero period on the chip path counts as one tick (dec to -1 passes jng).
+  const zero = new SoundPlayback(
+    detectProfile(new Map(), "2.001"),
+    Uint8Array.of(0, 0x80, 0x02, 0, 0x84, 0),
+    1,
+  );
+  assert.deepEqual(zero.tick(true, 0).outputs, [{ kind: "psg", bytes: [0x80, 0x02] }]);
+  assert.deepEqual(zero.tick(true, 0).outputs[0], { kind: "psg", bytes: [0x84] });
+  // Speaker device 0, period 2: 81 23 -> 6732 at tick 1, 80 00 -> off at
+  // tick 3, exhaustion is seen at tick 4 regardless of the countdown.
+  const speaker = new SoundPlayback(
+    detectProfile(new Map(), "2.001"),
+    Uint8Array.of(2, 0x81, 0x23, 0, 0x80, 0, 0),
+    0,
+  );
+  assert.equal(speaker.durationTicks, 4);
+  assert.deepEqual(speaker.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: 6732 }],
+    complete: false,
+  });
+  assert.deepEqual(speaker.tick(true, 0), { outputs: [], complete: false });
+  assert.deepEqual(speaker.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: null }],
+    complete: false,
+  });
+  assert.deepEqual(speaker.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: null }],
+    complete: true,
+  });
+  // Speaker period zero cleans up at start (0x743d -> 0x4b96) and plays no row.
+  const stopped = new SoundPlayback(
+    detectProfile(new Map(), "2.001"),
+    Uint8Array.of(0, 0x81, 0x23, 0),
+    0,
+  );
+  assert.deepEqual(stopped.tick(true, 0), {
+    outputs: [{ kind: "speaker", divisor: null }],
+    complete: true,
+  });
 });
 
 it("Amiga 2.082..2.333 profiles match the Unicorn-verified h139/h198 Paula register streams", () => {

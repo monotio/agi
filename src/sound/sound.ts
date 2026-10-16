@@ -153,17 +153,28 @@ export function parseSound(payload: Uint8Array): AgiSound {
   return decodeSound(payload, 4, false);
 }
 /**
- * PC booter 2.001 sound payload (docs/fidelity.md pc-booter-sound-rows): rows
- * of raw SN76489 register writes, each row terminated by a zero byte, one row
- * per sound tick. A row of no writes (two adjacent terminators) skips its
- * tick. A trailing row without a terminator still plays. Speaker decoding
- * consumes tone pairs together, including a zero continuation byte.
+ * PC booter 2.001 row period (docs/fidelity.md pc-booter-sound-rows): the
+ * payload's first byte, read by the start routine at 0x7408 and never sent to
+ * the device. An empty payload has no period byte and plays as period 1.
+ */
+export function booterSoundPeriod(payload: Uint8Array): number {
+  return payload.length === 0 ? 1 : payload[0]!;
+}
+
+/**
+ * PC booter 2.001 sound payload (docs/fidelity.md pc-booter-sound-rows): a row
+ * period byte, then rows of raw SN76489 register writes, each row terminated
+ * by a zero byte, one row per `period` sound ticks. A row of no writes (two
+ * adjacent terminators) skips its slot. A trailing row without a terminator
+ * still plays. Speaker decoding consumes tone pairs together, including a zero
+ * continuation byte. This returns the rows after the period byte.
  */
 export function booterSoundRows(
   payload: Uint8Array,
   speaker = false,
 ): readonly (readonly number[])[] {
   const rows: number[][] = [];
+  payload = payload.subarray(1);
   let start = 0;
   for (let i = 0; i < payload.length; i++) {
     if (payload[i] !== 0) {
@@ -544,6 +555,8 @@ export class SoundPlayback {
    * carries one placeholder per row purely to bound the recorded cursor.
    */
   private readonly rows: readonly (readonly number[])[] | null;
+  /** Booter row period in ticks (0x122e); the countdown lives in channel 0. */
+  private readonly rowPeriod: number;
   /**
    * IIgs stream events per channel; the notes array carries one placeholder
    * per event purely to bound the recorded cursor, like the booter rows.
@@ -580,6 +593,7 @@ export class SoundPlayback {
       profile.sound === "amiga" || profile.sound === "amiga-2.082" || profile.sound === "iigs"
         ? false
         : this.device === 0 || (profile.sound === "common" && this.device === 8);
+    this.rowPeriod = 1;
     if (profile.sound === "iigs") {
       const decoded = decodeIigs(payload, onWarning);
       const placeholder: SoundNote = {
@@ -610,7 +624,11 @@ export class SoundPlayback {
     }
     this.iigsEvents = null;
     if (profile.sound === "booter-2.001") {
-      const rows = booterSoundRows(payload, this.single);
+      const period = booterSoundPeriod(payload);
+      // Speaker start (0x7408..0x7440): period zero cleans up at once and
+      // never activates; the chip path runs a zero period as one tick.
+      const rows = this.single && period === 0 ? [] : booterSoundRows(payload, this.single);
+      this.rowPeriod = period;
       const placeholder: SoundNote = {
         tone: 0,
         control: 0,
@@ -621,12 +639,18 @@ export class SoundPlayback {
         volume: 0,
       };
       this.rows = rows;
-      this.durationTicks = rows.length + (this.single ? 1 : 0);
+      const step = Math.max(period, 1);
+      this.durationTicks =
+        rows.length === 0
+          ? this.single
+            ? 1
+            : 0
+          : 1 + (rows.length - 1) * step + (this.single ? 1 : 0);
       this.channels = [
         {
           notes: rows.map(() => placeholder),
           cursor: 0,
-          countdown: 1,
+          countdown: 0,
           terminated: false,
           base: 15,
           envelopeIndex: -1,
@@ -721,9 +745,16 @@ export class SoundPlayback {
       // entry (docs/fidelity.md "2.001 speaker row execution").
       const channel = this.channels[0]!;
       if (!channel.terminated) {
-        const row = this.rows[channel.cursor++];
-        if (row === undefined || (!this.single && channel.cursor >= this.rows.length))
-          channel.terminated = true;
+        // Exhaustion is checked before the period countdown (0x7473), the
+        // countdown reloads from the row period (0x748b), and the first
+        // tick reads a zero countdown, so row 0 plays on tick 1.
+        let row: readonly number[] | undefined;
+        if (channel.cursor >= this.rows.length) channel.terminated = true;
+        else if (--channel.countdown <= 0) {
+          channel.countdown = this.rowPeriod;
+          row = this.rows[channel.cursor++];
+          if (!this.single && channel.cursor >= this.rows.length) channel.terminated = true;
+        }
         if (row !== undefined && this.single && enabled) {
           for (let i = 0; i < row.length; i++) {
             const byte = row[i]!;

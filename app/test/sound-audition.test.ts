@@ -570,7 +570,7 @@ describe("sound audition transport", () => {
   it("reports unsupported lane controls for opaque families without faking lanes", async () => {
     // PC booter register rows: one tick of silence-ish bytes, one terminator row.
     const { audition } = auditionWith();
-    audition.setTarget(target(new Uint8Array([0x9f, 0x00, 0xbf, 0x00]), { profileId: "2.001" }));
+    audition.setTarget(target(new Uint8Array([1, 0x9f, 0x00, 0xbf, 0x00]), { profileId: "2.001" }));
     assert.equal(audition.snapshot().laneControls, "unsupported");
     audition.setLaneMuted(0, true);
     audition.setLaneSolo(0);
