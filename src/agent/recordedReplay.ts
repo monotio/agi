@@ -17,6 +17,8 @@ export type RecordedOperation =
   | ["clock", number]
   | ["edit", string]
   | ["navigate" | "soundEnabled", number]
+  /** An Amiga menu strip event: op, screen x, screen y, sticky (0/1). */
+  | ["menu", [string, number, number, number]]
   | ["ack"];
 export interface RecordedReplay {
   state: EngineReplayState;
@@ -231,6 +233,14 @@ export function validateRecordedReplay(value: unknown): RecordedReplay {
     if (v[0] === "edit") return ["edit", string(v[1])];
     if (v[0] === "soundEnabled") return ["soundEnabled", integer(v[1], 0, 1)];
     if (v[0] === "navigate") return ["navigate", integer(v[1], 1, 8)];
+    if (v[0] === "menu") {
+      const m = tuple(v[1]);
+      if (m.length !== 4) throw new Error("Recorded menu event requires op, x, y and sticky.");
+      const op = string(m[0]);
+      if (!["open", "move", "release", "tap", "cancel"].includes(op))
+        throw new Error("Recorded menu op is invalid.");
+      return ["menu", [op, integer(m[1], -1, 319), integer(m[2], -1, 199), integer(m[3], 0, 1)]];
+    }
     if (v[0] === "tick" || v[0] === "release" || v[0] === "joystick") {
       if (!Array.isArray(v[1]) || v[1].length > 60000)
         throw new Error("Recorded tick has too many host calls.");
@@ -261,7 +271,7 @@ export function decodeRecordedReplay(text: string): RecordedReplay {
 export function recordedPlayerInputs(replay: RecordedReplay): number {
   let inputs = 0;
   for (const operation of replay.operations) {
-    if (operation[0] === "navigate" || operation[0] === "ack") inputs++;
+    if (operation[0] === "navigate" || operation[0] === "ack" || operation[0] === "menu") inputs++;
     if (operation[0] !== "tick" && operation[0] !== "release") continue;
     for (const call of operation[1]) {
       if (call[0] === "line") inputs += call[1] === null ? 0 : 1;

@@ -4105,6 +4105,27 @@ export class Engine {
     return true;
   }
 
+  /** One recorded strip event, as the worker, the history replay and the tape deliver it. */
+  nativeMenuEvent(
+    op: "open" | "move" | "release" | "tap" | "cancel",
+    x: number,
+    y: number,
+    sticky = false,
+  ): boolean {
+    switch (op) {
+      case "open":
+        return this.nativeMenuOpen(x, y, sticky);
+      case "move":
+        return this.nativeMenuMove(x, y);
+      case "release":
+        return this.nativeMenuRelease(x, y);
+      case "tap":
+        return this.nativeMenuTap(x, y);
+      case "cancel":
+        return this.nativeMenuCancel();
+    }
+  }
+
   /** Close the strip without a selection (host access: Esc, or the game losing the pointer). */
   nativeMenuCancel(): boolean {
     if (!this.nativeMenuModal) return false;

@@ -1,5 +1,6 @@
 import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
+import type { NativeMenuChrome } from "../../../src/runtime/nativeMenu.ts";
 import type { GadgetLabel } from "../../../src/runtime/textSurface.ts";
 import type { RoomLaunchRequest } from "./roomLaunch.ts";
 import type { HostRngState } from "../../../src/runtime/rng.ts";
@@ -282,6 +283,20 @@ export type WorkerInbound =
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number; pointer?: boolean }
   | { type: "click"; x: number; y: number; sessionId?: number }
+  /**
+   * The Amiga menu strip: the right button went down / the pointer moved /
+   * the button came up at a screen pixel, a tap on a host-held (sticky)
+   * strip, or a host cancel. Opening with `sticky` keeps the strip open
+   * without the button (touch and keyboard access).
+   */
+  | {
+      type: "menu";
+      op: "open" | "move" | "release" | "tap" | "cancel";
+      x: number;
+      y: number;
+      sticky?: boolean;
+      sessionId?: number;
+    }
   | { type: "joystick"; sample: JoystickSample | null }
   | {
       type: "direction";
@@ -921,6 +936,10 @@ export type WorkerPresentation =
       statusBar: string | null;
       /** An open confirmation window's gadgets with their off-grid labels. */
       gadgets?: GadgetLabel[];
+      /** The open Amiga menu strip, drawn over the title bar. */
+      menu?: NativeMenuChrome;
+      /** The Amiga strip can open now (gate and inhibitor clear): the host offers its Menu access. */
+      menuAvailable?: boolean;
       modal: string | null;
       textMode: boolean;
       inputEnabled: boolean;

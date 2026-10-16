@@ -225,6 +225,38 @@ export function createInput(ctx: WorkerContext) {
     ctx.run.input.clickQueue.push([x, y]);
   }
 
+  /**
+   * The Amiga menu strip (docs/fidelity.md "Original native menu
+   * dispatch"): the engine decides whether the strip may open and what a
+   * pointer position means; only events that changed something are
+   * recorded, so a replay reproduces the same opens, highlights and the
+   * released item exactly. A stale open after the gate closed is ignored.
+   */
+  function onMenu(msg: Inbound<"menu">): void {
+    const engine = ctx.run.engine;
+    if (engine === null || !ctx.run.owner.active) return;
+    if (
+      ctx.replay.replay &&
+      typeof msg.sessionId === "number" &&
+      msg.sessionId !== 0 &&
+      msg.sessionId !== ctx.replay.currentSessionId
+    ) {
+      return;
+    }
+    if (ctx.fns.debugStoppedHeld()) return;
+    const x = Number(msg.x);
+    const y = Number(msg.y);
+    const sticky = msg.sticky === true;
+    const op = msg.op;
+    if (!["open", "move", "release", "tap", "cancel"].includes(op)) return;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < -1 || x > 319 || y < -1 || y > 199)
+      return;
+    if (!engine.nativeMenuEvent(op, x, y, sticky)) return;
+    ctx.fns.historyRecord({ kind: "menu", op, x, y, sticky });
+    ctx.run.recording.recording?.tape.record(["menu", [op, x, y, sticky ? 1 : 0]]);
+    ctx.fns.postFrame();
+  }
+
   function onJoystick(msg: Inbound<"joystick">): void {
     const engine = ctx.run.engine;
     if (!engine) return;
@@ -343,6 +375,7 @@ export function createInput(ctx: WorkerContext) {
     onKey,
     onDirection,
     onClick,
+    onMenu,
     onJoystick,
     pollJoystickInput,
     onInput,

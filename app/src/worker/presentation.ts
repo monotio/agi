@@ -47,6 +47,8 @@ export function createPresentation(ctx: WorkerContext) {
     const preview = ctx.run.engine.getPreviewMask();
     const objectsJson = objects ? JSON.stringify(objects) : "";
     const gadgetsJson = frame.gadgets ? JSON.stringify(frame.gadgets) : "";
+    const menuJson = frame.menu ? JSON.stringify(frame.menu) : "";
+    const menuAvailable = ctx.run.engine.nativeMenuAvailable;
     // Repeated display/trace opcodes can mark text dirty without changing a cell.
     // Sending those frames floods software GPU renderers and delays user input.
     let same =
@@ -56,6 +58,8 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.run.presentation.lastTextMode === ctx.run.engine.textModeActive &&
       ctx.run.presentation.lastStatusBar === frame.statusBar &&
       ctx.run.presentation.lastGadgetsJson === gadgetsJson &&
+      ctx.run.presentation.lastMenuJson === menuJson &&
+      ctx.run.presentation.lastMenuAvailable === menuAvailable &&
       ctx.run.presentation.lastInputEnabled === ctx.run.engine.inputEnabled &&
       ctx.run.presentation.lastReleaseGate === ctx.run.engine.releaseGate &&
       objectsJson === ctx.run.presentation.lastObjectsJson &&
@@ -151,6 +155,8 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.run.presentation.lastTextMode = ctx.run.engine.textModeActive;
     ctx.run.presentation.lastStatusBar = frame.statusBar;
     ctx.run.presentation.lastGadgetsJson = gadgetsJson;
+    ctx.run.presentation.lastMenuJson = menuJson;
+    ctx.run.presentation.lastMenuAvailable = menuAvailable;
     ctx.run.presentation.lastInputEnabled = ctx.run.engine.inputEnabled;
     ctx.run.cycle.lastInputReady = ctx.run.cycle.initialLogicStarted;
     ctx.run.presentation.lastReleaseGate = ctx.run.engine.releaseGate;
@@ -168,6 +174,8 @@ export function createPresentation(ctx: WorkerContext) {
         picRow: ctx.run.engine.displayBase,
         statusBar: frame.statusBar,
         ...(frame.gadgets ? { gadgets: frame.gadgets } : {}),
+        ...(frame.menu ? { menu: frame.menu } : {}),
+        menuAvailable,
         modal,
         textMode: ctx.run.engine.textModeActive,
         inputEnabled: ctx.run.engine.inputEnabled,

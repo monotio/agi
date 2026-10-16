@@ -7,6 +7,7 @@ import type { StoredReference } from "../references/referenceArt.ts";
 import type { ScreenObjectState } from "../../../src/runtime/engine.ts";
 import { projectId } from "../../../src/gameIdentity.ts";
 import { cellChar, type GadgetLabel } from "../../../src/runtime/textSurface.ts";
+import type { NativeMenuChrome } from "../../../src/runtime/nativeMenu.ts";
 import { detectKnownGameByHashes } from "../../../src/games/knownGames.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { GameIdentity, ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
@@ -242,6 +243,8 @@ export interface Frame {
   statusBar?: string | null;
   /** An open confirmation window's gadgets, whose labels the Amiga look draws off the grid. */
   gadgets?: GadgetLabel[];
+  /** The open Amiga menu strip, drawn over the title bar by the Amiga look. */
+  menu?: NativeMenuChrome;
   /** Interpreter cycle this frame completed, when the worker reports it. */
   cycle?: number;
   /** Container patch revision at capture; part of the frame's identity. */

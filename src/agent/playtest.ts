@@ -343,6 +343,14 @@ export class Simulation {
         case "navigate":
           this.engine.modalNavigate(operation[1]);
           break;
+        case "menu":
+          this.engine.nativeMenuEvent(
+            operation[1][0] as "open" | "move" | "release" | "tap" | "cancel",
+            operation[1][1],
+            operation[1][2],
+            operation[1][3] !== 0,
+          );
+          break;
         case "ack":
           this.engine.ackPrint();
           break;

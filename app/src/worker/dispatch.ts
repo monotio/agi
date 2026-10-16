@@ -725,6 +725,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onClick(msg);
       return;
     }
+    if (msg.type === "menu") {
+      ctx.fns.onMenu(msg);
+      return;
+    }
     if (msg.type === "direction") {
       ctx.fns.onDirection(msg);
       return;

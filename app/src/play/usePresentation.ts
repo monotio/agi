@@ -76,6 +76,7 @@ export function createPresentation() {
       appearance: shakeAppearance ?? appearance,
       statusBar: frame.statusBar,
       gadgets: frame.gadgets,
+      menu: frame.menu,
     };
     compositeFrame(
       {

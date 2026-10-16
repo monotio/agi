@@ -102,6 +102,14 @@ export type HistoryEventCause =
   | { kind: "release" }
   /** Pointer click in 320x200 screen pixels; only click-to-walk profiles consume it. */
   | { kind: "click"; x: number; y: number }
+  /** The Amiga menu strip: a button, pointer or tap event at a screen pixel (a sticky open is host access). */
+  | {
+      kind: "menu";
+      op: "open" | "move" | "release" | "tap" | "cancel";
+      x: number;
+      y: number;
+      sticky: boolean;
+    }
   | { kind: "joystick"; sample: JoystickSample | null }
   | { kind: "input"; text: string }
   | { kind: "edit"; text: string }
@@ -834,6 +842,21 @@ function eventCause(
         x: int(value["x"], "click x", 319),
         y: int(value["y"], "click y", 199),
       };
+    case "menu": {
+      const op = value["op"];
+      if (op !== "open" && op !== "move" && op !== "release" && op !== "tap" && op !== "cancel")
+        fail("menu op is invalid.");
+      // A sticky open starts off screen (-1, -1): no title is under a button.
+      const coordinate = (v: unknown, name: string, max: number) =>
+        v === -1 ? -1 : int(v, name, max);
+      return {
+        kind: "menu",
+        op,
+        x: coordinate(value["x"], "menu x", 319),
+        y: coordinate(value["y"], "menu y", 199),
+        sticky: value["sticky"] === true,
+      };
+    }
     case "input":
       return { kind: "input", text: text(value["text"], "input text", 1024) };
     case "edit":
