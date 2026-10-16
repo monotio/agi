@@ -188,6 +188,7 @@ function captureSemanticState(
   };
   if (template.rngPolicy !== undefined) out.rngPolicy = { ...ctx.run.rng.policy };
   if (template.amigaRegion !== undefined) out.amigaRegion = engine.amigaRegion;
+  if (template.pcDisplay !== undefined && engine.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
   if (template.documentId !== undefined) {
     if (ctx.boot.project === undefined)
       throw new Error("project documents are missing at the restored boundary");
@@ -354,6 +355,7 @@ export function openHistoryDrive(
       {
         ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
         amigaRegion: segment.boot.amigaRegion ?? "ntsc",
+        ...(segment.boot.pcDisplay ? { pcDisplay: segment.boot.pcDisplay } : {}),
       },
     );
     // Browser sessions boot with game sound enabled; the recorded flag restores below.

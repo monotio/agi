@@ -235,6 +235,7 @@ export function createReplay(ctx: WorkerContext) {
       {
         ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
         amigaRegion: ctx.boot.amigaRegion,
+        pcDisplay: ctx.boot.pcDisplay,
       },
     );
     replacement.flags[9] = 1;
@@ -315,6 +316,7 @@ export function createReplay(ctx: WorkerContext) {
       {
         ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
         amigaRegion: ctx.boot.amigaRegion,
+        pcDisplay: ctx.boot.pcDisplay,
       },
     );
     replacement.flags[9] = 1;

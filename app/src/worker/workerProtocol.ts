@@ -1,3 +1,4 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
 import type { NativeMenuChrome } from "../../../src/runtime/nativeMenu.ts";
@@ -219,6 +220,8 @@ export interface PreviewUpdateCandidateMessage {
 
 export interface BootMessage {
   amigaRegion?: "ntsc" | "pal";
+  /** The player's PC display preference; the engine keeps it where the build verifies it. */
+  pcDisplay?: PcDisplay;
   type: "boot";
   joystick?: JoystickSample | null;
   files: Record<string, Uint8Array>;
@@ -958,6 +961,12 @@ export type WorkerPresentation =
        * frame while that modal is open so layered renderers can isolate it.
        */
       preview?: Uint8Array;
+      /** The PC display when it is not the profile's default look. */
+      display?: "cga-rgb";
+      /** The running Amiga region when it is PAL; the stage aspect follows it. */
+      region?: "pal";
+      /** CGA only: 1 where a cel drew the pixel (Engine.getCelPixels). */
+      cel?: Uint8Array;
     }
   /**
    * One acknowledged batch of trace records. `dropped` counts records the
