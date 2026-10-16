@@ -22,11 +22,14 @@ import type {
   WorkerPresentation,
 } from "../src/worker/workerProtocol.ts";
 
+// The first picture shows at once through overlay.pic: it is not the
+// subject, and a drawn one would dissolve first (docs/fidelity.md
+// "Original picture dissolve").
 const MENU_LOGIC = `
   if (!isset(f200)) {
     set(f200);
     configure.screen(1, 22, 0);
-    load.pic(v250); draw.pic(v250); show.pic();
+    load.pic(v250); overlay.pic(v250); show.pic();
     set.menu("File");
     set.menu.item("Save     <F5>", 3);
     set.menu.item("Restore  <F7>", 5);
