@@ -14,14 +14,16 @@ const captures = JSON.parse(
   readFileSync(new URL("./savFile-captures.json", import.meta.url), "utf8"),
 ) as Capture[];
 
+// Captured builds can share a promoted profile without sharing capture evidence.
+function captureProfile(build: string): AgiProfile {
+  const id = EQUIVALENT_BUILDS[build] ?? (build === "2.903" ? "2.917" : build);
+  return PROFILES[id as ProfileId];
+}
+
 describe("original save writer captures", () => {
   for (const capture of captures.filter((capture) => capture.kind === "pattern")) {
     test(`${capture.build} imports controlled state and exports every original byte`, () => {
-      const profile =
-        PROFILES[
-          (EQUIVALENT_BUILDS[capture.build] ??
-            (capture.build === "2.903" ? "2.917" : capture.build)) as ProfileId
-        ];
+      const profile = captureProfile(capture.build);
       const bytes = Uint8Array.from(Buffer.from(capture.hex, "hex"));
       const state = decodeOriginalSav(bytes, profile);
       assert.equal(state.description, "Original probe");
@@ -190,6 +192,18 @@ test("original file boundaries reject extra bytes and missing resume terminators
   assert.throws(() => decodeOriginalSav(bytes, PROFILES["2.001"]), /disk sectors/);
 });
 
+test("PC export rejects ego click motion with a clear error", () => {
+  const profile = PROFILES["2.936"];
+  const state = newSaveState(profile);
+  const ego = newObjectRecord();
+  ego.motionMode = 4;
+  state.objects = [ego];
+  assert.throws(() => encodeOriginalSav(state, profile), {
+    name: "RangeError",
+    message: "Click motion cannot be represented in an original PC save",
+  });
+});
+
 test("export waits for a complete room and for an open interaction to finish", () => {
   const engine = game(PROFILES["2.936"], 'print("Wait");');
   assert.throws(() => exportOriginalSav(engine), /complete room/);
@@ -199,11 +213,7 @@ test("export waits for a complete room and for an open interaction to finish", (
 });
 
 for (const capture of captures.filter((capture) => capture.kind === "game")) {
-  const profile =
-    PROFILES[
-      (EQUIVALENT_BUILDS[capture.build] ??
-        (capture.build === "2.903" ? "2.917" : capture.build)) as ProfileId
-    ];
+  const profile = captureProfile(capture.build);
   test(`${capture.build} exports fresh state equal to the original writer and imports its file`, () => {
     // This state is independently specified, without decoding the expected file,
     // reserved images, raw objects or the preservation map. The original binary

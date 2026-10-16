@@ -2633,6 +2633,10 @@ load view 3. Capacity is four; the fourth pair is inactive. Reference tokens and
 are zero, except the documented reserved word 15. Resume contains the empty cache head and
 terminator. The patterned case additionally carries nonzero tokens, string/description tails,
 inactive pairs and object bits 0x0080/0x8000.
+Field placement inside the state block comes from the earlier layout findings and the executed
+Set routine, and the seed script places fields at those documented offsets, so the fresh-export
+byte match proves the writer’s block choice, order, sizes, endianness, XOR, description and flag
+bit order, but not field placement.
 
 **Scope:** complete file bytes and the mapped saved state, with engine reconstruction exercised
 using original synthetic resources. The original block readers independently restore all captured

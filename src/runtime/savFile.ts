@@ -32,6 +32,8 @@ const FLAGS: readonly (readonly [number, number, boolean])[] = [
   [0x2000, 0x0080, false],
   [0x4000, 0x2000, false],
 ];
+// PC has no native click motion (portable mode 4). Engine profiles set it only
+// for IIgs and Amiga 2.31x, whose native codecs bypass this PC mapping.
 const MOTION = [0, 3, 2, 1] as const;
 const CYCLE = [0, 3, 1, 2] as const;
 
@@ -164,6 +166,8 @@ export function encodeOriginalSav(state: SaveState, profile: AgiProfile): Uint8A
     let flags = object.raw?.length === 43 ? word(object.raw, 0x25) & 0x8080 : 0;
     for (const [bit, portable, inverted] of FLAGS)
       if (Boolean(object.state & portable) !== inverted) flags |= bit;
+    if (object.motionMode === 4)
+      throw new RangeError("Click motion cannot be represented in an original PC save");
     const motionMode = MOTION[object.motionMode];
     const cycleMode = CYCLE[object.cycleMode];
     if (motionMode === undefined || cycleMode === undefined)
