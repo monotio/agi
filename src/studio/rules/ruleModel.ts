@@ -30,7 +30,7 @@
  * stops it firing again and tells other logic the spot was reached.
  */
 import type { BindingKind } from "../../agent/authoringState.ts";
-import { quoteLogicString } from "../../logic/disassembler.ts";
+import { quoteLogicString } from "../../logic/quote.ts";
 import { ruleFragmentText, type LogicDocument, type LogicRuleFragment } from "./logicDocument.ts";
 
 /** A flag: a named binding (preferred) or a raw flag number. */

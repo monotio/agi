@@ -1,5 +1,5 @@
 import type { Engine } from "../runtime/engine.ts";
-import { DIRECTION_KEYS } from "./gameTestSteps.ts";
+import { DIRECTION_KEYS } from "../runtime/keys.ts";
 import {
   NavigationController,
   type NavigationBudgets,

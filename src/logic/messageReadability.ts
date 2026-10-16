@@ -1,5 +1,5 @@
 /** Inline text and classic message slots remain ordinary AGI source. */
-import { quoteLogicString } from "./disassembler.ts";
+import { quoteLogicString } from "./quote.ts";
 import { analyzeLogicSyntax } from "./syntax.ts";
 import { rangeAt, positionAt, type Range } from "./lspTypes.ts";
 

@@ -57,8 +57,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       const files = new Map(Object.entries(msg.files));
       const profile = detectProfile(files, msg.profile);
       if (
-        profile.presentation === "amiga" &&
-        appearanceForProfile(profile.id, files).layout !== "amiga"
+        (profile.presentation === "amiga" || profile.presentation === "iigs") &&
+        appearanceForProfile(profile.id, files).layout !== profile.presentation
       ) {
         const pending = { queue: [msg] };
         ctx.appearanceLoading = pending;

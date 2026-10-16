@@ -5,7 +5,7 @@
  * synthetic key state across sessions. Time advances as recorded virtual
  * ticks; the runner only paces, pauses and observes.
  */
-import { DIRECTION_KEYS } from "../../../src/agent/gameTestSteps.ts";
+import { DIRECTION_KEYS } from "../../../src/runtime/keys.ts";
 import type {
   ReplayAction,
   ReplayBatchOptions,

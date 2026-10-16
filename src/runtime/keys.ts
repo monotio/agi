@@ -416,3 +416,11 @@ export function isJoystickSample(value: unknown, axisLimit = 1): value is Joysti
     (s["button2"] === undefined || typeof s["button2"] === "boolean")
   );
 }
+
+/** The compass direction (1..8) for a unit step (dx, dy); 0 when there is no step. */
+export function directionForDelta(dx: number, dy: number): number {
+  if (dx === 0 && dy === 0) return 0;
+  if (dx === 0) return dy < 0 ? 1 : 5;
+  if (dx > 0) return dy < 0 ? 2 : dy === 0 ? 3 : 4;
+  return dy < 0 ? 8 : dy === 0 ? 7 : 6;
+}

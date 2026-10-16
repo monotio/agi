@@ -35,8 +35,8 @@ const COLOURS: Record<string, [number, number, number]> = {
 };
 
 /** The sprite's hot spot: SetPointer offset (-1, 0) puts it one pixel into the image. */
-export const AMIGA_POINTER_HOTSPOT = { x: 1, y: 0 };
-export const AMIGA_POINTER_SIZE = 16;
+const AMIGA_POINTER_HOTSPOT = { x: 1, y: 0 };
+const AMIGA_POINTER_SIZE = 16;
 /** Browsers cap cursor images at 128 px. */
 const MAX_CURSOR_PX = 128;
 
