@@ -4053,30 +4053,39 @@ therefore the Intuition screen title, which the interpreter never draws into
 the play surface, and the configured status row plays no part: the
 `configure.screen` handler (`h179+0x1fc`) stores its third operand at
 `$f8a0`, which no other instruction reads; it stores the first operand at
-`$f8a2` (the picture top) and sets `$6a14 = picTop != 0`, and both
-`status.line.on` (`h82+0x548`) and the off path test `$6a14` first, so a
-game whose picture starts at row 0 never shows the title bar. Kickstart 1.3 renders a screen title bar of ten rows in the block pen
+`$f8a2` (the picture top) and in 2.176 (`KQ2`), 2.202 (`SQ2`) and the 2.31x
+builds sets `$6a14 = picTop != 0`, and both `status.line.on` (`h82+0x548`) and
+the off path test `$6a14` first, so a game whose picture starts at row 0 never
+shows the title bar on those builds. In 2.082 (`SQ1`, `80c6b0c4912a4ca5…`),
+`h60+0x2ba` (`status.line.on`) and `h60+0x2d2` (`status.line.off` and the
+RectFill) are unconditional and do not test the picture top; in 2.310, 2.316
+and 2.333, `status.line.off` additionally tests the status-enabled longword at
+`h206+0x400` (`h82+0x580`) and returns when the status line is already off.
+Kickstart 1.3 renders a screen title bar of ten rows in the block pen
 (15) with the title text in the detail pen (0) starting at (2, 1), a bottom
 line in the detail pen on row 10, and the two screen depth gadgets, 17 px
 each, at the right edge in pens 0, 1 and 2 (observed on MAME; the bar, text
 offset and gadget imagery are the ROM's, not the interpreter's). With the
 status line on, picture rows 0..2 lie under the bar. Engine: `drawStatus`
 leaves the cell grid alone and reports the 39-byte title through
-`getPresentation().statusBar` (null while hidden, or while the picture top
-is row 0), and the host draws the bar from it
+`getPresentation().statusBar` (null while hidden, or while gated at picture
+top row 0 on 2.176..2.333), and the host draws the bar from it
 (`app/src/render/composite.ts`, `drawAmigaTitleBar`) with its own drawing
 of the depth gadgets. Amiga profiles initialize `displayBaseRow` (`$f8a2`) to 0
 at cold start and on an accepted `restart.game`, matching the state-hunk load
-image; `statusBarText()` and `status.line.on` / `.off` derive the gate directly
-from `displayBaseRow === 0`. `.off` leaves the configured status row alone and
-stamps the 320×11 window pixels of rows 0..10 (`titleFill` on `TextSurface`)
-with the current draw sequence in pen 0 (`windowOverlay` value 1), so every
-later picture (`show.pic`, `draw.pic`, `overlay.pic`), priority
-(`show.pri.screen`), `add.to.pic`, sprite, text or window write to those
-pixels compares stamps or clears the entries it covers, and the stamps are
-serialized with host images so checkpoint restore reproduces an uninterrupted
-run. The same routine and strings sit at `h82+0x42c` in KQ2
-and the 2.31x builds and at `h60+0x28e` (SetWindowTitles) in SQ1.
+image; `profile.statusLineGate` (`"unconditional"` on `amiga-2.082`, `"pic-top"`
+on `amiga-2.176`/`amiga-2.202`, `"pic-top-and-enabled"` on `amiga-2.310`..`2.333`)
+governs both `statusBarText()` and `status.line.on` / `.off`. `.off` leaves the
+configured status row alone and stamps the 320×11 window pixels of rows 0..10
+(`titleFill` on `TextSurface`) with the current draw sequence in pen 0
+(`windowOverlay` value 1), and later picture (`show.pic`, `draw.pic`,
+`overlay.pic`) or priority (`show.pri.screen`) writes in rows 0..10 stamp
+`TITLE_PICTURE_BIT` over cells with older text so neither the fill nor older
+text resurrects in rows 0..10 while preserving untouched text pixels in rows
+11..15, and the stamps are serialized with host images so checkpoint restore
+reproduces an uninterrupted run. The same routine and strings sit at
+`h82+0x42c` in KQ2 and the 2.31x builds and at `h60+0x28e` (SetWindowTitles)
+in SQ1.
 
 **Input row (fact, all six builds).** `ShowInput` prints, in order, string
 0 (formatted to width 40), the edit buffer and then the cursor byte:

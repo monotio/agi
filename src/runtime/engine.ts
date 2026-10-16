@@ -2832,13 +2832,16 @@ export class Engine {
    */
   statusBarText(): string | null {
     if (this.profile.presentation !== "amiga") return null;
-    if (!this.statusEnabled || this.textMode || this.displayBaseRow === 0) return null;
+    if (!this.statusEnabled || this.textMode || this.amigaStatusGated()) return null;
     return (this.statusText().padEnd(26) + this.soundText()).padEnd(39).slice(0, 39);
   }
 
-  /** status.line.on/off do nothing on the Amiga while the picture top is row 0 ($f8a2 == 0). */
+  /**
+   * Amiga 2.176 through 2.333 gate status.line.on/off and status-bar drawing on
+   * a positive picture top ($f8a2 != 0); Amiga 2.082 has no picture-top gate.
+   */
   private amigaStatusGated(): boolean {
-    return this.profile.presentation === "amiga" && this.displayBaseRow === 0;
+    return this.profile.statusLineGate !== "unconditional" && this.displayBaseRow === 0;
   }
 
   /**
@@ -7530,6 +7533,8 @@ export class Engine {
         return next;
       case 0x71:
         if (this.amigaStatusGated()) return next;
+        if (this.profile.statusLineGate === "pic-top-and-enabled" && !this.statusEnabled)
+          return next;
         this.statusEnabled = false;
         if (this.profile.presentation === "amiga") this.eraseAmigaTitleArea();
         else this.text.fill(this.statusRow, 0, this.statusRow, TEXT_COLS - 1, 0, 0);
@@ -8079,13 +8084,14 @@ export class Engine {
 
   /** overlay.pic: decode over the logical picture without clearing it first. */
   private overlayPicture(num: number): void {
+    const stamp = this.text.hasTitleFill ? ++this.text.seq : 0;
     renderPicture(this.picturePayload(num), this.surface, {
       overlay: true,
       profile: this.profile,
       ...(this.text.hasOverlay || this.text.hasTitleFill
         ? {
             onCellWrite: (pixel: number) =>
-              this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow),
+              this.text.dropPicturePixelOverlay(pixel, this.displayBaseRow, stamp),
           }
         : {}),
     });

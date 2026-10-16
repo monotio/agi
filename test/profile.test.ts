@@ -931,5 +931,12 @@ test("every shipped profile carries its binary-verified authenticity fields", ()
       `${id}.timedPrintClearsV21`,
     );
     assert.equal(profile.showPictureClearsF15, !earlyGroup.has(id), `${id}.showPictureClearsF15`);
+    const expectedStatusLineGate =
+      id === "amiga-2.176" || id === "amiga-2.202"
+        ? "pic-top"
+        : id === "amiga-2.310" || id === "amiga-2.316" || id === "amiga-2.333"
+          ? "pic-top-and-enabled"
+          : "unconditional";
+    assert.equal(profile.statusLineGate, expectedStatusLineGate, `${id}.statusLineGate`);
   }
 });

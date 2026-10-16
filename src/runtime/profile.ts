@@ -501,6 +501,20 @@ export interface AgiProfile {
    */
   readonly confirmCursor: "kept" | "erased";
   /**
+   * Gate on actions 0x70/0x71 (`status.line.on` / `status.line.off`) and the
+   * Amiga screen title bar (docs/fidelity.md "Amiga screen, font and pointer"):
+   * - `"unconditional"`: PC, IIgs, and Amiga 2.082 (`h60+0x2ba`/`+0x2d2`), which
+   *   execute both handlers and show the title bar regardless of picture top or
+   *   prior status state.
+   * - `"pic-top"`: Amiga 2.176 and 2.202 (`h82+0x548`/`+0x56c`), which test
+   *   `$6a14` (`displayBaseRow !== 0`) and suppress the title bar while the
+   *   picture top is row 0.
+   * - `"pic-top-and-enabled"`: Amiga 2.310, 2.316 and 2.333 (`h82+0x580` tests
+   *   the status-enabled longword at `h206+0x400`), which also return early from
+   *   `status.line.off` when the status line is already off.
+   */
+  readonly statusLineGate: "unconditional" | "pic-top" | "pic-top-and-enabled";
+  /**
    * A due movement proposal whose left X is exactly zero reports left-boundary
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
@@ -665,6 +679,7 @@ const BASE_2936: AgiProfile = {
   palette: "ega",
   inputLineOrder: "cursor-first",
   confirmCursor: "kept",
+  statusLineGate: "unconditional",
   clampExactZeroLeftBoundary: false,
   addToPicPackingAndRelocation: false,
   originalCelBlitClippingAndPriorityMask: false,
@@ -788,6 +803,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   palette: "amiga-2.31x",
   inputLineOrder: "prompt-edit-cursor",
   confirmCursor: "erased",
+  statusLineGate: "pic-top-and-enabled",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
   // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
   // Fields not listed here were checked against the handlers and match the
@@ -1020,6 +1036,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     palette: "amiga",
     inputLineOrder: "prompt-edit-cursor",
     confirmCursor: "erased",
+    statusLineGate: "pic-top",
     pictureMaxCommand: 0xfa,
     patternProfile: "short-r1",
     restartPromptBypassedByF16: true,
@@ -1052,6 +1069,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     palette: "amiga",
     inputLineOrder: "prompt-edit-cursor",
     confirmCursor: "erased",
+    statusLineGate: "pic-top",
     patternProfile: "short-r1",
     restoreRewritesMachineState: false,
     heapDiagnosticExtraLine: false,

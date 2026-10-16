@@ -239,6 +239,7 @@ export function compositeFrame(
   // Opaque text cells on top. In "only" mode the picture stayed transparent,
   // so written cells (window backgrounds included) are the sole opaque pixels.
   const title = look.layout === "amiga" ? (input.statusBar ?? null) : null;
+  const overlay = input.windowOverlay;
   for (let row = 0; row < TEXT_ROWS; row++) {
     for (let col = 0; col < TEXT_COLS; col++) {
       const at = (row * TEXT_COLS + col) * 2;
@@ -257,25 +258,25 @@ export function compositeFrame(
       const bg = palette[(a >> 4) & 0x0f]!;
       for (let gy = 0; gy < 8; gy++) {
         const bits = (ch <= GLYPH_CURSOR ? FONT : look.font)[ch * 8 + gy]!;
-        let o = ((row * 8 + gy) * FRAME_WIDTH + col * 8) * 4;
-        for (let gx = 0; gx < 8; gx++) {
+        let px = (row * 8 + gy) * FRAME_WIDTH + col * 8;
+        let o = px * 4;
+        for (let gx = 0; gx < 8; gx++, px++, o += 4) {
+          if (overlay && overlay[px] !== 0) continue;
           const c = bits & (0x80 >> gx) ? fg : bg;
           out[o] = c[0];
           out[o + 1] = c[1];
           out[o + 2] = c[2];
           out[o + 3] = 255;
-          o += 4;
         }
       }
     }
   }
   // Sub-cell window border overlay painted into the window's outer margin
   // (excluding interior text cells and any cells written after the window).
-  if (input.windowOverlay) {
-    const overlay = input.windowOverlay;
+  if (overlay) {
     for (let i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++) {
       const v = overlay[i]!;
-      if (v === 0) continue;
+      if (v === 0 || v > 16) continue;
       const c = palette[(v - 1) & 0x0f]!;
       const o = i * 4;
       out[o] = c[0];

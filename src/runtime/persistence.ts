@@ -1745,7 +1745,8 @@ export function encodeHostImage(
     const runs: number[] = [];
     for (let i = 0; i < tf.length;) {
       const s = tf[i]!;
-      if (s > presentation.seq)
+      const stamp = s & 0x7fffffff;
+      if (stamp > presentation.seq || (s !== 0 && stamp === 0))
         throw new RangeError("host autosave title fill stamp exceeds its sequence");
       if (s !== 0) hasNonZero = true;
       let count = 1;
@@ -1924,21 +1925,24 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       let pos = 0;
       let hasNonZero = false;
       for (let i = 0; i < runs.length; i += 2) {
-        const stamp: unknown = runs[i];
+        const raw: unknown = runs[i];
         const count: unknown = runs[i + 1];
         if (
-          typeof stamp !== "number" ||
-          !Number.isSafeInteger(stamp) ||
-          stamp < 0 ||
-          stamp > result.presentation.seq ||
+          typeof raw !== "number" ||
+          !Number.isSafeInteger(raw) ||
+          raw < 0 ||
+          raw > 0xffffffff ||
           typeof count !== "number" ||
           !Number.isSafeInteger(count) ||
           count <= 0 ||
           pos + count > TITLE_FILL_PIXELS
         )
           throw new RangeError("host autosave title fill is invalid");
-        if (stamp > 0) {
-          titleFill.fill(stamp, pos, pos + count);
+        const stamp = (raw >>> 0) & 0x7fffffff;
+        if (stamp > result.presentation.seq || (raw !== 0 && stamp === 0))
+          throw new RangeError("host autosave title fill is invalid");
+        if (raw > 0) {
+          titleFill.fill(raw >>> 0, pos, pos + count);
           hasNonZero = true;
         }
         pos += count;

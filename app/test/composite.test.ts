@@ -448,15 +448,22 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
   });
 
   for (const profile of amigaProfiles) {
+    const gatedAtPicTop0 = profile.id !== "amiga-2.082";
+    const offChecksEnabled =
+      profile.id === "amiga-2.310" || profile.id === "amiga-2.316" || profile.id === "amiga-2.333";
     const appearance = await loadAppearance(profile.id);
     const blueRgb = [...appearance.palette[1]!];
+    const greenRgb = [...appearance.palette[2]!];
+    const redPriRgb = [...appearance.palette[4]!];
     const logicSource = `
       if (!isset(f200)) {
         set(f200);
         assignn(v3, 5);
         assignn(v7, 42);
+        assignn(v1, 1);
         set(f9);
         load.pic(v0);
+        load.pic(v1);
         draw.pic(v0);
         show.pic();
         set.text.attribute(15, 4);
@@ -465,7 +472,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       }
       if (isset(f201)) { reset(f201); status.line.on(); status.line.off(); }
       if (isset(f202)) { reset(f202); configure.screen(0, 22, 2); status.line.on(); status.line.off(); }
-      if (isset(f203)) { reset(f203); configure.screen(2, 22, 2); status.line.on(); }
+      if (isset(f203)) { reset(f203); configure.screen(2, 22, 2); set.text.attribute(15, 4); display(1, 0, "MMMM"); status.line.on(); }
       if (isset(f204)) { reset(f204); configure.screen(0, 22, 2); }
       if (isset(f205)) { reset(f205); configure.screen(2, 22, 2); }
       if (isset(f206)) { reset(f206); set.text.attribute(15, 4); display(1, 0, "MMMM"); display(2, 0, "KEEP"); status.line.off(); }
@@ -473,16 +480,21 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       if (isset(f208)) { reset(f208); set(f15); print("Hi"); }
       if (isset(f209)) { reset(f209); ${profile.maxAction >= 0xa9 ? "close.window();" : 'reset(f15); print("Hi");'} }
       if (isset(f210)) { reset(f210); restart.game(); }
-      if (isset(f211)) { reset(f211); configure.screen(1, 22, 2); status.line.off(); show.pic(); }
-      if (isset(f212)) { reset(f212); configure.screen(2, 22, 2); status.line.off(); configure.screen(0, 22, 2); }
+      if (isset(f211)) { reset(f211); configure.screen(1, 22, 2); status.line.on(); status.line.off(); show.pic(); }
+      if (isset(f212)) { reset(f212); configure.screen(2, 22, 2); status.line.on(); status.line.off(); configure.screen(0, 22, 2); }
       if (isset(f213)) { reset(f213); show.pic(); }
-      if (isset(f214)) { reset(f214); configure.screen(1, 22, 2); status.line.off(); load.view(0); add.to.pic(0, 0, 0, 0, 0, 15, 4); }
+      if (isset(f214)) { reset(f214); configure.screen(1, 22, 2); status.line.on(); status.line.off(); load.view(0); add.to.pic(0, 0, 0, 0, 0, 15, 4); }
       if (isset(f215)) { reset(f215); animate.obj(o0); load.view(0); set.view(o0, 0); set.priority(o0, 15); ignore.horizon(o0); position(o0, 2, 0); draw(o0); }
       if (isset(f216)) { reset(f216); erase(o0); }
+      if (isset(f217)) { reset(f217); draw.pic(v0); show.pic(); configure.screen(1, 22, 2); set.text.attribute(15, 4); display(1, 0, "MMMM"); status.line.on(); status.line.off(); overlay.pic(v1); }
+      if (isset(f218)) { reset(f218); draw.pic(v0); show.pic(); configure.screen(1, 22, 2); set.text.attribute(15, 4); display(1, 0, "MMMM"); status.line.on(); status.line.off(); draw.pic(v0); }
+      if (isset(f219)) { reset(f219); draw.pic(v0); show.pic(); configure.screen(1, 22, 2); set.text.attribute(15, 4); display(1, 0, "MMMM"); status.line.on(); status.line.off(); show.pri.screen(); }
+      if (isset(f220)) { reset(f220); draw.pic(v0); show.pic(); configure.screen(1, 22, 2); status.line.on(); status.line.off(); show.pic(); status.line.off(); }
       return;
     `;
     const container = createContainer();
-    container.putResource("picture", 0, Uint8Array.of(0xff));
+    container.putResource("picture", 0, Uint8Array.of(0xf0, 15, 0xf8, 0, 0, 0xff));
+    container.putResource("picture", 1, Uint8Array.of(0xf0, 2, 0xf6, 0, 0, 10, 0, 0xff));
     container.putResource("view", 0, onePixelBlueView);
     container.putResource(
       "logic",
@@ -566,7 +578,15 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
     let savedOn: Uint8Array | null = null;
 
     type RowsMode =
-      "unfilled" | "title" | "black" | "white" | "showPicTop1" | "addToPicBlue00" | "spriteBlue20";
+      | "unfilled"
+      | "title"
+      | "black"
+      | "white"
+      | "showPicTop1"
+      | "overlayGreenLine0to10"
+      | "priScreenTop1"
+      | "addToPicBlue00"
+      | "spriteBlue20";
     const expectedPixelFor = (
       mode: RowsMode,
       x: number,
@@ -584,6 +604,10 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           return pixelAt(glyphRef, x, y);
         case "showPicTop1":
           return y < 8 ? [0, 0, 0] : [255, 255, 255];
+        case "overlayGreenLine0to10":
+          return y === 8 && x < 22 ? greenRgb : [0, 0, 0];
+        case "priScreenTop1":
+          return y < 8 ? [0, 0, 0] : redPriRgb;
         case "addToPicBlue00":
           return y === 8 && (x === 0 || x === 1) ? blueRgb : [0, 0, 0];
         case "spriteBlue20":
@@ -625,7 +649,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       compareCheckpoints?: boolean;
     }[] = [
       {
-        name: "cold start: displayBase is 0 and status.line.on/off are gated",
+        name: "cold start: displayBase is 0 and status.line.on/off follow profile gate",
         act: () => {
           engine.tick();
           assert.equal(engine.displayBase, 0, `${profile.id}: cold start displayBase`);
@@ -633,18 +657,18 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           engine.tick();
         },
         statusBar: null,
-        rows0to10: "unfilled",
+        rows0to10: gatedAtPicTop0 ? "unfilled" : "black",
         checkRow1Bottom: true,
       },
       {
-        name: "configure.screen(0, 22, 2): status.line.on/off stay gated while picTop is 0",
+        name: "configure.screen(0, 22, 2): status.line.on/off follow profile gate at picTop 0",
         act: () => {
           engine.flags[202] = 1;
           engine.tick();
           assert.equal(engine.displayBase, 0, `${profile.id}: configure.screen 0 displayBase`);
         },
         statusBar: null,
-        rows0to10: "unfilled",
+        rows0to10: gatedAtPicTop0 ? "unfilled" : "black",
         checkRow1Bottom: true,
       },
       {
@@ -659,13 +683,13 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         checkRow1Bottom: true,
       },
       {
-        name: "configure.screen(0, 22, 2): statusBar is null while picTop is 0",
+        name: "configure.screen(0, 22, 2): title visibility at picTop 0 follows profile gate",
         act: () => {
           engine.flags[204] = 1;
           engine.tick();
         },
-        statusBar: null,
-        rows0to10: "unfilled",
+        statusBar: gatedAtPicTop0 ? null : expectedTitle,
+        rows0to10: gatedAtPicTop0 ? "unfilled" : "title",
         checkRow1Bottom: true,
       },
       {
@@ -757,6 +781,81 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         statusBar: null,
         rows0to10: "black",
         checkRow1Bottom: true,
+      },
+      {
+        name: "overlay.pic green line (0,0)..(10,0) after display(1,0,MMMM) + status.line.off: paints green without resurrecting text, preserving y=11..15",
+        act: () => {
+          engine.flags[217] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "overlayGreenLine0to10",
+        checkRow1Bottom: true,
+        compareCheckpoints: true,
+      },
+      {
+        name: "draw.pic white picture after display(1,0,MMMM) + status.line.off: paints y=8..10 white without resurrecting text, preserving y=11..15",
+        act: () => {
+          engine.flags[218] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: "showPicTop1",
+        checkRow1Bottom: true,
+        compareCheckpoints: true,
+      },
+      {
+        name: "show.pri.screen after display(1,0,MMMM) + status.line.off: paints y=8..10 priority without resurrecting text, preserving y=11..15",
+        act: () => {
+          engine.flags[219] = 1;
+          engine.tick();
+          assert.equal(engine.modalKind, "showPri", `${profile.id}: showPri modal open`);
+          try {
+            const priOut = composeEngine(engine);
+            const glyphRef = glyphRefFor(engine.displayBase);
+            assertRows0to10(priOut, "priScreenTop1", glyphRef, "show.pri.screen modal");
+            for (let y = 11; y <= 15; y++) {
+              for (let x = 0; x < 32; x++) {
+                assert.deepEqual(
+                  pixelAt(priOut, x, y),
+                  pixelAt(glyphRef, x, y),
+                  `${profile.id} [show.pri.screen modal]: row 1 bottom pixel (${x}, ${y})`,
+                );
+              }
+            }
+            const recBytes = engine.recordingImage(true);
+            assert.ok(recBytes, `${profile.id}: recordingImage during showPri`);
+            const replay = engine.captureReplayState();
+            const restored = makeEngine(keys);
+            restored.restoreImage(recBytes);
+            restored.restoreReplayState(replay);
+            assertRows0to10(
+              composeEngine(restored),
+              "priScreenTop1",
+              glyphRef,
+              "show.pri.screen recording restore",
+              priOut,
+            );
+          } finally {
+            engine.ackPrint();
+          }
+          assert.equal(engine.modalKind, null, `${profile.id}: showPri modal closed`);
+        },
+        statusBar: null,
+        rows0to10: "showPicTop1",
+        checkRow1Bottom: true,
+        compareCheckpoints: true,
+      },
+      {
+        name: "repeated status.line.off after show.pic: 2.31x returns early when already off; 2.082/2.176/2.202 repaint black",
+        act: () => {
+          engine.flags[220] = 1;
+          engine.tick();
+        },
+        statusBar: null,
+        rows0to10: offChecksEnabled ? "showPicTop1" : "black",
+        checkRow1Bottom: false,
+        compareCheckpoints: true,
       },
       {
         name: "show.pic after fill (picTop 1, white pic): supersedes y=8..10 while y=0..7 stays black, directly and after checkpoint restore",
@@ -878,7 +977,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       {
         name: "serialize + restoreImage (status off): statusBar stays null and rows 0..10 black",
         act: () => {
-          engine.flags[205] = 1;
+          engine.flags[203] = 1;
           engine.tick();
           engine.flags[206] = 1;
           engine.tick();
@@ -911,7 +1010,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         checkRow1Bottom: true,
       },
       {
-        name: "restart.game: resets displayBaseRow to 0 and gates status.line.on/off again",
+        name: "restart.game: resets displayBaseRow to 0 and status.line.on/off follow profile gate",
         act: () => {
           keys.push(0x0d);
           engine.flags[210] = 1;
@@ -921,7 +1020,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           engine.tick();
         },
         statusBar: null,
-        rows0to10: "unfilled",
+        rows0to10: gatedAtPicTop0 ? "unfilled" : "black",
         checkRow1Bottom: true,
       },
     ];

@@ -1240,32 +1240,45 @@ test("checkpoints preserve erased window border pixels across parked have.key re
   );
 });
 
-test("Amiga restore derives status opcode admission from the saved picture top", () => {
+test("Amiga restore derives status opcode admission from the profile gate and saved picture top", () => {
   for (const profile of Object.values(PROFILES).filter(
     (profile) => profile.presentation === "amiga",
   )) {
-    const container = createContainer();
-    container.putResource(
-      "logic",
-      0,
-      assembleLogic(
-        "if (!isset(f200)) { set(f200); configure.screen(1,22,2); status.line.on(); } if (isset(f201)) { status.line.off(); } return;",
-        { dictionary: DICT, profile },
-      ).payload,
-    );
-    const source = new Engine(container, new Host(), DICT, { profile });
-    source.tick();
-    for (const hostCheckpoint of [false, true]) {
-      const target = new Engine(container, new Host(), DICT, { profile });
-      if (hostCheckpoint) target.restoreImage(source.recordingImage(true)!);
-      else target.restoreImage(source.serialize());
-      target.flags[201] = 1;
-      target.tick();
-      assert.equal(
-        target.getPresentation().statusBar,
-        null,
-        `${profile.id} ${hostCheckpoint ? "checkpoint" : "save"}`,
+    for (const picTop of [0, 1]) {
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(
+          `if (!isset(f200)) { set(f200); configure.screen(${picTop},22,2); status.line.on(); } if (isset(f201)) { status.line.off(); } return;`,
+          { dictionary: DICT, profile },
+        ).payload,
       );
+      const source = new Engine(container, new Host(), DICT, { profile });
+      source.tick();
+      const gated = profile.statusLineGate !== "unconditional" && picTop === 0;
+      assert.equal(
+        source.getPresentation().statusBar !== null,
+        !gated,
+        `${profile.id} picTop=${picTop} status.line.on`,
+      );
+      for (const hostCheckpoint of [false, true]) {
+        const target = new Engine(container, new Host(), DICT, { profile });
+        if (hostCheckpoint) target.restoreImage(source.recordingImage(true)!);
+        else target.restoreImage(source.serialize());
+        target.flags[201] = 1;
+        target.tick();
+        assert.equal(
+          target.getPresentation().statusBar,
+          null,
+          `${profile.id} picTop=${picTop} ${hostCheckpoint ? "checkpoint" : "save"}`,
+        );
+        assert.equal(
+          target.getPresentation().windowOverlay[0],
+          gated ? 0 : 1,
+          `${profile.id} picTop=${picTop} ${hostCheckpoint ? "checkpoint" : "save"} fill`,
+        );
+      }
     }
   }
 });
