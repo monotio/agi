@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { AgiAudio } from "../src/audio/AgiAudio.ts";
 import { test } from "node:test";
 import type {
   AuditionLeaseAcquire,
@@ -180,4 +181,36 @@ test("close disposes the driver exactly once and unsubscribes", async () => {
   preview.subscribe(() => notified++);
   await preview.close();
   assert.deepEqual(stub.calls, ["close"]);
+});
+
+test("Studio binds the selected project's files on every retarget, including clearing a prior bank", () => {
+  const stub = stubDriver();
+  let files = new Map([["SIERRASTANDARD", Uint8Array.of(0x90)]]);
+  const offered: Readonly<Record<string, Uint8Array>>[] = [];
+  const preview = createSoundPreview({
+    acquirePauseLease: async () => ({ release() {} }),
+    getGameFiles: () => files,
+    driver: () => ({
+      driver: stub.driver,
+      audio: {
+        useGameFiles: (next: Readonly<Record<string, Uint8Array>>) => offered.push(next),
+      } as unknown as AgiAudio,
+    }),
+  });
+  const target = {
+    projectId: "one",
+    documentId: "sound:1",
+    revision: 1,
+    payload: Uint8Array.of(2, 0, 0xfc),
+    profileId: "iigs-1.014" as const,
+  };
+  preview.setTarget(target);
+  assert.deepEqual(offered, [{ SIERRASTANDARD: Uint8Array.of(0x90) }]);
+  files = new Map();
+  preview.setTarget({ ...target, projectId: "two" });
+  assert.deepEqual(
+    offered[1],
+    {},
+    "a different project cannot inherit the prior project's instruments",
+  );
 });

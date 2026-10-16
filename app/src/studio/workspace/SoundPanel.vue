@@ -39,6 +39,7 @@ const props = defineProps<{
   active: boolean;
   importFile?: File | undefined;
   sounds: readonly NamedSound[];
+  gameFiles?: ReadonlyMap<string, Uint8Array>;
 }>();
 const emit = defineEmits<{
   edit: [bytes: Uint8Array, tempo: number];
@@ -70,7 +71,10 @@ const selected = ref<string>();
 const tracks = computed(() => document.value.tracks());
 const event = computed(() => tracks.value?.flat().find((entry) => entry.id === selected.value));
 // Private audition leaves the workspace's MAIN running.
-const preview = createSoundPreview({ acquirePauseLease: async () => ({ release() {} }) });
+const preview = createSoundPreview({
+  acquirePauseLease: async () => ({ release() {} }),
+  getGameFiles: () => props.gameFiles ?? new Map(),
+});
 const status = ref(preview.snapshot.status);
 const position = ref(0);
 const unsubscribe = preview.subscribe(() => {
@@ -334,6 +338,7 @@ const soundLabel = computed(() =>
       v-if="pickerOpen"
       class="sound-recipe-picker"
       :sounds="sounds"
+      :game-files="gameFiles"
       :profile-id="profileId"
       :disabled="readOnly"
       @choose="chooseSound"

@@ -85,6 +85,7 @@ function applyOutput(state: SynthState, output: SoundOutput): void {
     const register = state.latchedRegister;
     const channel = register >> 1;
     if ((register & 1) !== 0) {
+      if (!latch) continue;
       if (channel < 3) state.toneAttenuations[channel] = byte & 15;
       else state.noiseAttenuation = byte & 15;
     } else if (channel < 3) {
@@ -93,6 +94,7 @@ function applyOutput(state: SynthState, output: SoundOutput): void {
         ? (prior & 0x3f0) | (byte & 15)
         : (prior & 15) | ((byte & 63) << 4);
     } else {
+      if (!latch) continue;
       state.noiseControl = byte & 7;
       state.noise.write(state.noiseControl);
     }
@@ -114,9 +116,12 @@ function removeDc(state: SynthState, mixed: number): number {
 function synthSample(state: SynthState, speaker: boolean): number {
   if (speaker) {
     const divisor = state.speakerDivisor;
-    if (divisor === null || divisor <= 0) return removeDc(state, 0);
+    if (divisor === null) return removeDc(state, 0);
     const sample = state.speakerPhase < 0.5 ? 0.35 : -0.35;
-    state.speakerPhase = advancePhase(state.speakerPhase, (PIT_BASE_FREQ * 12) / divisor);
+    state.speakerPhase = advancePhase(
+      state.speakerPhase,
+      (PIT_BASE_FREQ * 12) / (divisor || 65536),
+    );
     return removeDc(state, sample);
   }
 

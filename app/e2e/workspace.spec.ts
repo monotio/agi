@@ -954,7 +954,8 @@ test("Undo and History restore apply while a game message waits", async ({ page 
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
+  // The 30-column print window wraps the line after "sunny" (docs/fidelity.md F-text-01).
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toMatch(/sunny\s+clearing/);
   await page.getByTestId("workspace-undo").click();
   await expect(page.locator(".monaco-editor")).not.toContainText("Instant Undo");
   await expect(page.getByTestId("workspace-redo")).toBeEnabled();
@@ -962,7 +963,7 @@ test("Undo and History restore apply while a game message waits", async ({ page 
   await expect(page.getByTestId("workspace-live")).toHaveText("Now");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
-    .not.toContain("sunny clearing");
+    .not.toMatch(/sunny\s+clearing/);
   await page.getByTestId("workspace-redo").click();
   await expect(page.locator(".monaco-editor")).toContainText("Instant Undo");
   await page.getByTestId("workspace-saved").click();

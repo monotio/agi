@@ -54,6 +54,18 @@ async function expectModal(page: Page, kind: string | null, timeout = 10_000): P
   await expect.poll(async () => (await textHook(page)).modal, { timeout }).toBe(kind);
 }
 
+/** One composed 320×200 frame pixel as [r, g, b] from the probe canvas. */
+async function canvasPixel(page: Page, x: number, y: number): Promise<number[]> {
+  return page.evaluate(
+    ([px, py]) => {
+      const canvas = document.querySelector<HTMLCanvasElement>("[data-testid='game-canvas']")!;
+      const data = canvas.getContext("2d")!.getImageData(px!, py!, 1, 1).data;
+      return [data[0]!, data[1]!, data[2]!];
+    },
+    [x, y],
+  );
+}
+
 async function clickGameKey(page: Page, key: number): Promise<void> {
   await openGameControls(page);
   await page.getByTestId("game-controls").locator(`button[data-key="${key}"]`).click();
@@ -176,11 +188,30 @@ test("parser: typing 'look' produces a game response", async ({ page }) => {
   await page.getByTestId("input-line").fill("look");
   await page.getByTestId("input-line").press("Enter");
   await expectModal(page, "print");
-  // The window is bordered with the engine's box glyphs ('#' in the hook)
-  // and carries text between its side borders.
+  await settled(page);
+  // The window carries the room's response as text cells, and its frame is
+  // the 2.917 OpenWndw pixel overlay, never border glyphs (docs/fidelity.md
+  // F-text-03, "pc"): white fill from x0 = 8·leftCol − 10, y0 = 8·topRow − 5,
+  // a red top bar one scanline inside it and red side bars two pixels inside,
+  // with the text between them.
   const { rows } = await textHook(page);
-  const windowRows = rows.filter((r) => /#[^#]*[a-z][^#]*#/i.test(r));
+  const windowRows = rows
+    .map((text, row) => ({ text, row }))
+    .filter(({ text, row }) => row > 0 && row < 22 && /[a-z]/i.test(text));
   expect(windowRows.length).toBeGreaterThan(0);
+  const topRow = windowRows[0]!.row;
+  const leftCol = Math.min(...windowRows.map(({ text }) => text.search(/\S/)));
+  const cols = Math.max(...windowRows.map(({ text }) => text.trimEnd().length)) - leftCol;
+  const x0 = 8 * leftCol - 10;
+  const x1 = 8 * (leftCol + cols) + 9;
+  const y0 = 8 * topRow - 5;
+  const RED = [0xaa, 0x00, 0x00];
+  const WHITE = [0xff, 0xff, 0xff];
+  expect(await canvasPixel(page, x0, y0)).toEqual(WHITE);
+  expect(await canvasPixel(page, x0 + 8, y0 + 1)).toEqual(RED);
+  expect(await canvasPixel(page, x0 + 2, y0 + 8)).toEqual(RED);
+  expect(await canvasPixel(page, x1 - 2, y0 + 8)).toEqual(RED);
+  expect(await canvasPixel(page, 8 * leftCol - 1, y0 + 8)).toEqual(WHITE);
   await page.screenshot({ path: test.info().outputPath("kq1-print-window.png") });
 });
 
@@ -236,10 +267,17 @@ test("discovered game shortcuts trigger inventory and debug mode", async ({ page
   await page.keyboard.press("Escape");
   await expectModal(page, null);
 
-  // Click the discovered Alt+D shortcut
+  // Click the discovered Alt+D shortcut. KQ1 logic 0 runs print("VERSION
+  // 2.0F") and then version(): two modal windows in a row, each dismissed by
+  // Enter, and the second carries the interpreter's own version
+  // (docs/fidelity.md F-OPCORE-07; v21 is 0 here, so neither window times out).
   await clickGameKey(page, 8192);
   await expectModal(page, "print", 5_000);
-  expect(await screenText(page)).toContain("VERSION");
+  expect(await screenText(page)).toContain("VERSION 2.0F");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => screenText(page)).not.toContain("VERSION 2.0F");
+  await expectModal(page, "print");
+  expect(await screenText(page)).toContain("2.917");
   await page.keyboard.press("Enter");
   await expectModal(page, null);
 });

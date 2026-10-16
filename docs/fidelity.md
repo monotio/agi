@@ -2457,12 +2457,12 @@ Software port traces establish command bytes and completion behavior. The
 [PCjr and Tandy noise](#pcjr-and-tandy-noise) generator models chip feedback;
 analogue speaker response remains approximate.
 
-Original tone-zero output is also established: the player emits two 0x00 port
-bytes before attenuation on device 1. The engine's suppression is therefore a
-command-stream divergence, not original-interpreter behavior. This does not
-prove audible harm or resolve chip data-byte latching. Retain silence pending
-hardware/reference investigation; do not restore stray audible notes just
-to match port bytes.
+Original tone-zero output is established: the player emits two 0x00 port
+bytes before attenuation on device 1. Playback now preserves those bytes;
+[PC and IIgs sound streams](#pc-and-iigs-sound-streams) records the per-build
+execution checks. Play and offline preview share the existing latch-only
+attenuation/noise continuation policy. That policy still needs independent
+silicon evidence; restoring interpreter writes does not settle chip behavior.
 
 ```sh
 python scripts/probe-interpreter-sound.py /tmp/agi-fixed-kq1.bin --data games/kq1/AGIDATA.OVL
@@ -2550,23 +2550,23 @@ In multi-channel AGI sound resources (such as King's Quest II Sound 6, the two-v
 hymn in Room 71), unused channels or rest notes are encoded with `tone = 0` and attenuation 15
 (`0x0f`, silence).
 
-Two failure modes arise if hardware latching semantics and rest notes are not modeled accurately:
+The command stream and backend latching have separate responsibilities:
 
 1. If an audio presentation backend treats non-latch data bytes as attenuation updates, a stray
    `0x00` byte (e.g. from an unsuppressed tone update or stream data) written while an attenuation
    register is latched will be interpreted as attenuation `0` (0 dB / 100% volume), producing an
    unintended maximum-volume stuck note or drone.
-2. `SoundPlayback` suppresses frequency writes when `tone = 0`, leaving inactive
-   voice divisors untouched. Original KQ1/MH1/GR1 routines emit these writes.
-   Suppression is a deliberate presentation divergence, not reproduced original
-   command-stream behavior. Resolve chip/device semantics before changing it.
+2. `SoundPlayback` emits both `0x00` tone bytes before a zero-tone rest's attenuation,
+   matching the original KQ1/MH1/GR1 command streams. `AgiAudio` and
+   `renderSoundPreview` ignore non-latch continuation bytes while an attenuation
+   or noise register is latched, preventing those bytes from raising its volume.
 
 **Specification:** The AGI behavioral specification documents the 5-byte note structure and treats
 control attenuation `0x0f` as silence. It gives tone 0 no rest meaning of its own and does not detail
 the TI SN76489 chip latching state machine.
 
 **Tests:** [audio.test.ts](../app/test/audio.test.ts) (rejection of data bytes on attenuation latches),
-[sound-playback.test.ts](../test/sound-playback.test.ts) (rest note tone suppression).
+[sound-playback.test.ts](../test/sound-playback.test.ts) (both zero tone bytes before rest attenuation).
 
 ### Original save and restart audit
 
@@ -4216,6 +4216,7 @@ reloc32 slot with its target hunk's base, so the absolute operands quoted
 below are image addresses.
 
 **Tests:** [sound-playback.test.ts](../test/sound-playback.test.ts),
+[sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts),
 [ports.test.ts](../test/ports.test.ts),
 [audio.test.ts](../app/test/audio.test.ts).
 
@@ -4226,8 +4227,10 @@ into it — the signed-PCM waveform `00 40 7f 40 00 c0 81 c0` (0, 64, 127,
 64, 0, -64, -127, -64); allocates `0x1000` bytes and fills them with a
 noise PCM: an LFSR seeded with 1, each step `state = (state & 1) ?
 (state >> 1) ^ 0x0ca0 : state >> 1`, storing the low byte of every new
-state. Two `0x44`-byte IOAudio request blocks are prepared, the reply port
-is named `AGI-sound-port` (length-prefixed at h198 `+0x100`), and
+state. Two `0x44`-byte IOAudio request blocks are prepared, `ioa_Data` points
+at the 1-byte `ADCMD_ALLOCATE` channel-mask array `0x0f` at h198 `+0x100`
+(requesting all four Paula channels simultaneously, `h197+0x047e..0x048e`), the
+reply port is named `AGI-sound-port` (NUL-terminated at h198 `+0x101`), and
 `audio.device` (h198 `+0x110`) is opened.
 
 Channel records (init at `0xf1ec`): four `0x20`-byte records at `0xf89c` —
@@ -4235,10 +4238,12 @@ Channel records (init at `0xf1ec`): four `0x20`-byte records at `0xf89c` —
 `+8` Paula period, `+a` base attenuation, `+c` volume, `+e` envelope
 table start, `+12` envelope cursor (both set to h198 `+0` for every
 channel), `+16` active flag, `+1a` DMACON bit `1 << channel`, `+1c` the
-AUDx register block `0xdff0a0 + channel * 0x10`. Tone voices point at the
-8-byte sample with AUDxLEN 4 (words); the noise voice points at the
-4,096-byte PCM with AUDxLEN `0x800` (`0xf62c..0xf640`). Each voice's
-buffer is fixed by its channel for the whole session.
+AUDx register block `0xdff0a0 + channel * 0x10`. `StartSound` at `0xf1ec`
+calls the audio-device helper at `0xf4c4..0xf654`; `0xf62c..0xf640` writes
+each voice's `AUDxLC` and `AUDxLEN` once before the first tick: tone voices point at the 8-byte sample
+with AUDxLEN 4 (words); the noise voice points at the 4,096-byte PCM with
+AUDxLEN `0x800` (`0xf62c..0xf640`). Each voice's buffer is fixed by its
+channel for the whole session.
 
 Per-tick routine (`0xf282`): it first tests flag 9 (`jsr 0xe2b6` with 9)
 and stops the sound when it is clear. Each active channel decrements its
@@ -4338,8 +4343,9 @@ h198 table for SQ2 2.202 and the 2.31x generation.
 
 SQ1 2.082 (`Sierra`, sha256 `80c6b0c4912a4ca5`) carries an earlier
 program: code hunk 138 (base `0xe5fc`, `0x64c` bytes) with a `0x20`-byte
-data hunk 139 holding only the `AGI-sound-port` and `audio.device`
-strings — no envelope table.
+data hunk 139 holding only the `0x0f` `ADCMD_ALLOCATE` channel-mask byte at
+`+0x00`, `AGI-sound-port` at `+0x01`, and `audio.device` at `+0x10` — no
+envelope table.
 
 - Init (`0xe5fc`) allocates a 4-byte tone buffer and writes `00 80 00 80`
   into it (`0xe65c..0xe67c`), a two-sample square cycle played with
@@ -4348,8 +4354,13 @@ strings — no envelope table.
 - Channel records are `0x16` bytes at `0xec68` (the later driver uses
   `0x20`), initialized at `0xe72e`.
 - The tick (`0xe7b6`) makes the same flag-9 test, then programs a voice
-  only when a note decodes — held ticks write nothing. `0xe95e` writes
-  AUDxPER, AUDxVOL and the DMACON enable in one go.
+  only when a note decodes — held ticks write nothing. Unlike `2.176+`
+  (which sets `AUDxLC` and `AUDxLEN` once at `StartSound`), `0xe95e..0xe9b0`
+  rewrites `AUDxLC`, `AUDxLEN`, `AUDxPER`, `AUDxVOL` and the `DMACON` enable
+  on every decoded note (`AUD0..2LEN = 2`, `AUD3LEN = 0x200`). Since the
+  tone and noise buffer addresses and lengths never change across the
+  session, these writes leave the selected sample unchanged. Setting an
+  already-enabled DMA bit preserves its running phase.
 - The tone period is `((b0 & 0x3f) << 10 | (b1 & 0xf) << 6) >> 2` — 16
   times the divisor, four times the later scaling, which the 2-sample
   cycle brings back to the PC pitch. A rest writes period 0.
@@ -4365,6 +4376,32 @@ strings — no envelope table.
 
 The profile family `amiga-2.082` keeps these behaviors distinct;
 `amiga` is the 2.176+ driver only.
+
+#### Original m68k player execution across all six builds (fact)
+
+Each relocated Amiga executable below was executed in Unicorn 2.1.4
+(`UC_ARCH_M68K`, `UC_CPU_M68K_M68000`) with MMIO hooks on `$DFF096`
+(`DMACON`) and `$DFF0A0..$DFF0DF` (`AUD0..3LC`, `AUD0..3LEN`, `AUD0..3PER`,
+`AUD0..3VOL`). The harness runs `InitSound`, `StartSound`, `PlaySound` ticks
+and `StopSound` against synthetic four-voice vectors (notes, held ticks,
+zero-tone rests, all four noise types `0..3`, `v23 = 0` and `v23 = 5`, and
+mid-note flag-9 clear), plus the first five available SOUND resources in
+each game. Across all six builds (**2,992 ticks**, **10,160 register
+writes**), the raw writes match an independently specified register model.
+The shipped TypeScript `SoundPlayback` was run separately on the same inputs:
+its per-tick period, volume, DMA-enable state and completion match the original.
+This compares register state; the host packets repeat a held period on later
+builds where the original writes only the volume. Sample bytes, fixed sample
+addresses/lengths and audio-device allocation operands are checked separately.
+
+| Build   | Executable SHA-256 prefix | Code / data hunk SHA-256 prefixes       | `Init` / `Play` / `Start` / `Stop`        | Verified ticks | Register writes | State mismatches |
+| ------- | ------------------------- | --------------------------------------- | ----------------------------------------- | -------------: | --------------: | ---------------: |
+| `2.082` | `80c6b0c4912a4ca5`        | `888b23c04c2358f6` / `1ecff0f84c84c309` | `0xe5fc` / `0xe7b6` / `0xe72e` / `0xe926` |            380 |             693 |                0 |
+| `2.176` | `62b17ac8049a982e`        | `13459f357a19d4c0` / `0f50641a37644ec6` | `0xe760` / `0xe92a` / `0xe894` / `0xea9a` |            745 |           3,008 |                0 |
+| `2.202` | `557215fbbf431193`        | `06c91c9320595f16` / `aa58503273b9af41` | `0xe7a0` / `0xe96a` / `0xe8d4` / `0xeada` |            468 |           1,950 |                0 |
+| `2.310` | `72ddbb3ecda804b8`        | `06c91c9320595f16` / `aa58503273b9af41` | `0xef40` / `0xf10a` / `0xf074` / `0xf27a` |            240 |             906 |                0 |
+| `2.316` | `7bfa2f36616923a4`        | `06c91c9320595f16` / `aa58503273b9af41` | `0xf0b8` / `0xf282` / `0xf1ec` / `0xf3f2` |            745 |           1,925 |                0 |
+| `2.333` | `5ce3b163bd32ee02`        | `8a739721db6a206c` / `aa58503273b9af41` | `0xf098` / `0xf262` / `0xf1cc` / `0xf3d2` |            414 |           1,678 |                0 |
 
 #### Paula onset and A500 output
 
@@ -4574,10 +4611,17 @@ on later A500 models.
 
 The [Commodore A500 rev 6a/7 schematic, sheet 4](https://www.amigawiki.org/dnl/schematics/A500_R6.pdf)
 gives the always-connected RC stage as R321/R331 = 360 ohm and
-C321/C331 = 0.1 uF: a 4,421 Hz pole. The switched unity-gain Sallen-Key
-stage uses 10 kohm resistors and 6,800/3,900 pF capacitors: nominal
-frequency 3,091 Hz and Q 0.6602, with a 12 dB/octave roll-off.
-Component tolerances and board revisions affect these frequencies.
+C321/C331 = 0.1 uF: a `1 / (2 * pi * 360 * 0.1e-6) = 4,420.97 Hz` pole.
+The switched unity-gain Sallen-Key stage uses R322/R323 = 10 kohm and
+C322/C323 = 6,800/3,900 pF: nominal cutoff
+`1 / (2 * pi * 10e3 * sqrt(6800e-12 * 3900e-12)) = 3,090.53 Hz` and
+`Q = sqrt(6800 / 3900) / 2 = 0.6602`, with a 12 dB/octave roll-off.
+**Hardware-only tolerance limit:** these are nominal component values.
+Resistor/capacitor tolerances, op-amp behavior, LED-switch characteristics and
+external loading vary across individual boards. No production tolerance range
+or measured board response is established here. Only physical measurements can
+characterize a particular unit. The host uses the nominal formulas in
+[paula.ts](../app/src/audio/paula.ts); it does not fit its filters to MAME.
 
 The schematic also places C324/C325 (22 uF + 0.33 uF in parallel) between
 the left filter output and R324 (1 kohm), with R325 (390 ohm) to ground;
@@ -4657,6 +4701,31 @@ coupling and measurements with hand-computed expectations;
 [audio.test.ts](../app/test/audio.test.ts) checks register scheduling,
 held output and filter-state survival across completed streams.
 
+**MAME 0.289 NTSC and PAL register and audio cross-check.** Running SQ2
+`2.202` (`SOUND 60` title music) in MAME 0.289 under both `a500n -bios kick13`
+(NTSC, 60 Hz `CIA-B` interrupt cadence, `3,579,545 Hz` Paula clock) and
+`a500 -bios kick13` (PAL, 50 Hz `VBlank` cadence, `3,546,895 Hz` Paula clock)
+with read-only memory write taps on `$DFF096` and `$DFF0A0..$DFF0DF` captures
+`StartSound`'s sample setup (`AUD0..2LC = 0xbdc0`, `AUD0..2LEN = 4`;
+`AUD3LC = 0x54a00`, `AUD3LEN = 0x800`) followed by **4,914** NTSC writes
+across **1,345** ticks and **4,961** PAL writes across **1,358** ticks.
+Per-tick period, volume and DMA-enable state have **zero mismatches** against
+`SoundPlayback`. The recording ends during the tune, so this does not check its
+final completion boundary. Unicorn covers completion separately.
+
+For the same resource rendered through the shipped 48 kHz `OfflineAudioContext`
+graph at master 1, 18 seconds of NTSC and 22 seconds of PAL audio were aligned
+at the first audible onset (5 ms RMS blocks). MAME WAV channels 0/1 carry Paula;
+channel 2 is silent. After averaging those channels and applying the same
+40 Hz two-pole Butterworth high-pass to each recording, Welch spectra
+(16,384-sample windows) have cosine similarities **0.9975** for both regions.
+Energy above 4 kHz is **0.0516% / 0.0539%** in the host versus
+**1.808% / 1.857%** in MAME (NTSC / PAL). The host applies the schematic's
+nominal RC and LED filter cascade; the captured MAME output lacks that roll-off.
+The mixed spectra support arrangement and pitch agreement, not an every-note
+pitch or onset bound. DMA slot/interrupt latency and physical filter tolerances
+remain separate from the matching register state.
+
 **Backend comparison.** TI's [SN76489 family data sheet](https://ftp.whtech.com/datasheets%20and%20manuals/Datasheets%20-%20TI/SN76489.pdf)
 describes separate frequency counters and attenuation registers. The app
 keeps its bipolar square oscillators running while an attenuation latch
@@ -4681,7 +4750,11 @@ neither smaller clicks nor listener preference.
 `SoundPlayback` emits `{kind: "paula", channel, period, volume, driver?}`
 per voice on the session's 60 Hz NTSC or 50 Hz PAL clock: the 2.176+ family
 every tick for every live voice, the 2.082 family (`driver: "2.082"`) on decode
-ticks only.
+ticks only. Studio audition (`SoundAudition` in
+[soundAudition.ts](../app/src/audio/soundAudition.ts)) reads the same stored
+`monotio_agi.amigaRegion` preference and steps `"paula"` previews at 50 Hz
+(`20 ms` per tick) with `amigaRegion: "pal"` when PAL is selected, keeping
+Studio audition in tempo and pitch parity with Play.
 `period` is the value written to AUDxPER (null when the voice's DMA is
 off) and `volume` the value written to AUDxVOL while DMA is on, always 0..64.
 With a null period its zero volume is a software stop marker
@@ -5405,11 +5478,16 @@ the sound — otherwise it calls `SetSoundVolume` (`$0d08`) with
 the latched volume and disarms the watchdog. With a full `0xff` latch a
 fade therefore completes on the sixteenth pace expiry.
 
-**Host limitation:** there is no GS system volume, so the engine's
-`SoundPlayback.armFade` latches a synthetic `0xff` budget and keeps only
-the observable half — the countdown/expiry schedule and the sound
-completion (with its done flag) — while the per-step `SetSoundVolume`
-attenuation is modelled nowhere.
+**Host mapping:** without a GS system volume, `SoundPlayback.armFade`
+latches a synthetic `0xff` budget. Each step now emits a `system-volume`
+event before that heartbeat's notes; completion emits AllNotesOff followed
+by restoration to `0xff`. ROM 01 `FF:41f3..425a` establishes the call's
+meaning: generator `$ff` selects the system control, stores the full byte
+and writes its upper nibble to `$C03C`. The app applies that nibble on a
+separate gain bus for bank voices and the fallback synth; UI volume remains
+independent. Linear gain `nibble / 15` is a host rendering assumption, not
+a measurement of the physical master-volume circuit. The watchdog's replay
+fields and event cursor positions keep their released representation.
 
 #### Boot behavior under the engine (fact)
 
@@ -5679,10 +5757,13 @@ at `+094c..09cb`; both oscillators receive the result. Independent exponential
 calculation `max(1, floor(255 * 2^((index - 127) / 16)))` matches that table
 with upward rounding by one at indices 44, 60, 76, 92 and 108. For example,
 envelope 90 and note volume 96 produce register value 13, while two levels
-of 111 produce 63. The host now schedules these byte-volume steps at 60 Hz,
-including channel-volume changes during release. Continuous envelope segment
-durations still approximate the original tick-clamped breakpoint transitions
-and initial update; these timing details remain a fidelity limit.
+of 111 produce 63. The host schedules every active envelope update as a byte-volume write,
+including repeated byte values. NoteOn's initial update, integer breakpoint
+clamps and NoteOff's transition follow the instructions described in
+[PC and IIgs sound streams](#pc-and-iigs-sound-streams). Controller 7 is a
+direct Sound Manager byte write to the channel's mapped generators; it does
+not change NS's original note-volume operand. A released generator's channel
+mapping has been cleared, so this controller skips it.
 
 **Headroom.** The DOC multiplies an 8-bit wave sample by an 8-bit volume and
 time-multiplexes its enabled oscillators. The host's wave and volume are
@@ -5691,10 +5772,11 @@ already normalized by 128 and 255, so a mix gain of `1/32` bounds a physical
 sample magnitude is 127/128. This scale preserves relative oscillator levels
 and is independent of the tune. The real SQ2 intro graph at master 1 now
 has zero over-range samples. This fixture result covers the Web Audio graph;
-the mathematical bound alone does not cover resampler overshoot or arbitrary
-event streams exceeding the physical oscillator count. Original `AllocGen`
-at `+01f4..0249` manages 14 paired generators by priority and age; that finite
-allocator remains unmodelled by the host.
+the mathematical bound alone does not cover resampler overshoot. Original
+`AllocGen` at `+01f4..0249` manages 14 paired generators by priority and
+allocation age; the host now models this bound and the channel-slot tables.
+A DOC halt does not itself free an NS generator; its envelope lifetime
+controls allocation. Tests also cover this distinction for one-shot waves.
 
 **Regression and comparison.** Hand-computed tests in
 [iigs-synth.test.ts](../app/test/iigs-synth.test.ts) failed first for pitch,
@@ -5725,6 +5807,258 @@ analogue filtering and envelope timing remain separate evidence questions;
 no equalizer or inferred instrument remapping was added. Listening pairs
 use one AC-RMS match and common peak-safe gain, with MAME followed by the
 corrected render. Absolute GS system gain remains uncalibrated.
+
+### PC and IIgs sound streams
+
+**Evidence class:** original x86 player execution in Unicorn 2.1.4,
+65816 interpreter/tool/ROM inspection, and a fresh MAME 0.289 audio and DOC
+bus cross-check. Original bytes and bulk disassembly stay local. MAME's
+chip models establish a comparison, not physical chip truth.
+
+**DOS builds (fact).** Each row identifies the decoded MZ executable,
+matching data overlay and load-module player entry. The probe substitutes
+only the flag-9 query, initializes the original player's channel records
+and captures its unchanged port instructions. For each build, device 1/2
+and v23 0/3/255 exercise four independent two-tick notes, one-tick zero-tone
+rests and terminators: 72 cases, four ticks each. All captured port-$C0
+byte streams match `SoundPlayback`. This establishes those vectors, not
+exhaustive resource equivalence or hardware identity.
+
+| Build     | Executable SHA-256                                                 | AGIDATA.OVL SHA-256                                                | Player   |
+| --------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ | -------- |
+| 2.089     | `e31e5e8611c81d58ba2a8fcc63ecdf7ded767814324c66dfd73b6452f7199cb4` | `47b34a71bf394302f2826f5e43788b8b5ac0c3eaa1b853ef6bfb4713d0b48bde` | `0x7557` |
+| 2.230     | `875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de1332245df9f60ff4570` | `33a327736deb611df48d0d3232c1958b00af1b1cae5fba45ed3aadf88871af8a` | `0x74da` |
+| 2.272     | `a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a` | `2e2a695a4da7d545c52ea0c01556d198b6d0c3f7eba19e6cbc2b65642616ec40` | `0x7576` |
+| 2.411     | `d99938d6622ef18556bea76ebe72214b18cecac7305b83885a1157ddcff539bf` | `1201f66b68f7f6e4ec24abadee5e6fe2d4390315cc56605d8b0b1e7828c96631` | `0x7c2b` |
+| 2.440     | `c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676` | `5b696520d68d6b843711184a63c85cc313818e08cd0afc0452225a97939483a4` | `0x7d4e` |
+| 2.903     | `db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7` | `df46a3f13c360045b2d355e97bfad6cb6e1df77ee614fed7b4b1f89778425db3` | `0x7f42` |
+| 2.917     | `bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04` | `f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383` | `0x7f55` |
+| 2.936     | `4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400` | `b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9` | `0x801c` |
+| 3.002.086 | `b9b27b403015bb18f6562ba1b8b04c2829e0c3b53c042196bee7924d1df7be65` | `9738d643dd284d622cee7ee9897a4578ab27d376487ef38ed835c14dcf88d733` | `0x845b` |
+| 3.002.102 | `7cf6eac9d5bbfbd944a2b5d7189878ffe4b2d608646d91c87d5372399fa9d1d0` | `1251a5365d5c74232bfb8b01819f85c31ff25c9cd358e942e349a055bc588ea1` | `0x8473` |
+| 3.002.107 | `ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e` | `bb22a87cd215ed52154d49754493e0eb2f6be5688411d8f3b7ac17c417ddae1f` | `0x8473` |
+| 3.002.149 | `12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41` | `914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804` | `0x8330` |
+
+Zero-tone records write `00 00` before their attenuation in every DOS
+build above. Early 2.089/2.230/2.272/2.411 terminators program the saved
+`8f 00 9f`, `af 00 bf`, `cf 00 df`, `ef 00 ff` notes before the final
+`9f bf df ff` stop. Build 2.440 skips the zero byte after `ef`; common
+players write attenuation only at a terminator. Early terminator controls
+use the same signed v23 conversion as live notes: v23 255 changes `9f`
+to `9e` in 2.272/2.411/2.440. These previously omitted writes now reach
+Play, Studio audition and offline preview through the shared sequencer.
+
+The earlier [PC booter row finding](#pc-booter-sound-rows) remains distinct:
+2.001's decoded executable SHA-256 is
+`424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`;
+`7473..75b3` consumes device-specific rows. The 72 DOS vectors above do not
+execute that separate row player; its speaker execution is covered below.
+
+**Speaker (fact and rendering).** The early drivers compare the full
+control byte with `9f`; common drivers additionally use base attenuation 15. Thus raw `bf` in the first channel enables the early speaker path.
+The documented PlayNote sites and the 2.089 `7615` / 2.230 `7598` routines
+establish this difference. The host treats a programmed PIT count zero as
+65,536 and a null divisor as speaker-off. This fixes the former 0-Hz
+render without changing the interpreter's divisor stream. Profile PSG
+selection remains a representative machine policy; no binary identifies
+whether its user's board contains TI, NCR or PSSJ silicon.
+
+**IIgs 1.014 (facts).** The bootable disk interpreter SHA-256 is
+`e5c414881d6b1a12f65ed662e2d179688b61ac3df713fec159577af5b2912678`.
+Its `TOOL025` and ROM 01 hashes are pinned in
+[IIgs DOC pitch, volume and headroom](#iigs-doc-pitch-volume-and-headroom).
+The extracted interpreter has the same seg3 sound routine offsets as the
+other 1.014 image already documented above.
+
+- `TOOL025+01f4..0249` searches 14 generator priority bytes. It takes the
+  first zero immediately; preceding positive priorities age by one with a
+  floor of one. Without a free slot, the first strict minimum below the
+  requested priority wins. SQ2 always requests 64 (`seg3+201c..2025`).
+- `seg3+2029..202f` stores the note in the selected slot of that channel's
+  table. `seg3+1f8b..1fa8` searches its slots downward, clears the matching
+  entry and calls NoteOff with that slot and pitch. Stealing does not clear
+  other channels' stale slot entries. NS checks the actual pitch before
+  releasing (`TOOL025+0460..046e`). The host preserves these tables rather
+  than assuming request order identifies the releasing generator.
+- `TOOL025+03de..03f2` runs the initial envelope update at NoteOn.
+  `+05f7..0683` advances a signed 8.8 level, clamps at a breakpoint, loads
+  the next segment and writes the clamped level in that update. The branch
+  at `+0683` targets `+0611`, not the increment at `+05f7`. A zero increment
+  on a later update holds the previous DOC byte. Every other update writes
+  both oscillator volumes even when the rounded byte repeats.
+- NoteOff (`+0472..049a`) halves allocation priority, arms the release
+  segment and sets a temporary target equal to the current level with
+  increment one. The first following update holds that level and loads
+  the release decrement; the next applies it. The host represents this
+  transition on its event heartbeat. Exact native callback phase at release
+  remains unmeasured and may differ by a heartbeat.
+- The periodic loop `+0541..059f` frees an NS generator when its envelope
+  returns zero. It does not poll for a halted DOC waveform. The host keeps
+  this allocation lifetime independent of the audible waveform's end.
+  Quiet browser loop sources stay bounded by the 14 slots and retire on
+  replacement or stop; zero gain represents the envelope's silent end.
+- Controller 7 (`seg3+20fc..2115`) walks the channel's mapped slots and
+  calls `SetSoundVolume` directly. It changes neither the instrument nor
+  NS's note-volume operand. The next active envelope update overwrites
+  that raw byte, including when its exponential table value repeats.
+- `TOOL025+03f2` calls the initial vibrato update at `NoteOn`. The periodic
+  handler (`+0581..0590`) toggles voice status bit 7 and runs another update on
+  odd heartbeats, at nominal times `0, 1/60, 3/60, ...`, across `NoteOff`.
+  At `+0686..06c9`, the 8-bit phase advances by `vibratoSpeed`; a negative
+  phase is folded with one's complement. The resulting `0..127` index selects
+  the log-triangle byte table at `+09cc..0a4b`. An independent piecewise
+  logarithmic fit in [iigsSynth.ts](../app/src/audio/iigsSynth.ts) matches all
+  128 observed table bytes. The phase addition's carry survives into the
+  table-byte plus depth addition, then `sbc #$7f` consumes that carry. A
+  negative result gives zero delta; otherwise the byte-volume table at
+  `+094c..09cb` supplies the magnitude. Negative phases apply one's complement
+  before `asl`, giving `-2 * magnitude - 2`, versus `2 * magnitude` for positive
+  phases. The delta is added to both saved A/B base pitches and converted at
+  `+074a..076b`. A looping control buffer presents the full phase cycle to
+  each oscillator's playback rate, preserving sustain and release without a
+  duration cap. These controls retire with their voice on replacement or stop.
+- Studio previews bind the selected project's files explicitly, including its
+  IIgs instrument bank and a private DOC RAM image. They cannot inherit another
+  game's bank through a global audio instance. Type-1 sample resources carry
+  their own instrument and can render even without a `.SYS16` bank.
+
+The fade's exact call operands, watchdog schedule, upper-nibble mapping
+and synthetic maximum-volume latch are described in
+[Apple IIgs sound fade](#apple-iigs-sound-fade-fact--host-limitation).
+
+**Cross-check and limits.** Fresh MAME execution reaches SQ2's intro with
+its original disk interpreter. The first program-32, note-60 generator at
+volume 120 writes DOC volumes
+`bc ac 9e 91 85 7a 70 66 5e 56 4f 48 42 3d 38 33 2f 2b`.
+The independently computed NS envelope and byte-volume table produce the
+same first 18 writes; the first A/B frequency words are 217/216. This
+checks attack and early decay, not every release or allocation boundary.
+
+Two further MAME 0.289 `apple2gsr1` executions redirect the title's SNDDIR
+entry to existing `SOUND 68` and `SOUND 63`, leaving interpreter code unchanged.
+The SOUND 68 run captures **26,881** DOC data writes. Its first allocation of
+pair 8 (program 23, note 66, depth 75, speed 25) supplies **13** frequency-pair
+updates; pair 0 (program 34, note 66, depth 30, speed 13) supplies **14**.
+The SOUND 63 run captures **2,385** data writes, including **47** updates on
+pair 16 (program 16, note 79, depth 66, speed 25), spanning multiple phase wraps.
+Every captured frequency word in those three allocations matches `vibratoStep`
+and `iigsByteRate`, including negative phases and A-to-B carry. Program 23 starts
+`740/740, 743/743, 743/744, 740/741`; program 16 starts
+`1562/1563, 1567/1568, 1568/1569, 1563/1564`.
+The median periodic interval is about **33.058 ms**, versus the host's nominal
+**33.333 ms**; matching frequency words does not establish wall-clock identity
+with the DOC interrupt timer. The host retains its nominal 60 Hz envelope clock.
+
+For SOUND 68, an eight-second span aligned by first audible onset uses MAME
+channels 1/2 (DOC left/right; channel 0 is the boot speaker), host master 1,
+and the same 40 Hz high-pass/Welch method as the Amiga comparison. Spectral
+cosine similarity is **0.8634**, with **0.162%** host energy above 4 kHz versus
+**0.271%** in MAME. The averaged host output peaks at **0.1225**, with no clipping.
+The existing DOC output-holding approximation, nominal heartbeat difference,
+release-phase limit and mixed-voice balance prevent a waveform-equivalence
+claim; no gain or analogue filter was fitted to the MAME capture.
+
+The fresh PQ1 Tandy capture reaches the original publisher music. Comparing
+13 mixed note windows against the current 48 kHz host render gives median
+pitch error -0.036 cents and maximum absolute error 1.318 cents. Eleven
+windows fall within one cent; the two outside that bound contain overlapping
+voices and remain unresolved. Median demodulated start/end residuals are
+0/-1.42 ms, but continuing pitches produce ambiguous edges up to 812 ms and
+the estimator's mixed-voice uncertainty is about 20 ms. These medians do not
+establish an every-note, one-tick pass. Individual voice balance is unmeasured;
+the reference is mixed. The IIgs first mixed wavetable partial measures
+-1.16 cents in a 200 ms window; its detuned A/B pair and other concurrent
+voices prevent a single-oscillator tuning verdict. Its 60-second host render
+has peak 0.0862 at master 1, preserving headroom. No analogue filter or gain
+was fitted to either MAME waveform.
+
+The finite allocator, discrete envelopes and `TOOL025+0686..0749` vibrato
+close identified host gaps. The following remaining differences have separate
+scopes:
+
+- **Swap and sync (documented limitation; unused in SQ2).**
+  `docMode` bits 2:1 select sync/swap as 2/3. A scan of all SQ2 IIgs sound
+  resources and their bank bindings finds neither mode in any used MIDI
+  program (`0, 1, 2, 4, 5, 10, 11, 14, 16, 20, 23, 24, 32, 34, 35, 38,
+40, 41, 42, 43`) or type-1 sample. All 98 sample waves use mode 0 or 1;
+  swap waves exist only in unused bank programs. The host's independent
+  buffers therefore leave a digital gap for other instruments, with no
+  affected SQ2 cue identified. This is resource coverage, not general mode
+  equivalence.
+- **Vibrato frequency words (`TOOL025+0686..0749`, verified).** Used SQ2 programs 16, 23 and 34
+  (active in sounds 63, 68, 71, 72, 73, 75, 76 and 77) and any custom
+  instrument or type-1 sample with nonzero `vibratoDepth` and `vibratoSpeed`
+  now step `vibratoStep` at `NoteOn` and on odd 60 Hz heartbeats across
+  `NoteOff` in [iigsSynth.ts](../app/src/audio/iigsSynth.ts), matching the
+  captured MAME DOC frequency words bit-for-bit in the private execution evidence.
+  [iigs-synth.test.ts](../app/test/iigs-synth.test.ts) separately asserts hand-computed
+  pitch offsets and their scheduled playback rates.
+- **DOC sample holding (documented presentation limit).** The host omits
+  scan-rate output holding. The measured high-frequency imaging difference
+  is primarily above 4 kHz (about 3.7% versus 2.1% spectral energy). Its
+  audible effect cannot be isolated from the hardware's analogue
+  reconstruction filtering by the present mixed-output comparison. Keep
+  that uncertainty separate from the exact frequency/volume words.
+- **Release heartbeat phase (documented timing limit).** The temporary
+  target and release decrement follow the original tool code, but the
+  first host update uses the event heartbeat. Its phase can differ by at
+  most one 60 Hz tick (16.7 ms). This is not expected to be perceptible;
+  a native release trace would settle the phase.
+- **Per-build voice balance (documented acoustic limit).** Digital
+  attenuation and volume tables match the binary evidence. The captures
+  do not isolate every voice, and acoustic balance depends on real
+  hardware gain, speaker and analogue filtering. The mixed MAME results
+  cannot certify a per-build acoustic balance match.
+
+Web Audio interpolation and mono mixing versus MAME's separate DOC channels
+also limit comparison. Real hardware is needed for silicon continuation/reset
+behavior, DAC/master-volume transfer and analogue output filtering.
+
+Hand-computed regressions live in
+[sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts),
+[sound-preview.test.ts](../test/sound-preview.test.ts),
+[audio.test.ts](../app/test/audio.test.ts) and
+[iigs-synth.test.ts](../app/test/iigs-synth.test.ts).
+
+### 2.001 speaker row execution
+
+**Original-execution evidence.** Build 2.001 decoded executable SHA-256
+`424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`;
+load-module reader `746b..755f`, speaker writer `7607..766a`, cleanup
+`4b96..4bb8` / `7560..7575`. Unicorn 2.1.4 executes the unchanged reader,
+writer and cleanup, substituting only the flag-9 query and hardware port
+input (port 61 returns `a0`); port outputs are captured. Four synthetic
+payloads, each with flag 9 set/clear, cover 40 entries including completed
+entries. All PIT/control writes and completion entries match the host.
+This establishes the command stream, not the physical speaker waveform.
+
+**Facts.** Device 0 dispatches on the high nibble (`74c1..7553`). Selector
+`80` consumes two bytes, computes `12 * ((first & 15) | ((second & 63) << 4))`
+and calls the writer. Selector `90` consumes one byte and calls the writer
+with zero only for exact `9f`. Selectors `a0/c0/e0` skip pairs and
+`b0/d0/f0` skip single bytes. A pair's second byte can be zero without
+ending the row. The writer gates every call on flag 9; zero disables the
+speaker instead of programming PIT count 65,536. Nonzero counts write
+`b6` to port 43, low/high bytes to port 42, then set port-61 bits 0/1.
+The reader checks exhaustion at its next entry, so the final row holds
+for its tick and cleanup occurs one entry later. Speaker cleanup also
+passes through the flag-9 gate, including on an empty payload.
+
+**Hand calculation.** `81 23` gives 6732 (`1a4c`, PIT bytes `4c 1a`);
+`81 00` gives 12; `80 00` switches off; `8f 3f` gives 12276 (`2ff4`);
+an unterminated `82 02` gives 408 (`0198`). Empty rows hold the last tone.
+The shared sequencer now selects this speaker path for Play, Studio audition
+and offline preview, including snapshot continuation and speaker stop.
+Regressions in [sound-register-fidelity.test.ts](../test/sound-register-fidelity.test.ts)
+failed before implementation.
+
+**Bounds and remaining scope.** On malformed truncated pairs the host uses
+zero for a missing continuation; original code reads past the payload. Unknown
+selectors are ignored by the host; the original can loop without advancing.
+Those are bounded recovery policies, not original valid-resource behavior.
+The existing PSG row path still completes on its final row and does not apply
+2.001 device-2 attenuation conversion. Those separate paths are outside this
+speaker correction. No new MAME or real-hardware speaker measurement was made.
 
 ### Original games through MAME audio
 
