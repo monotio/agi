@@ -4368,7 +4368,8 @@ Engine: `showPictureReveal` selects the variant per profile. `show.pic` with the
 build's cycle count at the rate MAME measured for SQ2 (6,566.6 cycles per ms on NTSC, scaled by
 7.09379 / 7.15909 on PAL; 447.9 ms on the IIgs), and the presentation shows each cell from the
 new frame once the register has passed it, at a constant rate. The dissolve starts from the frame
-composed before the pass's first `draw.pic`, or at `show.pic` without one. `restore.game` starts
+composed before the pass's first `draw.pic`, or at `show.pic` without one, and from black before
+the first picture of the session. `restore.game` starts
 one from the frame before the restore and enters logic 0 when it ends; restores the host makes
 (autosave, history) show the image at once. Checkpoints carry an open dissolve, its start frame
 as 26,880 hex digits, and the flag (`pictureRevealInstant`). Tests:

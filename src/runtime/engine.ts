@@ -848,6 +848,8 @@ export class Engine {
   private pictureRevealInstant = false;
   /** The screen before this pass's draw.pic, kept for the dissolve to start from. */
   private dissolveFrom: Uint8Array | null = null;
+  /** A picture has reached the screen since boot; before that the screen is black. */
+  private screenShown = false;
   /** restore.game's dissolve is running; logic 0 re-enters once it ends. */
   private restoreRevealOwed = false;
   private terminated = false;
@@ -4635,6 +4637,7 @@ export class Engine {
     if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
     this.restoreJoystickState(presentation?.joystick);
     this.restoreRevealOwed = false;
+    this.screenShown = true;
   }
 
   /**
@@ -5098,8 +5101,9 @@ export class Engine {
     });
   }
 
-  /** The visual frame as composed from the current state, copied. */
+  /** What the screen shows now: the composed frame, or black before any picture. */
   private composedVisual(): Uint8Array {
+    if (!this.screenShown) return new Uint8Array(SCREEN_WIDTH * 168);
     this.ensurePresentationCurrent();
     return this.cachedVisual.slice();
   }
@@ -7750,6 +7754,7 @@ export class Engine {
         }
         if (!this.pictureRevealInstant) this.startDissolve(this.dissolveFrom);
         this.dissolveFrom = null;
+        this.screenShown = true;
         return next;
       }
       case 0x1b: {

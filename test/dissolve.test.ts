@@ -139,6 +139,18 @@ test("IIgs: one cell first; cell 1 is state 1, the last", () => {
   assert.equal(newCells(e).length, 80 * 168);
 });
 
+test("the first picture dissolves in from a black screen", () => {
+  const { e } = engine("amiga-2.202");
+  pass(e, 2);
+  e.advanceClock(0.5);
+  const { visual } = e.getFrame();
+  const shown = sorted([0, 1, ...FIRST_STATES]);
+  for (let cell = 0; cell < 80 * 168; cell++) {
+    const pixel = Math.floor(cell / 80) * 160 + (cell % 80) * 2;
+    assert.equal(visual[pixel], shown.includes(cell) ? 2 : 0, `cell ${cell}`);
+  }
+});
+
 const durations: [ProfileId, string, number][] = [
   ["amiga-2.082", "", 774.241],
   ["amiga-2.176", "", 800.974],
