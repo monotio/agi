@@ -1,5 +1,6 @@
 /** Explicit retention policy: oldest unpinned commits first, preserving their identities. */
 import {
+  checkProjectHistoryForPruning,
   readProjectHistory,
   writeProjectHistory,
   PROJECT_HISTORY_LIMITS,
@@ -12,7 +13,7 @@ export function pruneProjectHistory(
   digest: ProjectDigest,
   limits: { readonly maxCommits?: number; readonly maxBytes?: number } = {},
 ): { readonly state: ProjectHistoryState; readonly removed: readonly string[] } {
-  const checked = readProjectHistory(writeProjectHistory(state, digest), digest);
+  const checked = checkProjectHistoryForPruning(state, digest);
   const maxCommits = limits.maxCommits ?? PROJECT_HISTORY_LIMITS.maxCommits;
   const maxBytes = limits.maxBytes ?? PROJECT_HISTORY_LIMITS.maxTotalBytes;
   if (
