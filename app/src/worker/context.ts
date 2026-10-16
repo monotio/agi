@@ -420,7 +420,7 @@ export interface WorkerFns {
   onClick(msg: Inbound<"click">): void;
   onInput(msg: Inbound<"input">): void;
   onEdit(msg: Inbound<"edit">): void;
-  onDismissPrint(): void;
+  onDismissPrint(msg?: Inbound<"dismissPrint">): void;
   // hostRequests.ts
   postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never;
   settleHostRequest(outstanding: { op: string; authoring: boolean }): void;

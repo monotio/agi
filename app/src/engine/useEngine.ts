@@ -912,10 +912,15 @@ export function useEngine(
     state.installedGames = await discoverInstalledGames();
   }
 
-  /** Acknowledge the engine's open modal (click path); the worker resumes ticking. */
-  function dismissModal(): void {
+  /**
+   * A tap on the engine's open modal; the worker resumes ticking. With the
+   * tap's screen pixel, an Amiga confirmation gadget under it is selected.
+   */
+  function dismissModal(point?: { x: number; y: number }): void {
     if (state.modal === null) return;
-    link.getWorker()?.postMessage({ type: "dismissPrint" } satisfies WorkerInbound);
+    link
+      .getWorker()
+      ?.postMessage({ type: "dismissPrint", ...(point ?? {}) } satisfies WorkerInbound);
   }
 
   /** Player submitted (or cancelled) the blocking prompt modal. */

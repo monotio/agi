@@ -98,6 +98,7 @@ import {
   stampWindow,
   stampWindowOverlayOnly,
   windowLines,
+  type GadgetFill,
   type SavedRect,
   type WindowOverlay,
 } from "./textSurface.ts";
@@ -337,6 +338,9 @@ function serializeSavedRect(saved: SavedWindow, text?: TextSurface): SerializedS
           y1: saved.window.y1,
           seq: saved.window.seq,
           ...(erased !== undefined && erased.length > 0 ? { erased: [...erased] } : {}),
+          ...(saved.window.gadgets !== undefined
+            ? { gadgets: saved.window.gadgets.map((g) => ({ ...g, label: { ...g.label } })) }
+            : {}),
         }
       : undefined;
   return {
@@ -429,6 +433,80 @@ class ContinuationAbort {
   constructor(resumeLogic = false) {
     this.resumeLogic = resumeLogic;
   }
+}
+
+/**
+ * Amiga restart/quit confirmations (docs/fidelity.md F-persistence-05): the
+ * prompt and the two Intuition gadget labels every Amiga build 2.082..2.333
+ * passes to WindowPrint, the accepting gadget first. `gap` is the blank
+ * columns between the labels on the engine's gadget line.
+ */
+const AMIGA_CONFIRM_GADGETS: Record<
+  "restart" | "quit",
+  { prompt: string; accept: string; cancel: string; gap: number }
+> = {
+  restart: { prompt: "Restart the game?", accept: "Restart", cancel: "Cancel", gap: 4 },
+  quit: { prompt: "Quit the game, or continue?", accept: "Quit", cancel: "Continue", gap: 15 },
+};
+
+/**
+ * The Amiga confirmation window's text. WindowPrint adds three rows to the
+ * message when it has gadget labels and draws the gadgets in that space; the
+ * engine's cell surface carries the labels on the last of those rows, which
+ * the 12 px gadget boxes overlap most (F-persistence-05).
+ */
+function amigaConfirmText(action: "restart" | "quit"): string {
+  const g = AMIGA_CONFIRM_GADGETS[action];
+  return `${g.prompt}\n\n\n${g.accept}${" ".repeat(g.gap)}${g.cancel}`;
+}
+
+/** Gadget height: the 8 px font plus 4 (F-persistence-05). */
+const AMIGA_GADGET_HEIGHT = 12;
+
+/** Gadget width: the label in the 8 px font plus 8 (F-persistence-05). */
+function amigaGadgetWidth(label: string): number {
+  return 8 * label.length + 8;
+}
+
+/**
+ * The two gadgets of an Amiga confirmation window, from the window frame
+ * (F-persistence-05-gadgets): 12 px high with their top 17 px above the
+ * frame's bottom edge; the accepting gadget starts 10 px in from the frame's
+ * left edge in pen 2, the declining one ends 10 px before its right edge in
+ * pen 4. The label cells sit on the window's last text row.
+ */
+function amigaConfirmGadgets(
+  win: WindowOverlay,
+  action: "restart" | "quit",
+): (GadgetFill & { answer: number })[] {
+  const g = AMIGA_CONFIRM_GADGETS[action];
+  const y0 = win.y1 - 5 - AMIGA_GADGET_HEIGHT;
+  const y1 = y0 + AMIGA_GADGET_HEIGHT - 1;
+  const row = win.textTop + win.textRows - 1;
+  const labelY = { y0: 8 * row, y1: 8 * row + 7 };
+  const acceptX0 = win.x0 + 10;
+  const cancelX0 = win.x1 - 10 - amigaGadgetWidth(g.cancel);
+  const cancelCol = win.textLeft + g.accept.length + g.gap;
+  return [
+    {
+      x0: acceptX0,
+      y0,
+      x1: acceptX0 + amigaGadgetWidth(g.accept) - 1,
+      y1,
+      pen: 2,
+      label: { x0: 8 * win.textLeft, x1: 8 * (win.textLeft + g.accept.length) - 1, ...labelY },
+      answer: AGI_KEY.ENTER,
+    },
+    {
+      x0: cancelX0,
+      y0,
+      x1: cancelX0 + amigaGadgetWidth(g.cancel) - 1,
+      y1,
+      pen: 4,
+      label: { x0: 8 * cancelCol, x1: 8 * (cancelCol + g.cancel.length) - 1, ...labelY },
+      answer: AGI_KEY.ESCAPE,
+    },
+  ];
 }
 
 /**
@@ -3027,17 +3105,29 @@ export class Engine {
       action === "restart"
         ? original
           ? amiga
-            ? "Restart the game?\n\nRestart    Cancel"
+            ? amigaConfirmText("restart")
             : "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
           : "Restart the game?\nENTER: yes   ESC: continue"
         : original
           ? amiga
-            ? "Quit the game, or continue?\n\nQuit               Continue"
+            ? amigaConfirmText("quit")
             : "Press ENTER to quit.\nPress ESC to keep playing."
           : "Quit the game?\nENTER: yes   ESC: continue",
       undefined,
       true,
     );
+    if (original && amiga && this.modal?.kind === "print" && this.modal.saved.window) {
+      // The gadget fills go into the window overlay, which every restamp
+      // (restore, replay, checkpoint) redraws; the label cells carry front
+      // pen 15 on their gadget's pen (F-persistence-05-gadgets).
+      const win = this.modal.saved.window;
+      const g = AMIGA_CONFIRM_GADGETS[action];
+      const row = win.textTop + win.textRows - 1;
+      this.text.write(row, win.textLeft, g.accept, attr(15, 2));
+      this.text.write(row, win.textLeft + g.accept.length + g.gap, g.cancel, attr(15, 4));
+      win.gadgets = amigaConfirmGadgets(win, action).map(({ answer: _answer, ...fill }) => fill);
+      stampWindowOverlayOnly(this.text, win, false);
+    }
     const pending: PendingInteraction = {
       kind: "confirm",
       next,
@@ -3053,6 +3143,31 @@ export class Engine {
         if (this.modal?.serial === pending.modalSerial) this.closeModal();
       }
     }
+  }
+
+  /**
+   * The gadget under screen pixel (x, y) of the parked Amiga confirmation,
+   * as the answer its wait takes: Enter for the accepting gadget (Restart,
+   * Quit), Escape for the declining one (Cancel, Continue), or null when no
+   * confirmation waits, the profile's prompt has no gadgets, or the point
+   * misses both. The boxes are the original WindowPrint's gadget rectangles
+   * (docs/fidelity.md F-persistence-05, all six Amiga builds): 12 px high,
+   * `8 * label length + 8` wide, their top 17 px above the window frame's
+   * bottom edge, the first 10 px in from the frame's left edge and the
+   * second ending 10 px before its right edge.
+   */
+  confirmGadgetAt(x: number, y: number): number | null {
+    const pending = this.pendingInteraction;
+    if (pending?.kind !== "confirm" || this.profile.windowFrameGeometry !== "amiga") return null;
+    if (!this.profile.originalRestartRestore) return null;
+    const modal = this.modal;
+    if (modal?.kind !== "print" || modal.serial !== pending.modalSerial) return null;
+    const win = modal.saved.window;
+    if (win === undefined) return null;
+    for (const g of amigaConfirmGadgets(win, pending.action)) {
+      if (x >= g.x0 && x <= g.x1 && y >= g.y0 && y <= g.y1) return g.answer;
+    }
+    return null;
   }
 
   /** The adapter supplies an available directory; the engine owns selection and text. */

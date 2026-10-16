@@ -17,10 +17,11 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
  *   pause               remix freeze; acknowledged by "paused"
  *   input               player pressed Enter on the input line
  *   key                 key press; answers a parked key wait
- *   click               pointer click in 320x200 screen pixels (click-to-walk)
+ *   click               pointer click in 320x200 screen pixels (click-to-walk, confirmation gadgets)
  *   direction           movement key press (0 = tracked key release)
  *   edit                live mirror of the host input widget
- *   dismissPrint        acknowledge the engine's open modal (click path)
+ *   dismissPrint        tap on the engine's open modal; with its screen pixel, a tap on an Amiga
+ *                       confirmation gadget selects it, any other tap acknowledges the window
  *   hostAnswer          reply to a posted hostRequest
  *   reenter             re-enter the current room after a live patch
  *   playHere            jump the live game to a room and ego spot
@@ -285,7 +286,7 @@ export type WorkerInbound =
     }
   | { type: "input"; text: string }
   | { type: "edit"; text: string }
-  | { type: "dismissPrint" }
+  | { type: "dismissPrint"; x?: number; y?: number }
   | { type: "hostAnswer"; generation: number; id: number; response: string }
   | { type: "reenter"; room?: number }
   /**

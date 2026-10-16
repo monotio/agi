@@ -1,6 +1,6 @@
 /** Host recording state deliberately excluded from authentic save.game images. */
 import type { InputEvent } from "./inputQueue.ts";
-import type { WindowFrameGeometry, WindowOverlay } from "./textSurface.ts";
+import type { WindowFrameGeometry, WindowOverlay, GadgetFill } from "./textSurface.ts";
 
 /**
  * A modal's covered cells, serialized. `cells` are the row-major [char, attr]
@@ -148,6 +148,19 @@ function array<T>(value: unknown, max: number, parse: (v: unknown) => T): T[] {
     throw new Error("Replay state array is too long.");
   return value.map(parse);
 }
+function gadgetFill(value: unknown): GadgetFill {
+  const g = record(value, ["x0", "y0", "x1", "y1", "pen", "label"]);
+  const label = record(g["label"], ["x0", "y0", "x1", "y1"]);
+  const px = (v: unknown): number => number(v, -8192, 8192);
+  return {
+    x0: px(g["x0"]),
+    y0: px(g["y0"]),
+    x1: px(g["x1"]),
+    y1: px(g["y1"]),
+    pen: number(g["pen"], 0, 15),
+    label: { x0: px(label["x0"]), y0: px(label["y0"]), x1: px(label["x1"]), y1: px(label["y1"]) },
+  };
+}
 function savedRect(value: unknown, options?: { allowWindow?: boolean }): SerializedSavedRect {
   const hasWindow = value !== null && typeof value === "object" && Object.hasOwn(value, "window");
   const s = record(
@@ -176,35 +189,24 @@ function savedRect(value: unknown, options?: { allowWindow?: boolean }): Seriali
       s["window"] !== null &&
       typeof s["window"] === "object" &&
       Object.hasOwn(s["window"], "erased");
-    const win = record(
-      s["window"],
-      hasErased
-        ? [
-            "geometry",
-            "textTop",
-            "textLeft",
-            "textRows",
-            "textCols",
-            "x0",
-            "y0",
-            "x1",
-            "y1",
-            "seq",
-            "erased",
-          ]
-        : [
-            "geometry",
-            "textTop",
-            "textLeft",
-            "textRows",
-            "textCols",
-            "x0",
-            "y0",
-            "x1",
-            "y1",
-            "seq",
-          ],
-    );
+    const hasGadgets =
+      s["window"] !== null &&
+      typeof s["window"] === "object" &&
+      Object.hasOwn(s["window"], "gadgets");
+    const win = record(s["window"], [
+      "geometry",
+      "textTop",
+      "textLeft",
+      "textRows",
+      "textCols",
+      "x0",
+      "y0",
+      "x1",
+      "y1",
+      "seq",
+      ...(hasErased ? ["erased"] : []),
+      ...(hasGadgets ? ["gadgets"] : []),
+    ]);
     const geometry = win["geometry"];
     if (geometry !== "pc-2.001" && geometry !== "pc" && geometry !== "amiga" && geometry !== "iigs")
       throw new Error("Replay state window geometry is invalid.");
@@ -224,6 +226,7 @@ function savedRect(value: unknown, options?: { allowWindow?: boolean }): Seriali
       y1: number(win["y1"], -8192, 8192),
       seq: number(win["seq"], 0, 0xffffffff),
       ...(erased !== undefined ? { erased } : {}),
+      ...(win["gadgets"] !== undefined ? { gadgets: array(win["gadgets"], 8, gadgetFill) } : {}),
     };
   }
   return {

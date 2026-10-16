@@ -41,6 +41,25 @@ export const GLYPH_CURSOR = 0x07;
 
 export type WindowFrameGeometry = "pc-2.001" | "pc" | "amiga" | "iigs";
 
+/**
+ * A filled gadget of an Amiga confirmation window (docs/fidelity.md
+ * F-persistence-05-gadgets): the inclusive fill rectangle, its pen, and the
+ * label cells inside it, which draw the glyphs over the pen themselves.
+ */
+export interface GadgetFill {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+  readonly pen: number;
+  readonly label: {
+    readonly x0: number;
+    readonly y0: number;
+    readonly x1: number;
+    readonly y1: number;
+  };
+}
+
 export interface WindowOverlay {
   readonly geometry: WindowFrameGeometry;
   readonly textTop: number;
@@ -56,6 +75,8 @@ export interface WindowOverlay {
   seq: number;
   /** Frame pixel indices (y * 320 + x) erased since the window opened; omitted when intact. */
   erased?: number[];
+  /** Gadget fills inside the text interior; omitted for windows without gadgets. */
+  gadgets?: readonly GadgetFill[];
 }
 
 /**
@@ -563,6 +584,27 @@ export function stampWindowOverlayOnly(
       surface.overlay[idx] = isHorizBar || isVertBar ? 5 : 16;
       surface.overlayWritten[idx] = win.seq;
       wrote = true;
+    }
+  }
+  // Gadget fills sit inside the text interior. The label cells draw their
+  // own glyphs over the pen, so the fill skips them, and the cell rows that
+  // hang below the fill are painted white so no pen shows outside it.
+  for (const g of win.gadgets ?? []) {
+    const gy0 = Math.max(0, g.y0);
+    const gy1 = Math.min(OVERLAY_HEIGHT - 1, Math.max(g.y1, g.label.y1));
+    for (let y = gy0; y <= gy1; y++) {
+      const rowBase = y * OVERLAY_WIDTH;
+      for (let x = Math.max(0, g.x0); x <= Math.min(OVERLAY_WIDTH - 1, g.x1); x++) {
+        const inLabel = x >= g.label.x0 && x <= g.label.x1 && y >= g.label.y0 && y <= g.label.y1;
+        const inFill = y <= g.y1;
+        if (inFill && inLabel) continue;
+        if (!inFill && !inLabel) continue;
+        const idx = rowBase + x;
+        if (erased?.has(idx)) continue;
+        surface.overlay[idx] = inFill ? g.pen + 1 : 16;
+        surface.overlayWritten[idx] = win.seq;
+        wrote = true;
+      }
     }
   }
   if (wrote) {

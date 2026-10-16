@@ -404,3 +404,177 @@ test("F-persistence-05: Amiga restart.game and quit(0) display their verified pr
     );
   }
 });
+
+test("F-persistence-05: Amiga confirmation gadgets are selectable at their label cells; PC and IIgs confirmations have none", () => {
+  const AMIGA = [
+    "amiga-2.082",
+    "amiga-2.176",
+    "amiga-2.202",
+    "amiga-2.310",
+    "amiga-2.316",
+    "amiga-2.333",
+  ] as const;
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (isset(f6)) { assignn(v90, 1); return; }
+       if (!isset(f200)) { set(f200); load.pic(v250); draw.pic(v250); show.pic(); }
+       if (equaln(v80, 1)) { restart.game(); assignn(v81, 1); return; }
+       if (equaln(v80, 2)) { quit(0); assignn(v82, 1); return; }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  const open = (id: string, action: 1 | 2): Engine => {
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+        waitKey() {
+          throw new HostWait();
+        },
+      },
+      new Map(),
+      { profile: id as keyof typeof PROFILES },
+    );
+    engine.vars[80] = action;
+    engine.tick();
+    assert.equal(engine.modalKind, "print", `${id} confirmation window is open`);
+    assert.equal(engine.awaitingKey, true, `${id} confirmation waits for its answer`);
+    return engine;
+  };
+
+  // Hand-computed layout (textSurface placePrintWindow, display base row 1).
+  // WindowPrint adds three rows to a message with gadget labels, so both
+  // windows are 4 rows: textTop = 1 + ((20 - 1 - 4) >> 1) + 1 = 9, the labels
+  // sit on text row 12 and the frame's bottom edge is y1 = 8 * 13 + 4 = 108.
+  // Gadgets (F-persistence-05): 12 px high with top = y1 - 17 = 91 (rows
+  // 91..102), width 8 * len + 8, the first at frame left + 10 and the second
+  // ending 10 px before frame right. Restart window (17 columns, textLeft 11):
+  // frame x 78..234, Restart x 88..151, Cancel (56 wide) x 168..223. Quit
+  // window (27 columns, textLeft 6): frame x 38..274, Quit x 48..87, Continue
+  // (72 wide) x 192..263.
+  const edges = (engine: Engine, name: string, x0: number, x1: number, answer: number): void => {
+    for (const [x, y] of [
+      [x0, 91],
+      [x1, 91],
+      [x0, 102],
+      [x1, 102],
+      [(x0 + x1) >> 1, 96],
+    ])
+      assert.equal(engine.confirmGadgetAt(x!, y!), answer, `${name} inside at ${x},${y}`);
+    for (const [x, y] of [
+      [x0 - 1, 96],
+      [x1 + 1, 96],
+      [(x0 + x1) >> 1, 90],
+      [(x0 + x1) >> 1, 103],
+    ])
+      assert.equal(engine.confirmGadgetAt(x!, y!), null, `${name} outside at ${x},${y}`);
+  };
+  for (const id of AMIGA) {
+    const restart = open(id, 1);
+    assert.equal(restart.textRow(9).indexOf("Restart the game?"), 11, `${id} restart prompt row`);
+    assert.equal(restart.textRow(12).indexOf("Restart    Cancel"), 11, `${id} restart gadget line`);
+    edges(restart, `${id} Restart`, 88, 151, 13);
+    edges(restart, `${id} Cancel`, 168, 223, 27);
+    assert.equal(restart.confirmGadgetAt(160, 96), null, `${id} between the gadgets`);
+
+    const quit = open(id, 2);
+    assert.equal(
+      quit.textRow(9).indexOf("Quit the game, or continue?"),
+      6,
+      `${id} quit prompt row`,
+    );
+    assert.equal(
+      quit.textRow(12).indexOf("Quit               Continue"),
+      6,
+      `${id} quit gadget line`,
+    );
+    edges(quit, `${id} Quit`, 48, 87, 13);
+    edges(quit, `${id} Continue`, 192, 263, 27);
+    assert.equal(quit.confirmGadgetAt(140, 96), null, `${id} between the gadgets`);
+
+    // The visible fill equals the hit rectangle: the pen shows on every
+    // pixel inside (overlay fill, or the label cell's background pen under
+    // the glyphs) and white outside.
+    for (const [engine, rects] of [
+      [restart, { 2: [88, 151], 4: [168, 223] }],
+      [quit, { 2: [48, 87], 4: [192, 263] }],
+    ] as const) {
+      const checks = (e: Engine, label: string): void => {
+        const { windowOverlay, text } = e.getPresentation();
+        const pen = (x: number, y: number): number => {
+          const o = windowOverlay[y * 320 + x]!;
+          if (o !== 0) return o - 1;
+          return text[((y >> 3) * 40 + (x >> 3)) * 2 + 1]! >> 4;
+        };
+        for (const [p, [x0, x1]] of Object.entries(rects)) {
+          const want = Number(p);
+          for (const [x, y] of [
+            [x0, 91],
+            [x1, 91],
+            [x0, 102],
+            [x1, 102],
+            [(x0 + x1) >> 1, 96],
+          ])
+            assert.equal(pen(x!, y!), want, `${label} pen ${p} inside at ${x},${y}`);
+          for (const [x, y] of [
+            [x0 - 1, 96],
+            [x1 + 1, 96],
+            [(x0 + x1) >> 1, 90],
+            [(x0 + x1) >> 1, 103],
+            [x0, 103],
+            [x1, 103],
+          ]) {
+            assert.equal(pen(x!, y!), 15, `${label} white outside at ${x},${y}`);
+            assert.equal(e.confirmGadgetAt(x!, y!), null, `${label} miss at ${x},${y}`);
+          }
+        }
+      };
+      // A parked confirmation is never a checkpoint boundary (autosaveImage
+      // refuses a suspended host request), so no restore restamps it; the
+      // fills still travel in WindowOverlay.gadgets for any restamp path.
+      checks(engine, `${id} live`);
+      assert.equal(engine.autosaveImage(), null, `${id} parked confirmation refuses a snapshot`);
+    }
+
+    // The gadget answer resolves the wait exactly like its key: Restart
+    // restarts, Continue resumes after the opcode.
+    restart.deliverHostAnswer(restart.confirmGadgetAt(119, 96));
+    restart.tick();
+    assert.equal(restart.vars[90], 1, `${id} Restart gadget restarts`);
+    quit.deliverHostAnswer(quit.confirmGadgetAt(227, 96));
+    quit.tick();
+    assert.equal(quit.vars[82], 1, `${id} Continue gadget resumes`);
+    assert.equal(
+      quit.readState().terminated,
+      false,
+      `${id} Continue gadget keeps the game running`,
+    );
+  }
+
+  // PC and IIgs builds show the Enter/Escape prompts with no gadgets: every
+  // point of their windows misses (2.001..2.230 quit without a prompt).
+  for (const id of ["2.001", "2.089", "2.936", "3.002.149", "iigs-1.014"] as const) {
+    const restart = open(id, 1);
+    for (let y = 0; y < 200; y += 4)
+      for (let x = 0; x < 320; x += 4)
+        assert.equal(
+          restart.confirmGadgetAt(x, y),
+          null,
+          `${id} restart has no gadget at ${x},${y}`,
+        );
+    if (PROFILES[id].exitAlwaysImmediate) continue;
+    const quit = open(id, 2);
+    for (let y = 0; y < 200; y += 4)
+      for (let x = 0; x < 320; x += 4)
+        assert.equal(quit.confirmGadgetAt(x, y), null, `${id} quit has no gadget at ${x},${y}`);
+  }
+});
