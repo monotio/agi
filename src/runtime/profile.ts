@@ -319,6 +319,18 @@ export interface AgiProfile {
    * profiles have no such gate (conformance matrix, "Menu interaction gate").
    */
   readonly menuInteractionGate: boolean;
+  /**
+   * The native menu strip the player opens outside the script: "intuition"
+   * on the Amiga builds (right mouse button, pull-downs built from
+   * set.menu / set.menu.item), "none" where menus open through menu.input
+   * (docs/fidelity.md "Original native menu dispatch").
+   */
+  readonly nativeMenu: "none" | "intuition";
+  /**
+   * Whether the native menu's verify step also requires f14: 2.176..2.333
+   * do; 2.082 checks the dialog inhibitor and text mode only.
+   */
+  readonly nativeMenuF14Gate: boolean;
 
   // ---- runtime state ----
   /**
@@ -716,6 +728,8 @@ const BASE_2936: AgiProfile = {
   menuActions: "full",
   menuInputAction: "effect",
   menuInteractionGate: false,
+  nativeMenu: "none",
+  nativeMenuF14Gate: false,
   stringSlots: 12,
   keyMapCapacity: 39,
   releaseGateAction: "increment",
@@ -877,6 +891,8 @@ const BASE_AMIGA_31X: AgiProfile = {
   closeWindowClearsInputWidth: false,
   menuInputAction: "noop",
   menuInteractionGate: false,
+  nativeMenu: "intuition",
+  nativeMenuF14Gate: true,
   priorityBaseAction: "noop",
   mousePosnAction: "write-pointer",
   clickMove: "amiga-2.31x",
@@ -1069,6 +1085,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitAlwaysImmediate: false,
     menuActions: "full",
     menuInputAction: "noop",
+    nativeMenu: "intuition",
+    nativeMenuF14Gate: false,
     keypadWordsNormalized: false,
     inputLineEditCap: "prompt-40",
     keyMapCapacity: 40,
@@ -1101,6 +1119,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitAlwaysImmediate: false,
     menuActions: "full",
     menuInputAction: "noop",
+    nativeMenu: "intuition",
+    nativeMenuF14Gate: true,
     inputWidthActions: "noop",
     keypadWordsNormalized: false,
     inputLineEditCap: "prompt-40",
@@ -1148,6 +1168,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     motionCounters: "word",
     playerControlMotionClear: "on-control-transition",
     menuInputAction: "noop",
+    nativeMenu: "intuition",
+    nativeMenuF14Gate: true,
     inputWidthActions: "noop",
     keypadWordsNormalized: false,
     inputLineEditCap: "prompt-40",

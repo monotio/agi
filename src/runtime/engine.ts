@@ -60,6 +60,14 @@ import {
   type SaveSlot,
 } from "./saveDialog.ts";
 import {
+  intuitionItemAt,
+  intuitionMenuChrome,
+  intuitionPulldown,
+  intuitionTitleAt,
+  intuitionTitles,
+  type NativeMenuChrome,
+} from "./nativeMenu.ts";
+import {
   newScreenObject,
   packObjectState,
   motionParams,
@@ -310,6 +318,18 @@ export interface EngineMenuState {
 
 type SavedWindow = SavedRect & { window?: WindowOverlay | undefined };
 
+/**
+ * The Amiga strip while it is open: the title whose pull-down shows, the
+ * highlighted item, and whether the host keeps it open without the button
+ * (touch and keyboard access; docs/fidelity.md "Original Amiga menu strip
+ * and pull-downs").
+ */
+export interface NativeMenuState {
+  heading: number | null;
+  item: number | null;
+  sticky: boolean;
+}
+
 type Modal = { serial: number } & (
   | { kind: "print"; saved: SavedWindow; remainingMs: number | null; pauseClock: boolean }
   | {
@@ -320,7 +340,7 @@ type Modal = { serial: number } & (
       selected: number;
       interactive: boolean;
     }
-  | { kind: "menu"; saved: SavedRect }
+  | { kind: "menu"; saved: SavedRect; native?: NativeMenuState }
   | { kind: "showObj"; saved: SavedWindow; view: number }
   | { kind: "showPri" }
   | {
@@ -1896,7 +1916,11 @@ export class Engine {
     const modal = this.modal;
     return (
       (this.saveDialogMode !== null && this.profile.frameTiming !== "booter-int1c") ||
-      (modal?.kind === "print" && modal.pauseClock)
+      (modal?.kind === "print" && modal.pauseClock) ||
+      // MENUVERIFY sets the freeze flag and the timer returns before the
+      // game clock and pacing while it is set (docs/fidelity.md "Original
+      // native menu dispatch").
+      (modal?.kind === "menu" && modal.native !== undefined)
     );
   }
 
@@ -2899,6 +2923,8 @@ export class Engine {
    */
   statusBarText(): string | null {
     if (this.profile.presentation !== "amiga") return null;
+    // Intuition's strip replaces the screen title while a menu is held.
+    if (this.modal?.kind === "menu" && this.modal.native) return null;
     if (!this.statusEnabled || this.textMode || this.amigaStatusGated()) return null;
     return (this.statusText().padEnd(26) + this.soundText()).padEnd(39).slice(0, 39);
   }
@@ -3087,6 +3113,11 @@ export class Engine {
         }
         return;
       case "menu":
+        if (m.native) {
+          if (byte === AGI_KEY.ENTER) this.nativeMenuSelect(m.native);
+          else if (byte === AGI_KEY.ESCAPE) this.closeModal();
+          return;
+        }
         if (byte === AGI_KEY.ENTER) {
           const heading = this.menu[this.menuHeading]!;
           const item = heading.items[heading.current];
@@ -3128,7 +3159,10 @@ export class Engine {
       this.drawInventory(m);
       return;
     }
-    if (m.kind === "menu") this.menuNavigate(value);
+    if (m.kind === "menu") {
+      if (m.native) this.nativeMenuNavigate(m.native, value);
+      else this.menuNavigate(value);
+    }
   }
 
   private closeModal(): void {
@@ -3942,6 +3976,161 @@ export class Engine {
     return from;
   }
 
+  // ---- Amiga native menu (docs/fidelity.md "Original native menu dispatch") ----
+
+  /**
+   * MENUHOT's verify: the strip opens when the interpreter has submitted a
+   * menu, no dialog or picture transfer holds the inhibitor, the screen is
+   * not in text mode and, on 2.176..2.333, f14 is set. The engine's parked
+   * host waits count as the inhibitor too, so no menu opens over a request
+   * in flight.
+   */
+  get nativeMenuAvailable(): boolean {
+    if (this.profile.nativeMenu !== "intuition" || !this.menuFinalized) return false;
+    if (this.terminated || this.stopLatch !== null || this.executionFault !== null) return false;
+    if (this.modal !== null || this.pendingInteraction !== null) return false;
+    if (this.saveDialogMode !== null || this.textMode) return false;
+    if (this.profile.nativeMenuF14Gate && this.flags[14] === 0) return false;
+    return true;
+  }
+
+  private get nativeMenuModal(): (Modal & { kind: "menu"; native: NativeMenuState }) | null {
+    const m = this.modal;
+    return m?.kind === "menu" && m.native ? (m as Modal & { kind: "menu"; native: NativeMenuState }) : null;
+  }
+
+  /** The open strip as the host paints it, or undefined while no native menu is open. */
+  private nativeMenuChrome(): NativeMenuChrome | undefined {
+    const m = this.nativeMenuModal;
+    if (!m) return undefined;
+    return intuitionMenuChrome(this.menu, m.native.heading, m.native.item);
+  }
+
+  /**
+   * The right button went down at screen pixel (x, y): open the strip with
+   * the pull-down of the title under the pointer. A sticky open (host
+   * access: a touch long-press or the Menu button) starts on the first
+   * enabled heading and stays open until a tap or key ends it.
+   */
+  nativeMenuOpen(x: number, y: number, sticky = false): boolean {
+    if (!this.nativeMenuAvailable) return false;
+    let heading = intuitionTitleAt(intuitionTitles(this.menu), x, y);
+    if (heading !== null && !this.menu[heading]!.enabled) heading = null;
+    if (sticky && heading === null) {
+      const first = this.menu.findIndex((h) => h.enabled);
+      heading = first < 0 ? null : first;
+    }
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "menu",
+      saved: this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1),
+      native: { heading, item: null, sticky },
+    });
+    this.presentationDirty = true;
+    return true;
+  }
+
+  /** The pointer moved while the button is held; true when the highlight changed. */
+  nativeMenuMove(x: number, y: number): boolean {
+    const m = this.nativeMenuModal;
+    if (!m) return false;
+    const n = m.native;
+    const title = intuitionTitleAt(intuitionTitles(this.menu), x, y);
+    let heading = n.heading;
+    let item = n.item;
+    if (title !== null && this.menu[title]!.enabled) {
+      heading = title;
+      item = null;
+    } else {
+      item = heading === null ? null : intuitionItemAt(intuitionPulldown(this.menu, heading), x, y);
+    }
+    if (heading === n.heading && item === n.item) return false;
+    n.heading = heading;
+    n.item = item;
+    this.presentationDirty = true;
+    return true;
+  }
+
+  /**
+   * The right button came up: the enabled item under the pointer is
+   * selected, anything else cancels. A sticky menu ignores the release.
+   */
+  nativeMenuRelease(x: number, y: number): boolean {
+    const m = this.nativeMenuModal;
+    if (!m || m.native.sticky) return false;
+    this.nativeMenuMove(x, y);
+    if (m.native.item !== null) this.nativeMenuSelect(m.native);
+    else this.closeModal();
+    return true;
+  }
+
+  /** Host access: a tap on a sticky menu switches titles, selects an item or cancels. */
+  nativeMenuTap(x: number, y: number): boolean {
+    const m = this.nativeMenuModal;
+    if (!m) return false;
+    const title = intuitionTitleAt(intuitionTitles(this.menu), x, y);
+    if (title !== null && this.menu[title]!.enabled) {
+      m.native.heading = title;
+      m.native.item = null;
+      this.presentationDirty = true;
+      return true;
+    }
+    const item =
+      m.native.heading === null
+        ? null
+        : intuitionItemAt(intuitionPulldown(this.menu, m.native.heading), x, y);
+    if (item !== null) {
+      m.native.item = item;
+      this.nativeMenuSelect(m.native);
+    } else this.closeModal();
+    return true;
+  }
+
+  /** Close the strip without a selection (host access: Esc, or the game losing the pointer). */
+  nativeMenuCancel(): boolean {
+    if (!this.nativeMenuModal) return false;
+    this.closeModal();
+    return true;
+  }
+
+  /**
+   * MENUPICK: the item's status byte is sign-extended and enqueued as a
+   * type-3 event. Statuses 0..127 set their controller at the next input
+   * phase; 128..255 write before the controller table on the original and
+   * set nothing here (docs/fidelity.md "Original native menu dispatch").
+   */
+  private nativeMenuSelect(n: NativeMenuState): void {
+    const item = n.heading === null || n.item === null ? undefined : this.menu[n.heading]?.items[n.item];
+    if (!item || !item.enabled) return;
+    if (item.id < 128) this.pendingController = item.id;
+    this.closeModal();
+  }
+
+  /** Host access: arrow keys on a sticky menu move like the PC menu. */
+  private nativeMenuNavigate(n: NativeMenuState, value: number): void {
+    if (!n.sticky) return;
+    const items = n.heading === null ? [] : this.menu[n.heading]!.items;
+    const count = items.length;
+    switch (value) {
+      case 1:
+        if (count > 0) n.item = n.item === null ? count - 1 : (n.item + count - 1) % count;
+        break;
+      case 5:
+        if (count > 0) n.item = n.item === null ? 0 : (n.item + 1) % count;
+        break;
+      case 3:
+      case 7: {
+        const from = n.heading ?? (value === 3 ? this.menu.length - 1 : 0);
+        n.heading = this.nextEnabledHeading(from, value === 3 ? 1 : -1);
+        n.item = null;
+        break;
+      }
+      default:
+        return;
+    }
+    this.presentationDirty = true;
+  }
+
   /**
    * Save-file image for save.game (spec "Save-file envelope"): the 31-byte
    * description header plus the selected profile's length-prefixed blocks.
@@ -4271,7 +4460,11 @@ export class Engine {
               interactive: m.interactive,
             };
           case "menu":
-            return { kind: "menu", saved: serializeSavedRect(m.saved) };
+            return {
+              kind: "menu",
+              saved: serializeSavedRect(m.saved),
+              ...(m.native ? { native: { ...m.native } } : {}),
+            };
           case "showObj":
             return { kind: "showObj", saved: serializeSavedRect(m.saved, this.text), view: m.view };
           case "showPri":
@@ -4371,7 +4564,12 @@ export class Engine {
           });
           break;
         case "menu":
-          this.modals.push({ serial, kind: "menu", saved: deserializeSavedRect(m.saved) });
+          this.modals.push({
+            serial,
+            kind: "menu",
+            saved: deserializeSavedRect(m.saved),
+            ...(m.native ? { native: { ...m.native } } : {}),
+          });
           break;
         case "showObj": {
           const saved = deserializeSavedRect(m.saved);
@@ -6439,9 +6637,12 @@ export class Engine {
     windowOverlay: Uint8Array;
     statusBar: string | null;
     gadgets?: GadgetLabel[];
+    /** The open Amiga menu strip and pull-down, drawn by the host over everything. */
+    menu?: NativeMenuChrome;
   } {
     this.ensurePresentationCurrent();
     const gadgets = this.presentationGadgets();
+    const menu = this.nativeMenuChrome();
     return {
       visual: this.cachedVisual.slice(),
       priority: this.cachedPriority.slice(),
@@ -6449,6 +6650,7 @@ export class Engine {
       windowOverlay: this.cachedWindowOverlay.slice(),
       statusBar: this.statusBarText(),
       ...(gadgets ? { gadgets } : {}),
+      ...(menu ? { menu } : {}),
     };
   }
 
