@@ -185,12 +185,12 @@ describe("sound playback clock and profiles", () => {
       "noise control zero is audible, not a rest",
     );
   });
-  it("suppresses frequency divisor writes for rest notes where tone is zero", () => {
+  it("writes both zero tone bytes before the rest attenuation", () => {
     const data = payload(2, 0x9f);
     data[10] = 0;
     data[11] = 0;
     const sound = new SoundPlayback(detectProfile(new Map(), "2.936"), data, 1);
-    assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0x9f, 0xbf, 0xdf, 0xff]);
+    assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0, 0, 0x9f, 0xbf, 0xdf, 0xff]);
   });
 });
 
@@ -778,7 +778,7 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
             },
           ],
         ],
-        [9, [{ kind: "iigs", event: "note-off", voice: 0 }]],
+        [9, [{ kind: "iigs", event: "note-off", voice: 0, channel: 0, note: 64 }]],
         [16, [ALL_OFF]],
       ],
     );
@@ -813,7 +813,7 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
       [...byTick],
       [
         [1, [ALL_OFF, on(0, 0, 60, 127, -1), on(1, 0, 62, 127, -1)]],
-        [3, [{ kind: "iigs", event: "note-off", voice: 0 }]],
+        [3, [{ kind: "iigs", event: "note-off", voice: 0, channel: 0, note: 60 }]],
         [4, [{ kind: "iigs", event: "volume", channel: 1, volume: 80 }, on(2, 1, 64, 80, 10)]],
         [7, [ALL_OFF]],
       ],
@@ -961,7 +961,7 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
     // Ticks 6..9: the note-off arrives on tick 9, four heartbeats on.
     for (let t = 6; t < 9; t++) assert.deepEqual(restored.tick(true, 0).outputs, []);
     assert.deepEqual(restored.tick(true, 0).outputs, [
-      { kind: "iigs", event: "note-off", voice: 0 },
+      { kind: "iigs", event: "note-off", voice: 0, channel: 0, note: 64 },
     ]);
     assert.deepEqual(restored.stop(), [ALL_OFF]);
   });

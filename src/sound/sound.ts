@@ -314,7 +314,7 @@ export type IigsOutput =
       /** The program of the channel's last program change, or -1 for the default instrument. */
       program: number;
     }
-  | { kind: "iigs"; event: "note-off"; voice: number }
+  | { kind: "iigs"; event: "note-off"; voice: number; channel?: number; note?: number }
   | { kind: "iigs"; event: "volume"; channel: number; volume: number }
   | {
       kind: "iigs";
@@ -327,7 +327,8 @@ export type IigsOutput =
        */
       data: Uint8Array;
     }
-  | { kind: "iigs"; event: "all-off" };
+  | { kind: "iigs"; event: "all-off" }
+  | { kind: "iigs"; event: "system-volume"; volume: number };
 
 interface PlaybackChannel {
   notes: readonly SoundNote[];
@@ -403,8 +404,10 @@ function decodeIigsStream(payload: Uint8Array, onWarning?: (m: string) => void):
   const noteOff = (note: number): void => {
     const list = sounding[channel]!;
     const at = list.findIndex((entry) => entry.note === note);
+    // Unmatched requests cannot occur in the native slot table either.
+    // Keep their suppression: released replay cursors index this event list.
     if (at < 0) return;
-    emit({ kind: "iigs", event: "note-off", voice: list[at]!.voice });
+    emit({ kind: "iigs", event: "note-off", voice: list[at]!.voice, channel, note });
     list.splice(at, 1);
   };
 
@@ -698,6 +701,7 @@ export class SoundPlayback {
     // original's heartbeat: pace zero completes the armed sound immediately;
     // each pace expiry checks the stepped budget before decrementing it, so
     // a fresh 0xff budget completes on the sixteenth expiry.
+    const outputs: SoundOutput[] = [];
     const fade = this.iigsFade;
     if (fade !== null) {
       if (fade.pace === 0) return { outputs: this.stop(), complete: true };
@@ -705,9 +709,9 @@ export class SoundPlayback {
         fade.countdown = fade.pace;
         if (fade.budget < 0x10) return { outputs: this.stop(), complete: true };
         fade.budget -= 0x10;
+        outputs.push({ kind: "iigs", event: "system-volume", volume: fade.budget });
       }
     }
-    const outputs: SoundOutput[] = [];
     adjustment &= 255;
     if (this.rows) {
       // One zero-terminated row per tick; completion is payload exhaustion.
@@ -846,7 +850,26 @@ export class SoundPlayback {
         if (!note) {
           channel.terminated = true;
           channel.base = 15;
-          if (!this.single) outputs.push({ kind: "psg", bytes: [selector | 15] });
+          if (!this.single) {
+            // Early players run the saved silent note through PlayNote;
+            // common players only update attenuation. See PC sound streams.
+            if (this.profile.sound !== "common") {
+              const high = (selector | 15) & 0xef;
+              outputs.push({
+                kind: "psg",
+                bytes: this.profile.sound === "early-2.440" && index === 3 ? [high] : [high, 0],
+                ...(index === 3 ? { chip: this.profile.psgNoise } : {}),
+              });
+            }
+            outputs.push({
+              kind: "psg",
+              bytes: [
+                this.profile.sound === "common"
+                  ? selector | 15
+                  : this.earlyControl(selector | 15, adjustment),
+              ],
+            });
+          }
           continue;
         }
         channel.countdown = note.duration;
@@ -854,7 +877,11 @@ export class SoundPlayback {
         if (this.single) {
           outputs.push({
             kind: "speaker",
-            divisor: note.attenuation === 15 ? null : 12 * note.freqDivisor,
+            divisor: (
+              this.profile.sound === "common" ? note.attenuation === 15 : note.control === 0x9f
+            )
+              ? null
+              : 12 * note.freqDivisor,
           });
           continue;
         }
@@ -864,31 +891,15 @@ export class SoundPlayback {
           this.profile.sound === "early-2.089" ||
           this.profile.sound === "early-2.272" ||
           this.profile.sound === "early-2.411";
-        // Rest notes (tone == 0) suppress frequency divisor commands (docs/fidelity.md: SN76489 attenuation latching and rest notes).
-        if (note.tone !== 0) {
-          outputs.push({
-            kind: "psg",
-            bytes: !earlyBoth && (high & 0xe0) === 0xe0 ? [high] : [high, low],
-            ...((high & 0xf0) === 0xe0 ? { chip: this.profile.psgNoise } : {}),
-          });
-        }
+        // Zero-tone rests still write both bytes. The previously latched
+        // PSG register decides their effect (docs/fidelity.md, PC sound streams).
+        outputs.push({
+          kind: "psg",
+          bytes: !earlyBoth && (high & 0xe0) === 0xe0 ? [high] : [high, low],
+          ...((high & 0xf0) === 0xe0 ? { chip: this.profile.psgNoise } : {}),
+        });
         if (this.profile.sound !== "common") {
-          let control = note.control;
-          // ConvertTDVolume on machType 2 (Tandy): any attenuation latch —
-          // (b & 0x90) == 0x90 covers every channel's selector, not just
-          // channel 2 — whose low nibble is below 8 gains 3 before the v23
-          // clamp (docs/fidelity.md "Wave-3 sound verdicts", F-sound-01).
-          if (this.device === 2 && (control & 0x90) === 0x90 && (control & 15) < 8)
-            control = (control & 0xf0) | ((control & 15) + 3);
-          if (this.profile.sound === "early-2.272") {
-            control = (control + adjustment) & 255;
-            if (control < 128 && control > 15) control = 15;
-          } else if (this.profile.sound === "early-2.411" || this.profile.sound === "early-2.440") {
-            let sum = ((control & 15) + adjustment) & 255;
-            if (sum < 128 && sum > 15) sum = 15;
-            control = (control & 0xf0) | sum;
-          }
-          outputs.push({ kind: "psg", bytes: [control] });
+          outputs.push({ kind: "psg", bytes: [this.earlyControl(note.control, adjustment)] });
           continue;
         }
         if (index < 3) channel.envelopeIndex = 0;
@@ -925,14 +936,41 @@ export class SoundPlayback {
     return { outputs, complete: !this.active };
   }
 
+  /** The early driver's PlayNote conversion, also used for its saved terminators. */
+  private earlyControl(original: number, adjustment: number): number {
+    let control = original;
+    // ConvertTDVolume on machType 2 (Tandy): any attenuation latch —
+    // (b & 0x90) == 0x90 covers every channel's selector, not just
+    // channel 2 — whose low nibble is below 8 gains 3 before the v23
+    // clamp (docs/fidelity.md "Wave-3 sound verdicts", F-sound-01).
+    if (this.device === 2 && (control & 0x90) === 0x90 && (control & 15) < 8)
+      control = (control & 0xf0) | ((control & 15) + 3);
+    if (this.profile.sound === "early-2.272") {
+      control = (control + adjustment) & 255;
+      if (control < 128 && control > 15) control = 15;
+    } else if (this.profile.sound === "early-2.411" || this.profile.sound === "early-2.440") {
+      let sum = ((control & 15) + adjustment) & 255;
+      if (sum < 128 && sum > 15) sum = 15;
+      control = (control & 0xf0) | sum;
+    }
+    return control;
+  }
+
   stop(): SoundOutput[] {
     if (!this.active) return [];
     this.active = false;
     // The original's completion path also disarms the watchdog ($df = 0xffff)
     // and restores the latched volume; the volume side is a native GS call.
+    const faded = this.iigsFade !== null;
     this.iigsFade = null;
     // The cleanup's AllNotesOff silences every generator.
-    if (this.iigsEvents) return [{ kind: "iigs", event: "all-off" }];
+    if (this.iigsEvents)
+      return [
+        { kind: "iigs", event: "all-off" },
+        ...(faded
+          ? [{ kind: "iigs" as const, event: "system-volume" as const, volume: 0xff }]
+          : []),
+      ];
     if (this.profile.sound === "amiga" || this.profile.sound === "amiga-2.082")
       return this.channels.map((_, channel) => ({
         kind: "paula" as const,

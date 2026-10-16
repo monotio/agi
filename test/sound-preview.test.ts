@@ -290,3 +290,34 @@ test("preview periodic noise uses chip delay stages and clock/512, /1024, /2048"
     }
   }
 });
+
+it("zero-tone rest bytes cannot unmute the preview's latched noise attenuation", () => {
+  // Channel zero: silent pitched note, then a zero-tone rest. The other
+  // channels terminate on tick one, leaving the noise attenuation latched.
+  const payload = Uint8Array.of(
+    8,
+    0,
+    20,
+    0,
+    20,
+    0,
+    20,
+    0,
+    1,
+    0,
+    0x23,
+    0x81,
+    0x9f,
+    3,
+    0,
+    0,
+    0,
+    0x9f,
+    255,
+    255,
+    255,
+    255,
+  );
+  const result = renderSoundPreview(payload, detectProfile(new Map(), "2.936"));
+  assert.ok(result.wav.subarray(44).every((byte) => byte === 0));
+});

@@ -543,3 +543,31 @@ describe("audio mode selection", () => {
     assert.equal(soundChipLabel("iigs", "pc-speaker"), "Apple IIgs Ensoniq");
   });
 });
+
+it("a programmed PIT zero count sounds at the 65536-count period", () => {
+  const { audio, oscillators, gains } = context();
+  audio.output({ kind: "speaker", divisor: 0 });
+  assert.equal(oscillators[0]!.frequency.value, 1193180 / 65536);
+  assert.equal(gains[1]!.gain.value, 0.4);
+});
+
+it("IIgs system volume uses its upper nibble on a separate bus from UI volume", () => {
+  const { audio, gains } = context();
+  audio.output({
+    kind: "iigs",
+    event: "note-on",
+    voice: 0,
+    channel: 0,
+    note: 60,
+    volume: 127,
+    program: -1,
+  });
+  audio.output({ kind: "iigs", event: "system-volume", volume: 0x8f });
+  assert.equal(gains[1]!.gain.value, 8 / 15);
+  audio.setVolume(0.25);
+  assert.equal(gains[0]!.gain.value, 0.25);
+  assert.equal(gains[1]!.gain.value, 8 / 15);
+  audio.output({ kind: "iigs", event: "all-off" });
+  audio.output({ kind: "iigs", event: "system-volume", volume: 0xff });
+  assert.equal(gains[1]!.gain.value, 1);
+});
