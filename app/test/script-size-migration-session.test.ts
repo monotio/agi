@@ -281,6 +281,61 @@ test("closing with the migration journaled recovers it once on reopen", async ()
   assert.equal(migrationCommits((await loadAuthoredGame(projectId))!), 1);
 });
 
+test("Undo of the migration never adds a second entry on reopen", async () => {
+  const projectId = await storedProject("script-size-undo");
+  const admitted: Admitted = [];
+  const first = await open(projectId, admitted);
+  await settle(first);
+  assert.deepEqual(admitted, [[200]], "the older game migrated on open");
+  // The first Undo after opening removes the added line again; the
+  // migration commit itself stays in the project's History.
+  await first.undo();
+  await settle(first);
+  first.dispose();
+  const undone = (await loadAuthoredGame(projectId))!;
+  assert.equal(storedLogic0(undone), PRE_125_LOGIC0, "Undo removed the added line");
+  assert.equal(migrationCommits(undone), 1, "the migration commit stays in History");
+  const again: Admitted = [];
+  const reopened = await open(projectId, again);
+  await settle(reopened);
+  reopened.dispose();
+  assert.deepEqual(again, [], "the reopened session adds nothing");
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.equal(migrationCommits(stored), 1, "still one migration entry");
+  assert.equal(storedLogic0(stored), PRE_125_LOGIC0);
+});
+
+test("deleting the migrated line never adds a second entry on reopen", async () => {
+  const projectId = await storedProject("script-size-delete");
+  const admitted: Admitted = [];
+  const first = await open(projectId, admitted);
+  await settle(first);
+  assert.deepEqual(admitted, [[200]], "the older game migrated on open");
+  // The author deletes the added line: an ordinary edit whose commit the
+  // History records beside the migration's own.
+  await first.submit({
+    proposal: first.model.propose(first.model.capture(), "Edit", [
+      { key: "logic:0", content: PRE_125_LOGIC0 },
+    ]),
+    label: "Edit",
+    origin: "logic",
+    author: "creator",
+  });
+  await settle(first);
+  first.dispose();
+  const deleted = (await loadAuthoredGame(projectId))!;
+  assert.equal(storedLogic0(deleted), PRE_125_LOGIC0, "the line is gone again");
+  assert.equal(migrationCommits(deleted), 1, "the migration commit stays in History");
+  const again: Admitted = [];
+  const reopened = await open(projectId, again);
+  await settle(reopened);
+  reopened.dispose();
+  assert.deepEqual(again, [], "the reopened session adds nothing");
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.equal(migrationCommits(stored), 1, "still one migration entry");
+  assert.equal(storedLogic0(stored), PRE_125_LOGIC0);
+});
+
 test("a re-imported project archive or remix with the template boot shape migrates", async () => {
   for (const source of ["zip", "remix"] as const) {
     const projectId = await storedProject(`script-size-${source}`, {

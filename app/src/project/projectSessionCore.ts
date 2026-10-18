@@ -237,10 +237,15 @@ function createSession(
   // commit through the ordinary edit path below, admitted to the running
   // game like any logic edit. Re-imported archives and remixes with the
   // template's boot shape migrate too; a recognized original release keeps
-  // its released image.
-  const scriptSizeMigration = isRecognizedOriginal(data.files, data.library?.source)
-    ? null
-    : migrateScriptSize(openedDocuments);
+  // its released image. Once is by History, not just by the line: a project
+  // whose History already holds the migration commit — an Undo, a restore
+  // or a deleted line can leave LOGIC 0 without script.size again — opens
+  // untouched rather than gaining a second entry.
+  const scriptSizeMigration =
+    isRecognizedOriginal(data.files, data.library?.source) ||
+    history.capture().commits.some((commit) => commit.label === SCRIPT_SIZE_MIGRATION_LABEL)
+      ? null
+      : migrateScriptSize(openedDocuments);
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
