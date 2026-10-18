@@ -15,8 +15,8 @@ export function parseSentence(
   stripPunctuation = true,
 ) {
   // Spec "Parser normalization"; retain the interpreter's ASCII-only A-Z
-  // folding and per-profile punctuation handling (docs/fidelity.md "Wave-4
-  // parser verdicts", F-Parser-10).
+  // folding and per-profile punctuation handling (docs/fidelity.md "Parser
+  // verdicts, second pass", F-Parser-10).
   const folded = line.replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32));
   const normalized = stripPunctuation
     ? folded
@@ -37,7 +37,7 @@ export function parseSentence(
     // The word loop tests i >= 10 BEFORE each Match call and exits silently
     // across all 20 shipped PC, Amiga and IIgs profiles: tokens past the tenth
     // retained word are never examined, so an unknown word there is not
-    // reported and no eleventh text is kept (docs/fidelity.md "Wave-3 parser
+    // reported and no eleventh text is kept (docs/fidelity.md "Parser
     // verdicts").
     if (stopAtTenthWord && words.length >= 10) {
       tokens.push({ text: input[index++]!, id: undefined, status: "unread" });

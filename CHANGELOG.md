@@ -3,6 +3,32 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.2.5] - 2026-10-18
+
+### Added
+
+- Amiga and Apple IIgs games show their own screens: the Amiga's title bar,
+  menu strip, save and restore windows and pointer, and a picture that
+  dissolves in on both platforms instead of appearing at once.
+- An Apple IIgs game with its own AGIFONT file plays in it.
+- PC games offer a display choice in Settings → Advanced…: EGA everywhere,
+  and CGA RGB on builds 2.411 and later, with the authentic palette pairs.
+- `shake.screen` shakes the screen as the originals do.
+- Connected gamepads follow the game's own joystick controls, and on a
+  phone, Keys offers function, modified letter and fire-button keys.
+- A fidelity coverage table in the interpreter notes records the evidence
+  behind each aspect and the gaps: IIgs native menus and the Standard File
+  window, Hercules and composite displays, and the `.SAV` panel are planned.
+
+### Changed
+
+- PC and Amiga text draws with the project's own pixel-for-pixel
+  recreations of the original typefaces: the Tandy 1000 SX BIOS design on
+  PC, and Topaz 8 on the Amiga.
+- Police Quest's PC build 2.903 runs on the verified 2.917 profile it
+  matches, so its walkthrough replays under it.
+- History keeps up to 1,024 versions of a project and replays them faster.
+
 ## [1.2.4] - 2026-10-15
 
 ### Added

@@ -119,7 +119,7 @@ export const ACTION_HELP: Record<number, string> = {
   0x71: "Disable and clear the status line at its configured row.",
   0x72: "Copy the message into the selected 40-byte string slot.",
   0x73: "Clear the string slot, show the prompt, edit input at the optional row/column, and store at most min(maximum + 1, 40) bytes.",
-  0x74: "Copy the selected normalized parsed word into the string slot.",
+  0x74: "Copy the selected normalized parsed word into the string slot; index 0 is the first parsed word.",
   0x75: "Clear prior parser-match state and parse the string slot; invalid slots do nothing. Profiles 2.089, 2.230, and 2.272 expose slots 0..5; later profiles expose 0..11.",
   0x76: "Prompt for up to four decimal characters and store the accepted number's low 8 bits in the destination variable.",
   0x77: "Disable and clear the input line.",

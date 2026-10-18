@@ -864,7 +864,7 @@ test("script.size still replaces the shipped 50-pair default", () => {
     takeInputLine: () => null,
     takeKeys: () => [],
   });
-  engine.tick();
+  assert.doesNotThrow(() => engine.tick());
 });
 
 test("script.size drops the recorded pairs it already holds", () => {
@@ -894,7 +894,31 @@ test("script.size drops the recorded pairs it already holds", () => {
     takeInputLine: () => null,
     takeKeys: () => [],
   });
-  engine.tick();
+  assert.doesNotThrow(() => engine.tick());
+
+  // One pair too many for the new capacity throws the same overflow.
+  const overflow = createContainer();
+  overflow.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  overflow.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `load.view(1); load.view(1); script.size(2); load.view(1); load.view(1); load.view(1); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const overflowEngine = new Engine(overflow, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  assert.throws(() => overflowEngine.tick(), /2-pair capacity/);
 });
 
 test("script.size redraws every drawn object over text written since its draw", () => {

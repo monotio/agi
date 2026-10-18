@@ -52,26 +52,10 @@
  */
 
 import { buildView, type BuildCelInput, type BuildLoopInput, type BuildViewInput } from "./view.ts";
+import { EGA_TABLE } from "../runtime/colourTables.ts";
 
-/** The authentic 16-colour EGA palette, RGB, indexed by colour nibble. */
-export const EGA_PALETTE: readonly (readonly [number, number, number])[] = [
-  [0x00, 0x00, 0x00],
-  [0x00, 0x00, 0xaa],
-  [0x00, 0xaa, 0x00],
-  [0x00, 0xaa, 0xaa],
-  [0xaa, 0x00, 0x00],
-  [0xaa, 0x00, 0xaa],
-  [0xaa, 0x55, 0x00],
-  [0xaa, 0xaa, 0xaa],
-  [0x55, 0x55, 0x55],
-  [0x55, 0x55, 0xff],
-  [0x55, 0xff, 0x55],
-  [0x55, 0xff, 0xff],
-  [0xff, 0x55, 0x55],
-  [0xff, 0x55, 0xff],
-  [0xff, 0xff, 0x55],
-  [0xff, 0xff, 0xff],
-];
+/** The authentic 16-colour EGA palette, RGB, indexed by colour nibble (the shared table in colourTables.ts). */
+export const EGA_PALETTE: readonly (readonly [number, number, number])[] = EGA_TABLE;
 
 /**
  * Nearest EGA colour index for an RGB triple, by weighted squared distance

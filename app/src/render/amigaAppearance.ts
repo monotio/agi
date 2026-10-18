@@ -4,9 +4,9 @@
  * (docs/fidelity.md "Amiga screen, font and pointer").
  */
 import type { PaletteId } from "../../../src/runtime/profile.ts";
+import { tableForPaletteId } from "../../../src/runtime/colourTables.ts";
 import { AMIGA_DEPTH_GADGET_WIDTH, AMIGA_TITLE_BAR_ROWS, type Appearance } from "./look.ts";
 import { AMIGA_FONT, AMIGA_HAS_GLYPH } from "./fontAmiga.ts";
-import { paletteFor } from "./palette.ts";
 
 /**
  * The two screen depth gadgets, this project's own drawing of Kickstart
@@ -42,7 +42,7 @@ export const AMIGA_DEPTH_GADGETS: Uint8Array = (() => {
 /** The Amiga look for a build's colour table. */
 export function amigaAppearance(palette: PaletteId): Appearance {
   return {
-    palette: paletteFor(palette),
+    palette: tableForPaletteId(palette),
     font: AMIGA_FONT,
     hasGlyph: AMIGA_HAS_GLYPH,
     layout: "amiga",

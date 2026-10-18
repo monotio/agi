@@ -114,8 +114,8 @@ change. [Building with AI](docs/ai.md) covers templates, reviews, budgets and pr
 ## Save and share
 
 Games, saves and history live in your browser. The game's own Save and Restore keep their files in the app.
-Original `.SAV` files can be imported and exported for 19 of the 20 original interpreters
-(booter 2.001 saves whole disk sectors). The app also saves as you play, so **Resume** picks up
+The engine reads and writes original `.SAV` files for every build except the 2.001 booter;
+importing them in the app is planned. The app also saves as you play, so **Resume** picks up
 where you left off.
 
 | Settings → This game → **Download…** | What you get                                                                                                                                                                                                                       |
@@ -147,7 +147,7 @@ interpreter versions, and is published under
 ## Checked against the originals
 
 Every Sierra AGI game shipped with its own build of the interpreter, and the builds do not quite
-agree. The 20 original builds we read run as 18 profiles, because a few builds behave
+agree. The 22 original builds we read run as 18 profiles, because a few builds behave
 like a sibling build and share its profile. Police Quest's PC build 2.903 is one of them: it behaves
 like 2.917 on everything verified, so `EQUIVALENT_BUILDS`
 [maps it to the 2.917 profile](docs/fidelity.md#equivalent-builds-and-the-pc-booter). On a PC, a wandering guard whose countdown runs out walks 256 more steps before he turns; on

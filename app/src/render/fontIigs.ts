@@ -1,6 +1,7 @@
 /**
- * Project-drawn MIT IIgs game font. ASCII adapts our font8x8.ts drawings;
- * accents, Mac Roman symbols and replacement boxes are our own geometric art.
+ * Project-drawn MIT IIgs game font. ASCII adapts the recreated Tandy BIOS
+ * typeface in font8x8.ts; accents, Mac Roman symbols and replacement boxes
+ * are our own geometric art.
  * No original system-font bitmap is used to produce this table.
  *
  * Metrics from SQ2 1.014 (docs/fidelity.md "Apple IIgs presentation"):

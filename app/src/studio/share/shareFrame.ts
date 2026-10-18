@@ -2,7 +2,7 @@ import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 /**
  * The shared picture's frame: the authentic 320×200 screen, the 160×168
  * picture with each cell two pixels wide above a 32-row strip that carries
- * the caption card, all in the 16 EGA colours. The caption (the game and
+ * the caption card, all in the game's 16 colours. The caption (the game and
  * the room, the picture's size, the "AGI IS HERE." wordmark with its cyan
  * full stop) is drawn with the engine's own 8×8 font, as game text is. The
  * still is this frame at 2× as a PNG; renderClip.ts scales it for video.
