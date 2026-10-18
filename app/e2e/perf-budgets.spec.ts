@@ -224,7 +224,16 @@ test(
     // The bust is painted over the finished room, so it moves without changing
     // another item's art: from its chest (sceneArt.ts) 30 px across the floor.
     const pane = page.locator(".studio-pane").last();
-    const box = (await pane.boundingBox())!;
+    // Focus refits the stage: the pane still moves and resizes while the new
+    // size reaches the zoom. Measure only once the box holds still across a frame.
+    let box = (await pane.boundingBox())!;
+    await expect(async () => {
+      await nextFrame(page);
+      const next = (await pane.boundingBox())!;
+      const prev = box;
+      box = next;
+      expect(next).toEqual(prev);
+    }).toPass({ timeout: 10_000 });
     const zoom = box.height / 168;
     const cell = (x: number, y: number): [number, number] => [
       box.x + (x + 0.5) * 2 * zoom,

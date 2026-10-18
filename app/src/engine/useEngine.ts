@@ -47,9 +47,9 @@ import { clearCachedGame } from "../project/gameStorage.ts";
 import { resolveProgressTarget } from "../project/progressBinding.ts";
 import { createProjectPublication } from "./projectPublication.ts";
 import {
+  adoptStoredProject,
   advanceAuthoring,
   ResourceCommitError,
-  requireSaved,
   STALE_SAVE_MESSAGE,
   PROJECT_REMOVED_MESSAGE,
   watchProjectWrites,
@@ -525,11 +525,13 @@ export function useEngine(
       .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
         // A room can finish while these modules load. Open the confirmed
-        // stored body, including its files, source claims and generation.
-        if (!game.installed) {
-          const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+        // stored body, including its files, source claims and generation. A
+        // session already open for this game opened on it and checks each
+        // write's generation, so a publish may still be saving: storage is
+        // not asked again.
+        if (!game.installed && !(projectSession && !projectSession.closed)) {
+          await adoptStoredProject(game, STALE_SAVE_MESSAGE);
           if (!current()) return;
-          game.authoredGame = saved.data;
         }
         const admission = createMainProjectAdmission({
           ...grant,
@@ -634,11 +636,14 @@ export function useEngine(
   ): Promise<ProjectSession | null> {
     if (!game.authoredGame)
       throw new Error("The project is unavailable. Reopen the game to continue.");
-    if (!game.installed && game.authoredGame.projectHistory === undefined) {
+    if (
+      !game.installed &&
+      game.authoredGame.projectHistory === undefined &&
+      !(projectSession && !projectSession.closed)
+    ) {
       try {
-        const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+        await adoptStoredProject(game, STALE_SAVE_MESSAGE);
         if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
-        game.authoredGame = saved.data;
       } catch (error) {
         if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
         if (error instanceof ResourceCommitError && error.behindStorage) {
@@ -1400,9 +1405,16 @@ export function useEngine(
     }
     // The worker needs the saved cursor before granting a Play-booted game's
     // first editing lane; opening the main-thread session happens afterwards.
-    if (!game.installed && game.authoredGame.projectHistory === undefined) {
+    // A session already open for this game opened from a confirmed record,
+    // and its writes are generation-checked: its first commit may still be
+    // saving, so storage is not asked again.
+    if (
+      !game.installed &&
+      game.authoredGame.projectHistory === undefined &&
+      !(projectSession && !projectSession.closed)
+    ) {
       try {
-        const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+        await adoptStoredProject(game, STALE_SAVE_MESSAGE);
         if (
           change !== projectModeChange ||
           projectMode !== mode ||
@@ -1411,7 +1423,6 @@ export function useEngine(
           state.phase !== "running"
         )
           return false;
-        game.authoredGame = saved.data;
       } catch (cause) {
         if (
           change === projectModeChange &&

@@ -4,9 +4,7 @@ import { installPointerFrameMeasurement, measurePointerFrames } from "./gestureP
 import { buildView, parseView } from "../../src/view/view.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 
-test("fast strokes on a large cel keep every pixel within a frame @perf @webkit-desktop", async ({
-  page,
-}) => {
+test("fast strokes on a large cel keep every pixel within a frame @perf", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(installPointerFrameMeasurement);
   await start(page);

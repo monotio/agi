@@ -102,6 +102,10 @@ for (const width of [1440, 390]) {
   test(`native review survives Apply and opens its earlier preview with the composer intact ${width} ${width === 390 ? "@phone" : "@webkit-desktop"}`, async ({
     page,
   }) => {
+    // Two boots, an agent turn, Apply and a second review render: under the
+    // parallel suite's load each step slows and the story needs the room of
+    // the other long specs.
+    test.setTimeout(120_000);
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await starter(page);
     const composer = page.getByTestId("agent-message");

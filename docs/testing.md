@@ -432,12 +432,12 @@ animations, and phone WebKit runs with full motion; a test whose rule needs moti
 A tag at the end of a test title selects its extra or separate runs. Linux WebKit is one config,
 `app/playwright.webkit.config.ts`, with one project per WebKit tag:
 
-| Tag                 | Project          | Script                                      | Runs                                                                                                                         |
-| ------------------- | ---------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review.                           |
-| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.                            |
-| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Timing budgets, alone on one worker. The two specs also tagged `@webkit-desktop` run again inside the parallel WebKit suite. |
-| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                                             |
+| Tag                 | Project          | Script                                      | Runs                                                                                                          |
+| ------------------- | ---------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review.            |
+| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.             |
+| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Timing budgets, alone on one worker. The WebKit config skips `@perf`, so the tag wins over either WebKit tag. |
+| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                              |
 
 `npm --prefix app run e2e:webkit` runs both WebKit projects in one invocation. A test carrying both
 WebKit tags runs once in each project, and the config selects a tagged test from its existing

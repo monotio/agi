@@ -3,9 +3,7 @@ import { test, expect } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 
-test("large image frame drags keep pointer work within a frame @perf @webkit-desktop", async ({
-  page,
-}) => {
+test("large image frame drags keep pointer work within a frame @perf", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(installPointerFrameMeasurement);
   await isolateStorage(page);
