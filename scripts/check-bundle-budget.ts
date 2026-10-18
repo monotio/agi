@@ -160,9 +160,10 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // Room-flow analysis starts with the map or Create in a separate worker.
   // 1.2.1 left this group at 593.6 kB gzip, 499.5 kB brotli, and the warning
   // recurred on main. 1.2.5's platform looks, menu strip, CGA display and
-  // screen geometry in Play bring it to 610.9 kB gzip, 514.9 kB brotli; the
-  // warning recurred across that release's lanes.
-  js: { gzip: 615_000, brotli: 519_000 },
+  // screen geometry in Play bring it to 610.9 kB gzip, 514.9 kB brotli, and
+  // the release-review fixes (the CRT-warped menu pointer, the script buffer
+  // migration) to 617.2 kB gzip, 520.4 kB brotli; the warning recurred.
+  js: { gzip: 620_000, brotli: 523_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native
@@ -184,8 +185,9 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // engine worker: the Amiga menu strip and its save and restore windows,
   // the picture dissolve, and the PC display adapters with their CGA
   // tables and cel provenance. Measured 217.2 kB gzip, 180.0 kB brotli; the
-  // warning recurred on every lane of that release.
-  workers: { gzip: 220_000, brotli: 183_000 },
+  // authored script buffer floor brings it to 220.4 kB gzip, 182.6 kB
+  // brotli. The warning recurred on every lane of that release.
+  workers: { gzip: 223_000, brotli: 185_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {
