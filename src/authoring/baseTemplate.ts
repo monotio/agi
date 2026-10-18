@@ -59,6 +59,7 @@ export const BASE_TEMPLATE_LOGIC0_SOURCE = `#define C_MENU 200
 #message 16 "About"
 if (!isset(f200)) {
   set(f200);
+  script.size(200);
   configure.screen(1, 22, 0);
   status.line.on();
   set(sound_on);

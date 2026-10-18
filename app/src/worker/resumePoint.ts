@@ -1,15 +1,11 @@
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
-import {
-  asReleasedHostImage,
-  decodeHostImage,
-  decodeSave,
-} from "../../../src/runtime/persistence.ts";
+import { decodeHostImage, decodeSave } from "../../../src/runtime/persistence.ts";
+import { fingerprintMatchesReleased } from "./releasedHostImage.ts";
 import { fnv1a32 } from "../../../src/runtime/hash.ts";
 import {
   HISTORY_FINGERPRINT_VERSION,
   historyBootSemantic,
-  historyFingerprint,
   stampBoot,
   type HistoryBoot,
 } from "../../../src/agent/history.ts";
@@ -215,18 +211,7 @@ export function adoptResumePoint(
     }
     if (semantic.replay !== undefined) semantic.replay = candidate.captureReplayState();
     if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
-    let actual = historyFingerprint(semantic);
-    if (actual.hash !== boot.fingerprint.hash && semantic.image !== undefined) {
-      const releasedImage = asReleasedHostImage(base64ToBytes(semantic.image));
-      if (releasedImage !== null) {
-        const candidateFingerprint = historyFingerprint({
-          ...semantic,
-          image: bytesToBase64(releasedImage),
-        });
-        if (candidateFingerprint.hash === boot.fingerprint.hash) actual = candidateFingerprint;
-      }
-    }
-    if (actual.hash !== boot.fingerprint.hash)
+    if (!fingerprintMatchesReleased(semantic, boot.fingerprint))
       throw new Error("The saved moment could not be reproduced.");
   }
   const roomReentry =

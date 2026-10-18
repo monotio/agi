@@ -8,7 +8,18 @@ export function pruneProjectHistory(
   digest: ProjectDigest,
   limits: { readonly maxCommits?: number; readonly maxBytes?: number } = {},
 ): { readonly state: ProjectHistoryState; readonly removed: readonly string[] } {
-  const checked = checkProjectHistoryForPruning(state, digest);
+  return pruneCheckedProjectHistory(checkProjectHistoryForPruning(state, digest), limits);
+}
+
+/**
+ * Retention on a state the codec already admitted — the live history's own
+ * over-limit append, whose commits and blobs never left checked memory, so
+ * the codec's per-blob hashing does not repeat on every edit.
+ */
+export function pruneCheckedProjectHistory(
+  checked: ProjectHistoryState,
+  limits: { readonly maxCommits?: number; readonly maxBytes?: number } = {},
+): { readonly state: ProjectHistoryState; readonly removed: readonly string[] } {
   const maxCommits = limits.maxCommits ?? PROJECT_HISTORY_LIMITS.maxCommits;
   const byteCeiling = () =>
     commits.some((commit) =>

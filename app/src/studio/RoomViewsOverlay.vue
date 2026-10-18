@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { frameTask } from "../ui/frameTask.ts";
-import { onBeforeUnmount } from "vue";
 import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import type { RoomPlacement } from "../../../src/authoring/roomPlacements.ts";
 import type { GhostView } from "./useGhostProbe.ts";
 import type { Viewport } from "../../../src/studio/viewport.ts";
@@ -95,9 +94,18 @@ const drawn = computed(() =>
       priorityBase,
     });
     const masks: Record<number, Uint8Array> = {};
-    forEachPaintedPixel(picture, cel, x, y, result.drawPriority, (at, colour) => {
-      (masks[colour] ??= new Uint8Array(160 * 168))[at] = 1;
-    });
+    forEachPaintedPixel(
+      picture,
+      cel,
+      x,
+      y,
+      result.drawPriority,
+      (at, colour) => {
+        (masks[colour] ??= new Uint8Array(160 * 168))[at] = 1;
+      },
+      profile.originalCelBlitClippingAndPriorityMask ?? false,
+      profile.presentation !== "pc" ? 4 : null,
+    );
     const label = `${numberedLabel("object", figure.object, labels.value, "option")} · ${numberedLabel("view", figure.view!, labels.value, "option")} · ${figure.reason ?? `(${x}, ${y})`}`;
     return [
       {

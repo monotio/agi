@@ -35,16 +35,18 @@ import { compilePictureSource } from "../src/picture/source.ts";
 
 // fmt: off — every run is one source statement, annotated.
 const EXPECTED_LOGIC0_CODE: number[] = [
-  // if (!isset(f200)) { ... } — ff, not, isset(f200=0xc8), ff, delta over 92 bytes
+  // if (!isset(f200)) { ... } — ff, not, isset(f200=0xc8), ff, delta over 94 bytes
   0xff,
   0xfd,
   0x07,
   0xc8,
   0xff,
-  0x5c,
+  0x5e,
   0x00,
   0x0c,
   0xc8, // set(f200)
+  0x8e,
+  0xc8, // script.size(200) — the template's authored buffer raise
   0x6f,
   0x01,
   0x16,

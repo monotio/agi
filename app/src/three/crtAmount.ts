@@ -14,12 +14,8 @@ export function crtStage(amount: number, start: number, end: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Top-left screen UV to the frame sampled by the CRT; border clicks are outside. */
-export function crtFramePoint(
-  u: number,
-  v: number,
-  amount: number,
-): { x: number; y: number } | null {
+/** Top-left screen UV to the frame position sampled by the CRT, unclamped. */
+function crtFramePosition(u: number, v: number, amount: number): { x: number; y: number } {
   const glass = crtStage(amount, ...CRT_STAGES.glass);
   const cx = u * 2 - 1;
   const cy = v * 2 - 1;
@@ -27,6 +23,29 @@ export function crtFramePoint(
   const scale = (1 + overscan) * (1 + 2 * overscan);
   const x = ((cx * (1 + cy * cy * CRT_GLASS.curveX * glass) * scale + 1) / 2) * 320;
   const y = ((cy * (1 + cx * cx * CRT_GLASS.curveY * glass) * scale + 1) / 2) * 200;
-  if (x < 0 || x >= 320 || y < 0 || y >= 200) return null;
   return { x, y };
+}
+
+/** Top-left screen UV to the frame sampled by the CRT; border clicks are outside. */
+export function crtFramePoint(
+  u: number,
+  v: number,
+  amount: number,
+): { x: number; y: number } | null {
+  const point = crtFramePosition(u, v, amount);
+  if (point.x < 0 || point.x >= 320 || point.y < 0 || point.y >= 200) return null;
+  return point;
+}
+
+/**
+ * The frame pixel a screen UV lands on under the CRT, clamped to the frame:
+ * Intuition's own pointer never leaves the screen, so the menu strip reads the
+ * edge rows even when the glass puts the pointer past them.
+ */
+export function crtFramePixel(u: number, v: number, amount: number): { x: number; y: number } {
+  const point = crtFramePosition(u, v, amount);
+  return {
+    x: Math.min(319, Math.max(0, Math.floor(point.x))),
+    y: Math.min(199, Math.max(0, Math.floor(point.y))),
+  };
 }

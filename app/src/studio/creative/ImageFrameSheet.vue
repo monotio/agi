@@ -403,7 +403,6 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
     }
     if (!selected.value.includes(frame.id)) select(frame.id);
   } else {
-    gesturing.value = true;
     const region = drawFrameRegion(start, start, props.image, []);
     frame = {
       id: `frame-${serial++}`,
@@ -566,7 +565,7 @@ const thumbnails = computed(() => {
     const index = counts[frame.loop] ?? 0;
     counts[frame.loop] = index + 1;
     const cel = prepared.input.loops[loops.indexOf(frame.loop)]!.cels![index]!;
-    const key = `${cel.width}:${cel.height}:${cel.transparentColor}:${[...cel.pixels].join(",")}`;
+    const key = `${cel.width}:${cel.height}:${cel.transparentColor}:${palette.value.map((c) => c.join(",")).join(";")}:${[...cel.pixels].join(",")}`;
     const cached = previous[frame.id];
     if (cached?.key === key) {
       thumbnailCache[frame.id] = cached;

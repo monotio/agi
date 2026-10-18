@@ -15,7 +15,7 @@ import { detachedHost, replaceRun } from "./runSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
-import { asReleasedHostImage } from "../../../src/runtime/persistence.ts";
+import { fingerprintMatchesReleased, recordedHostImageVersion } from "./releasedHostImage.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
@@ -26,7 +26,6 @@ import {
   HISTORY_FORMAT_VERSION,
   historyAnchorSemantic,
   historyBootSemantic,
-  historyFingerprint,
   type HistoryAnchor,
   type HistoryCommittedPatch,
   type HistoryEvent,
@@ -271,8 +270,9 @@ export function openHistoryDrive(
     segment.sync.length > 0
       ? segment.sync.every((m) => m.state === undefined)
       : effectiveVersion < HISTORY_FORMAT_VERSION ||
-        (segment.boot.image !== undefined && base64ToBytes(segment.boot.image)[33] === 1) ||
-        (segment.anchors[0] !== undefined && base64ToBytes(segment.anchors[0].image)[33] === 1);
+        (segment.boot.image !== undefined && recordedHostImageVersion(segment.boot.image) === 1) ||
+        (segment.anchors[0] !== undefined &&
+          recordedHostImageVersion(segment.anchors[0].image) === 1);
 
   const events = segment.events;
   let ei = 0;
@@ -444,18 +444,7 @@ export function openHistoryDrive(
       ctx,
       anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
     );
-    let actual = historyFingerprint(semantic);
-    if (actual.hash !== fingerprint.hash && semantic.image !== undefined) {
-      const releasedImage = asReleasedHostImage(base64ToBytes(semantic.image));
-      if (releasedImage !== null) {
-        const candidateFingerprint = historyFingerprint({
-          ...semantic,
-          image: bytesToBase64(releasedImage),
-        });
-        if (candidateFingerprint.hash === fingerprint.hash) actual = candidateFingerprint;
-      }
-    }
-    if (actual.hash !== fingerprint.hash)
+    if (!fingerprintMatchesReleased(semantic, fingerprint))
       throw new Error(
         `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
       );

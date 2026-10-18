@@ -1980,6 +1980,11 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
   return result;
 }
 
+/** The host image's header version byte, or undefined below the header. */
+export function hostImageVersion(bytes: Uint8Array): number | undefined {
+  return bytes.length > HOST_IMAGE_MAGIC.length ? bytes[HOST_IMAGE_MAGIC.length] : undefined;
+}
+
 /**
  * Re-stamp a current host image with the released version-1 header byte when
  * its continuation carries no v2-only fields (`saved.window`), so a scratch

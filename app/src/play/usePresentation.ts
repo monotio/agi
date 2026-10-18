@@ -227,15 +227,18 @@ export function createPresentation() {
     const wanted = display;
     appearance = appearanceForProfile(id, files, wanted);
     look.value = appearanceForProfile(id, files);
-    void Promise.all([loadAppearance(id, files, wanted), loadAppearance(id, files)]).then(
-      ([next, own]) => {
+    void Promise.all([loadAppearance(id, files, wanted), loadAppearance(id, files)])
+      .then(([next, own]) => {
         if (request !== profileRequest) return;
         look.value = own;
         if (next === appearance) return;
         appearance = next;
         repaint();
-      },
-    );
+      })
+      .catch(() => {
+        // A failed chunk keeps the fallback look; the boot itself reports the
+        // failure, and the next resolveLook retries the dropped import.
+      });
   }
 
   /**

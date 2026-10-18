@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { frameTask } from "../ui/frameTask.ts";
-import { onBeforeUnmount } from "vue";
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { DrawStop } from "./useStudioReadout.ts";
 

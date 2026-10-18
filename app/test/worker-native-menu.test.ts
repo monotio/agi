@@ -1,4 +1,5 @@
 import { loadAppearance } from "../src/render/appearance.ts";
+import { crtFramePixel } from "../src/three/crtAmount.ts";
 // These synchronous state-machine tests begin after platform assets are ready.
 await loadAppearance("amiga-2.202");
 
@@ -216,4 +217,17 @@ test("the describe window's Cancel gadget withdraws the description prompt and s
     "nothing was written",
   );
   assert.equal(s.engine().vars[100], 0);
+});
+
+test("at CRT amount 1 a point over a pull-down row selects that row", () => {
+  const s = session();
+  s.send({ type: "menu", op: "open", x: 10, y: 3 });
+  // The pointer position the browser reports at the default glass: the CRT
+  // warp lands it on the Restore row (frame 12,25) — a linear map read the
+  // pointer's own position (30,35) and missed the row under it.
+  const point = crtFramePixel(0.0955, 0.178, 1);
+  assert.equal(point.x, 12);
+  assert.equal(point.y, 25);
+  s.send({ type: "menu", op: "move", x: point.x, y: point.y });
+  assert.equal(s.frame().menu?.pulldown?.highlighted, 1, "the row under the warped point selects");
 });

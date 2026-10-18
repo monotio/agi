@@ -136,6 +136,8 @@ export function validateJoystickState(value: unknown): JoystickReplayState {
 export interface EngineReplayState {
   joystick?: JoystickReplayState;
   amigaRegion?: "ntsc" | "pal";
+  /** The PC display the recorded session ran on (src/runtime/display.ts); absent is EGA. */
+  pcDisplay?: "cga-rgb";
   /** The PC monitor type after toggle.monitor changed it (src/runtime/display.ts). */
   monitorType?: number;
   /** Present once set.pri.base has replaced the default priority table (PriToY). */
@@ -516,6 +518,7 @@ export function validateEngineReplayState(
   ];
   const optional = [
     "amigaRegion",
+    "pcDisplay",
     "monitorType",
     "priorityTableRebuilt",
     "booterClockPhase",
@@ -528,6 +531,8 @@ export function validateEngineReplayState(
     throw new Error("Replay priority table marker must be true.");
   if (s["amigaRegion"] !== undefined && s["amigaRegion"] !== "pal" && s["amigaRegion"] !== "ntsc")
     throw new Error("Replay region must be ntsc or pal.");
+  if (s["pcDisplay"] !== undefined && s["pcDisplay"] !== "cga-rgb")
+    throw new Error("Replay display must be cga-rgb.");
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
   const objectExtras = array(s["objectExtras"], 256, (v) => {
     const o = record(v, ["priority"]);
@@ -562,6 +567,7 @@ export function validateEngineReplayState(
     throw new Error("Replay joystick calibration is missing its window.");
   return {
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
+    ...(s["pcDisplay"] === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
     ...(s["monitorType"] !== undefined ? { monitorType: number(s["monitorType"], 0, 4) } : {}),
     ...(s["priorityTableRebuilt"] === true ? { priorityTableRebuilt: true as const } : {}),
     ...(s["booterClockPhase"] !== undefined
