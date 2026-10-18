@@ -232,17 +232,18 @@ test("two tabs opening the same older game store exactly one migration", async (
 
 test("closing before the migration write commits, then reopening, migrates once", async () => {
   const projectId = await storedProject("script-size-close");
-  let writing = false;
+  let started!: () => void;
+  const writing = new Promise<void>((resolve) => {
+    started = resolve;
+  });
   // The page closes while its write is still in flight: the write never lands.
   const session = await open(projectId, [], {
     write: () => {
-      writing = true;
+      started();
       return new Promise(() => {});
     },
   });
-  // The save waits for its debounce before writing.
-  for (let i = 0; i < 300 && !writing; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(writing, "the migration reached its storage write");
+  await writing;
   assert.notEqual(session.saveStatus().state, "saved", "the write had not committed");
   session.dispose();
   assert.equal(migrationCommits((await loadAuthoredGame(projectId))!), 0);
@@ -258,8 +259,15 @@ test("closing with the migration journaled recovers it once on reopen", async ()
   const projectId = await storedProject("script-size-journal");
   const admitted: Admitted = [];
   const session = await open(projectId, admitted);
-  for (let i = 0; i < 50 && admitted.length === 0; i++)
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  // The session holds the admitted migration once its model takes it.
+  const migrated = () =>
+    /script\.size\(200\);/.test(String(session.model.capture().read("logic:0")!.content));
+  await new Promise<void>((resolve) => {
+    if (migrated()) resolve();
+    session.subscribe(() => {
+      if (migrated()) resolve();
+    });
+  });
   assert.deepEqual(admitted, [[200]]);
   runFrames();
   session.dispose();
