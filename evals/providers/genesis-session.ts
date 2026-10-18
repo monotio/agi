@@ -14,6 +14,7 @@ import { assertLiveEnv } from "../lib/live-guard.ts";
 import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
 import { buildProjectZip } from "../../app/src/archive/projectArchive.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
+import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../../src/agent/baseTemplate.ts";
 import { validateGenesis } from "../../src/agent/playtest.ts";
 import { RESOURCE_KINDS } from "../../src/types.ts";
 
@@ -425,6 +426,11 @@ export async function runGenesisSession(options: GenesisOptions) {
           ? firstRequest.body?.reasoning?.effort
           : firstRequest.body?.output_config?.effort) ?? null,
       promptVariant: options.promptVariant ?? "lean",
+      // The base template revision this build of the harness seeded, so the
+      // matrix compares the run's logic 0 against the template it saw rather
+      // than inferring the revision from the payload (a model deletion of a
+      // template line would look like the old template).
+      template: { logic0Sha256: sha256(BASE_TEMPLATE_LOGIC0_SOURCE) },
       completion,
       ...(runError ? { error: runError } : {}),
       firstResponseInputTokens: usageTurns[0]?.input ?? null,

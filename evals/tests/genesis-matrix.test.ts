@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -87,4 +88,41 @@ test("a model edit to logic 0 still counts as modified", () => {
   const info = logic0Analysis(BASE_TEMPLATE_LOGIC0_SOURCE.replace("  status.line.on();\n", ""));
   assert.equal(info.templateStatus, "modified");
   assert.deepEqual(info.templateDelta, { changedMessages: [], addedInsns: [], removedInsns: 1 });
+});
+
+/**
+ * A run whose report declares the template it seeded is compared against
+ * that declared revision: deleting script.size(200) from the current
+ * template is a model edit, not the old template.
+ */
+const sha256 = (source: string) => createHash("sha256").update(source).digest("hex");
+const declaredLogic0Analysis = (source: string, seededSource: string | null) => {
+  const payload = assemble(source);
+  const template = assemble(
+    logic0TemplateSource(
+      payload,
+      NO_WORDS,
+      seededSource === null ? "f".repeat(64) : sha256(seededSource),
+    ),
+  );
+  return analyzeLogic(0, payload, NO_WORDS, new Map([[0, template]]));
+};
+
+test("a run that deleted script.size from the current template counts as modified", () => {
+  const info = declaredLogic0Analysis(WITHOUT_SCRIPT_SIZE, BASE_TEMPLATE_LOGIC0_SOURCE);
+  assert.equal(info.templateStatus, "modified");
+  assert.deepEqual(info.templateDelta, { changedMessages: [], addedInsns: [], removedInsns: 1 });
+});
+
+test("a run declaring the pre-script.size template is unmodified", () => {
+  assert.equal(
+    declaredLogic0Analysis(WITHOUT_SCRIPT_SIZE, WITHOUT_SCRIPT_SIZE).templateStatus,
+    "identical",
+  );
+});
+
+test("a run declaring an unknown template revision compares against the current one", () => {
+  // The unknown-revision fallback is the current template, not payload
+  // inference: a logic 0 without script.size still counts as edited.
+  assert.equal(declaredLogic0Analysis(WITHOUT_SCRIPT_SIZE, null).templateStatus, "modified");
 });

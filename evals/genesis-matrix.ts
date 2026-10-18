@@ -31,6 +31,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -819,11 +820,36 @@ function analyzeSession(ref: RunRef) {
   };
 }
 
+const templateWithoutScriptSize = (source: string) =>
+  source.replace(/^[ \t]*script\.size\(\d+\);\r?\n/m, "");
+const templateWithLegacyWordIndex = (source: string) =>
+  source.replace(
+    /word\.to\.string\(s11, (\d+)\);/g,
+    (_, idx: string) => `word.to.string(s11, ${Number(idx) + 1});`,
+  );
 /**
- * The base template logic 0 source a run started from, recovered from the
- * run's own logic 0 so a later template change is not counted as a model edit.
- * Each historical template revision is detected independently, so a run may
- * need several of these adjustments:
+ * Every logic 0 template revision a run may declare in its report, each
+ * expressed as adjustments to the current source. A future template change
+ * adds its revision here; reports that declare a hash none of these match
+ * compare against the current template, so an unrecognized revision counts
+ * as edited rather than passing as an unmodified old template.
+ */
+const LOGIC0_TEMPLATE_REVISIONS: readonly string[] = [
+  BASE_TEMPLATE_LOGIC0_SOURCE,
+  templateWithoutScriptSize(BASE_TEMPLATE_LOGIC0_SOURCE),
+  templateWithLegacyWordIndex(BASE_TEMPLATE_LOGIC0_SOURCE),
+  templateWithLegacyWordIndex(templateWithoutScriptSize(BASE_TEMPLATE_LOGIC0_SOURCE)),
+];
+
+/**
+ * The base template logic 0 source a run started from. A report written
+ * since `template.logic0Sha256` exists declares the seeded revision's hash
+ * exactly — a run whose model deleted `script.size` still declares the
+ * current template and counts as modified. Reports without the field are
+ * the committed 1.0.0 snapshot runs, whose template predates both
+ * adjustments; for them the revision is reconstructed from the run's own
+ * logic 0 payload so a later template change is not counted as a model
+ * edit:
  * - Historical 1.0.0 runs started from the pre-F-Parser-09 template that
  *   passed 1..11 to word.to.string.
  * - Runs before the template set the script buffer in its boot block have no
@@ -832,18 +858,22 @@ function analyzeSession(ref: RunRef) {
 export function logic0TemplateSource(
   logic0Payload: Uint8Array | null,
   synthDict: ReadonlyMap<string, number>,
+  seededLogic0Sha256?: string,
 ): string {
+  if (seededLogic0Sha256 !== undefined)
+    return (
+      LOGIC0_TEMPLATE_REVISIONS.find(
+        (source) => createHash("sha256").update(source).digest("hex") === seededLogic0Sha256,
+      ) ?? BASE_TEMPLATE_LOGIC0_SOURCE
+    );
   const insns =
     logic0Payload === null ? [] : decodeLogicInsns(logic0Payload, { dictionary: synthDict });
   const action = (name: string) => insns.filter((i) => i.kind === "action" && i.name === name);
   let source = BASE_TEMPLATE_LOGIC0_SOURCE;
   if (action("word.to.string").some((i) => i.args?.[1] === 11))
-    source = source.replace(
-      /word\.to\.string\(s11, (\d+)\);/g,
-      (_, idx: string) => `word.to.string(s11, ${Number(idx) + 1});`,
-    );
+    source = templateWithLegacyWordIndex(source);
   if (logic0Payload !== null && action("script.size").length === 0)
-    source = source.replace(/^[ \t]*script\.size\(\d+\);\r?\n/m, "");
+    source = templateWithoutScriptSize(source);
   return source;
 }
 
@@ -855,6 +885,8 @@ interface RunReport {
   effort?: string;
   effectiveEffort?: string | null;
   promptVariant?: string;
+  /** The template revision the run seeded, when the report declares it. */
+  template?: { logic0Sha256?: string };
   completion?: boolean;
   playtest?: { room?: number; simulation?: string; success?: boolean };
   usage?: { input?: number; cachedInput?: number; cacheWriteInput?: number; output?: number };
@@ -887,7 +919,7 @@ function analyzeRun(ref: RunRef, outCaseDir: string, brief: Brief | null) {
   const logic0Payload = container.getResource("logic", 0);
   const templateBytes = new Map<number, Uint8Array>();
   for (const [num, source] of [
-    [0, logic0TemplateSource(logic0Payload, synthDict)],
+    [0, logic0TemplateSource(logic0Payload, synthDict, report.template?.logic0Sha256)],
     [TEMPLATE_DEATH_LOGIC, BASE_TEMPLATE_DEATH_LOGIC_SOURCE],
   ] as const) {
     try {
