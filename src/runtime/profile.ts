@@ -383,7 +383,7 @@ export interface AgiProfile {
   /**
    * The word loop tests the retained-word count BEFORE each match and exits
    * silently at ten: tokens past the tenth are never examined, so an unknown
-   * word there is not reported (docs/fidelity.md "Wave-3 parser verdicts").
+   * word there is not reported (docs/fidelity.md "Parser verdicts").
    */
   readonly parserStopsAtTenthWord: boolean;
   /**
@@ -391,15 +391,15 @@ export interface AgiProfile {
    * 'a' or 'i' before scanning the dictionary section, so lone 'a' and 'i'
    * default to group 0 (ignored) when absent from WORDS.TOK while an explicit
    * dictionary entry still overrides it: true across every PC, Amiga and IIgs
-   * profile except 2.001 (docs/fidelity.md "Wave-3 parser verdicts", F-Parser-07).
+   * profile except 2.001 (docs/fidelity.md "Parser verdicts", F-Parser-07).
    */
   readonly parserDefaultsLoneAAndI: boolean;
   /**
    * MakeLine classifies ",.?!();:[]{}" as word separators and drops "'`-\""
    * without splitting across PC 2.089..3.002.149, Amiga 2.082..2.333, and IIgs
    * 1.014; on PC 2.001 MakeLine (0x1901) collapses space runs only and FindWord
-   * (0x1961) requires a space or NUL after a match (docs/fidelity.md "Wave-4
-   * parser verdicts", F-Parser-10).
+   * (0x1961) requires a space or NUL after a match (docs/fidelity.md "Parser verdicts,
+   * second pass", F-Parser-10).
    */
   readonly parserStripsPunctuation: boolean;
   /**
@@ -666,7 +666,7 @@ export interface AgiProfile {
    * The original restart/restore contract: the restart/quit prompts carry
    * the original wording, the authentic restore tail clears controllers and
    * leaves v19/f2/f4 untouched, and input acceptance survives restart
-   * (docs/fidelity.md "Wave-3 persistence verdicts").
+   * (docs/fidelity.md "Persistence verdicts").
    */
   readonly originalRestartRestore: boolean;
   /**
@@ -674,18 +674,9 @@ export interface AgiProfile {
    * conditional f11 after reading the save blocks: true in PC 2.903..3.002.149
    * and false in PC 2.001..2.440, Amiga 2.082..2.333, and IIgs 1.014, where
    * the save file's machine variables remain untouched (docs/fidelity.md
-   * "Wave-3 persistence verdicts", F-persistence-03).
+   * "Persistence verdicts", F-persistence-03).
    */
   readonly restoreRewritesMachineState: boolean;
-  /**
-   * Whether the restart prompt saves CursorState before EraseCur and restores
-   * cursor visibility on cancel only when it was visible on entry: true in PC
-   * v3 (3.002.086..3.002.149) and false in PC v2, Amiga, and IIgs. In all
-   * builds CancelLine runs only on the accepted branch, so a declined restart
-   * preserves the typed command line across every profile (docs/fidelity.md
-   * "Wave-3 persistence verdicts", F-persistence-02).
-   */
-  readonly restartCursorMemory: boolean;
   /**
    * Replay-pair capacity of a game that never calls script.size: the shipped
    * interpreter data image holds SCRIPTSIZE = 0x0032 (50 pairs) across every
@@ -714,7 +705,7 @@ export interface AgiProfile {
    * sound() runs StopSnd FIRST — setting the interrupted sound's done flag —
    * then reads the operands, resets the new done flag, and only then can the
    * lookup fault across every PC, Amiga, and IIgs build (docs/fidelity.md
-   * "Wave-3 sound verdicts").
+   * "Sound verdicts").
    */
   readonly soundStopsBeforeFault: boolean;
   /** Representative PC sound hardware; docs/fidelity.md "PCjr and Tandy noise". */
@@ -803,7 +794,6 @@ const BASE_2936: AgiProfile = {
   restartPromptBypassedByF16: true,
   originalRestartRestore: true,
   restoreRewritesMachineState: true,
-  restartCursorMemory: false,
   defaultScriptBufferPairs: 50,
   scriptSizeResetsSequence: true,
   heapDiagnosticExtraLine: true,
@@ -856,7 +846,6 @@ const BASE_V3: AgiProfile = {
   directoryAbsence: "exact-fff",
   menuInteractionGate: true,
   patternProfile: "v3-center-row",
-  restartCursorMemory: true,
   saveBlock3Xor: true,
 };
 
@@ -926,7 +915,6 @@ const BASE_AMIGA_31X: AgiProfile = {
   // Fields not listed here were checked against the handlers and match the
   // base; docs/fidelity.md "Amiga profile fields verified from the handlers".
   restoreRewritesMachineState: false,
-  restartCursorMemory: false,
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
   heapDiagnosticExtraLine: false,

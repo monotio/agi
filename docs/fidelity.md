@@ -110,8 +110,8 @@ below.
 | Logic and opcodes             | [binary-decoded](#original-input-menu-and-modal-handling)                                                               | [binary-decoded](#amiga-interpreter-profiles)                                                                                   | [binary-decoded](#dispatch-bounds-fact)                                                                                                                            |
 | Pictures and priority         | [binary-decoded](#original-picture-drawing-and-fill)                                                                    | [binary-decoded](#original-picture-drawing-and-fill)                                                                            | [binary-decoded](#original-amiga-and-iigs-pattern-brushes)                                                                                                         |
 | Sprites and cels              | [binary-decoded](#original-cel-handling-and-priority-table)                                                             | [binary-decoded](#original-cel-handling-and-priority-table)                                                                     | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                        |
-| Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font is a [pixel-for-pixel recreation](#text-beyond-ascii) | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
-| Palette and display adapters  | [binary-decoded](#pc-fonts-and-display-adapters) (every adapter's dispatch verified; not every adapter offered)         | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
+| Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font [recreates the Tandy 1000 SX BIOS design pixel for pixel](#text-beyond-ascii); IBM-BIOS machines draw a different design, not yet recreated | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
+| Palette and display adapters  | [binary-decoded](#pc-fonts-and-display-adapters) (the DOS overlays' dispatch verified; the 2.001 booter's adapter census is open; not every adapter offered) | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
 | Screen geometry               | [binary-decoded](#original-window-and-status-line-text)                                                                 | binary-decoded, [MAME cross-checked](#amiga-screen-font-and-pointer)                                                            | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
 | Menus                         | [binary-decoded](#original-input-menu-and-modal-handling) (interaction; layout from the specification)                  | binary-decoded, [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                                                 | binary-decoded, [MAME cross-checked](#apple-iigs-presentation); native menus not yet reproduced                                                                    |
 | Save and restore dialogs      | [binary-decoded](#original-save-and-restart-audit) (files, timing and keys; selector from the specification)            | binary-decoded, [MAME cross-checked](#original-amiga-save-and-restore-dialogs)                                                  | binary-decoded, [MAME cross-checked](#original-save-file-interoperability); the Standard File window not yet reproduced                                            |
@@ -131,6 +131,11 @@ Planned for a later release:
 - Hercules and CGA composite displays (their
   [adapter routines](#original-shakescreen-and-picture-reveal) are decoded;
   the app offers EGA and CGA RGB)
+- under CGA RGB, `shake.screen` moves the frame as under EGA; the original's
+  [CRTC sync-register nudge](#original-shakescreen-and-picture-reveal) is not
+  reproduced
+- the IBM PC BIOS 8 × 8 design for EGA and CGA (the recreated font is the
+  [Tandy 1000 SX design](#pc-fonts-and-display-adapters))
 - the Apple IIgs
   [native menus and the Standard File window](#apple-iigs-presentation)
 - resumable checkpoints taken while a native menu is open
@@ -142,7 +147,7 @@ Planned for a later release:
 - PC joystick 9-tick polling
   ([F-IN-17](#original-input-menu-and-modal-handling))
 - rare behavior on unusual input — memory overreads and stack exhaustion that
-  [no shipped game reaches](#remaining-original-behavior-evidence)
+  [no shipped game is known to reach](#remaining-original-behavior-evidence)
 
 ## Profile selection
 
@@ -916,7 +921,7 @@ names its builds, method and addresses, then the engine mapping and tests.
   [booter sound rows](#pc-booter-sound-rows),
   [early PC family (2.089/2.230/2.272)](#early-pc-family-208922302272),
   [script capacity and version handlers](#original-script-capacity-and-version-handlers)
-- **Wave-3 disassembly audits:**
+- **Screen, input and resource audits:**
   [directory and resource loading](#original-directory-and-resource-loading),
   [input, menu and modal handling](#original-input-menu-and-modal-handling),
   [window and status-line text](#original-window-and-status-line-text),
@@ -964,7 +969,8 @@ mh1          ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e
 gr1          12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41
 ```
 
-Wave-3 static-disassembly inputs (disassembled, not RNG-executed; shipped
+Static-disassembly inputs for the screen, input and resource audits
+(disassembled, not RNG-executed; shipped
 files and decoded images hashed in full; Amiga and IIgs executable hashes are
 in their own sections below):
 
@@ -994,8 +1000,8 @@ gr1-dos-3.002.149 AGIDATA    914990f09b49109a34d511011c7764abb5575581fbc190c8ceb
 ```
 
 With the carry-correct loader decoding, the KQ1, KQ2, KQ3 and BC images all
-execute correctly, including their wander routines. Every Wave-3 behavior
-change that modifies shipped profile behavior is verified across all twenty
+execute correctly, including their wander routines. Every behavior change in
+these audits that modifies shipped profile behavior is verified across all twenty
 shipped interpreter profiles from their own binaries; observational `F-*` notes
 that confirm existing engine behavior or record single-build diagnostics name
 the specific builds inspected.
@@ -1187,7 +1193,7 @@ Full-machine boot, asynchronous interrupt arrival inside arbitrary instructions,
 BIOS/PIT wall-time accuracy and successful disk-transfer latency remain outside
 this probe's evidence.
 
-#### Wave-3 timer verdict
+#### Timer verdict
 
 - **F-timing-03 (fact; engine matches on 2.089..3.002.149).** PC timer cadence:
   every build from 2.089 programs PIT channel 0 with the bytes
@@ -1505,7 +1511,7 @@ python scripts/probe-interpreter-motion.py games/mh1/AGI --profile 3.002.107
 python scripts/probe-interpreter-motion.py games/gr1/AGI --profile 3.002.149
 ```
 
-#### Wave-3 motion verdicts
+#### Motion verdicts
 
 Static disassembly of the decoded KQ3 2.936 image (`4b50c681…`, runtime
 offsets) and the KQ4 3.002.086 code body (`f05abff4…`, body offsets); quoted
@@ -1649,7 +1655,7 @@ directly off the machine code; each entry names the finding it settles.
   live in list DS:0x1703, touched only by whole-screen routines — no
   per-frame redraw of stopped-update objects.
 
-#### Wave-4 motion verdicts
+#### Motion verdicts, second pass
 
 Static disassembly of the decoded KQ3 2.936 image (`4b50c681…`, runtime
 offsets), the Amiga hunk executables (`2.082..2.333`), and IIgs `SQ2.SYS16`
@@ -1996,7 +2002,7 @@ room's `posn` test covers the doorway.
 **Tests:** [opcodes.test.ts](../test/opcodes.test.ts); the SQ1 walkthrough crosses
 room 3.
 
-#### Wave-3 add.to.pic verdicts
+#### add.to.pic verdicts
 
 Static disassembly of the 15 PC executables (MZ body offsets; inputs: `ddp-booter` decoded
 `424da51a…` for 2.001, `sq1-dos-2.089` 2.089, `xmas-dos-2.230` 2.230, `xmas-dos-2.272` 2.272,
@@ -2254,7 +2260,7 @@ engine applies the formatting to every profile by inference.
 
 **Tests:** [opcodes.test.ts](../test/opcodes.test.ts).
 
-#### Wave-3 show.obj verdict
+#### show.obj verdict
 
 - **F-VIEWS-10 (fact; engine matches).** show.obj geometry and draw order (PC
   ShowObj core: 2.001 0x542c, 2.089 0x57aa, 2.230 0x56f7, 2.272 0x5793, 2.411
@@ -2275,10 +2281,10 @@ cel.width) / 2)` at baseline 167 with priority 15 and blits the cel onto the
   picture surface before opening the modal description window, restoring the
   saved picture region when the modal is dismissed.
 
-#### Wave-4 view verdicts
+#### View verdicts, second pass
 
 Static disassembly of the 15 PC executables and six Amiga executables listed under
-[Wave-3 add.to.pic verdicts](#wave-3-addtopic-verdicts), plus the `IBM_OBJS.OVL` overlays of
+[add.to.pic verdicts](#addtopic-verdicts), plus the `IBM_OBJS.OVL` overlays of
 KQ2, BC, LSL1, PQ1, MUMG, KQ1, KQ3, KQ4, DEMOPAC4 and MH1. Apple IIgs `1.014` was not
 re-verified in this pass.
 
@@ -2441,7 +2447,7 @@ matching is observed behavior, not a recommendation for generated story code.
 python scripts/probe-interpreter-input.py games/gr1/AGI games/gr1/AGIDATA.OVL
 ```
 
-#### Wave-3 parser verdicts
+#### Parser verdicts
 
 Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
 3.002.149; WORDS.TOK handling cross-checked against the shipped files.
@@ -2533,7 +2539,7 @@ Static disassembly of KQ1 2.917, KQ4 3.002.086 (body offsets) and GR1
   `parserDefaultsLoneAAndI: false`) has no pre-check and requires `'a'`/`'i'` to
   appear in `WORDS.TOK`.
 
-#### Wave-4 parser verdicts
+#### Parser verdicts, second pass
 
 Static disassembly of DDP 2.001 (`424da51a…`), SQ1-dos 2.089 (`e31e5e86…`),
 XMAS 2.230 (`875547de…`), XMAS 2.272 (`a0c26b5d…`), KQ2 2.411 (`d99938d6…`),
@@ -2817,7 +2823,7 @@ branch so a declined prompt completes the flag. SQ2 2.936's restart intercept
 list (in the [save and restart audit](#original-save-and-restart-audit)) contains
 the same 0x5234 helper, consistent with the shared 2.936 core.
 
-#### Wave-3 sound verdicts
+#### Sound verdicts
 
 Static disassembly of KQ2 2.411, LSL1 2.440 and XMAS 2.272 (`a0c26b5d…`).
 
@@ -2933,7 +2939,7 @@ SQ2 and 1,156 for GR1, so this is not a no-op read/write probe.
 Accepted restart was executed for RNG `[0,1,0xbeef,0xffff]` with f9 both clear
 and set. It preserves RNG and f9, clears both DS timing words 0x129 and 0x12b
 (initially 123 and 456), and sets f6. (See the correction in
-[Wave-3 persistence verdicts](#wave-3-persistence-verdicts): ResetAll also
+[Persistence verdicts](#persistence-verdicts): ResetAll also
 sets f5 on the accepted restart path.) Original variable/flag clears and object
 reset execute. No reseed occurs in this measured reset path, including when
 RNG is zero. The two builds passed 24 combined save/restore and restart cases.
@@ -3280,7 +3286,7 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
-#### Wave-3 persistence verdicts
+#### Persistence verdicts
 
 Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
 3.002.149; strings read from the hash-pinned data segments.
@@ -3291,27 +3297,29 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   ClearControl (50B), aniObj zero-fill. The fill starts at DS+0x09 — gameID
   (DS+0x02), keyMap (DS+0x145) and userStr (DS+0x20D) survive restart; only
   the boot-time data image initializes them.
-- **F-persistence-02 (fact; engine matches).** Restart prompt cursor and
-  `CancelLine` ordering (PC `RestartGame`: `2.001` `0x2176`, `2.089` `0x22ab`,
-  `2.230` `0x21ed`, `2.272` `0x2289`, `2.411` `0x2366`, `2.439` `0x236c`,
-  `2.440` `0x2374`, `2.903` `0x246d`, `2.915`/`2.917`/`2.936` `0x2472`,
-  `3.002.086` `0x272b`, `3.002.102`/`3.002.107` `0x2741`, `3.002.149` `0x26e0`;
-  Amiga: `2.082` `h45+0x000`, `2.176..2.333` `h63+0x000`; IIgs `1.014`
-  `seg2+0x01e8`): in every binary, `CancelLine` is never called before the
-  confirmation prompt or on the cancelled branch; it runs only on the accepted
-  branch after `WaitAcAb != 0` or the `f16` bypass (e.g. `2.089` `0x22d1`,
-  `2.936` `0x24a8`, `3.002.149` `0x2721`, Amiga `2.082` `h45+0x052`,
-  `2.176..2.333` `h63+0x064`, IIgs `1.014` `seg2+0x0242`), so declining
-  `restart.game` leaves `INLINE` (`editLine`) and the typed command row intact
-  across all twenty profiles. For cursor visibility, all builds call `EraseCur`
-  before the prompt; PC `3.002.086..3.002.149` save `CursorState()` to `[bp-6]`
-  before `EraseCur` and at the tail call `WriteCur` if `[bp-2] != 0 || [bp-6]
-!= 0` (`restartCursorMemory: true`), whereas PC `2.089..2.936`, Amiga
+- **F-persistence-02 (fact; engine diverges on PC/IIgs).** Restart prompt
+  cursor and `CancelLine` ordering (PC `RestartGame`: `2.001` `0x2176`,
+  `2.089` `0x22ab`, `2.230` `0x21ed`, `2.272` `0x2289`, `2.411` `0x2366`,
+  `2.439` `0x236c`, `2.440` `0x2374`, `2.903` `0x246d`, `2.915`/`2.917`/`2.936`
+  `0x2472`, `3.002.086` `0x272b`, `3.002.102`/`3.002.107` `0x2741`,
+  `3.002.149` `0x26e0`; Amiga: `2.082` `h45+0x000`, `2.176..2.333`
+  `h63+0x000`; IIgs `1.014` `seg2+0x01e8`): in every binary, `CancelLine` is
+  never called before the confirmation prompt or on the cancelled branch; it
+  runs only on the accepted branch after `WaitAcAb != 0` or the `f16` bypass
+  (e.g. `2.089` `0x22d1`, `2.936` `0x24a8`, `3.002.149` `0x2721`, Amiga `2.082`
+  `h45+0x052`, `2.176..2.333` `h63+0x064`, IIgs `1.014` `seg2+0x0242`), so
+  declining `restart.game` leaves `INLINE` (`editLine`) and the typed command
+  row intact across all twenty profiles. For cursor visibility, all builds
+  call `EraseCur` before the prompt; PC `3.002.086..3.002.149` save
+  `CursorState()` to `[bp-6]` before `EraseCur` and at the tail call `WriteCur`
+  if `[bp-2] != 0 || [bp-6] != 0`, whereas PC `2.089..2.936`, Amiga
   `2.082..2.333`, and IIgs `1.014` call `WriteCur` unconditionally at the tail
-  (`restartCursorMemory: false`; PC `2.001` omits `WriteCur`). Engine:
-  `confirmSessionAction` leaves `editLine` untouched around the confirmation
-  window and clears it only in `restart()` when the prompt is accepted (fields
-  `originalRestartRestore` and `restartCursorMemory`).
+  (PC `2.001` omits `WriteCur`). Engine: `confirmSessionAction` leaves
+  `editLine` untouched around the confirmation window and clears it only in
+  `restart()` when the prompt is accepted (field `originalRestartRestore`);
+  `confirmCursor` is `"erased"` only on the Amiga profiles, so on PC and IIgs
+  the cursor stays visible through the prompt and the original's conditional
+  `WriteCur` is not reproduced.
 - **F-persistence-03 (fact; engine matches).** Restore tail (PC `RestoreGame`:
   `2.001` `0x21e8..0x22f2`, `2.089` `0x240a..0x24d1`, `2.230` `0x234c..0x2417`,
   `2.272` `0x23e8..0x24b3`, `2.411` `0x24c5..0x2590`, `2.439` `0x24cb..0x2596`,
@@ -3427,7 +3435,7 @@ Set(f11)` (PC `2.230..2.411` set `v22 = 3` and `f11 = 1` unconditionally;
 
 **Correction.** The audit narrative above reports the accepted restart path
 as setting f6 and lists f5 only among the startup writes; that reading
-stopped before the ResetAll tail. The wave-3 disassembly behind
+stopped before the ResetAll tail. The disassembly behind
 F-OPCORE-04-adjacent shows ResetAll executes `Set(f5)` on the accepted
 restart path across all twenty profiles (including kq3 2.936 0x0FA5, mh1
 3.002.107 0x11FA, gr1 3.002.149 0x11B3), so logic 0 observes f5=1 after
@@ -3552,11 +3560,11 @@ differences and otherwise inherits the earliest documented contracts:
   `inventoryListEndsOnAnyEvent: true` (`0x30b4`); `originalTextWindows: true` (`0x1ee9`);
   `parserStopsAtTenthWord: true` (`0x0767`); `originalInputCapacity: true` and
   `inputLineEditCap: "early-35"` (`0x3376`, fixed cap `0x23 = 35`);
-  `originalRestartRestore: true`, `restoreRewritesMachineState: false`, and
-  `restartCursorMemory: false` (`0x2176`, `0x21e8`); and
+  `originalRestartRestore: true` and `restoreRewritesMachineState: false`
+  (`0x2176`, `0x21e8`); and
   `soundStopsBeforeFault: true` (`0x4943`); the game's logic bytecode decodes completely within
   the earliest operand grammar.
-- Earlier 2.089-family baseline: pre-existing profile fields not re-probed in Wave 3 (exit operand
+- Earlier 2.089-family baseline: pre-existing profile fields not re-probed in this audit (exit operand
   count, string slots, key-map capacity, save block layout and block count) retain the earliest
   documented (2.089-family) value.
 
@@ -3672,7 +3680,7 @@ tick. A 2.001 sound of `n` rows with period `p` completes on tick `2 + (n - 1) *
 The addresses come from static disassembly of the decoded executable; no emulator run covers the
 chip device.
 
-#### Wave-3 booter sound verdict
+#### Booter sound verdict
 
 - **F-SOUND-01 (fact; engine matches the f9 gate; tick delivery
   diverges).** Booter f9 gate (2.001, ddp decoded
@@ -4223,7 +4231,7 @@ maxLength) >> 1` (`shr` = floor; slack non-negative via the verbose gate);
 ### Original picture drawing and fill
 
 Static disassembly of the 15 PC executables and six Amiga executables listed under
-[Wave-3 add.to.pic verdicts](#wave-3-addtopic-verdicts). Apple IIgs `1.014` addresses come from
+[add.to.pic verdicts](#addtopic-verdicts). Apple IIgs `1.014` addresses come from
 the earlier pass and were not re-verified. PC routine starts (MZ body offsets; `show.pic` and
 `show.pri.screen` are the action `0x1a` and `0x1d` entries of each build's `AGIDATA.OVL` table):
 
@@ -4352,7 +4360,8 @@ input stays queued for later.
 Engine: action `0x6e` opens a shake modal ([shake.ts](../src/runtime/shake.ts)) that the clock
 ends: PC steps last 66.7 ms, the others end at timer ticks. The worker posts each step's offset
 and IIgs colours, and the player's screen moves its whole frame by that offset inside a black,
-clipped screen, or recolours it. The adapter is EGA, the only PC display the app offers. Tests:
+clipped screen, or recolours it. Under CGA RGB the engine shakes as EGA does; the CRTC nudge is
+not reproduced. Tests:
 [shake.test.ts](../test/shake.test.ts) (each failed before the change),
 [worker-shake.test.ts](../app/test/worker-shake.test.ts) and
 [shake-screen.spec.ts](../app/e2e/shake-screen.spec.ts).
@@ -4459,7 +4468,7 @@ reached.
 ### Original cel handling and priority table
 
 Static disassembly of the 15 PC executables, the ten `IBM_OBJS.OVL` overlays and the six Amiga
-executables listed under [Wave-4 view verdicts](#wave-4-view-verdicts). Apple IIgs `1.014`
+executables listed under [View verdicts, second pass](#view-verdicts-second-pass). Apple IIgs `1.014`
 addresses come from the earlier pass and were not re-verified.
 
 - **F-VIEWS-01 (fact on PC and Amiga; engine matches).** Cel mirroring. MirrorCell tests the
@@ -4688,18 +4697,18 @@ false`). Engine: on the 2.230 profile (`packedViewLoopHeader: true`), the
   0x7615, 2.230 0x7598, 2.272 0x7634): the PSG path emits both tone bytes,
   then the control byte. On machType==2 (Tandy) the control byte first
   passes ConvertTDVolume (sq1 0x7657, 2.230 0x75DA; 2.272's instance is
-  owned by the Wave-3 entry): `(b & 0x90) == 0x90 && (b & 0x0F) < 8` raises
+  owned by the Sound verdicts entry): `(b & 0x90) == 0x90 && (b & 0x0F) < 8` raises
   the low nibble by 3. The mask matches the whole attenuation-latch family
   — 0x90/0xB0/0xD0/0xF0, all three tone channels AND the noise channel —
   not channel zero alone; tone and continuation bytes never match it. The
   engine applies the +3 to every channel's control byte under its
   early-2.089/early-2.272 families — the same scope. 2.272 additionally
   adds var[23] to the whole control byte with a signed clamp (owned by the
-  Wave-3 entry). Sound end silences all four channels with 9F BF DF FF
+  Sound verdicts entry). Sound end silences all four channels with 9F BF DF FF
   (selector|0x0F) written straight to port 0xC0 (sq1 0x75F6); on machType 0
   the stop routes a single 0x9F through the speaker path, the only control
   byte that path treats as a mute. (The 2.411/2.440 forms of the same rules
-  are under [Wave-3 sound verdicts](#wave-3-sound-verdicts).)
+  are under [Sound verdicts](#sound-verdicts).)
 - **F-Parser-03 (fact; engine matches).** said() tail terminator introduction
   point (sq1 2.089 `e31e5e86` Said 0x965 vs xmas 2.230 0x851): 2.089 has no
   0x270F immediate anywhere in the interpreter and gates the match on
@@ -5052,7 +5061,7 @@ h84), `defaultScriptBufferPairs` 50 and `scriptSizeResetsSequence` true (h116 /
 h160), `parserStopsAtTenthWord` true (h19+0x7c / h25+0x7c..0x80),
 `originalInputCapacity` true (h63+0x136 / h85+0x13c),
 `soundStopsBeforeFault` true (h97+0x3e / h135+0x54),
-`originalRestartRestore` true, `restartCursorMemory` false, and
+`originalRestartRestore` true and
 `restoreRewritesMachineState` false (h45/h47 and h63/h65), 2.082's `targetMotionDeferred` true,
 `inventorySelector` false, `pictureMaxCommand` 0xf8 and `patternProfile`
 none, and on 2.31x `menuInputAction`, `releaseGateAction`,
@@ -5174,11 +5183,14 @@ profiles, whose `drawInputRow` writes `s0 + edit + cursor`; `confirmCursor`
 is `"erased"` there, so the cursor leaves the row while a restart or quit
 confirmation is open and returns when it closes (every Amiga RestartGame
 calls EraseCur first and WriteCur unconditionally at the tail,
-F-persistence-02). The PC and IIgs profiles keep the engine's earlier
+F-persistence-02). The PC profiles keep the engine's earlier
 cursor-first row and cursor handling until their own input routines are
-read; the PQ1 2.936 frame in the mame-diff baseline shows a prompt glyph
-followed by the cursor, which is an observation, not a reading of the
-binary.
+read. On the IIgs the input routine is read
+(`seg2+0x19cd` under [Apple IIgs presentation](#apple-iigs-presentation))
+and shows the same `s0 + edit + cursor` order, so the engine's
+cursor-first row is a recorded divergence there. The PQ1 2.903 frame in
+the mame-diff baseline shows a prompt glyph followed by the cursor,
+which is an observation, not a reading of the PC binary.
 
 **Gadget labels (fact).** Each confirmation gadget's IntuiText has LeftEdge
 4 and TopEdge 2 inside the gadget (F-persistence-05-gadgets), so the label
@@ -6118,7 +6130,8 @@ a window. The PC and IIgs profiles keep the spec-derived selector. Tests:
 ### Original click-to-walk
 
 Every Amiga build and the Apple IIgs build start a click-move of ego on a
-left-button-down; the PC interpreters take no pointer input. Static
+left-button-down; the PC interpreters take no pointer input (inference:
+the decoded PC dispatch has no pointer path). Static
 disassembly of the executables listed under
 [Amiga interpreter profiles](#amiga-interpreter-profiles) and
 [Apple IIgs interpreter (SQ2 1.014)](#apple-iigs-interpreter-sq2-1014) (GR 2.316 first, the
@@ -6886,7 +6899,7 @@ false, `targetMotionDeferred` false, `inventorySelector` true,
 `originalTextWindows` true (`seg2+0x2bcb..0x2c13`) and `statusLineFormat` `common`
 (`statusseg+0x07a1..0x0861`),
 `parserStopsAtTenthWord` true (`main+0x1f35`), `originalInputCapacity` true
-(`seg2+0x16f8..0x1726`), `originalRestartRestore` true and `restartCursorMemory` false
+(`seg2+0x16f8..0x1726`), `originalRestartRestore` true
 (`seg2+0x01e8`, `savegameseg+0x036e`), and `soundStopsBeforeFault` true
 (`soundseg+0x004a`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.
@@ -7578,16 +7591,18 @@ only concise findings and independently authored expected vectors.
 
 ### PC fonts and display adapters
 
-**Font evidence.** PQ1 PC 2.903 (`START.EXE` SHA-256
+**Font evidence.** PQ1 PC 2.903 (`AGI` SHA-256
 `db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7`),
 load-relative `0x2c4e..0x2c72`, copies eight glyph rows from
 `F000:FA6E + character × 8` into its drawing buffer. The graphics text uses
-this BIOS typeface, rather than the Tandy character-generator typeface.
+the host's BIOS typeface, rather than the Tandy character-generator typeface.
 The app's `font8x8.ts` recreates the printable BIOS graphics bitmap design
 pixel for pixel in its own packed table, credited as a recreation. No ROM
 or font file ships, and neither build nor runtime reads one. The optional
 local-reference test compares codes `0x20..0x7f` against the Tandy 1000 SX
-BIOS (`8040328.u41`, reference offset `0x7a6e`); the released engine window
+BIOS (`8040328.u41`, reference offset `0x7a6e`), so the recreated design is
+the Tandy BIOS one: IBM-BIOS machines hold a different design at F000:FA6E,
+not yet recreated. The released engine window
 and cursor aliases `0x01..0x07` retain their checkpoint-compatible masks.
 The extended box characters used by Gold Rush! are recreated with the
 PC code-page strokes, checked against the local `bigblue.chr` character
@@ -7597,7 +7612,8 @@ the glyph shapes; a Gold Rush! Bible-page frame comparison remains open.
 The aligned MAME 0.289 `t1000sx` PQ1 opening, message and restart scenes
 changed from 264 / 1,791 / 956 differing RGB pixels to 30 / 30 / 22 after
 the recreation. The status and play regions agree exactly in all three;
-the remaining differences occupy the prompt/cursor area at rows 184–191.
+the remaining differences occupy the prompt/cursor area at rows 184–191,
+consistent with the PC input-row order, whose routine is not yet read.
 These are raw 320×200 comparisons without masks or colour adjustment.
 They establish the sampled graphics typeface, not every PC adapter's font.
 

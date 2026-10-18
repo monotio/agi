@@ -53,13 +53,3 @@ export function gameAspectStyle(ratio: number): Record<"--game-ratio" | "--game-
   const aspect = ratio === 8 / 5 ? "8 / 5" : ratio === 4 / 3 ? "4 / 3" : "128 / 75";
   return { "--game-ratio": `calc(${aspect})`, "--game-aspect": aspect };
 }
-
-/** Fit the active image without allowing it to cover the controls around it. */
-export function computeStageFit(
-  availableWidth: number,
-  availableHeight: number,
-  ratio: number,
-): { width: number; height: number } {
-  const width = stageScreenWidth(availableWidth, availableHeight, ratio);
-  return { width, height: Math.floor(width / ratio) };
-}

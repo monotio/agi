@@ -1,7 +1,8 @@
 /**
- * Recreation of the IBM PC BIOS graphics bitmap typeface, pixel for pixel
- * in eight-pixel cells. The interpreter reads F000:FA6E for printable text
- * (docs/fidelity.md "PC fonts and display adapters"). The source table is
+ * Recreation of the Tandy 1000 SX BIOS graphics bitmap typeface, pixel for
+ * pixel in eight-pixel cells. The interpreter reads F000:FA6E for printable
+ * text (docs/fidelity.md "PC fonts and display adapters"); IBM-BIOS machines
+ * hold a different design there, not yet recreated. The source table is
  * credited as a recreation; no ROM or font file ships or is read at build
  * or runtime. Optional local-reference tests check the recreation.
  *

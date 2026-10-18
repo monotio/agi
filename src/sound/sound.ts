@@ -716,7 +716,7 @@ export class SoundPlayback {
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {
     if (!this.active) return { outputs: [], complete: true };
     // The booter's flag-9 gate sits inside its per-write chip routine
-    // (docs/fidelity.md "Wave-3 booter sound verdict", F-sound-02): with f9
+    // (docs/fidelity.md "Booter sound verdict", F-sound-02): with f9
     // clear the row cursor and countdown still advance and the done flag fires
     // only at payload exhaustion.
     if (!enabled && this.rows === null) return { outputs: this.stop(), complete: true };
@@ -987,7 +987,7 @@ export class SoundPlayback {
     // ConvertTDVolume on machType 2 (Tandy): any attenuation latch —
     // (b & 0x90) == 0x90 covers every channel's selector, not just
     // channel 2 — whose low nibble is below 8 gains 3 before the v23
-    // clamp (docs/fidelity.md "Wave-3 sound verdicts", F-sound-01).
+    // clamp (docs/fidelity.md "Sound verdicts", F-sound-01).
     if (this.device === 2 && (control & 0x90) === 0x90 && (control & 15) < 8)
       control = (control & 0xf0) | ((control & 15) + 3);
     if (this.profile.sound === "early-2.272") {

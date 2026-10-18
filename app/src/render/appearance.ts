@@ -13,7 +13,7 @@
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { FONT, HAS_GLYPH } from "./font8x8.ts";
 import { EGA_PALETTE } from "./palette.ts";
-import { colourIdForProfile, colourTableForId } from "../../../src/runtime/colourTables.ts";
+import { colourIdForProfile } from "../../../src/runtime/colourTables.ts";
 import type { Appearance as PlatformAppearance } from "./look.ts";
 
 /** PC graphics drivers with a verified 320×200 presentation path. */
@@ -62,11 +62,6 @@ export const PC_APPEARANCE: Appearance = {
 export function gamePaletteId(id?: string | null): string {
   if (id === null || id === undefined || !Object.hasOwn(PROFILES, id)) return "ega";
   return colourIdForProfile(PROFILES[id as ProfileId]);
-}
-
-/** The sixteen colours a recorded palette id names; EGA for an id this build does not know. */
-export function paletteTableForId(id: string): Appearance["palette"] {
-  return colourTableForId(id);
 }
 
 const loaded = new Map<string, Appearance>();

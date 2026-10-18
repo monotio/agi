@@ -22,6 +22,7 @@ Run TypeScript scripts with Node.js 22.22 or newer and
 | `node --experimental-strip-types scripts/benchmark-media.ts [OUT]`                                 | Media from the committed Genesis benchmark                                                    |
 | `node --experimental-strip-types scripts/descramble-agi.ts GAME_DIR OUT.bin [LOADER.COM]`          | Decode your own interpreter for [fidelity research](fidelity.md)                              |
 | `node --experimental-strip-types scripts/interpreter-inventory.ts LIBRARY_DIR`                     | Local interpreter inventory JSON on stdout                                                    |
+| `node --experimental-strip-types scripts/mame-diff.ts SCENARIO.json ROMPATH [OUTPUT_DIR] [MAME]`   | Opt-in original interpreter frames on MAME; [frame comparison](testing.md#original-interpreter-frame-comparison) |
 
 ## Check tools
 

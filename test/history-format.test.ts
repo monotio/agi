@@ -269,20 +269,7 @@ test("a complete window-bearing recording is accepted in v3, rejected in v1/v2, 
     ],
   };
 
-  // Released 1.2.4 reader version check (accepts only versions 1 and 2):
-  // rejects version 3 cleanly by version before inspecting any nested field.
-  function released124VersionGate(value: unknown): void {
-    const s = value as Record<string, unknown>;
-    const version = s["version"];
-    if (version !== 1 && version !== 2) {
-      throw new Error(`History recording has unsupported version ${String(version)}.`);
-    }
-  }
-  const before124 = structuredClone(v3WindowRecording);
-  assert.throws(() => released124VersionGate(v3WindowRecording), /unsupported version 3/);
-  assert.deepEqual(v3WindowRecording, before124, "1.2.4 reader check must not mutate input");
-
-  // New v3 reader accepts the complete window-bearing recording and preserves saved.window.
+  // The v3 reader accepts the complete window-bearing recording and preserves saved.window.
   const validated = validateHistoryRecording(v3WindowRecording);
   assert.equal(validated.version, 3);
   assert.deepEqual(

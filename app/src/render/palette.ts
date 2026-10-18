@@ -1,27 +1,8 @@
 import type { SpriteCel } from "../../../src/view/spriteDocument.ts";
-import type { PaletteId } from "../../../src/runtime/profile.ts";
-import {
-  AMIGA_TABLE,
-  AMIGA_TABLE_2_082,
-  AMIGA_TABLE_2_31X,
-  EGA_TABLE,
-  tableForPaletteId,
-} from "../../../src/runtime/colourTables.ts";
+import { EGA_TABLE } from "../../../src/runtime/colourTables.ts";
 
 /** The authentic 16-color EGA palette, RGB. */
 export const EGA_PALETTE: readonly [number, number, number][] = EGA_TABLE;
-
-/** The colour table KQ2 2.176 and SQ2 2.202 load at start-up (docs/fidelity.md "Amiga screen, font and pointer"). */
-export const AMIGA_PALETTE = AMIGA_TABLE;
-/** SQ1 2.082's table: colour 13 is orange, every other entry matches `AMIGA_PALETTE`. */
-export const AMIGA_PALETTE_2_082 = AMIGA_TABLE_2_082;
-/** The EGA-like table PQ1 2.310, Gold Rush! 2.316 and Manhunter 2 2.333 load. */
-export const AMIGA_PALETTE_2_31X = AMIGA_TABLE_2_31X;
-
-/** The RGB table a profile's `palette` id names. */
-export function paletteFor(id: PaletteId): readonly [number, number, number][] {
-  return tableForPaletteId(id);
-}
 
 /**
  * The cel's colours into RGBA, transparent pixels left fully transparent;

@@ -22,7 +22,8 @@ test("a 1.2.2 tape with a re-entry held by a pause replays to its recorded state
   );
   const replayed = replayHistorySegment(segment!);
   assert.equal(replayed.error, null);
-  assert.equal(replayed.diverged, null, "every recorded sync mark holds");
+  assert.equal(replayed.incompatible, null, "every recorded sync mark is reached");
+  assert.equal(replayed.diverged, null, "every verified sync mark holds");
   const engine = replayed.ctx.run.engine!;
   assert.deepEqual([engine.vars[40], engine.vars[41]], [tape.final.v40, tape.final.v41]);
   assert.equal(historySyncDigest(engine), tape.final.digest);
@@ -45,6 +46,7 @@ test("every released anchor in history-1.2.2-paused-reenter.json and project-v1.
   for (let i = 0; i < tapeSegment!.anchors.length; i++) {
     const replayed = replayHistorySegment(tapeSegment!, { anchor: i });
     assert.equal(replayed.error, null, `1.2.2 anchor ${i} must restore and replay`);
+    assert.equal(replayed.incompatible, null, `1.2.2 anchor ${i} reaches every sync mark`);
     assert.equal(replayed.diverged, null);
     const engine = replayed.ctx.run.engine!;
     assert.deepEqual([engine.vars[40], engine.vars[41]], [tape.final.v40, tape.final.v41]);
@@ -78,6 +80,7 @@ test("every released anchor in history-1.2.2-paused-reenter.json and project-v1.
     for (let i = 0; i < segment.anchors.length; i++) {
       const replayed = replayHistorySegment(segment, { anchor: i });
       assert.equal(replayed.error, null, `project-v1.zip anchor ${i} must restore and replay`);
+      assert.equal(replayed.incompatible, null, `project-v1.zip anchor ${i} reaches every sync mark`);
       assert.equal(replayed.diverged, null);
     }
     assert.deepEqual(segment, before);
