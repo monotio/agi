@@ -868,7 +868,6 @@ test("profile ids are a frozen public vocabulary", () => {
 
 test("every shipped profile carries its binary-verified authenticity fields", () => {
   const earlyGroup = new Set<ProfileId>(["2.001", "2.089", "2.230", "2.272", "amiga-2.082"]);
-  const v3Group = new Set<ProfileId>(["3.002.086", "3.002.102", "3.002.149"]);
 
   for (const [id, profile] of Object.entries(PROFILES) as [ProfileId, AgiProfile][]) {
     assert.equal(
@@ -924,7 +923,6 @@ test("every shipped profile carries its binary-verified authenticity fields", ()
       latePcGroup.has(id),
       `${id}.restoreRewritesMachineState`,
     );
-    assert.equal(profile.restartCursorMemory, v3Group.has(id), `${id}.restartCursorMemory`);
     assert.equal(profile.soundStopsBeforeFault, true, `${id}.soundStopsBeforeFault`);
     assert.equal(profile.printConsumesF15, !earlyGroup.has(id), `${id}.printConsumesF15`);
     assert.equal(

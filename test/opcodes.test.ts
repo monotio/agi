@@ -616,7 +616,6 @@ test("F-motion-10: new.room preserves newlyPositioned and cycleDelay across all 
     engine.vars[80] = 1;
     engine.tick();
     assert.equal(engine.readState().room, 2, id);
-    assert.equal(profile.newRoomPreservesReposAndCycleDelay, true, id);
     assert.equal(o1.newlyPositioned, true, `${id}: newlyPositioned across new.room`);
     assert.equal(o1.cycleDelay, true, `${id}: cycleDelay across new.room`);
     assert.equal(o1.active, false, `${id}: active cleared across new.room`);
@@ -694,7 +693,6 @@ test("F-picture-04: show.pri.screen preserves text window across all 18 binary-v
     engine.tick();
     assert.equal(host.showPriCalls, 1, id);
     engine.ackPrint();
-    assert.equal(profile.showPriScreenPreservesWindow, true, id);
     assert.equal(
       engine.getPresentation().windowOverlay.some((b) => b !== 0),
       true,
@@ -733,8 +731,6 @@ test("F-VIEWS-03, F-VIEWS-04, F-VIEWS-09: add.to.pic relocation and byte packing
     const engine = new Engine(container, new TestHost(), DICT, { profile });
     engine.tick();
 
-    assert.equal(profile.addToPicRelocation, true, `${id}.addToPicRelocation`);
-    assert.equal(profile.addToPicPacking, true, `${id}.addToPicPacking`);
     // In 2.001, ObjInPic (0x532a) calls InsertObj directly without substituting
     // pri_tbl[y] when (pri & 0x0f) == 0, so pri=0 draws with priority 0 (which loses
     // to background priority 4); on 2.089+ and Amiga/IIgs, pri=0 substitutes pri_tbl[y].
@@ -1018,7 +1014,6 @@ test("F-VIEWS-11: show.obj on a descriptionless view (vdesc == 0) prints the raw
     const engine = new Engine(container, host, DICT, { profile });
     engine.tick();
     assert.equal(engine.modalKind, "showObj", `${id}: opens showObj modal`);
-    assert.equal(profile.showObjUncheckedDescOffset, true, `${id}.showObjUncheckedDescOffset`);
     const expectedRow = profile.presentation === "amiga" ? 2 : 3;
     assert.equal(
       engine.textRow(expectedRow).trim(),

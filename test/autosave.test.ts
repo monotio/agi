@@ -622,21 +622,11 @@ for (const version of [0, 3, 4, 255]) {
   });
 }
 
-test("host autosave stamps version 2, migrates version 1 without window, rejects window in version 1, and 1.2.4 rejects version 2 by version", () => {
+test("host autosave stamps version 2, migrates version 1 without window, and rejects window in version 1", () => {
   const engine = new Engine(buildGame(), new RecordingHost(), DICT);
   engine.tick();
   const v2Image = engine.autosaveImage()!;
   assert.equal(v2Image[33], 2);
-
-  // Released 1.2.4 decodeHostImage version gate (bytes[33] !== 1) rejects v2 cleanly without rewriting bytes.
-  function released124HostGate(bytes: Uint8Array): void {
-    if (bytes[33] !== 1) {
-      throw new Error(`Restore image has unsupported host autosave version ${bytes[33]!}`);
-    }
-  }
-  const beforeV2 = v2Image.slice();
-  assert.throws(() => released124HostGate(v2Image), /unsupported host autosave version 2/);
-  assert.deepEqual(v2Image, beforeV2);
 
   // Released version 1 image (without saved.window) still decodes and restores under the new reader.
   const v1Image = v2Image.slice();

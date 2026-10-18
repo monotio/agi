@@ -378,7 +378,7 @@ test("released combined-digest sync marks replay unverified, however their field
 });
 
 test("a released tape of the version() logic does not diverge on the fixed modal behavior", () => {
-  // Astra's released-1.0 recording: logic
+  // A released-1.0 recording: logic
   // `if (!isset(f200)) { set(f200); version(); } return;` reported
   // "recording diverges here" at tick 20 — the released build recorded
   // modal null where the version()-modal fix now legitimately shows "print".
@@ -452,7 +452,7 @@ test("a released tape of the version() logic does not diverge on the fixed modal
 });
 
 test("a released tape whose later events are stranded by the v19 ordering reports compatibility, never divergence", () => {
-  // Astra's repro: under the released consume-first input ordering, typing 'A'
+  // Repro: under the released consume-first input ordering, typing 'A'
   // (code 65) while accept.input() was active went into the input line without
   // setting v19, so `if (v19 == 65) { quit(1); }` did not terminate and a later
   // key 'B' at tick 18 was recorded. Under the authentic store-first ordering,

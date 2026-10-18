@@ -3380,7 +3380,7 @@ export class Engine {
   private confirmSessionAction(action: "restart" | "quit", next: number): void {
     // Original restart/quit prompt wording; CancelLine runs only on the
     // accepted restart branch, so declining preserves editLine across all
-    // profiles (docs/fidelity.md "Wave-3 persistence verdicts",
+    // profiles (docs/fidelity.md "Persistence verdicts",
     // F-persistence-02, F-persistence-05).
     const original = this.profile.originalRestartRestore;
     const amiga = this.profile.windowFrameGeometry === "amiga";
@@ -5024,7 +5024,7 @@ export class Engine {
       // The authentic restore tail clears controllers explicitly, rewrites the
       // machine vars on builds whose RestoreGame does so (PC 2.903..3.002.149),
       // and sets f12; f2/f4 die at the next cycle top and v19 is never written
-      // (docs/fidelity.md "Wave-3 persistence verdicts", F-persistence-03). A
+      // (docs/fidelity.md "Persistence verdicts", F-persistence-03). A
       // host restore — history or autosave replay — reproduces the recorded
       // state exactly instead.
       if (screen === null && this.profile.restoreRewritesMachineState) {
@@ -8555,7 +8555,7 @@ export class Engine {
         // StopSnd runs FIRST — setting the interrupted sound's done flag —
         // then the operands are read, the new done flag resets, and only then
         // can the lookup fault (all 20 shipped profiles: docs/fidelity.md,
-        // "Wave-3 sound verdicts").
+        // "Sound verdicts").
         if (this.profile.soundStopsBeforeFault) {
           this.stopSound();
           this.flags[a(1)] = 0;
@@ -8717,13 +8717,13 @@ export class Engine {
       }
       case 0x74:
         // word.to.string indexes wordPtr 0-based across all 20 profiles
-        // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-09).
+        // (docs/fidelity.md "Parser verdicts, second pass", F-Parser-09).
         this.setString(a(0), this.parsedWordTexts[a(1)] ?? "");
         return next;
       case 0x89:
         // echo.line returns immediately when input is disabled; when enabled,
         // it appends PREVLINE[editLen..] onto INLINE while under the edit cap
-        // (docs/fidelity.md "Wave-4 parser verdicts", F-Parser-13).
+        // (docs/fidelity.md "Parser verdicts, second pass", F-Parser-13).
         if (this.inputAccepted) {
           const cap = this.inputCapacity();
           if (this.editLine.length < this.acceptedLine.length && this.editLine.length < cap) {
@@ -9423,7 +9423,7 @@ export class Engine {
     this.statusRefreshRequested = false;
     // Input acceptance survives: ResetAll clears only vars/flags/controllers/
     // object records, while the accepted restart branch runs CancelLine and
-    // redraws the marker (docs/fidelity.md "Wave-3 persistence verdicts",
+    // redraws the marker (docs/fidelity.md "Persistence verdicts",
     // F-persistence-01, F-persistence-02).
     if (!this.profile.originalRestartRestore) this.inputAccepted = false;
     this.editLine = "";
@@ -9455,7 +9455,7 @@ export class Engine {
 
   /**
    * Apply the binary's ResetAll variable and flag writes shared by cold
-   * startup and accepted restart (docs/fidelity.md "Wave-3 persistence
+   * startup and accepted restart (docs/fidelity.md "Persistence
    * verdicts", F-OPCORE-04-adjacent).
    */
   private applyResetAllDefaults(): void {

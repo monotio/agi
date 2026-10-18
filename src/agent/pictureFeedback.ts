@@ -45,12 +45,13 @@ const CONTROL_OVERLAY_RGB: readonly (readonly [number, number, number])[] = [
 ];
 
 export const PICTURE_COMPARISON_LEGEND =
-  "Left: clean visual. Middle: raw priority/control in EGA colors (0 barrier, 1 conditional barrier, 2 trigger, 3 water, 4 open/far floor, 5..15 higher depth/occluders). Right: overlay (4 untinted; 5..15 50% EGA blend; controls highlighted as 0 light red, 1 white, 2 magenta, 3 cyan).";
+  "Left: clean visual. Middle: raw priority/control in the game's colours (0 barrier, 1 conditional barrier, 2 trigger, 3 water, 4 open/far floor, 5..15 higher depth/occluders). Right: overlay (4 untinted; 5..15 50% blend with the game colours; controls highlighted as 0 light red, 1 white, 2 magenta, 3 cyan).";
 
 /**
- * Three aligned native-aspect panels: clean visual, raw EGA priority/control,
- * and a semantic overlay. Priority 4 leaves the visual untouched; depth 5..15
- * is blended 50%, while controls 0..3 use fixed high-contrast colours.
+ * Three aligned native-aspect panels: clean visual, raw priority/control in
+ * the game's colours, and a semantic overlay. Priority 4 leaves the visual
+ * untouched; depth 5..15 is blended 50%, while controls 0..3 use fixed
+ * high-contrast colours.
  */
 export function pictureComparisonPng(
   visual: Uint8Array,

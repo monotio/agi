@@ -228,7 +228,11 @@ test("the window frame renders the decoded sub-cell OpenWndw fill and bars acros
 import { appearanceForProfile, loadAppearance } from "../src/render/appearance.ts";
 import { AMIGA_FONT } from "../src/render/fontAmiga.ts";
 import type { NativeMenuChrome } from "../../src/runtime/nativeMenu.ts";
-import { AMIGA_PALETTE, AMIGA_PALETTE_2_082, AMIGA_PALETTE_2_31X } from "../src/render/palette.ts";
+import {
+  AMIGA_TABLE as AMIGA_PALETTE,
+  AMIGA_TABLE_2_082 as AMIGA_PALETTE_2_082,
+  AMIGA_TABLE_2_31X as AMIGA_PALETTE_2_31X,
+} from "../../src/runtime/colourTables.ts";
 
 const amiga = await loadAppearance("amiga-2.202");
 await loadAppearance("iigs-1.014");

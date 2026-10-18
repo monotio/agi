@@ -6,7 +6,8 @@
  * IIgs game's own font. A harness mounted without Play shows the PC look.
  */
 import { computed, onScopeDispose, watchEffect, type ComputedRef } from "vue";
-import { PC_APPEARANCE, gamePaletteId, paletteTableForId, type Appearance } from "./appearance.ts";
+import { PC_APPEARANCE, gamePaletteId, type Appearance } from "./appearance.ts";
+import { colourTableForId } from "../../../src/runtime/colourTables.ts";
 import { useOptionalPresentation } from "../play/usePresentation.ts";
 
 export type Palette = Appearance["palette"];
@@ -28,7 +29,7 @@ export function useGamePaletteLook(): ComputedRef<{ id: string; table: Palette }
   const presentation = useOptionalPresentation();
   return computed(() => {
     const id = gamePaletteId(presentation?.profileId.value);
-    return { id, table: paletteTableForId(id) };
+    return { id, table: colourTableForId(id) };
   });
 }
 
