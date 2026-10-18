@@ -1,5 +1,6 @@
 import type { ProjectContent } from "./projectContent.ts";
 import { detectProfileDecision } from "../runtime/profile.ts";
+import { AUTHORED_SCRIPT_BUFFER_PAIRS } from "../runtime/authoredScriptBuffer.ts";
 
 /**
  * An original release the app recognizes the way the library does: an
@@ -54,5 +55,5 @@ function injectScriptSize(source: string): string | null {
   const marker = /^([ \t]*)set\(f200\);[ \t]*$/m.exec(source);
   if (marker === null) return null;
   const at = marker.index + marker[0].length;
-  return `${source.slice(0, at)}\n${marker[1]}script.size(200);${source.slice(at)}`;
+  return `${source.slice(0, at)}\n${marker[1]}script.size(${AUTHORED_SCRIPT_BUFFER_PAIRS});${source.slice(at)}`;
 }
