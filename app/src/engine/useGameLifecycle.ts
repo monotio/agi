@@ -64,9 +64,9 @@ import { isRecognizedOriginal } from "../../../src/authoring/scriptSizeMigration
  * installed folders and fixtures boot without it (docs/fidelity.md,
  * "Authored script buffer on live edits").
  */
-function authoredScriptBuffer(
-  project: Pick<CachedGameData, "files" | "library"> | undefined,
-): { adoptDeclaredScriptSize?: true } {
+function authoredScriptBuffer(project: Pick<CachedGameData, "files" | "library"> | undefined): {
+  adoptDeclaredScriptSize?: true;
+} {
   return project !== undefined && !isRecognizedOriginal(project.files, project.library?.source)
     ? { adoptDeclaredScriptSize: true }
     : {};
