@@ -14,8 +14,8 @@ Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and
 | claude-opus-5-5 high | 1.922 | 594 | 13 | 20 | 0 | 0 () | 0.99M (89.5%) | 61.2k | 6 | 0.32 | passed |
 | claude-opus-5-5 medium | 1.028 | 295 | 15 | 20 | 1 | 1 (playtest-walk 1) | 0.7M (90.9%) | 29k | 8 | 0.129 | passed |
 | gpt-6-astra medium | 1.415 | 312 | 13 | 26 | 1 | 1 (assembler 1) | 0.33M (88.8%) | 13.2k | 7 | 0.202 | passed |
-| gpt-6-luna medium | 0.026 | 257 | 27 | 44 | 6 | 7 (dictionary 3, picture/scene 2, view 1, other 1) | 1.02M (94.5%) | 19.4k | 5 | 0.005 | passed |
-| gpt-6-sol medium | 0.298 | 223 | 17 | 27 | 2 | 2 (view 1, assembler 1) | 0.45M (92%) | 12.4k | 5 | 0.06 | passed |
+| gpt-6-luna medium | 0.026 | 257 | 27 | 44 | 6 | 7 (dictionary 3, picture/scene 2, view 1, other 1) | 1.02M (94.5%) | 19.4k | 4 | 0.007 | passed |
+| gpt-6-sol medium | 0.298 | 223 | 17 | 27 | 2 | 2 (view 1, assembler 1) | 0.45M (92%) | 12.4k | 4 | 0.075 | passed |
 
 ### Content richness (measured from the generated resources)
 
@@ -44,8 +44,8 @@ Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and
 | claude-opus-5-5 high | modified: msgs 17,18; +1 insns (assignn(7,215)) | identical | 2 (1) | 2 | 40760 | write_view 3, playtest_room 3, edit_source 2, read_plan 1 |
 | claude-opus-5-5 medium | modified: msgs 17,18; +2 insns (assignn(7,215) status()) | modified: msgs 3; +0 insns () | 2 (1) | 1 | 15739 | write_view 4, edit_source 4, read_logic 2, read_plan 1 |
 | gpt-6-astra medium | modified: msgs 18; +1 insns (assignn(7,215)) | identical | 2 (1) | 2 | 608 | write_view 4, read_authoring_guide 3, update_plan 2, write_logic 2 |
-| gpt-6-luna medium | modified: msgs -; +0 insns () | identical | 6 (5) | 2 | 0 | playtest_room 5, write_words 4, write_view 4, read_picture 4 |
-| gpt-6-sol medium | modified: msgs -; +0 insns () | identical | 3 (3) | 5 | 0 | playtest_room 5, read_authoring_guide 3, read_logic 2, write_words 2 |
+| gpt-6-luna medium | identical | identical | 6 (5) | 2 | 0 | playtest_room 5, write_words 4, write_view 4, read_picture 4 |
+| gpt-6-sol medium | identical | identical | 3 (3) | 5 | 0 | playtest_room 5, read_authoring_guide 3, read_logic 2, write_words 2 |
 
 ### Brief checklist (HEURISTIC keyword/structure checks against the brief's starting room; not a quality judgment)
 
@@ -116,8 +116,8 @@ Judgment (single run per lane):
 | claude-opus-5-5 high | 2.062 | 647 | 13 | 22 | 0 | 0 () | 1M (89.1%) | 67k | 6 | 0.344 | passed |
 | claude-opus-5-5 medium | 1.426 | 393 | 18 | 23 | 1 | 1 (assembler 1) | 0.97M (91.7%) | 42.2k | 6 | 0.238 | passed |
 | gpt-6-astra medium | 1.65 | 347 | 17 | 31 | 2 | 2 (view 2) | 0.44M (91.1%) | 15.1k | 7 | 0.236 | passed |
-| gpt-6-luna medium | 0.028 | 328 | 21 | 48 | 6 | 11 (view 7, picture/scene 1, assembler 2, playtest-expect 1) | 0.75M (92.5%) | 27.2k | 8 | 0.003 | passed |
-| gpt-6-sol medium | 0.254 | 190 | 14 | 24 | 1 | 1 (view 1) | 0.34M (90.4%) | 11k | 7 | 0.036 | passed |
+| gpt-6-luna medium | 0.028 | 328 | 21 | 48 | 6 | 11 (view 7, picture/scene 1, assembler 2, playtest-expect 1) | 0.75M (92.5%) | 27.2k | 7 | 0.004 | passed |
+| gpt-6-sol medium | 0.254 | 190 | 14 | 24 | 1 | 1 (view 1) | 0.34M (90.4%) | 11k | 6 | 0.042 | passed |
 
 ### Content richness (measured from the generated resources)
 
@@ -146,8 +146,8 @@ Judgment (single run per lane):
 | claude-opus-5-5 high | modified: msgs 21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41; +35 insns (assignn(7,230) print(21) print(22)) | identical | 1 (1) | 1 | 46018 | playtest_room 5, write_view 3, read_logic 2, edit_source 2 |
 | claude-opus-5-5 medium | modified: msgs 18; +1 insns (assignn(7,230)) | identical | 2 (1) | 2 | 16989 | write_view 3, playtest_room 3, read_logic 2, reserve_name 2 |
 | gpt-6-astra medium | modified: msgs 18; +1 insns (assignn(7,230)) | identical | 2 (2) | 8 | 545 | write_view 6, playtest_room 4, read_authoring_guide 3, read_logic 2 |
-| gpt-6-luna medium | modified: msgs -; +0 insns () | identical | 4 (4) | 14 | 0 | write_view 13, read_plan 6, playtest_room 4, read_logic 3 |
-| gpt-6-sol medium | modified: msgs -; +0 insns () | identical | 2 (2) | 4 | 0 | write_view 5, playtest_room 4, read_logic 3, read_authoring_guide 2 |
+| gpt-6-luna medium | identical | identical | 4 (4) | 14 | 0 | write_view 13, read_plan 6, playtest_room 4, read_logic 3 |
+| gpt-6-sol medium | identical | identical | 2 (2) | 4 | 0 | write_view 5, playtest_room 4, read_logic 3, read_authoring_guide 2 |
 
 ### Brief checklist (HEURISTIC keyword/structure checks against the brief's starting room; not a quality judgment)
 

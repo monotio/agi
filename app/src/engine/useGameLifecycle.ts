@@ -56,6 +56,21 @@ import type { WorkerLink } from "./useWorkerLink.ts";
 import type { CachedGameData } from "../project/gameStorage.ts";
 import type { WorkerInbound } from "../worker/workerProtocol.ts";
 import { admitQualifiedOpening, type QualifiedGameOpening } from "./openingAdmission.ts";
+import { isRecognizedOriginal } from "../../../src/authoring/scriptSizeMigration.ts";
+
+/**
+ * The boot field that lets a library project's engine adopt the script
+ * buffer its LOGIC 0 declares on a live edit or a resume. Original releases,
+ * installed folders and fixtures boot without it (docs/fidelity.md,
+ * "Authored script buffer on live edits").
+ */
+function authoredScriptBuffer(project: Pick<CachedGameData, "files" | "library"> | undefined): {
+  adoptDeclaredScriptSize?: true;
+} {
+  return project !== undefined && !isRecognizedOriginal(project.files, project.library?.source)
+    ? { adoptDeclaredScriptSize: true }
+    : {};
+}
 
 /**
  * Exit's refusal while this session's timeline is still owed to storage:
@@ -472,6 +487,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         files: game.files,
         words: game.words,
         autosaveFiles: true,
+        ...authoredScriptBuffer(
+          game.authoredGame === undefined
+            ? undefined
+            : { files: game.files, library: game.authoredGame.library },
+        ),
         ...(profile !== undefined ? { profile } : {}),
         ...(resumeAdmission.status === "restore"
           ? {
@@ -946,6 +966,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       words,
       autosaveFiles: true,
       authorRooms: true,
+      adoptDeclaredScriptSize: true,
       ...(activeReplaySeed !== null
         ? {
             replaySeed: activeReplaySeed,
@@ -1198,6 +1219,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             words: cached.words,
             autosaveFiles: true,
             authorRooms: Boolean(cached.roomGeneration),
+            ...authoredScriptBuffer(cached),
             ...(cached.library?.profile ? { profile: cached.library.profile } : {}),
             ...(resumeAdmission.status === "restore"
               ? {

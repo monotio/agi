@@ -36,6 +36,8 @@ import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
  * Version 3 adds the parked window's pixel frame (`saved.window`, admitted
  * by `allowWindow` below), the `menu` and `joystick` causes and `pcDisplay`
  * on boots and anchors — none of them expressible in a released version.
+ * Boots may also carry `adoptDeclaredScriptSize` (1.2.5, an optional field
+ * at the same version; absent replays as before).
  * Version 2 added debugger boundaries and complete project admission
  * events; version-2 tapes may carry sync marks in either form — the
  * released combined `digest` or the split `state` + `text` digests — and
@@ -316,6 +318,12 @@ export interface HistoryBoot {
   amigaRegion?: "ntsc" | "pal";
   /** The PC display the segment ran on (src/runtime/display.ts); absent is EGA. */
   pcDisplay?: "cga-rgb";
+  /**
+   * The segment's engine ran with the authored-project host option
+   * `adoptDeclaredScriptSize` (docs/fidelity.md, "Authored script buffer on
+   * live edits"); absent ran without it.
+   */
+  adoptDeclaredScriptSize?: true;
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -513,6 +521,7 @@ export interface HistoryFingerprint {
 export interface HistorySemanticState {
   amigaRegion?: "ntsc" | "pal";
   pcDisplay?: "cga-rgb";
+  adoptDeclaredScriptSize?: true;
   documentId?: string;
   authorRooms?: boolean;
   dictionary?: [string, number][];
@@ -576,6 +585,7 @@ export function historyBootSemantic(
   if (boot.rngPolicy !== undefined) out.rngPolicy = boot.rngPolicy;
   if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
   if (boot.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
+  if (boot.adoptDeclaredScriptSize === true) out.adoptDeclaredScriptSize = true;
   if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
   if (boot.replay !== undefined) out.replay = boot.replay;
@@ -1121,6 +1131,8 @@ export function validateHistoryBoot(
     fail("boot region must be ntsc or pal.");
   if (value["pcDisplay"] !== undefined && value["pcDisplay"] !== "cga-rgb")
     fail("boot display must be cga-rgb.");
+  if (value["adoptDeclaredScriptSize"] !== undefined && value["adoptDeclaredScriptSize"] !== true)
+    fail("boot adoptDeclaredScriptSize must be true.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
   const out: Omit<HistoryBoot, "fingerprint"> = {
@@ -1137,6 +1149,9 @@ export function validateHistoryBoot(
       ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
       : {}),
     ...(value["pcDisplay"] === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
+    ...(value["adoptDeclaredScriptSize"] === true
+      ? { adoptDeclaredScriptSize: true as const }
+      : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
     ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
     ...(value["resumedFrom"] !== undefined

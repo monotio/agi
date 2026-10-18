@@ -8,6 +8,7 @@
  */
 
 import { assembleLogic, type AssembleResult } from "../logic/assembler.ts";
+import { AUTHORED_SCRIPT_BUFFER_PAIRS } from "../runtime/authoredScriptBuffer.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildSound, type SoundTrackInput } from "../sound/build.ts";
 
@@ -59,7 +60,7 @@ export const BASE_TEMPLATE_LOGIC0_SOURCE = `#define C_MENU 200
 #message 16 "About"
 if (!isset(f200)) {
   set(f200);
-  script.size(200);
+  script.size(${AUTHORED_SCRIPT_BUFFER_PAIRS});
   configure.screen(1, 22, 0);
   status.line.on();
   set(sound_on);

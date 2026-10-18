@@ -872,6 +872,70 @@ opcode, flag, variable or pixel differs whether they are armed or not.
 [worker-journal.test.ts](../app/test/worker-journal.test.ts) (transition
 attribution and replay silence).
 
+### Authored script buffer on live edits
+
+This is a host addition for authored projects, not interpreter behavior. The
+original sets the script buffer only when the game executes `script.size`
+([F-timing-02](#original-script-capacity-and-version-handlers)); the engine keeps that rule for every game. Authoring
+adds cases the original never meets: new LOGIC 0 code installed into a
+running game whose boot block already ran, a checkpoint taken before an
+edit, and a 1.2.4 project whose LOGIC 0 keeps the template's boot shape but
+no `script.size` — the 1.2.5 migration adds it only when a project session
+opens, while a Play-mode run and a History view of a pre-migration commit
+never open one.
+
+With the engine option `adoptDeclaredScriptSize`, the engine derives an
+authored floor from the installed LOGIC 0 (`authoredScriptFloor`): the
+largest `script.size` operand it declares or — when it declares none but
+keeps the template boot shape, a `set(f200)` inside an `!isset(f200)` guard —
+the 200 pairs the migration would add. Host operations raise the capacity
+word to that floor, never lower it, and leave the recorded pairs untouched
+(the opcode's reset does not run):
+
+- boot and restart, where a LOGIC 0 with its own `script.size` contributes
+  nothing because its boot block is about to run it;
+- a committed preview update or room re-entry that changes LOGIC 0;
+- a host resume (`restoreImage`: autosave, checkpoint, history and host save
+  slots).
+
+The page sets the option for library projects that are not recognized
+original releases (an interpreter binary beside the data, a catalog
+WORDS.TOK and OBJECT pair, or a catalog library record), and every worker
+replacement path carries it with the run. Original releases, installed
+folders, fixtures, walkthrough tapes and the Node test harness run without
+it, so their behavior and recorded fingerprints are unchanged.
+
+The tape records the option too: `HistoryBoot` gained the optional
+`adoptDeclaredScriptSize` field at the same format version, entering the
+semantic fingerprint only when present, so every recorded fingerprint
+still holds. A segment opened under a released format (before version 3)
+never carries it, but the released build ran every game at the old
+200-pair default — when its boot carries project documents
+(`boot.project`, an authored project) replay adopts that floor for it.
+Adoption is a pure function of the installed LOGIC 0, so a boot, restart
+or committed-update adoption replays at the same event; a seek that
+resumes through `restoreImage` adopts LOGIC 0's declared maximum
+(`includeDeclared`), an adoption the boot path never performs because the
+boot block's own `script.size` runs there. The resulting capacity is
+ordinary save state (`replayCapacity`).
+
+This makes the 1.2.5 script buffer migration safe in both directions: an
+older authored game gains `script.size(200)` as one History entry admitted
+to the running game — skipped when its History already holds that entry,
+so Undo, a restore or a deleted line never adds a second; a Play-mode run
+or a History view of a commit before that entry already runs at 200
+(segments recorded in 1.2.5 carry the option on their boot, and a
+pre-version-3 segment carries `boot.project`); and its 1.2.4 checkpoints
+(capacity 200 from the old default) and those taken before the migration
+(capacity 50, boot block done) resume at 200.
+
+**Tests:** [script-size-migration.test.ts](../test/script-size-migration.test.ts)
+(boot, restart, live commit and resume, with and without the option),
+[worker-script-size-migration.test.ts](../app/test/worker-script-size-migration.test.ts)
+(Play-mode boot, pre-migration history view, checkpoint resume),
+[script-size-migration-session.test.ts](../app/test/script-size-migration-session.test.ts)
+(session migration, refused write, second tab, close before commit, scope).
+
 ## Appendix A: PC evidence
 
 Evidence for the PC (DOS) interpreters, grouped as in the guide. Each entry

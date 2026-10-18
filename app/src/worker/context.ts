@@ -99,6 +99,12 @@ interface BootState {
   amigaRegion: "ntsc" | "pal";
   /** The running session's PC display; replays and replacements keep it. */
   pcDisplay: PcDisplay;
+  /**
+   * The engine option `adoptDeclaredScriptSize` for an authored project;
+   * replays and replacements keep it (docs/fidelity.md, "Authored script
+   * buffer on live edits").
+   */
+  adoptDeclaredScriptSize: boolean;
 }
 
 /** worker/input.ts */
@@ -707,6 +713,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       profile: null,
       amigaRegion: "ntsc",
       pcDisplay: "ega",
+      adoptDeclaredScriptSize: false,
     },
     replay: {
       replay: null,

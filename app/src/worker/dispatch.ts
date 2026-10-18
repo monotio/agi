@@ -442,6 +442,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
           ...(boot.profile ? { profile: boot.profile } : {}),
           amigaRegion: boot.amigaRegion ?? "ntsc",
           ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
+          ...(boot.adoptDeclaredScriptSize === true ? { adoptDeclaredScriptSize: true } : {}),
         },
       );
       engine.flags[9] = 1;

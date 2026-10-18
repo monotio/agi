@@ -14,6 +14,7 @@ import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
+import { crtFramePoint } from "../src/three/crtAmount.ts";
 
 test.use({ keepDetectedProfileOption: false });
 
@@ -66,16 +67,16 @@ function menuGame(): Buffer {
   return Buffer.from(buildZip(files));
 }
 
-async function bootMenuGame(page: Page, name: string): Promise<void> {
+async function bootMenuGame(page: Page, name: string, crtAmount = 0): Promise<void> {
   await isolateStorage(page);
-  await page.addInitScript(() => {
-    localStorage.setItem("monotio_agi.crtAmount", "0");
+  await page.addInitScript((crt) => {
+    localStorage.setItem("monotio_agi.crtAmount", String(crt));
     // Record whether the game surface kept the browser's context menu away.
     document.addEventListener("contextmenu", (ev) => {
       (window as unknown as { __contextMenus: boolean[] }).__contextMenus ??= [];
       (window as unknown as { __contextMenus: boolean[] }).__contextMenus.push(ev.defaultPrevented);
     });
-  });
+  }, crtAmount);
   await page.goto("/");
   await page.getByTestId("game-zip-input").setInputFiles({
     name: `${name}.zip`,
@@ -258,6 +259,55 @@ test("desktop screenshots of the open strip at 1063x815 and 1440x900", async ({ 
     await page.mouse.up({ button: "right" });
     await expect.poll(() => modal(page)).toBeNull();
   }
+});
+
+test.describe(() => {
+  // The pointer reads the glass only when the GPU stage draws it.
+  test.use({ gpuStage: true });
+
+  /**
+   * The page position whose CRT-warped sample lands on the centre of frame
+   * pixel (x, y) at the given amount: the point where the player sees that
+   * pixel on the curved glass.
+   */
+  async function glassPoint(
+    page: Page,
+    x: number,
+    y: number,
+    amount: number,
+  ): Promise<{ x: number; y: number }> {
+    const box = await page.getByTestId("gpu-canvas").boundingBox();
+    if (!box) throw new Error("no visible GPU canvas");
+    let u = 0.5 + ((x + 0.5) / 320 - 0.5) / 1.2;
+    let v = 0.5 + ((y + 0.5) / 200 - 0.5) / 1.2;
+    for (let i = 0; i < 100; i++) {
+      const sampled = crtFramePoint(u, v, amount);
+      if (!sampled) throw new Error(`glass point for ${x},${y} left the frame`);
+      u += (x + 0.5 - sampled.x) / 320 / 1.2;
+      v += (y + 0.5 - sampled.y) / 200 / 1.2;
+    }
+    return { x: box.x + u * box.width, y: box.y + v * box.height };
+  }
+
+  test("at full CRT the pull-down row under the pointer on the glass is the one chosen", async ({
+    page,
+  }) => {
+    await bootMenuGame(page, "amiga-menu-crt", 1);
+    await expect(page.getByTestId("gpu-canvas")).toBeVisible();
+    await settleScreen(page);
+    // Where the glass shows the Save row (frame 70,17), a straight map of the
+    // pointer reads frame 81,27: the Restore row, one row and more below.
+    const title = await glassPoint(page, FILE_TITLE.x, FILE_TITLE.y, 1);
+    const save = await glassPoint(page, 70, 17, 1);
+    await page.mouse.move(title.x, title.y);
+    await page.mouse.down({ button: "right" });
+    await expect.poll(() => modal(page)).toBe("menu");
+    await page.mouse.move(save.x, save.y, { steps: 4 });
+    await page.mouse.up({ button: "right" });
+    await expect.poll(() => modal(page)).toBe("save");
+    await expect.poll(() => row(page, 2)).toContain("Select the slot in which you wish");
+    expect(await row(page, 3)).not.toContain("PICKED");
+  });
 });
 
 test.describe(() => {
