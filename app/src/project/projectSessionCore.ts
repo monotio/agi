@@ -13,6 +13,7 @@ import {
   type ProjectHistoryAction,
 } from "../../../src/authoring/projectHistory.ts";
 import { readProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
+import { migrateScriptSize } from "../../../src/authoring/scriptSizeMigration.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
 import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
@@ -222,12 +223,20 @@ function createSession(
       ? undefined
       : readProjectHistory(data.projectHistory, sha256Hex),
   );
-  const documents =
+  const openedDocuments =
     data.workspace === undefined
       ? inspection.documents
       : data.projectHistory === undefined
         ? { ...inspection.documents, ...readProjectWorkspace(data.workspace) }
         : readProjectWorkspace(data.workspace);
+  // A pre-1.2.5 authored game predates the authentic 50-pair script buffer:
+  // logic 0 gains the template's script.size(200) once, as a visible History
+  // commit through the ordinary document edit path below. Imported games,
+  // fixtures and walkthroughs carry no editable logic:0 source, so the
+  // migration never reaches them.
+  const scriptSizeMigration =
+    data.imported === true ? null : migrateScriptSize(openedDocuments);
+  const documents = scriptSizeMigration ?? openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
     documents,
@@ -257,6 +266,14 @@ function createSession(
       author: genesis ? "agent" : "creator",
       time: openedAt,
       ...(genesis && result ? { chatId: genesis.id, messageId: result.id } : {}),
+    });
+  }
+  if (scriptSizeMigration !== null) {
+    history.record(documents, {
+      label: "Room memory raised for this version",
+      origin: "logic",
+      author: "creator",
+      time: openedAt,
     });
   }
   let pendingRestart: PendingProjectRestart | null = null;
@@ -451,6 +468,9 @@ function createSession(
     addEventListener("pagehide", persistPending);
     document.addEventListener("visibilitychange", hiddenJournal);
   }
+  // The script.size migration's commit rides the same durable save path as
+  // any edit: a refused or failed write leaves the stored project untouched.
+  if (scriptSizeMigration !== null) captureSave(model.capture(), undefined, false, true, true);
   const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt>({
     current,
     write: async (capture) => {

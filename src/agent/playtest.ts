@@ -178,7 +178,7 @@ export class Simulation {
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
     instructionBudget = 50000,
-    options: { pressKeys?: boolean; rngVersion?: 1 | 2; pcDisplay?: PcDisplay } = {},
+    options: { pressKeys?: boolean; rngVersion?: 1 | 2; pcDisplay?: PcDisplay | undefined } = {},
   ) {
     this.cycleBudget = cycleBudget;
     this.resourceSet = resourceSetHint(state);
@@ -282,7 +282,7 @@ export class Simulation {
     };
     this.engine = new Engine(container, host, dictionary, {
       profile: state.profile,
-      pcDisplay: options.pcDisplay,
+      ...(options.pcDisplay === undefined ? {} : { pcDisplay: options.pcDisplay }),
       instructionBudget,
     });
   }
@@ -805,7 +805,12 @@ export function playtestRoom(
       args["instructionBudget"] == null
         ? 50000
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
-      { rngVersion: options.rngVersion ?? 2, pcDisplay: recording?.state.pcDisplay },
+      {
+        rngVersion: options.rngVersion ?? 2,
+        ...(recording?.state.pcDisplay === undefined
+          ? {}
+          : { pcDisplay: recording.state.pcDisplay }),
+      },
     );
     if (recording) simulation.originKind = "recorded";
     else if (setupImage) simulation.originKind = "candidate";
