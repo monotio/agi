@@ -25,6 +25,7 @@ import {
 import { renderPicture } from "../picture/renderer.ts";
 import { SoundPlayback, type SoundOutput } from "../sound/sound.ts";
 import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
+import { decodeLogicInsns } from "../logic/disassembler.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
@@ -1857,6 +1858,17 @@ export class Engine {
       this.stampMask.fill(0);
       this.surface.priority.set(staged.surface.priority);
       this.presentationDirty = true;
+    }
+    // A committed logic that declares a bigger script buffer raises the live
+    // capacity to it: the game's own guard flag may already be set, so its
+    // script.size call never re-executes — only the capacity word applies
+    // here, never the recorded-pair reset the opcode also performs.
+    for (const change of staged.changed) {
+      if (change.kind !== "logic") continue;
+      for (const insn of decodeLogicInsns(change.newPayload, { profile: this.profile })) {
+        const declared = insn.name === "script.size" ? (insn.args?.[0] ?? 0) : 0;
+        if (declared > this.scriptCapacity) this.scriptCapacity = declared;
+      }
     }
     this.patchGen++;
     this.previewSerial++;

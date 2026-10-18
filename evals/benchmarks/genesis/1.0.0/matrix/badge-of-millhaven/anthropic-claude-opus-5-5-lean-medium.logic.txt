@@ -148,6 +148,7 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
     print(m20);
   }
 }
+return;
 
 
 // ===== logic 1 (4914 bytes)
@@ -417,6 +418,7 @@ if (equaln(v2, 2)) {
     reposition.to.v(o0, v52, v53);
   }
 }
+return;
 
 
 // ===== logic 255 (320 bytes)
@@ -508,3 +510,4 @@ if (equaln(v250, 2)) {
   display(14, 13, m1);
 }
 set.text.attribute(15, 0);
+return;

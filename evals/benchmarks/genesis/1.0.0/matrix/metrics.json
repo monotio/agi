@@ -64,7 +64,7 @@
         "addedInsns": [
          "assignn(7,215)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        }
       },
       {
@@ -195,7 +195,7 @@
         "addedInsns": [
          "assignn(7,215)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        },
        "flags": [
         2,
@@ -843,7 +843,7 @@
          "assignn(7,215)",
          "status()"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        }
       },
       {
@@ -977,7 +977,7 @@
          "assignn(7,215)",
          "status()"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        },
        "flags": [
         2,
@@ -1578,7 +1578,7 @@
         "addedInsns": [
          "assignn(7,215)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        }
       },
       {
@@ -1709,7 +1709,7 @@
         "addedInsns": [
          "assignn(7,215)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        },
        "flags": [
         2,
@@ -2334,8 +2334,8 @@
        "toolFailures": 0
       }
      },
-     "authoredResources": 5,
-     "costPerAuthoredResource": 0.005
+     "authoredResources": 4,
+     "costPerAuthoredResource": 0.007
     },
     "logic": {
      "count": 3,
@@ -2348,12 +2348,7 @@
      "template": [
       {
        "num": 0,
-       "status": "modified",
-       "delta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       }
+       "status": "identical"
       },
       {
        "num": 255,
@@ -2461,12 +2456,7 @@
        "messages": 20,
        "messageChars": 295,
        "template": "logic0",
-       "templateStatus": "modified",
-       "templateDelta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       },
+       "templateStatus": "identical",
        "flags": [
         2,
         4,
@@ -3002,8 +2992,8 @@
        "toolFailures": 0
       }
      },
-     "authoredResources": 5,
-     "costPerAuthoredResource": 0.06
+     "authoredResources": 4,
+     "costPerAuthoredResource": 0.075
     },
     "logic": {
      "count": 3,
@@ -3016,12 +3006,7 @@
      "template": [
       {
        "num": 0,
-       "status": "modified",
-       "delta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       }
+       "status": "identical"
       },
       {
        "num": 255,
@@ -3128,12 +3113,7 @@
        "messages": 20,
        "messageChars": 295,
        "template": "logic0",
-       "templateStatus": "modified",
-       "templateDelta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       },
+       "templateStatus": "identical",
        "flags": [
         2,
         4,
@@ -3737,7 +3717,7 @@
          "print(33)",
          "print(17)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        }
       },
       {
@@ -3913,7 +3893,7 @@
          "print(33)",
          "print(17)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        },
        "flags": [
         2,
@@ -4522,7 +4502,7 @@
         "addedInsns": [
          "assignn(7,230)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        }
       },
       {
@@ -4649,7 +4629,7 @@
         "addedInsns": [
          "assignn(7,230)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        },
        "flags": [
         2,
@@ -5297,7 +5277,7 @@
         "addedInsns": [
          "assignn(7,230)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        }
       },
       {
@@ -5425,7 +5405,7 @@
         "addedInsns": [
          "assignn(7,230)"
         ],
-        "removedInsns": 1
+        "removedInsns": 0
        },
        "flags": [
         2,
@@ -6067,8 +6047,8 @@
        "toolFailures": 0
       }
      },
-     "authoredResources": 8,
-     "costPerAuthoredResource": 0.003
+     "authoredResources": 7,
+     "costPerAuthoredResource": 0.004
     },
     "logic": {
      "count": 3,
@@ -6081,12 +6061,7 @@
      "template": [
       {
        "num": 0,
-       "status": "modified",
-       "delta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       }
+       "status": "identical"
       },
       {
        "num": 255,
@@ -6205,12 +6180,7 @@
        "messages": 20,
        "messageChars": 295,
        "template": "logic0",
-       "templateStatus": "modified",
-       "templateDelta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       },
+       "templateStatus": "identical",
        "flags": [
         2,
         4,
@@ -6837,8 +6807,8 @@
        "toolFailures": 0
       }
      },
-     "authoredResources": 7,
-     "costPerAuthoredResource": 0.036
+     "authoredResources": 6,
+     "costPerAuthoredResource": 0.042
     },
     "logic": {
      "count": 3,
@@ -6851,12 +6821,7 @@
      "template": [
       {
        "num": 0,
-       "status": "modified",
-       "delta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       }
+       "status": "identical"
       },
       {
        "num": 255,
@@ -6960,12 +6925,7 @@
        "messages": 20,
        "messageChars": 295,
        "template": "logic0",
-       "templateStatus": "modified",
-       "templateDelta": {
-        "changedMessages": [],
-        "addedInsns": [],
-        "removedInsns": 1
-       },
+       "templateStatus": "identical",
        "flags": [
         2,
         4,

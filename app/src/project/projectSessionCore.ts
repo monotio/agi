@@ -231,11 +231,13 @@ function createSession(
         : readProjectWorkspace(data.workspace);
   // A pre-1.2.5 authored game predates the authentic 50-pair script buffer:
   // logic 0 gains the template's script.size(200) once, as a visible History
-  // commit through the ordinary document edit path below. Imported games,
-  // fixtures and walkthroughs carry no editable logic:0 source, so the
-  // migration never reaches them.
-  const scriptSizeMigration = data.imported === true ? null : migrateScriptSize(openedDocuments);
-  const documents = scriptSizeMigration ?? openedDocuments;
+  // commit through the ordinary edit path below — admitted to the running
+  // game like any logic edit. Recognized originals keep their released image
+  // untouched, and compiled logic:0 blobs carry no editable source, so the
+  // migration never reaches catalog games, fixtures or walkthroughs.
+  const scriptSizeMigration =
+    data.library?.source === "catalog" ? null : migrateScriptSize(openedDocuments);
+  const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
     documents,
@@ -267,14 +269,7 @@ function createSession(
       ...(genesis && result ? { chatId: genesis.id, messageId: result.id } : {}),
     });
   }
-  if (scriptSizeMigration !== null) {
-    history.record(documents, {
-      label: "Room memory raised for this version",
-      origin: "logic",
-      author: "creator",
-      time: openedAt,
-    });
-  }
+
   let pendingRestart: PendingProjectRestart | null = null;
   let pendingImage: ProjectDocumentsCompile | undefined;
   let pendingPreparedRoom = false;
@@ -572,9 +567,23 @@ function createSession(
       notify();
     },
   });
-  // The script.size migration's commit rides the same durable save path as
-  // any edit: a refused or failed write leaves the stored project untouched.
-  if (scriptSizeMigration !== null) captureSave(model.capture(), undefined, false, true, true);
+  // The script.size migration is an ordinary logic edit: the same admission
+  // the running game takes for any Update carries the new logic 0 at once,
+  // and the same transactional save stores it. A refused or failed write
+  // leaves the stored project as it was; the next open tries again.
+  if (scriptSizeMigration !== null && input.workingDocumentId === undefined)
+    void session
+      .submit({
+        proposal: model.propose(model.capture(), "Room memory raised for this version", [
+          { key: "logic:0", content: scriptSizeMigration["logic:0"]! },
+        ]),
+        label: "Room memory raised for this version",
+        origin: "logic",
+        author: "creator",
+      })
+      .catch(() => {
+        /* A refused migration leaves the project as it was. */
+      });
   function captureSave(
     snapshot: ProjectSnapshot,
     outcome?: PreviewUpdateOutcome,

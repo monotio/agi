@@ -4,6 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
 import { Engine } from "../src/runtime/engine.ts";
+import { decodeHostImage, decodeSave } from "../src/runtime/persistence.ts";
 import { ProjectHistory } from "../src/authoring/projectHistory.ts";
 import { migrateScriptSize } from "../src/authoring/scriptSizeMigration.ts";
 import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../src/authoring/baseTemplate.ts";
@@ -101,4 +102,53 @@ test("a logic 0 that already drives f200 some other way is left alone", () => {
 test("a logic 0 without the template boot shape is left alone", () => {
   assert.equal(migrateScriptSize({ "logic:0": "return;" }), null);
   assert.equal(migrateScriptSize({ "logic:0": 'print("hi");\nreturn;' }), null);
+});
+
+test("a checkpoint taken after the admitted migration resumes with the raised capacity", () => {
+  // A live logic 0 edit commits the new code without re-running its
+  // already-past init block; the committed image's declared script.size still
+  // lands on the running game, so progress checkpoints written after the
+  // migration restore at the declared capacity rather than the boot default.
+  const dict = new Map<string, number>();
+  const host = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [] as number[],
+  };
+  const room = 'if (isset(f5)) { accept.input(); }\nreturn;';
+  const game = (logic0: string) => {
+    const container = createContainer();
+    container.putResource("logic", 0, assembleLogic(logic0, { dictionary: dict }).payload);
+    container.putResource("logic", 1, assembleLogic(room, { dictionary: dict }).payload);
+    return container;
+  };
+  const old = game(PRE_125_LOGIC0);
+  const migrated = game(migrateScriptSize({ "logic:0": PRE_125_LOGIC0 })!["logic:0"] as string);
+  const engine = new Engine(old, host, dict);
+  for (let i = 0; i < 4; i++) engine.tick();
+  assert.equal(
+    decodeSave(engine.serialize(), engine.profile).replayCapacity,
+    50,
+    "the 1.2.4 game booted on the authentic 50-pair buffer",
+  );
+  const files = new Map<string, Uint8Array>();
+  for (const [name, bytes] of migrated.files) files.set(name, bytes.slice());
+  assert.equal(
+    engine.commitPreviewUpdate(engine.preparePreviewUpdate({ files })).status,
+    "committed",
+    "the ordinary admission path takes the migration",
+  );
+  for (let i = 0; i < 2; i++) engine.tick();
+  const after = decodeSave(engine.serialize(), engine.profile);
+  assert.equal(after.replayCapacity, 200, "the running game adopts the declared capacity");
+  const image = engine.autosaveImage() ?? engine.serialize();
+  const fresh = new Engine(migrated, host, dict);
+  fresh.restoreImage(image);
+  assert.equal(
+    decodeSave(fresh.serialize(), fresh.profile).replayCapacity,
+    200,
+    "a checkpoint written after the migration resumes at capacity 200",
+  );
 });
