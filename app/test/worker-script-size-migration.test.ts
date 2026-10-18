@@ -1,0 +1,231 @@
+/**
+ * Player-visible rule (CHANGELOG 1.2.5; docs/fidelity.md "Authored script
+ * buffer on live edits"): an older authored game opened in Create gains
+ * script.size(200) once, and the running game, its checkpoints and its
+ * recorded history use the larger buffer at once, so a busy room keeps
+ * working without a restart. A game booted without the authored-project
+ * option keeps the buffer its own code set.
+ */
+import { installWebLocksFixture } from "./webLocksFixture.ts";
+import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { replayHistorySegment } from "./worker-ctx.ts";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { HistorySegment } from "../../src/agent/history.ts";
+import { validateHistoryBoot } from "../../src/agent/history.ts";
+import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../../src/authoring/baseTemplate.ts";
+import { migrateScriptSize } from "../../src/authoring/scriptSizeMigration.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { requireProjectId } from "../../src/gameIdentity.ts";
+import type { Engine } from "../../src/runtime/engine.ts";
+import { decodeSave } from "../../src/runtime/persistence.ts";
+import { createWorkerContext } from "../src/worker/context.ts";
+import { createEngineHost } from "../src/worker/host.ts";
+import { onWorkerMessage } from "../src/worker/dispatch.ts";
+import { openProjectSession } from "../src/project/projectSession.ts";
+import { createMainProjectAdmission } from "../src/engine/mainProjectAdmission.ts";
+import * as storage from "../src/project/gameStorage.ts";
+import type {
+  BootMessage,
+  WorkerControl,
+  WorkerInbound,
+  WorkerQueryFn,
+} from "../src/worker/workerProtocol.ts";
+
+installWebLocksFixture();
+installIndexedDbFixture();
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+});
+
+const PRE_125_LOGIC0 = BASE_TEMPLATE_LOGIC0_SOURCE.replace("  script.size(200);\n", "");
+// Room 1 draws on entry; with f220 set it loads, draws and discards its
+// picture twenty times: 60 replay pairs, past the authentic 50.
+const BUSY_ROOM = `if (isset(f5)) { load.pic(1); draw.pic(1); discard.pic(1); show.pic(); }
+if (isset(f220)) { reset(f220); ${"load.pic(1); draw.pic(1); discard.pic(1); ".repeat(20)}show.pic(); }
+return;`;
+const documents = (logic0: string) => ({
+  "logic:0": logic0,
+  "logic:1": BUSY_ROOM,
+  "picture:1": "vis 1\nfill 1,1\nend\n",
+});
+const compile = (logic0: string) =>
+  compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: documents(logic0),
+    profileId: "2.936",
+  });
+const capacity = (engine: Engine) => decodeSave(engine.serialize(), engine.profile).replayCapacity;
+
+function bootWorker(
+  files: Record<string, Uint8Array>,
+  extra: Partial<BootMessage> = {},
+  create = true,
+) {
+  const messages: WorkerControl[] = [];
+  let now = 0;
+  const ctx = createWorkerContext({
+    control: (m) => messages.push(m),
+    presentation: () => {},
+    now: () => now,
+    seedWord: () => 1,
+  });
+  ctx.host = createEngineHost(ctx);
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files,
+    words: [],
+    profile: "2.936",
+    ...(create ? { projectMode: "create" as const } : {}),
+    progressMode: "play",
+    ...extra,
+  });
+  ctx.fns.stopTimers();
+  const tick = () => {
+    now += 100;
+    ctx.fns.hostTick();
+  };
+  return { ctx, messages, tick };
+}
+function segmentOf(messages: WorkerControl[]): HistorySegment {
+  const batches = messages.flatMap((m) => (m.type === "historyBatch" ? [m.batch] : []));
+  return {
+    id: batches[0]!.segment,
+    boot: validateHistoryBoot(JSON.parse(JSON.stringify(batches[0]!.boot!))),
+    anchors: batches.flatMap((b) => (b.anchor === undefined ? [] : [b.anchor])),
+    events: batches.flatMap((b) => b.events),
+    marks: batches.flatMap((b) => b.marks),
+    sync: batches.flatMap((b) => b.sync),
+    clock: batches.flatMap((b) => b.clock ?? []),
+  };
+}
+
+async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
+  const compiled = compile(PRE_125_LOGIC0);
+  const id = requireProjectId(name);
+  const first = await storage.commitProject({
+    projectId: id,
+    commitId: "initial",
+    workspaceId: "initial",
+    buildId: compiled.build.identity.buildId,
+    expected: null,
+    documents: [],
+    data: {
+      title: "Older game",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents(PRE_125_LOGIC0)),
+    },
+  });
+  const worker = bootWorker(Object.fromEntries(compiled.files()), {
+    ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true } : {}),
+  });
+  await worker.ctx.projectLoader.loading;
+  const engine = worker.ctx.run.engine!;
+  worker.tick();
+  worker.tick();
+  assert.equal(engine.vars[0], 1, "the game reached its first room");
+  assert.equal(capacity(engine), 50, "the older game booted on the authentic 50-pair buffer");
+  const ack = worker.messages.find((m) => m.type === "booted");
+  assert.ok(ack?.type === "booted" && ack.projectAdmission);
+  let queryId = 0;
+  const query = (async (type, extra) => {
+    onWorkerMessage(worker.ctx, { type, id: ++queryId, ...extra } as WorkerInbound);
+    const reply = worker.messages.at(-1);
+    for (const message of worker.messages)
+      if (message.type === "historyBatch")
+        onWorkerMessage(worker.ctx, {
+          type: "historyAck",
+          epoch: message.epoch,
+          batch: message.batch.batch,
+        });
+    return reply;
+  }) as WorkerQueryFn;
+  const session = openProjectSession({
+    data: (await storage.loadAuthoredGame(id))!,
+    lifetime: first.receipt.saved.lifetime,
+    admission: createMainProjectAdmission({
+      ...ack.projectAdmission,
+      query,
+      current: () => worker.ctx.run.engine === engine,
+    }),
+  });
+  for (let i = 0; i < 50 && session.saveStatus().state !== "saved"; i++) {
+    await session.flush().catch(() => {});
+    worker.tick();
+  }
+  session.dispose();
+  assert.equal(worker.ctx.run.engine, engine, "the migration kept the running game");
+  assert.match(
+    String(session.model.capture().read("logic:0")!.content),
+    /script\.size\(200\);/,
+    "the session holds the migrated LOGIC 0",
+  );
+  return { ...worker, engine, id };
+}
+
+test("the running game takes the migration at once and plays the busy room; history replays it", async () => {
+  const { ctx, engine, messages, tick } = await openOlderGame("script-size-worker", true);
+  assert.equal(capacity(engine), 200, "the running game uses the larger buffer at once");
+  engine.flags[220] = 1;
+  tick();
+  assert.equal(engine.flags[220], 0, "the busy room ran");
+  assert.deepEqual(
+    messages.filter((m) => m.type === "error"),
+    [],
+    "without a restart or an error",
+  );
+  ctx.fns.historyFlush();
+  const segment = segmentOf(messages);
+  assert.equal(segment.boot.adoptDeclaredScriptSize, true, "the segment records the host option");
+  const replayed = replayHistorySegment(segment);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null);
+  assert.equal(capacity(replayed.ctx.run.engine!), 200, "history replays the adoption");
+  ctx.fns.stopTimers();
+});
+
+test("a checkpoint taken before the migration resumes on the migrated game with the larger buffer", async () => {
+  // Play boots: a resume needs no Create admission.
+  const before = bootWorker(
+    Object.fromEntries(compile(PRE_125_LOGIC0).files()),
+    { adoptDeclaredScriptSize: true },
+    false,
+  );
+  before.tick();
+  before.tick();
+  const image = before.ctx.run.engine!.autosaveImage();
+  assert.ok(image);
+  assert.equal(before.ctx.run.engine!.flags[200], 1, "logic 0's boot block already ran");
+  before.ctx.fns.stopTimers();
+  const migrated = migrateScriptSize({ "logic:0": PRE_125_LOGIC0 })!["logic:0"] as string;
+  for (const adoptDeclaredScriptSize of [true, false]) {
+    const resumed = bootWorker(
+      Object.fromEntries(compile(migrated).files()),
+      {
+        ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true } : {}),
+        restoreImage: Buffer.from(image).toString("base64"),
+      },
+      false,
+    );
+    assert.equal(
+      capacity(resumed.ctx.run.engine!),
+      adoptDeclaredScriptSize ? 200 : 50,
+      adoptDeclaredScriptSize
+        ? "an authored game resumes at the buffer its LOGIC 0 declares"
+        : "without the option the saved buffer stands",
+    );
+    resumed.ctx.fns.stopTimers();
+  }
+});
+
+test("without the authored-project option the running game keeps the buffer its code set", async () => {
+  const { ctx, engine, messages } = await openOlderGame("script-size-worker-original", false);
+  assert.equal(capacity(engine), 50);
+  ctx.fns.historyFlush();
+  assert.equal(segmentOf(messages).boot.adoptDeclaredScriptSize, undefined);
+  ctx.fns.stopTimers();
+});

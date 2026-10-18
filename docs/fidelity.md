@@ -872,6 +872,46 @@ opcode, flag, variable or pixel differs whether they are armed or not.
 [worker-journal.test.ts](../app/test/worker-journal.test.ts) (transition
 attribution and replay silence).
 
+### Authored script buffer on live edits
+
+This is a host addition for authored projects, not interpreter behavior. The
+original sets the script buffer only when the game executes `script.size`
+([F-timing-02](#original-script-capacity-and-version-handlers)); the engine keeps that rule for every game. Live
+editing adds a case the original never meets: new LOGIC 0 code installed into
+a running game whose boot block already ran. The base template sizes the
+buffer inside its `!isset(f200)` boot block, so a game that gains
+`script.size(200)` by an edit, or resumes a checkpoint taken before the edit,
+would keep its old capacity until a restart.
+
+With the engine option `adoptDeclaredScriptSize`, two host operations raise
+the capacity word to the largest `script.size` operand in the installed LOGIC
+0, never lower it, and leave the recorded pairs untouched (the opcode's reset
+does not run):
+
+- a committed preview update or room re-entry that changes LOGIC 0;
+- a host resume (`restoreImage`: autosave, checkpoint, history and host save
+  slots).
+
+The page sets the option for library projects that are not recognized
+original releases (an interpreter binary beside the data, a catalog
+WORDS.TOK and OBJECT pair, or a catalog library record), and every worker
+replacement path carries it with the run. Original releases, installed
+folders, fixtures, walkthrough tapes and the Node test harness run without
+it, so their behavior and recorded fingerprints are unchanged. The option is
+a pure function of the project, so a history replay of the same project
+repeats each adoption at the same event; the resulting capacity is ordinary
+save state (`replayCapacity`), and no stored format gained a field.
+
+This makes the 1.2.5 script buffer migration safe: an older authored game
+gains `script.size(200)` as one History entry admitted to the running game,
+and its 1.2.4 checkpoints (capacity 200 from the old default) and those taken
+before the migration (capacity 50, boot block done) resume at 200.
+
+**Tests:** [script-size-migration.test.ts](../test/script-size-migration.test.ts)
+(live commit and resume, with and without the option),
+[script-size-migration-session.test.ts](../app/test/script-size-migration-session.test.ts)
+(session migration, refused write, second tab, close before commit, scope).
+
 ## Appendix A: PC evidence
 
 Evidence for the PC (DOS) interpreters, grouped as in the guide. Each entry

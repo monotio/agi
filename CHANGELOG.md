@@ -19,9 +19,19 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - A fidelity coverage table in the interpreter notes records the evidence
   behind each aspect and the gaps: IIgs native menus and the Standard File
   window, Hercules and composite displays, and the `.SAV` panel are planned.
+- Contributors can compare frames against an original interpreter running on
+  their own MAME setup with `scripts/mame-diff.ts`
+  ([Original interpreter frame comparison](docs/testing.md#original-interpreter-frame-comparison)).
 
 ### Changed
 
+- A game that never calls `script.size` gets the original 50-pair script
+  buffer instead of 200. The base template now calls `script.size(200)` in
+  its first cycle.
+- Games made with an older version get that `script.size(200)` line once
+  when they open, as a History entry named "Room memory raised for this
+  version". The running game and its saved progress use the larger buffer at
+  once, so busy rooms keep working without a restart.
 - PC and Amiga text draws with the project's own pixel-for-pixel
   recreations of the original typefaces: the Tandy 1000 SX BIOS design on
   PC, and Topaz 8 on the Amiga.

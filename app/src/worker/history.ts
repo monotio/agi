@@ -583,6 +583,9 @@ export function createHistory(ctx: WorkerContext) {
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
       ...(ctx.run.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
       ...(ctx.run.engine?.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
+      ...(ctx.run.engine?.adoptsDeclaredScriptSize
+        ? { adoptDeclaredScriptSize: true as const }
+        : {}),
       rng: ctx.run.rng.word,
       ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
@@ -659,6 +662,9 @@ export function createHistory(ctx: WorkerContext) {
       profile: engine.profile.id,
       ...(ctx.run.engine?.amigaRegion === "pal" ? { amigaRegion: "pal" as const } : {}),
       ...(ctx.run.engine?.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
+      ...(ctx.run.engine?.adoptsDeclaredScriptSize
+        ? { adoptDeclaredScriptSize: true as const }
+        : {}),
       ...(image
         ? { image: bytesToBase64(image), replay: engine.captureReplayState(allowUndrawn) }
         : {}),
