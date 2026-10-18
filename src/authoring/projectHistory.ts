@@ -21,7 +21,7 @@ import {
   PROJECT_HISTORY_LIMITS,
   type PortableProjectHistory,
 } from "./projectHistoryCodec.ts";
-import { pruneProjectHistory } from "./projectHistoryPruning.ts";
+import { pruneCheckedProjectHistory } from "./projectHistoryPruning.ts";
 import type { ProjectModel, ProjectProposal } from "./projectModel.ts";
 
 interface HistoryTotals {
@@ -255,14 +255,18 @@ export class ProjectHistory {
       Object.keys(blobs).length > limits.maxBlobs ||
       totals.bytes > (totals.images ? limits.maxImageTotalBytes : limits.maxTotalBytes)
     ) {
-      const state = pruneProjectHistory(candidate, this.digest).state;
+      // One appended commit may sit on top of the retained bounds while
+      // retention removes the oldest unpinned versions; the retained commits
+      // and blobs were codec-admitted already, so pruning skips the codec.
+      this.checkAppend(commit, totals, Object.keys(blobs).length, true);
+      const state = pruneCheckedProjectHistory(candidate).state;
       return {
         state,
         totals: this.measureTotals(state),
       };
     }
     // Retained data is checked and privately owned. Only the new metadata is validated.
-    this.checkAppend(commit, totals);
+    this.checkAppend(commit, totals, Object.keys(blobs).length);
     return {
       state: Object.freeze({
         ...candidate,
@@ -274,12 +278,25 @@ export class ProjectHistory {
     };
   }
 
-  private checkAppend(commit: ProjectHistoryCommit, totals: HistoryTotals): void {
+  private checkAppend(
+    commit: ProjectHistoryCommit,
+    totals: HistoryTotals,
+    blobCount: number,
+    pending = false,
+  ): void {
     const limits = PROJECT_HISTORY_LIMITS;
     const keys = Object.keys(commit.documents);
-    if (keys.length > limits.maxDocuments || totals.entries > limits.maxManifestEntries)
+    if (
+      keys.length > limits.maxDocuments ||
+      totals.entries > limits.maxManifestEntries + (pending ? limits.maxDocuments : 0)
+    )
       throw new Error("Invalid project history: manifest exceeds the limit.");
-    if (totals.bytes > (totals.images ? limits.maxImageTotalBytes : limits.maxTotalBytes))
+    if (blobCount > limits.maxBlobs + (pending ? limits.maxDocuments : 0))
+      throw new Error("Invalid project history: blob count exceeds the limit.");
+    if (
+      totals.bytes >
+      (totals.images ? limits.maxImageTotalBytes : limits.maxTotalBytes) * (pending ? 2 : 1)
+    )
       throw new Error("Invalid project history: blob payloads exceed the total limit.");
     // Reuse the codec's metadata contract on a single empty root. Retained commits and
     // blobs never enter this check; the real parent, manifest and diff are built here.

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { frameTask } from "../ui/frameTask.ts";
-import { onBeforeUnmount } from "vue";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
 /**
@@ -17,7 +16,7 @@ import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.t
  * compact form opens zoomed out to fit the dock, and its Expand button opens
  * the window over it.
  */
-import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import {

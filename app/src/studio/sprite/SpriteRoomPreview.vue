@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { frameTask } from "../../ui/frameTask.ts";
-import { onBeforeUnmount } from "vue";
 import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 
-import { computed, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, onBeforeUnmount, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
 import { openContainer } from "../../../../src/container/container.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";

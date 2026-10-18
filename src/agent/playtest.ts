@@ -7,6 +7,7 @@ import {
 import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import { Engine, HostWait, type EngineHost } from "../runtime/engine.ts";
+import type { PcDisplay } from "../runtime/display.ts";
 import { AGI_KEY, type JoystickSample } from "../runtime/keys.ts";
 import { parseView } from "../view/view.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
@@ -177,7 +178,7 @@ export class Simulation {
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
     instructionBudget = 50000,
-    options: { pressKeys?: boolean; rngVersion?: 1 | 2 } = {},
+    options: { pressKeys?: boolean; rngVersion?: 1 | 2; pcDisplay?: PcDisplay } = {},
   ) {
     this.cycleBudget = cycleBudget;
     this.resourceSet = resourceSetHint(state);
@@ -281,6 +282,7 @@ export class Simulation {
     };
     this.engine = new Engine(container, host, dictionary, {
       profile: state.profile,
+      pcDisplay: options.pcDisplay,
       instructionBudget,
     });
   }
@@ -803,7 +805,7 @@ export function playtestRoom(
       args["instructionBudget"] == null
         ? 50000
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
-      { rngVersion: options.rngVersion ?? 2 },
+      { rngVersion: options.rngVersion ?? 2, pcDisplay: recording?.state.pcDisplay },
     );
     if (recording) simulation.originKind = "recorded";
     else if (setupImage) simulation.originKind = "candidate";

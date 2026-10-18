@@ -101,10 +101,16 @@ export function loadAppearance(
 ): Promise<Appearance> {
   if (id === "iigs-1.014") {
     if (iigsLook) return Promise.resolve(iigsLook(files));
-    iigsLoading ??= import("./iigsAppearance.ts").then(({ iigsAppearanceForFiles }) => {
-      iigsLook = iigsAppearanceForFiles;
-      return iigsAppearanceForFiles(files);
-    });
+    iigsLoading ??= import("./iigsAppearance.ts")
+      .then(({ iigsAppearanceForFiles }) => {
+        iigsLook = iigsAppearanceForFiles;
+        return iigsAppearanceForFiles(files);
+      })
+      .catch((error: unknown) => {
+        // A rejected import must not stick: the next boot retries.
+        iigsLoading = undefined;
+        throw error;
+      });
     return iigsLoading.then(() => iigsLook!(files));
   }
   const key =
@@ -120,11 +126,18 @@ export function loadAppearance(
         : import("./amigaAppearance.ts").then(({ amigaAppearance }) =>
             amigaAppearance(PROFILES[id as ProfileId].palette),
           );
-    pending = pending.then((look) => {
-      loaded.set(key, look);
-      loading.delete(key);
-      return look;
-    });
+    pending = pending.then(
+      (look) => {
+        loaded.set(key, look);
+        loading.delete(key);
+        return look;
+      },
+      (error: unknown) => {
+        // A rejected import must not stick: the next boot retries.
+        loading.delete(key);
+        throw error;
+      },
+    );
     loading.set(key, pending);
   }
   return pending;

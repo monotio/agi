@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { frameTask } from "../../ui/frameTask.ts";
-import { onBeforeUnmount } from "vue";
 import UiIcon from "../../ui/UiIcon.vue";
-import { computed, onMounted, useTemplateRef, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import type { SoundDocument, SoundEventDataInput } from "../../../../src/sound/document.ts";
 import {
   DRUM_SOUNDS,
@@ -15,7 +14,6 @@ import {
 } from "../../../../src/sound/sequencer.ts";
 import { PSG_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
-import { ref } from "vue";
 const props = defineProps<{
   readOnly?: boolean;
   document: SoundDocument;

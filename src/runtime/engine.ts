@@ -4394,6 +4394,7 @@ export class Engine {
     if (joystick && continuation === null) joystick.calibration = null;
     return {
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
+      ...(this.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(this.monitorType === MONITOR_TYPE[this.pcDisplay]
         ? {}
         : { monitorType: this.monitorType }),

@@ -33,11 +33,14 @@ import { readRngPolicy, type RngPolicy } from "../runtime/rng.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
 /**
- * Current recording contract adds debugger boundaries and complete project
- * admission events. Version-2 tapes may carry sync marks in either form —
- * the released combined `digest` or the split `state` + `text` digests —
- * and new writers emit the split digests (an optional-field extension at
- * the same version); version 1 is the released contract.
+ * Version 3 adds the parked window's pixel frame (`saved.window`, admitted
+ * by `allowWindow` below), the `menu` and `joystick` causes and `pcDisplay`
+ * on boots and anchors — none of them expressible in a released version.
+ * Version 2 added debugger boundaries and complete project admission
+ * events; version-2 tapes may carry sync marks in either form — the
+ * released combined `digest` or the split `state` + `text` digests — and
+ * new writers emit the split digests (an optional-field extension at the
+ * same version). Version 1 is the released contract.
  */
 export const HISTORY_FORMAT_VERSION = 3;
 /** Released recordings remain unchanged on read; the next append upgrades the header. */

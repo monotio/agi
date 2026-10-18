@@ -22,7 +22,7 @@ import TransportBar from "../history/TransportBar.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
-import { crtFramePoint } from "../three/crtAmount.ts";
+import { crtFramePixel, crtFramePoint } from "../three/crtAmount.ts";
 import { displayAspect, stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 import { amigaPointerCursor } from "./amigaPointer.ts";
@@ -33,6 +33,7 @@ import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import {
   AGI_KEY,
   DIRECTION_KEYS,
+  normalizeKeyWord,
   translatePlatformKey,
   type JoystickSample,
 } from "../../../src/runtime/keys.ts";
@@ -190,17 +191,21 @@ onMounted(() => {
   window.addEventListener("blur", onFocusMove);
   window.addEventListener("blur", releaseGamepad);
   document.addEventListener("visibilitychange", releaseGamepad);
+  window.addEventListener("blur", onScreenPointerCancel);
+  document.addEventListener("visibilitychange", onScreenPointerCancel);
   gamepadTimer = setInterval(pollGamepad, 1000 / 60);
   readKeyboard();
 });
 onBeforeUnmount(() => {
   clearLongPress();
-  if (menuMoveFrame) window.cancelAnimationFrame(menuMoveFrame);
+  if (moveFrame) window.cancelAnimationFrame(moveFrame);
   // The next game screen mounts its own canvas and stage.
   presentation.closeScreen();
   releaseGamepad();
   window.removeEventListener("blur", releaseGamepad);
   document.removeEventListener("visibilitychange", releaseGamepad);
+  window.removeEventListener("blur", onScreenPointerCancel);
+  document.removeEventListener("visibilitychange", onScreenPointerCancel);
   if (gamepadTimer !== null) {
     clearInterval(gamepadTimer);
     gamepadTimer = null;
@@ -393,8 +398,8 @@ const amigaDialogOpen = computed(
     screenPresentation.value === "amiga" && (state.modal === "save" || state.modal === "restore"),
 );
 let menuDrag = false;
-let menuMovePending: { x: number; y: number } | null = null;
-let menuMoveFrame = 0;
+let movePending: { x: number; y: number } | null = null;
+let moveFrame = 0;
 let longPressTimer = 0;
 let longPressFired = false;
 const LONG_PRESS_MS = 500;
@@ -406,30 +411,46 @@ function clearLongPress(): void {
   longPressTimer = 0;
 }
 
-function queueMenuMove(point: { x: number; y: number }): void {
-  menuMovePending = point;
-  if (menuMoveFrame) return;
-  menuMoveFrame = window.requestAnimationFrame(() => {
-    menuMoveFrame = 0;
-    if (menuMovePending && menuDrag) sendMenu("move", menuMovePending.x, menuMovePending.y);
-    menuMovePending = null;
+/**
+ * Pointer moves record only the latest client position; the canvas rect read
+ * and the frame mapping run once per animation frame, like every other drag.
+ */
+function queueScreenMove(clientX: number, clientY: number): void {
+  movePending = { x: clientX, y: clientY };
+  if (moveFrame) return;
+  moveFrame = window.requestAnimationFrame(() => {
+    moveFrame = 0;
+    const pending = movePending;
+    movePending = null;
+    if (!pending) return;
+    if (menuDrag) {
+      const point = menuPoint(pending.x, pending.y);
+      if (point) sendMenu("move", point.x, point.y);
+      return;
+    }
+    if (longPressTimer) {
+      const point = screenFramePoint(pending.x, pending.y);
+      if (!point || point.y > TITLE_BAR_BOTTOM) clearLongPress();
+    }
   });
 }
 
 /** A pointer position clamped onto the frame, as Intuition clamps its pointer to the screen edge. */
-function menuPoint(ev: MouseEvent): { x: number; y: number } | null {
+function menuPoint(clientX: number, clientY: number): { x: number; y: number } | null {
   const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
   const rect = canvas?.getBoundingClientRect();
   if (!rect || rect.width <= 0 || rect.height <= 0) return null;
-  const x = Math.floor(((ev.clientX - rect.left) * 320) / rect.width);
-  const y = Math.floor(((ev.clientY - rect.top) * 200) / rect.height);
-  return { x: Math.min(319, Math.max(0, x)), y: Math.min(199, Math.max(0, y)) };
+  return crtFramePixel(
+    (clientX - rect.left) / rect.width,
+    (clientY - rect.top) / rect.height,
+    gpuBackend.value ? props.crtAmount : 0,
+  );
 }
 
 function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
   if (ev.button === 2 && ev.pointerType === "mouse" && amigaMenuReady.value) {
-    const point = menuPoint(ev);
+    const point = menuPoint(ev.clientX, ev.clientY);
     if (!point) return;
     ev.preventDefault();
     menuDrag = true;
@@ -444,10 +465,12 @@ function onScreenPointerDown(ev: PointerEvent): void {
   clearLongPress();
   longPressFired = false;
   if (ev.pointerType !== "mouse" && ev.isPrimary && amigaMenuReady.value) {
-    const point = screenFramePoint(ev);
+    const point = screenFramePoint(ev.clientX, ev.clientY);
     if (!point || point.y > TITLE_BAR_BOTTOM) return;
     longPressTimer = window.setTimeout(() => {
       longPressTimer = 0;
+      // A pause or an opened sheet since the press revoked the strip.
+      if (!amigaMenuReady.value) return;
       longPressFired = true;
       sendMenu("open", point.x, point.y, true);
     }, LONG_PRESS_MS);
@@ -456,28 +479,21 @@ function onScreenPointerDown(ev: PointerEvent): void {
 
 function onScreenPointerMove(ev: PointerEvent): void {
   presentation.onScreenPointerMove(ev);
-  if (menuDrag) {
-    const point = menuPoint(ev);
-    if (point) queueMenuMove(point);
-    return;
-  }
-  if (longPressTimer && ev.pointerType !== "mouse") {
-    const point = screenFramePoint(ev);
-    if (!point || point.y > TITLE_BAR_BOTTOM) clearLongPress();
-  }
+  if (menuDrag || (longPressTimer !== 0 && ev.pointerType !== "mouse"))
+    queueScreenMove(ev.clientX, ev.clientY);
 }
 
 function onScreenPointerUp(ev: PointerEvent): void {
   clearLongPress();
   if (!menuDrag || ev.button !== 2) return;
   menuDrag = false;
-  menuMovePending = null;
+  movePending = null;
   try {
     (ev.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId);
   } catch {
     /* Capture already gone. */
   }
-  const point = menuPoint(ev);
+  const point = menuPoint(ev.clientX, ev.clientY);
   sendMenu("release", point?.x ?? -1, point?.y ?? -1);
 }
 
@@ -485,7 +501,7 @@ function onScreenPointerCancel(): void {
   clearLongPress();
   if (!menuDrag) return;
   menuDrag = false;
-  menuMovePending = null;
+  movePending = null;
   sendMenu("cancel", 0, 0);
 }
 
@@ -552,7 +568,7 @@ function onScreenClick(ev: MouseEvent): void {
     return;
   }
   if (amigaMenuOpen.value && ev.button === 0 && !state.walkthrough.active) {
-    const point = screenFramePoint(ev);
+    const point = screenFramePoint(ev.clientX, ev.clientY);
     if (point) sendMenu("tap", point.x, point.y);
     return;
   }
@@ -583,7 +599,7 @@ function onScreenClick(ev: MouseEvent): void {
       // dialog's OK / Cancel gadget or slot line.
       if (amigaDialogOpen.value) sendScreenClick(ev);
       else if (state.modal !== "save" && state.modal !== "restore")
-        dismissModal(screenFramePoint(ev) ?? undefined);
+        dismissModal(screenFramePoint(ev.clientX, ev.clientY) ?? undefined);
       return;
     }
     if (
@@ -619,13 +635,13 @@ const screenClickMove = computed(() => {
  * pixels. The canvas fills `.screen`'s content box (its 2px border stays
  * outside the frame), so the canvas rect is the exact map.
  */
-function screenFramePoint(ev: MouseEvent): { x: number; y: number } | null {
+function screenFramePoint(clientX: number, clientY: number): { x: number; y: number } | null {
   const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
   const rect = canvas?.getBoundingClientRect();
   if (!rect || rect.width <= 0 || rect.height <= 0) return null;
   const point = crtFramePoint(
-    (ev.clientX - rect.left) / rect.width,
-    (ev.clientY - rect.top) / rect.height,
+    (clientX - rect.left) / rect.width,
+    (clientY - rect.top) / rect.height,
     gpuBackend.value ? props.crtAmount : 0,
   );
   return point ? { x: Math.floor(point.x), y: Math.floor(point.y) } : null;
@@ -647,7 +663,7 @@ function sendScreenClick(ev: MouseEvent): void {
     !amigaDialogOpen.value
   )
     return;
-  const point = screenFramePoint(ev);
+  const point = screenFramePoint(ev.clientX, ev.clientY);
   if (point) sendClick(point.x, point.y);
 }
 
@@ -841,14 +857,7 @@ function onVirtualKey(code: number): void {
     return;
   }
   if (state.prompt) {
-    const promptCode =
-      code === 0x0101 || code === 0x0301
-        ? AGI_KEY.ENTER
-        : code === 0x0201 || code === 0x0401
-          ? screenPresentation.value === "iigs"
-            ? AGI_KEY.ENTER
-            : AGI_KEY.ESCAPE
-          : code;
+    const promptCode = normalizeKeyWord(code, screenPresentation.value);
     if (promptCode === AGI_KEY.ENTER || promptCode === AGI_KEY.ESCAPE) {
       submitPrompt(
         promptCode === AGI_KEY.ESCAPE ? "" : promptLine.value,
@@ -1045,6 +1054,7 @@ defineExpose({
         @pointermove="onScreenPointerMove"
         @pointerup="onScreenPointerUp"
         @pointercancel="onScreenPointerCancel"
+        @lostpointercapture="onScreenPointerCancel"
       >
         <canvas
           v-show="!!gpuBackend"

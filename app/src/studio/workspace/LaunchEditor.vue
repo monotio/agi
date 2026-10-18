@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { frameTask } from "../../ui/frameTask.ts";
-import { onBeforeUnmount, shallowRef } from "vue";
-import { computed, ref, useTemplateRef, watch, watchEffect, nextTick } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+  watchEffect,
+} from "vue";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
 import { newLaunchId, type Launch, type RoomLaunches } from "../../../../src/authoring/launches.ts";
