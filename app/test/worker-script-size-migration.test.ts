@@ -12,9 +12,16 @@ import { replayHistorySegment } from "./worker-ctx.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { HistorySegment } from "../../src/agent/history.ts";
-import { validateHistoryBoot } from "../../src/agent/history.ts";
+import { stampBoot, validateHistoryBoot } from "../../src/agent/history.ts";
+import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
-import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../src/authoring/projectWorkspace.ts";
+import { sha256Hex } from "../../src/crypto.ts";
+import { bytesToBase64 } from "../src/project/bytes.ts";
 import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../../src/authoring/baseTemplate.ts";
 import { migrateScriptSize } from "../../src/authoring/scriptSizeMigration.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -316,6 +323,121 @@ test("a checkpoint taken before the migration resumes on the migrated game with 
     "a pre-migration checkpoint resumed on the unmigrated game gets the template-shape floor",
   );
   unmigrated.ctx.fns.stopTimers();
+});
+
+test("a released (format-2) cold-boot segment of a busy authored room replays at 200 pairs", () => {
+  // A recording from before the option existed never carries
+  // adoptDeclaredScriptSize, and the released build ran every game at the
+  // old 200-pair default. A cold-boot segment whose boot carries project
+  // documents is an authored project: replay adopts that floor, so the
+  // recorded busy room runs again instead of faulting at 50.
+  const busy = `if (isset(f5)) { load.pic(1); draw.pic(1);
+    load.view(1); ${"add.to.pic(1, 0, 0, 0, 0, 9, 0);".repeat(12)} discard.pic(1); show.pic(); }
+  return;`;
+  const docs = {
+    "logic:0": PRE_125_LOGIC0,
+    "logic:1": busy,
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+    "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: docs,
+    profileId: "2.936",
+  });
+  const files = new Map(compiled.files());
+  const workspace = writeProjectWorkspace(docs);
+  const boot = validateHistoryBoot(
+    JSON.parse(
+      JSON.stringify(
+        stampBoot({
+          files: Object.fromEntries(
+            [...files].map(([name, bytes]) => [name, bytesToBase64(bytes)]),
+          ),
+          project: {
+            documents: workspace,
+            documentId: projectDocumentId(readProjectWorkspace(workspace), sha256Hex),
+          },
+          dictionary: [],
+          authorRooms: true,
+          profile: "2.936",
+          rng: 0,
+          soundDevice: 1,
+          resourceSet: resourceSetHint({ getFiles: () => files }),
+          requestSerial: 0,
+        }),
+      ),
+    ),
+  );
+  assert.equal(boot.adoptDeclaredScriptSize, undefined, "a released tape has no such field");
+  const segment: HistorySegment = {
+    id: "v2-cold-boot",
+    version: 2,
+    boot,
+    anchors: [],
+    events: [],
+    marks: [],
+    sync: [],
+    end: { seq: 0, tick: 30, cycle: 6, reason: "quit" },
+  };
+  const replayed = replayHistorySegment(segment);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null);
+  const engine = replayed.ctx.run.engine!;
+  assert.equal(engine.vars[0], 1, "the recorded busy room ran");
+  assert.equal(capacity(engine), 200, "the released recording replays at the 200 pairs it ran");
+  replayed.ctx.fns.stopTimers();
+});
+
+test("a format-2 segment without project documents keeps the recorded 50 pairs", () => {
+  // A folder or fixture tape carries no project documents: nothing marks it
+  // authored, so its busy room faults on the authentic buffer as released.
+  const busy = `if (isset(f5)) { load.pic(1); draw.pic(1);
+    load.view(1); ${"add.to.pic(1, 0, 0, 0, 0, 9, 0);".repeat(12)} discard.pic(1); show.pic(); }
+  return;`;
+  const docs = {
+    "logic:0": PRE_125_LOGIC0,
+    "logic:1": busy,
+    "picture:1": "vis 1\nfill 1,1\nend\n",
+    "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: docs,
+    profileId: "2.936",
+  });
+  const files = new Map(compiled.files());
+  const boot = validateHistoryBoot(
+    JSON.parse(
+      JSON.stringify(
+        stampBoot({
+          files: Object.fromEntries(
+            [...files].map(([name, bytes]) => [name, bytesToBase64(bytes)]),
+          ),
+          dictionary: [],
+          authorRooms: false,
+          profile: "2.936",
+          rng: 0,
+          soundDevice: 1,
+          resourceSet: resourceSetHint({ getFiles: () => files }),
+          requestSerial: 0,
+        }),
+      ),
+    ),
+  );
+  const segment: HistorySegment = {
+    id: "v2-cold-boot",
+    version: 2,
+    boot,
+    anchors: [],
+    events: [],
+    marks: [],
+    sync: [],
+    end: { seq: 0, tick: 30, cycle: 6, reason: "quit" },
+  };
+  const replayed = replayHistorySegment(segment);
+  assert.match(replayed.error ?? "", /exceeded its 50-pair capacity/);
+  replayed.ctx.fns.stopTimers();
 });
 
 test("without the authored-project option the running game keeps the buffer its code set", async () => {

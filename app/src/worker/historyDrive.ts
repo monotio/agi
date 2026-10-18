@@ -358,8 +358,14 @@ export function openHistoryDrive(
         ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
         amigaRegion: segment.boot.amigaRegion ?? "ntsc",
         ...(segment.boot.pcDisplay ? { pcDisplay: segment.boot.pcDisplay } : {}),
-        // A scratch replay knows only what the segment recorded.
-        adoptDeclaredScriptSize: segment.boot.adoptDeclaredScriptSize === true,
+        // A scratch replay knows only what the segment recorded. A segment
+        // opened under a released format predates the field, but the released
+        // build ran every game at the old 200-pair default — so an authored
+        // project (its boot carries project documents) replays under the
+        // option it could not record.
+        adoptDeclaredScriptSize:
+          segment.boot.adoptDeclaredScriptSize === true ||
+          (effectiveVersion < HISTORY_FORMAT_VERSION && segment.boot.project !== undefined),
       },
     );
     // Browser sessions boot with game sound enabled; the recorded flag restores below.

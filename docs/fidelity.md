@@ -903,17 +903,31 @@ original releases (an interpreter binary beside the data, a catalog
 WORDS.TOK and OBJECT pair, or a catalog library record), and every worker
 replacement path carries it with the run. Original releases, installed
 folders, fixtures, walkthrough tapes and the Node test harness run without
-it, so their behavior and recorded fingerprints are unchanged. The option is
-a pure function of the project, so a history replay of the same project
-repeats each adoption at the same event; the resulting capacity is ordinary
-save state (`replayCapacity`), and no stored format gained a field.
+it, so their behavior and recorded fingerprints are unchanged.
+
+The tape records the option too: `HistoryBoot` gained the optional
+`adoptDeclaredScriptSize` field at the same format version, entering the
+semantic fingerprint only when present, so every recorded fingerprint
+still holds. A segment opened under a released format (before version 3)
+never carries it, but the released build ran every game at the old
+200-pair default — when its boot carries project documents
+(`boot.project`, an authored project) replay adopts that floor for it.
+Adoption is a pure function of the installed LOGIC 0, so a boot, restart
+or committed-update adoption replays at the same event; a seek that
+resumes through `restoreImage` adopts LOGIC 0's declared maximum
+(`includeDeclared`), an adoption the boot path never performs because the
+boot block's own `script.size` runs there. The resulting capacity is
+ordinary save state (`replayCapacity`).
 
 This makes the 1.2.5 script buffer migration safe in both directions: an
-older authored game gains `script.size(200)` as one History entry admitted to
-the running game; a Play-mode run or a History view of a commit before that
-entry already runs at 200; and its 1.2.4 checkpoints (capacity 200 from the
-old default) and those taken before the migration (capacity 50, boot block
-done) resume at 200.
+older authored game gains `script.size(200)` as one History entry admitted
+to the running game — skipped when its History already holds that entry,
+so Undo, a restore or a deleted line never adds a second; a Play-mode run
+or a History view of a commit before that entry already runs at 200
+(segments recorded in 1.2.5 carry the option on their boot, and a
+pre-version-3 segment carries `boot.project`); and its 1.2.4 checkpoints
+(capacity 200 from the old default) and those taken before the migration
+(capacity 50, boot block done) resume at 200.
 
 **Tests:** [script-size-migration.test.ts](../test/script-size-migration.test.ts)
 (boot, restart, live commit and resume, with and without the option),
