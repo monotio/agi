@@ -80,7 +80,11 @@ test("every released anchor in history-1.2.2-paused-reenter.json and project-v1.
     for (let i = 0; i < segment.anchors.length; i++) {
       const replayed = replayHistorySegment(segment, { anchor: i });
       assert.equal(replayed.error, null, `project-v1.zip anchor ${i} must restore and replay`);
-      assert.equal(replayed.incompatible, null, `project-v1.zip anchor ${i} reaches every sync mark`);
+      assert.equal(
+        replayed.incompatible,
+        null,
+        `project-v1.zip anchor ${i} reaches every sync mark`,
+      );
       assert.equal(replayed.diverged, null);
     }
     assert.deepEqual(segment, before);
