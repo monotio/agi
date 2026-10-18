@@ -241,6 +241,12 @@ export interface BootMessage {
   autosaveFiles?: boolean;
   authorRooms?: boolean;
   /**
+   * An authored project, never an original release: the engine adopts the
+   * script buffer LOGIC 0 declares on a live edit and a resume
+   * (docs/fidelity.md, "Authored script buffer on live edits").
+   */
+  adoptDeclaredScriptSize?: boolean;
+  /**
    * base64 save image to restore into the freshly booted engine (autosave
    * resume). Applied BEFORE the first cycle: the alternative, a message sent
    * once `booted` arrives, races the game's own first cycles — and a title

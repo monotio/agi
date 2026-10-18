@@ -137,6 +137,7 @@ export function adoptResumePoint(
       ...(profile ? { profile } : {}),
       amigaRegion: boot.amigaRegion ?? "ntsc",
       ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
+      adoptDeclaredScriptSize: ctx.boot.adoptDeclaredScriptSize,
     },
   );
   if (options.currentFiles && boot.image !== undefined) {
@@ -234,6 +235,7 @@ export function adoptResumePoint(
           profile: candidate.profile,
           amigaRegion: boot.amigaRegion ?? "ntsc",
           pcDisplay: candidate.pcDisplay,
+          adoptDeclaredScriptSize: candidate.adoptsDeclaredScriptSize,
         },
       );
       restoreOnto(candidate);

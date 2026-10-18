@@ -897,6 +897,12 @@ export class Engine {
   private statusRefreshRequested = false;
   private inputAccepted = false;
   private scriptCapacity: number;
+  /**
+   * The host option `adoptDeclaredScriptSize`: replacement engines for the
+   * same run carry it (docs/fidelity.md, "Authored script buffer on live
+   * edits"). Never set for an original release.
+   */
+  readonly adoptsDeclaredScriptSize: boolean;
   private maximumReplayPairs = 0;
   private menu: MenuHeading[] = [];
   private menuFinalized = false;
@@ -1171,11 +1177,19 @@ export class Engine {
       profile?: ProfileId | AgiProfile;
       instructionBudget?: number;
       executionBudgetPolicy?: ExecutionBudgetPolicy;
+      /**
+       * Host authoring: a live LOGIC 0 commit and a host resume raise the
+       * script buffer to what LOGIC 0's script.size declares. Authored
+       * projects only, never an original release (docs/fidelity.md,
+       * "Authored script buffer on live edits").
+       */
+      adoptDeclaredScriptSize?: boolean;
     },
   ) {
     this.container = container;
     this.host = host;
     this.dictionary = dictionary;
+    this.adoptsDeclaredScriptSize = options?.adoptDeclaredScriptSize === true;
     if (
       options?.instructionBudget !== undefined &&
       (!Number.isInteger(options.instructionBudget) || options.instructionBudget < 1)
@@ -1638,6 +1652,11 @@ export class Engine {
       compositionAffected,
       surface,
       compositionBlocked,
+      declaredScriptSize:
+        this.adoptsDeclaredScriptSize &&
+        changes.some((change) => change.kind === "logic" && change.num === 0)
+          ? this.declaredScriptSize(staged)
+          : null,
     };
   }
 
@@ -1859,19 +1878,32 @@ export class Engine {
       this.surface.priority.set(staged.surface.priority);
       this.presentationDirty = true;
     }
-    // A committed logic that declares a bigger script buffer raises the live
-    // capacity to it: the game's own guard flag may already be set, so its
-    // script.size call never re-executes — only the capacity word applies
-    // here, never the recorded-pair reset the opcode also performs.
-    for (const change of staged.changed) {
-      if (change.kind !== "logic") continue;
-      for (const insn of decodeLogicInsns(change.newPayload, { profile: this.profile })) {
-        const declared = insn.name === "script.size" ? (insn.args?.[0] ?? 0) : 0;
-        if (declared > this.scriptCapacity) this.scriptCapacity = declared;
-      }
-    }
+    // Host authoring, not interpreter behavior: a live LOGIC 0 that declares a
+    // bigger script buffer raises the capacity word only, never the pair
+    // reset script.size performs (docs/fidelity.md, "Authored script buffer
+    // on live edits").
+    if (staged.declaredScriptSize !== null && staged.declaredScriptSize > this.scriptCapacity)
+      this.scriptCapacity = staged.declaredScriptSize;
     this.patchGen++;
     this.previewSerial++;
+  }
+
+  /**
+   * The largest script.size operand in `container`'s LOGIC 0, or 0 when it
+   * has none or cannot be decoded (the game then faults on its own).
+   */
+  private declaredScriptSize(container: GameContainer): number {
+    const payload = container.getResource("logic", 0);
+    if (payload === null) return 0;
+    let declared = 0;
+    try {
+      for (const insn of decodeLogicInsns(payload, { profile: this.profile }))
+        if (insn.kind === "action" && insn.name === "script.size")
+          declared = Math.max(declared, insn.args?.[0] ?? 0);
+    } catch {
+      return 0;
+    }
+    return declared;
   }
 
   // ---------- resource access ----------
@@ -4922,6 +4954,10 @@ export class Engine {
     this.restoreJoystickState(presentation?.joystick);
     this.restoreRevealOwed = false;
     this.screenShown = true;
+    // Host authoring: the checkpoint's own boot block already ran, so the
+    // installed LOGIC 0's script.size never runs again on this resume.
+    if (this.adoptsDeclaredScriptSize)
+      this.scriptCapacity = Math.max(this.scriptCapacity, this.declaredScriptSize(this.container));
   }
 
   /**

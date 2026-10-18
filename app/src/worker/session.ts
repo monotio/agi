@@ -14,6 +14,7 @@ export function configureSessionTiming(ctx: WorkerContext): void {
   if (!timing) return;
   ctx.boot.amigaRegion = ctx.run.engine!.amigaRegion;
   ctx.boot.pcDisplay = ctx.run.engine!.pcDisplay;
+  ctx.boot.adoptDeclaredScriptSize = ctx.run.engine!.adoptsDeclaredScriptSize;
   if (ctx.run.clocks.sound.hz !== timing.soundHz)
     ctx.run.clocks.sound = new SoundClock(ctx.ports.now(), timing.soundHz);
   if (ctx.run.clocks.cycle.incrementMs !== timing.timerIncrementMs)

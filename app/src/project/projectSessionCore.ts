@@ -13,7 +13,10 @@ import {
   type ProjectHistoryAction,
 } from "../../../src/authoring/projectHistory.ts";
 import { readProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
-import { migrateScriptSize } from "../../../src/authoring/scriptSizeMigration.ts";
+import {
+  isRecognizedOriginal,
+  migrateScriptSize,
+} from "../../../src/authoring/scriptSizeMigration.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
 import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
@@ -231,12 +234,13 @@ function createSession(
         : readProjectWorkspace(data.workspace);
   // A pre-1.2.5 authored game predates the authentic 50-pair script buffer:
   // logic 0 gains the template's script.size(200) once, as a visible History
-  // commit through the ordinary edit path below — admitted to the running
-  // game like any logic edit. Recognized originals keep their released image
-  // untouched, and compiled logic:0 blobs carry no editable source, so the
-  // migration never reaches catalog games, fixtures or walkthroughs.
-  const scriptSizeMigration =
-    data.library?.source === "catalog" ? null : migrateScriptSize(openedDocuments);
+  // commit through the ordinary edit path below, admitted to the running
+  // game like any logic edit. Re-imported archives and remixes with the
+  // template's boot shape migrate too; a recognized original release keeps
+  // its released image.
+  const scriptSizeMigration = isRecognizedOriginal(data.files, data.library?.source)
+    ? null
+    : migrateScriptSize(openedDocuments);
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
@@ -567,23 +571,6 @@ function createSession(
       notify();
     },
   });
-  // The script.size migration is an ordinary logic edit: the same admission
-  // the running game takes for any Update carries the new logic 0 at once,
-  // and the same transactional save stores it. A refused or failed write
-  // leaves the stored project as it was; the next open tries again.
-  if (scriptSizeMigration !== null && input.workingDocumentId === undefined)
-    void session
-      .submit({
-        proposal: model.propose(model.capture(), "Room memory raised for this version", [
-          { key: "logic:0", content: scriptSizeMigration["logic:0"]! },
-        ]),
-        label: "Room memory raised for this version",
-        origin: "logic",
-        author: "creator",
-      })
-      .catch(() => {
-        /* A refused migration leaves the project as it was. */
-      });
   function captureSave(
     snapshot: ProjectSnapshot,
     outcome?: PreviewUpdateOutcome,
@@ -1477,8 +1464,29 @@ function createSession(
       if (owners.get(data.projectId) === session) owners.delete(data.projectId);
     },
   };
+  // The script.size migration is an ordinary logic edit: the admission any
+  // Update takes carries the new logic 0 to the running game at once, and the
+  // same transactional save stores it with its History commit. A refused or
+  // failed write leaves the stored project as it was, so the next open tries
+  // again. A journal rebuild (workingDocumentId) replays its own recorded
+  // operations, the migration among them, instead.
+  if (scriptSizeMigration !== null && input.workingDocumentId === undefined)
+    void session
+      .submit({
+        proposal: model.propose(model.capture(), SCRIPT_SIZE_MIGRATION_LABEL, [
+          { key: "logic:0", content: scriptSizeMigration["logic:0"]! },
+        ]),
+        label: SCRIPT_SIZE_MIGRATION_LABEL,
+        origin: "logic",
+        author: "creator",
+      })
+      .catch(() => {
+        /* The save status reports a failed write; the stored project is unchanged. */
+      });
   return session;
 }
+/** The History entry an older authored game receives once (CHANGELOG 1.2.5). */
+export const SCRIPT_SIZE_MIGRATION_LABEL = "Room memory raised for this version";
 export type ProjectSession = ReturnType<typeof openOwnedProjectSession>;
 
 /** Re-run the same preparation and History path before exposing any recovered project. */

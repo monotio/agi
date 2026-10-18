@@ -1,12 +1,31 @@
 import type { ProjectContent } from "./projectContent.ts";
+import { detectProfileDecision } from "../runtime/profile.ts";
+
+/**
+ * An original release the app recognizes the way the library does: an
+ * interpreter binary ships beside the data, or WORDS.TOK and OBJECT match
+ * the catalog (src/games/knownGames.ts), or the library record names a
+ * catalog game. Such a game keeps its released image: neither the script
+ * buffer migration nor the engine option `adoptDeclaredScriptSize` reaches it.
+ */
+export function isRecognizedOriginal(
+  files: Readonly<Record<string, Uint8Array>>,
+  librarySource?: string,
+): boolean {
+  return (
+    librarySource === "catalog" ||
+    detectProfileDecision(new Map(Object.entries(files))).kind !== "default"
+  );
+}
 
 /**
  * One-time migration for projects authored before the script buffer took its
  * authentic 50-pair default: logic 0 learns the same `script.size(200)` the
  * base template now ships, as an ordinary source edit the History records
  * like any other. Returns the migrated documents, or null when logic 0
- * already sizes its script buffer or has no editable source — imported
- * original games have no source document and are never touched.
+ * already sizes its script buffer, has no editable source, or lacks the
+ * template's boot shape. Callers exclude recognized originals
+ * (`isRecognizedOriginal`) before calling.
  */
 export function migrateScriptSize(
   documents: Readonly<Record<string, ProjectContent>>,

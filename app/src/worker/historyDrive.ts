@@ -356,6 +356,7 @@ export function openHistoryDrive(
         ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
         amigaRegion: segment.boot.amigaRegion ?? "ntsc",
         ...(segment.boot.pcDisplay ? { pcDisplay: segment.boot.pcDisplay } : {}),
+        adoptDeclaredScriptSize: ctx.boot.adoptDeclaredScriptSize,
       },
     );
     // Browser sessions boot with game sound enabled; the recorded flag restores below.

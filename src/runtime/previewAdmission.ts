@@ -119,6 +119,12 @@ export interface StagedPreviewUpdate {
   readonly surface: PictureSurface | null;
   /** Why an affected composition cannot commit, when it cannot. */
   readonly compositionBlocked: string | null;
+  /**
+   * The largest script.size a changed LOGIC 0 declares, when the host adopts
+   * declared script buffers (engine option `adoptDeclaredScriptSize`); null
+   * otherwise. docs/fidelity.md, "Authored script buffer on live edits".
+   */
+  readonly declaredScriptSize: number | null;
 }
 
 /**
