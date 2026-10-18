@@ -25,7 +25,7 @@ import {
 import { renderPicture } from "../picture/renderer.ts";
 import { SoundPlayback, type SoundOutput } from "../sound/sound.ts";
 import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
-import { decodeLogicInsns } from "../logic/disassembler.ts";
+import { authoredScriptFloor } from "./authoredScriptBuffer.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
@@ -1179,8 +1179,10 @@ export class Engine {
       executionBudgetPolicy?: ExecutionBudgetPolicy;
       /**
        * Host authoring: a live LOGIC 0 commit and a host resume raise the
-       * script buffer to what LOGIC 0's script.size declares. Authored
-       * projects only, never an original release (docs/fidelity.md,
+       * script buffer to what LOGIC 0's script.size declares, and boot,
+       * restart, resume and commit give a LOGIC 0 with the template boot
+       * shape but no script.size the buffer the 1.2.5 migration adds.
+       * Authored projects only, never an original release (docs/fidelity.md,
        * "Authored script buffer on live edits").
        */
       adoptDeclaredScriptSize?: boolean;
@@ -1219,6 +1221,7 @@ export class Engine {
     this.profileBuild = decision.build;
     this.inputQueue = new InputQueue(this.profile.keypadWordsNormalized);
     this.scriptCapacity = this.profile.defaultScriptBufferPairs;
+    this.raiseToAuthoredScriptFloor(false);
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
@@ -1655,7 +1658,7 @@ export class Engine {
       declaredScriptSize:
         this.adoptsDeclaredScriptSize &&
         changes.some((change) => change.kind === "logic" && change.num === 0)
-          ? this.declaredScriptSize(staged)
+          ? authoredScriptFloor(staged.getResource("logic", 0), this.profile, true)
           : null,
     };
   }
@@ -1879,9 +1882,9 @@ export class Engine {
       this.presentationDirty = true;
     }
     // Host authoring, not interpreter behavior: a live LOGIC 0 that declares a
-    // bigger script buffer raises the capacity word only, never the pair
-    // reset script.size performs (docs/fidelity.md, "Authored script buffer
-    // on live edits").
+    // bigger script buffer, or has the template boot shape without one,
+    // raises the capacity word only, never the pair reset script.size
+    // performs (docs/fidelity.md, "Authored script buffer on live edits").
     if (staged.declaredScriptSize !== null && staged.declaredScriptSize > this.scriptCapacity)
       this.scriptCapacity = staged.declaredScriptSize;
     this.patchGen++;
@@ -1889,21 +1892,17 @@ export class Engine {
   }
 
   /**
-   * The largest script.size operand in `container`'s LOGIC 0, or 0 when it
-   * has none or cannot be decoded (the game then faults on its own).
+   * Host authoring under `adoptDeclaredScriptSize`: raise the capacity word
+   * to `authoredScriptFloor` for the installed LOGIC 0, never lower it. Boot
+   * and restart pass `includeDeclared` false, because the boot block's own
+   * script.size still runs; a host resume passes true.
    */
-  private declaredScriptSize(container: GameContainer): number {
-    const payload = container.getResource("logic", 0);
-    if (payload === null) return 0;
-    let declared = 0;
-    try {
-      for (const insn of decodeLogicInsns(payload, { profile: this.profile }))
-        if (insn.kind === "action" && insn.name === "script.size")
-          declared = Math.max(declared, insn.args?.[0] ?? 0);
-    } catch {
-      return 0;
-    }
-    return declared;
+  private raiseToAuthoredScriptFloor(includeDeclared: boolean): void {
+    if (!this.adoptsDeclaredScriptSize) return;
+    this.scriptCapacity = Math.max(
+      this.scriptCapacity,
+      authoredScriptFloor(this.container.getResource("logic", 0), this.profile, includeDeclared),
+    );
   }
 
   // ---------- resource access ----------
@@ -4956,8 +4955,7 @@ export class Engine {
     this.screenShown = true;
     // Host authoring: the checkpoint's own boot block already ran, so the
     // installed LOGIC 0's script.size never runs again on this resume.
-    if (this.adoptsDeclaredScriptSize)
-      this.scriptCapacity = Math.max(this.scriptCapacity, this.declaredScriptSize(this.container));
+    this.raiseToAuthoredScriptFloor(true);
   }
 
   /**
@@ -9450,6 +9448,7 @@ export class Engine {
     this.replayCheckpoint = 0;
     this.replayRecording = true;
     this.scriptCapacity = this.profile.defaultScriptBufferPairs;
+    this.raiseToAuthoredScriptFloor(false);
     this.maximumReplayPairs = 0;
     this.menu = [];
     this.menuFinalized = false;
