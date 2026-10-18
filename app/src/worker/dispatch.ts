@@ -67,11 +67,12 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
             ctx.appearanceLoading = undefined;
             for (const held of pending.queue) onWorkerMessage(ctx, held);
           })
-          .catch((error: unknown) => {
+          .catch(() => {
             ctx.appearanceLoading = undefined;
             ctx.ports.control({
               type: "error",
-              message: "This game's screen could not load. Check your connection, then reload the page.",
+              message:
+                "This game's screen could not load. Check your connection, then reload the page.",
             });
           });
         return;

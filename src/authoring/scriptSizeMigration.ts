@@ -19,26 +19,21 @@ export function migrateScriptSize(
 
 /** `script.size` call sites outside comments and string literals. */
 function hasScriptSize(source: string): boolean {
-  const uncommented = source
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/\/\/[^\n]*/g, "");
+  const uncommented = source.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/\/\/[^\n]*/g, "");
   return /\bscript\s*\.\s*size\s*\(/.test(uncommented);
 }
 
 /**
  * The resize belongs inside the first-cycle block so it runs once, before the
  * room dispatch — `script.size` every cycle would empty the recorded sequence.
- * It lands after the block's own `set(f200)` marker; a logic 0 without that
- * block and without other f200 state gains a guarded block at the top, and a
- * logic 0 that already drives f200 some other way is left alone.
+ * Only the template's boot shape is recognized: a `set(f200)` marker inside a
+ * `!isset(f200)` guard. A logic 0 the author shaped some other way is left
+ * alone rather than rewritten with a guessed guard flag.
  */
 function injectScriptSize(source: string): string | null {
+  if (!/!\s*isset\s*\(\s*f200\s*\)/.test(source)) return null;
   const marker = /^([ \t]*)set\(f200\);[ \t]*$/m.exec(source);
-  if (marker !== null) {
-    const at = marker.index + marker[0].length;
-    return `${source.slice(0, at)}\n${marker[1]}script.size(200);${source.slice(at)}`;
-  }
-  if (/\bf200\b/.test(source.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/\/\/[^\n]*/g, "")))
-    return null;
-  return `if (!isset(f200)) {\n  set(f200);\n  script.size(200);\n}\n${source}`;
+  if (marker === null) return null;
+  const at = marker.index + marker[0].length;
+  return `${source.slice(0, at)}\n${marker[1]}script.size(200);${source.slice(at)}`;
 }

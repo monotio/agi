@@ -75,13 +75,19 @@ test("a 1.2.4-shaped project gains exactly one History commit and no more on reo
 test("a project without an editable logic 0 source is never touched", () => {
   assert.equal(migrateScriptSize({ "logic:0": Uint8Array.of(0x8d) }), null);
   assert.equal(migrateScriptSize({}), null);
+  const boot = "if (!isset(f200)) {\n  set(f200);\n";
+  assert.equal(
+    migrateScriptSize({ "logic:0": `${boot}  script.size(5); // stray resize\n}\nreturn;` }),
+    null,
+    "an existing call ends the migration",
+  );
   assert.notEqual(
-    migrateScriptSize({ "logic:0": "// script.size(5) mentioned only in a comment\nreturn;" }),
+    migrateScriptSize({ "logic:0": `${boot}// script.size(5) only a comment\n}\nreturn;` }),
     null,
     "a comment is not a script.size call: the migration still applies",
   );
   assert.notEqual(
-    migrateScriptSize({ "logic:0": 'print("never use script.size(5)");\nreturn;' }),
+    migrateScriptSize({ "logic:0": `${boot}print("never use script.size(5)");\n}\nreturn;` }),
     null,
     "a string is not a call either: the migration still applies",
   );
@@ -92,11 +98,7 @@ test("a logic 0 that already drives f200 some other way is left alone", () => {
   assert.equal(migrateScriptSize({ "logic:0": source }), null);
 });
 
-test("a logic 0 without the boot block gains a guarded first-cycle resize", () => {
-  const migrated = migrateScriptSize({ "logic:0": "print(\"hi\");\nreturn;" });
-  assert.ok(migrated !== null);
-  assert.match(
-    migrated["logic:0"] as string,
-    /^if \(!isset\(f200\)\) \{\n {2}set\(f200\);\n {2}script\.size\(200\);\n\}\n/,
-  );
+test("a logic 0 without the template boot shape is left alone", () => {
+  assert.equal(migrateScriptSize({ "logic:0": "return;" }), null);
+  assert.equal(migrateScriptSize({ "logic:0": 'print("hi");\nreturn;' }), null);
 });

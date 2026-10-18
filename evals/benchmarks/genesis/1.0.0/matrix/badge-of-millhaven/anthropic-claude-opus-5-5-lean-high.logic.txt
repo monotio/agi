@@ -143,7 +143,6 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
     print(m20);
   }
 }
-return;
 
 
 // ===== logic 1 (8196 bytes)
@@ -574,7 +573,6 @@ if (isset(f2) && !isset(f4) && equaln(v9, 0)) {
   print(m69);
   set(f4);
 }
-return;
 
 
 // ===== logic 255 (324 bytes)
@@ -666,4 +664,3 @@ if (equaln(v250, 2)) {
   display(14, 13, m1);
 }
 set.text.attribute(15, 0);
-return;

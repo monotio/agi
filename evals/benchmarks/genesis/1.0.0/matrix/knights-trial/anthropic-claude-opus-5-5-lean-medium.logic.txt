@@ -143,7 +143,6 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
     print(m20);
   }
 }
-return;
 
 
 // ===== logic 1 (5294 bytes)
@@ -476,7 +475,6 @@ if (posn(o0, 66, 60, 94, 80)) {
 if (equaln(v2, 2)) {
   new.room(2);
 }
-return;
 
 
 // ===== logic 255 (324 bytes)
@@ -568,4 +566,3 @@ if (equaln(v250, 2)) {
   display(14, 13, m1);
 }
 set.text.attribute(15, 0);
-return;

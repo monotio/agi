@@ -234,8 +234,7 @@ function createSession(
   // commit through the ordinary document edit path below. Imported games,
   // fixtures and walkthroughs carry no editable logic:0 source, so the
   // migration never reaches them.
-  const scriptSizeMigration =
-    data.imported === true ? null : migrateScriptSize(openedDocuments);
+  const scriptSizeMigration = data.imported === true ? null : migrateScriptSize(openedDocuments);
   const documents = scriptSizeMigration ?? openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
@@ -468,9 +467,6 @@ function createSession(
     addEventListener("pagehide", persistPending);
     document.addEventListener("visibilitychange", hiddenJournal);
   }
-  // The script.size migration's commit rides the same durable save path as
-  // any edit: a refused or failed write leaves the stored project untouched.
-  if (scriptSizeMigration !== null) captureSave(model.capture(), undefined, false, true, true);
   const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt>({
     current,
     write: async (capture) => {
@@ -576,6 +572,9 @@ function createSession(
       notify();
     },
   });
+  // The script.size migration's commit rides the same durable save path as
+  // any edit: a refused or failed write leaves the stored project untouched.
+  if (scriptSizeMigration !== null) captureSave(model.capture(), undefined, false, true, true);
   function captureSave(
     snapshot: ProjectSnapshot,
     outcome?: PreviewUpdateOutcome,
