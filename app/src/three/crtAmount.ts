@@ -15,7 +15,7 @@ export function crtStage(amount: number, start: number, end: number): number {
 }
 
 /** Top-left screen UV to the frame position sampled by the CRT, unclamped. */
-export function crtFramePosition(u: number, v: number, amount: number): { x: number; y: number } {
+function crtFramePosition(u: number, v: number, amount: number): { x: number; y: number } {
   const glass = crtStage(amount, ...CRT_STAGES.glass);
   const cx = u * 2 - 1;
   const cy = v * 2 - 1;
