@@ -22,6 +22,7 @@ import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { Engine } from "../../src/runtime/engine.ts";
 import { decodeSave } from "../../src/runtime/persistence.ts";
 import { createWorkerContext } from "../src/worker/context.ts";
+import { openHistoryDrive } from "../src/worker/historyDrive.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
@@ -42,15 +43,18 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const PRE_125_LOGIC0 = BASE_TEMPLATE_LOGIC0_SOURCE.replace("  script.size(200);\n", "");
-// Room 1 draws on entry; with f220 set it loads, draws and discards its
-// picture twenty times: 60 replay pairs, past the authentic 50.
+// Room 1 draws on entry; with f220 set it bakes a dozen view details:
+// 12 add.to.pic calls record 48 pairs on top of the picture and view loads,
+// past the authentic 50-pair buffer.
 const BUSY_ROOM = `if (isset(f5)) { load.pic(1); draw.pic(1); discard.pic(1); show.pic(); }
-if (isset(f220)) { reset(f220); ${"load.pic(1); draw.pic(1); discard.pic(1); ".repeat(20)}show.pic(); }
+if (isset(f220)) { reset(f220); load.pic(1); draw.pic(1);
+  load.view(1); ${"add.to.pic(1, 0, 0, 0, 0, 9, 0);".repeat(12)} discard.pic(1); show.pic(); }
 return;`;
 const documents = (logic0: string) => ({
   "logic:0": logic0,
   "logic:1": BUSY_ROOM,
   "picture:1": "vis 1\nfill 1,1\nend\n",
+  "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
 });
 const compile = (logic0: string) =>
   compileProjectDocuments({
@@ -128,7 +132,13 @@ async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
   worker.tick();
   worker.tick();
   assert.equal(engine.vars[0], 1, "the game reached its first room");
-  assert.equal(capacity(engine), 50, "the older game booted on the authentic 50-pair buffer");
+  assert.equal(
+    capacity(engine),
+    adoptDeclaredScriptSize ? 200 : 50,
+    adoptDeclaredScriptSize
+      ? "the authored boot floor already gives the template boot shape 200 pairs"
+      : "the older game booted on the authentic 50-pair buffer",
+  );
   const ack = worker.messages.find((m) => m.type === "booted");
   assert.ok(ack?.type === "booted" && ack.projectAdmission);
   let queryId = 0;
@@ -188,18 +198,92 @@ test("the running game takes the migration at once and plays the busy room; hist
   ctx.fns.stopTimers();
 });
 
-test("a checkpoint taken before the migration resumes on the migrated game with the larger buffer", async () => {
-  // Play boots: a resume needs no Create admission.
-  const before = bootWorker(
+test("a Play-mode boot of an unmigrated authored game already runs the busy room", () => {
+  // A 1.2.4 game only ever opened in Play never meets the session migration;
+  // the boot floor is what lets its busy rooms run there.
+  const worker = bootWorker(
     Object.fromEntries(compile(PRE_125_LOGIC0).files()),
     { adoptDeclaredScriptSize: true },
     false,
   );
+  worker.tick();
+  worker.tick();
+  const engine = worker.ctx.run.engine!;
+  assert.equal(engine.vars[0], 1, "the game reached its first room");
+  assert.equal(capacity(engine), 200, "Play boots the template boot shape at 200 pairs");
+  engine.flags[220] = 1;
+  worker.tick();
+  assert.equal(engine.flags[220], 0, "the busy room ran");
+  assert.deepEqual(
+    worker.messages.filter((m) => m.type === "error"),
+    [],
+    "without a migration, a restart or an error",
+  );
+  worker.ctx.fns.stopTimers();
+});
+
+test("a Play-mode boot without the option keeps the authentic 50-pair buffer", () => {
+  // Original releases, installed folders and fixtures never get the option:
+  // their busy rooms fault the way the original interpreter's did.
+  const worker = bootWorker(Object.fromEntries(compile(PRE_125_LOGIC0).files()), {}, false);
+  worker.tick();
+  worker.tick();
+  const engine = worker.ctx.run.engine!;
+  assert.equal(capacity(engine), 50, "a non-authored boot stays at 50");
+  engine.flags[220] = 1;
+  assert.throws(
+    () => worker.tick(),
+    /exceeded its 50-pair capacity/,
+    "the busy room faults on the authentic buffer",
+  );
+  worker.ctx.fns.stopTimers();
+});
+
+test("a history view before the migration commit runs the busy room at 200", async () => {
+  const { ctx, messages } = await openOlderGame("script-size-history-view", true);
+  ctx.fns.historyFlush();
+  const segment = segmentOf(messages);
+  const migration = segment.events.find(
+    (e) =>
+      e.cause.kind === "projectImage" &&
+      e.cause.documents.documents.some(
+        (d) =>
+          d.key === "logic:0" &&
+          d.content.type === "text" &&
+          d.content.text.includes("script.size"),
+      ),
+  );
+  assert.ok(migration !== undefined, "the migration commit is on the tape");
+  // The view replays the same segment to the commit's tick: the folded files
+  // still hold the unmigrated LOGIC 0, and the recorded boot option gives it
+  // the buffer the migration was about to add.
+  const drive = openHistoryDrive(segment, createWorkerContext, { toSeq: migration.seq });
+  while (!drive.halted && drive.tick < migration.tick) drive.step();
+  assert.equal(drive.error, null);
+  assert.equal(drive.diverged, null);
+  const viewed = drive.ctx.run.engine!;
+  assert.equal(
+    capacity(viewed),
+    200,
+    "the pre-migration view runs the unmigrated LOGIC 0 at the authored buffer",
+  );
+  viewed.flags[220] = 1;
+  viewed.tick();
+  assert.equal(viewed.flags[220], 0, "the busy room runs in the pre-migration view");
+  ctx.fns.stopTimers();
+});
+
+test("a checkpoint taken before the migration resumes on the migrated game with the larger buffer", async () => {
+  // Play boots: a resume needs no Create admission. A checkpoint stored by a
+  // run without the option (a released build, a Play session that never
+  // opened Create) carries the authentic 50 pairs with f200 already set.
+  const before = bootWorker(Object.fromEntries(compile(PRE_125_LOGIC0).files()), {}, false);
   before.tick();
   before.tick();
   const image = before.ctx.run.engine!.autosaveImage();
   assert.ok(image);
   assert.equal(before.ctx.run.engine!.flags[200], 1, "logic 0's boot block already ran");
+  assert.equal(capacity(before.ctx.run.engine!), 50, "the stored checkpoint carries 50 pairs");
   before.ctx.fns.stopTimers();
   const migrated = migrateScriptSize({ "logic:0": PRE_125_LOGIC0 })!["logic:0"] as string;
   for (const adoptDeclaredScriptSize of [true, false]) {
@@ -220,6 +304,18 @@ test("a checkpoint taken before the migration resumes on the migrated game with 
     );
     resumed.ctx.fns.stopTimers();
   }
+  // The same checkpoint on a still-unmigrated LOGIC 0 gets the floor too.
+  const unmigrated = bootWorker(
+    Object.fromEntries(compile(PRE_125_LOGIC0).files()),
+    { adoptDeclaredScriptSize: true, restoreImage: Buffer.from(image).toString("base64") },
+    false,
+  );
+  assert.equal(
+    capacity(unmigrated.ctx.run.engine!),
+    200,
+    "a pre-migration checkpoint resumed on the unmigrated game gets the template-shape floor",
+  );
+  unmigrated.ctx.fns.stopTimers();
 });
 
 test("without the authored-project option the running game keeps the buffer its code set", async () => {

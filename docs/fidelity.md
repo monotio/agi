@@ -876,18 +876,24 @@ attribution and replay silence).
 
 This is a host addition for authored projects, not interpreter behavior. The
 original sets the script buffer only when the game executes `script.size`
-([F-timing-02](#original-script-capacity-and-version-handlers)); the engine keeps that rule for every game. Live
-editing adds a case the original never meets: new LOGIC 0 code installed into
-a running game whose boot block already ran. The base template sizes the
-buffer inside its `!isset(f200)` boot block, so a game that gains
-`script.size(200)` by an edit, or resumes a checkpoint taken before the edit,
-would keep its old capacity until a restart.
+([F-timing-02](#original-script-capacity-and-version-handlers)); the engine keeps that rule for every game. Authoring
+adds cases the original never meets: new LOGIC 0 code installed into a
+running game whose boot block already ran, a checkpoint taken before an
+edit, and a 1.2.4 project whose LOGIC 0 keeps the template's boot shape but
+no `script.size` — the 1.2.5 migration adds it only when a project session
+opens, while a Play-mode run and a History view of a pre-migration commit
+never open one.
 
-With the engine option `adoptDeclaredScriptSize`, two host operations raise
-the capacity word to the largest `script.size` operand in the installed LOGIC
-0, never lower it, and leave the recorded pairs untouched (the opcode's reset
-does not run):
+With the engine option `adoptDeclaredScriptSize`, the engine derives an
+authored floor from the installed LOGIC 0 (`authoredScriptFloor`): the
+largest `script.size` operand it declares or — when it declares none but
+keeps the template boot shape, a `set(f200)` inside an `!isset(f200)` guard —
+the 200 pairs the migration would add. Host operations raise the capacity
+word to that floor, never lower it, and leave the recorded pairs untouched
+(the opcode's reset does not run):
 
+- boot and restart, where a LOGIC 0 with its own `script.size` contributes
+  nothing because its boot block is about to run it;
 - a committed preview update or room re-entry that changes LOGIC 0;
 - a host resume (`restoreImage`: autosave, checkpoint, history and host save
   slots).
@@ -902,13 +908,17 @@ a pure function of the project, so a history replay of the same project
 repeats each adoption at the same event; the resulting capacity is ordinary
 save state (`replayCapacity`), and no stored format gained a field.
 
-This makes the 1.2.5 script buffer migration safe: an older authored game
-gains `script.size(200)` as one History entry admitted to the running game,
-and its 1.2.4 checkpoints (capacity 200 from the old default) and those taken
-before the migration (capacity 50, boot block done) resume at 200.
+This makes the 1.2.5 script buffer migration safe in both directions: an
+older authored game gains `script.size(200)` as one History entry admitted to
+the running game; a Play-mode run or a History view of a commit before that
+entry already runs at 200; and its 1.2.4 checkpoints (capacity 200 from the
+old default) and those taken before the migration (capacity 50, boot block
+done) resume at 200.
 
 **Tests:** [script-size-migration.test.ts](../test/script-size-migration.test.ts)
-(live commit and resume, with and without the option),
+(boot, restart, live commit and resume, with and without the option),
+[worker-script-size-migration.test.ts](../app/test/worker-script-size-migration.test.ts)
+(Play-mode boot, pre-migration history view, checkpoint resume),
 [script-size-migration-session.test.ts](../app/test/script-size-migration-session.test.ts)
 (session migration, refused write, second tab, close before commit, scope).
 
