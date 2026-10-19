@@ -178,7 +178,9 @@ for (const edits of [0, 200, 400]) {
         { data, portable },
       );
       await page.goto(`/?history-perf#create/${projectId}`);
-      await expect(page.getByTestId("parts-list")).toBeVisible();
+      // Opening the largest History is setup, not the measured Update: it reads
+      // and verifies megabytes of edits, which takes seconds on a CI runner.
+      await expect(page.getByTestId("parts-list")).toBeVisible({ timeout: 30_000 });
       await page.getByTestId("part-room:1:picture:1").click();
       const studio = page.getByTestId("room-studio");
       const pane = studio.locator(".studio-pane").last();
