@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import { sha256Hex } from "../../src/crypto.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import { inspectEditableProject } from "../src/project/projectWorkspaceSource.ts";
 import type { BuildViewInput } from "../../src/view/view.ts";
 import { decodeSave } from "../../src/runtime/persistence.ts";
 import { customizedLegacyBoot, releasedTemplates } from "../../test/released-template-fixtures.ts";
@@ -136,6 +139,8 @@ async function open(
   options: {
     open?: typeof openOwnedProjectSession;
     write?: Parameters<typeof openOwnedProjectSession>[0]["write"];
+    admit?: Parameters<typeof openOwnedProjectSession>[0]["admission"]["admit"];
+    workingDocumentId?: string;
   } = {},
 ) {
   const opened = (await loadAuthoredGameWithHistoryLifetime(projectId))!;
@@ -144,18 +149,21 @@ async function open(
       data: opened.data,
       lifetime: opened.lifetime!,
       publish: () => {},
+      ...(options.workingDocumentId ? { workingDocumentId: options.workingDocumentId } : {}),
       ...(options.write ? { write: options.write } : {}),
       admission: {
         runToken: `script-size-${++run}`,
-        admit: async (compiled): Promise<PreviewUpdateOutcome> => {
-          const logic0 = openContainer(compiled.files()).getResource("logic", 0)!;
-          admitted.push(
-            decodeLogicInsns(logic0)
-              .filter((insn) => insn.kind === "action" && insn.name === "script.size")
-              .map((insn) => insn.args![0]!),
-          );
-          return { status: "committed", expected: null, current: null, patchGeneration: 1 };
-        },
+        admit:
+          options.admit ??
+          (async (compiled): Promise<PreviewUpdateOutcome> => {
+            const logic0 = openContainer(compiled.files()).getResource("logic", 0)!;
+            admitted.push(
+              decodeLogicInsns(logic0)
+                .filter((insn) => insn.kind === "action" && insn.name === "script.size")
+                .map((insn) => insn.args![0]!),
+            );
+            return { status: "committed", expected: null, current: null, patchGeneration: 1 };
+          }),
       },
     },
     storage,
@@ -740,4 +748,110 @@ test("closing before the combined VIEW and LOGIC write commits leaves old bytes 
   await settle(reopened);
   reopened.dispose();
   assertCombined((await loadAuthoredGame(id))!);
+});
+
+test("an edited recognized original rebuilds its released mirrored VIEW with History and keeps its boot", async () => {
+  const id = await storedCombined("original-mirror-update");
+  const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+  const before = (await loadAuthoredGame(id))!;
+  await saveAuthoredGame(id, {
+    ...before,
+    imported: true,
+    files: { ...before.files, AGI: new TextEncoder().encode("Version 2.936\0") },
+    library: normalizeLibraryMetadata(undefined, {
+      source: "remix",
+      revision: computeResourceRevision(before.files),
+    }),
+  });
+  const session = await open(id, []);
+  await settle(session);
+  session.dispose();
+  const updated = (await loadAuthoredGame(id))!;
+  assert.equal(migrationCommits(updated), 1);
+  assert.notDeepEqual(viewBytes(updated), oldView.bytes);
+  assert.equal(storedLogic0(updated), PRE_125_LOGIC0);
+  assert.equal(readProjectWorkspace(updated.workspace!)["view:1"], JSON.stringify(oldView.input));
+  assert.equal(inspectEditableProject(updated).rejectedSources["view:1"], undefined);
+});
+
+test("refused update admission followed by an ordinary edit leaves both updates pending on reopen", async () => {
+  const id = await storedCombined("refused-admission-edit");
+  let attempts = 0;
+  const session = await open(id, [], {
+    admit: async () => ({
+      status: ++attempts === 1 ? "refused" : "committed",
+      expected: null,
+      current: null,
+      patchGeneration: 0,
+    }),
+  });
+  await session.flush();
+  assert.equal(attempts, 1);
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Room edit", [
+      { key: "logic:1", content: 'print("Garden"); return;' },
+    ]),
+    label: "Room edit",
+    origin: "logic",
+    author: "creator",
+  });
+  await settle(session);
+  session.dispose();
+  const edited = (await loadAuthoredGame(id))!;
+  assert.equal(edited.authoringConventions, undefined);
+  assert.equal(migrationCommits(edited), 0);
+  assert.deepEqual(viewBytes(edited), oldView.bytes);
+  const reopened = await open(id, []);
+  await settle(reopened);
+  reopened.dispose();
+  const updated = (await loadAuthoredGame(id))!;
+  assert.equal(migrationCommits(updated), 1);
+  assert.match(storedLogic0(updated), /script\.size\(200\);/);
+  assert.notDeepEqual(viewBytes(updated), oldView.bytes);
+  assert.equal(readProjectWorkspace(updated.workspace!)["logic:1"], 'print("Garden"); return;');
+});
+
+test("journal recovery keeps a 1.2.4 LOGIC update and deferred VIEW rebuild pending until reopen", async (t) => {
+  for (const withViews of [false, true])
+    await t.test(withViews ? "deferred VIEW and LOGIC" : "1.2.4 LOGIC journal", async () => {
+      const id = withViews
+        ? await storedCombined("older-journal-view-edit")
+        : await storedProject("older-journal-logic-edit");
+      const before = (await loadAuthoredGame(id))!;
+      const inspection = inspectEditableProject(before);
+      const documents = {
+        ...inspection.documents,
+        ...readProjectWorkspace(before.workspace!),
+        ...(withViews ? { "view:1": Uint8Array.from(oldView.bytes) } : {}),
+      };
+      const session = await open(id, [], {
+        workingDocumentId: projectDocumentId(documents, sha256Hex),
+      });
+      await session.replay({
+        kind: "edit",
+        changes: [{ key: "logic:1", content: 'print("Recovered"); return;', version: 2 }],
+        metadata: { label: "Recovered room", origin: "logic", author: "creator", time: 1 },
+      });
+      runFrames();
+      assert.ok(
+        [...values.keys()].some((key) => key.startsWith(`monotio_agi.project-writes.${id}.`)),
+      );
+      session.dispose();
+      // Loading drives journal decoding, exact-image rebuilding and the durable commit.
+      const recovered = (await loadAuthoredGame(id))!;
+      assert.equal(recovered.authoringConventions, undefined);
+      assert.equal(migrationCommits(recovered), 0);
+      const reopened = await open(id, []);
+      await settle(reopened);
+      reopened.dispose();
+      const updated = (await loadAuthoredGame(id))!;
+      assert.equal(migrationCommits(updated), 1);
+      assert.match(storedLogic0(updated), /script\.size\(200\);/);
+      if (withViews) assert.notDeepEqual(viewBytes(updated), oldView.bytes);
+      assert.equal(
+        readProjectWorkspace(updated.workspace!)["logic:1"],
+        'print("Recovered"); return;',
+      );
+      assert.equal(updated.authoringState?.["pendingViewRebuilds"], undefined);
+    });
 });

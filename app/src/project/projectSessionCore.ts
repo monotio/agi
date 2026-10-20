@@ -220,7 +220,8 @@ function createSession(
   const openedProjectId = data.projectId;
   const openedAt = input.openedAt ?? Date.now();
   data.chats = migrateAgentChats(data);
-  const inspection = inspectEditableProject(data);
+  const updateDue = (data.authoringConventions?.version ?? 0) < 1;
+  const inspection = inspectEditableProject(data, updateDue);
   let sourceClaimBase = inspection.documents;
   const history = new ProjectHistory(
     sha256Hex,
@@ -235,12 +236,18 @@ function createSession(
         ? { ...inspection.documents, ...readProjectWorkspace(data.workspace) }
         : readProjectWorkspace(data.workspace);
   const conventions = projectConventions(data);
-  const updateDue = (conventions.version ?? 0) < 1;
   const scriptSizeMigration =
     updateDue && isLegacyAuthoredProject(data)
       ? migrateScriptSize(openedDocuments, data.files)
       : null;
-  const viewRebuilds = updateDue ? inspection.viewRebuilds : {};
+  const viewRebuilds = inspection.viewRebuilds;
+  const updateChanges = [
+    ...(scriptSizeMigration === null
+      ? []
+      : [{ key: "logic:0", content: scriptSizeMigration["logic:0"]! }]),
+    ...Object.entries(viewRebuilds).map(([key, content]) => ({ key, content })),
+  ];
+  let updatePending = updateChanges.length > 0;
   // Start with the stored native VIEWs so Undo restores their exact bytes.
   // The author's source returns through the ordinary commit below.
   if (Object.keys(viewRebuilds).length)
@@ -601,16 +608,32 @@ function createSession(
     documentOnly = false,
   ) {
     const image = snapshot.lastAdmissibleBuild!;
-    const authoringState = updateAcceptedSourceClaims(
+    const acceptedState = updateAcceptedSourceClaims(
       data.authoringState,
       sourceClaimBase,
       image.documents(),
       inspection.profileId,
     );
+    const authoringState = acceptedState === undefined ? undefined : { ...acceptedState };
+    if (authoringState !== undefined) delete authoringState["pendingViewRebuilds"];
+    // Pending sources travel beside the native-byte workspace, which must still
+    // match its History cursor. Only the applied update activates these sources.
+    const pendingViewRebuilds = updatePending
+      ? Object.fromEntries(
+          Object.entries(viewRebuilds).filter(([key]) =>
+            sameProjectContent(snapshot.read(key)?.content, inspection.documents[key]),
+          ),
+        )
+      : {};
+    const savedAuthoringState = Object.keys(pendingViewRebuilds).length
+      ? { ...authoringState, pendingViewRebuilds }
+      : authoringState;
     const next = {
       ...data,
-      authoringConventions: { ...conventions, version: AUTHORING_CONVENTIONS_VERSION },
-      ...(authoringState === undefined ? {} : { authoringState }),
+      ...(updatePending
+        ? {}
+        : { authoringConventions: { ...conventions, version: AUTHORING_CONVENTIONS_VERSION } }),
+      ...(savedAuthoringState === undefined ? {} : { authoringState: savedAuthoringState }),
       files: Object.fromEntries(image.files()),
       library: projectCommitLibrary(data.library, {
         revision: image.identity.revision,
@@ -621,7 +644,7 @@ function createSession(
       ...(typeof image.documents()["world"] === "string"
         ? {
             authoringState: {
-              ...authoringState,
+              ...savedAuthoringState,
               authoring: {
                 ...(data.authoringState?.["authoring"] as Record<string, unknown> | undefined),
                 version: 1,
@@ -837,6 +860,14 @@ function createSession(
     diagnostics = prepared.diagnostics;
     const before = model.capture();
     const snapshot = model.apply(prepared.application);
+    if (
+      updatePending &&
+      prepared.compiled !== undefined &&
+      updateChanges.every(({ key, content }) =>
+        changes.some((change) => change.key === key && sameProjectContent(change.content, content)),
+      )
+    )
+      updatePending = false;
     partDrafts?.rebase(
       { documentId: before.documentId, world: before.read("world")?.content },
       { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
@@ -1483,12 +1514,6 @@ function createSession(
   // Both repairs share one admission and durable write. Refused writes leave
   // the old bytes and conventions intact, so reopening retries the whole step.
   // Journal recovery replays its recorded proposal instead of creating another.
-  const updateChanges = [
-    ...(scriptSizeMigration === null
-      ? []
-      : [{ key: "logic:0", content: scriptSizeMigration["logic:0"]! }]),
-    ...Object.entries(viewRebuilds).map(([key, content]) => ({ key, content })),
-  ];
   if (updateChanges.length && input.workingDocumentId === undefined)
     void session
       .submit({

@@ -10,10 +10,6 @@ export interface ConventionEvidence {
   files: Readonly<Record<string, Uint8Array>>;
   authoringConventions?: AuthoringConventions | undefined;
   library?: { source?: string | undefined } | undefined;
-  imported?: boolean | undefined;
-  templateId?: string | undefined;
-  provider?: string | undefined;
-  sessionId?: string | undefined;
 }
 
 /** Original releases always keep their native allocation, even with app metadata. */

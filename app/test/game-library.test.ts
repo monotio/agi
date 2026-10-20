@@ -224,9 +224,7 @@ test("malformed public metadata reports a useful import error", () => {
 test("ZIP and folder imports deduplicate the same resources and normalize room generation", async (t) => {
   installLocalStorage(t);
   const files = game();
-  const zipGame = await readGameZip(
-    buildPublicGameZip({ title: "ZIP title", files, imported: true }),
-  );
+  const zipGame = await readGameZip(buildPublicGameZip({ title: "ZIP title", files }));
   const folderGame = readGameFiles(
     new Map(
       Object.entries(zipGame.files).map(([name, bytes]) => [`Folder/${name.toLowerCase()}`, bytes]),

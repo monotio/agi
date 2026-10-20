@@ -3079,6 +3079,7 @@ onBeforeUnmount(() => {
         :location="logicLocation?.key === key ? logicLocation : undefined"
         :source="text(key)!"
         :snapshot="languageSnapshot ?? snapshot"
+        :saved-snapshot="snapshot"
         :profile-id="profile.id"
         :diagnostics
         :active="creating && key === editor.selected.value"

@@ -55,6 +55,7 @@ const props = defineProps<{
   documentKey: string;
   source: string;
   snapshot: ProjectSnapshot;
+  savedSnapshot: ProjectSnapshot;
   profileId: ProfileId;
   active: boolean;
   diagnostics?: readonly ProjectEditDiagnostic[];
@@ -74,8 +75,8 @@ const wordFeedbackHint = computed(
   () =>
     props.documentKey === "logic:0" &&
     hasCustomizedWordFeedback({
-      bindings: props.snapshot.read("bindings")?.content ?? "{}",
-      "logic:0": props.source,
+      bindings: props.savedSnapshot.read("bindings")?.content ?? "{}",
+      "logic:0": props.savedSnapshot.read("logic:0")?.content ?? "",
     }),
 );
 const binding = ref<BindingInfo>();

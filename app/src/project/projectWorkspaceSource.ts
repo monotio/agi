@@ -329,7 +329,10 @@ function legacyAuthoring(state: Record<string, unknown> | undefined): AuthoringS
  * refused claim preserved for comparison, and the diagnostics naming why.
  * Pure: no writes, no re-seeding, no provider, session or worker.
  */
-export function inspectEditableProject(data: CachedGameData): EditableProjectInspection {
+export function inspectEditableProject(
+  data: CachedGameData,
+  updateDue = (data.authoringConventions?.version ?? 0) < 1,
+): EditableProjectInspection {
   const profileId = detectProfile(new Map(Object.entries(data.files)), data.library?.profile).id;
 
   // An unsupported workspace refuses; there is no downgraded reading.
@@ -430,6 +433,18 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     if (authoring?.music !== undefined) metadata["music"] = JSON.stringify(authoring.music);
   }
 
+  // A refused update can be followed by an ordinary native-byte edit. Keep
+  // its deferred source separate from active workspace claims until admission.
+  const pendingViews = data.authoringState?.["pendingViewRebuilds"];
+  if (updateDue && isRecord(pendingViews))
+    for (const [key, source] of Object.entries(pendingViews))
+      if (
+        /^view:\d+$/.test(key) &&
+        workspace?.[key] instanceof Uint8Array &&
+        typeof source === "string"
+      )
+        claims[key] = source;
+
   const read = readProjectDocuments({
     files: data.files,
     profileId,
@@ -437,9 +452,8 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     bindings,
   });
   const viewRebuilds: Record<string, string> = {};
-  const viewsUpdated = (data.authoringConventions?.version ?? 0) >= 1;
   for (const [key, source] of Object.entries(claims)) {
-    if (viewsUpdated || !/^view:\d+$/.test(key) || !(read.documents[key] instanceof Uint8Array))
+    if (!updateDue || !/^view:\d+$/.test(key) || !(read.documents[key] instanceof Uint8Array))
       continue;
     try {
       const input = JSON.parse(source) as BuildViewInput;
