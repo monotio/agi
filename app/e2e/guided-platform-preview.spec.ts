@@ -88,8 +88,7 @@ async function messageFillTop(preview: Locator): Promise<number> {
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
-      if (rgba[i]! > 200 && rgba[i + 1]! > 200 && rgba[i + 2]! > 200)
-        return Math.round(y / scale);
+      if (rgba[i]! > 200 && rgba[i + 1]! > 200 && rgba[i + 2]! > 200) return Math.round(y / scale);
     }
   return -1;
 }
