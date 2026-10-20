@@ -448,7 +448,7 @@ const SWEEP_RULES: readonly {
   { key: "view", pattern: /\bsprites?\b/gi },
   { key: "background", pattern: /\bbackdrop\b/gi },
   { key: "standIn", pattern: /\bghost\b/gi },
-  { key: "pictureEditor", pattern: /\b(?:Room Studio|Sprite Studio|Logic Studio)\b/g },
+  { key: "pictureEditor", pattern: /\b(?:Room|Sprite|Logic)\s+(?:\*\s*)?Studio\b/g },
   { key: "items", pattern: /\b(?:sceneList|SceneList|sceneGroups)\b/g },
   {
     key: "ego",
@@ -527,6 +527,10 @@ test("the terminology sweep catches mixed names and preserves format literals", 
   assert.match(
     terminologyViolations("app/src/studio/example.ts", "const projectAssist = 1;")[0]!,
     /GLOSSARY.agent/,
+  );
+  assert.match(
+    terminologyViolations("app/src/studio/example.ts", "/** Room\n * Studio */")[0]!,
+    /GLOSSARY.pictureEditor/,
   );
   assert.match(
     terminologyViolations("app/src/studio/example.ts", "const sprite = 1;")[0]!,

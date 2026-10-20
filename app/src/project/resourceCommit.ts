@@ -254,8 +254,7 @@ export function createResourceCommit(
    * 4. write bytes, source and project fields in one conditional save
    *    (catalog entries and installed editions fork into a new remix);
    * 5. install the changed resources in the worker as one all-or-nothing
-   *    patch and wait for its ack naming each resource's bytes (a Room
-   *    Studio commit installs a picture and a logic together);
+   *    patch and wait for its ack naming each resource's bytes (a PICTURE editor commit installs a picture and a logic together);
    * 6. adopt the session and booted identity, re-enter the room when the
    *    edit shows there, post the tape's authoring checkpoint, and take a
    *    fresh autosave under the new revision.

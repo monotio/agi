@@ -11,8 +11,7 @@ import { expect, test } from "./test.ts";
 
 /**
  * At 1024 wide, each part of Studio's top bars and options bars keeps to
- * its own place: no child's visible content runs under another's, in Room
- * Studio (a selection and the Priority lens) and in VIEW editor (a painting
+ * its own place: no child's visible content runs under another's, in PICTURE editor (a selection and the Priority lens) and in VIEW editor (a painting
  * tool, whose colour names itself).
  */
 test.use({ viewport: { width: 1024, height: 600 } });

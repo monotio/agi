@@ -6,8 +6,7 @@
  * and flip are single edits. The eraser writes transparency; no tool paints
  * the transparent colour.
  *
- * Every tool works from the keyboard as well as the pointer, as in Room
- * Studio (useStudioInput.ts): on the focused canvas the arrows move a cursor
+ * Every tool works from the keyboard as well as the pointer, as in PICTURE editor (useStudioInput.ts): on the focused canvas the arrows move a cursor
  * one pixel (Shift: 8) and Space or Enter clicks at it — a fill seed, a
  * pipette pick, the pencil's pen down and then up (moving while it is down
  * paints), a line's, rect's or selection's first corner and then its last.

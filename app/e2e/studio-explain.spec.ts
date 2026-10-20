@@ -15,10 +15,7 @@ import { expect, test } from "./test.ts";
  * VIEW editor, every visible `[data-term]` opens its registry sentence
  * (studioTerms.ts), Esc closes it before the Studio's own Esc chain runs and
  * hands focus back to it, and Learn more opens Help at its topic. The chrome
- * itself speaks the new words: with two items selected, no visible Room
- * Studio text says priority, control line, command, playhead, plane or
- * visual (explainers and closed Details keep AGI's words for those who
- * look).
+ * itself uses priority, walk lines and steps with two items selected.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 

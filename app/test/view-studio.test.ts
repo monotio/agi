@@ -556,7 +556,7 @@ describe("viewKeys", () => {
   });
 });
 
-describe("view view helpers", () => {
+describe("view preview helpers", () => {
   it("paces the loop preview at the engine's cycle", () => {
     // v10 = 1: one 50 ms timer increment a cycle; a cycling object advances a cel a cycle.
     assert.equal(celIntervalMs(1), 50);

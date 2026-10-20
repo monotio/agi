@@ -4,7 +4,7 @@ import { nearestEgaIndex } from "../view/sheet.ts";
 export const SIERRA_IMAGE_STYLE: Readonly<Record<"picture" | "view", string>> = {
   picture:
     "Draw a 1987 Sierra AGI background using only the 16 EGA colours. Use large flat filled shapes, hard pixel edges and few lines. An optional single dithered band can join two colours. Keep gradients, texture, photographic detail and anti-aliasing out of the art. Use wide framing for the AGI screen's 2:1 pixel aspect, a clear horizon and an open walkable lower area. Leave people, lettering and UI out of the scene.",
-  view: "Draw a small side-view view for a 1987 Sierra AGI game using only the 16 EGA colours, flat filled shapes and hard pixel edges. Keep the figure's size consistent across poses. Use a transparent background and leave lettering and UI out of the art.",
+  view: "Draw a small VIEW cel facing sideways for a 1987 Sierra AGI game using only the 16 EGA colours, flat filled shapes and hard pixel edges. Keep the figure's size consistent across poses. Use a transparent background and leave lettering and UI out of the art.",
 };
 export function imageStylePrompt(
   target: "picture" | "view",
