@@ -15,8 +15,7 @@ import { detachedHost, replaceRun } from "./runSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
-import { migrateRecordedReplayState } from "../../../src/runtime/recordingState.ts";
-import { fingerprintMatchesReleased, recordedHostImageVersion } from "./releasedHostImage.ts";
+import { fingerprintMatchesRecorded, recordedHostImageVersion } from "./releasedHostImage.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
@@ -27,7 +26,6 @@ import {
   HISTORY_FORMAT_VERSION,
   historyAnchorSemantic,
   historyBootSemantic,
-  historyFingerprint,
   type HistoryAnchor,
   type HistoryCommittedPatch,
   type HistoryEvent,
@@ -404,13 +402,7 @@ export function openHistoryDrive(
     const menus = anchor ? undefined : segment.boot.menus;
     if (menus !== undefined) candidate.restoreMenuState(menus);
     const replayState = anchor ? anchor.replay : segment.boot.replay;
-    const migratedReplay =
-      replayState === undefined
-        ? undefined
-        : migrateRecordedReplayState(replayState, candidate.profile, (num) =>
-            container.getResource("sound", num),
-          );
-    if (migratedReplay !== undefined) candidate.restoreReplayState(migratedReplay);
+    if (replayState !== undefined) candidate.restoreReplayState(replayState);
     const clock = anchor ? anchor.clock : segment.boot.clock;
     const soundRemainder = anchor ? anchor.soundRemainder : segment.boot.soundRemainder;
     replaceRun(ctx, "history", {
@@ -459,15 +451,16 @@ export function openHistoryDrive(
       throw new Error(`resume point carries fingerprint version ${fingerprint.v}`);
     const recordedSemantic =
       anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot);
-    // Authenticate the original record before deriving a migrated expectation.
-    // The expectation comes from recorded bytes, never from the restored engine.
-    const originalHolds = historyFingerprint(recordedSemantic).hash === fingerprint.hash;
-    const expected =
-      migratedReplay === undefined
-        ? fingerprint
-        : historyFingerprint({ ...recordedSemantic, replay: migratedReplay });
     const semantic = captureSemanticState(ctx, recordedSemantic);
-    if (!originalHolds || !fingerprintMatchesReleased(semantic, expected))
+    if (
+      !fingerprintMatchesRecorded(
+        semantic,
+        recordedSemantic,
+        fingerprint,
+        candidate.profile,
+        (num) => container.getResource("sound", num),
+      )
+    )
       throw new Error(
         `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
       );
