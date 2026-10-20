@@ -690,6 +690,37 @@ test("one update on open rebuilds VIEWs and LOGIC together; Undo restores exact 
   assert.deepEqual((await loadAuthoredGame(id))!.files, before.files);
 });
 
+test("a broken room draft accepts the VIEW and LOGIC update exactly once across two opens", async () => {
+  const id = await storedCombined("combined-broken-draft");
+  const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+  const before = (await loadAuthoredGame(id))!;
+  await saveAuthoredGame(id, {
+    ...before,
+    workspace: writeProjectWorkspace({
+      ...readProjectWorkspace(before.workspace!),
+      "logic:1": "if (",
+    }),
+  });
+  const admitted: Admitted = [];
+  const session = await open(id, admitted);
+  await settle(session);
+  assert.ok(session.capture().diagnostics.length > 0);
+  session.dispose();
+  const updated = (await loadAuthoredGame(id))!;
+  assert.equal(migrationCommits(updated), 1);
+  assert.equal(updated.authoringConventions?.version, 1);
+  assert.deepEqual(updated.files, before.files, "diagnostics keep the last playable image");
+  assert.equal(readProjectWorkspace(updated.workspace!)["view:1"], JSON.stringify(oldView.input));
+  assert.equal(readProjectWorkspace(updated.workspace!)["logic:1"], "if (");
+  const reopened = await open(id, admitted);
+  await settle(reopened);
+  reopened.dispose();
+  const after = (await loadAuthoredGame(id))!;
+  assert.equal(migrationCommits(after), 1);
+  assert.deepEqual(after.projectHistory, updated.projectHistory);
+  assert.deepEqual(admitted, [], "the broken room stays a draft");
+});
+
 test("a refused VIEW and LOGIC update writes neither resource nor stamp and retries both on reopen", async () => {
   const id = await storedCombined("combined-refused");
   const before = (await loadAuthoredGame(id))!;

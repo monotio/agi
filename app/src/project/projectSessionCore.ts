@@ -862,7 +862,6 @@ function createSession(
     const snapshot = model.apply(prepared.application);
     if (
       updatePending &&
-      prepared.compiled !== undefined &&
       updateChanges.every(({ key, content }) =>
         changes.some((change) => change.key === key && sameProjectContent(change.content, content)),
       )
