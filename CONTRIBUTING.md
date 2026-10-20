@@ -506,22 +506,24 @@ editor. Later resources are opened explicitly from earlier result previews.
 Private backups preserve the stored playable files byte for byte; public Game
 exports still synthesize an empty `OBJECT` when a game lacks one.
 
-Playback recordings use version 2 for debugger boundaries and complete project
-admission events. Released version-1 tapes remain unchanged on read; the first
-committed append upgrades their recording header atomically. The archive and
-storage wrappers remain version 1. Authentic save files retain their existing
-contract. Recorded game tests migrate from `monotio.agi.tests.v1` to
-`monotio.agi.tests.v2` for deterministic entropy: v1 tests read with
-`rngVersion: 1`, and edits preserve those RNG semantics. New tests default to
-RNG version 2; the serializer writes the v2 envelope.
+These are separate contracts; a version on one says nothing about another.
+Every writer version and accepted reader set is a constant in the cited code:
 
-The IndexedDB database uses schema version 2 to fence older application writers
-from the coordinated project/History transactions. Opening a released schema-1
-database preserves its records. This database gate is separate from the body
-and index codecs. The workspace codec stores text and bytes exactly without
-compiling them; recompile documents against their resource revision to establish
-that sources reproduce playable bytes, as `app/src/project/localProject.ts` does
-at creation.
+| Contract                                                                                                                                           | Writer | Reads          | Migration trigger                                                                                                                        | Retained fixture                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Playback recording (`recording.version`, `src/agent/history.ts`)                                                                                   | 3      | 1–3            | The first committed append upgrades the stored header; released tapes stay unchanged on read                                             | `app/test/formats/history-1.2.2-paused-reenter.json`, `project-v1.zip` (v1), `test/formats/history-v2-project-image.json` (v2) |
+| Host autosave image (`src/runtime/persistence.ts`)                                                                                                 | 2      | 1–2            | Version 2 admits the parked window's pixel frame (`saved.window`) in the continuation                                                    | Anchors inside the released tapes                                                                                              |
+| Stored project body (`monotio.agi.stored-project`) and localStorage index (`monotio.agi.project-index`), `app/src/project/gameStorage.ts`          | 1      | 1              | None — extend at the same version with optional fields                                                                                   | `app/test/formats/project-v1.json`, `project-v1.zip`                                                                           |
+| Private archive `PROJECT.JSON` (`monotio.agi.project`) and `HISTORY.JSON` (`monotio.agi.history`) wrappers                                         | 1      | 1              | None — the nested History recording carries its own version                                                                              | `app/test/formats/project-v1.zip`                                                                                              |
+| Workspace (`monotio.agi.project-workspace`), edit History (`monotio.agi.project-history`) and recovery draft (`monotio.agi.recovery-draft`) codecs | 1      | 1              | None                                                                                                                                     | `test/formats/project-workspace-v1.json`, `project-history-v1.json`, `recovery-draft-v1.json`                                  |
+| Game tests `TESTS.JSON` (`monotio.agi.tests`)                                                                                                      | v2     | v1–v2          | v2 adds deterministic entropy: a v1 document reads with `rngVersion: 1` and keeps it on edit; new tests default to version 2             | `TESTS.JSON` in `app/test/formats/project-v1.zip` (v1)                                                                         |
+| Walkthrough tape (`monotio.agi.walkthrough`)                                                                                                       | v2     | v1–v2          | v2 selects RNG version 2                                                                                                                 | `app/public/walkthroughs/*.json`                                                                                               |
+| IndexedDB `monotio-agi-projects` schema (`app/src/project/gameBodyStorage.ts`)                                                                     | 2      | upgrade from 1 | Schema 2 fences older application writers from the coordinated project/History transactions; a schema-1 database's records are preserved | —                                                                                                                              |
+
+Authentic save files retain their existing contract. The workspace codec stores
+text and bytes exactly without compiling them; recompile documents against their
+resource revision to establish that sources reproduce playable bytes, as
+`app/src/project/localProject.ts` does at creation.
 
 ### Shared vocabulary
 

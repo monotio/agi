@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { resolve } from "node:path";
 import { compareFrames, normalizeFrame } from "../scripts/mame-diff-metrics.ts";
-import { validateScenario, type Scenario } from "../scripts/mame-diff.ts";
+import {
+  outputInsideRepo,
+  requireIgnoredOutput,
+  validateScenario,
+  type Scenario,
+} from "../scripts/mame-diff.ts";
 
 test("frame comparison counts exact RGB changes and bounds them within each screen region", () => {
   const original = new Uint8Array(320 * 200 * 3);
@@ -46,6 +52,22 @@ test("normalization crops before nearest-neighbour sampling and never adjusts co
     () => normalizeFrame({ width: 4, height: 3, rgba }, { x: 3, y: 0, width: 2, height: 1 }),
     /crop/i,
   );
+});
+
+test("the output guard requires gitignore on every repository child, whatever its name", () => {
+  const root = resolve(".");
+  // A child named "..something" is inside the repository, not a parent path.
+  assert.equal(outputInsideRepo(resolve("..review-captures"), root), true);
+  assert.throws(() => requireIgnoredOutput(resolve("..review-captures")), /gitignored/);
+  // A true sibling of the repository root is outside and needs no ignore.
+  assert.equal(outputInsideRepo(resolve("..", "mame-diff-outside"), root), false);
+  assert.doesNotThrow(() => requireIgnoredOutput(resolve("..", "mame-diff-outside")));
+  // The default scratch area is an ignored repository child.
+  assert.equal(outputInsideRepo(resolve(".local/mame-diff/test-run"), root), true);
+  assert.doesNotThrow(() => requireIgnoredOutput(resolve(".local/mame-diff/test-run")));
+  // An ordinary unignored child is refused.
+  assert.equal(outputInsideRepo(resolve("scripts/mame-diff-out"), root), true);
+  assert.throws(() => requireIgnoredOutput(resolve("scripts/mame-diff-out")), /gitignored/);
 });
 
 test("scene scripts accept direction keys and a Node RNG seed, and reject malformed ones", () => {

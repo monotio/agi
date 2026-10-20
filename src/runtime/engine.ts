@@ -117,6 +117,7 @@ import {
   captureWindowErased,
   drawWindow,
   placePrintWindow,
+  printWindowLayout,
   stampWindow,
   stampWindowOverlayOnly,
   windowLines,
@@ -3314,8 +3315,7 @@ export class Engine {
     // windowLines applies the overlong-message recovery: more than 19
     // formatted lines substitutes "Message too verbose:" quoting the first
     // 20 characters (docs/fidelity.md "Original window and status-line text").
-    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
-    const lines = windowLines(text, width, maxLines);
+    const lines = windowLines(text, width, printWindowLayout(this.profile).maxLines);
     const win = placePrintWindow(
       lines,
       this.displayBaseRow,
@@ -3372,7 +3372,7 @@ export class Engine {
     // On verified 2.936, when vdesc == 0, ShowObj computes viewPtr + 0 without
     // testing for a zero offset and formats the NUL-terminated bytes starting
     // at byte 0 of the view header (docs/fidelity.md, F-VIEWS-11).
-    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
+    const maxLines = printWindowLayout(this.profile).maxLines;
     let rawDescription = view.description;
     if (rawDescription === undefined) {
       const raw = this.profile.showObjUncheckedDescOffset

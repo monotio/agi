@@ -3801,10 +3801,11 @@ The engine selects this cadence with `frameTiming: "booter-int1c"`: sound, pacin
 run on 54.925 ms ticks, the clock is rewritten every 18 ticks from the saved tick count, and only
 pause freezes it. The tests in [original-scheduler.test.ts](../test/original-scheduler.test.ts)
 and [worker-original-scheduler.test.ts](../app/test/worker-original-scheduler.test.ts) failed
-before the change. Open: the sound start at `0x7409` reads payload byte 0 as a row period
-(rows advance every `max(1, b0)` ticks; one booter sound has `b0 = 0`, which on the speaker
-never starts and never sets its done flag), while the engine's row player treats byte 0 as row
-data. Every booter sound but one has `b0 = 1`, so timing agrees; the stray first write remains.
+before the change. Superseded: this entry previously concluded that the engine's row player
+treats byte 0 as row data and that a stray first write remains. [PC booter sound
+rows](#pc-booter-sound-rows) records the correction: the start routine reads payload byte 0 as
+the row period (`mov al,[di]` at `0x7422`), the cursor starts one byte in, and the period byte
+is never written to the chip or the speaker.
 
 ### Original directory and resource loading
 

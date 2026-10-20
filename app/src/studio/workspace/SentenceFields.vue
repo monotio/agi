@@ -110,7 +110,7 @@ const check = computed(() => {
     <label
       >The game says…<textarea v-model="response" required maxlength="512" rows="2" :disabled />
     </label>
-    <AgiMessagePreview v-if="response" :text="response" />
+    <AgiMessagePreview v-if="response" :text="response" :profile="profile" />
   </template>
 </template>
 <style scoped>

@@ -12,7 +12,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureSkip, fixtureDir } from "../test/fixtures.ts";
 import { openContainer } from "../src/container/container.ts";
@@ -88,6 +88,29 @@ function lua(value: unknown): string {
     .map(([k, v]) => `[${lua(k)}]=${lua(v)}`)
     .join(",")}}`;
 }
+/**
+ * MAME output holds private disk copies and captures, so a destination inside
+ * the repository must be gitignored. Containment is decided by path
+ * components against the real root — a child named `..something` is still
+ * inside — never by a name prefix. An absolute `relative` result (another
+ * Windows drive) or a `..` component means outside.
+ */
+export function outputInsideRepo(output: string, root = resolve(".")): boolean {
+  const within = relative(root, output);
+  return !isAbsolute(within) && within !== ".." && !within.startsWith(`..${sep}`);
+}
+
+/** Refuse a repository descendant git does not ignore. */
+export function requireIgnoredOutput(output: string): void {
+  if (
+    outputInsideRepo(output) &&
+    spawnSync("git", ["check-ignore", "--quiet", output]).status !== 0
+  )
+    throw new Error(
+      "Output inside the repository must be gitignored (for example .local/mame-diff). ",
+    );
+}
+
 export function validateScenario(s: Scenario): void {
   if (
     !s ||
@@ -303,14 +326,7 @@ async function main() {
   const s = JSON.parse(readFileSync(manifest, "utf8")) as Scenario;
   validateScenario(s);
   const output = resolve(destination ?? `.local/mame-diff/${s.machine}`);
-  const within = relative(resolve("."), output);
-  if (
-    !within.startsWith("..") &&
-    spawnSync("git", ["check-ignore", "--quiet", output]).status !== 0
-  )
-    throw new Error(
-      "Output inside the repository must be gitignored (for example .local/mame-diff). ",
-    );
+  requireIgnoredOutput(output);
   mkdirSync(output, { recursive: true });
   const skip = (reason: string) => {
     json(join(output, "result.json"), { status: "skipped", reason });

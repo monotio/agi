@@ -561,6 +561,25 @@ export function windowLines(text: string, width: number, maxLines = 19): string[
   );
 }
 
+/**
+ * The layout a profile's print/show.obj windows open with (docs/fidelity.md
+ * "Original window and status-line text"): the wrapped-line budget of its
+ * WindowNoWait verbose check (18 on pc-2.001, 19 elsewhere), the display base
+ * row the build boots with (the Amiga load image starts the picture at row 0;
+ * every other build at row 1), and its pixel-exact frame geometry. A game's
+ * `configure.screen` can move the base afterwards; this is the boot layout.
+ */
+export function printWindowLayout(profile: {
+  readonly windowFrameGeometry: WindowFrameGeometry;
+  readonly presentation: "pc" | "amiga" | "iigs";
+}): { displayBase: number; maxLines: number; geometry: WindowFrameGeometry } {
+  return {
+    displayBase: profile.presentation === "amiga" ? 0 : 1,
+    maxLines: profile.windowFrameGeometry === "pc-2.001" ? 18 : 19,
+    geometry: profile.windowFrameGeometry,
+  };
+}
+
 export interface WindowBox {
   top: number;
   left: number;

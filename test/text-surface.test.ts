@@ -20,6 +20,7 @@ import {
   cellChar,
   placePrintWindow,
   placeWindow,
+  printWindowLayout,
   windowLines,
   wrapLines,
 } from "../src/runtime/textSurface.ts";
@@ -900,6 +901,55 @@ test("print.at overrides place the window verbatim, off-screen included", () => 
     { x0: offscreen.x0, y0: offscreen.y0, x1: offscreen.x1, y1: offscreen.y1 },
     { x0: 294, y0: 195, x1: 353, y1: 212 },
   );
+});
+
+test("a profile's boot window layout places one shared frame family per build", () => {
+  // Player-visible rule: a message window sits where the selected interpreter
+  // puts it — the Amiga load image starts the picture at row 0 and fills one
+  // pixel wider/taller; every other build starts at row 1. Hand-computed from
+  // docs/fidelity.md "Original window and status-line text": a one-line
+  // two-column message centres at textLeft (40-2)>>1 = 19, textTop =
+  // displayBase + ((winBot-1-1)>>1)+1, fill [8·leftCol−10, 8·(leftCol+cols)+9
+  // or +10] × [8·topRow−5 or −6, 8·(topRow+rows)+4].
+  const cases = [
+    {
+      id: "2.936" as const,
+      layout: { displayBase: 1, maxLines: 19, geometry: "pc" },
+      win: { textTop: 11, textLeft: 19, x0: 142, y0: 83, x1: 177, y1: 100 },
+    },
+    {
+      id: "2.001" as const,
+      layout: { displayBase: 1, maxLines: 18, geometry: "pc-2.001" },
+      win: { textTop: 10, textLeft: 19, x0: 142, y0: 75, x1: 177, y1: 92 },
+    },
+    {
+      id: "amiga-2.082" as const,
+      layout: { displayBase: 0, maxLines: 19, geometry: "amiga" },
+      win: { textTop: 10, textLeft: 19, x0: 142, y0: 74, x1: 178, y1: 92 },
+    },
+    {
+      id: "iigs-1.014" as const,
+      layout: { displayBase: 1, maxLines: 19, geometry: "iigs" },
+      win: { textTop: 11, textLeft: 19, x0: 142, y0: 83, x1: 177, y1: 100 },
+    },
+  ];
+  for (const { id, layout, win } of cases) {
+    const placed = printWindowLayout(PROFILES[id]);
+    assert.deepEqual(placed, layout, id);
+    const actual = placePrintWindow(["Hi"], placed.displayBase, placed.geometry);
+    assert.deepEqual(
+      {
+        textTop: actual.textTop,
+        textLeft: actual.textLeft,
+        x0: actual.x0,
+        y0: actual.y0,
+        x1: actual.x1,
+        y1: actual.y1,
+      },
+      win,
+      id,
+    );
+  }
 });
 
 test("the window frame matches each profile family's decoded pixel geometry (PC 2.001, PC 2.089+, Amiga, IIgs)", () => {
