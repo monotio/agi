@@ -31,12 +31,10 @@ function render(): void {
   const surface = new TextSurface();
   const layout = printWindowLayout(profile);
   const lines = windowLines(text, 30, layout.maxLines);
-  stampWindow(
-    surface,
-    placePrintWindow(lines, layout.displayBase, layout.geometry),
-    lines,
-    attr(0, 15),
-  );
+  // The window opens at the running game's picture row (configure.screen can
+  // move it), falling back to the profile's boot layout before a frame lands.
+  const row = presentation.lastFrame.value?.picRow ?? layout.displayBase;
+  stampWindow(surface, placePrintWindow(lines, row, layout.geometry), lines, attr(0, 15));
   const pixels = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
     {
@@ -44,7 +42,7 @@ function render(): void {
       visual: presentation.lastFrame.value?.visual ?? new Uint8Array(160 * 168),
       text: surface.cells,
       windowOverlay: surface.overlay,
-      picRow: layout.displayBase,
+      picRow: row,
     },
     pixels,
   );
@@ -110,6 +108,7 @@ onMounted(() => {
 });
 watch(() => text, render);
 watch(() => presentation.look.value, render);
+watch(() => presentation.lastFrame.value?.picRow, render);
 watch(() => [profile.windowFrameGeometry, profile.presentation], render);
 onBeforeUnmount(() => {
   closed = true;
