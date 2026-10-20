@@ -94,7 +94,7 @@ test("a 1.0 Game download preserves every released field while re-export adds op
     },
   });
   const { authoringConventions, ...metadata } = JSON.parse(member(again, "GAME.JSON"));
-  assert.deepEqual(authoringConventions, { version: 1 });
+  assert.deepEqual(authoringConventions, { version: 0 });
   assert.deepEqual(metadata, JSON.parse(member(zip, "GAME.JSON")));
 });
 

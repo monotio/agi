@@ -1063,3 +1063,47 @@ test("temporary recovery failure keeps the pending update's base until reload re
   assertCombined(recovered);
   assert.equal(localStorage.getItem(key), null);
 });
+
+test("copy and archives keep a recognized remix's VIEW update pending without legacy room memory", async () => {
+  const id = await storedCombined("recognized-copy-mirror");
+  const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+  const before = (await loadAuthoredGame(id))!;
+  await saveAuthoredGame(id, {
+    ...before,
+    imported: true,
+    files: { ...before.files, AGI: new TextEncoder().encode("Version 2.936\0") },
+    library: normalizeLibraryMetadata(undefined, {
+      source: "remix",
+      revision: computeResourceRevision(before.files),
+    }),
+  });
+  const original = (await loadAuthoredGame(id))!;
+  const copied = await copyLibraryGame(id);
+  const copiedData = (await loadAuthoredGame(copied))!;
+  assert.deepEqual(copiedData.authoringConventions, { version: 0 });
+  const projectZip = await readGameZip(await buildProjectZip(original));
+  const publicZip = await readGameZip(await buildPublicGameZip(original));
+  assert.deepEqual(projectZip.project?.authoringConventions, { version: 0 });
+  assert.deepEqual(publicZip.authoringConventions, { version: 0 });
+  const imported = await addLibraryGame(projectZip, "Recognized copy", "zip", {
+    preview: "data:image/png;base64,iVBORw0KGgo=",
+    status: "ready",
+    message: "Ready",
+    profile: "2.936",
+  });
+  for (const candidate of [copied, imported]) {
+    assert.equal(isLegacyAuthoredProject((await loadAuthoredGame(candidate))!), false);
+    const session = await open(candidate, []);
+    await settle(session);
+    session.dispose();
+    const updated = (await loadAuthoredGame(candidate))!;
+    assert.equal(migrationCommits(updated), 1);
+    assert.notDeepEqual(viewBytes(updated), oldView.bytes);
+    assert.equal(storedLogic0(updated), PRE_125_LOGIC0);
+    assert.deepEqual(updated.authoringConventions, { version: 1 });
+    const reopen = await open(candidate, []);
+    await settle(reopen);
+    reopen.dispose();
+    assert.equal(migrationCommits((await loadAuthoredGame(candidate))!), 1);
+  }
+});

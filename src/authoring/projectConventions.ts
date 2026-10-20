@@ -37,10 +37,10 @@ export function isLegacyAuthoredProject(data: ConventionEvidence): boolean {
 export function projectConventions(data: ConventionEvidence): AuthoringConventions {
   readAuthoringConventions(data.authoringConventions);
   return (
-    data.authoringConventions ??
-    (isLegacyAuthoredProject(data)
-      ? { version: 0, legacyRoomMemory: true }
-      : { version: AUTHORING_CONVENTIONS_VERSION })
+    data.authoringConventions ?? {
+      version: 0,
+      ...(isLegacyAuthoredProject(data) ? { legacyRoomMemory: true } : {}),
+    }
   );
 }
 
