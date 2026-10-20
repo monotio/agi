@@ -107,11 +107,15 @@ export function readProjectSaveRecoveries(
 }
 
 /** Automatic writes must leave unresolved recovery bases available for the next open. */
-export function hasUnresolvedProjectSaveJournal(storage: Storage, project: ProjectId): boolean {
+export function hasUnresolvedProjectSaveJournal(
+  storage: Storage,
+  project: ProjectId,
+  ownKey?: string,
+): boolean {
   const retired = new Set(readProjectSaveRecoveries(storage, project).map(({ key }) => key));
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (belongsToProject(key, project) && !retired.has(key)) return true;
+    if (key !== ownKey && belongsToProject(key, project) && !retired.has(key)) return true;
   }
   return false;
 }

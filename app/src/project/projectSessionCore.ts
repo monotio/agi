@@ -69,6 +69,8 @@ import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 interface SessionSave {
   readonly snapshot: ProjectSnapshot;
   readonly documentOnly?: boolean;
+  readonly automatic?: boolean;
+  skipped?: true;
   readonly data: ProjectCommitRequest["data"];
   request?: ProjectCommitRequest;
   attempted?: boolean;
@@ -223,7 +225,7 @@ function createSession(
     try {
       return (
         typeof localStorage === "undefined" ||
-        !hasUnresolvedProjectSaveJournal(localStorage, openedProjectId)
+        !hasUnresolvedProjectSaveJournal(localStorage, openedProjectId, journalKey)
       );
     } catch {
       // Unreadable storage cannot establish that recovery has no pending base.
@@ -368,6 +370,7 @@ function createSession(
         .some(
           (capture) =>
             !capture.acknowledged &&
+            !capture.skipped &&
             capture.snapshot.lastAdmissibleBuild!.identity.revision !== revision,
         )
     );
@@ -470,7 +473,7 @@ function createSession(
       if (typeof localStorage === "undefined") throw new Error("Browser storage is unavailable.");
       const entries = autosave
         .captures()
-        .filter((capture) => !capture.acknowledged)
+        .filter((capture) => !capture.acknowledged && !capture.skipped)
         .map((capture) => {
           if (capture.journal === undefined || !capture.attempted)
             capture.journal = captureProjectJournal({
@@ -517,7 +520,7 @@ function createSession(
     addEventListener("pagehide", persistPending);
     document.addEventListener("visibilitychange", hiddenJournal);
   }
-  const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt>({
+  const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt | undefined>({
     current,
     write: async (capture) => {
       if (input.write === undefined && !(await releaseJournal.ready))
@@ -550,11 +553,21 @@ function createSession(
         delete capture.journal;
         persistPending();
       }
+      // Admission, ownership and autosave may all yield to another page. Check
+      // again without yielding before the durable attempt; our own capture is safe.
+      if (capture.automatic && !automaticWritesAllowed()) return undefined;
       return input.write === undefined
         ? (await storage.commit(capture.request!, capture.journal?.hash)).receipt
         : input.write(capture.request!);
     },
     saved: async (receipt, capture) => {
+      if (receipt === undefined) {
+        // Do not leave a skipped automatic write for recovery to replay later.
+        // Stored conventions stay pending, so the next open retries the update.
+        capture.skipped = true;
+        persistPending();
+        return;
+      }
       let previousKey: string | undefined;
       let releasePrevious: (() => void) | undefined;
       if (receipt.saved.projectId !== data.projectId) {
@@ -628,6 +641,7 @@ function createSession(
     nativeInstalled = false,
     save = true,
     documentOnly = false,
+    automatic = false,
   ) {
     const image = snapshot.lastAdmissibleBuild!;
     const acceptedState = updateAcceptedSourceClaims(
@@ -690,6 +704,7 @@ function createSession(
     autosave.enqueue({
       snapshot,
       documentOnly,
+      automatic,
       data: next,
       operation: operationSerial,
     });
@@ -716,6 +731,7 @@ function createSession(
     launch?: RoomLaunchRequest,
     reviewedRenumbering?: ReviewedRenumbering,
     beforeRenumber?: readonly ProjectChange[],
+    automatic = false,
   ) {
     await ready;
     beforeCommit?.();
@@ -764,7 +780,7 @@ function createSession(
           ? {}
           : { action: { direction: action.direction, target: action.target } }),
       });
-      captureSave(snapshot, undefined, false, true, true);
+      captureSave(snapshot, undefined, false, true, true, automatic);
       return { status: "committed" as const, diagnostics };
     }
     if (action !== undefined)
@@ -917,7 +933,7 @@ function createSession(
       checkpointPending = true;
       checkpointRevision = undefined;
     }
-    captureSave(snapshot, outcome, preparedRoom);
+    captureSave(snapshot, outcome, preparedRoom, true, false, automatic);
     if (pendingImage !== undefined) void retryAdmission();
     return {
       status:
@@ -1377,7 +1393,7 @@ function createSession(
         await schedule(async () => {
           if (!sourceClaimsNeedCapture || !automaticWritesAllowed()) return;
           recordOperation({ kind: "capture" });
-          captureSave(model.capture());
+          captureSave(model.capture(), undefined, false, true, false, true);
         });
       let scheduled: Promise<unknown>;
       do {
@@ -1538,16 +1554,23 @@ function createSession(
   // the old bytes and conventions intact, so reopening retries the whole step.
   // Journal recovery replays its recorded proposal instead of creating another.
   if (updateChanges.length && input.workingDocumentId === undefined && automaticWritesAllowed())
-    void session
-      .submit({
-        proposal: model.propose(model.capture(), PROJECT_UPDATE_LABEL, updateChanges),
-        label: PROJECT_UPDATE_LABEL,
-        origin: "logic",
-        author: "creator",
-      })
-      .catch(() => {
-        /* Save status reports failures; reopening retries the stored old bytes. */
-      });
+    void schedule(() =>
+      apply(
+        model.propose(model.capture(), PROJECT_UPDATE_LABEL, updateChanges),
+        { label: PROJECT_UPDATE_LABEL, origin: "logic", author: "creator", time: Date.now() },
+        undefined,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+      ),
+    ).catch(() => {
+      /* Save status reports failures; reopening retries the stored old bytes. */
+    });
   return session;
 }
 /** The History entry an older authored game receives once (CHANGELOG 1.2.5). */

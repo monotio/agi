@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
+import { prepareLocalProject } from "../src/project/localProject.ts";
+import { readSoundDocumentEnvelope } from "../../src/sound/document.ts";
 import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
 import { captureProjectJournal } from "../src/project/projectJournalCapture.ts";
 import {
+  claimProjectSaveJournal,
   projectSaveJournalKey,
   readProjectSaveRecoveries,
   writeProjectSaveJournal,
@@ -1063,6 +1066,130 @@ test("temporary recovery failure keeps the pending update's base until reload re
   assertCombined(recovered);
   assert.equal(localStorage.getItem(key), null);
 });
+
+for (const pause of ["admission", "automatic flush"] as const)
+  test(`a journal published during ${pause} preserves recovery and updates once on reopen`, async () => {
+    const id = await storedCombined(`late-journal-${pause.replaceAll(" ", "-")}`);
+    if (pause === "automatic flush") {
+      const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+      const data = (await loadAuthoredGame(id))!;
+      const starter = prepareLocalProject({ title: "Sound claim", kind: "starter" }).data();
+      const original = readSoundDocumentEnvelope(
+        JSON.parse(String(readProjectWorkspace(starter.workspace!)["sound:1"])),
+      );
+      const edited = original.updateEvent(original.tracks()![0]![0]!.id, { note: "C5" });
+      const documents = {
+        ...readProjectWorkspace(data.workspace!),
+        "sound:1": JSON.stringify(edited.serialize()),
+      };
+      const compiled = compileProjectDocuments({
+        files: data.files,
+        documents: { ...documents, "view:1": Uint8Array.from(oldView.bytes) },
+        profileId: "2.936",
+      });
+      await saveAuthoredGame(id, {
+        ...data,
+        files: Object.fromEntries(compiled.files()),
+        workspace: writeProjectWorkspace(documents),
+        authoringState: { sources: { sounds: [[1, original.serialize()]] } },
+      });
+    }
+    const opened = (await loadAuthoredGameWithHistoryLifetime(id))!;
+    const before = opened.data;
+    const compiled = compileProjectDocuments({
+      files: before.files,
+      documents: inspectEditableProject(before).documents,
+      profileId: "2.936",
+    });
+    const key = projectSaveJournalKey(id, "other-tab");
+    const writer = claimProjectSaveJournal(key);
+    assert.equal(await writer.ready, true);
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const session = await open(id, [], {
+      ...(pause === "automatic flush"
+        ? {
+            workingDocumentId: projectDocumentId(
+              inspectEditableProject(before).documents,
+              sha256Hex,
+            ),
+          }
+        : {}),
+      admit: async () => {
+        entered.resolve();
+        await resume.promise;
+        return { status: "committed", expected: null, current: null, patchGeneration: 0 };
+      },
+    });
+    if (pause === "automatic flush")
+      session.subscribe(() => {
+        if (session.saveStatus().state === "pending") runFrames();
+        if (session.saveStatus().state === "saving") entered.resolve();
+      });
+    const flushing = session.flush();
+    try {
+      await entered.promise;
+      writeProjectSaveJournal(localStorage, key, [
+        {
+          attempted: false,
+          request: {
+            projectId: id,
+            workspaceId: "other-tab",
+            commitId: "interrupted-late-edit",
+            expected: {
+              projectId: id,
+              lifetime: opened.lifetime!,
+              generation: before.generation!,
+              revision: computeResourceRevision(before.files),
+              authoring: authoringFingerprint(before.authoringState, before.workspace),
+              buildId: compiled.build.identity.buildId,
+            },
+            buildId: compiled.build.identity.buildId,
+            documents: [],
+            data: { ...before, title: "Recovered late work" },
+          },
+        },
+      ]);
+      const raw = localStorage.getItem(key);
+      writer.release(); // The other page closes before its durable write.
+      resume.resolve();
+      await flushing;
+      assert.equal(session.saveStatus().state, "saved", "deferral needs no new notice");
+      session.dispose();
+      // Inspect committed storage directly: loading would already attempt recovery.
+      const unchanged = records.get(id) as CachedGameData;
+      assert.equal(
+        unchanged.generation,
+        before.generation,
+        "no automatic write overtakes recovery",
+      );
+      assert.deepEqual(unchanged.files, before.files);
+      assert.equal(migrationCommits(unchanged), 0);
+      assert.equal(unchanged.authoringConventions, undefined);
+      assert.equal(localStorage.getItem(key), raw);
+      assert.deepEqual(readProjectSaveRecoveries(localStorage, id), []);
+      assert.deepEqual(
+        [...values.keys()].filter((entry) => entry.startsWith(`monotio_agi.project-writes.${id}.`)),
+        [key],
+      );
+      const reopened = await open(id, []);
+      await settle(reopened);
+      reopened.dispose();
+      const recovered = (await loadAuthoredGame(id))!;
+      assert.equal(recovered.title, "Recovered late work");
+      assertCombined(recovered);
+      assert.equal(localStorage.getItem(key), null);
+      const again = await open(id, []);
+      await settle(again);
+      again.dispose();
+      assert.equal(migrationCommits((await loadAuthoredGame(id))!), 1);
+    } finally {
+      writer.release();
+      resume.resolve();
+      session.dispose();
+      await flushing.catch(() => {});
+    }
+  });
 
 test("copy and archives keep a recognized remix's VIEW update pending without legacy room memory", async () => {
   const id = await storedCombined("recognized-copy-mirror");
