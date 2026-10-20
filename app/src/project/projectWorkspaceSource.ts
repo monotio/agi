@@ -14,7 +14,9 @@ import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
  * refused claim — stale text, malformed structure, a byte payload that does
  * not match, source for an absent resource — is set aside in
  * rejectedSources as inactive compatibility data with a diagnostic. Opening
- * always permits editing the verified document inventory. Valid string and byte claims
+ * always permits editing the verified document inventory. Valid VIEW source
+ * with older builder bytes is kept in viewRebuilds for a visible session commit.
+ * Valid string and byte claims
  * keep their exact content; malformed values are kept as a diagnostic
  * representation. The raw input data stays the preservation
  * authority: a verified document set is a read, not a migration or a save.
@@ -29,7 +31,8 @@ import {
   readProjectDocuments,
 } from "../../../src/authoring/projectDocuments.ts";
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
-import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
+import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
+import { PROFILES, detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import { sameProjectContent } from "../../../src/authoring/projectContent.ts";
 import { readSoundDocumentEnvelope } from "../../../src/sound/document.ts";
@@ -61,6 +64,8 @@ export interface EditableProjectInspection {
    * compatibility. Nothing claimed is dropped.
    */
   readonly rejectedSources: Readonly<Record<string, EditableDocumentContent>>;
+  /** Valid authored VIEWs whose old bytes need a visible rebuild on open. */
+  readonly viewRebuilds: Readonly<Record<string, string>>;
   readonly diagnostics: readonly EditableSourceDiagnostic[];
   /** Compatibility flag: opening reports diagnostics and always permits editing. */
   readonly requiresSourceReview: boolean;
@@ -431,16 +436,25 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     sources: claims,
     bindings,
   });
-  diagnostics.push(...read.diagnostics);
+  const viewRebuilds: Record<string, string> = {};
+  for (const [key, source] of Object.entries(claims)) {
+    if (!/^view:\d+$/.test(key) || !(read.documents[key] instanceof Uint8Array)) continue;
+    try {
+      buildView(JSON.parse(source) as BuildViewInput, PROFILES[profileId]);
+      viewRebuilds[key] = source;
+    } catch {
+      // Unusable source still receives the reader's diagnostic below.
+    }
+  }
+  diagnostics.push(...read.diagnostics.filter(({ key }) => !Object.hasOwn(viewRebuilds, key)));
 
   const documents: Record<string, EditableDocumentContent> = Object.create(null);
   for (const [key, content] of Object.entries(read.documents)) documents[key] = content;
 
-  // A text claim re-enters documents only as itself; anything else — a
-  // compile failure, a byte mismatch, an absent resource — is refused and
-  // preserved, with readProjectDocuments' diagnostic naming the reason.
+  // VIEW source awaiting its rebuild is kept separately from refused claims.
+  // Other mismatches retain the reader's diagnostic and original source.
   for (const [key, text] of Object.entries(claims)) {
-    if (documents[key] !== text) rejected[key] = text;
+    if (documents[key] !== text && !Object.hasOwn(viewRebuilds, key)) rejected[key] = text;
   }
   // A claimed byte payload is admitted only when it equals the native one.
   for (const [key, bytes] of Object.entries(byteClaims)) {
@@ -463,6 +477,7 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     profileId,
     documents: sortedRecord(documents),
     rejectedSources: sortedRecord(rejected),
+    viewRebuilds: Object.freeze(viewRebuilds),
     diagnostics: Object.freeze(diagnostics),
     requiresSourceReview: false,
   });

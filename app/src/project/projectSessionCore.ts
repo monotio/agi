@@ -226,7 +226,7 @@ function createSession(
       ? undefined
       : readProjectHistory(data.projectHistory, sha256Hex),
   );
-  const openedDocuments =
+  let openedDocuments =
     data.workspace === undefined
       ? inspection.documents
       : data.projectHistory === undefined
@@ -246,6 +246,20 @@ function createSession(
     history.capture().commits.some((commit) => commit.label === SCRIPT_SIZE_MIGRATION_LABEL)
       ? null
       : migrateScriptSize(openedDocuments);
+  const viewRebuilds = history
+    .capture()
+    .commits.some((commit) => commit.label === VIEW_MIGRATION_LABEL)
+    ? {}
+    : inspection.viewRebuilds;
+  // Start with the stored native VIEWs so Undo restores their exact bytes.
+  // The author's source returns through the ordinary commit below.
+  if (Object.keys(viewRebuilds).length)
+    openedDocuments = {
+      ...openedDocuments,
+      ...Object.fromEntries(
+        Object.keys(viewRebuilds).map((key) => [key, inspection.documents[key]!]),
+      ),
+    };
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
@@ -1488,8 +1502,24 @@ function createSession(
       .catch(() => {
         /* The save status reports a failed write; the stored project is unchanged. */
       });
+  if (Object.keys(viewRebuilds).length && input.workingDocumentId === undefined)
+    void session
+      .submit({
+        proposal: model.propose(
+          model.capture(),
+          VIEW_MIGRATION_LABEL,
+          Object.entries(viewRebuilds).map(([key, content]) => ({ key, content })),
+        ),
+        label: VIEW_MIGRATION_LABEL,
+        origin: "view",
+        author: "creator",
+      })
+      .catch(() => {
+        /* The ordinary save status reports failures; reopening retries stored old bytes. */
+      });
   return session;
 }
+const VIEW_MIGRATION_LABEL = "Sprites updated for 1.2.5";
 /** The History entry an older authored game receives once (CHANGELOG 1.2.5). */
 export const SCRIPT_SIZE_MIGRATION_LABEL = "Room memory raised for this version";
 export type ProjectSession = ReturnType<typeof openOwnedProjectSession>;
