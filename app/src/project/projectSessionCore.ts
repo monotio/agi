@@ -50,6 +50,7 @@ import type {
 import { createProjectAutosave } from "./projectAutosave.ts";
 import {
   claimProjectSaveJournal,
+  hasUnresolvedProjectSaveJournal,
   markProjectSaveRecovery,
   projectSaveJournalKey,
   writeProjectSaveJournal,
@@ -218,6 +219,17 @@ function createSession(
 ) {
   const data = structuredClone(input.data);
   const openedProjectId = data.projectId;
+  function automaticWritesAllowed() {
+    try {
+      return (
+        typeof localStorage === "undefined" ||
+        !hasUnresolvedProjectSaveJournal(localStorage, openedProjectId)
+      );
+    } catch {
+      // Unreadable storage cannot establish that recovery has no pending base.
+      return false;
+    }
+  }
   const openedAt = input.openedAt ?? Date.now();
   data.chats = migrateAgentChats(data);
   const updateDue = (data.authoringConventions?.version ?? 0) < 1;
@@ -1361,9 +1373,9 @@ function createSession(
     async flush() {
       if (!current() || writeBlock !== undefined)
         throw new Error(session.saveStatus().message || "Project session was closed.");
-      if (sourceClaimsNeedCapture)
+      if (sourceClaimsNeedCapture && automaticWritesAllowed())
         await schedule(async () => {
-          if (!sourceClaimsNeedCapture) return;
+          if (!sourceClaimsNeedCapture || !automaticWritesAllowed()) return;
           recordOperation({ kind: "capture" });
           captureSave(model.capture());
         });
@@ -1525,7 +1537,7 @@ function createSession(
   // Both repairs share one admission and durable write. Refused writes leave
   // the old bytes and conventions intact, so reopening retries the whole step.
   // Journal recovery replays its recorded proposal instead of creating another.
-  if (updateChanges.length && input.workingDocumentId === undefined)
+  if (updateChanges.length && input.workingDocumentId === undefined && automaticWritesAllowed())
     void session
       .submit({
         proposal: model.propose(model.capture(), PROJECT_UPDATE_LABEL, updateChanges),

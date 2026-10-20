@@ -51,7 +51,7 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { installWebLocksFixture } from "./webLocksFixture.ts";
 import { testProjectId } from "./identity.ts";
 
-installIndexedDbFixture();
+const records = installIndexedDbFixture();
 installWebLocksFixture();
 const values = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -995,4 +995,71 @@ test("a failed 1.2.4 JSON VIEW journal opens the last save, keeps edits and upda
   again.dispose();
   assert.equal(migrationCommits((await loadAuthoredGame(id))!), 1);
   assert.equal(localStorage.getItem(key), raw);
+});
+
+test("temporary recovery failure keeps the pending update's base until reload recovers once", async () => {
+  const id = await storedCombined("temporary-journal-update");
+  const opened = (await loadAuthoredGameWithHistoryLifetime(id))!;
+  const before = opened.data;
+  const compiled = compileProjectDocuments({
+    files: before.files,
+    documents: inspectEditableProject(before).documents,
+    profileId: "2.936",
+  });
+  const key = projectSaveJournalKey(id, "interrupted");
+  writeProjectSaveJournal(localStorage, key, [
+    {
+      attempted: false,
+      request: {
+        projectId: id,
+        workspaceId: "interrupted",
+        commitId: "pending-recovery",
+        expected: {
+          projectId: id,
+          lifetime: opened.lifetime!,
+          generation: before.generation!,
+          revision: computeResourceRevision(before.files),
+          authoring: authoringFingerprint(before.authoringState, before.workspace),
+          buildId: compiled.build.identity.buildId,
+        },
+        buildId: compiled.build.identity.buildId,
+        documents: [],
+        data: { ...before, title: "Recovered work" },
+      },
+    },
+  ]);
+  const raw = localStorage.getItem(key);
+  const set = records.set;
+  let failures = 0;
+  records.set = function (key, value) {
+    if (key === `commit/${id}/pending-recovery`) {
+      failures++;
+      throw new DOMException("Temporary storage failure", "AbortError");
+    }
+    return set.call(this, key, value);
+  };
+  try {
+    const ordinary = await open(id, []);
+    await settle(ordinary);
+    ordinary.dispose();
+    assert.ok(failures > 0, "ordinary open attempted recovery");
+    const unchanged = (await loadAuthoredGame(id))!;
+    assert.equal(
+      unchanged.generation,
+      before.generation,
+      "automatic writes preserve the recovery base",
+    );
+    assert.equal(migrationCommits(unchanged), 0);
+    assert.equal(localStorage.getItem(key), raw);
+    assert.deepEqual(readProjectSaveRecoveries(localStorage, id), []);
+  } finally {
+    records.set = set;
+  }
+  const reload = await open(id, []);
+  await settle(reload);
+  reload.dispose();
+  const recovered = (await loadAuthoredGame(id))!;
+  assert.equal(recovered.title, "Recovered work");
+  assertCombined(recovered);
+  assert.equal(localStorage.getItem(key), null);
 });

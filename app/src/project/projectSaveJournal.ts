@@ -106,6 +106,16 @@ export function readProjectSaveRecoveries(
   return found;
 }
 
+/** Automatic writes must leave unresolved recovery bases available for the next open. */
+export function hasUnresolvedProjectSaveJournal(storage: Storage, project: ProjectId): boolean {
+  const retired = new Set(readProjectSaveRecoveries(storage, project).map(({ key }) => key));
+  for (let index = 0; index < storage.length; index++) {
+    const key = storage.key(index);
+    if (belongsToProject(key, project) && !retired.has(key)) return true;
+  }
+  return false;
+}
+
 /** Only deterministic refusals retire work; storage and module-load failures retry on open. */
 function lastingFailure(error: unknown): boolean {
   return (
