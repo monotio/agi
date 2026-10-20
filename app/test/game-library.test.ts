@@ -1158,38 +1158,7 @@ test("a second tab claiming the id after import preflight keeps its font and get
   await clearCachedGame(second);
 });
 
-test("playable imports honour conventions independently of identical resource bytes", async (t) => {
-  installLocalStorage(t);
-  const files = game("set(f199); return;");
-  const external = await addLibraryGame(
-    { files, words: [], title: "External capacity" },
-    "External capacity",
-    "zip",
-    opening,
-  );
-  const legacy = await addLibraryGame(
-    {
-      files,
-      words: [],
-      title: "Legacy capacity",
-      authoringConventions: { version: 1, legacyRoomMemory: true },
-    },
-    "Legacy capacity",
-    "zip",
-    opening,
-  );
-  assert.notEqual(
-    legacy,
-    external,
-    "the 50-pair external import cannot absorb the legacy contract",
-  );
-  assert.deepEqual((await loadAuthoredGame(legacy))!.authoringConventions, {
-    version: 1,
-    legacyRoomMemory: true,
-  });
-});
-
-test("private imports without conventions are legacy; a raw customized game stays external", async (t) => {
+test("private imports without conventions are legacy; identical raw reimports retain the stored contract", async (t) => {
   installLocalStorage(t);
   const files = game("set(f199); return;");
   const id = await addLibraryGame(
@@ -1201,7 +1170,11 @@ test("private imports without conventions are legacy; a raw customized game stay
   const data = (await loadAuthoredGame(id))!;
   assert.deepEqual(data.authoringConventions, { version: 0, legacyRoomMemory: true });
   const raw = await addLibraryGame({ files, words: [] }, "External game", "zip", opening);
-  assert.deepEqual((await loadAuthoredGame(raw))!.authoringConventions, { version: 1 });
+  assert.equal(raw, id);
+  assert.deepEqual((await loadAuthoredGame(raw))!.authoringConventions, {
+    version: 0,
+    legacyRoomMemory: true,
+  });
 });
 
 test("a new external import records current conventions before gaining assistant context", async (t) => {
@@ -1212,15 +1185,5 @@ test("a new external import records current conventions before gaining assistant
     "zip",
     opening,
   );
-  assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, { version: 1 });
-});
-
-test("a first assistant conversation adopts an older external import without legacy room memory", async (t) => {
-  installLocalStorage(t);
-  const { saveAuthoredGame, updateGameConversation } =
-    await import("../src/project/gameStorage.ts");
-  const id = testProjectId("adopt-external-conventions");
-  await saveAuthoredGame(id, { title: "Older external", files: game(), words: [], imported: true });
-  await updateGameConversation(id, [], "current-session", undefined, "stub", "offline-stub");
   assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, { version: 1 });
 });

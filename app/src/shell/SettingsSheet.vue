@@ -402,7 +402,6 @@ defineExpose({ toggle, close, open });
     v-model:open="downloadOpen"
     :title="currentGame()?.title ?? 'This game'"
     :busy="exportBusy"
-    :project-id="currentGame()?.projectId"
     :work-in-progress="currentGame()?.workInProgress === true"
     test-id="settings-download-dialog"
     @choose="(project) => emit('export-zip', project)"

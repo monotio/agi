@@ -29,11 +29,10 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   buffer instead of 200. The base template now calls `script.size(200)` in
   its first cycle.
 - Games made with an older version keep their room memory even with customized
-  boot code. Exact released boot and word-feedback blocks update together in
-  one undoable History entry, "Updated for 1.2.5". Game updates in Create previews
-  remaining repairs before Add, and downloads explain when larger rooms still
-  depend on this app's extra memory. Copies and exports retain the project's
-  conventions independently of History.
+  boot code. Opening an older project repairs its mirrored pictures, room memory
+  and unknown-word replies together in one undoable History entry, “Updated for
+  1.2.5”. Customized word feedback shows a reminder to count words from 0.
+  Copies and downloads keep pending updates until the project opens in Create.
 - PC and Amiga text draws with the project's own pixel-for-pixel
   recreations of the original typefaces: the Tandy 1000 SX BIOS design on
   PC, and Topaz 8 on the Amiga.

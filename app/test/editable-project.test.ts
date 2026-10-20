@@ -551,21 +551,3 @@ test("successive Keeps append History and retain every earlier version", async (
   assert.equal(state.blobs[state.commits[1]!.documents["logic:1"]!], ROOM1_REDRAW);
   assert.equal(state.blobs[state.commits[2]!.documents["logic:1"]!], ROOM1_ALT);
 });
-
-test("a direct editable Keep stamps legacy conventions with its next source commit", async () => {
-  const id = await seedProject("ws-legacy-conventions", "boilerplate", (data) => {
-    delete data.authoringConventions;
-  });
-  const ws = await openEditableProject(id);
-  assert.equal(
-    (await storedBody(id)).authoringConventions,
-    undefined,
-    "opening alone writes no stamp",
-  );
-  editSource(ws, "logic:1", ROOM1_REDRAW);
-  await ws.keepCandidate(ws.buildSelected(["logic:1"]));
-  assert.deepEqual((await storedBody(id)).authoringConventions, {
-    version: 1,
-    legacyRoomMemory: true,
-  });
-});

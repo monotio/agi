@@ -64,10 +64,7 @@ export async function addLibraryGame(
   const legacyImport =
     !isRecognizedOriginal(game.files, source) &&
     (game.project !== undefined ||
-      (game.authoringConventions === undefined &&
-        (await import("../../../src/authoring/scriptSizeMigration.ts")).hasReleasedBoot(
-          game.files,
-        )));
+      (game.metadata !== undefined && game.authoringConventions === undefined));
   const conventions =
     game.project?.authoringConventions ??
     game.authoringConventions ??
@@ -113,13 +110,6 @@ export async function addLibraryGame(
     for (const existing of candidates) {
       const stored = await loadAuthoredGame(existing.projectId);
       if (!stored) continue;
-      const incoming = projectConventions({
-        files: game.files,
-        imported: true,
-        library: { source },
-        authoringConventions: conventions,
-      });
-      if (projectConventions(stored).legacyRoomMemory !== incoming.legacyRoomMemory) continue;
       const names = new Set(
         [...Object.keys(stored.files), ...Object.keys(game.files)].filter(isAuxiliaryFileName),
       );

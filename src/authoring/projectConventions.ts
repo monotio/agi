@@ -27,30 +27,25 @@ export function isRecognizedOriginal(
   );
 }
 
-/** Workspace/source claims alone are never evidence of authorship. */
+/** Older unrecognized games retain the capacity they had before conventions were stored. */
 export function isLegacyAuthoredProject(data: ConventionEvidence): boolean {
   if (isRecognizedOriginal(data.files, data.library?.source)) return false;
-  if (data.authoringConventions !== undefined)
-    return (
-      data.authoringConventions.version === 0 || data.authoringConventions.legacyRoomMemory === true
-    );
   return (
-    data.library?.source === "authored" ||
-    data.templateId !== undefined ||
-    Boolean(data.provider || data.sessionId) ||
-    (data.library === undefined && data.imported !== true)
+    data.authoringConventions === undefined ||
+    data.authoringConventions.version === 0 ||
+    data.authoringConventions.legacyRoomMemory === true
   );
 }
 
-/** Compute without writing: commits, copies and exports carry this value. */
+/** Copies and exports preserve pending updates until the session saves them. */
 export function projectConventions(data: ConventionEvidence): AuthoringConventions {
   readAuthoringConventions(data.authoringConventions);
-  return data.authoringConventions?.version === AUTHORING_CONVENTIONS_VERSION
-    ? data.authoringConventions
-    : {
-        version: AUTHORING_CONVENTIONS_VERSION,
-        ...(isLegacyAuthoredProject(data) ? { legacyRoomMemory: true as const } : {}),
-      };
+  return (
+    data.authoringConventions ??
+    (isLegacyAuthoredProject(data)
+      ? { version: 0, legacyRoomMemory: true }
+      : { version: AUTHORING_CONVENTIONS_VERSION })
+  );
 }
 
 /** The optional field has its own integer version; unknown versions are refused. */

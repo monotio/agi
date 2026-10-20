@@ -71,8 +71,6 @@ export interface EditableProjectInspection {
   readonly requiresSourceReview: boolean;
 }
 
-export const VIEW_MIGRATION_LABEL = "VIEWs updated for 1.2.5";
-
 const METADATA_KEYS: Record<string, true> = { world: true, tests: true, references: true };
 
 const RESOURCE_KEY = /^(logic|picture|view|sound):(0|[1-9]\d{0,2})$/;
@@ -439,9 +437,7 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     bindings,
   });
   const viewRebuilds: Record<string, string> = {};
-  const viewsUpdated = data.projectHistory?.commits.some(
-    (commit) => commit.label === VIEW_MIGRATION_LABEL,
-  );
+  const viewsUpdated = (data.authoringConventions?.version ?? 0) >= 1;
   for (const [key, source] of Object.entries(claims)) {
     if (viewsUpdated || !/^view:\d+$/.test(key) || !(read.documents[key] instanceof Uint8Array))
       continue;

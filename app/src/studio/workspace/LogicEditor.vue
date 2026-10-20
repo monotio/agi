@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasCustomizedWordFeedback } from "../../../../src/authoring/scriptSizeMigration.ts";
 import { documentLabel } from "../../../../src/logic/numberedLabels.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import {
@@ -69,6 +70,14 @@ const emit = defineEmits<{
   breakpoint: [line: number];
   selection: [context: { label: string; text: string } | null];
 }>();
+const wordFeedbackHint = computed(
+  () =>
+    props.documentKey === "logic:0" &&
+    hasCustomizedWordFeedback({
+      bindings: props.snapshot.read("bindings")?.content ?? "{}",
+      "logic:0": props.source,
+    }),
+);
 const binding = ref<BindingInfo>();
 const renameBinding = ref(false);
 async function findReferences(): Promise<void> {
@@ -696,6 +705,9 @@ defineExpose({
 </script>
 <template>
   <div class="workspace-logic-surface">
+    <p v-if="wordFeedbackHint" class="word-feedback-hint" data-testid="word-feedback-hint">
+      In your word feedback, start counting words at 0.
+    </p>
     <form
       v-if="valueEditor"
       ref="valuePanel"
@@ -745,6 +757,13 @@ defineExpose({
   </div>
 </template>
 <style scoped>
+.word-feedback-hint {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
 .workspace-logic-surface {
   position: relative;
   display: flex;

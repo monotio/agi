@@ -1236,7 +1236,6 @@ export class Engine {
     this.scriptCapacity = this.legacyRoomMemory
       ? AUTHORED_SCRIPT_BUFFER_PAIRS
       : this.profile.defaultScriptBufferPairs;
-    this.raiseToAuthoredScriptFloor(false);
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
@@ -1679,7 +1678,6 @@ export class Engine {
           ? authoredScriptFloor(
               staged.getResource("logic", 0),
               this.profile,
-              true,
               this.legacyRoomMemory ? AUTHORED_SCRIPT_BUFFER_PAIRS : 0,
             )
           : null,
@@ -1922,15 +1920,14 @@ export class Engine {
 
   /**
    * Host authoring under `adoptDeclaredScriptSize`: raise the capacity word
-   * to `authoredScriptFloor` for the installed LOGIC 0, never lower it. Boot
-   * and restart pass `includeDeclared` false, because the boot block's own
-   * script.size still runs; a host resume passes true.
+   * to `authoredScriptFloor` for the installed LOGIC 0 on host resume,
+   * never lower it. The boot block already ran before this checkpoint.
    */
-  private raiseToAuthoredScriptFloor(includeDeclared: boolean): void {
+  private raiseToAuthoredScriptFloor(): void {
     if (!this.adoptsDeclaredScriptSize) return;
     this.scriptCapacity = Math.max(
       this.scriptCapacity,
-      authoredScriptFloor(this.container.getResource("logic", 0), this.profile, includeDeclared),
+      authoredScriptFloor(this.container.getResource("logic", 0), this.profile),
     );
   }
 
@@ -4991,7 +4988,7 @@ export class Engine {
     this.screenShown = true;
     // Host authoring: the checkpoint's own boot block already ran, so the
     // installed LOGIC 0's script.size never runs again on this resume.
-    this.raiseToAuthoredScriptFloor(true);
+    this.raiseToAuthoredScriptFloor();
   }
 
   /**
@@ -9494,7 +9491,6 @@ export class Engine {
     this.scriptCapacity = this.legacyRoomMemory
       ? AUTHORED_SCRIPT_BUFFER_PAIRS
       : this.profile.defaultScriptBufferPairs;
-    this.raiseToAuthoredScriptFloor(false);
     this.maximumReplayPairs = 0;
     this.menu = [];
     this.menuFinalized = false;

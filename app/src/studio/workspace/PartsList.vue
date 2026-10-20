@@ -413,7 +413,6 @@ function onKey(event: KeyboardEvent): void {
     @keydown="onKey"
     @scroll="rememberScroll"
   >
-    <slot />
     <section v-for="group in groups" :key="group.label">
       <header>
         <h2>

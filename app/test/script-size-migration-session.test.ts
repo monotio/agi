@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import type { BuildViewInput } from "../../src/view/view.ts";
 import { decodeSave } from "../../src/runtime/persistence.ts";
 import { customizedLegacyBoot, releasedTemplates } from "../../test/released-template-fixtures.ts";
 import { Engine, HostWait } from "../../src/runtime/engine.ts";
@@ -32,7 +34,7 @@ import { normalizeLibraryMetadata, type LibraryMetadata } from "../src/project/g
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import {
   openOwnedProjectSession,
-  SCRIPT_SIZE_MIGRATION_LABEL,
+  PROJECT_UPDATE_LABEL,
 } from "../src/project/projectSessionCore.ts";
 import type { PreviewUpdateOutcome } from "../src/worker/workerProtocol.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -168,7 +170,7 @@ async function settle(session: Awaited<ReturnType<typeof open>>) {
 }
 function migrationCommits(data: CachedGameData) {
   return (data.projectHistory?.commits ?? []).filter(
-    (commit) => commit.label === SCRIPT_SIZE_MIGRATION_LABEL,
+    (commit) => commit.label === PROJECT_UPDATE_LABEL,
   ).length;
 }
 function storedLogic0(data: CachedGameData) {
@@ -185,7 +187,7 @@ test("an older authored game's running session takes script.size(200) once, as o
   const stored = (await loadAuthoredGame(projectId))!;
   assert.match(storedLogic0(stored), /set\(f200\);\n {2}script\.size\(200\);/);
   assert.equal(migrationCommits(stored), 1);
-  assert.equal(stored.projectHistory!.commits.at(-1)!.label, SCRIPT_SIZE_MIGRATION_LABEL);
+  assert.equal(stored.projectHistory!.commits.at(-1)!.label, PROJECT_UPDATE_LABEL);
   const again: Admitted = [];
   const reopened = await open(projectId, again);
   await settle(reopened);
@@ -442,7 +444,7 @@ test("ordinary session fixes the released fallback, including several word posit
     feedback(stored.files);
   }
 });
-test("custom source has no write on open; the next commit and every copy/export carry the computed stamp", async () => {
+test("custom source has no write on open; the next commit and every copy/export carry the pending conventions until a session commit", async () => {
   const source = "set(f199); return;";
   const id = await storedProject("no-write-on-open", { logic0: source });
   const before = (await loadAuthoredGame(id))!;
@@ -458,11 +460,11 @@ test("custom source has no write on open; the next commit and every copy/export 
   assert.equal((await loadAuthoredGame(id))!.generation, before.generation);
   const copy = await copyLibraryGame(id);
   assert.deepEqual((await loadAuthoredGame(copy))!.authoringConventions, {
-    version: 1,
+    version: 0,
     legacyRoomMemory: true,
   });
   const exported = await readGameZip(buildPublicGameZip(before));
-  assert.deepEqual(exported.authoringConventions, { version: 1, legacyRoomMemory: true });
+  assert.deepEqual(exported.authoringConventions, { version: 0, legacyRoomMemory: true });
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Edit", [
       { key: "logic:0", content: source + "\n// Change" },
@@ -604,3 +606,138 @@ for (const [name, prefix] of [
     restored.restoreImage(engine.serialize());
     assert.equal(restored.surface.visual[0], 1);
   });
+
+test("copy and Project reimport of an untouched released template still receive the update", async () => {
+  const id = await storedProject("untouched-template");
+  const before = (await loadAuthoredGame(id))!;
+  const ids = [await copyLibraryGame(id)];
+  for (const bytes of [await buildProjectZip(before)]) {
+    ids.push(
+      await addLibraryGame(await readGameZip(bytes), "Untouched copy", "zip", {
+        preview: "data:image/png;base64,iVBORw0KGgo=",
+        status: "ready",
+        message: "Ready",
+        profile: "2.936",
+      }),
+    );
+  }
+  for (const copied of ids) {
+    assert.deepEqual((await loadAuthoredGame(copied))!.authoringConventions, {
+      version: 0,
+      legacyRoomMemory: true,
+    });
+    const session = await open(copied, []);
+    await settle(session);
+    session.dispose();
+    const after = (await loadAuthoredGame(copied))!;
+    assert.equal(migrationCommits(after), 1);
+    feedback(after.files);
+  }
+});
+
+const oldView = (
+  JSON.parse(
+    readFileSync(new URL("./fixtures/view-builder-1.2.4.json", import.meta.url), "utf8"),
+  ) as {
+    cases: { profileId: string; input: BuildViewInput; bytes: number[] }[];
+  }
+).cases.find((c) => c.profileId === "2.936")!;
+async function storedCombined(name: string) {
+  const id = await storedProject(name, { documents: { "view:1": JSON.stringify(oldView.input) } });
+  const before = (await loadAuthoredGame(id))!;
+  const container = openContainer(new Map(Object.entries(before.files)));
+  container.putResource("view", 1, Uint8Array.from(oldView.bytes));
+  const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+  await saveAuthoredGame(id, { ...before, files: Object.fromEntries(container.files) });
+  return id;
+}
+function viewBytes(data: CachedGameData) {
+  return [...openContainer(new Map(Object.entries(data.files))).getResource("view", 1)!];
+}
+function assertCombined(data: CachedGameData) {
+  assert.equal(migrationCommits(data), 1);
+  assert.deepEqual(
+    data.projectHistory!.commits.map((c) => c.label),
+    ["Opened", "Updated for 1.2.5"],
+  );
+  assert.match(storedLogic0(data), /script\.size\(200\);/);
+  assert.notDeepEqual(viewBytes(data), oldView.bytes);
+  assert.deepEqual(data.authoringConventions, { version: 1, legacyRoomMemory: true });
+}
+
+test("one update on open rebuilds VIEWs and LOGIC together; Undo restores exact old native bytes", async () => {
+  const id = await storedCombined("combined-update");
+  const before = (await loadAuthoredGame(id))!;
+  const session = await open(id, []);
+  await settle(session);
+  assertCombined((await loadAuthoredGame(id))!);
+  await session.undo();
+  await settle(session);
+  session.dispose();
+  const undone = (await loadAuthoredGame(id))!;
+  assert.deepEqual(undone.files, before.files);
+  const reopened = await open(id, []);
+  await settle(reopened);
+  reopened.dispose();
+  assert.deepEqual((await loadAuthoredGame(id))!.files, before.files);
+});
+
+test("a refused VIEW and LOGIC update writes neither resource nor stamp and retries both on reopen", async () => {
+  const id = await storedCombined("combined-refused");
+  const before = (await loadAuthoredGame(id))!;
+  const session = await open(id, [], {
+    write: async () => {
+      throw new Error("Storage is full");
+    },
+  });
+  await session.flush().catch(() => {});
+  await assert.rejects(session.flush(), /Could not save/);
+  session.dispose();
+  const refused = (await loadAuthoredGame(id))!;
+  assert.deepEqual(refused.files, before.files);
+  assert.equal(refused.authoringConventions, undefined);
+  assert.equal(migrationCommits(refused), 0);
+  const retry = await open(id, []);
+  await settle(retry);
+  retry.dispose();
+  assertCombined((await loadAuthoredGame(id))!);
+});
+
+test("two tabs store one combined VIEW and LOGIC update", async () => {
+  const id = await storedCombined("combined-tabs");
+  const modulePath = "../src/project/projectSessionCore.ts?combined-second-tab";
+  const { openOwnedProjectSession: secondOpen } = (await import(modulePath)) as {
+    openOwnedProjectSession: typeof openOwnedProjectSession;
+  };
+  const [first, second] = await Promise.all([open(id, []), open(id, [], { open: secondOpen })]);
+  await Promise.all([settle(first), settle(second)]);
+  first.dispose();
+  second.dispose();
+  runFrames();
+  assertCombined((await loadAuthoredGame(id))!);
+});
+
+test("closing before the combined VIEW and LOGIC write commits leaves old bytes and retries both", async () => {
+  const id = await storedCombined("combined-close");
+  const before = (await loadAuthoredGame(id))!;
+  let started!: () => void;
+  const writing = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const session = await open(id, [], {
+    write: () => {
+      started();
+      return new Promise(() => {});
+    },
+  });
+  await writing;
+  assert.notEqual(session.saveStatus().state, "saved");
+  session.dispose();
+  const closed = (await loadAuthoredGame(id))!;
+  assert.deepEqual(closed.files, before.files);
+  assert.equal(closed.authoringConventions, undefined);
+  const reopened = await open(id, []);
+  await settle(reopened);
+  reopened.dispose();
+  assertCombined((await loadAuthoredGame(id))!);
+});

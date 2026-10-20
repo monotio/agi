@@ -13,9 +13,8 @@ export const AUTHORED_SCRIPT_BUFFER_PAIRS = 200;
  * guarantees an authored project whose LOGIC 0 is `payload`
  * (docs/fidelity.md, "Authored script buffer on live edits"):
  *
- * - LOGIC 0 calls script.size: its largest operand when `includeDeclared`
- *   (a live commit or a host resume, where the boot block already ran),
- *   otherwise 0 because the game's own call sets the buffer;
+ * - LOGIC 0 calls script.size: its largest operand on live commit or
+ *   host resume, where the boot block already ran;
  * - otherwise the caller's undeclaredFloor on live admission, or 0.
  * Legacy cold boot and restart capacity come from provenance, never from this scan.
  *
@@ -24,10 +23,8 @@ export const AUTHORED_SCRIPT_BUFFER_PAIRS = 200;
 export function authoredScriptFloor(
   payload: Uint8Array | null,
   profile: AgiProfile,
-  includeDeclared: boolean,
   undeclaredFloor = 0,
 ): number {
-  if (!includeDeclared) return 0;
   if (payload === null) return undeclaredFloor;
   let insns;
   try {

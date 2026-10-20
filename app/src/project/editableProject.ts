@@ -1,4 +1,3 @@
-import { projectConventions } from "../../../src/authoring/projectConventions.ts";
 /**
  * Provider-independent editable workspace service. openEditableProject reads a
  * stored project body and its history lifetime in one storage snapshot,
@@ -506,7 +505,6 @@ class EditableProjectService implements EditableProject {
       removals: [...removals],
       data: {
         ...rest,
-        authoringConventions: projectConventions(this.stored),
         files,
         words,
         authoringState: this.syncedAuthoringState(documents),

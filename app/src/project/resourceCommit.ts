@@ -1,7 +1,4 @@
-import {
-  projectConventions,
-  AUTHORING_CONVENTIONS_VERSION,
-} from "../../../src/authoring/projectConventions.ts";
+import { AUTHORING_CONVENTIONS_VERSION } from "../../../src/authoring/projectConventions.ts";
 /**
  * The durable resource transaction behind every Keep — a staged reference
  * view, a Room Studio picture, a Sprite Studio view: the edited bytes, the source that describes
@@ -484,7 +481,6 @@ export function createResourceCommit(
         }
         data = {
           ...stored,
-          authoringConventions: projectConventions(stored),
           ...(projectHistory === undefined ? {} : { projectHistory }),
           files,
           words,

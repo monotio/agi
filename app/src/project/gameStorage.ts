@@ -1,7 +1,4 @@
-import {
-  projectConventions,
-  readAuthoringConventions,
-} from "../../../src/authoring/projectConventions.ts";
+import { readAuthoringConventions } from "../../../src/authoring/projectConventions.ts";
 import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import { sealedProjectHistory } from "../../../src/authoring/projectHistoryData.ts";
 import {
@@ -1665,9 +1662,6 @@ function applyConversation(
   provider: string | undefined,
   model: string | undefined,
 ): void {
-  // Capture the old evidence before a new conversation can look like a
-  // pre-1.2.5 authoring context. This rides the existing conditional write.
-  data.authoringConventions = projectConventions(data);
   if (
     provider &&
     data.provider !== undefined &&

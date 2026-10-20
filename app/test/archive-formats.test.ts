@@ -60,7 +60,7 @@ function member(zip: Uint8Array, name: string): string {
   assert.fail(`${name} is not in the archive`);
 }
 
-test("a 1.0 Game download reads back as the game it was", async () => {
+test("a 1.0 Game download preserves every released field while re-export adds optional conventions", async () => {
   const zip = fixture("game-v1.zip");
   const game = await readGameZip(zip);
   assert.equal(game.title, "Adventure Department");
