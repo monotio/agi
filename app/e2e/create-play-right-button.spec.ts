@@ -114,6 +114,52 @@ async function framePoint(page: Page, x: number, y: number): Promise<{ x: number
   };
 }
 
+/**
+ * A mode switch refits .screen through the stage's ResizeObserver a frame or
+ * two after the shell's class lands (stageBox → --game-width, PlayArea.vue),
+ * so a framePoint read in between still gets the previous mode's box.
+ * Settled means the box held still across two animation frames.
+ */
+async function screenBoxSettled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const screen = document.querySelector(".screen");
+    if (!screen) throw new Error("no visible game surface");
+    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    let last = screen.getBoundingClientRect();
+    let held = 0;
+    for (let frames = 0; held < 2; frames++) {
+      if (frames >= 120) throw new Error("the .screen box never settled");
+      await frame();
+      const now = screen.getBoundingClientRect();
+      held =
+        now.x === last.x &&
+        now.y === last.y &&
+        now.width === last.width &&
+        now.height === last.height
+          ? held + 1
+          : 0;
+      last = now;
+    }
+  });
+}
+
+/**
+ * PointerEvent init for a synthetic right press on .screen: the browser's own
+ * contextmenu — fired at the press on macOS and Linux — never runs, so the
+ * owner the press records stays waiting for one.
+ */
+function rightPointerInit(at: { x: number; y: number }): PointerEventInit {
+  return {
+    button: 2,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+    clientX: at.x,
+    clientY: at.y,
+    bubbles: true,
+  };
+}
+
 const modal = async (page: Page) => (await textHook(page)).modal;
 const row = async (page: Page, r: number) => (await textHook(page)).rows[r] ?? "";
 
@@ -165,6 +211,9 @@ async function contextMenuOn(
           clientX: at.x,
           clientY: at.y,
           bubbles: true,
+          // A real contextmenu is cancelable; without this preventDefault()
+          // is a no-op and the recording would read defaultPrevented false.
+          cancelable: true,
         }),
       );
     },
@@ -177,6 +226,7 @@ test("in Create a right-click on the game offers only the room's actions @webkit
 }) => {
   await bootMenuGame(page, "right-owner-create");
   await createMounted(page);
+  await screenBoxSettled(page);
   const at = await framePoint(page, 160, 100);
   await page.mouse.click(at.x, at.y, { button: "right" });
   const menu = page.getByTestId("game-room-menu");
@@ -208,9 +258,9 @@ test("Create owns the right button from the mode switch, before its workspace mo
   });
   await enterCreateMode(page);
   await expect(page.getByTestId("workspace-game-bar")).toHaveCount(0);
-  // The press lands only once the shell has settled into Create: the class
-  // is the same `creating` flag the stage reads for its right-button owner.
-  await expect(page.locator(".shell-body")).toHaveClass(/shell-body--create/);
+  // The press lands only once Create's layout has refit .screen: until the
+  // stage's ResizeObserver answer arrives its box still shows Play's stage.
+  await screenBoxSettled(page);
 
   const at = await framePoint(page, 160, 100);
   await page.mouse.click(at.x, at.y, { button: "right" });
@@ -237,6 +287,7 @@ test("with an editor tab retained Play's right-drag picks a native menu item @we
   await retainPictureEditor(page);
   await playFromCreate(page);
   await waitForCycles(page, 2);
+  await screenBoxSettled(page);
 
   const title = await framePoint(page, FILE_TITLE.x, FILE_TITLE.y);
   await page.mouse.move(title.x, title.y);
@@ -267,15 +318,7 @@ test("a mode switch mid right-drag keeps the gesture's first owner @webkit-deskt
   // press on macOS and Linux — out of the gesture, so the one dispatched
   // after the release is the gesture's own, as on Windows.
   const screen = page.locator(".screen");
-  await screen.dispatchEvent("pointerdown", {
-    button: 2,
-    pointerId: 1,
-    pointerType: "mouse",
-    isPrimary: true,
-    clientX: title.x,
-    clientY: title.y,
-    bubbles: true,
-  });
+  await screen.dispatchEvent("pointerdown", rightPointerInit(title));
   await expect.poll(() => modal(page)).toBe("menu");
   // Escape closes the strip so the switch can land — Create refuses a game
   // mid-question — while the button stays down.
@@ -285,16 +328,9 @@ test("a mode switch mid right-drag keeps the gesture's first owner @webkit-deskt
   await page.evaluate(() => history.back());
   await expect(page).toHaveURL(/#create\//);
   await expect(page.getByTestId("workspace-game-bar")).toBeVisible();
+  await screenBoxSettled(page);
   const at = await framePoint(page, 160, 100);
-  await screen.dispatchEvent("pointerup", {
-    button: 2,
-    pointerId: 1,
-    pointerType: "mouse",
-    isPrimary: true,
-    clientX: at.x,
-    clientY: at.y,
-    bubbles: true,
-  });
+  await screen.dispatchEvent("pointerup", rightPointerInit(at));
   // Where contextmenu follows the release (Windows), it still honours the
   // press's owner — never re-aimed at Create's room menu.
   await contextMenuOn(page, ".screen", at, 2);
@@ -306,10 +342,17 @@ test("a keyboard context menu asks the mode on stage, not a stale press's owner 
   page,
 }) => {
   await bootMenuGame(page, "right-owner-keyboard");
+  const screen = page.locator(".screen");
   const at = await framePoint(page, 160, 100);
-  // A right press in Play records the strip's owner for its gesture; the
-  // release over no item closes it.
-  await page.mouse.click(at.x, at.y, { button: "right" });
+  // A right press in Play records the strip's owner for its gesture. The
+  // synthetic pointer events keep the browser's own contextmenu — fired at
+  // the press on macOS and Linux — out of the gesture, so the recorded
+  // owner is still waiting when the keyboard event arrives.
+  await screen.dispatchEvent("pointerdown", rightPointerInit(at));
+  await expect.poll(() => modal(page)).toBe("menu");
+  // The release over no item closes the strip; on Windows its contextmenu
+  // would land here, which this gesture never sends.
+  await screen.dispatchEvent("pointerup", rightPointerInit(at));
   await expect.poll(() => modal(page)).toBeNull();
   await createMounted(page);
   // Shift+F10 on the input line fires contextmenu (button 0) with no press
@@ -321,18 +364,17 @@ test("a keyboard context menu asks the mode on stage, not a stale press's owner 
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
 
-  // The other direction: a right press in Create, then a keyboard
-  // contextmenu in Play must not reopen the room menu while Create is off
-  // stage — the Amiga strip owns the answer and swallows the browser menu.
-  await page.mouse.click(at.x, at.y, { button: "right" });
-  await expect(menu).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
+  // The other direction: a right press in Create records the room menu's
+  // owner, then a keyboard contextmenu in Play must not reopen the room
+  // menu while Create is off stage — the Amiga strip owns the answer and
+  // swallows the browser menu.
+  await screen.dispatchEvent("pointerdown", rightPointerInit(at));
+  await screen.dispatchEvent("pointerup", rightPointerInit(at));
   await playFromCreate(page);
   await waitForCycles(page, 2);
   await contextMenuOn(page, "#game-command", at, 0);
   expect(await roomMenuState(page)).toEqual({ open: false });
-  expect(await contextMenus(page)).toContain(true);
+  expect((await contextMenus(page)).at(-1)).toBe(true);
 });
 
 test("a room menu asked for before the workspace mounts does not outlive Create @webkit-desktop", async ({
@@ -349,9 +391,9 @@ test("a room menu asked for before the workspace mounts does not outlive Create 
   });
   await enterCreateMode(page);
   await expect(page.getByTestId("workspace-game-bar")).toHaveCount(0);
-  // The press lands only once the shell has settled into Create: the class
-  // is the same `creating` flag the stage reads for its right-button owner.
-  await expect(page.locator(".shell-body")).toHaveClass(/shell-body--create/);
+  // The press lands only once Create's layout has refit .screen: until the
+  // stage's ResizeObserver answer arrives its box still shows Play's stage.
+  await screenBoxSettled(page);
 
   const at = await framePoint(page, 160, 100);
   await page.mouse.click(at.x, at.y, { button: "right" });
@@ -378,6 +420,7 @@ test("with the strip withdrawn Play's right double-click still reaches the game 
   await createMounted(page);
   await retainPictureEditor(page);
   await playFromCreate(page);
+  await screenBoxSettled(page);
   // The game withdraws its menu: Intuition's strip can no longer open, so
   // the right double-click belongs to the game again.
   await page.locator(".screen").click();
