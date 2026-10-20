@@ -1,3 +1,4 @@
+import { AUTHORING_CONVENTIONS_VERSION } from "../../../src/authoring/projectConventions.ts";
 import { createAuthoringState } from "../../../src/authoring/authoringState.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { writeProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
@@ -55,6 +56,7 @@ export function prepareLocalProject(input: { readonly title: string; readonly ki
       .map((key) => ({ key, version: 0 })),
     data: {
       title,
+      authoringConventions: { version: AUTHORING_CONVENTIONS_VERSION },
       templateId: seed.seed.templateId,
       roomGeneration: false,
       files: Object.fromEntries(compiled.files()),

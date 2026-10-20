@@ -188,6 +188,8 @@ function captureSemanticState(
   if (template.rngPolicy !== undefined) out.rngPolicy = { ...ctx.run.rng.policy };
   if (template.amigaRegion !== undefined) out.amigaRegion = engine.amigaRegion;
   if (template.pcDisplay !== undefined && engine.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
+  if (template.legacyRoomMemory !== undefined && engine.legacyRoomMemory)
+    out.legacyRoomMemory = true;
   if (template.adoptDeclaredScriptSize !== undefined && engine.adoptsDeclaredScriptSize)
     out.adoptDeclaredScriptSize = true;
   if (template.documentId !== undefined) {
@@ -363,9 +365,10 @@ export function openHistoryDrive(
       // build ran every game at the old 200-pair default — so an authored
       // project (its boot carries project documents) replays under the
       // option it could not record.
-      adoptDeclaredScriptSize:
-        segment.boot.adoptDeclaredScriptSize === true ||
+      legacyRoomMemory:
+        segment.boot.legacyRoomMemory === true ||
         (effectiveVersion < HISTORY_FORMAT_VERSION && segment.boot.project !== undefined),
+      adoptDeclaredScriptSize: segment.boot.adoptDeclaredScriptSize === true,
     });
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
     candidate.flags[9] = 1;

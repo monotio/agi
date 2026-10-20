@@ -487,3 +487,21 @@ test("a resource Keep advances stored History before the next editable open", as
     PIC_EDIT,
   );
 });
+
+test("an ordinary resource Keep stamps legacy conventions in the same durable write", async (t) => {
+  const { projectId, revision, r } = await projectRig(t, "ws-legacy-resource-conventions");
+  const data = (await loadAuthoredGame(projectId))!;
+  delete data.authoringConventions;
+  await saveAuthoredGame(projectId, data);
+  const kept = await r.controller.commitPictureEdit({
+    pictureNumber: 1,
+    bytes: compile(PIC_EDIT),
+    source: PIC_EDIT,
+    baseRevision: revision,
+  });
+  assert.equal(kept.status, "committed");
+  assert.deepEqual((await loadAuthoredGame(projectId))!.authoringConventions, {
+    version: 1,
+    legacyRoomMemory: true,
+  });
+});

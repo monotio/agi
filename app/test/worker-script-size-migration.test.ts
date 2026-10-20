@@ -1,3 +1,4 @@
+import { customizedLegacyBoot } from "../../test/released-template-fixtures.ts";
 /**
  * Player-visible rule (CHANGELOG 1.2.5; docs/fidelity.md "Authored script
  * buffer on live edits"): an older authored game opened in Create gains
@@ -114,7 +115,7 @@ function segmentOf(messages: WorkerControl[]): HistorySegment {
   };
 }
 
-async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
+async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean, keepSession = false) {
   const compiled = compile(PRE_125_LOGIC0);
   const id = requireProjectId(name);
   const first = await storage.commitProject({
@@ -132,7 +133,7 @@ async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
     },
   });
   const worker = bootWorker(Object.fromEntries(compiled.files()), {
-    ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true } : {}),
+    ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true, legacyRoomMemory: true } : {}),
   });
   await worker.ctx.projectLoader.loading;
   const engine = worker.ctx.run.engine!;
@@ -143,7 +144,7 @@ async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
     capacity(engine),
     adoptDeclaredScriptSize ? 200 : 50,
     adoptDeclaredScriptSize
-      ? "the authored boot floor already gives the template boot shape 200 pairs"
+      ? "legacy provenance preserves the released 200-pair buffer"
       : "the older game booted on the authentic 50-pair buffer",
   );
   const ack = worker.messages.find((m) => m.type === "booted");
@@ -174,14 +175,14 @@ async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
     await session.flush().catch(() => {});
     worker.tick();
   }
-  session.dispose();
+  if (!keepSession) session.dispose();
   assert.equal(worker.ctx.run.engine, engine, "the migration kept the running game");
   assert.match(
     String(session.model.capture().read("logic:0")!.content),
     /script\.size\(200\);/,
     "the session holds the migrated LOGIC 0",
   );
-  return { ...worker, engine, id };
+  return { ...worker, engine, id, session };
 }
 
 test("the running game takes the migration at once and plays the busy room; history replays it", async () => {
@@ -210,14 +211,14 @@ test("a Play-mode boot of an unmigrated authored game already runs the busy room
   // the boot floor is what lets its busy rooms run there.
   const worker = bootWorker(
     Object.fromEntries(compile(PRE_125_LOGIC0).files()),
-    { adoptDeclaredScriptSize: true },
+    { adoptDeclaredScriptSize: true, legacyRoomMemory: true },
     false,
   );
   worker.tick();
   worker.tick();
   const engine = worker.ctx.run.engine!;
   assert.equal(engine.vars[0], 1, "the game reached its first room");
-  assert.equal(capacity(engine), 200, "Play boots the template boot shape at 200 pairs");
+  assert.equal(capacity(engine), 200, "Play boots a legacy project at 200 pairs");
   engine.flags[220] = 1;
   worker.tick();
   assert.equal(engine.flags[220], 0, "the busy room ran");
@@ -297,7 +298,9 @@ test("a checkpoint taken before the migration resumes on the migrated game with 
     const resumed = bootWorker(
       Object.fromEntries(compile(migrated).files()),
       {
-        ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true } : {}),
+        ...(adoptDeclaredScriptSize
+          ? { adoptDeclaredScriptSize: true, legacyRoomMemory: true }
+          : {}),
         restoreImage: Buffer.from(image).toString("base64"),
       },
       false,
@@ -314,13 +317,17 @@ test("a checkpoint taken before the migration resumes on the migrated game with 
   // The same checkpoint on a still-unmigrated LOGIC 0 gets the floor too.
   const unmigrated = bootWorker(
     Object.fromEntries(compile(PRE_125_LOGIC0).files()),
-    { adoptDeclaredScriptSize: true, restoreImage: Buffer.from(image).toString("base64") },
+    {
+      adoptDeclaredScriptSize: true,
+      legacyRoomMemory: true,
+      restoreImage: Buffer.from(image).toString("base64"),
+    },
     false,
   );
   assert.equal(
     capacity(unmigrated.ctx.run.engine!),
-    200,
-    "a pre-migration checkpoint resumed on the unmigrated game gets the template-shape floor",
+    50,
+    "a saved capacity retains native meaning without a declaration",
   );
   unmigrated.ctx.fns.stopTimers();
 });
@@ -335,7 +342,7 @@ test("a released (format-2) cold-boot segment of a busy authored room replays at
     load.view(1); ${"add.to.pic(1, 0, 0, 0, 0, 9, 0);".repeat(12)} discard.pic(1); show.pic(); }
   return;`;
   const docs = {
-    "logic:0": PRE_125_LOGIC0,
+    "logic:0": customizedLegacyBoot,
     "logic:1": busy,
     "picture:1": "vis 1\nfill 1,1\nend\n",
     "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
@@ -446,4 +453,98 @@ test("without the authored-project option the running game keeps the buffer its 
   ctx.fns.historyFlush();
   assert.equal(segmentOf(messages).boot.adoptDeclaredScriptSize, undefined);
   ctx.fns.stopTimers();
+});
+
+test("legacy f199 worker runs, resumes, restores and records a busy boot independently of later room sizing", () => {
+  const custom = customizedLegacyBoot + "\nif (isset(f221)) { set(f16); restart.game(); }";
+  const docs = {
+    ...documents(custom),
+    "logic:1": BUSY_ROOM.replace("if (isset(f220))", "if (isset(f5))"),
+    "logic:5": "script.size(120); return;",
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: docs,
+    profileId: "2.936",
+  });
+  const files = Object.fromEntries(compiled.files());
+  const worker = bootWorker(
+    files,
+    { legacyRoomMemory: true, adoptDeclaredScriptSize: true },
+    false,
+  );
+  try {
+    for (let n = 0; n < 4; n++) worker.tick();
+    const engine = worker.ctx.run.engine!;
+    assert.equal(capacity(engine), 200);
+    assert.ok(decodeSave(engine.serialize(), engine.profile).replayActive > 50);
+    const image = engine.autosaveImage();
+    assert.ok(image);
+    const resumed = bootWorker(
+      files,
+      { legacyRoomMemory: true, adoptDeclaredScriptSize: true, restoreImage: bytesToBase64(image) },
+      false,
+    );
+    try {
+      assert.equal(capacity(resumed.ctx.run.engine!), 200);
+      assert.equal(resumed.ctx.run.engine!.surface.visual[100], 1);
+      resumed.tick();
+    } finally {
+      resumed.ctx.fns.stopTimers();
+    }
+    worker.ctx.fns.historyFlush();
+    const segment = segmentOf(worker.messages);
+    assert.equal(segment.boot.legacyRoomMemory, true);
+    const replayed = replayHistorySegment(segment);
+    try {
+      assert.equal(replayed.error, null);
+      assert.equal(replayed.diverged, null);
+      assert.equal(capacity(replayed.ctx.run.engine!), 200);
+    } finally {
+      replayed.ctx.fns.stopTimers();
+    }
+    engine.flags[221] = 1;
+    for (let n = 0; n < 4; n++) worker.tick();
+    assert.equal(capacity(engine), 200);
+    assert.equal(engine.vars[0], 1);
+  } finally {
+    worker.ctx.fns.stopTimers();
+  }
+});
+
+test("Undo Updated for 1.2.5 keeps 200 through the earlier code room entry", async () => {
+  const { ctx, engine, tick, session, id } = await openOlderGame(
+    "script-size-worker-undo",
+    true,
+    true,
+  );
+  try {
+    engine.flags[220] = 1;
+    tick();
+    const before = decodeSave(engine.serialize(), engine.profile);
+    assert.ok(before.replayActive > 50);
+    await session.undo();
+    await session.flush();
+    assert.equal(ctx.run.engine, engine);
+    const after = decodeSave(engine.serialize(), engine.profile);
+    assert.equal(after.replayCapacity, 200);
+    // Shared LOGIC changes enter the room again through ordinary admission.
+    // Its native room transition may reset replay; the allocation must stay.
+    assert.deepEqual((await storage.loadAuthoredGame(id))!.authoringConventions, {
+      version: 1,
+      legacyRoomMemory: true,
+    });
+    for (let n = 0; n < 4; n++) tick();
+    assert.equal(capacity(engine), 200);
+    const entered = decodeSave(engine.serialize(), engine.profile);
+    assert.deepEqual(entered.replay.slice(0, entered.replayActive), [
+      { kind: 2, value: 1 },
+      { kind: 4, value: 1 },
+      { kind: 6, value: 1 },
+    ]);
+    assert.equal(engine.surface.visual[100], 1);
+  } finally {
+    session.dispose();
+    ctx.fns.stopTimers();
+  }
 });

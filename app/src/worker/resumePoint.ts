@@ -136,7 +136,9 @@ export function adoptResumePoint(
     ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
     adoptDeclaredScriptSize:
       ctx.boot.adoptDeclaredScriptSize || boot.adoptDeclaredScriptSize === true,
+    legacyRoomMemory: ctx.boot.legacyRoomMemory || boot.legacyRoomMemory === true,
   });
+
   if (options.currentFiles && boot.image !== undefined) {
     const state = decodeSave(decodeHostImage(base64ToBytes(boot.image)).image, candidate.profile);
     const after = openContainer(files, { profile: candidate.profile });
@@ -242,6 +244,7 @@ export function adoptResumePoint(
           amigaRegion: boot.amigaRegion ?? "ntsc",
           pcDisplay: candidate.pcDisplay,
           adoptDeclaredScriptSize: candidate.adoptsDeclaredScriptSize,
+          legacyRoomMemory: candidate.legacyRoomMemory,
         },
       );
       restoreOnto(candidate);

@@ -83,6 +83,7 @@ import UiChip from "../../ui/UiChip.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import PartsList from "./PartsList.vue";
+import GameUpdatesNotice from "./GameUpdatesNotice.vue";
 import EditorLoading from "./EditorLoading.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
 import { workspaceParts, workspaceOpenParts } from "../host/workspaceParts.ts";
@@ -2715,7 +2716,13 @@ onBeforeUnmount(() => {
         changeNumber();
       }
     "
-  />
+  >
+    <GameUpdatesNotice
+      :session
+      :snapshot
+      :disabled="editingPaused || actionBusy || editor.pendingChanges.value"
+    />
+  </PartsList>
   <div
     v-show="creating && editor.selected.value && !editor.focus.value && !phoneWidth"
     class="workspace-splitter"

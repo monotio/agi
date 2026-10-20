@@ -586,6 +586,7 @@ export function createHistory(ctx: WorkerContext) {
       ...(ctx.run.engine?.adoptsDeclaredScriptSize
         ? { adoptDeclaredScriptSize: true as const }
         : {}),
+      ...(ctx.run.engine?.legacyRoomMemory ? { legacyRoomMemory: true as const } : {}),
       rng: ctx.run.rng.word,
       ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
@@ -665,6 +666,7 @@ export function createHistory(ctx: WorkerContext) {
       ...(ctx.run.engine?.adoptsDeclaredScriptSize
         ? { adoptDeclaredScriptSize: true as const }
         : {}),
+      ...(engine.legacyRoomMemory ? { legacyRoomMemory: true as const } : {}),
       ...(image
         ? { image: bytesToBase64(image), replay: engine.captureReplayState(allowUndrawn) }
         : {}),

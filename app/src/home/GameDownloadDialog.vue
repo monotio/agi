@@ -5,18 +5,24 @@
  * disable while a download runs, with the progress named; the dialog closes
  * when the download finishes. Cancel and the × dismiss without downloading.
  */
-import { watch } from "vue";
+import { watch, ref } from "vue";
+import { loadAuthoredGame } from "../project/gameStorage.ts";
+import { isLegacyAuthoredProject } from "../../../src/authoring/projectConventions.ts";
+import { hasRoomMemoryDeclaration } from "../../../src/authoring/roomMemory.ts";
+import type { ProjectId } from "../project/gameTypes.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 
 const {
   title,
+  projectId = undefined,
   busy,
   workInProgress = false,
   testId = "game-download-dialog",
 } = defineProps<{
   /** The game's name; the dialog is titled with it. */
   title: string;
+  projectId?: ProjectId | undefined;
   /** A download is running: both choices disable until it finishes. */
   busy: boolean;
   /** An unfinished game: its playable download says so. */
@@ -31,6 +37,32 @@ const emit = defineEmits<{
 }>();
 const open = defineModel<boolean>("open", { required: true });
 
+const legacyMemory = ref(false);
+const checking = ref(false);
+watch(
+  () => [open.value, projectId] as const,
+  async ([opened, id], _, onCleanup) => {
+    let current = true;
+    onCleanup(() => {
+      current = false;
+    });
+    legacyMemory.value = false;
+    checking.value = opened && id !== undefined;
+    if (!opened || !id) return;
+    try {
+      const data = await loadAuthoredGame(id);
+      if (current)
+        legacyMemory.value =
+          data !== null &&
+          isLegacyAuthoredProject(data) &&
+          hasRoomMemoryDeclaration(data.files) !== true;
+    } finally {
+      if (current) checking.value = false;
+    }
+  },
+  { immediate: true },
+);
+
 // A started download closes the dialog when it finishes.
 watch(
   () => busy,
@@ -42,12 +74,16 @@ watch(
 
 <template>
   <UiDialog v-model:open="open" :title size="sm" :data-testid="testId" @closed="emit('closed')">
+    <p v-if="legacyMemory" data-testid="export-room-memory">
+      Big rooms may stop working when this game runs elsewhere. Add room memory in Game updates
+      first.
+    </p>
     <div class="download-choices">
       <button
         type="button"
         class="download-choice download-choice--primary"
         data-testid="download-library-game"
-        :disabled="busy"
+        :disabled="busy || checking"
         autofocus
         @click="emit('choose', true)"
       >
@@ -58,7 +94,7 @@ watch(
         type="button"
         class="download-choice"
         data-testid="export-library-game"
-        :disabled="busy"
+        :disabled="busy || checking"
         @click="emit('choose', false)"
       >
         <strong>Playable game</strong>

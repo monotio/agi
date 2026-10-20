@@ -105,6 +105,7 @@ interface BootState {
    * buffer on live edits").
    */
   adoptDeclaredScriptSize: boolean;
+  legacyRoomMemory: boolean;
 }
 
 /** worker/input.ts */
@@ -714,6 +715,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       amigaRegion: "ntsc",
       pcDisplay: "ega",
       adoptDeclaredScriptSize: false,
+      legacyRoomMemory: false,
     },
     replay: {
       replay: null,
