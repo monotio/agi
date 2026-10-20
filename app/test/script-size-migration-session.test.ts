@@ -209,6 +209,7 @@ test("a refused migration write leaves the stored game as it was and the next op
   assert.equal(after.generation, before.generation, "the stored generation did not move");
   assert.equal(storedLogic0(after), PRE_125_LOGIC0, "the stored LOGIC 0 is unchanged");
   assert.equal(migrationCommits(after), 0);
+  assert.equal(after.authoringConventions, undefined, "a refused write cannot stamp the old body");
   const admitted: Admitted = [];
   const retry = await open(projectId, admitted);
   await settle(retry);
@@ -261,6 +262,11 @@ test("closing before the migration write commits, then reopening, migrates once"
   assert.notEqual(session.saveStatus().state, "saved", "the write had not committed");
   session.dispose();
   assert.equal(migrationCommits((await loadAuthoredGame(projectId))!), 0);
+  assert.equal(
+    (await loadAuthoredGame(projectId))!.authoringConventions,
+    undefined,
+    "closing before commit leaves provenance unchanged",
+  );
   const admitted: Admitted = [];
   const reopened = await open(projectId, admitted);
   await settle(reopened);
@@ -581,7 +587,13 @@ for (const [name, prefix] of [
     });
     for (let n = 0; n < 4; n++) {
       engine.tick();
-      assert.equal(decodeSave(engine.serialize(), engine.profile).replayActive, 2);
+      const saved = decodeSave(engine.serialize(), engine.profile);
+      assert.equal(saved.replayActive, 2);
+      // Native replay kinds 2 and 4 load and draw PICTURE 1.
+      assert.deepEqual(saved.replay.slice(0, saved.replayActive), [
+        { kind: 2, value: 1 },
+        { kind: 4, value: 1 },
+      ]);
     }
     const restored = new Engine(
       openContainer(new Map(Object.entries(data.files))),

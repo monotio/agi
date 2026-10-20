@@ -115,7 +115,7 @@ function segmentOf(messages: WorkerControl[]): HistorySegment {
   };
 }
 
-async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
+async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean, keepSession = false) {
   const compiled = compile(PRE_125_LOGIC0);
   const id = requireProjectId(name);
   const first = await storage.commitProject({
@@ -175,14 +175,14 @@ async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
     await session.flush().catch(() => {});
     worker.tick();
   }
-  session.dispose();
+  if (!keepSession) session.dispose();
   assert.equal(worker.ctx.run.engine, engine, "the migration kept the running game");
   assert.match(
     String(session.model.capture().read("logic:0")!.content),
     /script\.size\(200\);/,
     "the session holds the migrated LOGIC 0",
   );
-  return { ...worker, engine, id };
+  return { ...worker, engine, id, session };
 }
 
 test("the running game takes the migration at once and plays the busy room; history replays it", async () => {
@@ -509,5 +509,42 @@ test("legacy f199 worker runs, resumes, restores and records a busy boot indepen
     assert.equal(engine.vars[0], 1);
   } finally {
     worker.ctx.fns.stopTimers();
+  }
+});
+
+test("Undo Updated for 1.2.5 keeps 200 through the earlier code room entry", async () => {
+  const { ctx, engine, tick, session, id } = await openOlderGame(
+    "script-size-worker-undo",
+    true,
+    true,
+  );
+  try {
+    engine.flags[220] = 1;
+    tick();
+    const before = decodeSave(engine.serialize(), engine.profile);
+    assert.ok(before.replayActive > 50);
+    await session.undo();
+    await session.flush();
+    assert.equal(ctx.run.engine, engine);
+    const after = decodeSave(engine.serialize(), engine.profile);
+    assert.equal(after.replayCapacity, 200);
+    // Shared LOGIC changes enter the room again through ordinary admission.
+    // Its native room transition may reset replay; the allocation must stay.
+    assert.deepEqual((await storage.loadAuthoredGame(id))!.authoringConventions, {
+      version: 1,
+      legacyRoomMemory: true,
+    });
+    for (let n = 0; n < 4; n++) tick();
+    assert.equal(capacity(engine), 200);
+    const entered = decodeSave(engine.serialize(), engine.profile);
+    assert.deepEqual(entered.replay.slice(0, entered.replayActive), [
+      { kind: 2, value: 1 },
+      { kind: 4, value: 1 },
+      { kind: 6, value: 1 },
+    ]);
+    assert.equal(engine.surface.visual[100], 1);
+  } finally {
+    session.dispose();
+    ctx.fns.stopTimers();
   }
 });

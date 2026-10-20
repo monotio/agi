@@ -59,7 +59,13 @@ for (const [name, source] of Object.entries(variants))
     const engine = new Engine(container, host);
     for (let tick = 0; tick < 4; tick++) {
       engine.tick();
-      assert.equal(decodeSave(engine.serialize(), engine.profile).replayActive, 2);
+      const saved = decodeSave(engine.serialize(), engine.profile);
+      assert.equal(saved.replayActive, 2);
+      // Native replay kinds 2 and 4 load and draw PICTURE 1.
+      assert.deepEqual(saved.replay.slice(0, saved.replayActive), [
+        { kind: 2, value: 1 },
+        { kind: 4, value: 1 },
+      ]);
     }
     const restored = new Engine(container, host);
     restored.restoreImage(engine.serialize());
