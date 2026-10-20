@@ -1041,7 +1041,7 @@ function onSplitUp(ev: PointerEvent): void {
 onMounted(() => {
   void presentation.initStage(props.crtAmount);
   if (!props.touchControls) nextTick(claimGameFocus);
-  // Callers close whatever held the keyboard first (the assistant, a sheet);
+  // Callers close whatever held the keyboard first (the agent, a sheet);
   // the input re-enables on the next render, so focus lands after it.
   bridge.focusGameInput = () => void nextTick(focusInput);
   bridge.fillGameInput = (command) => {
@@ -1304,7 +1304,7 @@ defineExpose({
             </ul>
           </div>
         </div>
-        <!-- Shell actions docked in the strip (Play's Ask), clear of the stage. -->
+        <!-- Shell actions docked in the strip (Play's Agent), clear of the stage. -->
         <slot name="strip-actions" />
       </div>
     </div>

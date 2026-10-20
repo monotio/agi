@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  assistRefusalText,
+  agentRefusalText,
   checkCandidate,
   draftRevision,
-  pictureAssistScope,
-  viewAssistScope,
-  type AssistCheck,
-  type PictureAssistScope,
-} from "../src/studio/assistScope.ts";
+  pictureAgentScope,
+  viewAgentScope,
+  type AgentCheck,
+  type PictureAgentScope,
+} from "../src/studio/agentScope.ts";
 import { PAYLOAD_MAX_BYTES } from "../src/container/container.ts";
 import { applyEdit, type EditOperation } from "../src/studio/editOperations.ts";
 import {
@@ -30,7 +30,7 @@ import {
   RIVER_UNDER_BRIDGE,
   ROBOT_CELS,
   ROBOT_VIEW,
-} from "./studioAssistFixtures.ts";
+} from "./studioAgentFixtures.ts";
 import { buildView, type BuildCelInput, type BuildLoopInput } from "../src/view/view.ts";
 
 const profile = DEFAULT_V2_PROFILE;
@@ -62,9 +62,9 @@ const walkRect = (x1: number, x2: number, priority = 3): EditOperation => ({
 });
 
 /** The Priority lens over the bridge: art locked, the bridge's area licensed on priority. */
-function priorityScope(before: CompiledDocument, overrides: Partial<PictureAssistScope> = {}) {
+function priorityScope(before: CompiledDocument, overrides: Partial<PictureAgentScope> = {}) {
   return {
-    ...pictureAssistScope({
+    ...pictureAgentScope({
       num: 1,
       compiled: before,
       targetIds: ["bridge"],
@@ -75,7 +75,7 @@ function priorityScope(before: CompiledDocument, overrides: Partial<PictureAssis
 }
 
 /** Each side effect as its item id, label, plane, cell count, bounding box and fill flag. */
-const effects = (check: AssistCheck) =>
+const effects = (check: AgentCheck) =>
   (check.sideEffects?.effects ?? []).map((e) => [
     e.itemId,
     e.label,
@@ -145,7 +145,7 @@ test("art changed under the Priority lens is refused on the locked plane", () =>
   assert.equal(locked.count, BRIDGE_AREA.cells);
   assert.deepEqual(locked.bbox, { x0: 60, y0: 118, x1: 99, y1: 141 });
   assert.equal(
-    assistRefusalText(check),
+    agentRefusalText(check),
     "the art (visual plane) is locked, but 960 cells at 60,118..99,141 would change",
   );
 });
@@ -223,7 +223,7 @@ test("a candidate from another draft is stale", () => {
   );
   const draft = draftRevision({ kind: "picture", source: BRIDGE_SOURCE });
   assert.equal(
-    assistRefusalText(check),
+    agentRefusalText(check),
     `the draft changed since this request was made (request base ${scope.baseRevision}, draft now ${draft})`,
   );
 });
@@ -250,7 +250,7 @@ test("the byte budget counts the compiled picture", () => {
 test("a moved target licenses its new footprint, and only that", () => {
   const before = compile(BRIDGE_SOURCE);
   const scope = {
-    ...pictureAssistScope({
+    ...pictureAgentScope({
       num: 1,
       compiled: before,
       targetIds: ["bridge"],
@@ -300,7 +300,7 @@ test("a target's fill that escapes its shrunken outline is a side effect, report
   // (the old outline and the new corner), which the river's own cells
   // license.
   const before = compile(BRIDGE_SOURCE);
-  const scope = pictureAssistScope({
+  const scope = pictureAgentScope({
     num: 1,
     compiled: before,
     targetIds: ["river"],
@@ -333,7 +333,7 @@ test("a reshaped line keeps its licence past the selection: bounded geometry", (
     if (area[i] !== 1) outside++;
   }
   assert.deepEqual({ changed, outside }, { changed: 47, outside: 8 });
-  const scope = pictureAssistScope({
+  const scope = pictureAgentScope({
     num: 1,
     compiled: before,
     targetIds: ["bridge"],
@@ -353,7 +353,7 @@ test("a moved target's fill may land in its old area moved by the same offset", 
   const area = footprintMask(before, "river", "both");
   assert.deepEqual(priorityChanges(before, after, area), { changed: 3516, outside: 1600 });
   assert.equal(cells(footprintMask(after, "river", "priority", "fills")), RIVER.water);
-  const scope = pictureAssistScope({
+  const scope = pictureAgentScope({
     num: 1,
     compiled: before,
     targetIds: ["river"],
@@ -377,7 +377,7 @@ test("a fill the proposal inserts reports what it pours over outside the selecti
     id: "puddle",
     label: "Puddle",
   });
-  const scope = pictureAssistScope({
+  const scope = pictureAgentScope({
     num: 1,
     compiled: before,
     targetIds: ["river"],
@@ -406,7 +406,7 @@ test("a new bare fill does not pass as a moved copy of a selected bare fill", ()
     id: "puddle",
     label: "Puddle",
   });
-  const scope = pictureAssistScope({
+  const scope = pictureAgentScope({
     num: 1,
     compiled: before,
     targetIds: ["sky"],
@@ -425,12 +425,12 @@ test("a new bare fill does not pass as a moved copy of a selected bare fill", ()
 const picture = (...lines: string[]) => compile(lines.join("\n"));
 
 /** Each violation as its constraint, plane, cell count and bounding box. */
-const shape = (check: AssistCheck) =>
+const shape = (check: AgentCheck) =>
   check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]);
 
 /** The scope of an Art-lens selection of `targetIds`: priority locked, their area licensed on the art. */
 const artScope = (compiled: CompiledDocument, ...targetIds: string[]) =>
-  pictureAssistScope({ num: 1, compiled, targetIds, lens: "visual" });
+  pictureAgentScope({ num: 1, compiled, targetIds, lens: "visual" });
 
 /** A new art item `n` drawing `commands` in colour 5. */
 const newItem = (...commands: string[]) => ['# @item n "N" art', "vis 5", ...commands, "# @end"];
@@ -445,7 +445,7 @@ test("a selection naming items the draft lacks is refused in words", () => {
     checkCandidate(
       before,
       after,
-      pictureAssistScope({ num: 1, compiled: before, targetIds, lens: "priority" }),
+      pictureAgentScope({ num: 1, compiled: before, targetIds, lens: "priority" }),
     );
   assert.deepEqual(check("standIn"), {
     ok: false,
@@ -545,7 +545,7 @@ test("without an allowedMask a target licenses only its own footprint on each pl
   // (rows 120 and 139, x 60..99) from barrier 0 to water 3, and the bridge
   // owns no priority there.
   const before = compile(BRIDGE_SOURCE);
-  const scope: PictureAssistScope = {
+  const scope: PictureAgentScope = {
     kind: "picture",
     num: 1,
     baseRevision: draftRevision({ kind: "picture", source: BRIDGE_SOURCE }),
@@ -569,12 +569,12 @@ test("without an allowedMask a target licenses only its own footprint on each pl
 test("the scope's byte budget is the caller's, or the payload limit", () => {
   const before = compile(BRIDGE_SOURCE);
   const input = { num: 1, compiled: before, targetIds: ["bridge"], lens: "priority" } as const;
-  assert.equal(pictureAssistScope(input).maxBytes, PAYLOAD_MAX_BYTES);
+  assert.equal(pictureAgentScope(input).maxBytes, PAYLOAD_MAX_BYTES);
   const after = edit(before, walkRect(60, 99));
   const budget = before.bytes.length;
   const bytes = after.bytes.length;
   assert.deepEqual(
-    checkCandidate(before, after, pictureAssistScope({ ...input, maxBytes: budget })).violations,
+    checkCandidate(before, after, pictureAgentScope({ ...input, maxBytes: budget })).violations,
     [
       {
         constraint: "max-bytes",
@@ -708,7 +708,7 @@ test("a target moved into the corner licenses its moved area up to row 0 and col
   const stray = checkCandidate(before, picture(...square, ...newItem("plot 0,0"), "end"), scope);
   assert.deepEqual(shape(stray), [["outside-mask", "visual", 1, { x0: 0, y0: 0, x1: 0, y1: 0 }]]);
   assert.equal(
-    assistRefusalText(stray),
+    agentRefusalText(stray),
     "1 cell at 0,0..0,0 of the art (visual plane) outside the selection would change",
   );
 });
@@ -746,7 +746,7 @@ test("a locked plane refuses its changes whole; on the others new outlines outsi
   const check = checkCandidate(
     before,
     after,
-    pictureAssistScope({ num: 1, compiled: before, targetIds: ["t"], lens: "priority" }),
+    pictureAgentScope({ num: 1, compiled: before, targetIds: ["t"], lens: "priority" }),
   );
   const outline = { x0: 50, y0: 50, x1: 52, y1: 52 };
   const seed = { x0: 51, y0: 51, x1: 51, y1: 51 };
@@ -756,7 +756,7 @@ test("a locked plane refuses its changes whole; on the others new outlines outsi
   ]);
   assert.deepEqual(effects(check), [[null, "Blank area", "walk", 1, seed, false]]);
   assert.equal(
-    assistRefusalText(check),
+    agentRefusalText(check),
     "the art (visual plane) is locked, but 9 cells at 50,50..52,52 would change; " +
       "8 cells at 50,50..52,52 of the priority and walk (priority plane) outside the selection would change",
   );
@@ -795,8 +795,8 @@ test("one copy of the selected item is licensed; a second is refused in words th
     ["extra-copy", "visual", 960, { x0: 120, y0: 18, x1: 159, y1: 41 }],
   ]);
   assert.equal(
-    assistRefusalText(check),
-    `new item 'right' ("right") would be a second copy of the selected "Bridge": 960 cells at 120,18..159,41 of the art (visual plane) outside the selection would change. An assist may move a selected item or copy it once, no more; drop the extra copies`,
+    agentRefusalText(check),
+    `new item 'right' ("right") would be a second copy of the selected "Bridge": 960 cells at 120,18..159,41 of the art (visual plane) outside the selection would change. An agent may move a selected item or copy it once, no more; drop the extra copies`,
   );
 });
 
@@ -841,7 +841,7 @@ test("look-alikes in other colours get no licence: of six tiles of the bridge, o
       .map(([x, y]) => ["extra-copy", "visual", 960, { x0: x, y0: y, x1: x + 39, y1: y + 23 }]),
   );
   assert.ok(
-    assistRefusalText(check).startsWith(
+    agentRefusalText(check).startsWith(
       `new item 't1' ("t1") copies the selected "Bridge" in other colours: 960 cells at 0,0..39,23 of the art (visual plane) outside the selection would change. A copy keeps the item's colours and pen; draw it in the same ones, or keep new drawing inside the selection; `,
     ),
   );
@@ -856,7 +856,7 @@ test("a copy that draws priority the selected art never drew is refused in the P
   const walk = ['# @item w "W" walk', "vis off", "pri 2", "line 100,100 102,100", "# @end"];
   const before = picture(...sky, ...dot, "end");
   const after = picture(...sky, ...dot, ...walk, "end");
-  const scope = pictureAssistScope({
+  const scope = pictureAgentScope({
     num: 1,
     compiled: before,
     targetIds: ["dot"],
@@ -905,7 +905,7 @@ test("blue eyes on the mirrored loop split it off and pass", () => {
   assert.equal(before.loops[1]!.alias, 0);
   const after = viewEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
   assert.equal(after.loops[1]!.alias, null, "copy-on-write isolated loop 1");
-  const scope = viewAssistScope({ num: 2, document: before, targetCels: loop1 });
+  const scope = viewAgentScope({ num: 2, document: before, targetCels: loop1 });
   assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
 });
 
@@ -921,7 +921,7 @@ test("a recolor that propagates to the unselected mirror is refused per cel", ()
   const check = checkCandidate(
     before,
     after,
-    viewAssistScope({ num: 2, document: before, targetCels: loop1 }),
+    viewAgentScope({ num: 2, document: before, targetCels: loop1 }),
   );
   assert.deepEqual(
     check.violations.map((v) => [v.constraint, v.loop, v.cel, v.count]),
@@ -947,7 +947,7 @@ test("a protected loop refuses even a selected cel", () => {
   const check = checkCandidate(
     before,
     after,
-    viewAssistScope({
+    viewAgentScope({
       num: 2,
       document: before,
       targetCels: [{ loop: 0, cel: 0 }],
@@ -962,7 +962,7 @@ test("a view scope refuses a stale base and an oversized payload", () => {
   const before = view();
   const after = viewEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
   const other = viewEdit(before, { type: "recolor", scope: "view", from: 7, to: 8 });
-  const scope = viewAssistScope({ num: 2, document: other, targetCels: loop1, maxBytes: 10 });
+  const scope = viewAgentScope({ num: 2, document: other, targetCels: loop1, maxBytes: 10 });
   assert.deepEqual(
     checkCandidate(before, after, scope).violations.map((v) => v.constraint),
     ["stale-base", "max-bytes"],
@@ -980,7 +980,7 @@ test("an edit of the owner loop passes with its mirror protected, whose pixels s
   ];
   const after = viewEdit(before, { type: "recolor", scope: loop0, from: 12, to: 9 });
   assert.equal(after.loops[1]!.alias, null, "the pair is split");
-  const scope = viewAssistScope({
+  const scope = viewAgentScope({
     num: 2,
     document: before,
     targetCels: loop0,
@@ -1003,7 +1003,7 @@ test("a change that reaches the protected mirror's pixels is still refused", () 
     to: 9,
     propagate: true,
   });
-  const scope = viewAssistScope({
+  const scope = viewAgentScope({
     num: 2,
     document: before,
     targetCels: loop0,
@@ -1037,7 +1037,7 @@ const robot = (...loops: BuildLoopInput[]) =>
 
 test("a view selection naming cels the view lacks is refused in words", () => {
   const before = view();
-  const scope = viewAssistScope({
+  const scope = viewAgentScope({
     num: 2,
     document: before,
     targetCels: [
@@ -1072,7 +1072,7 @@ test("a mirror link outside the selection stays, protected or not", () => {
     checkCandidate(
       before,
       after,
-      viewAssistScope({
+      viewAgentScope({
         num: 2,
         document: before,
         targetCels: tail,
@@ -1096,7 +1096,7 @@ const loop0 = [
   { loop: 0, cel: 1 },
 ];
 const guardMirror = (document: ViewDocument) =>
-  viewAssistScope({ num: 2, document, targetCels: loop0, protectedLoops: [1] });
+  viewAgentScope({ num: 2, document, targetCels: loop0, protectedLoops: [1] });
 
 /** `cel` keying colour 3 as transparent where it used 0: the same display. */
 const keyedOn3 = (cel: BuildCelInput): BuildCelInput => ({
@@ -1156,7 +1156,7 @@ test("selecting the mirror does not open its owner's metadata", () => {
   // Loop 0's cel 0 keys colour 3 as transparent; loop 1 shows the same block.
   const before = view();
   const after = robot({ cels: [keyedOn3(HEAD_0), HEAD_1] }, { mirrorLoop: 0 });
-  const scope = viewAssistScope({ num: 2, document: before, targetCels: loop1 });
+  const scope = viewAgentScope({ num: 2, document: before, targetCels: loop1 });
   assert.deepEqual(checkCandidate(before, after, scope).violations, [
     {
       constraint: "outside-target",
@@ -1180,7 +1180,7 @@ test("the loop count, an unselected loop's cel count and the description stay", 
     }),
     profile,
   );
-  const scope = viewAssistScope({ num: 2, document: before, targetCels: [{ loop: 0, cel: 0 }] });
+  const scope = viewAgentScope({ num: 2, document: before, targetCels: [{ loop: 0, cel: 0 }] });
   assert.deepEqual(checkCandidate(before, after, scope).violations, [
     {
       constraint: "outside-target",
@@ -1211,7 +1211,7 @@ test("a view exactly at its byte budget fits; a byte over is refused with the ov
   const after = viewEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
   const size = after.payload.length;
   const scope = (maxBytes: number) =>
-    viewAssistScope({ num: 2, document: before, targetCels: loop1, maxBytes });
+    viewAgentScope({ num: 2, document: before, targetCels: loop1, maxBytes });
   assert.deepEqual(checkCandidate(before, after, scope(size)), { ok: true, violations: [] });
   assert.deepEqual(checkCandidate(before, after, scope(size - 1)).violations, [
     {
@@ -1236,7 +1236,7 @@ test("in the Art lens a proposal may move or copy a whole mixed target, walk lin
       "end",
     ].join("\n"),
   );
-  const scope = pictureAssistScope({
+  const scope = pictureAgentScope({
     num: 1,
     compiled: before,
     targetIds: ["pond"],

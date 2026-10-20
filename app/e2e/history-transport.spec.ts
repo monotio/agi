@@ -778,12 +778,12 @@ test("a map visit jumps straight to its moment on the tape", async ({ page }) =>
   await tapeHolds(page);
 });
 
-/** The element hit-tested at Ask's centre is Ask itself: nothing floats over it. */
-async function askUncovered(page: Page): Promise<boolean> {
-  return page.getByTestId("menu-assistant").evaluate((ask) => {
-    const box = ask.getBoundingClientRect();
+/** The element hit-tested at Agent's centre is Agent itself: nothing floats over it. */
+async function agentUncovered(page: Page): Promise<boolean> {
+  return page.getByTestId("menu-agent").evaluate((agent) => {
+    const box = agent.getBoundingClientRect();
     const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-    return hit !== null && ask.contains(hit);
+    return hit !== null && agent.contains(hit);
   });
 }
 
@@ -791,7 +791,7 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 1024, height: 600 },
 ]) {
-  test(`the transport's cards never cover Ask at ${viewport.width}×${viewport.height}${viewport.width === 1024 ? " @webkit-desktop" : ""}`, async ({
+  test(`the transport's cards never cover Agent at ${viewport.width}×${viewport.height}${viewport.width === 1024 ? " @webkit-desktop" : ""}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -800,13 +800,13 @@ for (const viewport of [
     await writeFlag(page, 6);
     await expect.poll(async () => (await textHook(page)).room).toBe(2);
     await waitForCycles(page, 3);
-    await expect(page.getByTestId("menu-assistant")).toBeVisible();
+    await expect(page.getByTestId("menu-agent")).toBeVisible();
 
     // Watch from here: the card a scrub opens.
     await pauseLive(page);
     await scrubToTape(page, 0.2);
     await expect(page.getByTestId("btn-history-watch")).toBeVisible();
-    expect(await askUncovered(page), "Watch from here leaves Ask clear").toBe(true);
+    expect(await agentUncovered(page), "Watch from here leaves Agent clear").toBe(true);
     await page.screenshot({ path: test.info().outputPath(`card-watch-${viewport.width}.png`) });
 
     // Undo rewind: the card Resume from here leaves on live play.
@@ -814,7 +814,7 @@ for (const viewport of [
     await expect(page.getByTestId("btn-history-resume")).toBeEnabled({ timeout: 20_000 });
     await page.getByTestId("btn-history-resume").click();
     await expect(page.getByTestId("btn-undo-rewind")).toBeVisible();
-    expect(await askUncovered(page), "Undo rewind leaves Ask clear").toBe(true);
+    expect(await agentUncovered(page), "Undo rewind leaves Agent clear").toBe(true);
     await page.screenshot({ path: test.info().outputPath(`card-undo-${viewport.width}.png`) });
   });
 }

@@ -48,7 +48,7 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
   await expect(panel).toBeVisible();
   await expect(composer).toHaveValue("Keep this question while I inspect the game");
   await page.getByRole("radio", { name: "Play", exact: true }).click();
-  await expect(page.getByTestId("menu-assistant")).toHaveAttribute(
+  await expect(page.getByTestId("menu-agent")).toHaveAttribute(
     "title",
     "Ask questions or get hints about this game.",
   );

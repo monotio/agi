@@ -28,7 +28,7 @@ async function bootTutorial(page: Parameters<typeof textHook>[0]): Promise<void>
   await waitForCycles(page, 2);
 }
 
-test("Play fits the game at its selected aspect and the Ask drawer resizes it", async ({
+test("Play fits the game at its selected aspect and the Agent drawer resizes it", async ({
   page,
 }) => {
   await bootTutorial(page);
@@ -47,16 +47,16 @@ test("Play fits the game at its selected aspect and the Ask drawer resizes it", 
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
-  // Ask is a non-modal drawer: the game stays visible beside it, and
+  // Agent is a non-modal drawer: the game stays visible beside it, and
   // Play offers no Remix.
-  const ask = page.getByTestId("menu-assistant");
-  await ask.click();
+  const agent = page.getByTestId("menu-agent");
+  await agent.click();
   const drawer = page.getByTestId("workspace-agent-panel");
   await expect(drawer).toBeVisible();
-  await expect(ask).toHaveAttribute("aria-expanded", "true");
+  await expect(agent).toHaveAttribute("aria-expanded", "true");
   await expect(drawer.getByTestId("agent-mode-remix")).toHaveCount(0);
   await expect(drawer.getByTestId("btn-record-test")).toHaveCount(0);
-  // The strip's Ask button steps away while the drawer is open; the drawer
+  // The strip's Agent button steps away while the drawer is open; the drawer
   // itself says how to get back.
   await expect(drawer.getByTestId("agent-panel-close")).toHaveAttribute("title", "Close (Esc)");
   await expect(drawer.getByTestId("agent-panel-close")).toBeVisible();
@@ -250,7 +250,7 @@ test("Create is a route: Back and Forward switch modes and a reload keeps Create
   await expect(page.getByTestId("parts-list")).toBeVisible();
   // The catalog tutorial is read-only: the first edit forks a remix.
   await expect(page.getByTestId("workspace-agent")).toBeVisible();
-  await expect(page.getByTestId("menu-assistant")).toHaveCount(0);
+  await expect(page.getByTestId("menu-agent")).toHaveCount(0);
   // The same live stage sits in the centre: the game keeps running.
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
@@ -348,7 +348,7 @@ test("a cold deep link boots the stored game it names, or says it is not in this
 /**
  * Pairs of the play strip's visible pieces that print over each other: the
  * hint's text lines (a line that wraps or overflows included) against every
- * transport control, and the Ask button.
+ * transport control, and the Agent button.
  */
 async function stripOverlaps(page: Parameters<typeof textHook>[0]): Promise<string[]> {
   return page.locator(".play-strip:visible").evaluate((strip) => {
@@ -361,7 +361,7 @@ async function stripOverlaps(page: Parameters<typeof textHook>[0]): Promise<stri
       .filter((box) => box.width > 0 && box.height > 0);
     const controls = [
       ...strip.querySelectorAll<HTMLElement>(
-        ".transport button, .transport [role='slider'], .ask-button",
+        ".transport button, .transport [role='slider'], .agent-button",
       ),
     ]
       .map((element) => ({

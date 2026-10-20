@@ -54,7 +54,7 @@ test("an installed game's answer is back after its tab closes before the save co
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("boot-sample").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   const message = page.getByTestId("agent-message");
   await expect(message).toBeEnabled();
   // From here the conversation's IndexedDB write starts but never commits: its
@@ -94,7 +94,7 @@ test("an installed game's answer is back after its tab closes before the save co
   );
   await reopened.getByTestId("boot-sample").click();
   await expect.poll(async () => (await textHook(reopened)).room).toBe(1);
-  await reopened.getByTestId("menu-assistant").click();
+  await reopened.getByTestId("menu-agent").click();
   const conversation = reopened.getByTestId("agent-conversation");
   await expect(conversation).toBeVisible();
   await expect(conversation).toContainText("Where is the key?");

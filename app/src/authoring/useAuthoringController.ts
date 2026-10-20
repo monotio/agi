@@ -111,7 +111,7 @@ export interface PowerUpUiState {
 
 /**
  * The refusal a stale authoring turn ends with — plain text for the
- * assistant panel, matching the wording a Keep's `behindStorage` refusal
+ * agent panel, matching the wording a Keep's `behindStorage` refusal
  * points at: only reloading the game from storage continues.
  */
 const STALE_TURN_MESSAGE =
@@ -268,7 +268,7 @@ export interface AuthoringController {
   ): Promise<StoredReference>;
   /**
    * Store a decoded image as reference art for a room or a view, the way a
-   * Studio's Ask attaches it: to that one request, off the chat's next message.
+   * the editor's agent attaches it: to that one request, off the chat's next message.
    */
   attachStudioReference(
     decoded: DecodedImage,
@@ -453,7 +453,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /**
    * Save only the conversation `author` grew (see ConversationUpdate) —
-   * an Ask, an AI settings change. The stored
+   * an agent request, an AI settings change. The stored
    * authoring content is left as it is, so another tab's label, lock or
    * binding survives it; the record must still hold this game's revision.
    */
@@ -696,7 +696,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /**
    * Enter remix mode: pause the interpreter, freeze ego in place, and open
-   * the assistant bubble for the current room.
+   * the agent bubble for the current room.
    */
   async function getConversationAgent(): Promise<ConversationAgent | null> {
     const booted = getBootedGame();
@@ -902,7 +902,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     }
     requireConfigOwner();
 
-    // Opening the Assistant can still be saving its first catalog chat.
+    // Opening the Agent can still be saving its first catalog chat.
     // Settle that owned fork before capturing the game a new session loads.
     const project = options.getProjectSession?.();
     if (project) {
@@ -1167,8 +1167,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   /**
-   * Save the conversation a turn that wrote no resources grew (Ask, a Studio
-   * assist request) — never its authoring content. A project that moved past
+   * Save the conversation a turn that wrote no resources grew (an agent request, a selection
+   * agent request) — never its authoring content. A project that moved past
    * the running game refuses as stale (STALE_SAVE_MESSAGE) and keeps its
    * newer save.
    */

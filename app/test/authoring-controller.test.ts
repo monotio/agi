@@ -621,7 +621,7 @@ for (const outcome of [
   "commit-refused",
   "no-game",
 ] as const) {
-  test(`AI settings held by Assistant opening ${outcome === "ready" ? "apply after attachment" : `reject ${outcome} ownership`}`, async () => {
+  test(`AI settings held by Agent opening ${outcome === "ready" ? "apply after attachment" : `reject ${outcome} ownership`}`, async () => {
     const pending = Promise.withResolvers<void>();
     const powerUp = createMockPowerUp();
     let mode: "play" | "create" = "play";
@@ -2316,14 +2316,14 @@ test("a failed authoring load reads plainly in Ask and leaves Play running", asy
   assert.equal(powerUp.error, AUTHORING_LOAD_FAILED);
   assert.equal(powerUp.busy, false);
   assert.equal(controller.getSession(), null);
-  // The drawer closes like any other; the next Ask tries the load again.
+  // The drawer closes like any other; the next agent request tries the load again.
   controller.closePowerUp();
   assert.equal(resumed, true);
   await controller.openPowerUp(mockConfig);
   assert.equal(loads, 2);
 });
 
-test("Ask opens on Connect AI at once when no model is connected, before the engine answers", async () => {
+test("Agent opens on Connect AI at once when no model is connected, before the engine answers", async () => {
   // The drawer never shows its prompt line first and then swaps it for the
   // connect prompt once the engine's state query returns.
   const ui = {
@@ -2359,7 +2359,7 @@ test("Ask opens on Connect AI at once when no model is connected, before the eng
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
     awaitPatched: ackPatch,
-    loadAuthoring: async () => assert.fail("an unconnected Ask loads no session"),
+    loadAuthoring: async () => assert.fail("an unconnected Agent loads no session"),
   });
 
   const opening = controller.openPowerUp({ provider: "openai", apiKey: "", model: "gpt-6-astra" });
@@ -2562,7 +2562,7 @@ test("the plan's boolean save contract reports a refused project flush and Retry
 });
 
 for (const outcome of ["ready", "disposed", "retired"] as const) {
-  test(`AI settings wait for the Assistant chat's catalog fork before loading its session (${outcome})`, async (t) => {
+  test(`AI settings wait for the Agent chat's catalog fork before loading its session (${outcome})`, async (t) => {
     installLocalStorageMock(t);
     const projectId = testProjectId("settings-catalog-fork");
     const files = createTestFiles();

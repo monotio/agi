@@ -20,7 +20,7 @@ interface InspectorCommand {
  * The inspector: what the selection needs, and the rest under Details. On
  * top, the selection's name (editable while `rename` is given) and one line,
  * "Visual · locked"; then the Studio's editor (`editor` slot: the item's kind,
- * lock, art and priority, and its actions), then Ask (`assist`). Details, closed
+ * lock, art and priority, and its actions), then Agent (`agent`). Details, closed
  * by default and remembered per viewer, holds the expert read-outs: the
  * selection's steps (click one to scrub there), the pixel under the pointer
  * or clicked, with the step that last wrote each plane, whether a fill at the
@@ -136,7 +136,7 @@ function commitName(event: Event): void {
       <p class="inspector__sub" data-testid="inspector-subtitle">{{ summary }}</p>
     </header>
     <slot name="editor" />
-    <slot name="assist" />
+    <slot name="agent" />
 
     <UiDisclosure
       id="room-inspector"

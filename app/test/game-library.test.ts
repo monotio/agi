@@ -1175,7 +1175,7 @@ test("private imports without conventions are legacy; identical raw reimports re
   });
 });
 
-test("a new external import records current conventions before gaining assistant context", async (t) => {
+test("a new external import records current conventions before gaining agent context", async (t) => {
   installLocalStorage(t);
   const id = await addLibraryGame(
     { files: game("set(f198); return;"), words: [] },

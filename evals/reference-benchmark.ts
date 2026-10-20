@@ -41,7 +41,7 @@
  *                  so placing it needs a closer look
  *   mood-room      a colour mood board of five swatches for room 7
  *   hero-view      a four-pose character sheet; Remix writes view 20 from it
- *   ledger-swatch  Studio assist recolours the archive's ledger stand to the
+ *   ledger-swatch  Studio agent recolours the archive's ledger stand to the
  *                  colour of an attached swatch
  *
  * Scores are cheap and objective. Rooms: palette overlap (Jaccard of the AGI

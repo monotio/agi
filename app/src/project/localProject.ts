@@ -7,7 +7,7 @@ import { requireProjectId, requireResourceRevision } from "../../../src/gameIden
 import { commitProject, type ProjectCommitRequest } from "./gameStorage.ts";
 
 /**
- * Prepare a local editable project without a worker or assistant.
+ * Prepare a local editable project without a worker or agent.
  * Blank has no LOGIC 0: the app must show the workspace empty state instead
  * of starting the engine. isPlayableProject checks the boot resource. Preparation
  * owns the seed and validates its complete document image before any storage

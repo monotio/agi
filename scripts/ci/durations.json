@@ -4,7 +4,7 @@
   "ai-settings.spec.ts": 22.2,
   "amiga-fixture-click.spec.ts": 1.329,
   "anthropic-validation.spec.ts": 7.5,
-  "ask-remix.spec.ts": 11.5,
+  "agent-remix.spec.ts": 11.5,
   "audio-pause.spec.ts": 3.6,
   "audio-scheduled-renderer.spec.ts": 0.77,
   "boot-splash.spec.ts": 4.1,

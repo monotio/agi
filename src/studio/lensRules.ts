@@ -1,6 +1,6 @@
 /**
  * PICTURE editor lens rules, shared by the creator's own edits
- * (app/src/studio/studioLocks.ts) and AI proposals (assistScope.ts) so both
+ * (app/src/studio/studioLocks.ts) and AI proposals (agentScope.ts) so both
  * pass the same validators. Each lens locks the plane it is not about:
  * Visual locks the priority plane, Priority locks the visual plane.
  * Unlocking is explicit and lasts for the Studio session. The locks guard

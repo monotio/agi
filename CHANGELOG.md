@@ -179,7 +179,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
-- Ask inspects native resources without preparing or validating an edit candidate.
+- Agent inspects native resources without preparing or validating an edit candidate.
 - An unreadable unused resource or dictionary does not stop other inspection tools.
 - Each request captures its current interpreter profile, runtime and attached references.
 - Switching to Create waits for the conversation transfer and preserves unfinished drafts.

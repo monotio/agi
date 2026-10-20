@@ -40,7 +40,7 @@
   --workspace-parts: 0px;
 }
 /* The Agent sits beside the game and the editor, never over them. */
-.shell-body--workspace.assistant-open:not(.shell-body--sheet) {
+.shell-body--workspace.agent-open:not(.shell-body--sheet) {
   padding-right: min(var(--agent-drawer-w), 100vw);
 }
 .shell-body--workspace.shell-body--no-editor {
@@ -586,7 +586,7 @@
   --workspace-parts: 0px;
 }
 @media (min-width: 601px) and (max-width: 1199px) {
-  .in-game:has(.shell-body--workspace.assistant-open) .play-bar__parts {
+  .in-game:has(.shell-body--workspace.agent-open) .play-bar__parts {
     display: inline-flex;
   }
 }

@@ -395,7 +395,7 @@ test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of 
   }
 });
 
-test("Responses keeps assistant identities and phases separate, and bounds commentary continuation", async (t) => {
+test("Responses keeps agent identities and phases separate, and bounds commentary continuation", async (t) => {
   let requests = 0;
   let commentaryOnly = false;
   t.mock.method(globalThis, "fetch", async () => {

@@ -2396,7 +2396,7 @@ test("background work retains image spend and a new person request starts a fres
 });
 
 test("selected art tools use the workspace review and one Undo", async () => {
-  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -2439,7 +2439,7 @@ test("evidence naming batches all binding kinds for review with byte-preserving 
         content:
           'set(old_name); if (isset(old_name)) { print(m1); } set.view(o1, 1); get(i0); return; #message 1 "A brass key"',
       },
-      { key: "view:1", content: (await import("../../test/studioAssistFixtures.ts")).DOT_EGO },
+      { key: "view:1", content: (await import("../../test/studioAgentFixtures.ts")).DOT_EGO },
       { key: "inventory", content: '[{"name":"Key","startingRoom":1}]' },
     ]),
     label: "Named code",
@@ -2531,7 +2531,7 @@ test("evidence naming batches all binding kinds for review with byte-preserving 
 });
 
 test("read-only agent inspects selected art and withdraw clears every pending edit", async () => {
-  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -2559,7 +2559,7 @@ test("read-only agent inspects selected art and withdraw clears every pending ed
 });
 
 test("selection context carries the live horizon and actor probe", async () => {
-  const { BRIDGE_SOURCE, DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE, DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -2607,7 +2607,7 @@ test("selection context carries the live horizon and actor probe", async () => {
 });
 
 test("selected VIEW edits share review, preserve other cels and Undo", async () => {
-  const { ROBOT_VIEW } = await import("../../test/studioAssistFixtures.ts");
+  const { ROBOT_VIEW } = await import("../../test/studioAgentFixtures.ts");
   const { parseView } = await import("../../src/view/view.ts");
   const { session } = fixture();
   await session.submit({
@@ -2644,7 +2644,7 @@ test("selected VIEW edits share review, preserve other cels and Undo", async () 
 });
 
 test("selected art carries reference handles and thumbnails once, then reuses the transcript", async () => {
-  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -3394,7 +3394,7 @@ for (const request of ["a red finish", "a test change the creator asked for"] as
     const { session } = fixture();
     const document = (tests: readonly unknown[]) =>
       JSON.stringify({ format: "monotio.agi.tests.v2", tests });
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     const openDoor = { name: "Open door", room: 1, steps: [], expect: { score: 99 } };
     await session.submit({
       proposal: session.model.propose(session.model.capture(), "Creator tests", [
@@ -3840,7 +3840,7 @@ const scoreRoom = (score: number) =>
 for (const fixes of [true, false])
   test(`Agent handover tests the pending proposal: ${fixes ? "a proposed fix passes" : "a proposed regression stays red without aborting the conversation"}`, async () => {
     const { session } = fixture();
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     await session.submit({
       proposal: session.model.propose(session.model.capture(), "Creator test", [
         {
@@ -3943,7 +3943,7 @@ for (const fixes of [true, false])
 
 test("Auto-approve commits a game proposal with red tests; only finish testReasons explain failures", async () => {
   const { session } = fixture();
-  const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+  const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Creator test", [
       {
@@ -4016,7 +4016,7 @@ test("Auto-approve commits a game proposal with red tests; only finish testReaso
 for (const creatorAction of ["partial approval", "save a red test"] as const)
   test(`Creator actions never rerun the Agent finish check: ${creatorAction}`, async () => {
     const { session } = fixture();
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     const document = (names: readonly string[]) =>
       JSON.stringify({
         format: "monotio.agi.tests.v2",
@@ -4169,7 +4169,7 @@ test("Only the creator edits existing tests: Auto-approve reviews a changed orig
 for (const outcome of ["named red", "unnamed red", "green", "formatted unnamed red"] as const)
   test(`Questions keep their answer without a handover: ${outcome}`, async () => {
     const { session } = fixture();
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     await session.submit({
       proposal: session.model.propose(session.model.capture(), "Creator test", [
         {

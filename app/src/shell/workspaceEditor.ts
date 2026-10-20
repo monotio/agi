@@ -136,9 +136,9 @@ export function createWorkspaceEditor(engine: EngineApi) {
       if (panels.get(panel.id) === entry) panels.delete(panel.id);
     };
   }
-  // The shell's docks: the world map left, the assistant right.
+  // The shell's docks: the world map left, the agent right.
   registerPanel({ id: "world", dock: "left", title: "World", icon: "map", order: 0 });
-  registerPanel({ id: "assistant", dock: "right", title: "Agent", icon: "sparkles", order: 0 });
+  registerPanel({ id: "agent", dock: "right", title: "Agent", icon: "sparkles", order: 0 });
   /** The dock a panel id sits in, when it is registered. */
   function panelDock(id: string): DockSide | undefined {
     return panels.get(id)?.dock;

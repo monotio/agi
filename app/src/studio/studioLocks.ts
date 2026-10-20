@@ -1,7 +1,7 @@
 /**
  * Lens locks for PICTURE editor edits, judged on decoded pixels, never on the
  * edit's operations. The lens rules themselves
- * (src/studio/lensRules.ts) are shared with AI proposals (assistScope.ts),
+ * (src/studio/lensRules.ts) are shared with AI proposals (agentScope.ts),
  * so both pass the same validators. A refusal says why in plain words, keeps
  * the technical account as its detail, and carries the cells to flash. An
  * edit may change other items' output indirectly (a fill that pours

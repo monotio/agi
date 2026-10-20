@@ -1066,7 +1066,7 @@ test("Ask's first-turn brief withholds the room's plan entry, as read_room does 
   await ask.runAsk("Where do I go?", 4);
   assert.match(bodies[0]!, /Room 4: logic revision/, "the brief was sent");
   for (const secret of ["Vault antechamber", "lever behind the tapestry", "north"])
-    assert.doesNotMatch(bodies[0]!, new RegExp(secret), `Ask withholds ${secret}`);
+    assert.doesNotMatch(bodies[0]!, new RegExp(secret), `Agent inspection withholds ${secret}`);
 });
 
 for (const provider of ["openai", "anthropic"] as const) {

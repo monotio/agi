@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, textHook, enterPlayMode } from "./engineProbe.ts";
 
-test("Ask stays paused and remembers the conversation after reload @webkit-desktop", async ({
+test("Agent stays paused and remembers the conversation after reload @webkit-desktop", async ({
   page,
 }) => {
   const discovery = Promise.withResolvers<void>();
@@ -70,7 +70,7 @@ test("Ask stays paused and remembers the conversation after reload @webkit-deskt
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterPlayMode(page);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("agent-open-ai-settings")).toBeEnabled();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-message")).toBeEnabled();
@@ -95,17 +95,17 @@ test("Ask stays paused and remembers the conversation after reload @webkit-deskt
   const send = (await page.getByTestId("agent-send").boundingBox())!;
   expect(send.y).toBeGreaterThanOrEqual(input.y + input.height);
   await expect(page.getByTestId("agent-send")).toBeInViewport();
-  await page.screenshot({ path: test.info().outputPath("ask-desktop.png") });
+  await page.screenshot({ path: test.info().outputPath("agent-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByTestId("agent-panel-close").first()).toBeInViewport();
   await expect(page.getByTestId("agent-message")).toBeInViewport();
-  await page.screenshot({ path: test.info().outputPath("ask-mobile.png") });
+  await page.screenshot({ path: test.info().outputPath("agent-mobile.png") });
   await page.getByTestId("agent-panel-close").first().click();
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterPlayMode(page);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(conversation).toContainText("Could I have a small hint?");
   await expect(conversation).toContainText("Look around the room for a clue.");
 });

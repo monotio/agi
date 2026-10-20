@@ -16,7 +16,7 @@ import { readBindingsDocument } from "../../src/authoring/projectDocuments.ts";
 import { validateToolArguments } from "../../src/agent/schemaValidate.ts";
 import { createSelectionEdit } from "../../src/agent/selectionTools.ts";
 import { referenceUnderFetch, type ReferenceSource } from "../../src/agent/referenceTools.ts";
-import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
+import { pictureAgentScope, viewAgentScope } from "../../src/studio/agentScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import type { LensUnlocks, StudioLens } from "../../src/studio/lensRules.ts";
@@ -29,7 +29,7 @@ import {
 } from "../../src/agent/toolTransport.ts";
 
 /**
- * A case's `studio` focus: the Studio selection a Studio assist tool call
+ * A case's `studio` focus: the Studio selection a Studio agent tool call
  * runs against. A picture gives its annotated `source`, `targetIds` and
  * `lens` with optional `unlocks` and `horizon` (and `draftSource` when the
  * creator changed the draft during the request); a view gives its `payload`
@@ -88,7 +88,7 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
     return {
       allowedTools: SELECTION_TASK_TOOLS,
       selection: createSelectionEdit({
-        scope: pictureAssistScope({
+        scope: pictureAgentScope({
           num: studio.num,
           compiled,
           targetIds: studio.targetIds ?? [],
@@ -105,7 +105,7 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
   return {
     allowedTools: SELECTION_TASK_TOOLS,
     selection: createSelectionEdit({
-      scope: viewAssistScope({
+      scope: viewAgentScope({
         num: studio.num,
         document: openViewDocument(payload, session.profile),
         targetCels: studio.targetCels ?? [],

@@ -21,7 +21,7 @@ import { expect, keepDetectedProfile, test } from "./test.ts";
 /**
  * Two tabs of one browser share its storage. Tab B keeps a PICTURE editor edit
  * while tab A still runs the revision it booted; nothing tab A does after
- * that — Download game, Ask, leaving — may put its older game back in
+ * that — Download game, Agent, leaving — may put its older game back in
  * storage, and when the browser can say so, tab A hears of the edit at once.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -177,7 +177,7 @@ async function downloadGame(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
 }
 
-test("a stale tab's Download game, Ask and Exit leave another tab's saved edit in storage", async ({
+test("a stale tab's Download game, Agent and Exit leave another tab's saved edit in storage", async ({
   page,
 }) => {
   // This tab has no BroadcastChannel: it never hears of the edit, so every
@@ -195,7 +195,7 @@ test("a stale tab's Download game, Ask and Exit leave another tab's saved edit i
   await downloadGame(page);
   expect(await stored(page)).toEqual(kept);
 
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   // Opening the conversation discovers the refused storage base before another turn can start.
   await expect(page.getByTestId("agent-message")).toBeDisabled();
@@ -221,7 +221,7 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   const kept = await stored(page);
   expect(kept.revision).not.toBe(booted.revision);
 
-  // Playing, assistant closed: the stage says so, once, and nothing is modal.
+  // Playing, agent closed: the stage says so, once, and nothing is modal.
   const note = page.getByTestId("stale-tab-note");
   await expect(note).toBeVisible();
   await expect(note).toHaveText(
@@ -241,8 +241,8 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"])
     await expect(note.getByRole("button", { name, exact: true })).toBeVisible();
 
-  // The Assistant still offers the same reload, which loads the edit.
-  await page.getByTestId("menu-assistant").click();
+  // The Agent still offers the same reload, which loads the edit.
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("agent-error")).toContainText(
     "Changed in another tab. Editing is paused.",
   );
@@ -278,7 +278,7 @@ test("a label saved in another tab is heard at once, and nothing this tab saves 
   await expect(note).toHaveText(
     /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("agent-error")).toContainText(
     "Changed in another tab. Editing is paused.",
   );

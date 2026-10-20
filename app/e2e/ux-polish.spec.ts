@@ -180,7 +180,7 @@ test.describe("compact layout", () => {
           .getByRole("button", { name: "Close", exact: true })
           .click();
       await playFromCreate(page);
-      if (size.width === 390) await page.getByTestId("menu-assistant").click();
+      if (size.width === 390) await page.getByTestId("menu-agent").click();
       await expect(page.locator(".play-bar")).toHaveCSS("border-bottom-width", "1px");
       await expect(page.locator(".play-strip")).toHaveCSS("border-top-width", "1px");
       if (size.width > 600)

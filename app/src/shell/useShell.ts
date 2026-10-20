@@ -35,9 +35,9 @@ export interface Shell {
    * forks a remix through the ordinary remix flow.
    */
   readonly readOnly: ComputedRef<boolean>;
-  /** Open or close the Play mode's Ask drawer. */
+  /** Open or close the Play mode's Agent drawer. */
   toggleAsk(): void;
-  /** Move to Create and open the assistant on its Remix surface. */
+  /** Move to Create and open the agent on its Remix surface. */
   openRemix(): void;
   /**
    * Open Create once `projectId` is the running game. A boot still in its

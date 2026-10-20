@@ -88,13 +88,13 @@ export const DEBUGGER_MODULES = [
  * dynamic import in app/src/agent/authoringLoader.ts: its lazy entry, the
  * agent session and the stub agent, the LLM clients with the provider SDKs,
  * the tool registry and prompts, and the Studio edit and view kernels the
- * assist tools drive. A player who never uses AI never downloads it.
+ * agent tools drive. A player who never uses AI never downloads it.
  */
 export const AUTHORING_MODULES = [
   /^app\/src\/agent\/(authoringStack|agentSession|llmClient|stubAgent|selectionStub|referenceStub|workspaceAgent|workspaceAgentTools|workspaceSelection)\.ts$/,
   /^app\/src\/references\/referenceHandles\.ts$/,
   /^src\/agent\/(tools|selectionTools|namingTools|authoringTools|roomTools|pictureTools|referenceTools|prompt|playtest)\.ts$/,
-  /^src\/studio\/(editOperations|editValidation|pictureDocument|probe|lensRules|assistScope)\.ts$/,
+  /^src\/studio\/(editOperations|editValidation|pictureDocument|probe|lensRules|agentScope)\.ts$/,
   /^src\/studio\/view\/(viewOperations|viewCels)\.ts$/,
   /^(?:app\/)?node_modules\/(openai|@anthropic-ai\/sdk)\//,
 ];

@@ -14,10 +14,10 @@
 import { computed, onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import {
-  assistRefusalText,
+  agentRefusalText,
   checkCandidate,
-  type ViewAssistScope,
-} from "../../../../src/studio/assistScope.ts";
+  type ViewAgentScope,
+} from "../../../../src/studio/agentScope.ts";
 import {
   openViewDocument,
   samePixels,
@@ -192,12 +192,12 @@ export function useViewDraft(options: {
 
   /**
    * Adopt an accepted AI candidate's VIEW bytes as one undo step. The
-   * candidate passed its scope (assistScope.ts) when it was proposed; it
+   * candidate passed its scope (agentScope.ts) when it was proposed; it
    * must still pass it against the draft now, and the loop check a manual
    * edit of the targeted loops passes (validateViewEdit): both verdicts
    * must agree, or nothing changes.
    */
-  function adopt(payload: Uint8Array, label: string, scope: ViewAssistScope): ViewOutcome {
+  function adopt(payload: Uint8Array, label: string, scope: ViewAgentScope): ViewOutcome {
     if (gesturing.value) return refuse({ message: "Finish the stroke first." });
     let next: ViewDocument;
     try {
@@ -209,7 +209,7 @@ export function useViewDraft(options: {
     if (!scoped.ok)
       return refuse({
         message: "The change now reaches outside its scope. Follow up.",
-        detail: assistRefusalText(scoped),
+        detail: agentRefusalText(scoped),
       });
     const targets = [...new Set(scope.targetCels.map(({ loop }) => loop))];
     const check = validateViewEdit(document.value, next, { targetLoops: targets });

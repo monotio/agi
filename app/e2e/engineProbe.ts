@@ -561,8 +561,8 @@ export async function openInspector(page: Page): Promise<void> {
 }
 
 /**
- * Show the running game in Create mode, where the assistant's Ask and Remix
- * surface (the `power-up` entry) lives. Play mode offers the Ask drawer only.
+ * Show the running game in Create mode, where the agent's Ask and Remix
+ * surface (the `power-up` entry) lives. Play mode offers the Agent drawer only.
  */
 /**
  * Show one room's card in Create's World panel as a user does: back to All
@@ -811,7 +811,7 @@ export async function enterCreateMode(page: Page): Promise<void> {
   await expect(page).toHaveURL(/#create\//);
 }
 
-/** Open the Create assistant through its registered workspace command. */
+/** Open the Create agent through its registered workspace command. */
 export async function openWorkspaceAgent(page: Page): Promise<void> {
   await enterCreateMode(page);
   const panel = page.getByTestId("workspace-agent-panel");

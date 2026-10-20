@@ -42,7 +42,7 @@ interface Planes {
  * 320x168 (every logical pixel two image pixels wide). The diff panel shows
  * changed cells in magenta over the dimmed result.
  */
-export function pictureAssistPreviewPng(
+export function pictureAgentPreviewPng(
   before: Planes,
   after: Planes,
   palette: ColourTable = EGA_TABLE,
@@ -73,7 +73,7 @@ export function pictureAssistPreviewPng(
   return encodePngRgb(width, height, rgb);
 }
 
-export const PICTURE_ASSIST_PREVIEW_CAPTION =
+export const PICTURE_AGENT_PREVIEW_CAPTION =
   "Candidate, 960x336: top row the visual plane, bottom row the priority plane; columns before | after | diff (changed cells magenta over the dimmed result). Each logical pixel is two image pixels wide.";
 
 /** How much a crop of `box` is enlarged: the largest of 1..4 that keeps each panel within 320x168. */

@@ -14,7 +14,7 @@ import {
 } from "../src/studio/studioLocks.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
 import { editedItems } from "../src/studio/useStudioDraft.ts";
-import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAssistFixtures.ts";
+import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAgentFixtures.ts";
 
 const profile = DEFAULT_V2_PROFILE;
 const at = (x: number, y: number): number => y * 160 + x;

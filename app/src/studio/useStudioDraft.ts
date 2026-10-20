@@ -30,11 +30,11 @@ import {
   type EditHistory,
 } from "../../../src/studio/editHistory.ts";
 import {
-  assistRefusalText,
+  agentRefusalText,
   checkCandidate,
   wholeTargets,
-  type PictureAssistScope,
-} from "../../../src/studio/assistScope.ts";
+  type PictureAgentScope,
+} from "../../../src/studio/agentScope.ts";
 import { applyEdits, type EditOperation } from "../../../src/studio/editOperations.ts";
 import { compileEditDocument, type CompiledDocument } from "../../../src/studio/editValidation.ts";
 import { editUnlocks, WHOLE_ITEM_OPERATIONS } from "../../../src/studio/lensRules.ts";
@@ -308,7 +308,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
 
   /**
    * Adopt an accepted AI candidate's whole text as one undo step. The
-   * candidate passed its scope (assistScope.ts) when it was proposed; it
+   * candidate passed its scope (agentScope.ts) when it was proposed; it
    * must still pass it against the draft now, and the locks a manual edit
    * passes under the lens and unlocks it was asked with (checkStudioEdit,
    * with the targets and the items it creates as the edited items, and
@@ -316,7 +316,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
    * verdicts must agree, or nothing changes. The outcome carries the side
    * effects the proposal named, which the creator accepted with it.
    */
-  function adopt(next: string, label: string, scope: PictureAssistScope): DraftOutcome {
+  function adopt(next: string, label: string, scope: PictureAgentScope): DraftOutcome {
     if (gesturing.value) return refuse({ kind: "kernel", message: "Finish the drag first." });
     const parsed = parsePictureDocument(next);
     let after: CompiledDocument;
@@ -334,7 +334,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       return refuse({
         kind: "kernel",
         message: "The change now reaches outside its scope. Follow up.",
-        detail: assistRefusalText(scoped),
+        detail: agentRefusalText(scoped),
       });
     const known = new Set(document.value.items.map((item) => item.id));
     const created = parsed.document.items.flatMap((item) => (known.has(item.id) ? [] : [item.id]));

@@ -390,7 +390,7 @@ export function useEngine(
 
   /**
    * Storage moved past the running game, found by a refused autosave or
-   * another tab's notice: the Assistant says so and offers Reload game, as a
+   * another tab's notice: the Agent says so and offers Reload game, as a
    * refused turn does, and the stage's note says it while it is closed.
    */
   function tellBehindStorage(): void {
@@ -407,7 +407,7 @@ export function useEngine(
    * The running game's project was removed in another tab: nothing more is
    * stored for it (BootedGame.removed) and no reload brings it back. The
    * stage's one note says so with Download game and Back to games, and the
-   * Assistant says the same without a reload offer. The timeline it can
+   * Agent says the same without a reload offer. The timeline it can
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {

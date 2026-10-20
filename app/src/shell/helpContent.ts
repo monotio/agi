@@ -226,7 +226,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-ask",
+        id: "studio-agent",
         title: VOCABULARY.agent.label,
         body: [
           VOCABULARY.agent.help,
@@ -283,7 +283,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "views-ask",
+        id: "views-agent",
         title: VOCABULARY.agent.label,
         body: [
           VOCABULARY.agent.help,

@@ -4,7 +4,7 @@
  *
  * captureAgentWorkspace freezes the draft's complete document set — authored
  * text and retained native bytes, including source that does not yet compile —
- * so an assistant can read it, offer an explicit bounded change set, or stage
+ * so an agent can read it, offer an explicit bounded change set, or stage
  * whole-game tools inside an isolated AgentSessionState. Nothing here applies,
  * keeps, installs or contacts a provider: the only outcome is an opaque draft
  * proposal whose staleness and foreign-workspace checks remain the draft's own.

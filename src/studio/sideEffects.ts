@@ -2,7 +2,7 @@
  * The side effects of a PICTURE editor edit: cells of OTHER items' output that
  * change though their commands do not, as when a fill pours differently
  * around a moved outline. The creator's own edits (app/src/studio/studioLocks.ts)
- * and AI proposals (assistScope.ts) report them instead of refusing them;
+ * and AI proposals (agentScope.ts) report them instead of refusing them;
  * the caller says which changed cells count (those outside the edited
  * items, or outside a proposal's licence). Each cell is put down to the
  * item whose output changed there: of the items that drew it before and

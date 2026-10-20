@@ -6,7 +6,7 @@ import { configureAi, enterCreateMode, textHook, workspaceSaved } from "./engine
 import { openStoredWorkspace } from "./workspaceShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
-test("Ask inspects damaged native resources and retries saving without another request @webkit-desktop", async ({
+test("Agent inspects damaged native resources and retries saving without another request @webkit-desktop", async ({
   page,
 }) => {
   await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
@@ -151,7 +151,7 @@ test("Ask inspects damaged native resources and retries saving without another r
     };
   });
   expect(after).toEqual(before);
-  await reviewShot(page, "ask-save-retry");
+  await reviewShot(page, "agent-save-retry");
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByTestId("agent-retry-save")).toBeInViewport();
   // The full-width conversation stays above the game's storage recovery notice.
@@ -167,12 +167,12 @@ test("Ask inspects damaged native resources and retries saving without another r
       }),
     )
     .toBe(true);
-  await reviewShot(page, "ask-save-retry-phone");
+  await reviewShot(page, "agent-save-retry-phone");
   await page.evaluate(() => (window as unknown as { restorePut(): void }).restorePut());
   await page.getByTestId("agent-retry-save").click();
   await expect(page.getByTestId("agent-retry-save")).toBeHidden();
   expect(requests).toHaveLength(3);
-  // A new prepared Ask keeps Stop bound to the same task chat.
+  // A new prepared agent request keeps Stop bound to the same task chat.
   await panel.getByTestId("agent-panel-close").click();
   await page
     .getByTestId("workspace-words-editor")
@@ -193,7 +193,7 @@ test("Ask inspects damaged native resources and retries saving without another r
   await expect(panel).toContainText("Predicted 1 command");
 });
 
-test("closing before an Ask conversation commits recovers the answer once @webkit-desktop", async ({
+test("closing before an agent conversation commits recovers the answer once @webkit-desktop", async ({
   page,
   context,
 }) => {
@@ -215,7 +215,7 @@ test("closing before an Ask conversation commits recovers the answer once @webki
   await page
     .getByTestId("create-adventure-disclosure")
     .getByLabel("Name", { exact: true })
-    .fill("Ask recovery");
+    .fill("Agent recovery");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await workspaceSaved(page);
@@ -272,7 +272,7 @@ test("closing before an Ask conversation commits recovers the answer once @webki
   const recovered = await context.newPage();
   await page.close();
   await recovered.goto("/");
-  await openStoredWorkspace(recovered, "Ask recovery");
+  await openStoredWorkspace(recovered, "Agent recovery");
   await workspaceSaved(recovered);
   await recovered.getByTestId("workspace-agent").click();
   await expect(recovered.locator(".agent-panel__message").filter({ hasText: reply })).toHaveCount(
@@ -296,5 +296,5 @@ test("closing before an Ask conversation commits recovers the answer once @webki
   }).toEqual(before);
   expect(JSON.stringify(after.chats)).toContain(reply);
   expect(requests).toBe(1);
-  await reviewShot(recovered, "ask-close-recovery");
+  await reviewShot(recovered, "agent-close-recovery");
 });

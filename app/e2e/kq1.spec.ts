@@ -767,7 +767,7 @@ test("game frame follows boot and exit while New game preserves its draft", asyn
   await expect(page.locator(".screen")).toBeHidden();
 });
 
-/** The first submitted Ask gets real fixture context without changing the game. */
+/** The first submitted agent request gets real fixture context without changing the game. */
 test("KQ1 orientation accompanies the first question, Escape resumes", async ({ page }) => {
   await page.goto("/");
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
@@ -811,7 +811,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 

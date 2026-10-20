@@ -77,7 +77,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     if (!worker || state.phase !== "running") return;
     // Parked windows and key waits record fine — the setup's continuation
     // resumes them. What still blocks a recording is a live host request: a
-    // prompt, the save/restore selector, or the assistant.
+    // prompt, the save/restore selector, or the agent.
     if (
       state.powerUp.open ||
       state.powerUp.busy ||

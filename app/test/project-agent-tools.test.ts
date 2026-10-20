@@ -10,10 +10,10 @@ import { readProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createStarterProject, type StarterProject } from "../../src/authoring/starterProject.ts";
 import type { ProfileId } from "../../src/runtime/profile.ts";
 import {
-  createProjectAssistDriver,
-  PROJECT_ASSIST_TOOLS,
-  PROJECT_ASSIST_TOOL_NAMES,
-} from "../src/agent/projectAssistTools.ts";
+  createProjectAgentDriver,
+  PROJECT_AGENT_TOOLS,
+  PROJECT_AGENT_TOOL_NAMES,
+} from "../src/agent/projectAgentTools.ts";
 
 const PROFILE_ID: ProfileId = "2.936";
 
@@ -60,7 +60,7 @@ describe("read_project_context / read_document", () => {
   test("context lists the complete captured set with profile and diagnostics", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     const result = driver.execute("read_project_context", {});
     assert.equal(result.success, true);
     const details = result.details!;
@@ -83,7 +83,7 @@ describe("read_project_context / read_document", () => {
     const key = room1Key(project);
     const broken = "if (isset(f5)) {\n  print(m1);";
     editDraft(draft, key, broken);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
 
     const context = driver.execute("read_project_context", {});
     assert.equal(context.details!["compilable"], false);
@@ -104,7 +104,7 @@ describe("read_project_context / read_document", () => {
     const draft = authoredDraft(project);
     const key = room1Key(project);
     const source = project.sources.logics.get(project.bindings["first_room"]!.num)!;
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
 
     const first = driver.execute("read_document", { key, offset: 0, limit: 40 });
     assert.equal(first.success, true);
@@ -132,7 +132,7 @@ describe("read_project_context / read_document", () => {
     const byteKey = Object.keys(docs).find((k) => docs[k] instanceof Uint8Array)!;
     assert.ok(byteKey, "expected a byte document");
     const bytes = docs[byteKey] as Uint8Array;
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
 
     const result = driver.execute("read_document", { key: byteKey, offset: 0, limit: 2048 });
     assert.equal(result.success, true);
@@ -146,7 +146,7 @@ describe("read_project_context / read_document", () => {
 
   test("read_document rejects invalid and absent keys without throwing", () => {
     const project = createStarterProject("starter");
-    const driver = createProjectAssistDriver(capture(project, authoredDraft(project)));
+    const driver = createProjectAgentDriver(capture(project, authoredDraft(project)));
     assert.equal(driver.execute("read_document", { key: "nonsense" }).success, false);
     const absent = driver.execute("read_document", { key: "logic:200", offset: 0, limit: 10 });
     assert.equal(absent.success, false);
@@ -158,7 +158,7 @@ describe("propose_changes", () => {
   test("a valid coordinated change issues a proposal; nothing is applied", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     const room = room1Key(project);
     const newSource = "return;\n";
     const result = driver.execute("propose_changes", {
@@ -183,7 +183,7 @@ describe("propose_changes", () => {
   test("a refused change keeps the previously issued proposal", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     const room = room1Key(project);
     assert.equal(
       driver.execute("propose_changes", {
@@ -207,7 +207,7 @@ describe("propose_changes", () => {
   test("a dangling reference returns document-scoped diagnostics and writes nothing", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     const refused = driver.execute("propose_changes", {
       label: "dangle",
       changes: [{ key: "logic:9", content: "call(10);\nreturn;" }],
@@ -224,7 +224,7 @@ describe("propose_changes", () => {
   test("no-op changes and malformed arguments refuse before validation", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     const room = room1Key(project);
     const current = project.sources.logics.get(project.bindings["first_room"]!.num)!;
 
@@ -258,7 +258,7 @@ describe("propose_changes", () => {
   test("a second successful call replaces the pending proposal entirely", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     driver.execute("propose_changes", {
       label: "first",
       changes: [{ key: "logic:9", content: "return;\n" }],
@@ -281,7 +281,7 @@ describe("withdraw and dispatch policy", () => {
   test("withdraw erases the pending proposal exactly once", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     assert.equal(
       driver.execute("withdraw_changes", { reason: "nothing yet" }).success,
       false,
@@ -299,7 +299,7 @@ describe("withdraw and dispatch policy", () => {
   test("names outside the catalog are denied before dispatch", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
-    const driver = createProjectAssistDriver(capture(project, draft));
+    const driver = createProjectAgentDriver(capture(project, draft));
     for (const name of ["write_view", "apply_changes", "keep_project", "read_documentx"]) {
       const result = driver.execute(name, {});
       assert.equal(result.success, false, name);
@@ -309,7 +309,7 @@ describe("withdraw and dispatch policy", () => {
 
   test("the reused AGI reference tools answer under the workspace profile", () => {
     const project = createStarterProject("starter");
-    const driver = createProjectAssistDriver(capture(project, authoredDraft(project)));
+    const driver = createProjectAgentDriver(capture(project, authoredDraft(project)));
     const commands = driver.execute("read_command_reference", {
       query: "said",
       kind: null,
@@ -324,10 +324,10 @@ describe("withdraw and dispatch policy", () => {
 
   test("catalog names stay stable and distinct", () => {
     assert.deepEqual(
-      [...PROJECT_ASSIST_TOOL_NAMES].sort(),
-      [...PROJECT_ASSIST_TOOLS.map((t) => t.name)].sort(),
+      [...PROJECT_AGENT_TOOL_NAMES].sort(),
+      [...PROJECT_AGENT_TOOLS.map((t) => t.name)].sort(),
     );
-    assert.ok(new Set(PROJECT_ASSIST_TOOL_NAMES).size === PROJECT_ASSIST_TOOL_NAMES.length);
+    assert.ok(new Set(PROJECT_AGENT_TOOL_NAMES).size === PROJECT_AGENT_TOOL_NAMES.length);
     for (const name of [
       "read_project_context",
       "read_document",
@@ -336,7 +336,7 @@ describe("withdraw and dispatch policy", () => {
       "read_command_reference",
       "read_authoring_guide",
     ])
-      assert.ok(PROJECT_ASSIST_TOOL_NAMES.includes(name), name);
+      assert.ok(PROJECT_AGENT_TOOL_NAMES.includes(name), name);
   });
 });
 
@@ -345,7 +345,7 @@ test("document reads return complete ordinary text and binary resources", () => 
   const draft = authoredDraft(project);
   const text = "// details\n".repeat(9000) + "return;\n";
   editDraft(draft, "logic:200", text);
-  const driver = createProjectAssistDriver(capture(project, draft));
+  const driver = createProjectAgentDriver(capture(project, draft));
   const result = driver.execute("read_document", { key: "logic:200" });
   assert.equal(result.success, true);
   assert.ok(result.message?.endsWith(text));
@@ -365,7 +365,7 @@ test("binary reads default to the whole AGI resource", () => {
   const draft = authoredDraft(project);
   const bytes = new Uint8Array(60000).fill(255);
   editDraft(draft, "picture:200", bytes);
-  const driver = createProjectAssistDriver(capture(project, draft));
+  const driver = createProjectAgentDriver(capture(project, draft));
   const result = driver.execute("read_document", { key: "picture:200" });
   assert.equal(result.success, true, result.error ?? "");
   assert.equal(result.details?.["nextOffset"], null);

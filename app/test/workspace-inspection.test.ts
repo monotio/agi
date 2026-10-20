@@ -343,7 +343,7 @@ test("shared conversation uses each request's current runtime and reports live o
   }
 });
 
-test("Ask holds its chat while persistence waits, and retains the answer after a rejected durable write", async () => {
+test("Agent holds its chat while persistence waits, and retains the answer after a rejected durable write", async () => {
   let rejectWrite = false;
   let lastSaved: CachedGameData | undefined;
   const waiting = Promise.withResolvers<void>();

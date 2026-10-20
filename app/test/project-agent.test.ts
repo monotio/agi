@@ -5,10 +5,10 @@ import { providerSse } from "../../test/provider-stream.ts";
 import type { AgentToolResult } from "../../src/agent/agentState.ts";
 import type { LlmConfig, LlmTurnResult, UnifiedConversation } from "../src/agent/llmClient.ts";
 import {
-  createProjectAssist,
-  type ProjectAssistProposal,
-  type ProjectAssistWorkspace,
-} from "../src/agent/projectAssist.ts";
+  createProjectAgent,
+  type ProjectAgentProposal,
+  type ProjectAgentWorkspace,
+} from "../src/agent/projectAgent.ts";
 import { ProjectDraft } from "../../src/authoring/projectDraft.ts";
 import { readProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createStarterProject, type StarterProject } from "../../src/authoring/starterProject.ts";
@@ -147,7 +147,7 @@ function fakeConversation(steps: readonly FakeStep[]) {
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function createAssist(options: {
+function createAgent(options: {
   project?: StarterProject;
   draft?: ProjectDraft;
   conversationFactory?: (config: LlmConfig) => UnifiedConversation;
@@ -159,7 +159,7 @@ function createAssist(options: {
   const draft = options.draft ?? authoredDraft(project);
   const files = filesRecord(project);
   const captured: { factory?: LlmConfig } = {};
-  const current: { workspace: ProjectAssistWorkspace } = {
+  const current: { workspace: ProjectAgentWorkspace } = {
     workspace: {
       draft,
       files,
@@ -168,7 +168,7 @@ function createAssist(options: {
     },
   };
   const events = options.events ?? [];
-  const assist = createProjectAssist({
+  const agent = createProjectAgent({
     workspace: () => current.workspace,
     onEvent: (kind, detail, data) => events.push({ kind, detail, data }),
     ...(options.conversationFactory
@@ -181,7 +181,7 @@ function createAssist(options: {
         }
       : {}),
   });
-  return { assist, project, draft, files, current, events, captured };
+  return { agent, project, draft, files, current, events, captured };
 }
 
 /** A real provider name so the injected fake conversation drives the loop. */
@@ -189,9 +189,9 @@ function testConfig(): LlmConfig {
   return { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" };
 }
 
-describe("projectAssist: review lifecycle", () => {
+describe("projectAgent: review lifecycle", () => {
   test("a coordinated logic+words+bindings+new-room request reaches review and applies once", async () => {
-    const { assist, project, draft, captured } = createAssist({
+    const { agent, project, draft, captured } = createAgent({
       conversationFactory: () =>
         fakeConversation([
           { tools: [{ name: "read_project_context" }] },
@@ -207,8 +207,8 @@ describe("projectAssist: review lifecycle", () => {
           { text: "Added a grumble response." },
         ]).conversation,
     });
-    assist.connect(testConfig());
-    const result = await assist.request({ instruction: "make the clearing grumble" });
+    agent.connect(testConfig());
+    const result = await agent.request({ instruction: "make the clearing grumble" });
 
     assert.equal(result.outcome, "review");
     assert.ok(result.requestId.length > 0);
@@ -225,7 +225,7 @@ describe("projectAssist: review lifecycle", () => {
     // Nothing reached the draft before acceptance.
     assert.equal(draft.capture().read("logic:14"), undefined);
 
-    const accept = assist.acceptProposal(result.proposal!);
+    const accept = agent.acceptProposal(result.proposal!);
     assert.equal(accept.ok, true);
     assert.ok(accept.ok);
     assert.equal(draft.capture().read("logic:14")!.content, grumbleChanges(project)[1]!.content);
@@ -239,7 +239,7 @@ describe("projectAssist: review lifecycle", () => {
   });
 
   test("a broken draft stays readable and is repaired by a direct proposal", async () => {
-    const { assist, project, draft } = createAssist({});
+    const { agent, project, draft } = createAgent({});
     const key = room1Key(project);
     const broken = "if (isset(f5)) {\n  print(m1);";
     editDraft(draft, key, broken);
@@ -255,12 +255,12 @@ describe("projectAssist: review lifecycle", () => {
       },
       { text: "Repaired." },
     ]);
-    const { assist: a2 } = createAssist({
+    const { agent: a2 } = createAgent({
       project,
       draft,
       conversationFactory: () => fake.conversation,
     });
-    void assist;
+    void agent;
     a2.connect(testConfig());
     const result = await a2.request({ instruction: "fix the broken room" });
     assert.equal(result.outcome, "review");
@@ -274,7 +274,7 @@ describe("projectAssist: review lifecycle", () => {
   });
 
   test("reject releases the issued proposal; accept afterwards refuses", async () => {
-    const { assist, project } = createAssist({
+    const { agent, project } = createAgent({
       conversationFactory: () =>
         fakeConversation([
           {
@@ -288,18 +288,18 @@ describe("projectAssist: review lifecycle", () => {
           { text: "Staged." },
         ]).conversation,
     });
-    assist.connect(testConfig());
-    const result = await assist.request({ instruction: "stage a change" });
+    agent.connect(testConfig());
+    const result = await agent.request({ instruction: "stage a change" });
     assert.equal(result.outcome, "review");
-    assert.equal(assist.rejectProposal(result.proposal!), true);
-    const second = assist.acceptProposal(result.proposal!);
+    assert.equal(agent.rejectProposal(result.proposal!), true);
+    const second = agent.acceptProposal(result.proposal!);
     assert.equal(second.ok, false);
     assert.equal(second.ok ? undefined : second.reason, "rejected");
     void project;
   });
 
   test("withdrawal inside the request ends without a proposal", async () => {
-    const { assist } = createAssist({
+    const { agent } = createAgent({
       conversationFactory: () =>
         fakeConversation([
           {
@@ -314,11 +314,11 @@ describe("projectAssist: review lifecycle", () => {
           { text: "Withdrew." },
         ]).conversation,
     });
-    assist.connect(testConfig());
-    const result = await assist.request({ instruction: "try something" });
+    agent.connect(testConfig());
+    const result = await agent.request({ instruction: "try something" });
     assert.equal(result.outcome, "none");
     assert.equal(result.proposals, 1);
-    assert.equal(assist.state().pendingProposal, null);
+    assert.equal(agent.state().pendingProposal, null);
   });
 
   test("unknown provider tool names are denied and surfaced in the tool result", async () => {
@@ -326,9 +326,9 @@ describe("projectAssist: review lifecycle", () => {
       { tools: [{ name: "write_view", input: { view: 42 } }] },
       { text: "Nothing changed." },
     ]);
-    const { assist, draft } = createAssist({ conversationFactory: () => fake.conversation });
-    assist.connect(testConfig());
-    const result = await assist.request({ instruction: "do something" });
+    const { agent, draft } = createAgent({ conversationFactory: () => fake.conversation });
+    agent.connect(testConfig());
+    const result = await agent.request({ instruction: "do something" });
     assert.equal(result.outcome, "none");
     assert.equal(fake.resultsSeen[0]!.result.success, false);
     assert.match(fake.resultsSeen[0]!.result.error!, /not available in this phase/);
@@ -336,15 +336,15 @@ describe("projectAssist: review lifecycle", () => {
   });
 });
 
-describe("projectAssist: cancellation, epochs and stale results", () => {
+describe("projectAgent: cancellation, epochs and stale results", () => {
   test("disconnect during a provider wait cancels and a late turn cannot land", async () => {
     const fake = fakeConversation([{ hold: { text: "late answer" } }]);
-    const { assist, events } = createAssist({ conversationFactory: () => fake.conversation });
-    assist.connect(testConfig());
-    const request = assist.request({ instruction: "hello" });
+    const { agent, events } = createAgent({ conversationFactory: () => fake.conversation });
+    agent.connect(testConfig());
+    const request = agent.request({ instruction: "hello" });
     await settle();
-    assert.equal(assist.state().phase, "running");
-    assist.disconnect();
+    assert.equal(agent.state().phase, "running");
+    agent.disconnect();
     const result = await request;
     assert.equal(result.outcome, "cancelled");
     assert.equal(fake.interruptions.length > 0, true, "the pending turn was interrupted once");
@@ -352,7 +352,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
     fake.releaseHold();
     await settle();
     assert.equal(events.filter((e) => e.kind === "response").length, 0);
-    assert.equal(assist.state().pendingProposal, null);
+    assert.equal(agent.state().pendingProposal, null);
   });
 
   test("stop parks at the next progress entry; resume continues; cancel ends the request", async () => {
@@ -360,16 +360,16 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
       { hold: { tools: [{ name: "read_project_context" }] } },
       { text: "after" },
     ]);
-    const { assist } = createAssist({ conversationFactory: () => fake.conversation });
-    assist.connect(testConfig());
-    const request = assist.request({ instruction: "hello" });
+    const { agent } = createAgent({ conversationFactory: () => fake.conversation });
+    agent.connect(testConfig());
+    const request = agent.request({ instruction: "hello" });
     await settle();
-    assist.stop();
+    agent.stop();
     fake.releaseHold(); // the provider turn lands after stop — parks before executing
     await settle();
-    assert.equal(assist.state().phase, "paused");
+    assert.equal(agent.state().phase, "paused");
 
-    assist.cancel();
+    agent.cancel();
     const result = await request;
     assert.equal(result.outcome, "cancelled");
   });
@@ -386,16 +386,16 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
       },
       { hold: { text: "done" } },
     ]);
-    const { assist } = createAssist({ conversationFactory: () => fake.conversation });
-    assist.connect(testConfig());
-    const request = assist.request({ instruction: "add room" });
+    const { agent } = createAgent({ conversationFactory: () => fake.conversation });
+    agent.connect(testConfig());
+    const request = agent.request({ instruction: "add room" });
     await settle();
-    assist.stop();
+    agent.stop();
     await settle();
     fake.releaseHold();
     await settle();
     // Terminal turn queued while stopped — the loop parks before consuming it.
-    assist.resume();
+    agent.resume();
     const result = await request;
     assert.equal(result.outcome, "review");
     assert.deepEqual(result.keys, ["logic:9"]);
@@ -417,13 +417,13 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
       },
       { text: "Staged." },
     ]);
-    const { assist } = createAssist({
+    const { agent } = createAgent({
       project,
       draft,
       conversationFactory: () => fake.conversation,
     });
-    assist.connect(testConfig());
-    const request = assist.request({ instruction: "add room" });
+    agent.connect(testConfig());
+    const request = agent.request({ instruction: "add room" });
     await settle();
     editDraft(draft, "world", '{"typed":true}');
     fake.releaseHold();
@@ -436,7 +436,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
       proposal.changes().map((c) => c.key),
       ["logic:9"],
     );
-    const accept = assist.acceptProposal(proposal);
+    const accept = agent.acceptProposal(proposal);
     assert.equal(accept.ok, false);
     assert.equal(accept.ok ? undefined : accept.reason, "stale");
     assert.equal(draft.capture().read("logic:9"), undefined);
@@ -459,11 +459,11 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
         { text: "Second done." },
       ]),
     ];
-    const { assist } = createAssist({ conversationFactory: () => fakes[which++]!.conversation });
-    assist.connect(testConfig());
-    const first = assist.request({ instruction: "first" });
+    const { agent } = createAgent({ conversationFactory: () => fakes[which++]!.conversation });
+    agent.connect(testConfig());
+    const first = agent.request({ instruction: "first" });
     await settle();
-    const second = assist.request({ instruction: "second" });
+    const second = agent.request({ instruction: "second" });
     const [r1, r2] = await Promise.all([first, second]);
     assert.equal(r1.outcome, "cancelled");
     assert.equal(r2.outcome, "review");
@@ -471,19 +471,19 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
     // The abandoned conversation's late turn lands into nothing.
     fake1.releaseHold();
     await settle();
-    assert.equal(assist.state().lastResult?.requestId, r2.requestId);
+    assert.equal(agent.state().lastResult?.requestId, r2.requestId);
   });
 
   test("a replaced workspace ends the request and refuses the issued handle", async () => {
     const project = createStarterProject("starter");
     const fake = fakeConversation([{ hold: { text: "late" } }]);
-    const { assist, draft, current } = createAssist({
+    const { agent, draft, current } = createAgent({
       project,
       conversationFactory: () => fake.conversation,
     });
-    assist.connect(testConfig());
-    const epoch = assist.state().workspaceEpoch;
-    const request = assist.request({ instruction: "hello" });
+    agent.connect(testConfig());
+    const epoch = agent.state().workspaceEpoch;
+    const request = agent.request({ instruction: "hello" });
     await settle();
     // The host reopened a different workspace under the same accessor; the next
     // state poll detects it and ends the request before the late turn lands.
@@ -493,19 +493,19 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
       files: filesRecord(other),
       profileId: PROFILE_ID,
     };
-    assist.state();
+    agent.state();
     const result = await request;
     assert.equal(result.outcome, "cancelled");
-    assert.ok(assist.state().workspaceEpoch > epoch);
+    assert.ok(agent.state().workspaceEpoch > epoch);
     fake.releaseHold();
     await settle();
-    assert.equal(assist.state().pendingProposal, null);
+    assert.equal(agent.state().pendingProposal, null);
     void draft;
   });
 
   test("foreign and fake handles are refused without touching the draft", async () => {
     const mk = () =>
-      createAssist({
+      createAgent({
         conversationFactory: () =>
           fakeConversation([
             {
@@ -521,24 +521,24 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
       });
     const a = mk();
     const b = mk();
-    a.assist.connect(testConfig());
-    b.assist.connect(testConfig());
-    const ra = await a.assist.request({ instruction: "a" });
-    const rb = await b.assist.request({ instruction: "b" });
-    const foreign = a.assist.acceptProposal(rb.proposal!);
+    a.agent.connect(testConfig());
+    b.agent.connect(testConfig());
+    const ra = await a.agent.request({ instruction: "a" });
+    const rb = await b.agent.request({ instruction: "b" });
+    const foreign = a.agent.acceptProposal(rb.proposal!);
     assert.equal(foreign.ok, false);
     assert.equal(foreign.ok ? undefined : foreign.reason, "foreign");
-    const fake = a.assist.acceptProposal({
+    const fake = a.agent.acceptProposal({
       requestId: ra.requestId,
-    } as unknown as ProjectAssistProposal);
+    } as unknown as ProjectAgentProposal);
     assert.equal(fake.ok, false);
     // The genuine handle still accepts.
-    assert.equal(a.assist.acceptProposal(ra.proposal!).ok, true);
+    assert.equal(a.agent.acceptProposal(ra.proposal!).ok, true);
   });
 
   test("a refused revision keeps the earlier valid proposal reviewable", async () => {
     const project = createStarterProject("starter");
-    const { assist, draft } = createAssist({
+    const { agent, draft } = createAgent({
       project,
       conversationFactory: () =>
         fakeConversation([
@@ -564,18 +564,18 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
           { text: "One valid proposal stands." },
         ]).conversation,
     });
-    assist.connect(testConfig());
-    const result = await assist.request({ instruction: "change things" });
+    agent.connect(testConfig());
+    const result = await agent.request({ instruction: "change things" });
     assert.equal(result.outcome, "review");
     assert.equal(result.refusals, 1);
     assert.equal(result.diagnostics.length > 0, true);
     assert.deepEqual(result.keys, ["logic:9"]);
-    assert.equal(assist.acceptProposal(result.proposal!).ok, true);
+    assert.equal(agent.acceptProposal(result.proposal!).ok, true);
     assert.equal(draft.capture().read("logic:9")!.content, "return;\n");
   });
 });
 
-describe("projectAssist: approval modes", () => {
+describe("projectAgent: approval modes", () => {
   const proposeThenDone = () =>
     [
       {
@@ -590,25 +590,25 @@ describe("projectAssist: approval modes", () => {
     ] as const;
 
   test("review is the default even on an eligible workspace", async () => {
-    const { assist } = createAssist({
+    const { agent } = createAgent({
       conversationFactory: () => fakeConversation([...proposeThenDone()]).conversation,
     });
-    assist.connect(testConfig());
-    assert.equal(assist.state().approval.mode, "review");
-    const result = await assist.request({ instruction: "x" });
+    agent.connect(testConfig());
+    assert.equal(agent.state().approval.mode, "review");
+    const result = await agent.request({ instruction: "x" });
     assert.equal(result.outcome, "review");
   });
 
   test("explicit scoped auto-approval applies one atomic transaction, kept bytes untouched", async () => {
     const project = createStarterProject("starter");
-    const { assist, draft } = createAssist({
+    const { agent, draft } = createAgent({
       project,
       conversationFactory: () => fakeConversation([...proposeThenDone()]).conversation,
     });
     const filesBefore = filesRecord(project);
-    assist.connect(testConfig());
-    assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
-    const result = await assist.request({ instruction: "add a stub room" });
+    agent.connect(testConfig());
+    agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+    const result = await agent.request({ instruction: "add a stub room" });
     assert.equal(result.outcome, "applied");
     assert.equal(draft.capture().read("logic:9")!.content, "return;\n");
     assert.equal(result.transaction !== undefined, true);
@@ -621,7 +621,7 @@ describe("projectAssist: approval modes", () => {
   });
 
   test("deletions always stay in review, even inside an auto scope", async () => {
-    const { assist, draft } = createAssist({
+    const { agent, draft } = createAgent({
       conversationFactory: () =>
         fakeConversation([
           {
@@ -643,15 +643,15 @@ describe("projectAssist: approval modes", () => {
     });
     // Seed a document to delete.
     draft.edit("logic:10", "return;\n", draft.capture().version("logic:10"));
-    assist.connect(testConfig());
-    assist.setApprovalMode({ mode: "auto", scope: ["logic:9", "logic:10"] });
-    const result = await assist.request({ instruction: "remove ten" });
+    agent.connect(testConfig());
+    agent.setApprovalMode({ mode: "auto", scope: ["logic:9", "logic:10"] });
+    const result = await agent.request({ instruction: "remove ten" });
     assert.equal(result.outcome, "review", "a deletion must never auto-apply");
     assert.deepEqual(result.deletions, ["logic:10"]);
   });
 
   test("auto scope narrower than the change set falls back to review", async () => {
-    const { assist, draft, project } = createAssist({
+    const { agent, draft, project } = createAgent({
       conversationFactory: (config) => {
         void config;
         const words = JSON.stringify([...project.sources.words, ["floop", 99]]);
@@ -674,9 +674,9 @@ describe("projectAssist: approval modes", () => {
         ]).conversation;
       },
     });
-    assist.connect(testConfig());
-    assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
-    const result = await assist.request({ instruction: "x" });
+    agent.connect(testConfig());
+    agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+    const result = await agent.request({ instruction: "x" });
     assert.equal(result.outcome, "review", "words is outside the scope");
     assert.equal(
       draft.capture().read("words")!.content,
@@ -698,12 +698,12 @@ describe("projectAssist: approval modes", () => {
       },
       { text: "Done." },
     ]);
-    const { assist, draft } = createAssist({ conversationFactory: () => fake.conversation });
-    assist.connect(testConfig());
-    assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
-    const request = assist.request({ instruction: "x" });
+    const { agent, draft } = createAgent({ conversationFactory: () => fake.conversation });
+    agent.connect(testConfig());
+    agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+    const request = agent.request({ instruction: "x" });
     await settle();
-    assist.setApprovalMode({ mode: "review" });
+    agent.setApprovalMode({ mode: "review" });
     fake.releaseHold();
     const result = await request;
     assert.equal(result.outcome, "review");
@@ -724,11 +724,11 @@ describe("projectAssist: approval modes", () => {
       },
       { text: "Done." },
     ]);
-    const { assist, draft } = createAssist({ conversationFactory: () => fake.conversation });
-    assist.connect(testConfig());
-    const request = assist.request({ instruction: "x" });
+    const { agent, draft } = createAgent({ conversationFactory: () => fake.conversation });
+    agent.connect(testConfig());
+    const request = agent.request({ instruction: "x" });
     await settle();
-    assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+    agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
     fake.releaseHold();
     const result = await request;
     assert.equal(result.outcome, "applied");
@@ -737,7 +737,7 @@ describe("projectAssist: approval modes", () => {
 
   test("a mutated caller scope array cannot widen authority", async () => {
     const scope = ["logic:9"];
-    const { assist, project } = createAssist({
+    const { agent, project } = createAgent({
       conversationFactory: (config) => {
         void config;
         const words = JSON.stringify([...project.sources.words, ["floop", 99]]);
@@ -760,30 +760,30 @@ describe("projectAssist: approval modes", () => {
         ]).conversation;
       },
     });
-    assist.connect(testConfig());
-    assist.setApprovalMode({ mode: "auto", scope });
+    agent.connect(testConfig());
+    agent.setApprovalMode({ mode: "auto", scope });
     scope.push("words");
-    const result = await assist.request({ instruction: "x" });
+    const result = await agent.request({ instruction: "x" });
     assert.equal(result.outcome, "review", "the session owns its scope copy");
   });
 
   test("a caller-mutated config object cannot rewrite the connected session", async () => {
-    const { assist, captured } = createAssist({
+    const { agent, captured } = createAgent({
       conversationFactory: () => fakeConversation([{ text: "ok" }]).conversation,
     });
     const cfg: LlmConfig = { provider: "openai", apiKey: "key-1", model: "m1", effort: "high" };
-    assist.connect(cfg);
+    agent.connect(cfg);
     cfg.apiKey = "";
     cfg.model = "changed";
     cfg.effort = "low";
-    await assist.request({ instruction: "x" });
+    await agent.request({ instruction: "x" });
     assert.equal(captured.factory!.apiKey, "key-1");
     assert.equal(captured.factory!.model, "m1");
     assert.equal(captured.factory!.effort, "high");
   });
 
   test("auto-approval refuses on a workspace not declared eligible", async () => {
-    const { assist, draft } = createAssist({
+    const { agent, draft } = createAgent({
       autoApproveEligible: false,
       conversationFactory: () =>
         fakeConversation([
@@ -798,28 +798,28 @@ describe("projectAssist: approval modes", () => {
           { text: "Done." },
         ]).conversation,
     });
-    assist.connect(testConfig());
-    assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
-    const result = await assist.request({ instruction: "x" });
+    agent.connect(testConfig());
+    agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+    const result = await agent.request({ instruction: "x" });
     assert.equal(result.outcome, "review");
     assert.equal(draft.capture().read("logic:9"), undefined);
   });
 
   test("reconnect resets approval to review and bumps the epoch", async () => {
-    const { assist } = createAssist({});
-    assist.connect(testConfig());
-    const epoch = assist.state().connectionEpoch;
-    assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
-    assist.disconnect();
-    assist.connect(testConfig());
-    assert.equal(assist.state().approval.mode, "review");
-    assert.ok(assist.state().connectionEpoch > epoch);
+    const { agent } = createAgent({});
+    agent.connect(testConfig());
+    const epoch = agent.state().connectionEpoch;
+    agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+    agent.disconnect();
+    agent.connect(testConfig());
+    assert.equal(agent.state().approval.mode, "review");
+    assert.ok(agent.state().connectionEpoch > epoch);
   });
 });
 
-describe("projectAssist: guard rails", () => {
+describe("projectAgent: guard rails", () => {
   test("closed sessions refuse work; disconnect refuses accept but keeps the diff readable", async () => {
-    const { assist, draft } = createAssist({
+    const { agent, draft } = createAgent({
       conversationFactory: () =>
         fakeConversation([
           {
@@ -833,12 +833,12 @@ describe("projectAssist: guard rails", () => {
           { text: "Done." },
         ]).conversation,
     });
-    assist.connect(testConfig());
-    const result = await assist.request({ instruction: "x" });
+    agent.connect(testConfig());
+    const result = await agent.request({ instruction: "x" });
     assert.equal(result.outcome, "review");
     const proposal = result.proposal!;
-    assist.disconnect();
-    const refused = assist.acceptProposal(proposal);
+    agent.disconnect();
+    const refused = agent.acceptProposal(proposal);
     assert.equal(refused.ok, false);
     assert.equal(refused.ok ? undefined : refused.reason, "closed");
     // The retained diff is still viewable.
@@ -848,10 +848,10 @@ describe("projectAssist: guard rails", () => {
     );
     assert.equal(draft.capture().read("logic:9"), undefined);
 
-    assist.close();
-    assert.equal(assist.state().closed, true);
-    await assert.rejects(assist.request({ instruction: "again" }), /closed/i);
-    assert.throws(() => assist.connect(testConfig()), /closed/i);
+    agent.close();
+    assert.equal(agent.state().closed, true);
+    await assert.rejects(agent.request({ instruction: "again" }), /closed/i);
+    assert.throws(() => agent.connect(testConfig()), /closed/i);
   });
 
   test("a budget stop pauses the next provider request; resume lets it through", async (t) => {
@@ -892,24 +892,24 @@ describe("projectAssist: guard rails", () => {
         { headers: { "content-type": "text/event-stream" } },
       );
     });
-    const { assist } = createAssist({});
+    const { agent } = createAgent({});
     // The reported first response costs $0.101, crossing the actual-spend limit.
     beginProviderTask(0.1);
     // No injected factory: the request goes through the real OpenAI transport.
-    assist.connect({
+    agent.connect({
       provider: "openai",
       apiKey: "placeholder",
       model: "gpt-6-sol",
       budgetUsd: 0.1,
     });
-    const request = assist.request({ instruction: "inspect" });
+    const request = agent.request({ instruction: "inspect" });
     await waitUntil(() => requests.length > 0, "the provider request did not start");
-    await waitUntil(() => assist.state().phase === "paused", "the agent did not pause");
-    assert.equal(assist.state().phase, "paused");
-    assert.equal(assist.state().run?.reportedSpent, 0.101);
-    assert.match(assist.state().run?.reason ?? "", /Budget/i);
+    await waitUntil(() => agent.state().phase === "paused", "the agent did not pause");
+    assert.equal(agent.state().phase, "paused");
+    assert.equal(agent.state().run?.reportedSpent, 0.101);
+    assert.match(agent.state().run?.reason ?? "", /Budget/i);
     assert.equal(requests.length, 1, "the second provider request waits for resume");
-    assist.resume();
+    agent.resume();
     const result = await request;
     assert.equal(requests.length, 2);
     assert.equal(result.outcome, "none");
@@ -917,10 +917,10 @@ describe("projectAssist: guard rails", () => {
   });
 
   test("the deterministic stub produces a read-only request without network", async () => {
-    const { assist, draft, captured } = createAssist({});
-    assist.connect({ provider: "stub", apiKey: "", model: "stub" });
+    const { agent, draft, captured } = createAgent({});
+    agent.connect({ provider: "stub", apiKey: "", model: "stub" });
     // No injected factory: the production default must wire the stub itself.
-    const result = await assist.request({ instruction: "look around" });
+    const result = await agent.request({ instruction: "look around" });
     assert.equal(result.outcome, "none");
     assert.match(result.text, /look around/);
     assert.equal(captured.factory, undefined, "stub must not need the injected factory");
@@ -929,16 +929,16 @@ describe("projectAssist: guard rails", () => {
   });
 });
 
-test("project assist completes after more than eight distinct tool rounds", async () => {
+test("project agent completes after more than eight distinct tool rounds", async () => {
   const fake = fakeConversation([
     ...Array.from({ length: 12 }, (_, i) => ({
       tools: [{ name: "read_document", input: { key: `logic:${i}` } }],
     })),
     { text: "Inspection complete." },
   ]);
-  const { assist } = createAssist({ conversationFactory: () => fake.conversation });
-  assist.connect(testConfig());
-  const result = await assist.request({ instruction: "Inspect the project." });
+  const { agent } = createAgent({ conversationFactory: () => fake.conversation });
+  agent.connect(testConfig());
+  const result = await agent.request({ instruction: "Inspect the project." });
   assert.equal(result.text, "Inspection complete.");
   assert.equal(fake.resultsSeen.length, 12);
   assert.deepEqual(fake.interruptions, []);

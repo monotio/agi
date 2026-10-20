@@ -109,7 +109,7 @@ function powerUp(): PowerUpUiState {
 
 /**
  * One tab: the project booted from its stored record and, when `warm`, a
- * session hydrated from it, the assistant closed again.
+ * session hydrated from it, the agent closed again.
  */
 async function openTab(projectId: ProjectId, files: Record<string, Uint8Array>, warm = true) {
   const game: BootedGame = {

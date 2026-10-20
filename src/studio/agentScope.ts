@@ -1,5 +1,5 @@
 /**
- * The scope contract of a Studio assist request: what an AI
+ * The scope contract of a Studio agent request: what an AI
  * proposal made from a PICTURE editor or VIEW editor selection may change.
  * The UI builds it from the selection and the lens; `checkCandidate` holds a
  * candidate to it on DECODED pixels, whatever the proposal's operations or
@@ -28,7 +28,7 @@
  * pours past the selection. The lens locks a manual edit passes
  * (lensRules.ts) apply too; and as for a manual edit, a candidate that only
  * moves or copies whole targets carries every plane they draw past the lens
- * locks (`editUnlocks`). `pictureAssistScope` licenses the selection's
+ * locks (`editUnlocks`). `pictureAgentScope` licenses the selection's
  * on-screen area on every unlocked plane, so "make this bridge walkable" in
  * the Priority lens may paint priority under the selected bridge art.
  *
@@ -78,12 +78,12 @@ import { validateViewEdit } from "./view/viewValidation.ts";
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 const PLANES: readonly PicturePlane[] = ["visual", "priority"];
 
-/** A Studio draft as the assist sees it: picture source text, or an encoded VIEW. */
-export type AssistDraft =
+/** A Studio draft as the agent sees it: picture source text, or an encoded VIEW. */
+export type AgentDraft =
   | { readonly kind: "picture"; readonly source: string }
   | { readonly kind: "view"; readonly payload: Uint8Array };
 
-export interface PictureAssistScope {
+export interface PictureAgentScope {
   readonly kind: "picture";
   readonly num: number;
   /** `draftRevision` of the draft the request was made against. */
@@ -101,7 +101,7 @@ export interface PictureAssistScope {
   readonly maxBytes: number;
 }
 
-export interface ViewAssistScope {
+export interface ViewAgentScope {
   readonly kind: "view";
   readonly num: number;
   readonly baseRevision: string;
@@ -113,9 +113,9 @@ export interface ViewAssistScope {
   readonly maxBytes: number;
 }
 
-export type AssistScope = PictureAssistScope | ViewAssistScope;
+export type AgentScope = PictureAgentScope | ViewAgentScope;
 
-type AssistConstraint =
+type AgentConstraint =
   | "stale-base"
   | "unknown-target"
   | "outside-target"
@@ -126,8 +126,8 @@ type AssistConstraint =
   | "protected-loop"
   | "max-bytes";
 
-interface AssistViolation {
-  readonly constraint: AssistConstraint;
+interface AgentViolation {
+  readonly constraint: AgentConstraint;
   /** Plain words: what the candidate would break. */
   readonly message: string;
   readonly plane?: PicturePlane;
@@ -138,9 +138,9 @@ interface AssistViolation {
   readonly bbox?: CellBox;
 }
 
-export interface AssistCheck {
+export interface AgentCheck {
   readonly ok: boolean;
-  readonly violations: readonly AssistViolation[];
+  readonly violations: readonly AgentViolation[];
   /** What a picture candidate changes in other items' output, when anything. */
   readonly sideEffects?: SideEffectReport;
 }
@@ -160,7 +160,7 @@ function fnv(length: number, unit: (index: number) => number): string {
  * The draft's revision: `picture-<length>-<fnv>` over the source text (so a
  * label edit is a new revision), `view-<length>-<fnv>` over the payload.
  */
-export function draftRevision(draft: AssistDraft): string {
+export function draftRevision(draft: AgentDraft): string {
   if (draft.kind === "picture") {
     const { source } = draft;
     return `picture-${fnv(source.length, (i) => source.charCodeAt(i))}`;
@@ -182,14 +182,14 @@ export function selectionArea(
  * the lens and unlocks the Studio holds (and so its locked planes), and the
  * selection's on-screen area licensed on every unlocked plane.
  */
-export function pictureAssistScope(input: {
+export function pictureAgentScope(input: {
   readonly num: number;
   readonly compiled: CompiledDocument;
   readonly targetIds: readonly string[];
   readonly lens: StudioLens;
   readonly unlocks?: LensUnlocks;
   readonly maxBytes?: number;
-}): PictureAssistScope {
+}): PictureAgentScope {
   const unlocks = input.unlocks ?? NO_UNLOCKS;
   const locked = lockedPlanes(input.lens, unlocks);
   const area = selectionArea(input.compiled, input.targetIds);
@@ -212,13 +212,13 @@ export function pictureAssistScope(input: {
 }
 
 /** The scope the UI sends for a VIEW editor selection of cels. */
-export function viewAssistScope(input: {
+export function viewAgentScope(input: {
   readonly num: number;
   readonly document: ViewDocument;
   readonly targetCels: readonly CelRef[];
   readonly protectedLoops?: readonly number[];
   readonly maxBytes?: number;
-}): ViewAssistScope {
+}): ViewAgentScope {
   return {
     kind: "view",
     num: input.num,
@@ -397,7 +397,7 @@ const looseCommands = (document: PictureDocument): string[] =>
 function licence(
   before: CompiledDocument,
   after: CompiledDocument,
-  scope: Pick<PictureAssistScope, "targetIds" | "allowedMask">,
+  scope: Pick<PictureAgentScope, "targetIds" | "allowedMask">,
 ): Licence {
   const known = new Set(before.document.items.map((item) => item.id));
   const created = after.document.items.filter((item) => !known.has(item.id));
@@ -458,7 +458,7 @@ function licence(
 export function wholeTargets(
   before: CompiledDocument,
   after: CompiledDocument,
-  scope: Pick<PictureAssistScope, "targetIds" | "allowedMask">,
+  scope: Pick<PictureAgentScope, "targetIds" | "allowedMask">,
 ): boolean {
   return licence(before, after, scope).whole;
 }
@@ -490,7 +490,7 @@ function add(into: Tally, x: number, y: number): void {
 }
 const boxOf = ({ x0, y0, x1, y1 }: Tally): CellBox => ({ x0, y0, x1, y1 });
 
-const staleBase = (scope: AssistScope, actual: string): AssistViolation => ({
+const staleBase = (scope: AgentScope, actual: string): AgentViolation => ({
   constraint: "stale-base",
   message: `the draft changed since this request was made (request base ${scope.baseRevision}, draft now ${actual})`,
 });
@@ -498,9 +498,9 @@ const staleBase = (scope: AssistScope, actual: string): AssistViolation => ({
 function checkPicture(
   before: CompiledDocument,
   after: CompiledDocument,
-  scope: PictureAssistScope,
-): AssistCheck {
-  const violations: AssistViolation[] = [];
+  scope: PictureAgentScope,
+): AgentCheck {
+  const violations: AgentViolation[] = [];
   const revision = draftRevision({
     kind: "picture",
     source: serializePictureDocument(before.document),
@@ -621,14 +621,14 @@ function checkPicture(
       plane,
       count: cells.count,
       bbox: boxOf(cells),
-      message: `new item '${id}' ("${label}") ${stray.why === "second" ? "would be a second copy of" : "copies"} the selected "${stray.target}"${stray.why === "second" ? "" : " in other colours"}: ${at(cells.count, boxOf(cells))} of the ${PLANE_WORDS[plane]} outside the selection would change. ${stray.why === "second" ? "An assist may move a selected item or copy it once, no more; drop the extra copies" : "A copy keeps the item's colours and pen; draw it in the same ones, or keep new drawing inside the selection"}`,
+      message: `new item '${id}' ("${label}") ${stray.why === "second" ? "would be a second copy of" : "copies"} the selected "${stray.target}"${stray.why === "second" ? "" : " in other colours"}: ${at(cells.count, boxOf(cells))} of the ${PLANE_WORDS[plane]} outside the selection would change. ${stray.why === "second" ? "An agent may move a selected item or copy it once, no more; drop the extra copies" : "A copy keeps the item's colours and pen; draw it in the same ones, or keep new drawing inside the selection"}`,
     });
   const report = sideEffects(before, after, spill, controlled);
   return { ok: violations.length === 0, violations, ...(report ? { sideEffects: report } : {}) };
 }
 
-function checkView(before: ViewDocument, after: ViewDocument, scope: ViewAssistScope): AssistCheck {
-  const violations: AssistViolation[] = [];
+function checkView(before: ViewDocument, after: ViewDocument, scope: ViewAgentScope): AgentCheck {
+  const violations: AgentViolation[] = [];
   const revision = draftRevision({ kind: "view", payload: before.payload });
   if (revision !== scope.baseRevision) violations.push(staleBase(scope, revision));
   const missing = scope.targetCels.filter(({ loop, cel }) => !before.loops[loop]?.cels[cel]);
@@ -718,24 +718,24 @@ function checkView(before: ViewDocument, after: ViewDocument, scope: ViewAssistS
 export function checkCandidate(
   before: CompiledDocument,
   after: CompiledDocument,
-  scope: PictureAssistScope,
-): AssistCheck;
+  scope: PictureAgentScope,
+): AgentCheck;
 export function checkCandidate(
   before: ViewDocument,
   after: ViewDocument,
-  scope: ViewAssistScope,
-): AssistCheck;
+  scope: ViewAgentScope,
+): AgentCheck;
 export function checkCandidate(
   before: CompiledDocument | ViewDocument,
   after: CompiledDocument | ViewDocument,
-  scope: AssistScope,
-): AssistCheck {
+  scope: AgentScope,
+): AgentCheck {
   return scope.kind === "picture"
     ? checkPicture(before as CompiledDocument, after as CompiledDocument, scope)
     : checkView(before as ViewDocument, after as ViewDocument, scope);
 }
 
 /** The violations in plain words, for a refusal the model and the creator read. */
-export function assistRefusalText(check: AssistCheck): string {
+export function agentRefusalText(check: AgentCheck): string {
   return check.violations.map((v) => v.message).join("; ");
 }

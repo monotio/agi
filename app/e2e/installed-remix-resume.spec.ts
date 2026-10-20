@@ -88,7 +88,7 @@ for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] a
     await page.getByTestId("boot-sample").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     if (attachedInPlay) {
-      await page.getByTestId("menu-assistant").click();
+      await page.getByTestId("menu-agent").click();
       const draft = page.getByTestId("agent-message");
       await expect(draft).toBeEnabled();
       await draft.fill("Sketch an alligator");
@@ -123,7 +123,7 @@ for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] a
       await page.getByTestId("btn-exit").click();
       await page.getByTestId("boot-sample").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(1);
-      await page.getByTestId("menu-assistant").click();
+      await page.getByTestId("menu-agent").click();
       await expect(message).toBeEnabled();
       await message.fill("The new game owns this draft");
       await expect(send).toBeEnabled();

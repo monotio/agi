@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createProjectAssist, type ProjectAssistWorkspace } from "../src/agent/projectAssist.ts";
+import { createProjectAgent, type ProjectAgentWorkspace } from "../src/agent/projectAgent.ts";
 import type { UnifiedConversation } from "../src/agent/llmClient.ts";
 import type { AgentRun } from "../src/agent/agentRun.ts";
 import { ProjectDraft } from "../../src/authoring/projectDraft.ts";
@@ -26,7 +26,7 @@ function fixture(onEvent?: (kind: string, data?: unknown) => void) {
   assert.deepEqual(documents.diagnostics, []);
   const draft = new ProjectDraft(documents.documents);
   const current: {
-    workspace: ProjectAssistWorkspace;
+    workspace: ProjectAgentWorkspace;
     unavailable: boolean;
     beforeRead?: () => void;
   } = {
@@ -36,7 +36,7 @@ function fixture(onEvent?: (kind: string, data?: unknown) => void) {
   const runs: AgentRun[] = [];
   const calls = { sends: 0, completions: 0 };
   let proposeNext = true;
-  const assist = createProjectAssist({
+  const agent = createProjectAgent({
     ...(onEvent ? { onEvent: (kind, _detail, data) => onEvent(kind, data) } : {}),
     workspace: () => {
       current.beforeRead?.();
@@ -97,34 +97,34 @@ function fixture(onEvent?: (kind: string, data?: unknown) => void) {
       return conversation;
     },
   });
-  assist.connect({ provider: "openai", model: "gpt-6.1-sol", apiKey: "placeholder" });
-  return { assist, current, draft, documents: documents.documents, runs, calls };
+  agent.connect({ provider: "openai", model: "gpt-6.1-sol", apiKey: "placeholder" });
+  return { agent, current, draft, documents: documents.documents, runs, calls };
 }
 
 test("a newer request revokes the previous review handle while retaining its diff", async () => {
-  const { assist, draft } = fixture();
-  const first = await assist.request({ instruction: "Add room" });
+  const { agent, draft } = fixture();
+  const first = await agent.request({ instruction: "Add room" });
   assert.equal(first.outcome, "review");
   assert.ok(first.proposal);
   const before = draft.capture().revision;
-  await assist.request({ instruction: "Inspect instead" });
+  await agent.request({ instruction: "Inspect instead" });
   assert.deepEqual(first.proposal.changes(), [{ key: "logic:9", content: "return;\n" }]);
   assert.equal(first.proposal.accept().ok, false, "superseded request must lose apply authority");
   assert.equal(draft.capture().revision, before);
 });
 
 test("reopening the workspace resets explicit auto-approval to Review", () => {
-  const { assist, current, documents } = fixture();
-  assist.state();
-  assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
-  assert.equal(assist.state().approval.mode, "auto");
+  const { agent, current, documents } = fixture();
+  agent.state();
+  agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+  assert.equal(agent.state().approval.mode, "auto");
   current.workspace = { ...current.workspace, draft: new ProjectDraft(documents) };
-  assert.equal(assist.state().approval.mode, "review");
+  assert.equal(agent.state().approval.mode, "review");
 });
 
 test("an unavailable workspace refuses a retained review handle without throwing", async () => {
-  const { assist, current, draft } = fixture();
-  const result = await assist.request({ instruction: "Add room" });
+  const { agent, current, draft } = fixture();
+  const result = await agent.request({ instruction: "Add room" });
   assert.equal(result.outcome, "review");
   assert.ok(result.proposal);
   const before = draft.capture().revision;
@@ -134,107 +134,107 @@ test("an unavailable workspace refuses a retained review handle without throwing
 });
 
 test("state snapshots cannot mutate the session's request phase", async () => {
-  const { assist } = fixture();
-  await assist.request({ instruction: "Add room" });
-  const state = assist.state();
+  const { agent } = fixture();
+  await agent.request({ instruction: "Add room" });
+  const state = agent.state();
   assert.equal(state.phase, "idle");
   assert.ok(state.run);
   state.run.status = "paused";
-  assert.equal(assist.state().phase, "idle");
+  assert.equal(agent.state().phase, "idle");
 });
 
 test("a superseded AgentRun callback cannot overwrite current request state", async () => {
-  const { assist, runs } = fixture();
-  await assist.request({ instruction: "Add room" });
-  await assist.request({ instruction: "Inspect" });
-  assert.equal(assist.state().run?.usageIncomplete, false);
+  const { agent, runs } = fixture();
+  await agent.request({ instruction: "Add room" });
+  await agent.request({ instruction: "Inspect" });
+  assert.equal(agent.state().run?.usageIncomplete, false);
   runs[0]!.markUsageIncomplete();
-  assert.equal(assist.state().run?.usageIncomplete, false);
+  assert.equal(agent.state().run?.usageIncomplete, false);
 });
 
 test("disconnecting during terminal telemetry cancels before issuing a review result", async () => {
-  const { assist, draft } = fixture((kind) => {
-    if (kind === "telemetry") assist.disconnect();
+  const { agent, draft } = fixture((kind) => {
+    if (kind === "telemetry") agent.disconnect();
   });
   const before = draft.capture().revision;
-  const result = await assist.request({ instruction: "Add room" });
+  const result = await agent.request({ instruction: "Add room" });
   assert.equal(result.outcome, "cancelled");
   assert.equal(draft.capture().revision, before);
-  assert.equal(assist.state().pendingProposal, null);
+  assert.equal(agent.state().pendingProposal, null);
 });
 
 test("workspace replacement during terminal telemetry cannot auto-apply to the old draft", async () => {
-  const { assist, current, draft, documents } = fixture((kind) => {
+  const { agent, current, draft, documents } = fixture((kind) => {
     if (kind === "telemetry")
       current.workspace = { ...current.workspace, draft: new ProjectDraft(documents) };
   });
-  assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+  agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
   const before = draft.capture().revision;
-  const result = await assist.request({ instruction: "Add room" });
+  const result = await agent.request({ instruction: "Add room" });
   assert.equal(result.outcome, "cancelled");
   assert.equal(
     draft.capture().revision,
     before,
     "old draft is not an apply target after navigation",
   );
-  assert.equal(assist.state().approval.mode, "review");
+  assert.equal(agent.state().approval.mode, "review");
 });
 
 test("disconnecting on the initial request event prevents a provider call", async () => {
-  const { assist, calls } = fixture((kind) => {
-    if (kind === "request") assist.disconnect();
+  const { agent, calls } = fixture((kind) => {
+    if (kind === "request") agent.disconnect();
   });
-  const result = await assist.request({ instruction: "Add room" });
+  const result = await agent.request({ instruction: "Add room" });
   assert.equal(result.outcome, "cancelled");
   assert.equal(calls.sends, 0, "a closed connection must not start a paid request");
 });
 
 test("disconnecting after a tool result prevents another provider call", async () => {
-  const { assist, calls } = fixture((kind) => {
-    if (kind === "log") assist.disconnect();
+  const { agent, calls } = fixture((kind) => {
+    if (kind === "log") agent.disconnect();
   });
-  const result = await assist.request({ instruction: "Add room" });
+  const result = await agent.request({ instruction: "Add room" });
   assert.equal(result.outcome, "cancelled");
   assert.equal(calls.completions, 0, "no follow-up provider request after disconnect");
 });
 
 test("terminal auto-approval uses current host eligibility on the same draft", async () => {
-  const { assist, current, draft } = fixture((kind) => {
+  const { agent, current, draft } = fixture((kind) => {
     if (kind === "telemetry")
       current.workspace = { ...current.workspace, autoApproveEligible: false };
   });
-  assist.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
+  agent.setApprovalMode({ mode: "auto", scope: ["logic:9"] });
   const before = draft.capture().revision;
-  const result = await assist.request({ instruction: "Add room" });
+  const result = await agent.request({ instruction: "Add room" });
   assert.equal(result.outcome, "review");
   assert.equal(draft.capture().revision, before);
 });
 
 test("result data from a state snapshot cannot change the session's retained result", async () => {
-  const { assist } = fixture();
-  await assist.request({ instruction: "Add room" });
-  const observed = assist.state().lastResult;
+  const { agent } = fixture();
+  await agent.request({ instruction: "Add room" });
+  const observed = agent.state().lastResult;
   assert.ok(observed);
   Reflect.set(observed.keys, 0, "logic:255");
-  assert.deepEqual(assist.state().lastResult?.keys, ["logic:9"]);
+  assert.deepEqual(agent.state().lastResult?.keys, ["logic:9"]);
 });
 
 test("a host event sink cannot mutate retained AgentRun state", async () => {
-  const { assist } = fixture((kind, data) => {
+  const { agent } = fixture((kind, data) => {
     if (kind === "state" && data !== null && typeof data === "object" && "status" in data)
       Reflect.set(data, "status", "paused");
   });
-  await assist.request({ instruction: "Add room" });
-  assert.equal(assist.state().phase, "idle");
+  await agent.request({ instruction: "Add room" });
+  assert.equal(agent.state().phase, "idle");
 });
 
 test("human approval rechecks connection authority after the workspace accessor", async () => {
-  const { assist, current, draft } = fixture();
-  const result = await assist.request({ instruction: "Add room" });
+  const { agent, current, draft } = fixture();
+  const result = await agent.request({ instruction: "Add room" });
   assert.equal(result.outcome, "review");
   assert.ok(result.proposal);
   const before = draft.capture().revision;
-  current.beforeRead = () => assist.disconnect();
+  current.beforeRead = () => agent.disconnect();
   assert.equal(result.proposal.accept().ok, false);
   assert.equal(draft.capture().revision, before);
 });

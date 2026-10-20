@@ -355,7 +355,7 @@ export class AgentSession implements AgentHandler {
   private async ask(question: string, room: number, attachments?: TurnReferences): Promise<string> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
-      throw new Error("Connect an API key in AI settings before using Ask or Remix.");
+      throw new Error("Connect an API key in AI settings before using the agent.");
     this.messages.push({ role: "user", text: question });
     this.onEvent("request", `[Agent] ${question}`, { instruction: question, room });
     const context = await this.orientationContext(room, ASK_TOOLS, true);
@@ -564,7 +564,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   ): Promise<PowerUpResult> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
-      throw new Error("Connect an API key in AI settings before using Ask or Remix.");
+      throw new Error("Connect an API key in AI settings before using the agent.");
     this.messages.push({ role: "user", text: instruction });
     this.onEvent("request", `[Remix] "${instruction}" (room ${room})`, { instruction, room });
     const orientation = await this.orientationContext(room, REMIX_TOOLS);
@@ -1212,7 +1212,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             ? {
                 success: false,
                 error:
-                  "Not executed: this turn ended at a successful finish. Use an Ask or Remix request for further changes.",
+                  "Not executed: this turn ended at a successful finish. Use an agent request for further changes.",
               }
             : waiting
               ? { success: false, error: waiting }

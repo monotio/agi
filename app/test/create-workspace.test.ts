@@ -94,7 +94,7 @@ test("showing a panel selects its tab and unfolds its dock", () => {
 test("the shell's default panels sit in their docks", () => {
   const editor = createWorkspaceEditor({} as EngineApi);
   assert.equal(editor.panelDock("world"), "left");
-  assert.equal(editor.panelDock("assistant"), "right");
+  assert.equal(editor.panelDock("agent"), "right");
 });
 
 test("panel replacement keeps one entry and an old disposer preserves its replacement", () => {

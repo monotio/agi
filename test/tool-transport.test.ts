@@ -26,10 +26,10 @@ import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { assertNoImageData } from "./modelText.ts";
 import { createSelectionEdit, SELECTION_TOOLS } from "../src/agent/selectionTools.ts";
-import { draftRevision, pictureAssistScope } from "../src/studio/assistScope.ts";
+import { draftRevision, pictureAgentScope } from "../src/studio/agentScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { AFTER_BRIDGE, BRIDGE_SOURCE } from "./studioAssistFixtures.ts";
+import { AFTER_BRIDGE, BRIDGE_SOURCE } from "./studioAgentFixtures.ts";
 
 const picture = { room: 1, source: "vis 1\nfill 0,0\nend" };
 
@@ -467,7 +467,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
   // fixture in the Priority lens, attached to the shared deps below.
   const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
   const studio = createSelectionEdit({
-    scope: pictureAssistScope({
+    scope: pictureAgentScope({
       num: 1,
       compiled: bridge,
       targetIds: ["bridge"],

@@ -440,6 +440,11 @@ const SWEEP_RULES: readonly {
   readonly pattern: RegExp;
   readonly applies?: (file: string) => boolean;
 }[] = [
+  {
+    key: "agent",
+    pattern:
+      /\b\w*Assist(?!ant)\w*\b|\b\w*assist(?!ant|ive|ance)\w*\b|\b(?:menu-assistant|assistant-host|assistant-open|assistantInputEl|ask-button|studio-ask|views-ask)\b|\bAsk (?:drawer|button|bubble|conversation)\b/g,
+  },
   { key: "view", pattern: /\bsprites?\b/gi },
   { key: "background", pattern: /\bbackdrop\b/gi },
   { key: "standIn", pattern: /\bghost\b/gi },
@@ -519,6 +524,10 @@ test("tracked text uses the glossary's code and technical names", () => {
 });
 
 test("the terminology sweep catches mixed names and preserves format literals", () => {
+  assert.match(
+    terminologyViolations("app/src/studio/example.ts", "const projectAssist = 1;")[0]!,
+    /GLOSSARY.agent/,
+  );
   assert.match(
     terminologyViolations("app/src/studio/example.ts", "const sprite = 1;")[0]!,
     /GLOSSARY.view/,

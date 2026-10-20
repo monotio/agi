@@ -185,7 +185,7 @@ export function roomReference(
 }
 
 /**
- * A view's reference image as Studio's Ask attaches it: one image for the
+ * A view's reference image as the editor's agent attaches it: one image for the
  * character the view draws, stored as a character reference without a pose
  * manifest or staged VIEW (the shape a kept sheet already has, less its
  * manifest), so released project records read it unchanged.

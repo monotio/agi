@@ -9,7 +9,7 @@ import {
 } from "../src/vocabulary.ts";
 import { AGENT_TOOLS } from "../src/agent/tools.ts";
 import { WORKSPACE_AGENT_TOOLS } from "../app/src/agent/workspaceAgentTools.ts";
-import { PROJECT_ASSIST_TOOLS } from "../app/src/agent/projectAssistTools.ts";
+import { PROJECT_AGENT_TOOLS } from "../app/src/agent/projectAgentTools.ts";
 import { STUDIO_TERMS } from "../app/src/studio/studioTerms.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { executeAgentTool, ASK_TOOLS } from "../src/agent/tools.ts";
@@ -63,7 +63,7 @@ test("vocabulary records have stable ids, plain help and technical hover", () =>
 });
 
 test("each tool catalog uses the action name and technical help", () => {
-  const tools = [...AGENT_TOOLS, ...PROJECT_ASSIST_TOOLS, ...WORKSPACE_AGENT_TOOLS];
+  const tools = [...AGENT_TOOLS, ...PROJECT_AGENT_TOOLS, ...WORKSPACE_AGENT_TOOLS];
   for (const action of Object.values(VOCABULARY_ACTIONS) as readonly VocabularyAction[]) {
     assert.equal(action.label.toLowerCase().replaceAll(" ", "_"), action.tool);
     const definitions = tools.filter((tool) => tool.name === action.tool);
@@ -116,7 +116,7 @@ test("every tool parameter opens with shared help and retains its input contract
       if (items?.["properties"]) check(tool, items["properties"] as Record<string, unknown>);
     }
   }
-  for (const tool of [...AGENT_TOOLS, ...PROJECT_ASSIST_TOOLS, ...WORKSPACE_AGENT_TOOLS])
+  for (const tool of [...AGENT_TOOLS, ...PROJECT_AGENT_TOOLS, ...WORKSPACE_AGENT_TOOLS])
     check(tool.name as keyof typeof VOCABULARY_ACTIONS, tool.parameters.properties);
   const sound = AGENT_TOOLS.find((tool) => tool.name === "read_sound")!;
   assert.deepEqual(

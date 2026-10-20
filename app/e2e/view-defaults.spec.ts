@@ -10,7 +10,7 @@ import { expect, reviewShot, test } from "./test.ts";
 
 /**
  * VIEW editor's defaults: the side panel opens at its essentials (Palette,
- * the cel with its mirror chip, Details closed, Preview, In room, Ask folded)
+ * the cel with its mirror chip, Details closed, Preview, In room, Agent folded)
  * and keeps both previews reachable at 1440×900 and 1024×600; Details is
  * remembered per viewer; the Onion menu holds Before, After and how many
  * cels; and the mirror chip's Edit both edits the pair.

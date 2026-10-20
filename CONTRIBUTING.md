@@ -319,7 +319,7 @@ each folder holds one responsibility:
 | `home/`          | The Home screen: the shelf, its cards and the create panel                                 |
 | `shell/`         | Page chrome, modes, commands, keyboard focus, Create workspace, Settings, Help and routing |
 | `settings/`      | AI provider, model and key settings                                                        |
-| `authoring/`     | The assistant's panels, the controller that runs AI turns, and recorded game tests         |
+| `authoring/`     | The agent's panels, the controller that runs AI turns, and recorded game tests             |
 | `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use     |
 | `references/`    | Reference art the player supplies for the agent to encode                                  |
 | `world/`         | The world map, its room graph and plan, and the editor launchers                           |
@@ -474,8 +474,8 @@ Update and keep playing at a message or completed cycle boundary. Every editor s
 - `WORKSPACE_AGENT_TOOLS` in `app/src/agent/workspaceAgentTools.ts` combines project changes, Notes and image tools for Create. Tool help comes from `VOCABULARY_ACTIONS` through `toolDescription`.
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `SELECTION_TASK_TOOLS` in `src/agent/tools.ts` are allowlists for room authoring, inspection and offline selection checks: a tool outside the selected list is refused before dispatch. Create edit requests dispatch only `WORKSPACE_AGENT_TOOLS`.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
-- `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `src/authoring/projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `assistScope.ts` remains in detached Studio compatibility services.
-- `src/agent/projectInspection.ts` reads a detached native image for Ask, with resource-local failures and no candidate or admission capability. Exact document reads carry draft identity; native reads retain resource evidence origins and add the selected profile and resource revision. Admitted metadata accompanies live bytes only when their resource identities match. Ask withholds authored world intent, retains pending reviews on interruption, and saves conversations through the ordinary ownership and storage checks.
+- `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `src/authoring/projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `agentScope.ts` remains in detached Studio compatibility services.
+- `src/agent/projectInspection.ts` reads a detached native image for agent inspection, with resource-local failures and no candidate or admission capability. Exact document reads carry draft identity; native reads retain resource evidence origins and add the selected profile and resource revision. Admitted metadata accompanies live bytes only when their resource identities match. Agent inspection withholds authored world intent, retains pending reviews on interruption, and saves conversations through the ordinary ownership and storage checks.
 - `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (an editor change, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
 - `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Workspace editors store per-part drafts. Update and restart submits their complete change set; approved agent changes submit through the same admission pipeline. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
 - `project/resourceCommit.ts` and `project/editableProject.ts` retain the compatibility and detached authoring services exercised by their unit tests.
@@ -490,7 +490,7 @@ host's `catalog.json`) lists games to play.
 **Project storage and archives.** Follow the
 [release contract](AGENTS.md#release-contract) when extending formats or versions.
 Stored bodies, the localStorage index and
-private `PROJECT.JSON` archives retain released version 1. Assistant fields keep
+private `PROJECT.JSON` archives retain released version 1. Agent fields keep
 their original top-level layout and are optional for manually authored games.
 Optional `workspace`, `projectHistory`, `chats` and `recoveryDraft` fields carry
 source documents, edit History, task conversations and unfinished detached draft

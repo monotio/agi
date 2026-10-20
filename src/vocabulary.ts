@@ -1536,8 +1536,8 @@ export const GLOSSARY: Readonly<Record<string, GlossaryEntry>> = {
     plain: "Agent",
     technical: "agent",
     code: "agent",
-    avoid: ["assistant", "Ask", "Studio Assist", "copilot"],
-    avoidPattern: "\\b(?:assistant|copilot|Studio Assist)\\b|^Ask$",
+    avoid: ["assistant", "Ask", "assist", "Studio Assist", "copilot"],
+    avoidPattern: "\\b(?:assistant|assist|copilot|Studio Assist)\\b|^Ask$",
   },
   changes: {
     concept: "agent changes",

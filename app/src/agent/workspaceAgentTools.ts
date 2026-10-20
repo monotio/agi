@@ -2,7 +2,7 @@
 import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
 import { NAMING_TOOL } from "../../../src/agent/namingTools.ts";
 import { parameterDescriptions, toolDescription } from "../../../src/vocabulary.ts";
-import { PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
+import { PROJECT_AGENT_TOOLS } from "./projectAgentTools.ts";
 
 const NOTES_TOOL: ToolDefinition = {
   name: "write_notes",
@@ -82,9 +82,9 @@ export const WORKSPACE_AGENT_TOOLS: readonly ToolDefinition[] = [
   ...AGENT_TOOLS.filter(
     (tool) =>
       !(["withdraw_selection"] as readonly string[]).includes(tool.name) &&
-      !PROJECT_ASSIST_TOOLS.some((other) => other.name === tool.name),
+      !PROJECT_AGENT_TOOLS.some((other) => other.name === tool.name),
   ),
-  ...PROJECT_ASSIST_TOOLS.map((tool) =>
+  ...PROJECT_AGENT_TOOLS.map((tool) =>
     tool.name === "propose_changes"
       ? {
           ...tool,

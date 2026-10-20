@@ -127,7 +127,7 @@ onBeforeUnmount(() => {
     data-shell-keys
     data-testid="agent-drawer"
   >
-    <div class="assistant-host">
+    <div class="agent-host">
       <!-- Mounted through the turn, so it sees the drawer open and close. -->
       <AgentPanel
         :focus-request

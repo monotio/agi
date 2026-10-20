@@ -1,7 +1,7 @@
 /**
- * Hand-built Studio assist fixtures: a river crossed by a bridge (picture)
+ * Hand-built Studio agent fixtures: a river crossed by a bridge (picture)
  * and a two-loop robot whose loop 1 mirrors loop 0 (view). Every count the
- * assist tests assert is computed here from the geometry, not observed.
+ * agent tests assert is computed here from the geometry, not observed.
  */
 import { buildView } from "../src/view/view.ts";
 

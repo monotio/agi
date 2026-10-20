@@ -14,7 +14,7 @@ const PICTURE_CONTEXT = {
   ],
 };
 
-describe("the Studio assist stub", () => {
+describe("the Studio agent stub", () => {
   it("rejects a malformed read_edit_context payload instead of trusting it", async () => {
     const stub = createSelectionStub("make this walkable");
     const turn = await stub.sendUserMessage("make this walkable");

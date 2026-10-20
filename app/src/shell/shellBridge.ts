@@ -24,7 +24,7 @@ export interface ShellBridge {
   /** The create pane's launch button (registered by CreatePanel). */
   createButtonEl(): HTMLElement | null | undefined;
   /** The shared conversation's composer (registered by AgentPanel). */
-  assistantInputEl(): HTMLElement | null | undefined;
+  agentInputEl(): HTMLElement | null | undefined;
   /** Focus the game input (registered by PlayArea). */
   focusGameInput(): void;
   /** Fill the game command input without submitting it. */
@@ -53,7 +53,7 @@ export function createShellBridge(): ShellBridge {
     closeNavMenus: () => {},
     startWalkthrough: () => {},
     createButtonEl: () => null,
-    assistantInputEl: () => null,
+    agentInputEl: () => null,
     focusGameInput: () => {},
     fillGameInput: () => {},
     openHelp: () => {},

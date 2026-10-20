@@ -1,6 +1,6 @@
 import { toolDescription, parameterDescriptions } from "../../../src/vocabulary.ts";
 /**
- * The project assist tool catalog and its deny-by-default dispatcher.
+ * The project agent tool catalog and its deny-by-default dispatcher.
  *
  * One driver instance serves one captured AgentWorkspace (one request). The
  * model gets a narrow set: complete-context read, bounded exact document
@@ -41,7 +41,7 @@ const MAX_READ_BYTES = 65536;
 /** Longest single proposed document text, in UTF-16 code units. */
 const MAX_PROPOSE_TEXT_CHARS = 131072;
 
-export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
+export const PROJECT_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_project_context",
     description: toolDescription(
@@ -119,12 +119,12 @@ export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
   AUTHORING_GUIDE_TOOL,
 ];
 
-export const PROJECT_ASSIST_TOOL_NAMES: readonly string[] = PROJECT_ASSIST_TOOLS.map(
+export const PROJECT_AGENT_TOOL_NAMES: readonly string[] = PROJECT_AGENT_TOOLS.map(
   (tool) => tool.name,
 );
 
 /** One request's proposal bookkeeping behind the tool surface. */
-export interface ProjectAssistDriver {
+export interface ProjectAgentDriver {
   readonly baseRevision: number;
   /** Dispatch one provider tool call. Names outside the catalog are denied. */
   execute(name: string, args: Record<string, unknown>): AgentToolResult;
@@ -161,10 +161,10 @@ function sameContent(a: DocumentContent | undefined, b: DocumentContent | null):
 }
 
 /** Create the per-request tool dispatcher over one captured workspace. */
-export function createProjectAssistDriver(
+export function createProjectAgentDriver(
   workspace: Pick<AgentWorkspace, "base" | "profileId" | "diagnostics" | "documents"> &
     Partial<Pick<AgentWorkspace, "compilable" | "propose">>,
-): ProjectAssistDriver {
+): ProjectAgentDriver {
   let pending: WorkspaceProposal | null = null;
   let proposals = 0;
   let refusals = 0;
@@ -359,7 +359,7 @@ export function createProjectAssistDriver(
   return {
     baseRevision: workspace.base.revision,
     execute(name, args) {
-      const definition = PROJECT_ASSIST_TOOLS.find((tool) => tool.name === name);
+      const definition = PROJECT_AGENT_TOOLS.find((tool) => tool.name === name);
       if (!definition)
         return {
           success: false,

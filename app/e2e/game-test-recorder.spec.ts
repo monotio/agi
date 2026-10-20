@@ -30,7 +30,7 @@ const BROKEN_TEXT = "You splash paint everywhere.";
 const ROOM_ONE = TUTORIAL_LOGIC_SOURCES[1]!;
 const BROKEN_ROOM_ONE = ROOM_ONE.replace(MURAL_TEXT, BROKEN_TEXT);
 
-/** The assistant turns one remix needs: the tool call, then the closing text. */
+/** The agent turns one remix needs: the tool call, then the closing text. */
 function remixResponses(
   idPrefix: string,
   calls: [string, Record<string, unknown>][],

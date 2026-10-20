@@ -1,5 +1,5 @@
 /**
- * The LOGIC editor assistant: a request-scoped runtime over the shared
+ * The LOGIC editor agent: a request-scoped runtime over the shared
  * ProjectDraft workspace. A session binds one project workspace (through a live
  * accessor, so a reopened workspace is detected as a replacement), connects with
  * an owned LlmConfig, and drives one request at a time through the narrow
@@ -20,11 +20,11 @@ import {
   type UnifiedConversation,
 } from "./llmClient.ts";
 import {
-  createProjectAssistDriver,
-  PROJECT_ASSIST_TOOLS,
-  PROJECT_ASSIST_TOOL_NAMES,
-  type ProjectAssistDriver,
-} from "./projectAssistTools.ts";
+  createProjectAgentDriver,
+  PROJECT_AGENT_TOOLS,
+  PROJECT_AGENT_TOOL_NAMES,
+  type ProjectAgentDriver,
+} from "./projectAgentTools.ts";
 import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import {
   captureAgentWorkspace,
@@ -39,13 +39,13 @@ type WorkspaceProposal = ReturnType<ProjectDraft["propose"]>;
 type WorkspaceTransaction = ReturnType<ProjectDraft["apply"]>;
 
 /** One document edit inside a proposal: new whole text/bytes, or null to delete. */
-interface ProjectAssistDocumentChange {
+interface ProjectAgentDocumentChange {
   readonly key: string;
   readonly content: DocumentContent | null;
 }
 
 /** The workspace a session serves, resolved lazily so reopening is detected. */
-export interface ProjectAssistWorkspace {
+export interface ProjectAgentWorkspace {
   readonly draft: ProjectDraft;
   /** The kept native file image — a record or a cheap accessor consulted per request. */
   readonly files:
@@ -63,7 +63,7 @@ export interface ProjectAssistWorkspace {
   readonly autoApproveEligible?: boolean;
 }
 
-interface ProjectAssistRequest {
+interface ProjectAgentRequest {
   /** The creator's words. */
   readonly instruction: string;
   /** Extra context the caller attached (selection, focus, notes), shown verbatim. */
@@ -71,7 +71,7 @@ interface ProjectAssistRequest {
 }
 
 /** How a completed proposal is handled for one request. */
-type ProjectAssistOutcome = "applied" | "review" | "stale" | "refused" | "none" | "cancelled";
+type ProjectAgentOutcome = "applied" | "review" | "stale" | "refused" | "none" | "cancelled";
 
 /**
  * The request-identified review handle. Opaque: authority lives in the
@@ -79,7 +79,7 @@ type ProjectAssistOutcome = "applied" | "review" | "stale" | "refused" | "none" 
  * session is refused. Read methods stay usable after disconnect or staleness —
  * the retained before/after diff is review data, never apply authority.
  */
-export interface ProjectAssistProposal {
+export interface ProjectAgentProposal {
   readonly requestId: string;
   readonly connectionEpoch: number;
   readonly label: string;
@@ -89,18 +89,18 @@ export interface ProjectAssistProposal {
   readonly deletions: readonly string[];
   readonly baseRevision: number;
   /** Detached before/after for review; safe after the draft moved on. */
-  changes(): readonly ProjectAssistDocumentChange[];
+  changes(): readonly ProjectAgentDocumentChange[];
   /** The captured document the proposal started from, if it existed. */
   before(key: string): DocumentContent | undefined;
   /** Whether the workspace changed since this proposal's base was captured. */
   stale(): boolean;
   /** Apply through the draft's atomic transaction, checked against live authority. */
-  accept(): ProjectAssistAccept;
+  accept(): ProjectAgentAccept;
   /** Release this proposal without applying; only this request's proposal is affected. */
   reject(): boolean;
 }
 
-type ProjectAssistAccept =
+type ProjectAgentAccept =
   | {
       readonly ok: true;
       readonly label: string;
@@ -114,17 +114,17 @@ type ProjectAssistAccept =
       readonly message: string;
     };
 
-interface ProjectAssistResult {
+interface ProjectAgentResult {
   readonly requestId: string;
   readonly connectionEpoch: number;
-  readonly outcome: ProjectAssistOutcome;
+  readonly outcome: ProjectAgentOutcome;
   /** The model's closing text, or the reason a request ended without one. */
   readonly text: string;
   readonly label?: string;
   /** Document keys the issued proposal (or applied transaction) changed. */
   readonly keys: readonly string[];
   readonly deletions: readonly string[];
-  readonly proposal?: ProjectAssistProposal;
+  readonly proposal?: ProjectAgentProposal;
   /** One atomic draft transaction when outcome is "applied". */
   readonly transaction?: WorkspaceTransaction;
   readonly diagnostics: readonly AgentCandidateDiagnostic[];
@@ -134,10 +134,10 @@ interface ProjectAssistResult {
   readonly usage?: LlmUsage;
 }
 
-type ProjectAssistApproval =
+type ProjectAgentApproval =
   { readonly mode: "review" } | { readonly mode: "auto"; readonly scope: readonly string[] };
 
-interface ProjectAssistState {
+interface ProjectAgentState {
   readonly closed: boolean;
   readonly connected: boolean;
   /** Bumped by connect/disconnect/close; proposals carry the epoch they were issued under. */
@@ -147,7 +147,7 @@ interface ProjectAssistState {
   /** The in-flight or most recent request identity. */
   readonly requestId: string | null;
   readonly phase: "disconnected" | "idle" | "running" | "paused";
-  readonly approval: ProjectAssistApproval;
+  readonly approval: ProjectAgentApproval;
   readonly provider: ProviderType | null;
   readonly model: string | null;
   readonly run: AgentRunState | null;
@@ -159,10 +159,10 @@ interface ProjectAssistState {
     readonly deletions: readonly string[];
     readonly stale: boolean;
   } | null;
-  readonly lastResult: ProjectAssistResult | null;
+  readonly lastResult: ProjectAgentResult | null;
 }
 
-type ProjectAssistEventSink = (
+type ProjectAgentEventSink = (
   kind: "request" | "response" | "error" | "log" | "telemetry" | "state",
   detail: string,
   data?: unknown,
@@ -170,28 +170,28 @@ type ProjectAssistEventSink = (
 
 /**
  * Test seam: builds the per-request conversation. The production default calls
- * createOpenAiConversation/createAnthropicConversation with the project assist
+ * createOpenAiConversation/createAnthropicConversation with the project agent
  * tool catalog; provider "stub" returns the deterministic offline stub.
  */
-type ProjectAssistConversationFactory = (config: LlmConfig, run: AgentRun) => UnifiedConversation;
+type ProjectAgentConversationFactory = (config: LlmConfig, run: AgentRun) => UnifiedConversation;
 
-export interface ProjectAssistOptions {
+export interface ProjectAgentOptions {
   /** Label only — included in events. Never an authority input. */
   readonly project?: { readonly id?: string; readonly name?: string };
   /** Current workspace accessor: consulted on every request and state read. */
-  readonly workspace: () => ProjectAssistWorkspace;
-  readonly onEvent?: ProjectAssistEventSink;
-  readonly conversationFactory?: ProjectAssistConversationFactory;
+  readonly workspace: () => ProjectAgentWorkspace;
+  readonly onEvent?: ProjectAgentEventSink;
+  readonly conversationFactory?: ProjectAgentConversationFactory;
 }
 
-export interface ProjectAssist {
+export interface ProjectAgent {
   /** Attach a provider config. Owned copy; resets approval to Review. */
   connect(config: LlmConfig): void;
   /** Invalidate pending requests and proposals; reconnect defaults to Review. */
   disconnect(): void;
   /** Disconnect permanently; every method except state() refuses afterwards. */
   close(): void;
-  request(input: ProjectAssistRequest): Promise<ProjectAssistResult>;
+  request(input: ProjectAgentRequest): Promise<ProjectAgentResult>;
   /** Soft stop: parks the request at the next checkpoint; resume() continues. */
   stop(): void;
   /** Abandon the in-flight request. */
@@ -203,26 +203,23 @@ export interface ProjectAssist {
    * needs no scope. Auto requires the workspace's autoApproveEligible flag and
    * an exact document-key scope; the scope array is copied.
    */
-  setApprovalMode(mode: ProjectAssistApproval): void;
+  setApprovalMode(mode: ProjectAgentApproval): void;
   /** Session-checked accept for a handle the session issued. */
-  acceptProposal(proposal: ProjectAssistProposal): ProjectAssistAccept;
+  acceptProposal(proposal: ProjectAgentProposal): ProjectAgentAccept;
   /** Session-checked release for a handle the session issued. */
-  rejectProposal(proposal: ProjectAssistProposal): boolean;
-  state(): ProjectAssistState;
+  rejectProposal(proposal: ProjectAgentProposal): boolean;
+  state(): ProjectAgentState;
 }
 
-/** The small task prompt every project-assist conversation is created with. */
-const PROJECT_ASSIST_SYSTEM_PROMPT = `You are the LOGIC editor agent for one captured AGI project draft.
+/** The small task prompt every project-agent conversation is created with. */
+const PROJECT_AGENT_SYSTEM_PROMPT = `You are the LOGIC editor agent for one captured AGI project draft.
 
 Tools: read_project_context lists every captured document, its kind, the profile and diagnostics. read_document pages one document's exact authored text (or a hash/byte window for binary documents). propose_changes validates your COMPLETE coordinated change set — whole-document text or explicit deletion — through the real compiler and reference checks, then issues it for human review. withdraw_changes discards your own candidate.
 
 Rules: gather every coordinated change (logic, words, bindings, inventory, world) into one propose call; a second call replaces the pending proposal entirely. Nothing you do applies, saves, tests or installs — the human reviewer decides. Source you read is the exact authored text, including comments and errors; never assume compiled bytes.`;
 
 /** The user turn of one request; the small task system prompt stays unchanged. */
-function createProjectAssistPrompt(
-  request: ProjectAssistRequest,
-  workspace: AgentWorkspace,
-): string {
+function createProjectAgentPrompt(request: ProjectAgentRequest, workspace: AgentWorkspace): string {
   const documents = workspace.documents();
   const keys = Object.keys(documents).sort();
   const manifest = keys.map((key) => {
@@ -246,7 +243,7 @@ function createProjectAssistPrompt(
 }
 
 /** Deterministic offline conversation for the stub provider — no network. */
-function createProjectAssistStub(instruction = ""): UnifiedConversation {
+function createProjectAgentStub(instruction = ""): UnifiedConversation {
   const transcript: unknown[] = [];
   return {
     setAvailableTools() {},
@@ -290,7 +287,7 @@ function copyRunState(s: AgentRunState): AgentRunState {
  * The proposal handle and draft transaction keep their identity — a WeakMap
  * handle and a DraftTransaction id are authority, never data to clone.
  */
-function copyResult(result: ProjectAssistResult): ProjectAssistResult {
+function copyResult(result: ProjectAgentResult): ProjectAgentResult {
   return {
     ...result,
     keys: [...result.keys],
@@ -312,7 +309,7 @@ function copyConfig(config: LlmConfig): LlmConfig {
   };
 }
 
-export function createProjectAssist(options: ProjectAssistOptions): ProjectAssist {
+export function createProjectAgent(options: ProjectAgentOptions): ProjectAgent {
   let closed = false;
   let config: LlmConfig | null = null;
   let connectionEpoch = 0;
@@ -326,12 +323,12 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
   let run: AgentRun | null = null;
   let runState: AgentRunState | null = null;
   let activeRequestId: string | null = null;
-  let lastResult: ProjectAssistResult | null = null;
+  let lastResult: ProjectAgentResult | null = null;
   let pending: ProposalRecord | null = null;
-  const issued = new WeakMap<ProjectAssistProposal, ProposalRecord>();
+  const issued = new WeakMap<ProjectAgentProposal, ProposalRecord>();
   const openRecords = new Set<ProposalRecord>();
 
-  const emit: ProjectAssistEventSink = (kind, detail, data) => {
+  const emit: ProjectAgentEventSink = (kind, detail, data) => {
     try {
       options.onEvent?.(kind, detail, data);
     } catch {
@@ -339,7 +336,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     }
   };
 
-  function workspaceNow(): ProjectAssistWorkspace {
+  function workspaceNow(): ProjectAgentWorkspace {
     const ws = options.workspace();
     if (seenDraft === null) seenDraft = ws.draft;
     else if (ws.draft !== seenDraft) {
@@ -388,11 +385,11 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     return record.draft.capture().revision !== record.proposal.baseRevision;
   }
 
-  function makeHandle(record: ProposalRecord): ProjectAssistProposal {
+  function makeHandle(record: ProposalRecord): ProjectAgentProposal {
     const changes = record.proposal.changes();
     const keys = changes.map((c) => c.key);
     const deletions = changes.filter((c) => c.content === null).map((c) => c.key);
-    const handle: ProjectAssistProposal = {
+    const handle: ProjectAgentProposal = {
       requestId: record.requestId,
       connectionEpoch: record.connectionEpoch,
       label: record.proposal.label,
@@ -416,7 +413,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
 
   async function drive(
     conversation: UnifiedConversation,
-    driver: ProjectAssistDriver,
+    driver: ProjectAgentDriver,
     prompt: string,
     activeRun: AgentRun,
     race: <T>(pending: Promise<T>) => Promise<T>,
@@ -452,10 +449,10 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     return turn;
   }
 
-  async function request(input: ProjectAssistRequest): Promise<ProjectAssistResult> {
-    if (closed) throw new Error("Project assist session is closed.");
+  async function request(input: ProjectAgentRequest): Promise<ProjectAgentResult> {
+    if (closed) throw new Error("Project agent session is closed.");
     const owned = config;
-    if (!owned) throw new Error("Project assist is not connected.");
+    if (!owned) throw new Error("Project agent is not connected.");
     // Supersede any in-flight request; its loop resolves cancelled. Resolve the
     // workspace before capturing the generation — a replaced workspace aborts
     // once more, and this request must outlive that abort.
@@ -472,7 +469,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
       profileId: ws.profileId,
       ...(ws.allowMissingRooms === true ? { allowMissingRooms: true } : {}),
     });
-    const driver = createProjectAssistDriver(workspace);
+    const driver = createProjectAgentDriver(workspace);
     const model = owned.model;
     const activeRun = new AgentRun(
       model,
@@ -493,17 +490,17 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     activeRequestId = requestId;
     const convConfig = {
       ...owned,
-      systemPrompt: owned.systemPrompt ?? PROJECT_ASSIST_SYSTEM_PROMPT,
+      systemPrompt: owned.systemPrompt ?? PROJECT_AGENT_SYSTEM_PROMPT,
     };
     const conversation =
       owned.provider === "stub"
-        ? createProjectAssistStub(input.instruction)
+        ? createProjectAgentStub(input.instruction)
         : (options.conversationFactory ?? ((cfg, r) => defaultConversation(cfg, r)))(
             convConfig,
             activeRun,
           );
-    conversation.setAvailableTools?.(PROJECT_ASSIST_TOOL_NAMES);
-    const prompt = createProjectAssistPrompt(input, workspace);
+    conversation.setAvailableTools?.(PROJECT_AGENT_TOOL_NAMES);
+    const prompt = createProjectAgentPrompt(input, workspace);
 
     const live = () => gen === generation && epoch === connectionEpoch && !closed;
     /**
@@ -513,7 +510,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
      * host callback. Returns the current workspace wrapper so eligibility and
      * other host fields are read fresh, never from the request-time snapshot.
      */
-    const currentWorkspace = (): ProjectAssistWorkspace | null => {
+    const currentWorkspace = (): ProjectAgentWorkspace | null => {
       if (!live()) return null;
       try {
         const wsNow = workspaceNow();
@@ -526,9 +523,9 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     const stillLive = (): boolean => currentWorkspace() !== null;
     /** Current-authority admission check before any provider operation. */
     const admit = (): void => {
-      if (!stillLive()) throw new Error("Project assist request cancelled.");
+      if (!stillLive()) throw new Error("Project agent request cancelled.");
     };
-    const cancelledResult = (text: string): ProjectAssistResult => ({
+    const cancelledResult = (text: string): ProjectAgentResult => ({
       requestId,
       connectionEpoch: epoch,
       outcome: "cancelled",
@@ -548,7 +545,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     // callback, and AgentRun.run() resets its own cancelled flag on start.
     let releaseWaits: (() => void) | null = null;
     const cancelledWait = new Promise<never>((_, reject) => {
-      releaseWaits = () => reject(new Error("Project assist request cancelled."));
+      releaseWaits = () => reject(new Error("Project agent request cancelled."));
     });
     cancelledWait.catch(() => {});
     cancelWaits = releaseWaits;
@@ -596,7 +593,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     const changes = proposal?.changes() ?? [];
     const keys = changes.map((c) => c.key);
     const deletions = changes.filter((c) => c.content === null).map((c) => c.key);
-    const base: Omit<ProjectAssistResult, "outcome"> = {
+    const base: Omit<ProjectAgentResult, "outcome"> = {
       requestId,
       connectionEpoch: epoch,
       text: turn.text ?? "",
@@ -610,7 +607,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
       ...(turn.usage ? { usage: turn.usage } : {}),
     };
     if (!proposal) {
-      const result: ProjectAssistResult = {
+      const result: ProjectAgentResult = {
         ...base,
         outcome: driver.refusals > 0 ? "refused" : "none",
       };
@@ -632,7 +629,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     const stale = draft.capture().revision !== proposal.baseRevision;
     if (stale) {
       pending = record;
-      const result: ProjectAssistResult = { ...base, outcome: "stale", proposal: handle };
+      const result: ProjectAgentResult = { ...base, outcome: "stale", proposal: handle };
       lastResult = copyResult(result);
       emit("response", requestId, copyResult(result));
       return result;
@@ -655,7 +652,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
         const transaction = draft.apply(proposal);
         record.status = "applied";
         openRecords.delete(record);
-        const result: ProjectAssistResult = {
+        const result: ProjectAgentResult = {
           ...base,
           outcome: "applied",
           proposal: handle,
@@ -666,7 +663,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
         return result;
       } catch (error) {
         // A stale base on the apply path falls back to review, never a rebase.
-        const result: ProjectAssistResult = {
+        const result: ProjectAgentResult = {
           ...base,
           outcome: "stale",
           text: error instanceof Error ? error.message : String(error),
@@ -678,15 +675,15 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
       }
     }
     pending = record;
-    const result: ProjectAssistResult = { ...base, outcome: "review", proposal: handle };
+    const result: ProjectAgentResult = { ...base, outcome: "review", proposal: handle };
     lastResult = copyResult(result);
     emit("response", requestId, copyResult(result));
     return result;
   }
 
-  const api: ProjectAssist = {
+  const api: ProjectAgent = {
     connect(next: LlmConfig): void {
-      if (closed) throw new Error("Project assist session is closed.");
+      if (closed) throw new Error("Project agent session is closed.");
       abortActive();
       config = copyConfig(next);
       connectionEpoch++;
@@ -720,8 +717,8 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     resume(requestLimit?: number): void {
       run?.resume(requestLimit);
     },
-    setApprovalMode(mode: ProjectAssistApproval): void {
-      if (closed) throw new Error("Project assist session is closed.");
+    setApprovalMode(mode: ProjectAgentApproval): void {
+      if (closed) throw new Error("Project agent session is closed.");
       approval =
         mode.mode === "review" ? { mode: "review" } : { mode: "auto", scope: new Set(mode.scope) };
       emit("state", "approval", {
@@ -729,7 +726,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
         ...(approval.mode === "auto" ? { scope: [...approval.scope] } : {}),
       });
     },
-    acceptProposal(handle: ProjectAssistProposal): ProjectAssistAccept {
+    acceptProposal(handle: ProjectAgentProposal): ProjectAgentAccept {
       const record = issued.get(handle);
       if (!record)
         return {
@@ -738,7 +735,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
           message: "This handle was not issued by this session.",
         };
       /** Named refusal when the record's authority is gone, or null. */
-      const authorityCheck = (): ProjectAssistAccept | null => {
+      const authorityCheck = (): ProjectAgentAccept | null => {
         if (record.status === "applied")
           return { ok: false, reason: "consumed", message: "This proposal was already applied." };
         if (record.status === "rejected")
@@ -801,7 +798,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
         };
       }
     },
-    rejectProposal(handle: ProjectAssistProposal): boolean {
+    rejectProposal(handle: ProjectAgentProposal): boolean {
       const record = issued.get(handle);
       if (!record || record.status !== "open") return false;
       record.status = "rejected";
@@ -809,7 +806,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
       if (pending === record) pending = null;
       return true;
     },
-    state(): ProjectAssistState {
+    state(): ProjectAgentState {
       const ws = closed ? null : safeWorkspace();
       const pendingStale =
         pending !== null &&
@@ -852,7 +849,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     },
   };
 
-  function safeWorkspace(): ProjectAssistWorkspace | null {
+  function safeWorkspace(): ProjectAgentWorkspace | null {
     try {
       return workspaceNow();
     } catch {
@@ -865,8 +862,8 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
 
 function defaultConversation(config: LlmConfig, run: AgentRun): UnifiedConversation {
   if (config.provider === "openai")
-    return createOpenAiConversation(config, undefined, undefined, run, PROJECT_ASSIST_TOOLS);
+    return createOpenAiConversation(config, undefined, undefined, run, PROJECT_AGENT_TOOLS);
   if (config.provider === "anthropic")
-    return createAnthropicConversation(config, undefined, run, PROJECT_ASSIST_TOOLS);
-  return createProjectAssistStub("");
+    return createAnthropicConversation(config, undefined, run, PROJECT_AGENT_TOOLS);
+  return createProjectAgentStub("");
 }

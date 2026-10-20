@@ -1,6 +1,6 @@
 /** Capture editor selection context against the same project snapshot as the task. */
 import { createSelectionEdit, type SelectionFocus } from "../../../src/agent/selectionTools.ts";
-import { pictureAssistScope, viewAssistScope } from "../../../src/studio/assistScope.ts";
+import { pictureAgentScope, viewAgentScope } from "../../../src/studio/agentScope.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileEditDocument } from "../../../src/studio/editValidation.ts";
 import { disassemblePicture } from "../../../src/picture/source.ts";
@@ -75,7 +75,7 @@ export function workspaceSelection(
     const compiled = compileEditDocument(parsePictureDocument(source).document, profile);
     const lens = picture[3] as "visual" | "priority";
     return createSelectionEdit({
-      scope: pictureAssistScope({
+      scope: pictureAgentScope({
         num,
         compiled,
         targetIds: picture[2]!.split(", "),
@@ -98,7 +98,7 @@ export function workspaceSelection(
         ? buildView(JSON.parse(content) as BuildViewInput, profile)
         : content;
     return createSelectionEdit({
-      scope: viewAssistScope({
+      scope: viewAgentScope({
         num,
         document: openViewDocument(payload, profile),
         targetCels: [{ loop: Number(view[2]), cel: Number(view[3]) }],

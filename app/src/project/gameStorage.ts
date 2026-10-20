@@ -127,7 +127,7 @@ export interface GameConversation {
 }
 
 /**
- * The conversation half of a session record — what an Ask, a Studio assist
+ * The conversation half of a session record — what an agent request, a Studio agent
  * request or an AI settings change writes. It never carries authoring
  * content: the stored plan, bindings and sources stay as they are.
  */
@@ -137,7 +137,7 @@ export interface ConversationUpdate {
   model: string;
   transcript: unknown[];
   sessionId?: string | undefined;
-  /** The assistant panel's messages, stored as the authoring state's `chat`. */
+  /** The agent panel's messages, stored as the authoring state's `chat`. */
   chat: unknown[];
 }
 
@@ -711,14 +711,14 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   if (data.chats !== undefined) {
     normalized.chats = readAgentChats(data.chats);
   }
-  const hasAssistant =
+  const hasConversation =
     normalized.provider !== undefined ||
     normalized.model !== undefined ||
     normalized.transcript !== undefined ||
     normalized.sessionId !== undefined ||
     normalized.conversationHistory !== undefined;
   if (
-    hasAssistant &&
+    hasConversation &&
     (typeof normalized.provider !== "string" || typeof normalized.model !== "string")
   )
     throw new Error("Invalid saved project model metadata.");

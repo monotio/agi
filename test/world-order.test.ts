@@ -323,7 +323,7 @@ test("finish accepts declared exits whose source room is not built yet", () => {
   assert.deepEqual(connections.pending, [{ from: 5, name: "out", to: 1 }]);
 });
 
-test("Ask mode withholds the authored plan from the assistant context", async () => {
+test("Ask mode withholds the authored plan from the agent context", async () => {
   const state = buildForward();
   const readOnly = { readOnly: true, allowedTools: ASK_TOOLS };
 

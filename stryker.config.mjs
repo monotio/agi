@@ -1,6 +1,6 @@
 // On-demand mutation report for the deterministic kernels — not part of
 // `npm run check` (it takes minutes, not seconds). Run: `npm run mutation`
-// or `npx stryker run --mutate "src/studio/assistScope.ts"` for one file.
+// or `npx stryker run --mutate "src/studio/agentScope.ts"` for one file.
 // The command runner spawns `npm run mutation:test` (node:test with
 // --experimental-strip-types) per mutant in a .stryker-tmp sandbox, so no
 // per-test coverage mapping exists — hence coverageAnalysis "off".
