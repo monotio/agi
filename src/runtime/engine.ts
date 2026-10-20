@@ -1181,13 +1181,13 @@ export class Engine {
       executionBudgetPolicy?: ExecutionBudgetPolicy;
       /**
        * Host authoring: a live LOGIC 0 commit and a host resume raise the
-       * script buffer to what LOGIC 0's script.size declares, and boot,
-       * restart, resume and commit give a LOGIC 0 with the template boot
-       * shape but no script.size the buffer the 1.2.5 migration adds.
+       * script buffer to what LOGIC 0's script.size declares. A live legacy
+       * edit removing the declaration preserves its 200-pair allocation.
        * Authored projects only, never an original release (docs/fidelity.md,
        * "Authored script buffer on live edits").
        */
       adoptDeclaredScriptSize?: boolean;
+      /** Pre-1.2.5 authored allocation, independent of boot code and later declarations. */
       legacyRoomMemory?: boolean;
     },
   ) {
@@ -1662,7 +1662,12 @@ export class Engine {
       declaredScriptSize:
         this.adoptsDeclaredScriptSize &&
         changes.some((change) => change.kind === "logic" && change.num === 0)
-          ? Math.max(this.legacyRoomMemory ? 200 : 0, authoredScriptFloor(staged.getResource("logic", 0), this.profile, true))
+          ? authoredScriptFloor(
+              staged.getResource("logic", 0),
+              this.profile,
+              true,
+              this.legacyRoomMemory ? 200 : 0,
+            )
           : null,
     };
   }
@@ -1886,7 +1891,7 @@ export class Engine {
       this.presentationDirty = true;
     }
     // Host authoring, not interpreter behavior: a live LOGIC 0 that declares a
-    // bigger script buffer, or has the template boot shape without one,
+    // bigger script buffer, or removes a legacy project's declaration,
     // raises the capacity word only, never the pair reset script.size
     // performs (docs/fidelity.md, "Authored script buffer on live edits").
     if (staged.declaredScriptSize !== null && staged.declaredScriptSize > this.scriptCapacity)
@@ -5019,7 +5024,8 @@ export class Engine {
       : null;
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
-    this.scriptCapacity = s.replayCapacity || (this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs);
+    this.scriptCapacity =
+      s.replayCapacity || (this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs);
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();

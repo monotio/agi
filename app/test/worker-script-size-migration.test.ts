@@ -132,7 +132,7 @@ async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean) {
     },
   });
   const worker = bootWorker(Object.fromEntries(compiled.files()), {
-    ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true } : {}),
+    ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true, legacyRoomMemory: true } : {}),
   });
   await worker.ctx.projectLoader.loading;
   const engine = worker.ctx.run.engine!;
@@ -210,7 +210,7 @@ test("a Play-mode boot of an unmigrated authored game already runs the busy room
   // the boot floor is what lets its busy rooms run there.
   const worker = bootWorker(
     Object.fromEntries(compile(PRE_125_LOGIC0).files()),
-    { adoptDeclaredScriptSize: true },
+    { adoptDeclaredScriptSize: true, legacyRoomMemory: true },
     false,
   );
   worker.tick();
@@ -297,7 +297,9 @@ test("a checkpoint taken before the migration resumes on the migrated game with 
     const resumed = bootWorker(
       Object.fromEntries(compile(migrated).files()),
       {
-        ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize: true } : {}),
+        ...(adoptDeclaredScriptSize
+          ? { adoptDeclaredScriptSize: true, legacyRoomMemory: true }
+          : {}),
         restoreImage: Buffer.from(image).toString("base64"),
       },
       false,
@@ -314,13 +316,17 @@ test("a checkpoint taken before the migration resumes on the migrated game with 
   // The same checkpoint on a still-unmigrated LOGIC 0 gets the floor too.
   const unmigrated = bootWorker(
     Object.fromEntries(compile(PRE_125_LOGIC0).files()),
-    { adoptDeclaredScriptSize: true, restoreImage: Buffer.from(image).toString("base64") },
+    {
+      adoptDeclaredScriptSize: true,
+      legacyRoomMemory: true,
+      restoreImage: Buffer.from(image).toString("base64"),
+    },
     false,
   );
   assert.equal(
     capacity(unmigrated.ctx.run.engine!),
-    200,
-    "a pre-migration checkpoint resumed on the unmigrated game gets the template-shape floor",
+    50,
+    "a saved capacity retains native meaning without a declaration",
   );
   unmigrated.ctx.fns.stopTimers();
 });
@@ -335,7 +341,7 @@ test("a released (format-2) cold-boot segment of a busy authored room replays at
     load.view(1); ${"add.to.pic(1, 0, 0, 0, 0, 9, 0);".repeat(12)} discard.pic(1); show.pic(); }
   return;`;
   const docs = {
-    "logic:0": PRE_125_LOGIC0,
+    "logic:0": PRE_125_LOGIC0.replaceAll("f200", "f199"),
     "logic:1": busy,
     "picture:1": "vis 1\nfill 1,1\nend\n",
     "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
@@ -446,4 +452,62 @@ test("without the authored-project option the running game keeps the buffer its 
   ctx.fns.historyFlush();
   assert.equal(segmentOf(messages).boot.adoptDeclaredScriptSize, undefined);
   ctx.fns.stopTimers();
+});
+
+test("legacy f199 worker runs, resumes, restores and records a busy boot independently of later room sizing", () => {
+  const custom =
+    PRE_125_LOGIC0.replaceAll("f200", "f199") + "\nif (isset(f221)) { set(f16); restart.game(); }";
+  const docs = {
+    ...documents(custom),
+    "logic:1": BUSY_ROOM.replace("if (isset(f220))", "if (isset(f5))"),
+    "logic:5": "script.size(120); return;",
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: docs,
+    profileId: "2.936",
+  });
+  const files = Object.fromEntries(compiled.files());
+  const worker = bootWorker(
+    files,
+    { legacyRoomMemory: true, adoptDeclaredScriptSize: true },
+    false,
+  );
+  try {
+    for (let n = 0; n < 4; n++) worker.tick();
+    const engine = worker.ctx.run.engine!;
+    assert.equal(capacity(engine), 200);
+    assert.ok(decodeSave(engine.serialize(), engine.profile).replayActive > 50);
+    const image = engine.autosaveImage();
+    assert.ok(image);
+    const resumed = bootWorker(
+      files,
+      { legacyRoomMemory: true, adoptDeclaredScriptSize: true, restoreImage: bytesToBase64(image) },
+      false,
+    );
+    try {
+      assert.equal(capacity(resumed.ctx.run.engine!), 200);
+      assert.equal(resumed.ctx.run.engine!.surface.visual[100], 1);
+      resumed.tick();
+    } finally {
+      resumed.ctx.fns.stopTimers();
+    }
+    worker.ctx.fns.historyFlush();
+    const segment = segmentOf(worker.messages);
+    assert.equal(segment.boot.legacyRoomMemory, true);
+    const replayed = replayHistorySegment(segment);
+    try {
+      assert.equal(replayed.error, null);
+      assert.equal(replayed.diverged, null);
+      assert.equal(capacity(replayed.ctx.run.engine!), 200);
+    } finally {
+      replayed.ctx.fns.stopTimers();
+    }
+    engine.flags[221] = 1;
+    for (let n = 0; n < 4; n++) worker.tick();
+    assert.equal(capacity(engine), 200);
+    assert.equal(engine.vars[0], 1);
+  } finally {
+    worker.ctx.fns.stopTimers();
+  }
 });

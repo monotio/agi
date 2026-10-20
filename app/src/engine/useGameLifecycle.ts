@@ -56,7 +56,10 @@ import type { WorkerLink } from "./useWorkerLink.ts";
 import type { CachedGameData } from "../project/gameStorage.ts";
 import type { WorkerInbound } from "../worker/workerProtocol.ts";
 import { admitQualifiedOpening, type QualifiedGameOpening } from "./openingAdmission.ts";
-import { isRecognizedOriginal, isLegacyAuthoredProject } from "../../../src/authoring/projectConventions.ts";
+import {
+  isRecognizedOriginal,
+  isLegacyAuthoredProject,
+} from "../../../src/authoring/projectConventions.ts";
 
 /**
  * The boot field that lets a library project's engine adopt the script
@@ -69,7 +72,10 @@ function authoredScriptBuffer(project: CachedGameData | undefined): {
   legacyRoomMemory?: true;
 } {
   return project !== undefined && !isRecognizedOriginal(project.files, project.library?.source)
-    ? { adoptDeclaredScriptSize: true, ...(isLegacyAuthoredProject(project) ? {legacyRoomMemory:true as const} : {}) }
+    ? {
+        adoptDeclaredScriptSize: true,
+        ...(isLegacyAuthoredProject(project) ? { legacyRoomMemory: true as const } : {}),
+      }
     : {};
 }
 
@@ -489,9 +495,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         words: game.words,
         autosaveFiles: true,
         ...authoredScriptBuffer(
-          game.authoredGame === undefined
-            ? undefined
-            : { files: game.files, library: game.authoredGame.library },
+          game.authoredGame === undefined ? undefined : { ...game.authoredGame, files: game.files },
         ),
         ...(profile !== undefined ? { profile } : {}),
         ...(resumeAdmission.status === "restore"
@@ -838,7 +842,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     let authoredGame: CachedGameData = {
       projectId,
       templateId,
-      authoringConventions: {version:1},
+      authoringConventions: { version: 1 },
       title,
       authoredAt: new Date().toISOString(),
       provider: config.provider,
@@ -876,7 +880,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (authoredGame.chats.chats[0]) authoredGame.chats.chats[0].title = `Created ${title}`;
     const saved = await saveAuthoredGameCapture(projectId, {
       templateId,
-      authoringConventions: {version:1},
+      authoringConventions: { version: 1 },
       title,
       provider: config.provider,
       model: config.model,
@@ -1293,7 +1297,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         {
           projectId,
           templateId,
-      authoringConventions: {version:1},
           title,
           config,
         },

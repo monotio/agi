@@ -188,7 +188,8 @@ function captureSemanticState(
   if (template.rngPolicy !== undefined) out.rngPolicy = { ...ctx.run.rng.policy };
   if (template.amigaRegion !== undefined) out.amigaRegion = engine.amigaRegion;
   if (template.pcDisplay !== undefined && engine.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
-  if (template.legacyRoomMemory !== undefined && engine.legacyRoomMemory) out.legacyRoomMemory = true;
+  if (template.legacyRoomMemory !== undefined && engine.legacyRoomMemory)
+    out.legacyRoomMemory = true;
   if (template.adoptDeclaredScriptSize !== undefined && engine.adoptsDeclaredScriptSize)
     out.adoptDeclaredScriptSize = true;
   if (template.documentId !== undefined) {

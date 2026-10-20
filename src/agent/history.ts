@@ -1134,7 +1134,8 @@ export function validateHistoryBoot(
     fail("boot region must be ntsc or pal.");
   if (value["pcDisplay"] !== undefined && value["pcDisplay"] !== "cga-rgb")
     fail("boot display must be cga-rgb.");
-  if (value["legacyRoomMemory"] !== undefined && value["legacyRoomMemory"] !== true) fail("boot legacyRoomMemory must be true.");
+  if (value["legacyRoomMemory"] !== undefined && value["legacyRoomMemory"] !== true)
+    fail("boot legacyRoomMemory must be true.");
   if (value["adoptDeclaredScriptSize"] !== undefined && value["adoptDeclaredScriptSize"] !== true)
     fail("boot adoptDeclaredScriptSize must be true.");
   const files = value["files"];
@@ -1153,7 +1154,7 @@ export function validateHistoryBoot(
       ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
       : {}),
     ...(value["pcDisplay"] === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
-    ...(value["legacyRoomMemory"] === true ? {legacyRoomMemory:true as const} : {}),
+    ...(value["legacyRoomMemory"] === true ? { legacyRoomMemory: true as const } : {}),
     ...(value["adoptDeclaredScriptSize"] === true
       ? { adoptDeclaredScriptSize: true as const }
       : {}),

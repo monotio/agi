@@ -275,6 +275,9 @@ export function getCachedGameMeta(projectId: ProjectId): CachedGameMeta | null {
       ...(library ? { library } : {}),
       projectId: effectiveProjectId,
       ...(parsed.templateId ? { templateId: parsed.templateId } : {}),
+      ...(parsed.authoringConventions === undefined
+        ? {}
+        : { authoringConventions: readAuthoringConventions(parsed.authoringConventions) }),
       ...(typeof parsed.generation === "number" ? { generation: parsed.generation } : {}),
       title: parsed.title,
       authoredAt: parsed.authoredAt,

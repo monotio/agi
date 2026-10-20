@@ -55,7 +55,7 @@ export function prepareLocalProject(input: { readonly title: string; readonly ki
       .map((key) => ({ key, version: 0 })),
     data: {
       title,
-      authoringConventions: {version:1},
+      authoringConventions: { version: 1 },
       templateId: seed.seed.templateId,
       roomGeneration: false,
       files: Object.fromEntries(compiled.files()),

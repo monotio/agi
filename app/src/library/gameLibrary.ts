@@ -1,5 +1,7 @@
-import { projectConventions, isRecognizedOriginal } from "../../../src/authoring/projectConventions.ts";
-import { hasReleasedBoot } from "../../../src/authoring/scriptSizeMigration.ts";
+import {
+  projectConventions,
+  isRecognizedOriginal,
+} from "../../../src/authoring/projectConventions.ts";
 import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import {
   detectKnownGame,
@@ -58,6 +60,17 @@ export async function addLibraryGame(
   const revision = await gameRevision(game.files);
   // Room authoring belongs to games created in the app. A public GAME.JSON can
   // claim the flag, so it counts only when the authoring context travels with it.
+  const legacyImport =
+    !isRecognizedOriginal(game.files, source) &&
+    (game.project !== undefined ||
+      (game.authoringConventions === undefined &&
+        (await import("../../../src/authoring/scriptSizeMigration.ts")).hasReleasedBoot(
+          game.files,
+        )));
+  const conventions =
+    game.project?.authoringConventions ??
+    game.authoringConventions ??
+    (legacyImport ? { version: 0, legacyRoomMemory: true as const } : undefined);
   const roomGeneration =
     source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
   // A remix names its parent in GAME.JSON, and stays its own game wherever it
@@ -97,6 +110,13 @@ export async function addLibraryGame(
     for (const existing of candidates) {
       const stored = await loadAuthoredGame(existing.projectId);
       if (!stored) continue;
+      const incoming = projectConventions({
+        files: game.files,
+        imported: true,
+        library: { source },
+        authoringConventions: conventions,
+      });
+      if (projectConventions(stored).legacyRoomMemory !== incoming.legacyRoomMemory) continue;
       const names = new Set(
         [...Object.keys(stored.files), ...Object.keys(game.files)].filter(isAuxiliaryFileName),
       );
@@ -144,8 +164,7 @@ export async function addLibraryGame(
   const effectiveTitle = game.title ?? known?.title ?? title;
   const data = {
     title: effectiveTitle,
-    authoringConventions: game.project?.authoringConventions ?? game.authoringConventions ??
-      (!isRecognizedOriginal(game.files, source) && (game.project !== undefined || hasReleasedBoot(game.files)) ? {version:0,legacyRoomMemory:true as const} : undefined),
+    authoringConventions: conventions,
     library,
     provider: game.project?.provider,
     model: game.project?.model,

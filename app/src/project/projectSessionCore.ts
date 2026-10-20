@@ -1,4 +1,7 @@
-import { projectConventions, isLegacyAuthoredProject } from "../../../src/authoring/projectConventions.ts";
+import {
+  projectConventions,
+  isLegacyAuthoredProject,
+} from "../../../src/authoring/projectConventions.ts";
 /** One editable model and immutable History for an opened project's lifetime. */
 import { migrateAgentChats, readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
@@ -14,9 +17,7 @@ import {
   type ProjectHistoryAction,
 } from "../../../src/authoring/projectHistory.ts";
 import { readProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
-import {
-  migrateScriptSize,
-} from "../../../src/authoring/scriptSizeMigration.ts";
+import { migrateScriptSize } from "../../../src/authoring/scriptSizeMigration.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
 import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
@@ -233,8 +234,10 @@ function createSession(
         ? { ...inspection.documents, ...readProjectWorkspace(data.workspace) }
         : readProjectWorkspace(data.workspace);
   const conventions = projectConventions(data);
-  const scriptSizeMigration = (data.authoringConventions?.version ?? 0) < 1 && isLegacyAuthoredProject(data)
-    ? migrateScriptSize(openedDocuments, data.files) : null;
+  const scriptSizeMigration =
+    (data.authoringConventions?.version ?? 0) < 1 && isLegacyAuthoredProject(data)
+      ? migrateScriptSize(openedDocuments, data.files)
+      : null;
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,

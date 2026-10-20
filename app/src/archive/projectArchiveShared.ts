@@ -26,7 +26,18 @@ export const PROJECT_SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
  * same bytes it was imported as, with the same revision.
  */
 export function gameEntries(
-  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library" | "authoringConventions" | "templateId" | "provider" | "sessionId" | "imported">,
+  data: Pick<
+    CachedGameData,
+    | "files"
+    | "title"
+    | "roomGeneration"
+    | "library"
+    | "authoringConventions"
+    | "templateId"
+    | "provider"
+    | "sessionId"
+    | "imported"
+  >,
   supplyInventory = true,
 ): ZipFileInput[] {
   const files = new Map(Object.entries(data.files));

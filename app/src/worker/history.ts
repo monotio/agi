@@ -278,7 +278,7 @@ export function createHistory(ctx: WorkerContext) {
         ? { clickQueue: ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
         : {}),
       requestSerial: ctx.run.hostRequests.hostRequestSerial,
-      ...(ctx.run.engine?.legacyRoomMemory ? {legacyRoomMemory:true as const} : {}),
+      ...(ctx.run.engine?.legacyRoomMemory ? { legacyRoomMemory: true as const } : {}),
       rng: ctx.run.rng.word,
       ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
@@ -587,7 +587,7 @@ export function createHistory(ctx: WorkerContext) {
       ...(ctx.run.engine?.adoptsDeclaredScriptSize
         ? { adoptDeclaredScriptSize: true as const }
         : {}),
-      ...(ctx.run.engine?.legacyRoomMemory ? {legacyRoomMemory:true as const} : {}),
+      ...(ctx.run.engine?.legacyRoomMemory ? { legacyRoomMemory: true as const } : {}),
       rng: ctx.run.rng.word,
       ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,
@@ -667,7 +667,7 @@ export function createHistory(ctx: WorkerContext) {
       ...(ctx.run.engine?.adoptsDeclaredScriptSize
         ? { adoptDeclaredScriptSize: true as const }
         : {}),
-      ...(engine.legacyRoomMemory ? {legacyRoomMemory:true as const} : {}),
+      ...(engine.legacyRoomMemory ? { legacyRoomMemory: true as const } : {}),
       ...(image
         ? { image: bytesToBase64(image), replay: engine.captureReplayState(allowUndrawn) }
         : {}),
@@ -686,7 +686,7 @@ export function createHistory(ctx: WorkerContext) {
       // adopted continuation, not the abandoned session's stale live clock.
       clock: ctx.run.cycle.pendingClock ?? ctx.run.clocks.cycle.snapshot(),
       soundRemainder: ctx.run.clocks.sound.snapshot(),
-      ...(ctx.run.engine?.legacyRoomMemory ? {legacyRoomMemory:true as const} : {}),
+      ...(ctx.run.engine?.legacyRoomMemory ? { legacyRoomMemory: true as const } : {}),
       rng: ctx.run.rng.word,
       ...(ctx.run.rng.policy.kind === "sequence" ? { rngPolicy: { ...ctx.run.rng.policy } } : {}),
       soundDevice: ctx.boot.selectedSoundDevice,

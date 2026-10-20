@@ -1,4 +1,7 @@
-import { readAuthoringConventions, type AuthoringConventions } from "../../../src/authoring/projectConventions.ts";
+import {
+  readAuthoringConventions,
+  type AuthoringConventions,
+} from "../../../src/authoring/projectConventions.ts";
 import { readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { hydrateImageAttachments } from "./projectImageArchive.ts";
 import {
@@ -74,7 +77,18 @@ export interface ProjectSoundContext {
 }
 
 export function buildPublicGameZip(
-  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library" | "authoringConventions" | "templateId" | "provider" | "sessionId" | "imported">,
+  data: Pick<
+    CachedGameData,
+    | "files"
+    | "title"
+    | "roomGeneration"
+    | "library"
+    | "authoringConventions"
+    | "templateId"
+    | "provider"
+    | "sessionId"
+    | "imported"
+  >,
 ): Uint8Array<ArrayBuffer> {
   return finishArchive(gameEntries(data));
 }

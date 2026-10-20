@@ -330,6 +330,7 @@ function openDetails(): void {
         v-model:open="confirmDownload"
         :title
         :busy="exportBusy"
+        :project-id="game.projectId"
         :work-in-progress="game.library?.workInProgress === true"
         @choose="(project) => onExportLibraryGame(game, project)"
         @closed="onDialogClosed"

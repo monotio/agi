@@ -1,4 +1,7 @@
-import { readAuthoringConventions, type AuthoringConventions } from "../../../src/authoring/projectConventions.ts";
+import {
+  readAuthoringConventions,
+  type AuthoringConventions,
+} from "../../../src/authoring/projectConventions.ts";
 import { resourceRevisionBytes } from "../../../src/authoring/resourceRevision.ts";
 import { detectKnownGameByHashes, type KnownAgiGame } from "../../../src/games/knownGames.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
@@ -180,7 +183,9 @@ export function readPublicMetadata(raw: unknown): {
   return {
     ...(title ? { title } : {}),
     ...(profile !== undefined ? { profile: profile as ProfileId } : {}),
-    authoringConventions: readAuthoringConventions(value["authoringConventions"]),
+    ...(value["authoringConventions"] === undefined
+      ? {}
+      : { authoringConventions: readAuthoringConventions(value["authoringConventions"]) }),
     roomGeneration: value["roomGeneration"] === true,
     workInProgress: value["workInProgress"] === true,
     metadata: publicGameMetadata(value["metadata"] as PublicGameMetadata | undefined),

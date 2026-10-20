@@ -16,7 +16,8 @@ export const AUTHORED_SCRIPT_BUFFER_PAIRS = 200;
  * - LOGIC 0 calls script.size: its largest operand when `includeDeclared`
  *   (a live commit or a host resume, where the boot block already ran),
  *   otherwise 0 because the game's own call sets the buffer;
- * - otherwise, or when LOGIC 0 is missing or cannot be decoded, 0.
+ * - otherwise the caller's undeclaredFloor on live admission, or 0.
+ * Legacy cold boot and restart capacity come from provenance, never from this scan.
  *
  * Callers only ever raise a capacity to this value, never lower one.
  */
@@ -24,8 +25,10 @@ export function authoredScriptFloor(
   payload: Uint8Array | null,
   profile: AgiProfile,
   includeDeclared: boolean,
+  undeclaredFloor = 0,
 ): number {
-  if (payload === null) return 0;
+  if (!includeDeclared) return 0;
+  if (payload === null) return undeclaredFloor;
   let insns;
   try {
     insns = decodeLogicInsns(payload, { profile });
@@ -39,6 +42,5 @@ export function authoredScriptFloor(
       sized = true;
       declared = Math.max(declared, insn.args?.[0] ?? 0);
     }
-  if (sized) return includeDeclared ? declared : 0;
-  return 0;
+  return sized ? declared : undeclaredFloor;
 }

@@ -82,15 +82,15 @@ test("a project without an editable logic 0 source is never touched", () => {
     null,
     "an existing call ends the migration",
   );
-  assert.notEqual(
+  assert.equal(
     migrateScriptSize({ "logic:0": `${boot}// script.size(5) only a comment\n}\nreturn;` }),
     null,
-    "a comment is not a script.size call: the migration still applies",
+    "a partial customized boot is left alone, including comments",
   );
-  assert.notEqual(
+  assert.equal(
     migrateScriptSize({ "logic:0": `${boot}print("never use script.size(5)");\n}\nreturn;` }),
     null,
-    "a string is not a call either: the migration still applies",
+    "a partial customized boot is left alone, including strings",
   );
 });
 
@@ -140,7 +140,10 @@ const capacity = (engine: Engine) => decodeSave(engine.serialize(), engine.profi
  * without it keeps the authentic 50 pairs, like a released build's session.
  */
 function bootedBeforeMigration(adoptDeclaredScriptSize: boolean) {
-  const engine = new Engine(game(PRE_125_LOGIC0), host, dict, { adoptDeclaredScriptSize });
+  const engine = new Engine(game(PRE_125_LOGIC0), host, dict, {
+    adoptDeclaredScriptSize,
+    legacyRoomMemory: adoptDeclaredScriptSize,
+  });
   for (let i = 0; i < 4; i++) engine.tick();
   assert.equal(engine.vars[0], 1, "the game reached its first room");
   assert.equal(engine.flags[200], 1, "logic 0's boot block already ran");
@@ -212,6 +215,7 @@ test("restart reapplies the authored buffer floor", () => {
 test("the authored buffer floor never lowers a running game's capacity", () => {
   const engine = new Engine(game(MIGRATED_LOGIC0), host, dict, {
     adoptDeclaredScriptSize: true,
+    legacyRoomMemory: true,
   });
   for (let i = 0; i < 4; i++) engine.tick();
   assert.equal(capacity(engine), 200, "the migrated boot block ran its script.size(200)");
@@ -232,18 +236,22 @@ test("resuming a checkpoint written before the migration runs at the declared bu
   // the host option raises the buffer instead.
   const image = bootedBeforeMigration(false).autosaveImage();
   assert.ok(image, "the pre-option session wrote a checkpoint");
-  const resumed = new Engine(game(MIGRATED_LOGIC0), host, dict, { adoptDeclaredScriptSize: true });
+  const resumed = new Engine(game(MIGRATED_LOGIC0), host, dict, {
+    adoptDeclaredScriptSize: true,
+    legacyRoomMemory: true,
+  });
   resumed.restoreImage(image);
   assert.equal(capacity(resumed), 200);
   assert.doesNotThrow(() => bakeDetails(resumed), "the busy room runs on the resumed game");
   const unmigrated = new Engine(game(PRE_125_LOGIC0), host, dict, {
     adoptDeclaredScriptSize: true,
+    legacyRoomMemory: true,
   });
   unmigrated.restoreImage(image);
   assert.equal(
     capacity(unmigrated),
-    200,
-    "the same checkpoint on a still-unmigrated LOGIC 0 gets the template-shape floor",
+    50,
+    "a saved capacity retains native meaning when no declared size is adopted",
   );
   const original = new Engine(game(MIGRATED_LOGIC0), host, dict);
   original.restoreImage(image);

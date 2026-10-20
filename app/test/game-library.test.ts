@@ -224,7 +224,9 @@ test("malformed public metadata reports a useful import error", () => {
 test("ZIP and folder imports deduplicate the same resources and normalize room generation", async (t) => {
   installLocalStorage(t);
   const files = game();
-  const zipGame = await readGameZip(buildPublicGameZip({ title: "ZIP title", files }));
+  const zipGame = await readGameZip(
+    buildPublicGameZip({ title: "ZIP title", files, imported: true }),
+  );
   const folderGame = readGameFiles(
     new Map(
       Object.entries(zipGame.files).map(([name, bytes]) => [`Folder/${name.toLowerCase()}`, bytes]),
@@ -1154,4 +1156,50 @@ test("a second tab claiming the id after import preflight keeps its font and get
   assert.equal((await loadAuthoredGame(second))?.files["AGIFONT"], undefined);
   await clearCachedGame(first);
   await clearCachedGame(second);
+});
+
+test("playable imports honour conventions independently of identical resource bytes", async (t) => {
+  installLocalStorage(t);
+  const files = game("set(f199); return;");
+  const external = await addLibraryGame(
+    { files, words: [], title: "External capacity" },
+    "External capacity",
+    "zip",
+    opening,
+  );
+  const legacy = await addLibraryGame(
+    {
+      files,
+      words: [],
+      title: "Legacy capacity",
+      authoringConventions: { version: 1, legacyRoomMemory: true },
+    },
+    "Legacy capacity",
+    "zip",
+    opening,
+  );
+  assert.notEqual(
+    legacy,
+    external,
+    "the 50-pair external import cannot absorb the legacy contract",
+  );
+  assert.deepEqual((await loadAuthoredGame(legacy))!.authoringConventions, {
+    version: 1,
+    legacyRoomMemory: true,
+  });
+});
+
+test("private imports without conventions are legacy; a raw customized game stays external", async (t) => {
+  installLocalStorage(t);
+  const files = game("set(f199); return;");
+  const id = await addLibraryGame(
+    { files, words: [], project: {} },
+    "Legacy project",
+    "zip",
+    opening,
+  );
+  const data = (await loadAuthoredGame(id))!;
+  assert.deepEqual(data.authoringConventions, { version: 0, legacyRoomMemory: true });
+  const raw = await addLibraryGame({ files, words: [] }, "External game", "zip", opening);
+  assert.equal((await loadAuthoredGame(raw))!.authoringConventions, undefined);
 });
