@@ -257,10 +257,20 @@ function createSession(
         Object.keys(viewRebuilds).map((key) => [key, inspection.documents[key]!]),
       ),
     };
-  // Refused VIEW sources stay inactive even when a workspace carries them.
-  for (const key of Object.keys(inspection.rejectedSources))
-    if (/^view:\d+$/.test(key) && inspection.documents[key] instanceof Uint8Array)
+  // History owns accepted drafts even when diagnostics kept older runnable bytes.
+  // Unaccepted VIEW claims still stay inactive beside the native fallback.
+  const acceptedHistory = history.capture();
+  const acceptedDocuments = acceptedHistory.commits.find(
+    (commit) => commit.id === acceptedHistory.cursor,
+  )?.documents;
+  for (const key of Object.keys(inspection.rejectedSources)) {
+    const hash = acceptedDocuments?.[key];
+    const acceptedDraft =
+      typeof hash === "string" &&
+      sameProjectContent(openedDocuments[key], acceptedHistory.blobs[hash]);
+    if (/^view:\d+$/.test(key) && inspection.documents[key] instanceof Uint8Array && !acceptedDraft)
       openedDocuments = { ...openedDocuments, [key]: inspection.documents[key]! };
+  }
 
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({

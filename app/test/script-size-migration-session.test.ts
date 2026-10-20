@@ -726,6 +726,28 @@ test("a broken room draft accepts the VIEW and LOGIC update exactly once across 
   assert.equal(migrationCommits(after), 1);
   assert.deepEqual(after.projectHistory, updated.projectHistory);
   assert.deepEqual(admitted, [], "the broken room stays a draft");
+  const repair = await open(id, admitted);
+  assert.equal(repair.model.capture().read("view:1")?.content, JSON.stringify(oldView.input));
+  await repair.submit({
+    proposal: repair.model.propose(repair.model.capture(), "Repair room", [
+      { key: "logic:1", content: "accept.input(); return;" },
+    ]),
+    label: "Repair room",
+    origin: "logic",
+    author: "creator",
+  });
+  await settle(repair);
+  repair.dispose();
+  const repaired = (await loadAuthoredGame(id))!;
+  // Two shared loops at 11; the third has its own reversed [0, 2, 1] cel at 20.
+  assert.deepEqual(
+    viewBytes(repaired),
+    [
+      0, 0, 3, 0, 0, 11, 0, 11, 0, 20, 0, 1, 3, 0, 3, 1, 128, 17, 33, 0, 1, 3, 0, 3, 1, 32, 1, 33,
+      17, 0,
+    ],
+  );
+  assert.equal(migrationCommits(repaired), 1);
 });
 
 test("a refused VIEW and LOGIC update writes neither resource nor stamp and retries both on reopen", async () => {
