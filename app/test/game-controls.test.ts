@@ -218,3 +218,30 @@ for (const presentation of ["iigs", "pc", "amiga"]) {
     );
   });
 }
+
+// The stale flag ends at the first owned poll that sees the button up, prompt
+// or no prompt: a press that started during play and ended under a prompt the
+// game opened later is a fresh gesture, never a swallowed one.
+for (const presentation of ["iigs", "pc", "amiga"]) {
+  test(`a fire button released before a prompt opens fires on its next press (${presentation})`, () => {
+    const rig = gamepadRig(presentation);
+    // Press in play, a host control takes the keyboard mid-hold, and the
+    // finger lifts there.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.owns = false;
+    rig.poll();
+    // Focus returns to ordinary play with the button already up: this owned
+    // poll sees the release and ends the stale flag.
+    rig.owns = true;
+    rig.pad.button1 = false;
+    rig.poll();
+    // The game then opens a prompt; the next press-and-release is fresh.
+    rig.prompt = true;
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(rig.keys, [0x0101]);
+  });
+}

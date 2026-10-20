@@ -540,7 +540,11 @@ function onScreenPointerCancel(): void {
 // A mode switch under a held button ends the gesture its old owner started.
 watch(
   () => props.inspectorDocked,
-  () => onScreenPointerCancel(),
+  (docked) => {
+    onScreenPointerCancel();
+    // A room menu asked for before Create's workspace mounted leaves with it.
+    if (!docked) gameRoomMenu.value = undefined;
+  },
 );
 
 /** The touch Menu button: open the strip without a button and keep it open. */
@@ -552,9 +556,11 @@ function onTouchMenu(): void {
 
 /** Right-click offers the current room's actions while Create is on stage; Amiga Play gets its right button. */
 function onScreenContextMenu(ev: MouseEvent): void {
-  // Honour the owner the press recorded; a contextmenu with no right press
-  // behind it asks the mode directly.
-  const owner = rightButtonOwner ?? currentRightButtonOwner();
+  // The press's owner answers one contextmenu, for its own button only: a
+  // keyboard or long-press contextmenu (button 0) asks the mode on stage.
+  const pressed = rightButtonOwner;
+  rightButtonOwner = null;
+  const owner = ev.button === 2 && pressed !== null ? pressed : currentRightButtonOwner();
   if (owner === "create") {
     // Create's menu answers the press even with no room under it, and the
     // browser's own menu never opens over the game.
