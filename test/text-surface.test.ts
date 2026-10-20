@@ -20,6 +20,7 @@ import {
   cellChar,
   placePrintWindow,
   placeWindow,
+  printWindowLayout,
   windowLines,
   wrapLines,
 } from "../src/runtime/textSurface.ts";
@@ -899,6 +900,37 @@ test("print.at overrides place the window verbatim, off-screen included", () => 
   assert.deepEqual(
     { x0: offscreen.x0, y0: offscreen.y0, x1: offscreen.x1, y1: offscreen.y1 },
     { x0: 294, y0: 195, x1: 353, y1: 212 },
+  );
+});
+
+test("a profile's boot window layout places one shared frame family per build", () => {
+  // Player-visible rule: a message window sits where the selected interpreter
+  // puts it — the Amiga load image starts the picture at row 0; every other
+  // build starts at row 1. The frame pixels each family draws are asserted by
+  // the engine test below; what is new here is the boot layout table and the
+  // Amiga placement at base 0.
+  const cases = [
+    { id: "2.936" as const, layout: { displayBase: 1, maxLines: 19, geometry: "pc" } },
+    { id: "2.001" as const, layout: { displayBase: 1, maxLines: 18, geometry: "pc-2.001" } },
+    { id: "amiga-2.082" as const, layout: { displayBase: 0, maxLines: 19, geometry: "amiga" } },
+    { id: "iigs-1.014" as const, layout: { displayBase: 1, maxLines: 19, geometry: "iigs" } },
+  ];
+  for (const { id, layout } of cases) assert.deepEqual(printWindowLayout(PROFILES[id]), layout, id);
+  // Hand-computed from docs/fidelity.md "Original window and status-line
+  // text": a one-line two-column message at Amiga base 0 centres at textLeft
+  // (40-2)>>1 = 19, textTop = 0 + ((20-1-1)>>1)+1 = 10, fill
+  // [8·leftCol−10, 8·(leftCol+cols)+10] × [8·topRow−6, 8·(topRow+rows)+4].
+  const amiga = placePrintWindow(["Hi"], 0, "amiga");
+  assert.deepEqual(
+    {
+      textTop: amiga.textTop,
+      textLeft: amiga.textLeft,
+      x0: amiga.x0,
+      y0: amiga.y0,
+      x1: amiga.x1,
+      y1: amiga.y1,
+    },
+    { textTop: 10, textLeft: 19, x0: 142, y0: 74, x1: 178, y1: 92 },
   );
 });
 

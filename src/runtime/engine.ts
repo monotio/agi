@@ -118,6 +118,7 @@ import {
   captureWindowErased,
   drawWindow,
   placePrintWindow,
+  printWindowLayout,
   stampWindow,
   stampWindowOverlayOnly,
   windowLines,
@@ -3315,8 +3316,7 @@ export class Engine {
     // windowLines applies the overlong-message recovery: more than 19
     // formatted lines substitutes "Message too verbose:" quoting the first
     // 20 characters (docs/fidelity.md "Original window and status-line text").
-    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
-    const lines = windowLines(text, width, maxLines);
+    const lines = windowLines(text, width, printWindowLayout(this.profile).maxLines);
     const win = placePrintWindow(
       lines,
       this.displayBaseRow,
@@ -3373,7 +3373,7 @@ export class Engine {
     // On verified 2.936, when vdesc == 0, ShowObj computes viewPtr + 0 without
     // testing for a zero offset and formats the NUL-terminated bytes starting
     // at byte 0 of the view header (docs/fidelity.md, F-VIEWS-11).
-    const maxLines = this.profile.windowFrameGeometry === "pc-2.001" ? 18 : 19;
+    const maxLines = printWindowLayout(this.profile).maxLines;
     let rawDescription = view.description;
     if (rawDescription === undefined) {
       const raw = this.profile.showObjUncheckedDescOffset
@@ -9522,7 +9522,8 @@ export class Engine {
     // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,
     // which also gates status.line.on/off until configure.screen sets a
     // nonzero picture top (docs/fidelity.md "Amiga screen, font and pointer").
-    if (this.profile.presentation === "amiga") this.displayBaseRow = 0;
+    // Other builds boot at row 1 and keep a configured top across a restart.
+    if (printWindowLayout(this.profile).displayBase === 0) this.displayBaseRow = 0;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[20] = isAmiga ? 5 : isIIgs ? 7 : 0;
     if (id === "2.001") {

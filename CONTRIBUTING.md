@@ -506,37 +506,33 @@ editor. Later resources are opened explicitly from earlier result previews.
 Private backups preserve the stored playable files byte for byte; public Game
 exports still synthesize an empty `OBJECT` when a game lacks one.
 
-Playback recordings use version 2 for debugger boundaries and complete project
-admission events. Released version-1 tapes remain unchanged on read; the first
-committed append upgrades their recording header atomically. The archive and
-storage wrappers remain version 1. Authentic save files retain their existing
-contract. Recorded game tests migrate from `monotio.agi.tests.v1` to
-`monotio.agi.tests.v2` for deterministic entropy: v1 tests read with
-`rngVersion: 1`, and edits preserve those RNG semantics. New tests default to
-RNG version 2; the serializer writes the v2 envelope.
+These are separate contracts; a version on one says nothing about another.
+Every writer version and accepted reader set is a constant in the cited code:
 
-Engine replay states inside tapes, History checkpoints and recorded tests write
-version 2. Omission identifies released version 1. The recording restore boundary
-migrates released booter sound cursors using their resource's bytes; readers keep
-the original stored state and fingerprints. Unknown replay versions are refused.
-History viewing and rewind in [historyDrive.ts](app/src/worker/historyDrive.ts),
-and retained earlier sessions through `historyViewRestore` → `adoptResumePoint`
-in [resumePoint.ts](app/src/worker/resumePoint.ts), share `fingerprintMatchesRecorded`
-in [releasedHostImage.ts](app/src/worker/releasedHostImage.ts). It authenticates
-the stored fingerprint before deriving a migrated expectation from recorded bytes,
-including released replays without sound. Later sync checks stay enabled; an old
-booter-sound tape can differ after its anchor because of the earlier sound-timing
-correction. See [2.001 speaker row execution](docs/fidelity.md#2001-speaker-row-execution)
-for the continuation rule. Host images retain envelope version 2 and accept
-released version 1; authentic save files do not carry transient sound playback.
+| Contract                                                                                                                                           | Writer | Reads          | Migration trigger                                                                                                                        | Retained fixture                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Playback recording (`recording.version`, `src/agent/history.ts`)                                                                                   | 3      | 1–3            | Version 3 adds the parked window's pixel frame (`saved.window`), the `menu`/`joystick` causes and `pcDisplay` on boots and anchors       | `app/test/formats/project-v1.zip` (v1), `test/formats/history-v2-project-image.json` (v2)      |
+| Host autosave image (`src/runtime/persistence.ts`)                                                                                                 | 2      | 1–2            | Version 2 admits the parked window's pixel frame (`saved.window`) in the continuation                                                    | `app/test/formats/history-1.2.2-paused-reenter.json` (released anchors inside the worker tape) |
+| Engine replay state inside tapes, History checkpoints and recorded tests (`src/runtime/replayState.ts`)                                            | 2      | 1–2            | Omission means released version 1; the recording restore boundary migrates released booter sound cursors from their resource's bytes     | `test/formats/sound-1.2.4.json.gz`                                                             |
+| Stored project body (`monotio.agi.stored-project`) and localStorage index (`monotio.agi.project-index`), `app/src/project/gameStorage.ts`          | 1      | 1              | None — extend at the same version with optional fields                                                                                   | `app/test/formats/project-v1.json`, `project-v1.zip`                                           |
+| Private archive `PROJECT.JSON` (`monotio.agi.project`) and `HISTORY.JSON` (`monotio.agi.history`) wrappers                                         | 1      | 1              | None — the nested History recording carries its own version                                                                              | `app/test/formats/project-v1.zip`                                                              |
+| Workspace (`monotio.agi.project-workspace`), edit History (`monotio.agi.project-history`) and recovery draft (`monotio.agi.recovery-draft`) codecs | 1      | 1              | None                                                                                                                                     | `test/formats/project-workspace-v1.json`, `project-history-v1.json`, `recovery-draft-v1.json`  |
+| Game tests `TESTS.JSON` (`monotio.agi.tests`)                                                                                                      | v2     | v1–v2          | v2 adds deterministic entropy: a v1 document reads with `rngVersion: 1` and keeps it on edit; new tests default to version 2             | `TESTS.JSON` in `app/test/formats/project-v1.zip` (v1)                                         |
+| Walkthrough tape (`monotio.agi.walkthrough`)                                                                                                       | v2     | v1–v2          | v2 selects RNG version 2                                                                                                                 | `app/public/walkthroughs/*.json` (all v2; no v1 tape is retained)                              |
+| IndexedDB `monotio-agi-projects` schema (`app/src/project/gameBodyStorage.ts`)                                                                     | 2      | upgrade from 1 | Schema 2 fences older application writers from the coordinated project/History transactions; a schema-1 database's records are preserved | —                                                                                              |
 
-The IndexedDB database uses schema version 2 to fence older application writers
-from the coordinated project/History transactions. Opening a released schema-1
-database preserves its records. This database gate is separate from the body
-and index codecs. The workspace codec stores text and bytes exactly without
-compiling them; recompile documents against their resource revision to establish
-that sources reproduce playable bytes, as `app/src/project/localProject.ts` does
-at creation.
+Authentic save files retain their existing contract. The workspace codec stores
+text and bytes exactly without compiling them; recompile documents against their
+resource revision to establish that sources reproduce playable bytes, as
+`app/src/project/localProject.ts` does at creation.
+
+Readers keep the original stored replay state and fingerprints. History viewing and
+rewind ([historyDrive.ts](app/src/worker/historyDrive.ts)) and retained earlier sessions
+([resumePoint.ts](app/src/worker/resumePoint.ts)) share `fingerprintMatchesRecorded` in
+[releasedHostImage.ts](app/src/worker/releasedHostImage.ts): it authenticates the stored
+fingerprint before deriving a migrated expectation. An old booter-sound tape can differ
+after its anchor because of the earlier sound-timing correction; see
+[2.001 speaker row execution](docs/fidelity.md#2001-speaker-row-execution).
 
 ### Shared vocabulary
 

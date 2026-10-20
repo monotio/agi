@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { compareFrames, normalizeFrame } from "../scripts/mame-diff-metrics.ts";
-import { validateScenario, type Scenario } from "../scripts/mame-diff.ts";
+import {
+  outputInsideRepo,
+  requireIgnoredOutput,
+  validateScenario,
+  type Scenario,
+} from "../scripts/mame-diff.ts";
 
 test("frame comparison counts exact RGB changes and bounds them within each screen region", () => {
   const original = new Uint8Array(320 * 200 * 3);
@@ -46,6 +55,38 @@ test("normalization crops before nearest-neighbour sampling and never adjusts co
     () => normalizeFrame({ width: 4, height: 3, rgba }, { x: 3, y: 0, width: 2, height: 1 }),
     /crop/i,
   );
+});
+
+test("the output guard requires gitignore on every repository child, whatever its name", () => {
+  const root = resolve(".");
+  // A child named "..something" is inside the repository, not a parent path.
+  assert.equal(outputInsideRepo(resolve("..review-captures"), root), true);
+  assert.throws(() => requireIgnoredOutput(resolve("..review-captures")), /gitignored/);
+  // A true sibling of the repository root is outside and needs no ignore.
+  assert.equal(outputInsideRepo(resolve("..", "mame-diff-outside"), root), false);
+  assert.doesNotThrow(() => requireIgnoredOutput(resolve("..", "mame-diff-outside")));
+  // The default scratch area is an ignored repository child.
+  assert.equal(outputInsideRepo(resolve(".local/mame-diff/test-run"), root), true);
+  assert.doesNotThrow(() => requireIgnoredOutput(resolve(".local/mame-diff/test-run")));
+  // An ordinary unignored child is refused.
+  assert.equal(outputInsideRepo(resolve("scripts/mame-diff-out"), root), true);
+  assert.throws(() => requireIgnoredOutput(resolve("scripts/mame-diff-out")), /gitignored/);
+});
+
+test("the output guard follows the script's repository root, not the current directory", () => {
+  // The script may run from anywhere (a capture directory, another checkout):
+  // containment and git check-ignore still refer to its own repository.
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const home = process.cwd();
+  process.chdir(mkdtempSync(join(tmpdir(), "mame-diff-cwd-")));
+  try {
+    assert.equal(outputInsideRepo(join(root, ".local/mame-diff/test-run")), true);
+    assert.doesNotThrow(() => requireIgnoredOutput(join(root, ".local/mame-diff/test-run")));
+    assert.throws(() => requireIgnoredOutput(join(root, "scripts/mame-diff-out")), /gitignored/);
+    assert.equal(outputInsideRepo(join(root, "..", "mame-diff-outside")), false);
+  } finally {
+    process.chdir(home);
+  }
 });
 
 test("scene scripts accept direction keys and a Node RNG seed, and reject malformed ones", () => {

@@ -2,6 +2,7 @@
 import { computed, ref, useTemplateRef, onMounted } from "vue";
 import { guidedPlacement, dockPicturePoint } from "./guidedPlacement.ts";
 import { celRgba } from "../render/palette.ts";
+import { useGamePalette } from "../render/useGamePalette.ts";
 import { watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 const { picRow } = defineProps<{ picRow: number }>();
@@ -34,8 +35,9 @@ const boxStyle = computed(() => {
       }
     : {};
 });
+const palette = useGamePalette();
 watch(
-  [ghost, () => guidedPlacement.value?.cel],
+  [ghost, () => guidedPlacement.value?.cel, palette],
   () => {
     const canvas = ghost.value;
     const cel = guidedPlacement.value?.cel;
@@ -43,7 +45,7 @@ watch(
     canvas.width = cel.width;
     canvas.height = cel.height;
     const image = new ImageData(cel.width, cel.height);
-    celRgba(cel, image.data);
+    celRgba(cel, image.data, undefined, palette.value);
     canvas.getContext("2d")?.putImageData(image, 0, 0);
   },
   { flush: "post", immediate: true },

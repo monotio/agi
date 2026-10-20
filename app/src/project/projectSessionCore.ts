@@ -738,7 +738,7 @@ function createSession(
         // admitted edit waits. Its new body has its own generation counter.
         ((data.projectId === fence.projectId && expected.generation >= fence.generation) ||
           (fence.projectId === openedProjectId && data.projectId === forkId)),
-      preflight() {
+      preflight(preparedEdit) {
         beforeCommit?.();
         if (action === undefined) {
           prospectiveHistory = new ProjectHistory(sha256Hex, history.capture());
@@ -748,7 +748,10 @@ function createSession(
               ...metadata,
               label: "Edits before number change",
             });
-          prospective.record(proposal.documents(), metadata);
+          // Record the candidate as prepared: preparation may transform the
+          // proposal (for example pruning Launches of a removed room), and a
+          // history failure must refuse the edit before any admission attempt.
+          prospective.record(preparedEdit.proposal.documents(), metadata);
         }
       },
       admit: (compiled, documents) => {
@@ -781,17 +784,6 @@ function createSession(
       },
     });
     const { prepared, outcome, changes } = edit;
-    // Preparation can add coordinated metadata edits, such as removing a Launch
-    // that points at a removed room. Seal that actual candidate before publication.
-    if (action === undefined && prepared.proposal !== proposal) {
-      prospectiveHistory = new ProjectHistory(sha256Hex, history.capture());
-      if (beforeNumberDocuments)
-        prospectiveHistory.record(beforeNumberDocuments, {
-          ...metadata,
-          label: "Edits before number change",
-        });
-      prospectiveHistory.record(prepared.proposal.documents(), metadata);
-    }
     beforeCommit?.();
     if (
       prepared.compiled === undefined &&

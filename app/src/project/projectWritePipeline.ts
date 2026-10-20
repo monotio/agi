@@ -1,6 +1,7 @@
 /** Detached preparation and one physical-run admission attempt precede document publication. */
 import {
   prepareProjectEdit,
+  type PreparedProjectEdit,
   type ReviewedRenumbering,
 } from "../../../src/authoring/projectEdit.ts";
 import type { ProjectModel, ProjectProposal } from "../../../src/authoring/projectModel.ts";
@@ -18,7 +19,8 @@ export async function prepareAndAdmitProjectEdit(input: {
   readonly drafts?:
     readonly { readonly key: string; readonly content: string | Uint8Array }[] | undefined;
   readonly current: () => boolean;
-  readonly preflight: () => void;
+  /** Runs before any admission attempt, on the candidate as prepared — including coordinated transforms such as pruned Launches. */
+  readonly preflight: (prepared: PreparedProjectEdit) => void;
   readonly admit: (
     compiled: ProjectDocumentsCompile,
     versions: { key: string; version: number }[],
@@ -35,7 +37,7 @@ export async function prepareAndAdmitProjectEdit(input: {
     },
     drafts: input.drafts,
   });
-  input.preflight();
+  input.preflight(prepared);
   const before = input.model.capture();
   const changes = prepared.proposal.changes();
   const documentVersions = [
