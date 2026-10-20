@@ -126,7 +126,7 @@ test("Sierra's two layers: the Priority lens holds the control lines, the walk t
   // An item's Wall tag says what a wall does.
   await expect(studio.locator(".item-list__tag", { hasText: /^Wall$/ }).first()).toHaveAttribute(
     "title",
-    "Characters can't cross a wall.",
+    "Actors can't cross a wall.",
   );
   const view = studio.getByRole("toolbar", { name: "View", exact: true });
   await expect(view).toBeVisible();

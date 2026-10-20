@@ -216,12 +216,18 @@ for (const deviceScaleFactor of [1, 2]) {
       await hoverCell(page, 80, 97);
       await expect(page.locator(".item-list__row.is-hover")).toHaveAttribute("data-row", "bench");
       await page.keyboard.press("2");
-      await hoverCell(page, 80, 97);
+      // Changing the lens can refit the stage after its options bar resizes.
+      // Remeasure the pointer target until the inspector sees the requested cell.
+      await expect
+        .poll(async () => {
+          await hoverCell(page, 80, 97);
+          return page.locator('[data-role="pixel"]').textContent();
+        })
+        .toContain("Pixel 80,97");
       await expect(page.locator(".item-list__row.is-hover")).toHaveAttribute(
         "data-row",
         "bench-occluder",
       );
-      await expect(page.locator('[data-role="pixel"]')).toContainText("Pixel 80,97");
       // 80,60 is bare wall: the Priority lens falls back to the visual owner.
       await hoverCell(page, 80, 60);
       await expect(page.locator(".item-list__row.is-hover")).toHaveAttribute("data-row", "wall");

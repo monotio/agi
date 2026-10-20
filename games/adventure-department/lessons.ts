@@ -311,7 +311,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
       title: "Priority decides who is in front",
       teaser: "Drag a stand-in behind the counter and see why its 11 hides Felix at 10.",
       steps: [
-        "Switch to the Priority lens. Every colour is a priority number, which AGI calls priority.",
+        "Switch to the Priority lens. Every colour is a priority number.",
         "Place the stand-in and drag it behind the counter: the counter's 11 hides it. Lower on the screen means a bigger number, so in front it shows.",
         "Now drag it behind the ledger stand. It floats in front: the stand needs Priority.",
         "Click the counter's priority item in the list, then its last step under Details › Steps. New steps go from there, before the Walls and Gates.",

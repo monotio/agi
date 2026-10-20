@@ -99,16 +99,16 @@ for (const [width, height] of [
         return fits;
       }, TARGET_PROPERTY);
 
-    // Art lens: an item selected, the rect tool with its options (the owner's case).
+    // Visual lens: an item selected, the rect tool with its options (the owner's case).
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
     await stage.focus();
     await page.keyboard.press("r");
     await expect(studio.getByTestId("studio-tool-filled")).toBeVisible();
-    expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
+    await expect.poll(() => coveredPoints(pane, stage, allowed)).toEqual([]);
     // Select with the item: its actions dock in the options bar, off the picture.
     await page.keyboard.press("v");
     await expect(page.getByTestId("studio-hint")).toHaveText(/^Arrows nudge/);
-    expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
+    await expect.poll(() => coveredPoints(pane, stage, allowed)).toEqual([]);
     await expect(bar.getByTestId("studio-selection-bar")).toBeVisible();
     await expect(studio.getByRole("treeitem", { name: /^West doorway/ })).toHaveAttribute(
       "aria-selected",
@@ -126,11 +126,12 @@ for (const [width, height] of [
     ).toHaveCount(0);
     await expect(page.getByRole("menuitem", { name: "Delete line", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
+    // ResizeObserver refits the canvas after the lens changes its options bar.
     // Priority: the view switch and the band lines toggle sit in the options bar.
     for (const lens of ["2"]) {
       await page.keyboard.press(lens);
       await expect(studio.getByRole("radiogroup", { name: "Lens", exact: true })).toBeVisible();
-      expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
+      await expect.poll(() => coveredPoints(pane, stage, allowed)).toEqual([]);
       await expect.poll(barFits).toBe(true);
     }
     await closeWorkspaceEditor(page);
