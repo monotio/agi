@@ -36,7 +36,6 @@ import {
   computed,
   defineAsyncComponent,
   onBeforeUnmount,
-  onMounted,
   onWatcherCleanup,
   ref,
   shallowRef,
@@ -2067,10 +2066,19 @@ const guidedSnapshot = computed(() => {
   void snapshot.value;
   return workingSnapshot();
 });
-/** Right-click on the game offers the current room's actions, whichever editor is open. */
-onMounted(() => {
-  roomMenuArmed.value = true;
-});
+/**
+ * Right-click on the game offers the current room's actions only while Create
+ * is on stage; retained editor tabs keep this component mounted in Play,
+ * where the native right button is the game's again.
+ */
+watch(
+  () => props.creating,
+  (creating) => {
+    roomMenuArmed.value = creating;
+    if (!creating) gameRoomMenu.value = undefined;
+  },
+  { immediate: true },
+);
 watch(gameRoomMenu, (open) => {
   if (!open) return;
   const keys = (event: KeyboardEvent) => {

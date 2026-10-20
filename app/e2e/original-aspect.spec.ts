@@ -9,9 +9,9 @@ import {
 } from "./engineProbe.ts";
 
 /**
- * Original 4:3 shows the 320×200 frame the way a monitor of the day did:
- * the same width, three quarters as tall instead of five eighths. It is
- * display only — the frame, and the mapping from a click to a frame
+ * Original proportions shows the 320×200 frame the way a monitor of the day
+ * did: the same width, three quarters as tall instead of five eighths. It
+ * is display only — the frame, and the mapping from a click to a frame
  * pixel, are unchanged.
  */
 async function screenRatio(page: Page): Promise<number> {
@@ -23,7 +23,9 @@ for (const viewport of [
   { name: "desktop", width: 1280, height: 800 },
   { name: "phone", width: 390, height: 844 },
 ]) {
-  test(`${viewport.name}: Original 4:3 stretches the screen and persists`, async ({ page }) => {
+  test(`${viewport.name}: Original proportions stretches the screen and persists`, async ({
+    page,
+  }) => {
     await page.setViewportSize(viewport);
     await isolateStorage(page);
     await page.goto("/");

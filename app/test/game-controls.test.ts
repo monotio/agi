@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gameShortcuts, movementDirection } from "../src/play/gameControls.ts";
-import { nativeGameKey } from "../src/play/useGameKeys.ts";
-import { translatePlatformKey } from "../../src/runtime/keys.ts";
+import { createGamepadPoll, nativeGameKey } from "../src/play/useGameKeys.ts";
+import { translatePlatformKey, type JoystickSample } from "../../src/runtime/keys.ts";
 
 const pcKey = (event: KeyboardEvent) => translatePlatformKey(event, "2.936");
 
@@ -110,4 +110,74 @@ test("the Command key stays with the browser unless the game binds its word", ()
   assert.equal(nativeGameKey(commandX, "amiga-2.202", []), undefined);
   assert.equal(nativeGameKey(commandX, "amiga-2.202", [{ key: 0x0178 }]), 0x0178);
   assert.equal(nativeGameKey(key("v", { metaKey: true }), "2.936", [{ key: 0x76 }]), undefined);
+});
+
+function gamepadRig(): {
+  sent: (JoystickSample | null)[];
+  keys: number[];
+  owns: boolean;
+  prompt: boolean;
+  pad: { x: number; y: number; button1: boolean; button2: boolean };
+  poll: () => void;
+} {
+  const rig = {
+    sent: [] as (JoystickSample | null)[],
+    keys: [] as number[],
+    owns: true,
+    prompt: false,
+    pad: { x: 0.9, y: 0, button1: false, button2: false },
+    poll: () => {},
+  };
+  rig.poll = createGamepadPoll({
+    gameOwnsPad: () => rig.owns,
+    sample: () => rig.pad,
+    send: (sample) => rig.sent.push(sample),
+    prompt: () => rig.prompt,
+    promptKey: (code) => rig.keys.push(code),
+    presentation: () => "pc",
+  });
+  return rig;
+}
+
+test("the controller follows the keyboard's owner: while a host control holds focus the game gets nothing, its held buttons release, and focus back resumes it with no stuck buttons", () => {
+  const rig = gamepadRig();
+  rig.poll();
+  assert.deepEqual(rig.sent, [rig.pad]);
+  // A Settings field or editor takes the keyboard: the held stick posts a
+  // neutral sample, and later polls keep it neutral rather than replaying it.
+  rig.owns = false;
+  rig.poll();
+  assert.deepEqual(rig.sent.at(-1), null);
+  rig.pad.x = 0;
+  rig.poll();
+  assert.deepEqual(rig.sent.at(-1), null);
+  // Focus back on the game resumes the live sample at once.
+  rig.owns = true;
+  rig.pad.x = 0.9;
+  rig.poll();
+  assert.deepEqual(rig.sent.at(-1), rig.pad);
+});
+
+test("a fire button released while a host control holds focus does not fire late into the game's prompt", () => {
+  const rig = gamepadRig();
+  rig.prompt = true;
+  rig.pad.button1 = true;
+  rig.poll();
+  assert.deepEqual(rig.keys, []);
+  // The press crosses into a host control, and the finger lifts there.
+  rig.owns = false;
+  rig.poll();
+  rig.pad.button1 = false;
+  rig.poll();
+  assert.deepEqual(rig.keys, []);
+  // Focus returns: the stale release must not reach the waiting prompt.
+  rig.owns = true;
+  rig.poll();
+  assert.deepEqual(rig.keys, []);
+  // A fresh press-and-release still fires its word.
+  rig.pad.button1 = true;
+  rig.poll();
+  rig.pad.button1 = false;
+  rig.poll();
+  assert.deepEqual(rig.keys, [0x0101]);
 });

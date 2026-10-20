@@ -6469,7 +6469,7 @@ chapter 16, defines the QuickDraw II font record and toolbox calls.
   `apple2gsr1` screenshot is 704×231 with an active 640×200 rectangle at
   `(32,16)`. Halving that rectangle horizontally gives the native 320×200
   grid. This proves raster geometry, not a physical monitor's pixel aspect.
-  The app's existing 4:3/square-pixel setting is unchanged.
+  The app's existing original-proportions/square-pixel setting is unchanged.
 - **Menus and mouse (observed divergence; not implemented).** A headless
   MAME capture with the Sierra menu open shows a 13-pixel menu bar, text
   beginning at y=3, and glyph shapes different from AGIFONT (including
