@@ -44,6 +44,14 @@ for (const capture of releasedSound.captures) {
     const before = structuredClone(tape.state);
     engine.restoreReplayState(tape.state);
     assert.deepEqual(tape.state, before, "conversion preserves released bytes");
+    const current = engine.captureReplayState(true);
+    assert.equal(current.version, 2, "new captures identify corrected sound semantics");
+    engine.restoreReplayState(current);
+    assert.deepEqual(
+      engine.captureReplayState(true),
+      current,
+      "current state does not migrate twice",
+    );
     assertSoundContinuation(engine, capture.name, outputs);
 
     const sim = new Simulation(
@@ -80,6 +88,32 @@ test("recording readers refuse unknown replay versions without changing released
   Object.assign(input.state, { version: 999 });
   const before = structuredClone(input);
   assert.throws(() => decodeRecordedReplay(JSON.stringify(input)), /version.*not supported/i);
+  const capture = releasedSound.captures[0]!;
+  const engine = new Engine(
+    openContainer(
+      new Map(
+        Object.entries(capture.history.segments[0]!.boot.files).map(([name, data]) => [
+          name,
+          new Uint8Array(Buffer.from(data, "base64")),
+        ]),
+      ),
+      { profile },
+    ),
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeKeys: () => [],
+      takeInputLine: () => null,
+    },
+    new Map(),
+    { profile },
+  );
+  assert.throws(() => engine.restoreReplayState(input.state), /version.*not supported/i);
+  const current = structuredClone(capture.tape.state);
+  Object.assign(current, { version: 2 });
+  // Seven is valid in released rows and outside this resource's corrected rows.
+  assert.throws(() => engine.restoreReplayState(current), /outside the current resource/);
   assert.deepEqual(input, before);
 });
 

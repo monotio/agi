@@ -7441,6 +7441,34 @@ Those are bounded recovery policies, not original valid-resource behavior.
 The PSG row path does not apply 2.001 device-2 attenuation conversion. Those separate paths are outside this
 speaker correction. No new MAME or real-hardware speaker measurement was made.
 
+**Released recording migration.** The v1.2.4 engine split the entire payload,
+including the period byte, at every zero. Its active booter playback always
+carried countdown 1, advanced one old row per heartbeat and completed on the
+last row. Replay state now writes version 2; an omitted version identifies
+released version 1. At the recording restore boundary, the resource translates
+the old cursor to its consumed-byte boundary, then selects the first corrected
+row whose start is at or after that boundary. A partly consumed corrected row
+is skipped in full, including any remaining writes. The next whole row runs on
+the next heartbeat (countdown 0), then follows the resource's corrected period.
+An exhausted stream, or period-zero speaker stream, cleans up and sets the done
+flag on that next heartbeat. PSG uses its own zero-separated rows after the
+period byte; it receives the same byte-boundary translation. This is a host
+migration policy for old recordings, not evidence of original interpreter behavior.
+
+For period 1 followed by five `81 00 00` groups, released cursor 7 maps to
+corrected speaker cursor 4: the next heartbeat writes divisor 12, and the
+following heartbeat completes. Impossible released active cursors, countdowns
+and channel state are rejected before conversion; current playback bounds stay
+unchanged. Tape replay, recorded tests and History boot/anchor restores share
+this migration. History verifies the stored fingerprint before independently
+deriving a migrated expectation and checking the restored engine against it.
+The original image and replay bytes remain unchanged in
+[sound-1.2.4.json](../test/formats/sound-1.2.4.json), captured by tag v1.2.4
+(`01fcce5d55ccea285a1e02d33a8b698cb220f754`) using synthetic resources. Tests
+cover speaker and PSG, zero tone continuations, period zero/nonzero, partial
+rows, an unterminated tail and near-end cursors, including the completion flag
+and game logic after resume.
+
 ### Original games through MAME audio
 
 **Evidence class:** original interpreter execution on MAME 0.289 reconstructed

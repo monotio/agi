@@ -46,6 +46,7 @@ import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, hasKeypadStop, normalizeKeyWord } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
 import { rngDraw } from "./rng.ts";
+import { migrateRecordedReplayState } from "./recordingState.ts";
 import { iigsShakeColour, shakePlan, type ShakeFrame } from "./shake.ts";
 import {
   applyDissolve,
@@ -56,7 +57,7 @@ import {
   unpackDissolveFrame,
 } from "./dissolve.ts";
 import {
-  validateEngineReplayState,
+  REPLAY_STATE_VERSION,
   type JoystickReplayState,
   type EngineReplayState,
   type ParkedContinuation,
@@ -4436,6 +4437,7 @@ export class Engine {
     const joystick = this.joystickState();
     if (joystick && continuation === null) joystick.calibration = null;
     return {
+      version: REPLAY_STATE_VERSION,
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       ...(this.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(this.monitorType === MONITOR_TYPE[this.pcDisplay]
@@ -4492,7 +4494,9 @@ export class Engine {
   restoreReplayState(value: unknown): void {
     this.assertExecutionBoundary();
     this.pristine = false;
-    const state = validateEngineReplayState(value);
+    const state = migrateRecordedReplayState(value, this.profile, (num) =>
+      this.container.getResource("sound", num),
+    );
     const views = new Map<number, AgiView>();
     for (const num of state.viewCache.loaded) {
       const payload = this.container.getResource("view", num);

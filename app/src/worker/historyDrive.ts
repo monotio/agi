@@ -15,6 +15,7 @@ import { detachedHost, replaceRun } from "./runSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
+import { migrateRecordedReplayState } from "../../../src/runtime/recordingState.ts";
 import { fingerprintMatchesReleased, recordedHostImageVersion } from "./releasedHostImage.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
@@ -26,6 +27,7 @@ import {
   HISTORY_FORMAT_VERSION,
   historyAnchorSemantic,
   historyBootSemantic,
+  historyFingerprint,
   type HistoryAnchor,
   type HistoryCommittedPatch,
   type HistoryEvent,
@@ -350,24 +352,23 @@ export function openHistoryDrive(
     }
 
     const facade = detachedHost(ctx, anchor ? anchor.soundDevice : segment.boot.soundDevice);
-    const candidate = new Engine(
-      openContainer(files, segment.boot.profile ? { profile: segment.boot.profile } : {}),
-      facade.host,
-      dictionary,
-      {
-        ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
-        amigaRegion: segment.boot.amigaRegion ?? "ntsc",
-        ...(segment.boot.pcDisplay ? { pcDisplay: segment.boot.pcDisplay } : {}),
-        // A scratch replay knows only what the segment recorded. A segment
-        // opened under a released format predates the field, but the released
-        // build ran every game at the old 200-pair default — so an authored
-        // project (its boot carries project documents) replays under the
-        // option it could not record.
-        adoptDeclaredScriptSize:
-          segment.boot.adoptDeclaredScriptSize === true ||
-          (effectiveVersion < HISTORY_FORMAT_VERSION && segment.boot.project !== undefined),
-      },
+    const container = openContainer(
+      files,
+      segment.boot.profile ? { profile: segment.boot.profile } : {},
     );
+    const candidate = new Engine(container, facade.host, dictionary, {
+      ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
+      amigaRegion: segment.boot.amigaRegion ?? "ntsc",
+      ...(segment.boot.pcDisplay ? { pcDisplay: segment.boot.pcDisplay } : {}),
+      // A scratch replay knows only what the segment recorded. A segment
+      // opened under a released format predates the field, but the released
+      // build ran every game at the old 200-pair default — so an authored
+      // project (its boot carries project documents) replays under the
+      // option it could not record.
+      adoptDeclaredScriptSize:
+        segment.boot.adoptDeclaredScriptSize === true ||
+        (effectiveVersion < HISTORY_FORMAT_VERSION && segment.boot.project !== undefined),
+    });
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
     candidate.flags[9] = 1;
     if (legacyOnly) {
@@ -403,7 +404,13 @@ export function openHistoryDrive(
     const menus = anchor ? undefined : segment.boot.menus;
     if (menus !== undefined) candidate.restoreMenuState(menus);
     const replayState = anchor ? anchor.replay : segment.boot.replay;
-    if (replayState !== undefined) candidate.restoreReplayState(replayState);
+    const migratedReplay =
+      replayState === undefined
+        ? undefined
+        : migrateRecordedReplayState(replayState, candidate.profile, (num) =>
+            container.getResource("sound", num),
+          );
+    if (migratedReplay !== undefined) candidate.restoreReplayState(migratedReplay);
     const clock = anchor ? anchor.clock : segment.boot.clock;
     const soundRemainder = anchor ? anchor.soundRemainder : segment.boot.soundRemainder;
     replaceRun(ctx, "history", {
@@ -450,11 +457,17 @@ export function openHistoryDrive(
     const fingerprint = anchor !== null ? anchor.fingerprint : segment.boot.fingerprint;
     if (fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
       throw new Error(`resume point carries fingerprint version ${fingerprint.v}`);
-    const semantic = captureSemanticState(
-      ctx,
-      anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
-    );
-    if (!fingerprintMatchesReleased(semantic, fingerprint))
+    const recordedSemantic =
+      anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot);
+    // Authenticate the original record before deriving a migrated expectation.
+    // The expectation comes from recorded bytes, never from the restored engine.
+    const originalHolds = historyFingerprint(recordedSemantic).hash === fingerprint.hash;
+    const expected =
+      migratedReplay === undefined
+        ? fingerprint
+        : historyFingerprint({ ...recordedSemantic, replay: migratedReplay });
+    const semantic = captureSemanticState(ctx, recordedSemantic);
+    if (!originalHolds || !fingerprintMatchesReleased(semantic, expected))
       throw new Error(
         `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
       );
