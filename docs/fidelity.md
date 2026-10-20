@@ -886,33 +886,32 @@ native meaning. A recorded capacity stays authoritative on restore.
 The optional project field `authoringConventions` travels in stored bodies,
 library indexes, copies, PROJECT.JSON and GAME.JSON. Its integer `version` is
 1 for the conventions examined by 1.2.5; 0 identifies an unexamined legacy
-import. Missing metadata means legacy for an authored library entry, a template,
-a provider/session context, or an older non-imported record without library
-metadata. Workspace claims alone do not establish authorship. A PROJECT.JSON
-import counts as legacy; a GAME.JSON-only import without conventions does so
-only with an exact decoded released boot block. Explicit conventions survive
-both import paths. Recognized originals override these claims. New projects
-record version 1 without `legacyRoomMemory`; changing their code never turns
-them into legacy projects.
+project. A stored game without conventions is legacy unless it is a recognized
+original release. PROJECT.JSON and GAME.JSON imports without conventions also
+count as legacy. New external imports and new projects record version 1 without
+`legacyRoomMemory`; changing their code never turns them into legacy projects.
+Recognized originals keep their native allocation.
 
 Only exact released LOGIC 0 blocks from versions 1.0 through 1.2.4 are upgraded:
 the once-only boot gains `script.size(200)` and the unknown-word fallback gains
 zero-based word operands. Resolved syntax compares numeric and named operands
 and inline and numbered messages equally. Comments cannot establish a guard;
 other writes to its flag prevent the automatic resize. Customized blocks stay
-editable and unchanged. Both changes share one **Updated for 1.2.5** History
-entry and an atomic conventions stamp. No metadata-only examination write is
-scheduled. The next commit, copy or export carries the computed stamp when
-there are no exact edits. Undo, pruning and clearing History retain provenance,
-so automatic upgrades never recur.
+editable and unchanged. Valid mirrored VIEW source with older builder bytes
+joins the same **Updated for 1.2.5** History entry and atomic conventions stamp.
+The stored native VIEW bytes seed the pre-update state, so Undo restores them
+exactly. Existing History keeps its immutable commits and gains a **Before
+update** baseline only when needed to preserve those bytes.
 
-Create's Game updates notice offers a revision-bound preview before Add.
-Room memory needs an exact released guard or a proven unused flag across the
-current game; indirect flag access and source-less code receive no Add. Word
-feedback needs the exact released fallback; a customized matching-position
-fallback receives plain guidance. Blank projects, fresh projects and the
-tutorial's own feedback need no notice. A legacy export without an explicit
-memory declaration warns that larger rooms may stop working elsewhere.
+No metadata-only examination write is scheduled. Copies and exports carry the
+stored conventions, or pending version 0 for an unstamped legacy project; the
+session's next commit stamps version 1. Undo, pruning and clearing History retain
+that provenance, so automatic upgrades never recur. A refused write leaves both
+the old resources and conventions intact for another open to retry.
+
+Customized one-based word feedback shows a sentence above LOGIC 0 reminding the
+author to start counting words at 0. The exact released fallback is repaired
+automatically; corrected or unrelated code needs no hint.
 
 The separate `adoptDeclaredScriptSize` host option raises capacity to LOGIC 0's
 largest declaration on live admission and host resume, without clearing replay
@@ -926,6 +925,8 @@ Pre-version-3 segments with authored project documents explicitly replay with
 **Tests:** [released-project-upgrades.test.ts](../test/released-project-upgrades.test.ts),
 [legacy-room-memory.test.ts](../test/legacy-room-memory.test.ts),
 [project-conventions.test.ts](../test/project-conventions.test.ts),
+[word-feedback-hint.test.ts](../test/word-feedback-hint.test.ts),
+[view-migration-session.test.ts](../app/test/view-migration-session.test.ts),
 [script-size-migration.test.ts](../test/script-size-migration.test.ts),
 [worker-script-size-migration.test.ts](../app/test/worker-script-size-migration.test.ts),
 [script-size-migration-session.test.ts](../app/test/script-size-migration-session.test.ts).
