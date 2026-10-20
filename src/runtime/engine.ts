@@ -4421,6 +4421,10 @@ export class Engine {
     state.logicResume = state.logicResume.filter(
       (entry) => entry.logic === 0 && !resetGlobalScanStart,
     );
+    const replay = this.replayState(null);
+    replay.sound = null;
+    replay.terminated = false;
+    delete replay.version;
     return {
       image: encodeHostImage(
         encodeSave(state, this.profile),
@@ -4429,15 +4433,27 @@ export class Engine {
         undefined,
         this.amigaRegion,
       ),
-      replay: { ...this.replayState(null), sound: null, terminated: false },
+      replay,
     };
   }
 
   private replayState(continuation = this.captureContinuation()): EngineReplayState {
     const joystick = this.joystickState();
     if (joystick && continuation === null) joystick.calibration = null;
+    const sound =
+      this.soundPlayback && this.playingSound !== null && this.soundDoneFlag !== null
+        ? {
+            num: this.playingSound,
+            doneFlag: this.soundDoneFlag,
+            playback: this.soundPlayback.snapshot(),
+          }
+        : null;
     return {
-      version: REPLAY_STATE_VERSION,
+      // Only booter playback changed meaning. Compatible captures retain their
+      // released representation, which is part of History fingerprints.
+      ...(this.profile.sound === "booter-2.001" && sound !== null
+        ? { version: REPLAY_STATE_VERSION }
+        : {}),
       ...(this.amigaRegion === "pal" ? { amigaRegion: this.amigaRegion } : {}),
       ...(this.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(this.monitorType === MONITOR_TYPE[this.pcDisplay]
@@ -4477,14 +4493,7 @@ export class Engine {
       objectExtras: this.objects.map(({ priority }) => ({ priority })),
       viewCache: { loaded: [...this.views.keys()], order: [...this.viewOrder] },
       gameSignature: this.signature,
-      sound:
-        this.soundPlayback && this.playingSound !== null && this.soundDoneFlag !== null
-          ? {
-              num: this.playingSound,
-              doneFlag: this.soundDoneFlag,
-              playback: this.soundPlayback.snapshot(),
-            }
-          : null,
+      sound,
       patchGeneration: this.patchGen,
       continuation,
     };

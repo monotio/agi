@@ -7444,9 +7444,11 @@ speaker correction. No new MAME or real-hardware speaker measurement was made.
 **Released recording migration.** The v1.2.4 engine split the entire payload,
 including the period byte, at every zero. Its active booter playback always
 carried countdown 1, advanced one old row per heartbeat and completed on the
-last row. Replay state now writes version 2; an omitted version identifies
-released version 1. At the recording restore boundary, the resource translates
-the old cursor to its consumed-byte boundary, then selects the first corrected
+last row. Replay state now writes version 2 only while carrying corrected booter
+playback. Silent states and other profiles keep the released form and its
+fingerprints; an omitted version retains released semantics. At the recording
+restore boundary, the resource translates the old cursor to its consumed-byte
+boundary, then selects the first corrected
 row whose start is at or after that boundary. A partly consumed corrected row
 is skipped in full, including any remaining writes. The next whole row runs on
 the next heartbeat (countdown 0), then follows the resource's corrected period.
@@ -7467,9 +7469,8 @@ restores take `historyViewRestore` → `adoptResumePoint` in
 `fingerprintMatchesRecorded` in
 [releasedHostImage.ts](../app/src/worker/releasedHostImage.ts): check the stored
 fingerprint first, then independently derive the expected fingerprint from
-`migrateRecordedReplayState` and compare the recaptured engine. Even a released
-checkpoint without sound needs this step because every new replay capture carries
-version 2.
+`migrateRecordedReplayState` and compare the recaptured engine. Released checkpoints
+without booter playback need no replay-state conversion.
 
 Other comparison boundaries: the readers and PAL fallback in
 [src/agent/history.ts](../src/agent/history.ts) authenticate stored bytes against

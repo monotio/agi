@@ -516,15 +516,16 @@ contract. Recorded game tests migrate from `monotio.agi.tests.v1` to
 RNG version 2; the serializer writes the v2 envelope.
 
 Engine replay states inside tapes, History checkpoints and recorded tests write
-version 2. Omission identifies released version 1. The recording restore boundary
-migrates released booter sound cursors using their resource's bytes; readers keep
+version 2 only while carrying corrected 2.001 booter playback. Other captures keep
+the released form with no version marker, preserving their fingerprints. The
+recording restore boundary migrates released booter sound cursors using their resource's bytes; readers keep
 the original stored state and fingerprints. Unknown replay versions are refused.
 History viewing and rewind in [historyDrive.ts](app/src/worker/historyDrive.ts),
 and retained earlier sessions through `historyViewRestore` → `adoptResumePoint`
 in [resumePoint.ts](app/src/worker/resumePoint.ts), share `fingerprintMatchesRecorded`
 in [releasedHostImage.ts](app/src/worker/releasedHostImage.ts). It authenticates
 the stored fingerprint before deriving a migrated expectation from recorded bytes,
-including released replays without sound. Later sync checks stay enabled; an old
+when booter playback needs conversion. Later sync checks stay enabled; an old
 booter-sound tape can differ after its anchor because of the earlier sound-timing
 correction. See [2.001 speaker row execution](docs/fidelity.md#2001-speaker-row-execution)
 for the continuation rule. Host images retain envelope version 2 and accept
