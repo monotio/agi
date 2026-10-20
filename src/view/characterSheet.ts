@@ -23,7 +23,7 @@ import {
   type SheetFrame,
   type SheetLoopLayout,
 } from "./spritesheet.ts";
-import { buildView, type BuildViewInput } from "./view.ts";
+import { buildView, type BuildViewInput, type ViewCapabilities } from "./view.ts";
 
 export type SheetFacing = "right" | "left" | "down" | "up";
 
@@ -156,6 +156,7 @@ function usesAlpha(bitmap: SheetBitmap): boolean {
 export function convertCharacterSheet(
   images: Partial<Record<SheetFacing, SheetBitmap>>,
   spec: CharacterSheetSpec,
+  profile?: ViewCapabilities,
 ): ConvertedCharacter {
   const poses = spec.poses;
   if (!Number.isInteger(poses) || poses < 4 || poses > 6)
@@ -248,5 +249,5 @@ export function convertCharacterSheet(
     description: "Uploaded reference character",
     ...(preferTransparent !== undefined ? { preferTransparent } : {}),
   });
-  return { view: buildView(input), input, loops: loopReport, warnings, substitutions };
+  return { view: buildView(input, profile), input, loops: loopReport, warnings, substitutions };
 }

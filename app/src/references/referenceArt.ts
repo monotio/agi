@@ -14,7 +14,7 @@
  */
 import { type GameIdentity, gameIdentity } from "../../../src/gameIdentity.ts";
 import type { AgentToolImage } from "../../../src/agent/agentState.ts";
-import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
+import { buildView, type BuildViewInput, type ViewCapabilities } from "../../../src/view/view.ts";
 import {
   convertCharacterSheet,
   type CharacterSheetSpec,
@@ -120,6 +120,7 @@ export function stageCharacterView(
   attachedAt: GameIdentity,
   sheets: { decoded: DecodedImage; facing: SheetFacing }[],
   spec: CharacterSheetSpec,
+  profile?: ViewCapabilities,
 ): StoredReference {
   const images: Partial<Record<SheetFacing, SheetBitmap>> = {};
   const entries: ReferenceImage[] = [];
@@ -127,7 +128,7 @@ export function stageCharacterView(
     images[facing] = decoded;
     entries.push(referenceImage(decoded, facing));
   }
-  const converted = convertCharacterSheet(images, spec);
+  const converted = convertCharacterSheet(images, spec, profile);
   return {
     id,
     kind: "character",

@@ -11,7 +11,8 @@
  */
 import type { AgiProfile } from "../runtime/profile.ts";
 import {
-  buildView,
+  encodeViewBlocks,
+  type ViewCapabilities,
   parseView,
   readViewCel,
   type AgiView,
@@ -171,7 +172,7 @@ export function patchedView(
       `Loop${targeted.length > 1 ? "s" : ""} ${targeted.join(", ")} ${targeted.length > 1 ? "were" : "was"} isolated from its mirrored alias before patching so the other facing${remaining.length === 1 ? "" : "s"} retained its pixels.`,
     );
   }
-  const payload = buildView(
+  const payload = encodeViewBlocks(
     { loops, ...(view.description === undefined ? {} : { description: view.description }) },
     profile,
   );
@@ -188,25 +189,22 @@ export function patchedView(
  * spec (Sprite Studio) and what `patchedView` records.
  *
  * A builder spec cannot hold orientation nibbles: an owner's cels are stored
- * as it displays them, and a `mirrorLoop` member shows them flipped unless
- * its orientation (v2: index mod 8) equals the owner's. So each block's
+ * as it displays them, and a `mirrorLoop` member shows them flipped. So each block's
  * owner records its displayed cels, and each other member becomes a mirror
- * of the first earlier loop of its block that it displays that way; a member
- * the payload shows otherwise — a block shared unmirrored, or one whose
- * nibble names no member — records its own displayed cels. Throws RangeError
+ * of an earlier loop of its block that it displays that way; the builder
+ * materializes any additional facing that cannot share stably. A member
+ * the payload shows otherwise records its own displayed cels. Throws RangeError
  * when the payload does not decode.
  */
-export function viewSpec(
-  payload: Uint8Array,
-  profile: Pick<AgiProfile, "packedViewLoopHeader">,
-): BuildViewInput {
+export function viewSpec(payload: Uint8Array, profile: ViewCapabilities): BuildViewInput {
   const packed = profile.packedViewLoopHeader;
   const view = parseView(payload, profile);
   const loops: BuildLoopInput[] = new Array(view.loops.length);
-  // The builder mirrors packed loops 0..3 only, always flipped; v2 members
-  // show the owner's cels flipped unless their orientations coincide.
-  const canMirror = (host: number, member: number) => !packed || (host < 4 && member < 4);
-  const flips = (host: number, member: number) => packed || (host & 7) !== (member & 7);
+  // Record native sharing only inside the profile's stable orientation
+  // range. The builder can materialize additional authored facings.
+  const limit = packed ? 3 : profile.celMirrorLoopMask;
+  const canMirror = (host: number, member: number) =>
+    profile.celMirrorLoopMask !== 0 && host <= limit && member <= limit;
   for (const group of aliasGroups(payload, view, packed)) {
     const hosts = new Map<number, BuildCelInput[]>();
     for (const member of group.members) {
@@ -215,7 +213,7 @@ export function viewSpec(
         ([loop, hostCels]) =>
           canMirror(loop, member) &&
           hostCels.every((cel, index) => {
-            const shown = flips(loop, member) ? flipHorizontal(cel) : cel;
+            const shown = flipHorizontal(cel);
             return shown.pixels.every((pixel, at) => pixel === cels[index]!.pixels[at]);
           }),
       );

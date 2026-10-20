@@ -7,7 +7,7 @@ import type { RoomPlacement } from "../../../src/authoring/roomPlacements.ts";
 import type { GhostView } from "./useGhostProbe.ts";
 import type { Viewport } from "../../../src/studio/viewport.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
-import { selectViewCel, forEachPaintedPixel } from "../../../src/view/view.ts";
+import { forEachPaintedPixel } from "../../../src/view/view.ts";
 import { probeActor } from "../../../src/studio/probe.ts";
 import { maskFillPath } from "./studioView.ts";
 
@@ -75,7 +75,7 @@ const drawn = computed(() =>
     const entry = views.find((v) => v.number === figure.view);
     const cel =
       entry && figure.loop !== null && figure.cel !== null
-        ? selectViewCel(entry.view, figure.loop, figure.cel)
+        ? entry.view.loops[figure.loop]?.cels[figure.cel]
         : undefined;
     if (!cel) return [];
     const known =

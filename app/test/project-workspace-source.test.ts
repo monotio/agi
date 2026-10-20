@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
+import { sha256Hex } from "../../src/crypto.ts";
+import { buildView } from "../../src/view/view.ts";
 import { createAuthoringState } from "../../src/authoring/authoringState.ts";
 import { buildObjectFile } from "../../src/authoring/inventory.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -202,6 +205,40 @@ describe("inspectEditableProject", () => {
       inspection.diagnostics.map(({ key }) => key),
       ["sources.pictures", "view:7"],
     );
+  });
+
+  test("stale non-mirror VIEW sources stay set aside, including after the update label", () => {
+    const input = { loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] };
+    const source = JSON.stringify(input);
+    const native = buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [2] }] }] });
+    for (const envelope of ["workspace", "legacy"] as const) {
+      for (const migrated of [false, true]) {
+        const data = importedGame();
+        const container = openContainer(new Map(Object.entries(data.files)));
+        container.putResource("view", 1, native);
+        data.files = Object.fromEntries(container.files);
+        if (envelope === "workspace") data.workspace = writeProjectWorkspace({ "view:1": source });
+        else data.authoringState = { sources: { views: [[1, input]] } };
+        if (migrated) {
+          const history = new ProjectHistory(sha256Hex);
+          history.record(
+            { "view:1": native },
+            {
+              label: "VIEWs updated for 1.2.5",
+              origin: "view",
+              author: "creator",
+              time: 1,
+            },
+          );
+          data.projectHistory = history.capturePortable();
+        }
+        const inspection = inspectEditableProject(data);
+        assert.deepEqual(inspection.viewRebuilds, {});
+        assert.equal(inspection.rejectedSources["view:1"], source);
+        assert.deepEqual(inspection.documents["view:1"], native);
+        assert.ok(inspection.diagnostics.some(({ key }) => key === "view:1"));
+      }
+    }
   });
 
   test("an unknown workspace version refuses rather than downgrades", () => {

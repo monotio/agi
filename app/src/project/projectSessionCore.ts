@@ -38,7 +38,11 @@ import {
 import { sha256Hex } from "../../../src/crypto.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { requireProjectId, type GameIdentity } from "../../../src/gameIdentity.ts";
-import { inspectEditableProject, updateAcceptedSourceClaims } from "./projectWorkspaceSource.ts";
+import {
+  inspectEditableProject,
+  updateAcceptedSourceClaims,
+  VIEW_MIGRATION_LABEL,
+} from "./projectWorkspaceSource.ts";
 import type {
   authoringFingerprint,
   commitProject,
@@ -226,7 +230,7 @@ function createSession(
       ? undefined
       : readProjectHistory(data.projectHistory, sha256Hex),
   );
-  const openedDocuments =
+  let openedDocuments =
     data.workspace === undefined
       ? inspection.documents
       : data.projectHistory === undefined
@@ -246,6 +250,24 @@ function createSession(
     history.capture().commits.some((commit) => commit.label === SCRIPT_SIZE_MIGRATION_LABEL)
       ? null
       : migrateScriptSize(openedDocuments);
+  const viewRebuilds = history
+    .capture()
+    .commits.some((commit) => commit.label === VIEW_MIGRATION_LABEL)
+    ? {}
+    : inspection.viewRebuilds;
+  // Start with the stored native VIEWs so Undo restores their exact bytes.
+  // The author's source returns through the ordinary commit below.
+  if (Object.keys(viewRebuilds).length)
+    openedDocuments = {
+      ...openedDocuments,
+      ...Object.fromEntries(
+        Object.keys(viewRebuilds).map((key) => [key, inspection.documents[key]!]),
+      ),
+    };
+  // Refused VIEW sources stay inactive even when a workspace carries them.
+  for (const key of Object.keys(inspection.rejectedSources))
+    if (/^view:\d+$/.test(key) && inspection.documents[key] instanceof Uint8Array)
+      openedDocuments = { ...openedDocuments, [key]: inspection.documents[key]! };
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
@@ -267,6 +289,14 @@ function createSession(
       ),
       data.workspace,
     );
+  // A native-byte baseline keeps existing History immutable and makes Undo exact.
+  if (Object.keys(viewRebuilds).length && history.capture().cursor !== null)
+    history.record(documents, {
+      label: "VIEWs before the 1.2.5 update",
+      origin: "view",
+      author: "creator",
+      time: openedAt,
+    });
   if (history.capture().cursor === null) {
     const genesis = data.chats.chats.find((chat) => chat.title === `Created ${data.title}`);
     const result = genesis?.messages.findLast((message) => message.role === "assistant");
@@ -1479,6 +1509,21 @@ function createSession(
       })
       .catch(() => {
         /* The save status reports a failed write; the stored project is unchanged. */
+      });
+  if (Object.keys(viewRebuilds).length && input.workingDocumentId === undefined)
+    void session
+      .submit({
+        proposal: model.propose(
+          model.capture(),
+          VIEW_MIGRATION_LABEL,
+          Object.entries(viewRebuilds).map(([key, content]) => ({ key, content })),
+        ),
+        label: VIEW_MIGRATION_LABEL,
+        origin: "view",
+        author: "creator",
+      })
+      .catch(() => {
+        /* The ordinary save status reports failures; reopening retries stored old bytes. */
       });
   return session;
 }

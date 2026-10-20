@@ -1,5 +1,5 @@
 import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
-import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
+import { PROFILES, detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProjectSnapshot } from "../../../src/authoring/projectModel.ts";
 import { appendAgentTasks, type AgentChats } from "../../../src/agent/chats.ts";
@@ -2122,6 +2122,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       { project: game.projectId!, revision: game.revision },
       sheets.map(({ decoded, facing }) => ({ decoded, facing })),
       spec,
+      detectProfile(new Map(Object.entries(game.files)), game.authoredGame?.library?.profile),
     );
     await writeReferences(game, (current) => [...current, reference]);
     pendingReferences.push({
