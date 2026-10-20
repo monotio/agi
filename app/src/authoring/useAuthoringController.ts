@@ -2122,6 +2122,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       { project: game.projectId!, revision: game.revision },
       sheets.map(({ decoded, facing }) => ({ decoded, facing })),
       spec,
+      author.state.profile,
     );
     await writeReferences(game, (current) => [...current, reference]);
     pendingReferences.push({

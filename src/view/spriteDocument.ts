@@ -322,9 +322,22 @@ export function encodeSprite(document: SpriteDocument, loops: readonly SpriteLoo
   const { description, packed, capabilities } = document;
   // Retain representable physical sharing. Otherwise store the displayed
   // art independently; opening an untouched document never reaches here.
+  const native = decode(document.payload, capabilities);
+  const untouched = new Map<number, AliasGroup>();
+  for (const group of native.groups) {
+    if (
+      loops.filter((loop, index) => index === group.members[0] || loop.alias === group.members[0])
+        .length === group.members.length &&
+      group.members.every(
+        (member) =>
+          loops[member] !== undefined && sameLoops([loops[member]!], [native.loops[member]!], true),
+      )
+    )
+      untouched.set(group.members[0]!, group);
+  }
   const physical = [...loops];
   for (let index = 0; index < loops.length; index++) {
-    if (loops[index]!.alias !== null) continue;
+    if (loops[index]!.alias !== null || untouched.has(index)) continue;
     const members = [index, ...loops.flatMap((loop, at) => (loop.alias === index ? [at] : []))];
     checkMembers(loops, members);
     const all = loops[index]!.cels.map((_, c) => c);
@@ -359,6 +372,12 @@ export function encodeSprite(document: SpriteDocument, loops: readonly SpriteLoo
     for (let other = index + 1; other < loops.length; other++)
       if (loops[other]!.alias === index) members.push(other);
     checkMembers(loops, members);
+    const kept = untouched.get(index);
+    if (kept !== undefined) {
+      spec.push({ cels: kept.cels });
+      plans.push({ loop: index, headerHigh: kept.headerHigh, controlHighs: kept.controlHighs });
+      continue;
+    }
     const all = loop.cels.map((_, c) => c);
     const chosen = packed
       ? [chooseEncoding(loops, members, all, capabilities)!]

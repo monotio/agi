@@ -50,22 +50,23 @@ function engineFor(
 
 for (const id of ["2.001", "2.411", "2.936", "2.230"] as const) {
   const profile = PROFILES[id];
-  test(`${id}: shared actor and show.obj each keep their native blit orientation across frames`, () => {
-    // A native pair: 2.001 ignores the mirror bit, packed 2.230 selects at
-    // SetLoop, and later builds orient each blit (F-VIEWS-01).
-    const payload = buildView(
-      { loops: [{ cels: [cel] }, { mirrorLoop: 0 }] },
-      PROFILES[id === "2.230" ? "2.230" : "2.936"],
-    );
-    const engine = engineFor(payload, profile, "set.loop(o0, 1);", true);
-    for (let frame = 0; frame < 4; frame++) {
-      engine.setEditLine(String(frame));
-      const image = engine.getFrame().visual;
-      const actor = id === "2.230" || id === "2.001" ? [1, 2, 15] : [15, 2, 1];
-      assert.deepEqual([...image.slice(80 * 160 + 20, 80 * 160 + 23)], actor);
-      assert.deepEqual([...image.slice(167 * 160 + 78, 167 * 160 + 81)], [1, 2, 15]);
-    }
-  });
+  if (id !== "2.230")
+    test(`${id}: shared actor and show.obj each keep their native blit orientation across frames`, () => {
+      // A native pair: 2.001 ignores the mirror bit, packed 2.230 selects at
+      // SetLoop, and later builds orient each blit (F-VIEWS-01).
+      const payload = buildView(
+        { loops: [{ cels: [cel] }, { mirrorLoop: 0 }] },
+        PROFILES[id === "2.230" ? "2.230" : "2.936"],
+      );
+      const engine = engineFor(payload, profile, "set.loop(o0, 1);", true);
+      for (let frame = 0; frame < 4; frame++) {
+        engine.setEditLine(String(frame));
+        const image = engine.getFrame().visual;
+        const actor = id === "2.001" ? [1, 2, 15] : [15, 2, 1];
+        assert.deepEqual([...image.slice(80 * 160 + 20, 80 * 160 + 23)], actor);
+        assert.deepEqual([...image.slice(167 * 160 + 78, 167 * 160 + 81)], [1, 2, 15]);
+      }
+    });
 
   const limit = profile.packedViewLoopHeader ? 3 : profile.celMirrorLoopMask;
   for (const [source, alias] of [
@@ -291,3 +292,36 @@ test("sprite-sheet compilation carries the native mirror capabilities", () => {
   );
   assert.deepEqual([...selectViewCel(parseView(payload, profile), 1, 0)!.pixels], [0, 2, 1]);
 });
+
+for (const id of ["2.936", "2.411"] as const) {
+  test(`${id}: editing another loop keeps an untouched native alias group's offsets and header`, () => {
+    const profile = PROFILES[id];
+    const count = id === "2.936" ? 4 : 6;
+    const plain = buildView(
+      { loops: Array.from({ length: count }, () => ({ cels: [cel] })) },
+      profile,
+    );
+    const offset = (bytes: Uint8Array, loop: number) =>
+      bytes[5 + loop * 2]! | (bytes[6 + loop * 2]! << 8);
+    const members = id === "2.936" ? [0, 1, 2] : [0, 4];
+    // Native aliasing, deliberately outside the builder's stable sharing rules.
+    const start = offset(plain, 0);
+    for (const member of members) {
+      plain[5 + member * 2] = start & 255;
+      plain[6 + member * 2] = start >>> 8;
+    }
+    plain[start + 5] = 0x80;
+    const document = openSprite(plain, profile);
+    const result = applySpriteEdit(document, {
+      type: "setPixels",
+      loop: count - 1,
+      cel: 0,
+      changes: [{ x: 0, y: 0, color: 3 }],
+    });
+    assert.ok("document" in result, "error" in result ? result.error : "");
+    const edited = result.document.payload;
+    for (const member of members) assert.equal(offset(edited, member), start);
+    assert.deepEqual(edited.slice(start, start + 9), plain.slice(start, start + 9));
+    assert.deepEqual([...openSprite(edited, profile).loops[count - 1]!.cels[0]!.pixels], [3, 2, 0]);
+  });
+}

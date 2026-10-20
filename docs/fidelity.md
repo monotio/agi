@@ -4535,7 +4535,7 @@ Static disassembly of the 15 PC executables, the ten `IBM_OBJS.OVL` overlays and
 executables listed under [View verdicts, second pass](#view-verdicts-second-pass). Apple IIgs `1.014`
 addresses come from the earlier pass and were not re-verified.
 
-- **F-VIEWS-01 (fact on PC and Amiga; engine matches).** Cel mirroring. MirrorCell tests the
+- **F-VIEWS-01 (fact on PC and Amiga; “engine matches” conclusion superseded).** Cel mirroring. MirrorCell tests the
   cel's `skipclr & 0x80`, compares `(skipclr & mask) >> 4` with the loop number and, when they
   differ, rewrites those bits and reverses the cel's row runs in place in the loaded view.
 
@@ -4557,8 +4557,8 @@ addresses come from the earlier pass and were not re-verified.
   `andi.b #$30,d0` / `#$70` at `+0x0400` and `lsr.b #4,d0`. The overlay InsertObj tests
   `test byte [si+0x2],0x80` at `+0x0097` and calls MirrorCell at `+0x009e`; the call resolves to
   the addresses above through the overlay load base (the executable reaches InsertObj at base
-  `+6`). No direct call to MirrorCell exists in those executables: **Superseded conclusion:** the earlier claim that `_SetCel`
-  also calls MirrorCell does not apply to these builds. `2.001` and `2.089` have no mirroring code (SetLoop `0x36d9` /
+  `+6`). No direct call to MirrorCell exists in those executables: the earlier text that `_SetCel`
+  also calls MirrorCell was wrong. `2.001` and `2.089` have no mirroring code (SetLoop `0x36d9` /
   `0x354d` and InsertObj test no mirror bit). `2.230` mirrors whole loops in `_SetLoop` (`0x350d`,
   called from the SetLoop routine
   `0x3493`): with the
@@ -4574,7 +4574,10 @@ addresses come from the earlier pass and were not re-verified.
   an actor sharing its VIEW. Those paths are corrected. SetLoop/SetCel dimension reads leave
   nonpacked rows unchanged; actors, `show.obj`, add.to.pic and detached previews use the same
   profile-aware cel-for-blitting boundary. Packed `2.230` still mirrors at loop selection and
-  reads that selected orientation when blitting. Direct selection of loop 2 and selection via
+  reads that selected orientation when blitting. **Remaining packed exception:** `show.obj`
+  and add.to.pic reselect the shared loop before drawing, which can change a loaded actor's
+  facing. This behavior is retained pending original-interpreter evidence; it is not a verified
+  match to F-VIEWS-10. Direct selection of loop 2 and selection via
   loop 1 now give the same first nonpacked blit when no blit intervenes. Native repeated blits
   outside the orientation mask still toggle, as the recorded native contract requires.
 
