@@ -455,7 +455,7 @@ class Parser {
     this.expectOp(".");
     const field = this.peek();
     if (field.kind !== "name" || field.name !== "room") {
-      this.failHere("inventory items expose only '.room'");
+      this.failHere("objects expose only '.room'");
     }
     this.index++;
     return this.node({ kind: "inventory", type: "number", index });

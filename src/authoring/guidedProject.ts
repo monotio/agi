@@ -16,7 +16,7 @@
  * the shape the edit replaces; anything else refuses with the affected range,
  * leaving custom code untouched. Emitted code is ordinary AGI source —
  * `said()`, `print()`, `posn()`/`new.room()`, `load.sound()`/`sound()` — that
- * Logic Studio edits freely afterward. Guided metadata lives only in the
+ * LOGIC editor edits freely afterward. Guided metadata lives only in the
  * existing words/bindings/world documents and `// @rule` annotations; there is
  * no second serialized game model.
  */
@@ -568,15 +568,15 @@ function salvageStateUse(
     let index = 0;
     let closed = false;
     while (cursor < tokens.length) {
-      let depth = 0;
+      let priority = 0;
       let end = cursor;
       while (end < tokens.length) {
         const t = tokens[end]!;
-        if (t.type === "punct" && t.text === "(") depth++;
+        if (t.type === "punct" && t.text === "(") priority++;
         else if (t.type === "punct" && t.text === ")") {
-          if (depth === 0) break;
-          depth--;
-        } else if (t.type === "punct" && t.text === "," && depth === 0) break;
+          if (priority === 0) break;
+          priority--;
+        } else if (t.type === "punct" && t.text === "," && priority === 0) break;
         end++;
       }
       const arg = tokens.slice(cursor, end);
@@ -1304,7 +1304,7 @@ export interface GuidedAddRoomInput {
   readonly title?: string;
   readonly description?: string;
   /** An existing view to place as the hero (number or view binding name). */
-  readonly heroView?: number | string;
+  readonly egoView?: number | string;
   readonly spawn?: { readonly x: number; readonly y: number; readonly horizon?: number };
 }
 
@@ -1354,15 +1354,15 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     bindings[name] = { kind: bindingKind, num };
   }
 
-  let heroView: number | null = null;
-  let heroRef = "";
-  if (input.heroView !== undefined) {
-    const ref = resourceRef(env, input.heroView, "view");
+  let egoView: number | null = null;
+  let egoRef = "";
+  if (input.egoView !== undefined) {
+    const ref = resourceRef(env, input.egoView, "view");
     if (!("num" in ref)) return ref;
-    heroView = ref.num;
-    heroRef = ref.text;
-    if (env.documents[`view:${heroView}`] === undefined)
-      return refuse(kind, label, "missing", `VIEW ${heroView} does not exist.`, `view:${heroView}`);
+    egoView = ref.num;
+    egoRef = ref.text;
+    if (env.documents[`view:${egoView}`] === undefined)
+      return refuse(kind, label, "missing", `VIEW ${egoView} does not exist.`, `view:${egoView}`);
   }
 
   const spawn = input.spawn ?? { x: 80, y: 140 };
@@ -1375,16 +1375,16 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     );
   const horizon = spawn.horizon ?? 36;
 
-  if (heroView !== null) {
-    const view = viewOf(env, heroView);
+  if (egoView !== null) {
+    const view = viewOf(env, egoView);
     const foot = view && footprint(view);
     if (!view || !foot)
       return refuse(
         kind,
         label,
         "missing",
-        `VIEW ${heroView} has no drawable cel.`,
-        `view:${heroView}`,
+        `VIEW ${egoView} has no drawable cel.`,
+        `view:${egoView}`,
       );
     if (spawn.x + foot.width > 160 || spawn.y < foot.height - 1 || spawn.y <= horizon)
       return refuse(
@@ -1414,21 +1414,21 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
   const picRef = input.pictureName !== undefined ? input.pictureName : String(pictureId);
   const lines: string[] = [
     `// ${roomTitle} — an empty room. The ${systemOperand("flag", 5, bindings)} block runs once on room entry: draw`,
-    `// the picture${heroView !== null ? ", place ego, then hand control to the player" : ""}.`,
+    `// the picture${egoView !== null ? ", place ego, then hand control to the player" : ""}.`,
     `if (isset(${systemOperand("flag", 5, bindings)})) {`,
     `  assignn(${picVarName}, ${picRef});`,
     `  load.pic(${picVarName});`,
     `  draw.pic(${picVarName});`,
     `  show.pic();`,
   ];
-  if (heroView !== null) {
+  if (egoView !== null) {
     lines.push(
       `  set.horizon(${horizon});`,
       `  animate.obj(o0);`,
-      `  load.view(${heroRef});`,
-      `  set.view(o0, ${heroRef});`,
+      `  load.view(${egoRef});`,
+      `  set.view(o0, ${egoRef});`,
     );
-    const view = viewOf(env, heroView)!;
+    const view = viewOf(env, egoView)!;
     if (view.loops.length > 2) lines.push(`  set.loop(o0, 2);`);
     lines.push(`  position(o0, ${spawn.x}, ${spawn.y});`, `  draw(o0);`, `  player.control();`);
   }
@@ -1557,7 +1557,7 @@ export function prepareGuidedBoilerplate(
 
 // ---------- 2. Place hero ----------
 
-export interface GuidedPlaceHeroInput {
+export interface GuidedPlaceEgoInput {
   /** The room LOGIC number whose entry block places ego. */
   readonly room: number;
   /** A new existing view (number or view binding name); omit to keep it. */
@@ -1566,9 +1566,9 @@ export interface GuidedPlaceHeroInput {
   readonly y?: number;
 }
 
-export function prepareGuidedPlaceHero(
+export function prepareGuidedPlaceEgo(
   ctx: GuidedContext,
-  input: GuidedPlaceHeroInput,
+  input: GuidedPlaceEgoInput,
 ): GuidedOutcome {
   const kind: GuidedOperationKind = "place-hero";
   const label = "Place hero";

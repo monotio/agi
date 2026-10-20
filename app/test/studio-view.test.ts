@@ -37,19 +37,19 @@ test("the Art pane is the visual plane in EGA colours", () => {
   const { visual, priority, out } = planes();
   visual[at(3, 2)] = 6;
   priority[at(3, 2)] = 10;
-  paintLayer("art", visual, priority, out);
+  paintLayer("visual", visual, priority, out);
   assert.deepEqual(rgb(out, 3, 2), [0xaa, 0x55, 0x00, 255]);
   assert.deepEqual(rgb(out, 0, 0), [0xff, 0xff, 0xff, 255]);
 });
 
-test("Depth blends priority 5-15 half over the art and leaves background 4 alone", () => {
+test("Priority blends priority 5-15 half over the art and leaves background 4 alone", () => {
   const { visual, priority, out } = planes();
   priority[at(1, 0)] = 10; // EGA 10 is 55,ff,55; halfway from ff,ff,ff is aa,ff,aa
-  paintLayer("depth", visual, priority, out);
+  paintLayer("priority", visual, priority, out);
   assert.deepEqual(rgb(out, 1, 0), [170, 255, 170, 255]);
   assert.deepEqual(rgb(out, 0, 0), [255, 255, 255, 255]);
 
-  paintLayer("depth-only", visual, priority, out);
+  paintLayer("priority-only", visual, priority, out);
   assert.deepEqual(rgb(out, 1, 0), [0x55, 0xff, 0x55, 255]);
   assert.deepEqual(rgb(out, 0, 0), [0, 0, 0, 255]);
 });
@@ -59,14 +59,14 @@ test("Priority paints control lines in their colour and pattern over undimmed ar
   priority[at(0, 0)] = 0; // wall: solid EGA 12, ff,55,55
   priority[at(1, 0)] = 1; // gate: dashed, (1+0)%2 is off, so the art shows
   priority[at(2, 0)] = 1; // (2+0)%2 is on: EGA 14, ff,ff,55
-  paintLayer("depth", visual, priority, out);
+  paintLayer("priority", visual, priority, out);
   assert.deepEqual(rgb(out, 0, 0), [0xff, 0x55, 0x55, 255]);
   assert.deepEqual(rgb(out, 1, 0), [0xff, 0xff, 0xff, 255]);
   assert.deepEqual(rgb(out, 2, 0), [0xff, 0xff, 0x55, 255]);
   // The art elsewhere stays as players see it: white, never faded.
   assert.deepEqual(rgb(out, 5, 5), [0xff, 0xff, 0xff, 255]);
   // Alone, an off cell of the pattern is the black background.
-  paintLayer("depth-only", visual, priority, out);
+  paintLayer("priority-only", visual, priority, out);
   assert.deepEqual(rgb(out, 1, 0), [0, 0, 0, 255]);
   assert.deepEqual(rgb(out, 2, 0), [0xff, 0xff, 0x55, 255]);
 });
@@ -80,10 +80,10 @@ test("the Priority filter keeps all, the bands, the control lines or one value",
 });
 
 test("panes follow the lens and view mode", () => {
-  assert.deepEqual(panesFor("art", "split"), ["art"]);
-  assert.deepEqual(panesFor("depth", "blend"), ["depth"]);
-  assert.deepEqual(panesFor("depth", "split"), ["art", "depth-only"]);
-  assert.deepEqual(panesFor("depth", "priority"), ["depth-only"]);
+  assert.deepEqual(panesFor("visual", "split"), ["visual"]);
+  assert.deepEqual(panesFor("priority", "blend"), ["priority"]);
+  assert.deepEqual(panesFor("priority", "split"), ["visual", "priority-only"]);
+  assert.deepEqual(panesFor("priority", "priority"), ["priority-only"]);
 });
 
 test("mask geometry: box, row runs and the traced outline", () => {
@@ -207,15 +207,15 @@ test("generated labels read in plain words: colour, noun, points", () => {
     }),
     "Red fill",
   );
-  // Depth and walk items name their band or control value.
+  // Priority and walk items name their band or control value.
   assert.equal(
     plainItemName({
-      label: "Depth polygon 1",
+      label: "Priority polygon 1",
       kind: "depth",
       entries: [entry({ line: 2, op: "polygon", priority: 9 })],
       lines,
     }),
-    "Depth band 9 polygon · 3 points",
+    "Priority band 9 polygon · 3 points",
   );
   assert.equal(
     plainItemName({

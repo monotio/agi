@@ -35,7 +35,7 @@ function eventPoint(ev: PointerEvent): PickPoint | null {
   const rect = el.getBoundingClientRect();
   const frame = debugFrame.value;
   if (debugViewMode.value === "explode") {
-    // Layers are displaced by depth — a flat mapping picks the wrong pixel.
+    // Layers are displaced by priority — a flat mapping picks the wrong pixel.
     // Raycast the tap into the layer stack instead.
     const nx = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);

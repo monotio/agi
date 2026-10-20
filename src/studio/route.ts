@@ -1,5 +1,5 @@
 /**
- * Room Studio routes: a static route estimate over the walkable mask, and a
+ * PICTURE editor routes: a static route estimate over the walkable mask, and a
  * route test the engine executes.
  *
  * `planRoute` searches the walkable estimate with navigation's own anchor

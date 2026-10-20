@@ -29,9 +29,9 @@ async function playTutorial(page: Page): Promise<void> {
   await enterCreateMode(page);
 }
 
-async function openRoomStudio(page: Page, room: number): Promise<Locator> {
+async function openPictureStudio(page: Page, room: number): Promise<Locator> {
   await openWorkspacePicture(page, room);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -79,13 +79,13 @@ for (const [width, height] of [
   }) => {
     await page.setViewportSize({ width, height });
     await playTutorial(page);
-    const studio = await openRoomStudio(page, 2);
+    const studio = await openPictureStudio(page, 2);
     const stage = studio.getByRole("group", { name: /^Canvas/ });
     const pane = studio.locator(".studio-pane").last();
     // The picture's own layers: its pixels, its overlays in picture coordinates (selection,
     // handles, the tools' marks, the Priority lens's doors). Nothing else, however it is nested.
     const allowed =
-      ".studio-pane__pixels, .studio-pane__overlay, .tool-overlay, .walk-overlay, .ghost";
+      ".studio-pane__pixels, .studio-pane__overlay, .tool-overlay, .walk-overlay, .standIn";
     const bar = studio.getByTestId("studio-options-bar");
     /** The options bar fits its width: what it cannot show folds into More. */
     /** Measured as the bar folds (useFold.ts): an explainer's invisible target is not content. */
@@ -158,7 +158,7 @@ test("Focus hides the game and widens the picture; Tab and Shift+Tab move focus"
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await playTutorial(page);
-  const studio = await openRoomStudio(page, 2);
+  const studio = await openPictureStudio(page, 2);
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
   const scene = studio.locator(".studio__scene");
   const focus = page.getByTestId("workspace-focus");
@@ -189,7 +189,7 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await playTutorial(page);
-  const studio = await openRoomStudio(page, 2);
+  const studio = await openPictureStudio(page, 2);
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
   const sheet = page.getByRole("dialog", { name: "PICTURE keys" });
 

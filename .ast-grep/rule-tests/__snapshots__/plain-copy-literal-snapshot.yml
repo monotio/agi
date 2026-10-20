@@ -78,9 +78,9 @@ snapshots:
       style: primary
       start: 15
       end: 66
-  const title = "Open in Logic Studio; no engine needed";:
+  const title = "Open in LOGIC editor; no engine needed";:
     labels:
-    - source: Open in Logic Studio; no engine needed
+    - source: Open in LOGIC editor; no engine needed
       style: primary
       start: 15
       end: 53

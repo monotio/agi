@@ -170,7 +170,7 @@ test("the provider mask is a same-size RGBA PNG with alpha 0 only inside the sel
 
   const chunks = parsePng(png);
   const ihdr = chunks.find((chunk) => chunk.type === "IHDR")!;
-  assert.equal(ihdr.data[8], 8, "8-bit depth");
+  assert.equal(ihdr.data[8], 8, "8-bit priority");
   assert.equal(ihdr.data[9], 6, "RGBA colour type");
   const idat = chunks.find((chunk) => chunk.type === "IDAT")!;
   const raw = unzlibStored(idat.data);

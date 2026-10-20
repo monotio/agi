@@ -263,8 +263,8 @@ function heroes(): Uint8Array {
   return apng(width, height, frames, 200);
 }
 
-/** One room as the player sees it, beside the depth and walkability the game keeps. */
-function depth(): Uint8Array {
+/** One room as the player sees it, beside the priority and walkability the game keeps. */
+function priority(): Uint8Array {
   const base = join(SNAPSHOT, "matrix/knights-trial/anthropic-claude-opus-5-5-lean-high");
   const visual = read(`${base}-visual.png`);
   const walk = read(`${base}-walk.png`);
@@ -287,7 +287,7 @@ function depth(): Uint8Array {
 const outputs: Record<string, Uint8Array> = {
   "genesis-castles.png": castles(),
   "genesis-heroes.png": heroes(),
-  "genesis-depth.png": depth(),
+  "genesis-priority.png": priority(),
 };
 for (const [name, bytes] of Object.entries(outputs)) {
   writeFileSync(join(OUT, name), bytes);

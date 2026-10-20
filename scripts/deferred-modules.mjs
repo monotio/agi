@@ -39,7 +39,7 @@ const HOME_DEFERRED_MODULES = [
 ];
 
 /**
- * Studio code loads when Room Studio or VIEW editor opens, never on the way
+ * Studio code loads when PICTURE editor or VIEW editor opens, never on the way
  * to a Play frame: the Studio components and every Studio kernel, the walk-
  * route kernel with its worker among them. Helpers Play shares with the
  * Studios (the walkable mask, view usage, the view document) live outside

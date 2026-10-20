@@ -239,7 +239,7 @@ function readBrief(caseName: string): Brief | null {
 /**
  * Hand-authored starting-room checklist per case (heuristic keyword checks).
  * kinds: msg = regex over all room-logic message text; said = any word of the
- * group appears in a said() pattern; inv = inventory item name; exits = number
+ * group appears in a said() pattern; inv = object name; exits = number
  * of literal new.room targets from the start room; death = call(255) reachable
  * from a said() block in the start room; score = an addn(v3, N) award;
  * egoColor / picColor = EGA colour indices present in the ego view / picture.
@@ -471,7 +471,7 @@ interface PictureSummary {
   regionCount: number;
   priorityBandsUsed: number[];
   priorityBandCount: number;
-  depthDrawnPct: number;
+  priorityDrawnPct: number;
   controlPct: Record<string, number>;
   controlAnyPct: number;
   horizon: number;
@@ -514,7 +514,7 @@ function analyzePicture(
   const control: Record<string, number> = {};
   for (let c = 0; c < 4; c++) control[CONTROL_NAMES[c]!] = pct(hist[c]! / (W * H));
   const bands = hist.map((n, p) => (p >= 4 && n > 0 ? p : -1)).filter((p) => p >= 0);
-  const depthDrawn = sum(hist.slice(5)) / (W * H);
+  const priorityDrawn = sum(hist.slice(5)) / (W * H);
   const colors = new Array<number>(16).fill(0);
   for (const v of vis) colors[v & 15]!++;
   // Reachability: 4-neighbour flood from the ego baseline over cells the ego
@@ -600,7 +600,7 @@ function analyzePicture(
       regionCount: metrics.regionCount,
       priorityBandsUsed: bands,
       priorityBandCount: bands.length,
-      depthDrawnPct: pct(depthDrawn),
+      priorityDrawnPct: pct(priorityDrawn),
       controlPct: control,
       controlAnyPct: pct(sum(hist.slice(0, 4)) / (W * H)),
       horizon,
@@ -1272,7 +1272,7 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
         "colours",
         "visual fill %",
         "bands used",
-        "depth-drawn % (pri 5-15)",
+        "priority-drawn % (pri 5-15)",
         "ctl0 %",
         "ctl1 %",
         "ctl2 %",
@@ -1293,7 +1293,7 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
           p.distinctColors,
           p.fillPct,
           p.priorityBandsUsed.join(","),
-          p.depthDrawnPct,
+          p.priorityDrawnPct,
           p.controlPct["barrier0"],
           p.controlPct["conditional1"],
           p.controlPct["trigger2"],
@@ -1417,9 +1417,9 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
   out.push(
     `- Most distinct said() patterns: ${richest.map((r) => `${short(r.lane)} ${r.logic.saidDistinctPatterns}`).join(", ")}.`,
   );
-  const depth = by((r) => r.pictures[0]?.depthDrawnPct ?? 0);
+  const priority = by((r) => r.pictures[0]?.priorityDrawnPct ?? 0);
   out.push(
-    `- Depth-drawn priority area (pri 5-15): ${depth.map((r) => `${short(r.lane)} ${r.pictures[0]?.depthDrawnPct ?? 0}%`).join(", ")}.`,
+    `- Priority-drawn priority area (pri 5-15): ${priority.map((r) => `${short(r.lane)} ${r.pictures[0]?.priorityDrawnPct ?? 0}%`).join(", ")}.`,
   );
   out.push(
     `- All runs passed the harness playtest: ${runs.every((r) => r.playtest?.success) ? "yes" : "no"}.`,
@@ -1466,7 +1466,7 @@ function main(): void {
     `Source: \`${resultsDir}\`. One row per completed run (report.json + resources). Regenerate with \`npm run eval:matrix -- <results-dir> <out-dir>\`.`,
     "Measured columns come from report.json, events.json, transcript.json and the AGI files (parsed with the repo's own container/logic/picture/view/sound code). The brief checklist is a keyword heuristic. Judgment lives only in the optional hand-written `reading-<case>.md`.",
     "",
-    "Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and called logics like 255). *said (distinct / groups)* = said() calls in room logics (distinct word-id patterns / distinct word groups). *cmds used* = distinct AGI actions + tests in room logics. *depth-drawn %* = picture cells whose priority is 5..15 (4 is the unpainted default). *ctlN %* = share of the 160x168 plane holding control value N (0 barrier, 1 conditional barrier, 2 trigger, 3 water). *reachable %* = flood fill from the ego start over footprints (ego cel width) that avoid control 0/1, rows at or below the horizon. *authored res.* = resources not byte-identical to the base template.",
+    "Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and called logics like 255). *said (distinct / groups)* = said() calls in room logics (distinct word-id patterns / distinct word groups). *cmds used* = distinct AGI actions + tests in room logics. *priority-drawn %* = picture cells whose priority is 5..15 (4 is the unpainted default). *ctlN %* = share of the 160x168 plane holding control value N (0 barrier, 1 conditional barrier, 2 trigger, 3 water). *reachable %* = flood fill from the ego start over footprints (ego cel width) that avoid control 0/1, rows at or below the horizon. *authored res.* = resources not byte-identical to the base template.",
     "",
     ...[...byCase].map(([c, runs]) => caseMarkdown(c, runs, outDir) + "\n"),
   ].join("\n");

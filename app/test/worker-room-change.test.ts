@@ -111,11 +111,11 @@ test("a repeated call with scan.start never offers a room for a guessed resumed 
 
 test("a deep shared call chain inspects each LOGIC in bounded work", async () => {
   const documents: Record<string, string> = {};
-  const depth = 21;
-  for (let room = 2; room < 2 + depth - 1; room++)
+  const priority = 21;
+  for (let room = 2; room < 2 + priority - 1; room++)
     documents[`logic:${room}`] =
       `if (isset(f80)) { call(${room + 1}); } else { call(${room + 1}); } return;`;
-  documents[`logic:${2 + depth - 1}`] = "load.view(7); return;";
+  documents[`logic:${2 + priority - 1}`] = "load.view(7); return;";
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents,
@@ -125,7 +125,7 @@ test("a deep shared call chain inspects each LOGIC in bounded work", async () =>
   const dependencies = await createRoomResourceUses(compiled.files(), DEFAULT_V2_PROFILE, work);
   assert.deepEqual(roomsUsingResources(["view:7"], [1, 2], 1, dependencies), [2]);
   assert.ok(
-    work.instructions <= 3 * (depth * 5),
+    work.instructions <= 3 * (priority * 5),
     `instruction visits ${work.instructions} must stay linear in the call chain`,
   );
   const before = work.instructions;

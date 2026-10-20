@@ -7,7 +7,7 @@ import ActionMenu from "../../ui/ActionMenu.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import UiIcon from "../../ui/UiIcon.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import { explain } from "../studioTerms.ts";
 import { backgroundKey, parseBackground, type CelBackground } from "./viewStudioView.ts";
 
@@ -32,7 +32,7 @@ const { roomBackground = null, fold = 0 } = defineProps<{
 const sheet = defineModel<boolean>("sheet", { required: true });
 const prev = defineModel<boolean>("prev", { required: true });
 const next = defineModel<boolean>("next", { required: true });
-const depth = defineModel<number>("depth", { required: true });
+const count = defineModel<number>("count", { required: true });
 const grid = defineModel<boolean>("grid", { required: true });
 const baseline = defineModel<boolean>("baseline", { required: true });
 const background = defineModel<CelBackground>("background", { required: true });
@@ -51,14 +51,14 @@ const onionOpen = ref(false);
 const onionId = useId();
 const onionButton = useTemplateRef("onionButton");
 const onionPop = useTemplateRef("onionPop");
-const DEPTHS = [
+const COUNTS = [
   { value: "1", label: "1" },
   { value: "2", label: "2" },
   { value: "3", label: "3" },
 ] as const;
-const depthText = computed({
-  get: () => String(depth.value) as "1" | "2" | "3",
-  set: (value: "1" | "2" | "3") => (depth.value = Number(value)),
+const countText = computed({
+  get: () => String(count.value) as "1" | "2" | "3",
+  set: (value: "1" | "2" | "3") => (count.value = Number(value)),
 });
 function closeOnion(refocus: boolean): void {
   onionOpen.value = false;
@@ -144,9 +144,9 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
           <input v-model="next" type="checkbox" data-testid="view-onion-next" />
           <i class="view-view-bar__tint is-next" aria-hidden="true"></i>After
         </label>
-        <div class="view-view-bar__depth">
+        <div class="view-view-bar__priority">
           <span>Cels</span>
-          <UiSegmented v-model="depthText" size="sm" label="Onion skin cels" :options="DEPTHS" />
+          <UiSegmented v-model="countText" size="sm" label="Onion skin cels" :options="COUNTS" />
         </div>
       </div>
     </span>
@@ -324,7 +324,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
-.view-view-bar__depth {
+.view-view-bar__priority {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -406,7 +406,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
     height: var(--control-h-touch);
   }
   .view-view-bar__check,
-  .view-view-bar__depth {
+  .view-view-bar__priority {
     min-height: var(--control-h-touch);
   }
 }

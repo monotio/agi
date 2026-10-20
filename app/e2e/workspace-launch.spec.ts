@@ -657,7 +657,7 @@ for (const [width, height] of [
       review.getByText("“Along the path” starts without Came from.", { exact: true }),
     ).toBeVisible();
     await expect(
-      review.getByText("Item 0 in “Along the path” carries over.", { exact: true }),
+      review.getByText("Object 0 in “Along the path” carries over.", { exact: true }),
     ).toBeVisible();
     await expect(page.getByTestId("agent-approve")).toBeEnabled();
     const codeDiff = review.getByTestId("agent-code-diff").first();

@@ -38,8 +38,8 @@ export function readAdf(
   };
   const result: DiskFiles = { files: new Map(), unreadable: new Map() };
   const seen = new Set<number>();
-  const visit = (id: number, path: string, depth: number): void => {
-    if (seen.has(id) || depth > 32)
+  const visit = (id: number, path: string, priority: number): void => {
+    if (seen.has(id) || priority > 32)
       throw new Error("The disk has a damaged Amiga directory tree. Add a fresh copy of the disk.");
     seen.add(id);
     const dir = block(id);
@@ -56,7 +56,7 @@ export function readAdf(
           throw new Error("The disk has a damaged Amiga filename. Add a fresh copy of the disk.");
         const name = path + diskName(image.subarray(entry * 512 + 433, entry * 512 + 433 + length));
         const type = header.getInt32(508);
-        if (type === 2) visit(entry, name + "/", depth + 1);
+        if (type === 2) visit(entry, name + "/", priority + 1);
         else {
           seen.add(entry);
           if (type === -3)

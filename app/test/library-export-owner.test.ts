@@ -648,7 +648,7 @@ test("a stored download refuses when the native revision moves while it prepares
   assert.notEqual(lib.exportRefusal.value, "");
 });
 
-test("a removed stored body refuses the private download instead of exporting a ghost", async (t) => {
+test("a removed stored body refuses the private download instead of exporting a standIn", async (t) => {
   installLocalStorage(t);
   const { downloads } = installDownloads(t);
   const { files } = gameContainer();

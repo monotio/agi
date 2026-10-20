@@ -1,6 +1,6 @@
 /**
  * The scope contract of a Studio assist request: what an AI
- * proposal made from a Room Studio or VIEW editor selection may change.
+ * proposal made from a PICTURE editor or VIEW editor selection may change.
  * The UI builds it from the selection and the lens; `checkCandidate` holds a
  * candidate to it on DECODED pixels, whatever the proposal's operations or
  * the model's words claim. Pure and deterministic.
@@ -178,7 +178,7 @@ export function selectionArea(
 }
 
 /**
- * The scope the UI sends for a Room Studio selection: the draft's revision,
+ * The scope the UI sends for a PICTURE editor selection: the draft's revision,
  * the lens and unlocks the Studio holds (and so its locked planes), and the
  * selection's on-screen area licensed on every unlocked plane.
  */
@@ -465,7 +465,7 @@ export function wholeTargets(
 
 const PLANE_WORDS: Record<PicturePlane, string> = {
   visual: "art (visual plane)",
-  priority: "depth and walk (priority plane)",
+  priority: "priority and walk (priority plane)",
 };
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;

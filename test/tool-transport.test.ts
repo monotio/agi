@@ -351,7 +351,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { room: 5, backgroundColor: 1, shapes: [] },
       bad: { room: 5, backgroundColor: 16, shapes: [] },
     },
-    add_depth: {
+    add_priority: {
       good: () => {
         const source =
           '# @item tree "Tree" art\nvis 2\npri off\nrect 20,50 30,80\nfill 25,60\n# @end\nend';
@@ -471,10 +471,10 @@ test("every catalog tool produces bounded binary-free transport on real success 
       num: 1,
       compiled: bridge,
       targetIds: ["bridge"],
-      lens: "depth",
+      lens: "priority",
     }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-    lens: "depth",
+    lens: "priority",
   });
   const proposeTool = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const opFields = (
@@ -588,7 +588,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
   };
   const expectedCatalog = [
-    "add_depth",
+    "add_priority",
     "configure_launch",
     "edit_source",
     "finish",

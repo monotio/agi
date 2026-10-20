@@ -8,7 +8,7 @@ import {
   type SourceIdentity,
   type SourceRaster,
   type ViewPreparationRecipe,
-  type ViewRecipeFrame,
+  type ViewRecipeCel,
   type ViewRecipeLoop,
 } from "../src/view/preparation.ts";
 import { parseView } from "../src/view/view.ts";
@@ -47,7 +47,7 @@ function makeSource(
 const SRC_A: SourceIdentity = { id: "drawing-a", incarnation: "inc-1", revision: 2 };
 const SRC_B: SourceIdentity = { id: "drawing-b", incarnation: "inc-1", revision: 1 };
 
-function frame(partial: Partial<ViewRecipeFrame> & { id: string }): ViewRecipeFrame {
+function frame(partial: Partial<ViewRecipeCel> & { id: string }): ViewRecipeCel {
   return {
     source: SRC_A,
     region: { x: 0, y: 0, width: 2, height: 2 },
@@ -71,7 +71,7 @@ function mirror(id: string, mirrorOf: string): ViewRecipeLoop {
 }
 
 function recipe(
-  frames: readonly ViewRecipeFrame[],
+  frames: readonly ViewRecipeCel[],
   loops: readonly ViewRecipeLoop[],
   extra?: Partial<ViewPreparationRecipe>,
 ): ViewPreparationRecipe {
@@ -703,7 +703,7 @@ describe("prepareView", () => {
     assert.throws(() => r([f(), f()]), /duplicate frame id/);
     assert.throws(() => r([f()], []), /loops/);
     assert.throws(() => r([f()], [cels("only", [])]), /frameIds/);
-    assert.throws(() => r([f()], [cels("only", ["ghost"])]), /unknown frame id/);
+    assert.throws(() => r([f()], [cels("only", ["standIn"])]), /unknown frame id/);
     assert.throws(
       () => r([f()], [{ id: "x", frameIds: ["f1"], mirrorOf: "x" } as never]),
       /exactly one of/,

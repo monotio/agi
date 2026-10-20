@@ -259,20 +259,20 @@ function onPrimary(): void {
 </script>
 
 <template>
-  <section class="hero" aria-labelledby="welcome-title">
-    <div class="hero-copy">
+  <section class="intro" aria-labelledby="welcome-title">
+    <div class="intro-copy">
       <!-- The wordmark in the interpreter's own font; the heading's text is
            for assistive tech and search, the boot card for the eye. -->
-      <h1 id="welcome-title" class="hero-title">
-        <BootCard class="hero-boot" /><span class="hero-title__text">AGI IS HERE.</span>
+      <h1 id="welcome-title" class="intro-title">
+        <BootCard class="intro-boot" /><span class="intro-title__text">AGI IS HERE.</span>
       </h1>
-      <p class="hero-line">Play Sierra-style adventures and build your own.</p>
-      <div class="hero-ctas">
+      <p class="intro-line">Play Sierra-style adventures and build your own.</p>
+      <div class="intro-ctas">
         <UiButton
           variant="primary"
           icon="play"
-          class="hero-cta"
-          data-testid="hero-primary"
+          class="intro-cta"
+          data-testid="intro-primary"
           :disabled="
             libraryActionBusy || importBusy || (!last && catalogBusy[featuredCatalog.id] === true)
           "
@@ -282,7 +282,7 @@ function onPrimary(): void {
         </UiButton>
         <UiButton
           icon="sparkles"
-          class="hero-cta"
+          class="intro-cta"
           data-testid="create-adventure-toggle"
           aria-controls="create-adventure"
           :aria-expanded="createOpen"
@@ -294,8 +294,8 @@ function onPrimary(): void {
           Make a new game
         </UiButton>
       </div>
-      <OlderPositionChoice hero />
-      <p v-if="ended" class="hero-ended" role="status" data-testid="game-ended">
+      <OlderPositionChoice intro />
+      <p v-if="ended" class="intro-ended" role="status" data-testid="game-ended">
         <span
           ><strong>{{ ended.title }}</strong> · The game ended.</span
         >
@@ -354,19 +354,19 @@ function onPrimary(): void {
 </template>
 
 <style scoped>
-.hero {
+.intro {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: var(--space-9);
   align-items: center;
   padding: var(--space-6) 0 0;
 }
-.hero-title {
+.intro-title {
   margin: 0 0 var(--space-6);
   line-height: 0;
 }
 /* Visually hidden, still the heading's accessible name. */
-.hero-title__text {
+.intro-title__text {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -374,34 +374,34 @@ function onPrimary(): void {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.hero-line {
+.intro-line {
   max-width: 34rem;
   margin: 0 0 var(--space-7);
   color: var(--ink-2);
   font-size: var(--text-lg);
   line-height: var(--leading);
 }
-.hero-line a {
+.intro-line a {
   color: inherit;
   text-decoration-color: var(--hairline-strong);
   text-underline-offset: 3px;
 }
-.hero-line a:hover {
+.intro-line a:hover {
   color: var(--action-hover);
   text-decoration-color: currentColor;
 }
-.hero-ctas {
+.intro-ctas {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
 }
 /* A long game title wraps inside the button rather than widening the page. */
-.hero-cta {
+.intro-cta {
   max-width: 100%;
   white-space: normal;
   text-align: left;
 }
-.hero-ended {
+.intro-ended {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -410,7 +410,7 @@ function onPrimary(): void {
   color: var(--ink-2);
   font-size: var(--text-sm);
 }
-.hero-ended strong {
+.intro-ended strong {
   color: var(--ink);
   font-weight: var(--weight-semibold);
 }
@@ -460,7 +460,7 @@ function onPrimary(): void {
   font-size: var(--text-xs);
 }
 @media (max-width: 860px) {
-  .hero {
+  .intro {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-7);
     padding: var(--space-3) 0 0;

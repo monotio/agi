@@ -33,7 +33,7 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeVisible();
-  await expect(page.getByTestId("hero-primary")).toHaveText("Play the tutorial");
+  await expect(page.getByTestId("intro-primary")).toHaveText("Play the tutorial");
   await expect(page.getByTestId("create-adventure-toggle")).toBeVisible();
   // One shelf holds the tutorial and the ways to create; nothing is saved yet.
   await expect(page.getByRole("heading", { name: "Your games", exact: true })).toBeVisible();
@@ -277,7 +277,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
   };
   expect(await cards.nth(1).getByTestId("btn-resume-cached").evaluate(typography)).toEqual(
-    await page.getByTestId("hero-primary").evaluate(typography),
+    await page.getByTestId("intro-primary").evaluate(typography),
   );
 
   for (const width of [1440, 1024, 768, 390] as const) {
@@ -447,7 +447,7 @@ test("the tutorial is one card that carries its progress, ahead of equal-height 
   const height = (await original.boundingBox())!.height;
   expect((await remix.boundingBox())!.height).toBe(height);
   const details = await openSavedGameDetails(original);
-  await expect(details).toContainText("Learn pictures, views and depth");
+  await expect(details).toContainText("Learn pictures, views and priority");
   await page.keyboard.press("Escape");
   expect((await original.boundingBox())!.height).toBe(height);
   expect((await remix.boundingBox())!.height).toBe(height);

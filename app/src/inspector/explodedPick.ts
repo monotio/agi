@@ -7,7 +7,7 @@
  */
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 
-/** Logical picture geometry the exploded view separates into depth layers. */
+/** Logical picture geometry the exploded view separates into priority layers. */
 const PIC_W = 160;
 const PIC_H = 168;
 

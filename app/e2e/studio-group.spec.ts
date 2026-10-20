@@ -17,7 +17,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Several Room Studio items as one, end to end on the real app: a stored
+ * Several PICTURE editor items as one, end to end on the real app: a stored
  * project whose PIC 5 has no source, as an imported game's pictures have
  * none, so Studio splits it into inferred elements. The bush is two of them:
  * its outline (el-1) and, seeded after the trunk, its fill (el-1-2). Every
@@ -115,7 +115,7 @@ async function bootGame(page: Page): Promise<void> {
 async function openStudio(page: Page): Promise<Locator> {
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }

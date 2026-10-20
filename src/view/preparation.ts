@@ -46,7 +46,7 @@ import {
   nearestEgaIndex,
   quantizeToEga,
   sheetViewInput,
-  type SheetFrame,
+  type SheetCel,
   type SheetLoopLayout,
 } from "./sheet.ts";
 import { buildView, parseView, type BuildViewInput } from "./view.ts";
@@ -91,7 +91,7 @@ export interface SourceRaster {
 }
 
 /** Positive-integer rectangle with half-open source-pixel edges. */
-interface FrameRegion {
+interface CelRegion {
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -110,12 +110,12 @@ interface ViewRecipeMask {
   };
 }
 
-export interface ViewRecipeFrame {
+export interface ViewRecipeCel {
   readonly id: string;
   /** Which declared source this frame reads; matched against the supplied rasters. */
   readonly source: SourceIdentity;
   /** Half-open crop rect in oriented canonical source pixels; never clamped. */
-  readonly region: FrameRegion;
+  readonly region: CelRegion;
   /** Output canvas size in logical pixels; also the sampling denominator. */
   readonly outputWidth: number;
   readonly outputHeight: number;
@@ -166,7 +166,7 @@ export interface ViewPreparationRecipe {
    */
   readonly paletteId?: string | undefined;
   readonly mask: ViewRecipeMask;
-  readonly frames: readonly ViewRecipeFrame[];
+  readonly frames: readonly ViewRecipeCel[];
   readonly loops: readonly ViewRecipeLoop[];
   /** Optional native VIEW description string (stored in the payload). */
   readonly description?: string | undefined;
@@ -177,7 +177,7 @@ interface CropLossCount {
   readonly transparent: number;
 }
 
-interface FrameDiagnostics {
+interface CelDiagnostics {
   /** Source-space window the canvas sampled (edges; left/right may be fractional). */
   readonly window: {
     readonly left: number;
@@ -206,10 +206,10 @@ interface FrameDiagnostics {
   };
 }
 
-interface PreparedFrame {
+interface PreparedCel {
   readonly id: string;
   readonly source: SourceIdentity;
-  readonly region: FrameRegion;
+  readonly region: CelRegion;
   readonly width: number;
   readonly height: number;
   /** Native baseline row of the cel: always `height - 1`. */
@@ -220,7 +220,7 @@ interface PreparedFrame {
   readonly mask: Uint8Array;
   /** EGA index the cel reserves for transparency; null when none is free. */
   readonly transparentIndex: number | null;
-  readonly diagnostics: FrameDiagnostics;
+  readonly diagnostics: CelDiagnostics;
 }
 
 interface PreparedViewLoop {
@@ -237,7 +237,7 @@ export interface PreparedView {
   readonly profileId: string;
   readonly algorithm: string;
   /** Prepared frames in recipe order, keyed by their stable ids. */
-  readonly frames: readonly PreparedFrame[];
+  readonly frames: readonly PreparedCel[];
   readonly loops: readonly PreparedViewLoop[];
   /** The exact input `payload` was encoded from. */
   readonly input: BuildViewInput;
@@ -294,7 +294,7 @@ function samePixels(a: Uint8Array, b: Uint8Array | readonly number[]): boolean {
 /** A horizontally flipped copy — the explicit remedy offered when a native
  * mirror loop is not representable.
  * @public */
-export function flipSheetFrame(frame: SheetFrame): SheetFrame {
+export function flipSheetCel(frame: SheetCel): SheetCel {
   return {
     width: frame.width,
     height: frame.height,
@@ -303,8 +303,8 @@ export function flipSheetFrame(frame: SheetFrame): SheetFrame {
   };
 }
 
-interface ResolvedFrame {
-  readonly spec: ViewRecipeFrame;
+interface ResolvedCel {
+  readonly spec: ViewRecipeCel;
   readonly raster: SourceRaster;
 }
 
@@ -610,7 +610,7 @@ export function prepareView(
     }
   }
 
-  const resolvedFrames: ResolvedFrame[] = recipe.frames.map((frame, i) => {
+  const resolvedFrames: ResolvedCel[] = recipe.frames.map((frame, i) => {
     const what = `frames[${i}] "${frame.id}"`;
     if (!declaredSources.some((ref) => sameIdentity(ref, frame.source))) {
       fail(`${what}.source ${identityKey(frame.source)} is not declared in recipe.sources`);
@@ -642,8 +642,8 @@ export function prepareView(
   });
 
   // ---- Phase 3: per-frame sampling, clip approval and quantisation ----
-  const frames: PreparedFrame[] = [];
-  const sheetFrames: SheetFrame[] = [];
+  const frames: PreparedCel[] = [];
+  const sheetCels: SheetCel[] = [];
   for (const { spec: frame, raster } of resolvedFrames) {
     const prepared = prepareFrame(frame, raster, alphaThreshold, keyIndex, keyColor, palette);
     if (referencedFrames.has(frameIndexById.get(frame.id)!) && prepared.transparentIndex === null) {
@@ -653,7 +653,7 @@ export function prepareView(
       );
     }
     frames.push(prepared);
-    sheetFrames.push({
+    sheetCels.push({
       width: prepared.width,
       height: prepared.height,
       pixels: prepared.pixels,
@@ -665,7 +665,7 @@ export function prepareView(
   const layoutLoops: SheetLoopLayout[] = resolvedLoops.map((loop) =>
     loop.mirrorOf === null ? { frames: loop.frameIndexes } : { mirrorOf: loop.mirrorOf },
   );
-  const input = sheetViewInput(sheetFrames, {
+  const input = sheetViewInput(sheetCels, {
     loops: layoutLoops,
     ...(keyIndex !== null ? { preferTransparent: keyIndex } : {}),
     ...(recipe.description !== undefined ? { description: recipe.description } : {}),
@@ -712,13 +712,13 @@ export function prepareView(
  * the anchors described in this file's header.
  */
 function prepareFrame(
-  frame: ViewRecipeFrame,
+  frame: ViewRecipeCel,
   raster: SourceRaster,
   alphaThreshold: number,
   keyIndex: number | null,
   keyColor: readonly [number, number, number] | null,
   palette: readonly (readonly [number, number, number])[] | undefined,
-): PreparedFrame {
+): PreparedCel {
   const { x: rx, y: ry, width: sw, height: sh } = frame.region;
   const ow = frame.outputWidth;
   const oh = frame.outputHeight;

@@ -7,7 +7,7 @@ import {
   nearestEgaIndex,
   quantizeToEga,
   type EgaSheet,
-  type SheetFrame,
+  type SheetCel,
 } from "../src/view/sheet.ts";
 
 /** Build an RGBA buffer from a grid of `[r,g,b,a]` tuples in reading order. */
@@ -164,7 +164,7 @@ describe("cutGrid", () => {
 
   it("keeps the baseline aligned: every frame's opaque content shares a bottom row", () => {
     const frames = cutGrid(twoFrameSheet(), 2, 1);
-    const bottomRowOpaque = (f: SheetFrame): number[] =>
+    const bottomRowOpaque = (f: SheetCel): number[] =>
       Array.from(f.mask.subarray((f.height - 1) * f.width));
     // Both frames carry their source row 2 as their last row; frame 0's white
     // pixel at source row 1 stays one row above it rather than being pushed
@@ -259,7 +259,7 @@ describe("cutGrid", () => {
 });
 
 describe("buildViewFromSheet", () => {
-  const frame = (width: number, height: number, colors: number[], mask: number[]): SheetFrame => ({
+  const frame = (width: number, height: number, colors: number[], mask: number[]): SheetCel => ({
     width,
     height,
     pixels: new Uint8Array(colors),

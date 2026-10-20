@@ -1,12 +1,12 @@
 /**
- * One undo order over several histories: Room Studio's picture draft and
+ * One undo order over several histories: PICTURE editor's picture draft and
  * its room logic draft each keep their own undo stack, and Cmd+Z undoes
  * whichever changed last. Each history reports how many undo and redo steps
  * it holds; every new step gets a stamp from one clock, so undo takes the
  * newest past step of any history and redo the step undone last. Undo and
  * redo must go through this composable, which is how it tells them from new
  * edits. A history that drops steps outside undo and redo (a Keep that
- * cannot carry old steps over, a depth cap) reports them in `dropped`, and
+ * cannot carry old steps over, a priority cap) reports them in `dropped`, and
  * exactly their stamps go with them.
  *
  * Stamps follow a history's net change, never its intermediate states: a

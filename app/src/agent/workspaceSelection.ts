@@ -13,7 +13,7 @@ import type { AgiProfile } from "../../../src/runtime/profile.ts";
 export async function selectionScene(
   engine: AgentRuntimeDeps["engine"],
   room: number,
-): Promise<Pick<SelectionFocus, "horizon" | "ghost">> {
+): Promise<Pick<SelectionFocus, "horizon" | "standIn">> {
   if (!engine) return {};
   const [stateResult, objectsResult] = await Promise.allSettled([engine.state(), engine.objects()]);
   const state =
@@ -36,7 +36,7 @@ export async function selectionScene(
     return { horizon };
   return {
     horizon,
-    ghost: {
+    standIn: {
       view: Number(actor["view"]),
       loop: Number(actor["loop"]),
       cel: Number(actor["cel"]),
@@ -51,10 +51,10 @@ export function workspaceSelection(
   context: string,
   documents: Readonly<Record<string, ProjectContent>>,
   profile: AgiProfile,
-  scene: Pick<SelectionFocus, "horizon" | "ghost"> = {},
+  scene: Pick<SelectionFocus, "horizon" | "standIn"> = {},
 ) {
   const picture =
-    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (art|depth)\./.exec(
+    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (art|priority)\./.exec(
       context,
     );
   const view = /Selection: VIEW (\d+)[^\n]*\nSelected VIEW \d+, loop (\d+), cel (\d+)\./.exec(
@@ -73,7 +73,7 @@ export function workspaceSelection(
       priority: parsed["priority"] === true,
     };
     const compiled = compileEditDocument(parsePictureDocument(source).document, profile);
-    const lens = picture[3] as "art" | "depth";
+    const lens = picture[3] as "visual" | "priority";
     return createSelectionEdit({
       scope: pictureAssistScope({
         num,

@@ -4,8 +4,8 @@ import {
   dominantValues,
   EGA_COLOUR_NAMES,
   groupSceneItems,
-  sectionSceneRows,
-} from "../src/studio/sceneGroups.ts";
+  sectionItemRows,
+} from "../src/studio/itemGroups.ts";
 
 describe("groupSceneItems", () => {
   it("folds consecutive inferred elements that share kind and value, in draw order", () => {
@@ -89,23 +89,23 @@ describe("groupSceneItems", () => {
   });
 });
 
-describe("sectionSceneRows", () => {
+describe("sectionItemRows", () => {
   const ones = (n: number): number[] => Array.from({ length: n }, () => 1);
 
   it("leaves lists of at most 60 rows alone", () => {
-    assert.equal(sectionSceneRows(ones(60)), null);
-    assert.notEqual(sectionSceneRows(ones(61)), null);
+    assert.equal(sectionItemRows(ones(60)), null);
+    assert.notEqual(sectionItemRows(ones(61)), null);
   });
 
   it("splits 70 even rows into equal runs", () => {
     // Target 7: a share is 10 commands, so every tenth row closes a section.
     assert.deepEqual(
-      sectionSceneRows(ones(70), { target: 7 }),
+      sectionItemRows(ones(70), { target: 7 }),
       Array.from({ length: 7 }, (_, k) => ({ start: 10 * k, count: 10 })),
     );
     // The default target of 36: every share (70/36 = 1.94 rows) needs a row of
     // its own, so 36 sections of one or two rows cover all 70.
-    const spans = sectionSceneRows(ones(70))!;
+    const spans = sectionItemRows(ones(70))!;
     assert.equal(spans.length, 36);
     assert.equal(
       spans.reduce((n, span) => n + span.count, 0),
@@ -120,7 +120,7 @@ describe("sectionSceneRows", () => {
     // row 27 ends at 127, past the third; the rest closes the list.
     const weights = ones(70);
     weights[5] = 100;
-    assert.deepEqual(sectionSceneRows(weights, { target: 4 }), [
+    assert.deepEqual(sectionItemRows(weights, { target: 4 }), [
       { start: 0, count: 6 },
       { start: 6, count: 22 },
       { start: 28, count: 42 },
@@ -130,7 +130,7 @@ describe("sectionSceneRows", () => {
   it("weighs an empty row as one command", () => {
     // 62 rows of weight 0 weigh 62, so target 2 splits at 31.
     assert.deepEqual(
-      sectionSceneRows(
+      sectionItemRows(
         Array.from({ length: 62 }, () => 0),
         { target: 2 },
       ),

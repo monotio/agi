@@ -48,7 +48,7 @@ const SOURCE = [
   "end", //                                  18
 ].join("\n");
 
-function setup(lens: StudioLens = "depth", unlocks: LensUnlocks = NO_UNLOCKS) {
+function setup(lens: StudioLens = "priority", unlocks: LensUnlocks = NO_UNLOCKS) {
   const lensRef = ref(lens);
   const unlocksRef = ref(unlocks);
   const base = ref({ source: SOURCE, revision: testRevision("draft") });
@@ -86,16 +86,16 @@ const line = (draft: ReturnType<typeof setup>["draft"], n: number) =>
   draft.source.value.split("\n")[n - 1];
 
 describe("useStudioDraft", () => {
-  it("keeps the shared undo order exact when its history drops steps at the depth cap", () => {
+  it("keeps the shared undo order exact when its history drops steps at the priority cap", () => {
     const base = ref({ source: SOURCE, revision: testRevision("draft") });
     const scope = effectScope();
     const run = scope.run(() => {
       const draft = useStudioDraft({
         base,
         profile: DEFAULT_V2_PROFILE,
-        lens: "depth",
+        lens: "priority",
         unlocks: NO_UNLOCKS,
-        historyDepth: 2,
+        historyPriority: 2,
       });
       // The door history: counted steps, both counts changing in one assignment.
       const door = shallowRef({ past: 0, future: 0 });
@@ -186,8 +186,8 @@ describe("useStudioDraft", () => {
   });
 
   it("refuses painting on a lens-locked plane, in plain words with the count and box as detail", () => {
-    const { draft, lens, unlocks } = setup("depth");
-    // Recolouring the box's art in the Depth lens: its outline, 21 + 21 + 19 + 19 cells.
+    const { draft, lens, unlocks } = setup("priority");
+    // Recolouring the box's art in the Priority lens: its outline, 21 + 21 + 19 + 19 cells.
     const art = draft.apply(
       { type: "setItemColor", itemId: "box", plane: "visual", value: 2 },
       "Colour Box",
@@ -201,14 +201,14 @@ describe("useStudioDraft", () => {
     assert.ok(art.refusal.cells.includes(1));
     assert.equal(draft.source.value, SOURCE);
 
-    // The occluder's depth in the Art lens: its outline, 80 + 80 + 14 + 14 cells.
-    lens.value = "art";
+    // The occluder's priority in the Art lens: its outline, 80 + 80 + 14 + 14 cells.
+    lens.value = "visual";
     const priority = { type: "setItemColor", itemId: "occ", plane: "priority", value: 12 } as const;
-    const depth = draft.apply(priority, "Priority 12");
-    assert.ok(!depth.ok && depth.refusal.kind === "lock");
-    assert.equal(depth.refusal.message, "Priority is locked in the Visual lens.");
+    const priorityResult = draft.apply(priority, "Priority 12");
+    assert.ok(!priorityResult.ok && priorityResult.refusal.kind === "lock");
+    assert.equal(priorityResult.refusal.message, "Priority is locked in the Visual lens.");
     assert.equal(
-      depth.refusal.detail,
+      priorityResult.refusal.detail,
       "Priority is locked in the Visual lens: 188 cells at 40,90..119,105 would change.",
     );
     // A point of its outline is editing within the plane too.
@@ -222,12 +222,12 @@ describe("useStudioDraft", () => {
   });
 
   it("moves, copies and deletes whole items with every plane they draw, in any lens", () => {
-    const { draft, unlocks } = setup("depth");
-    // The box's art moves in the Depth lens; the occluder's depth in the Art lens.
+    const { draft, unlocks } = setup("priority");
+    // The box's art moves in the Priority lens; the occluder's priority in the Art lens.
     assert.equal(draft.apply(both(), "Move 2 items").ok, true);
     assert.equal(line(draft, 3), "rect 10,11 30,31");
     assert.deepEqual(unlocks.value, NO_UNLOCKS, "the locks stay as they were");
-    const mixed = setupWith(POND, "art");
+    const mixed = setupWith(POND, "visual");
     // The pond's water and the barrier far below it move as one step.
     assert.equal(mixed.draft.apply(move("pond", 5, -3), "Move Pond").ok, true);
     assert.equal(line(mixed.draft, 3), "rect 25,17 45,27");
@@ -246,14 +246,14 @@ describe("useStudioDraft", () => {
       mixed.draft.apply({ type: "deleteItem", itemId: "pond-copy" }, "Delete Pond copy").ok,
       true,
     );
-    // Its barrier alone still follows the lock: that is painting depth.
+    // Its barrier alone still follows the lock: that is painting priority.
     const paint = mixed.draft.apply(
       { type: "setItemColor", itemId: "pond", plane: "priority", value: 3 },
       "Priority 3",
     );
     assert.ok(!paint.ok && paint.refusal.kind === "lock");
     assert.equal(paint.refusal.message, "Priority is locked in the Visual lens.");
-    // So does a fill that would flood depth along with the art.
+    // So does a fill that would flood priority along with the art.
     const fill = mixed.draft.apply(
       {
         type: "insertFill",
@@ -276,9 +276,9 @@ describe("useStudioDraft", () => {
   });
 
   it("says when a move took along lines the lens hides", () => {
-    const { draft } = setupWith(POND, "art");
+    const { draft } = setupWith(POND, "visual");
     const scope = effectScope();
-    const lens = ref<StudioLens>("art");
+    const lens = ref<StudioLens>("visual");
     const editing = scope.run(() =>
       useStudioEditing({
         draft,
@@ -291,7 +291,7 @@ describe("useStudioDraft", () => {
     // Priority holds the control lines too: the pond's wall and water.
     assert.equal(editing.notice.value?.text, "Moved Pond with its priority.");
     // The Priority lens shows the wall and water and hides the visual.
-    lens.value = "depth";
+    lens.value = "priority";
     assert.equal(editing.nudge(1, 0), true);
     assert.equal(editing.notice.value?.text, "Moved Pond with its visual.");
     scope.stop();
@@ -303,7 +303,7 @@ describe("useStudioDraft", () => {
   });
 
   it("lands an edit that changes another item's output, as one step with its side effects", () => {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     // The box 20 right leaves the paint's seed outside it: the red floods the
     // room. Refused before side effects were reported. Every cell turns red
     // but the old and new boxes' 441 each, which share column 30 (861 in
@@ -330,7 +330,7 @@ describe("useStudioDraft", () => {
   });
 
   it("works out a drag's side effects once, when it ends", () => {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     draft.beginGesture("Move Box");
     const frame = draft.moveGesture(move("box", 20, 0));
     assert.deepEqual(frame, { ok: true }, "a preview frame skips the report");
@@ -341,7 +341,7 @@ describe("useStudioDraft", () => {
   });
 
   it("a matching saved source retains the next picture gesture and undo steps", async () => {
-    const { draft, base } = setup("art");
+    const { draft, base } = setup("visual");
     assert.ok(draft.apply({ type: "moveItem", itemId: "box", dx: 1, dy: 0 }, "Nudge").ok);
     const saved = draft.source.value;
     draft.beginGesture("Move");
@@ -356,14 +356,14 @@ describe("useStudioDraft", () => {
   it("clears an edit notice when project Undo restores the source", async () => {
     const scope = effectScope();
     const { draft, base, editing } = scope.run(() => {
-      const state = setup("art");
+      const state = setup("visual");
       return {
         ...state,
         editing: useStudioEditing({
           draft: state.draft,
           selectedId: ref("box"),
           frozen: () => false,
-          lens: () => "art",
+          lens: () => "visual",
         }),
       };
     })!;
@@ -381,10 +381,15 @@ describe("useStudioDraft", () => {
   });
 
   it("says in the status line what else changed, with the undo key, and clears it after", () => {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     const scope = effectScope();
     const editing = scope.run(() =>
-      useStudioEditing({ draft, selectedId: ref("box"), frozen: () => false, lens: () => "art" }),
+      useStudioEditing({
+        draft,
+        selectedId: ref("box"),
+        frozen: () => false,
+        lens: () => "visual",
+      }),
     )!;
     assert.equal(editing.nudge(20, 0), true);
     assert.equal(
@@ -421,7 +426,7 @@ describe("useStudioDraft", () => {
   });
 
   it("rebases on Keep and throws changes away on Discard", () => {
-    const { draft } = setup("depth");
+    const { draft } = setup("priority");
     assert.equal(draft.apply(move("occ", 0, 2), "Move Occluder").ok, true);
     const edited = draft.source.value;
     draft.markKept(testRevision("kept"));
@@ -435,7 +440,7 @@ describe("useStudioDraft", () => {
   });
 
   it("keeps the undo history across Keep: undo then reverts the kept edit as an unkept change", () => {
-    const { draft } = setup("depth");
+    const { draft } = setup("priority");
     assert.equal(draft.apply(move("occ", 0, 2), "Move Occluder").ok, true);
     assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
     const kept = draft.source.value;
@@ -456,7 +461,7 @@ describe("useStudioDraft", () => {
   });
 
   it("counts a change only when the bytes differ; a note change keeps the same bytes", async () => {
-    const { draft } = setup("depth");
+    const { draft } = setup("priority");
     const original = draft.compiled.value.bytes;
     assert.equal(
       draft.apply({ type: "setItemMeta", itemId: "occ", label: "Table" }, "Rename").ok,
@@ -518,7 +523,7 @@ describe("useStudioDraft", () => {
 describe("useStudioDrag", () => {
   /** Occ, the priority-10 outline at 40..119 by 90..105, starts selected unless `fresh`. */
   function dragRig(fresh = false) {
-    const { draft } = setup("depth");
+    const { draft } = setup("priority");
     const frames: (() => void)[] = [];
     const reports: DraftOutcome[] = [];
     const calls: string[] = [];
@@ -685,7 +690,7 @@ describe("useStudioDrag", () => {
   });
 
   it("adds a point with an Alt+press by the line, placed by the drag, as one step each", () => {
-    const { draft } = setup("depth");
+    const { draft } = setup("priority");
     const frames: (() => void)[] = [];
     const drag = useStudioDrag({
       draft,
@@ -735,7 +740,7 @@ describe("several items as one", () => {
   const both = (dx: number, dy: number) => [move("box", dx, dy), move("paint", dx, dy)];
 
   it("moves a batch as one undo step, the fill with its outline", () => {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     assert.equal(draft.apply(both(4, -2), "Nudge 2 items").ok, true);
     assert.equal(line(draft, 3), "rect 14,8 34,28");
     assert.equal(line(draft, 7), "fill 24,18");
@@ -755,7 +760,7 @@ describe("several items as one", () => {
   });
 
   it("refuses the whole batch when one member breaks a lens lock", () => {
-    const { draft } = setup("depth");
+    const { draft } = setup("priority");
     const outcome = draft.apply(
       [
         { type: "setItemColor", itemId: "occ", plane: "priority", value: 11 },
@@ -773,7 +778,7 @@ describe("several items as one", () => {
     ids: string[] = ["box", "paint"],
     doors: readonly { item: string; label: string }[] = [],
   ) {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     const selectedId = ref<string | undefined>();
     const selection = { ids };
     const scope = effectScope();
@@ -915,7 +920,7 @@ describe("several items as one", () => {
   });
 
   it("drags the whole selection from any member's body, as one step, keeping it selected", () => {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     const frames: (() => void)[] = [];
     const drag = useStudioDrag({
       draft,
@@ -944,7 +949,7 @@ describe("several items as one", () => {
   });
 
   it("a click on the selection without a drag selects just the item clicked", () => {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     const picked: { x: number; y: number }[] = [];
     const drag = useStudioDrag({
       draft,
@@ -966,7 +971,7 @@ describe("several items as one", () => {
   });
 
   it("Shift+click toggles the item under the pointer; Shift+drag draws a marquee", () => {
-    const { draft } = setup("art");
+    const { draft } = setup("visual");
     const toggled: { x: number; y: number }[] = [];
     const boxes: unknown[] = [];
     const drag = useStudioDrag({

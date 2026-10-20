@@ -33,7 +33,7 @@ export function createPresentation(ctx: WorkerContext) {
     const frame = ctx.run.engine.getPresentation();
     if (capture) captureFrame(frame);
     if (ctx.run.engine === ctx.imagePreviewEngine)
-      ctx.imageHeroPreview?.(frame, ctx.run.cycle.cycleCount);
+      ctx.imageEgoPreview?.(frame, ctx.run.cycle.cycleCount);
     const modal = ctx.run.engine.modalKind;
     const textCells = frame.text;
     // Armed inspector channels join the sameness check so a view's sub-pixel
@@ -100,7 +100,7 @@ export function createPresentation(ctx: WorkerContext) {
       same = false;
     }
     // The composed priority surface is part of the frame's identity: an
-    // object can change depth (set.priority, horizon-relative bands) without
+    // object can change priority (set.priority, horizon-relative bands) without
     // touching a visual byte, and debug views render the surface itself.
     if (same && ctx.run.presentation.lastPriority) {
       for (let i = 0; i < frame.priority.length; i++) {

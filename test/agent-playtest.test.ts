@@ -681,7 +681,7 @@ test("checkpoint timing remains unknown while v10 is host-rate-dependent", () =>
   );
 });
 
-test("each playtest step reports engine occlusion plus the scenery depth over ego", () => {
+test("each playtest step reports engine occlusion plus the scenery priority over ego", () => {
   const state = world();
   state.container.putResource("picture", 1, Uint8Array.of(0xf0, 2, 0xf2, 12, 0xf8, 0, 0, 0xff));
   const result = playtestRoom(state, { room: 1, steps: [{ action: "wait", ticks: 1 }] });

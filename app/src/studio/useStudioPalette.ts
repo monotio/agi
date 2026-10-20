@@ -58,7 +58,7 @@ export function useStudioPalette(options: {
       return;
     }
     const lens = options.lens.value;
-    const plane = lens === "art" ? "visual" : "priority";
+    const plane = lens === "visual" ? "visual" : "priority";
     const value = patch[plane];
     if (value === undefined || value === "band") return;
     const missing = options.editing.targets.value.find(
@@ -66,7 +66,7 @@ export function useStudioPalette(options: {
     );
     if (missing) {
       const reason =
-        lens === "art"
+        lens === "visual"
           ? "has no visual colour. Select a shape with visual colour to recolour it."
           : "has no priority. Give it a Priority pen in the Inspector, or select a shape with one.";
       options.editing.say({ tone: "warn", text: `${options.editing.name(missing)} ${reason}` });

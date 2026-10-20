@@ -12,7 +12,7 @@ import type { PriorityFilter } from "./studioView.ts";
 /**
  * The Priority lens's view toggles, docked at the right of the options bar:
  * how the layers show (blended over the picture, split beside it, or alone),
- * what of priority shows (all, the distance bands, the control lines, or one
+ * what of priority shows (all, the priority bands, the control lines, or one
  * value), and the band lines. The Visual lens shows only its layer and needs
  * none of them. Short of room (`fold` 3 and up) they all fold into one View
  * menu, which offers the three main filters.
@@ -36,7 +36,7 @@ const SHOWS = [
 </script>
 
 <template>
-  <div v-if="lens !== 'art'" class="view-bar" role="toolbar" aria-label="View">
+  <div v-if="lens !== 'visual'" class="view-bar" role="toolbar" aria-label="View">
     <ActionMenu v-if="fold >= 3" label="View">
       <button
         v-for="choice in MODES"

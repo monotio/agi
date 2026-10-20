@@ -351,7 +351,7 @@ function main(): void {
         if (
           AUTHORING_MODULES.some((pattern) => pattern.test(module)) ||
           /(?:^|\/)node_modules\/monaco-editor\//.test(module) ||
-          /^app\/src\/studio\/(RoomStudio|view\/ViewStudio|workspace\/(LogicEditor|WordsEditor|TableEditor|SoundPanel))\.vue/.test(
+          /^app\/src\/studio\/(PictureStudio|view\/ViewStudio|workspace\/(LogicEditor|WordsEditor|TableEditor|SoundPanel))\.vue/.test(
             module,
           )
         )

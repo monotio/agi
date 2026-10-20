@@ -2,7 +2,7 @@
 // `?pic=1|2|3` opens the tutorial's scene art, `?pic=demo` (the default) the
 // annotated demo picture, `?pic=injected` the source or bytes a test or script
 // set on `window.studioHarnessInput` before the page loads. `&probe=1` mounts
-// the ghost actor probe over the picture's art pane, its readout beside it,
+// the standIn actor probe over the picture's art pane, its readout beside it,
 // with the tutorial's character VIEWs as its game. The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
 import { createApp, defineComponent, h } from "vue";
@@ -22,10 +22,10 @@ import { createPictureSurface } from "../../../src/types.ts";
 import { buildView, parseView, selectViewCel } from "../../../src/view/view.ts";
 import { CHARACTER_VIEWS } from "../../../games/adventure-department/characterViews.ts";
 import UiIconButton from "../ui/UiIconButton.vue";
-import GhostProbe from "./GhostProbe.vue";
-import GhostReadout from "./GhostReadout.vue";
+import StandInProbe from "./StandInProbe.vue";
+import StandInReadout from "./StandInReadout.vue";
 import StudioCanvas from "./StudioCanvas.vue";
-import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
+import { listGameViews, useStandInProbe } from "./useStandInProbe.ts";
 import { DEMO_PICTURE_SOURCE } from "./demoPicture.ts";
 
 /** What `?pic=injected` shows: authored source, or stored bytes to disassemble. */
@@ -58,10 +58,10 @@ const authored =
 const source = authored ? written : disassemblePicture(bytes, { profile });
 const probeMode = params.get("probe") === "1";
 /** The probe's game: the tutorial's character VIEWs, as container files. */
-const ghostViewBytes = new Map(
+const standInViewBytes = new Map(
   Object.entries(CHARACTER_VIEWS).map(([n, input]) => [Number(n), buildView(input)] as const),
 );
-const ghostFiles = containerFromResources({ view: ghostViewBytes }).files;
+const standInFiles = containerFromResources({ view: standInViewBytes }).files;
 const edits: string[] = [];
 
 const probe = {
@@ -86,13 +86,13 @@ const probe = {
     selectViewCel,
   },
   /** The probe harness's VIEW payloads by number, for in-page expectations. */
-  ghostViews: Object.fromEntries([...ghostViewBytes].map(([n, b]) => [n, [...b]])),
+  standInViews: Object.fromEntries([...standInViewBytes].map(([n, b]) => [n, [...b]])),
   palette: EGA_PALETTE,
 };
 export type StudioHarnessProbe = typeof probe;
 (window as Window & { studioHarness?: StudioHarnessProbe }).studioHarness = probe;
 
-/** `&probe=1`: the art pane at zoom 3 with the ghost probe over it, active. */
+/** `&probe=1`: the art pane at zoom 3 with the standIn probe over it, active. */
 const ProbeHarness = defineComponent(() => {
   const annotated = inferNativeItems(source, { profile });
   const { document } = parsePictureDocument(annotated);
@@ -100,17 +100,17 @@ const ProbeHarness = defineComponent(() => {
   const surface = createPictureSurface();
   renderPicture(bytes, surface, { profile });
   const viewport: Viewport = { zoom: 3, pixelAspect: 2, offsetX: 0, offsetY: 0 };
-  const ghost = useGhostProbe({
-    views: listGameViews(ghostFiles, profile),
+  const standIn = useStandInProbe({
+    views: listGameViews(standInFiles, profile),
     picture: surface,
     profile,
   });
-  ghost.active.value = true;
-  ghost.moveTo(60, 100);
+  standIn.active.value = true;
+  standIn.moveTo(60, 100);
   const describeCell = (x: number, y: number): string | undefined =>
     itemAt(compiled, document, x, y, "priority")?.label;
   const onKeydown = (event: KeyboardEvent): void => {
-    if (!event.defaultPrevented) ghost.handleStudioKey(event);
+    if (!event.defaultPrevented) standIn.handleStudioKey(event);
   };
   return () =>
     h("div", { class: "probe-harness", tabindex: -1, onKeydown }, [
@@ -118,24 +118,24 @@ const ProbeHarness = defineComponent(() => {
         icon: "actor",
         label: "Probe",
         shortcut: "G",
-        pressed: ghost.active.value,
-        "data-testid": "ghost-probe-toggle",
-        onClick: ghost.toggle,
+        pressed: standIn.active.value,
+        "data-testid": "stand-in-probe-toggle",
+        onClick: standIn.toggle,
       }),
       h("div", { style: { display: "flex", alignItems: "flex-start", gap: "16px" } }, [
         h("div", { style: { position: "relative", width: "fit-content" } }, [
           h(StudioCanvas, {
-            layer: "art",
+            layer: "visual",
             label: "Picture, visual plane",
             visual: surface.visual,
             priority: surface.priority,
             viewport,
             dpr: globalThis.devicePixelRatio || 1,
           }),
-          h(GhostProbe, { probe: ghost, viewport }),
+          h(StandInProbe, { probe: standIn, viewport }),
         ]),
-        ghost.active.value
-          ? h(GhostReadout, { probe: ghost, describeCell, style: { width: "300px" } })
+        standIn.active.value
+          ? h(StandInReadout, { probe: standIn, describeCell, style: { width: "300px" } })
           : null,
       ]),
     ]);

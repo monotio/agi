@@ -212,8 +212,8 @@ const TableEditor = defineAsyncComponent({
   loadingComponent: EditorLoading,
   delay: 0,
 });
-const RoomStudio = defineAsyncComponent({
-  loader: () => import("../RoomStudio.vue"),
+const PictureStudio = defineAsyncComponent({
+  loader: () => import("../PictureStudio.vue"),
   loadingComponent: EditorLoading,
   delay: 0,
 });
@@ -255,7 +255,7 @@ const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
 // Vue calls a function ref on every patch of its element; writing the same element to the
-// shallowRef again triggers nothing, so Room Studio moves only when the row mounts or unmounts.
+// shallowRef again triggers nothing, so PICTURE editor moves only when the row mounts or unmounts.
 function setContextTarget(element: Element | ComponentPublicInstance | null): void {
   editor.contextTarget.value = element instanceof HTMLElement ? element : null;
 }
@@ -2998,7 +2998,7 @@ onBeforeUnmount(() => {
           refresh();
         "
       />
-      <RoomStudio
+      <PictureStudio
         :read-only="editingPaused || actionBusy"
         v-if="key.startsWith('picture:') && native(key) && profile"
         :active="creating && key === editor.selected.value"

@@ -29,7 +29,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   edge: "Edge exit",
 };
 
-/** The status bar's one line for the active Room Studio tool. */
+/** The status bar's one line for the active PICTURE editor tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
   select: `${SHIFT} adds to the selection.`,
   point: "Drag a point's handle · the item itself stays put",
@@ -54,7 +54,7 @@ export const ROOM_EDIT_HINT = `Arrows nudge (${SHIFT} 8 px) · ${ALT} arrows nex
 /** With several items selected: how they move, at the foot of the inspector. */
 export const ROOM_GROUP_HINT = `${SHIFT} moves by 8 px; [ and ] reorder one item at a time.`;
 
-export const CEL_TOOL_NAMES: Record<ViewTool, string> = {
+export const VIEW_TOOL_NAMES: Record<ViewTool, string> = {
   pencil: "Pencil",
   eraser: "Eraser",
   fill: "Fill",
@@ -86,7 +86,7 @@ export interface KeySection {
   readonly rows: readonly KeyRow[];
 }
 
-/** What Space or Enter does at the keyboard cursor, per Room Studio tool that takes one. */
+/** What Space or Enter does at the keyboard cursor, per PICTURE editor tool that takes one. */
 const ROOM_CLICK: Partial<Record<StudioTool, string>> = {
   line: "adds a point; on the last point, finishes",
   polygon: "adds a point; on the last point, closes",

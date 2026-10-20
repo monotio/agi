@@ -1,6 +1,6 @@
 /**
  * Scene shapes lowered to picture source text: the pure compiler behind the
- * agent `draw_picture_items` tool and Room Studio shape authoring. A shape with
+ * agent `draw_picture_items` tool and PICTURE editor shape authoring. A shape with
  * `color: null` draws on the priority plane only. With `annotate` the
  * background fill and each shape are wrapped in `# @item`/`# @end` comments
  * (src/studio/pictureDocument.ts), which never change the compiled bytes.
@@ -146,7 +146,7 @@ export function shapeSource(shape: SceneShape): string[] {
   return lines;
 }
 
-/** The Studio item kind for a shape's planes: visual only, depth marks (priority 4+), walk control (0-3), or both planes. */
+/** The Studio item kind for a shape's planes: visual only, priority marks (priority 4+), walk control (0-3), or both planes. */
 function shapeItemKind(shape: SceneShape): PictureItemKind {
   if (shape.priority === null) return "art";
   if (shape.color !== null) return "mixed";
@@ -193,7 +193,7 @@ function sceneItemIds(shapes: readonly SceneShape[]): string[] {
 export interface SceneSourceOptions {
   /**
    * Wrap the background fill and each shape in `# @item`/`# @end` directives,
-   * so Room Studio opens the scene as named objects. The directives are
+   * so PICTURE editor opens the scene as named objects. The directives are
    * comments: annotated source compiles to the same bytes.
    */
   readonly annotate?: boolean;

@@ -1,7 +1,7 @@
 /**
- * A Studio's Keep: the draft goes through the resource transaction
+ * A Studio's commit: the draft goes through the resource transaction
  * (useStudioCommit) against the revision it was opened or last kept on —
- * Room Studio's compiled bytes and annotated source (bytes equal to the kept
+ * PICTURE editor's compiled bytes and annotated source (bytes equal to the kept
  * ones save only the text), VIEW editor's VIEW bytes. A kept draft rebases
  * on the new revision.
  * Each refusal maps to the one next step it allows: a stale game reopens
@@ -18,9 +18,9 @@ import type { ResourceCommitResult } from "../project/resourceCommit.ts";
 import type { DraftStatus } from "./StudioDraftControls.vue";
 import { useStudioCommit } from "./useStudioCommit.ts";
 
-/** Room Studio's Keep transaction. */
+/** PICTURE editor's commit transaction. */
 
-/** What a Keep reads from a Studio draft and tells it back. */
+/** What a commit reads from a Studio draft and tells it back. */
 export interface KeepableDraft {
   /** The draft differs from what the game holds. */
   readonly dirty: Readonly<Ref<boolean>>;
@@ -32,7 +32,7 @@ export interface KeepableDraft {
   markKept(revision: ResourceRevision): void;
 }
 
-/** What the Keep banner offers after a failure. */
+/** What the commit banner offers after a failure. */
 export type KeepRecovery = "reopen" | "reload" | "retry";
 
 export interface KeepBanner {
@@ -49,7 +49,7 @@ export function useStudioKeep(options: {
 }) {
   const { draft } = options;
   const { commit, busy, lastError } = useStudioCommit(options.keep);
-  /** The last successful Keep while the draft still matches it. */
+  /** The last successful commit while the draft still matches it. */
   const lastKept = shallowRef<ResourceCommitResult | null>(null);
   /** The game was saved but not installed: nothing is edited until it reloads. */
   const needsReload = computed(() => lastError.value?.code === "install");

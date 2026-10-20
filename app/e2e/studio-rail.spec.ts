@@ -8,7 +8,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio's tool rail fits its column. The Priority lens adds three tools,
+ * PICTURE editor's tool rail fits its column. The Priority lens adds three tools,
  * so the rail's tools scroll inside the column while the values under them
  * stay put. At a laptop's 1280×720 and at the editor's shortest layout (a
  * touch screen 601 tall), in every
@@ -28,7 +28,7 @@ async function openLabStudio(page: Page): Promise<Locator> {
   await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
   await openWorkspacePicture(page, 2);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -114,7 +114,7 @@ for (const viewport of VIEWPORTS) {
 const overlaps = (a: Box, b: Box) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
-test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in every lens", async ({
+test("at 1024×600 nothing in PICTURE editor's top bar or stage bars overlaps, in every lens", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 600 });

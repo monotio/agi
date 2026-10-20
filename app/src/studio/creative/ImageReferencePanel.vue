@@ -22,11 +22,11 @@ import {
   readImageReferences,
   readProjectImage,
   makeCelsChanges,
-  suggestImageFrames,
+  suggestImageCels,
   prepareImageCels,
   detectImageBackground,
   type ProjectImageInput,
-  type ImageFrame,
+  type ImageCel,
 } from "../../../../src/creative/imageOperations.ts";
 import type { ProjectSession } from "../../project/projectSession.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
@@ -40,7 +40,7 @@ import { buildView } from "../../../../src/view/view.ts";
 import { nearestEgaIndex } from "../../../../src/view/sheet.ts";
 import { paletteCss, useGamePalette, useGamePaletteLook } from "../../render/useGamePalette.ts";
 import { presentTrace, previewTrace } from "./tracePresentation.ts";
-import ImageFrameSheet from "./ImageFrameSheet.vue";
+import ImageCelSheet from "./ImageCelSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiSwitch from "../../ui/UiSwitch.vue";
 const props = defineProps<{
@@ -57,7 +57,7 @@ const CreativeGenerate = defineAsyncComponent(() => import("./CreativeGenerate.v
 const engine = useEngineApi();
 const bridge = useShellBridge();
 const image = shallowRef<ProjectImageInput>();
-const frames = ref<ImageFrame[]>([]);
+const cels = ref<ImageCel[]>([]);
 const opacity = ref(0.4);
 const behindArt = ref(false);
 const transform = ref<TraceTransform>({ x: 0, y: 0, scale: 1 });
@@ -84,8 +84,8 @@ watch(
     }
     const observer = new ResizeObserver(fit);
     observer.observe(target);
-    const frame = target.closest(".workspace-editor");
-    if (frame) observer.observe(frame);
+    const cel = target.closest(".workspace-editor");
+    if (cel) observer.observe(cel);
     if (target.offsetParent) observer.observe(target.offsetParent);
     window.addEventListener("resize", fit);
     fit();
@@ -218,7 +218,7 @@ async function commit(changes: Parameters<typeof props.session.model.propose>[2]
   if (!currentProject()) throw new Error("Open this project again to use the image.");
   const result = await props.session.stage(changes);
   if (!["draft", "committed", "restartRequired"].includes(result.status))
-    throw new Error("The image could not be added. Check the frames and try again.");
+    throw new Error("The image could not be added. Check the cels and try again.");
   emit("changed");
 }
 async function useImage(value: ProjectImageInput) {
@@ -245,7 +245,7 @@ async function useImage(value: ProjectImageInput) {
   } else {
     background.value = detectImageBackground(value);
     backgroundTransparent.value = true;
-    frames.value = [...suggestImageFrames(value)];
+    cels.value = [...suggestImageCels(value)];
   }
   generateOpen.value = false;
 }
@@ -363,7 +363,7 @@ async function addCels() {
         props.session.workingSnapshot().documents(),
         props.target,
         image.value,
-        frames.value,
+        cels.value,
         props.profile,
         background.value,
         backgroundTransparent.value,
@@ -371,7 +371,7 @@ async function addCels() {
       ),
       "Make cels from an image",
     );
-    status.value = `Added ${frames.value.length} cels`;
+    status.value = `Added ${cels.value.length} cels`;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -389,7 +389,7 @@ function postPreview() {
   if (!prepared.value) return stopPreview();
   engine.previewImageCels(
     prepared.value.payload,
-    [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
+    [...new Set(cels.value.map((cel) => cel.loop))].sort((a, b) => a - b),
   );
 }
 function preview() {
@@ -552,9 +552,9 @@ onBeforeUnmount(() => {
       <UiButton size="sm" aria-label="Reset trace" @click="resetTrace">Reset</UiButton>
     </template>
     <template v-if="image && !isPicture">
-      <ImageFrameSheet
+      <ImageCelSheet
         v-show="!generateOpen"
-        v-model="frames"
+        v-model="cels"
         @prepared="prepared = $event"
         :image="image"
         :profile="profile"
@@ -567,8 +567,8 @@ onBeforeUnmount(() => {
         <template #preview>
           <UiButton
             size="sm"
-            :disabled="!prepared || !frames.length"
-            :title="prepared ? '' : 'Adjust the frames first'"
+            :disabled="!prepared || !cels.length"
+            :title="prepared ? '' : 'Adjust the cels first'"
             data-testid="image-preview-hero"
             @click="preview"
             >{{ previewing ? "Stop preview" : "Preview on hero" }}</UiButton
@@ -578,15 +578,15 @@ onBeforeUnmount(() => {
           <UiButton
             size="sm"
             variant="primary"
-            :disabled="!prepared || !frames.length || busy"
-            :title="prepared ? '' : 'Adjust the frames first'"
+            :disabled="!prepared || !cels.length || busy"
+            :title="prepared ? '' : 'Adjust the cels first'"
             data-testid="image-add-cels"
             @click="addCels"
-            >Add {{ frames.length }} cels</UiButton
+            >Add {{ cels.length }} cels</UiButton
           >
         </template>
-      </ImageFrameSheet>
-      <p v-if="!prepared" role="alert">Adjust the frames to fit the image and cel size.</p>
+      </ImageCelSheet>
+      <p v-if="!prepared" role="alert">Adjust the cels to fit the image and cel size.</p>
     </template>
     <p v-if="status" role="status" data-testid="image-status">{{ status }}</p>
   </section>
@@ -653,7 +653,7 @@ onBeforeUnmount(() => {
   max-height: 100%;
   overflow: auto;
 }
-.image-reference--cels :deep(.frame-editor) {
+.image-reference--cels :deep(.cel-editor) {
   flex: 1;
   min-height: min-content;
   padding: var(--space-1);

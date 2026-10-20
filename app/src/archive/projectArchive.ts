@@ -184,7 +184,7 @@ function finishArchive(entries: ZipFileInput[]): Uint8Array<ArrayBuffer> {
   return buildZip(entries);
 }
 
-const MAX_PROJECT_DEPTH = 40;
+const MAX_PROJECT_PRIORITY = 40;
 const MAX_PROJECT_NODES = 25_000;
 const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
 
@@ -322,8 +322,8 @@ export function readProjectContext(
   let reconstructedChars = 0;
   let soundPayloadBytes = 0;
 
-  function scanRaw(value: unknown, depth = 0): void {
-    if (depth > MAX_PROJECT_DEPTH) {
+  function scanRaw(value: unknown, priority = 0): void {
+    if (priority > MAX_PROJECT_PRIORITY) {
       throw new Error("Project conversation nesting is too deep.");
     }
     nodeCount++;
@@ -346,7 +346,7 @@ export function readProjectContext(
         return;
       }
       for (const item of value) {
-        scanRaw(item, depth + 1);
+        scanRaw(item, priority + 1);
       }
       return;
     }
@@ -373,7 +373,7 @@ export function readProjectContext(
           throw new Error("Invalid project data key.");
         }
         reconstructedChars += key.length;
-        scanRaw(child, depth + 1);
+        scanRaw(child, priority + 1);
       }
     }
   }

@@ -36,7 +36,7 @@
  * up merged into a longer OR clause simply unwraps — the markers the clause
  * already needs are the same ones.
  *
- * LABELS may appear at any nesting depth, including inside an if/else block,
+ * LABELS may appear at any nesting priority, including inside an if/else block,
  * and `goto` reaches any of them; a label emits no bytes, it only names the
  * byte offset it sits at. Label names are one flat namespace per logic, so
  * duplicates are an error wherever they are.
@@ -75,7 +75,7 @@ import { buildLogicResource } from "./resource.ts";
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
 import {
   AssemblerError,
-  MAX_DEPTH,
+  MAX_PRIORITY,
   parseLogicSyntax,
   type Ref,
   type Stmt,
@@ -155,8 +155,8 @@ class LoweringBudget {
     this.tok = tok;
   }
 
-  charge(units = 1, depth = 0): void {
-    if (depth > MAX_DEPTH || units > this.remaining) {
+  charge(units = 1, priority = 0): void {
+    if (priority > MAX_PRIORITY || units > this.remaining) {
       throw new AssemblerError(
         "condition lowering work limit exceeded",
         this.tok.line,
@@ -167,49 +167,49 @@ class LoweringBudget {
   }
 }
 
-function nnf(t: TestExpr, negate: boolean, budget: LoweringBudget, depth = 0): TestExpr {
-  budget.charge(1, depth);
+function nnf(t: TestExpr, negate: boolean, budget: LoweringBudget, priority = 0): TestExpr {
+  budget.charge(1, priority);
   switch (t.type) {
     case "cond":
       return negate ? { type: "not", inner: t } : t;
     case "not":
-      return nnf(t.inner, !negate, budget, depth + 1);
+      return nnf(t.inner, !negate, budget, priority + 1);
     case "and":
       return negate
-        ? { type: "or", parts: t.parts.map((p) => nnf(p, true, budget, depth + 1)) }
-        : { type: "and", parts: t.parts.map((p) => nnf(p, false, budget, depth + 1)) };
+        ? { type: "or", parts: t.parts.map((p) => nnf(p, true, budget, priority + 1)) }
+        : { type: "and", parts: t.parts.map((p) => nnf(p, false, budget, priority + 1)) };
     case "or":
       return negate
-        ? { type: "and", parts: t.parts.map((p) => nnf(p, true, budget, depth + 1)) }
-        : { type: "or", parts: t.parts.map((p) => nnf(p, false, budget, depth + 1)) };
+        ? { type: "and", parts: t.parts.map((p) => nnf(p, true, budget, priority + 1)) }
+        : { type: "or", parts: t.parts.map((p) => nnf(p, false, budget, priority + 1)) };
     case "group":
       // A group only ever wraps a literal, so negation stays inside it.
-      return { type: "group", inner: nnf(t.inner, negate, budget, depth + 1) };
+      return { type: "group", inner: nnf(t.inner, negate, budget, priority + 1) };
   }
 }
 
 /** Distribute OR over AND until the root is an AND of clauses of ORs of literals. */
-function distribute(t: TestExpr, budget: LoweringBudget, depth = 0): TestExpr {
-  budget.charge(1, depth);
+function distribute(t: TestExpr, budget: LoweringBudget, priority = 0): TestExpr {
+  budget.charge(1, priority);
   if (t.type !== "or") {
     if (t.type === "and")
-      return { type: "and", parts: t.parts.map((part) => distribute(part, budget, depth + 1)) };
+      return { type: "and", parts: t.parts.map((part) => distribute(part, budget, priority + 1)) };
     return t;
   }
-  const parts = t.parts.map((part) => distribute(part, budget, depth + 1));
+  const parts = t.parts.map((part) => distribute(part, budget, priority + 1));
   const andIdx = parts.findIndex((p) => p.type === "and");
   if (andIdx === -1) return { type: "or", parts };
   const andPart = parts[andIdx] as { type: "and"; parts: TestExpr[] };
   const rest = parts.filter((_, i) => i !== andIdx);
   // (A && B) || rest  =>  (A || rest) && (B || rest)
-  budget.charge(andPart.parts.length * (rest.length + 1), depth);
+  budget.charge(andPart.parts.length * (rest.length + 1), priority);
   return distribute(
     {
       type: "and",
       parts: andPart.parts.map((p) => ({ type: "or", parts: [p, ...rest] })),
     },
     budget,
-    depth + 1,
+    priority + 1,
   );
 }
 

@@ -282,14 +282,14 @@ assert.deepEqual(compile(PIC_EDIT), compile(PIC_EDIT_RENAMED));
 test("a picture Keep updates its own workspace claim, preserves the rest and lets Logic build", async (t) => {
   const { projectId, revision, r } = await projectRig(t, "ws-picture-keep");
 
-  // First the reverse order: a Logic Studio Keep wins before the resource Keep.
+  // First the reverse order: a LOGIC editor Keep wins before the resource Keep.
   const editable = await openEditableProject(projectId);
   assert.equal(editable.inspection.requiresSourceReview, false);
   await keepLogic(editable, "logic:1", COMMENTED_LOGIC);
   const before = await loadAuthoredGame(projectId);
   assert.equal(readProjectWorkspace(before!.workspace)["logic:1"], COMMENTED_LOGIC);
 
-  // Room Studio keeps a byte-changing picture over the running game.
+  // PICTURE editor keeps a byte-changing picture over the running game.
   const kept = await r.controller.commitPictureEdit({
     pictureNumber: 1,
     bytes: compile(PIC_EDIT),

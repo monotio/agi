@@ -137,7 +137,7 @@ test("another pointer cannot drop a figure's queued move or cancel its drag @web
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:8:picture:8");
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await studio.getByRole("slider", { name: "Views", exact: true }).evaluate((element) => {
     (element as HTMLInputElement).value = "100";
     element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -184,9 +184,9 @@ test("another pointer cannot drop a trace's queued move @webkit-desktop", async 
   const handle = page.getByRole("button", { name: "Move trace", exact: true });
   await expect(handle).toBeVisible();
   const art = page
-    .getByTestId("room-studio")
+    .getByTestId("picture-studio")
     .filter({ visible: true })
-    .locator('.studio-pane[data-layer="art"] canvas')
+    .locator('.studio-pane[data-layer="visual"] canvas')
     .first();
   const before = await art.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
   const rect = (await handle.boundingBox())!;

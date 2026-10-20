@@ -42,7 +42,7 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     await openWorkspacePicture(page, 2);
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await expect(studio).toBeVisible();
     const seen: string[] = [];
     const look = async (name: string, target: Locator) => {

@@ -1,5 +1,5 @@
 /**
- * The room's LOGIC as Room Studio's room tools (Priority lens) edits it: the annotated
+ * The room's LOGIC as PICTURE editor's room tools (Priority lens) edits it: the annotated
  * source (`// @rule` door and edge exit fragments), its assembled bytes and
  * the flag names its edits reserved, with an undo history, against the text
  * last kept (or opened). Every edit is one kernel rule edit
@@ -96,7 +96,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   /** Flag names this Studio reserved (kept or not); a Keep stores them with the logic. */
   const reserved = shallowRef<Bindings>({});
   /** How many undo steps the history held when the logic was last kept (or opened). */
-  const keptDepth = shallowRef(0);
+  const keptPriority = shallowRef(0);
 
   watch(
     () => toValue(options.base),
@@ -114,7 +114,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
           undone >= 0
         ) {
           kept.value = base;
-          keptDepth.value =
+          keptPriority.value =
             current.value.source === base.source
               ? past.length
               : undone >= 0
@@ -126,7 +126,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
       kept.value = base;
       current.value = base && { ...base, label: "" };
       setStacks([], []);
-      keptDepth.value = 0;
+      keptPriority.value = 0;
     },
   );
 
@@ -135,7 +135,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   const bytes = computed(() => current.value?.bytes ?? null);
   const dirty = computed(() => current.value?.source !== kept.value?.source);
   const changes = computed(() =>
-    dirty.value ? Math.max(1, Math.abs(stacks.value.past.length - keptDepth.value)) : 0,
+    dirty.value ? Math.max(1, Math.abs(stacks.value.past.length - keptPriority.value)) : 0,
   );
   const parsed = computed(() => parseLogicDocument(source.value));
   const document = computed<LogicDocument>(() => parsed.value.document);
@@ -181,7 +181,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
         kept.value = state;
         current.value = state;
         setStacks([], []);
-        keptDepth.value = 0;
+        keptPriority.value = 0;
       } catch {
         return { ok: false, error: "Fix the room’s LOGIC before changing its doors." };
       }
@@ -313,14 +313,14 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
         },
       };
     }
-    keptDepth.value = stacks.value.past.length;
+    keptPriority.value = stacks.value.past.length;
   }
 
   /** Back to the last kept logic. */
   function discard(): void {
     current.value = kept.value && { ...kept.value, label: "" };
     setStacks([], []);
-    keptDepth.value = 0;
+    keptPriority.value = 0;
   }
 
   return {

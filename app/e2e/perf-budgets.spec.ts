@@ -212,7 +212,7 @@ test(
 );
 
 test(
-  "dragging an item in the tutorial's Room Studio keeps frames and input responsive",
+  "dragging an item in the tutorial's PICTURE editor keeps frames and input responsive",
   PERF,
   async ({ page }) => {
     await playTutorial(page);

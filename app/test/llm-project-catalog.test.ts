@@ -43,10 +43,10 @@ test("every offered catalog obeys OpenAI strict and Anthropic non-strict tool ru
     raw: unknown,
     path: string,
     totals: { properties: number; strings: number; enums: number },
-    depth = 0,
+    priority = 0,
   ): void {
     const schema = raw as Record<string, unknown>;
-    assert.ok(depth <= 10, path);
+    assert.ok(priority <= 10, path);
     for (const keyword of Object.keys(schema))
       assert.ok(Object.hasOwn(keywords, keyword), `${path}: ${keyword}`);
     const types = Array.isArray(schema["type"]) ? schema["type"] : [schema["type"]];
@@ -85,9 +85,9 @@ test("every offered catalog obeys OpenAI strict and Anthropic non-strict tool ru
         path,
       );
       for (const [key, child] of Object.entries(properties))
-        walk(child, `${path}.${key}`, totals, depth + 1);
+        walk(child, `${path}.${key}`, totals, priority + 1);
     }
-    if (types.includes("array")) walk(schema["items"], `${path}[]`, totals, depth + 1);
+    if (types.includes("array")) walk(schema["items"], `${path}[]`, totals, priority + 1);
   }
   for (const catalog of [AGENT_TOOLS, PROJECT_ASSIST_TOOLS, WORKSPACE_AGENT_TOOLS]) {
     assert.ok(catalog.length <= 128);

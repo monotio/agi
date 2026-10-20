@@ -39,7 +39,7 @@ const {
   selection = null,
   guides = null,
   handles = null,
-  ghost = null,
+  insertMark = null,
   flash = null,
   underlay = null,
   movable = false,
@@ -57,7 +57,7 @@ const {
   /** The selected item's points, drawn as draggable handles. */
   handles?: readonly LineHandle[] | null;
   /** Where an Alt+click adds a point to the selected line: a "+" mark. */
-  ghost?: LinePoint | null;
+  insertMark?: LinePoint | null;
   /** Cells an edit was refused for, highlighted briefly. */
   flash?: MaskPaths | null;
   /**
@@ -344,22 +344,22 @@ function onLeave(): void {
         </g>
       </g>
       <g
-        v-if="ghost"
-        class="studio-pane__ghost"
-        data-role="insert-ghost"
-        :data-point="`${ghost.x},${ghost.y}`"
+        v-if="insertMark"
+        class="studio-pane__insert-mark"
+        data-role="insert-mark"
+        :data-point="`${insertMark.x},${insertMark.y}`"
       >
         <ellipse
-          class="studio-pane__ghost-dot"
-          :cx="ghost.x + 0.5"
-          :cy="ghost.y + 0.5"
+          class="studio-pane__insert-mark-dot"
+          :cx="insertMark.x + 0.5"
+          :cy="insertMark.y + 0.5"
           :rx="handleBox.markW * 0.8"
           :ry="handleBox.markH * 0.8"
           vector-effect="non-scaling-stroke"
         />
         <path
-          class="studio-pane__ghost-plus"
-          :d="`M${ghost.x + 0.5 - handleBox.markW * 0.45} ${ghost.y + 0.5}h${handleBox.markW * 0.9}M${ghost.x + 0.5} ${ghost.y + 0.5 - handleBox.markH * 0.45}v${handleBox.markH * 0.9}`"
+          class="studio-pane__insert-mark-plus"
+          :d="`M${insertMark.x + 0.5 - handleBox.markW * 0.45} ${insertMark.y + 0.5}h${handleBox.markW * 0.9}M${insertMark.x + 0.5} ${insertMark.y + 0.5 - handleBox.markH * 0.45}v${handleBox.markH * 0.9}`"
           vector-effect="non-scaling-stroke"
         />
       </g>
@@ -451,12 +451,12 @@ function onLeave(): void {
   stroke: var(--action);
   stroke-width: 1.5px;
 }
-.studio-pane__ghost-dot {
+.studio-pane__insert-mark-dot {
   fill: var(--action);
   stroke: var(--surface-0);
   stroke-width: 1.5px;
 }
-.studio-pane__ghost-plus {
+.studio-pane__insert-mark-plus {
   fill: none;
   stroke: var(--action-ink);
   stroke-width: 2px;

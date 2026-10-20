@@ -70,8 +70,8 @@ const MAX_ROW_PIXELS = 65536;
 /** Rows a view candidate sheet shows at most. */
 const MAX_SHEET_ROWS = 8;
 
-/** A ghost actor placed in PICTURE editor: one cel standing at one place. */
-interface SelectionGhost {
+/** A standIn screen object placed in PICTURE editor: one cel standing at one place. */
+interface SelectionStandIn {
   readonly view: number;
   readonly loop: number;
   readonly cel: number;
@@ -89,7 +89,7 @@ export interface SelectionFocus {
   readonly lens?: string | undefined;
   /** The room the editor was opened from. */
   readonly room?: number | undefined;
-  readonly ghost?: SelectionGhost | undefined;
+  readonly standIn?: SelectionStandIn | undefined;
   /** The room's horizon for the walkable estimate; AGI's default 36 otherwise. */
   readonly horizon?: number | undefined;
   /**
@@ -760,24 +760,25 @@ function roomContext(
       out["picturesError"] = String(error);
     }
   }
-  const ghost = focus.ghost;
-  if (ghost && planes) {
+  const standIn = focus.standIn;
+  if (standIn && planes) {
     try {
-      const payload = session.container.getResource("view", ghost.view);
+      const payload = session.container.getResource("view", standIn.view);
       const cel = payload
-        ? parseView(payload, session.profile).loops[ghost.loop]?.cels[ghost.cel]
+        ? parseView(payload, session.profile).loops[standIn.loop]?.cels[standIn.cel]
         : undefined;
-      if (!cel) throw new Error(`view ${ghost.view} has no loop ${ghost.loop}, cel ${ghost.cel}`);
+      if (!cel)
+        throw new Error(`view ${standIn.view} has no loop ${standIn.loop}, cel ${standIn.cel}`);
       const probe = probeActor({
         picture: planes,
         cel,
-        x: ghost.x,
-        baselineY: ghost.baselineY,
-        priority: ghost.priority,
+        x: standIn.x,
+        baselineY: standIn.baselineY,
+        priority: standIn.priority,
         profile: session.profile,
       });
-      out["ghost"] = {
-        ...ghost,
+      out["standIn"] = {
+        ...standIn,
         bandPriority: probe.bandPriority,
         drawPriority: probe.drawPriority,
         hiddenPixels: countMask(probe.hiddenMask).cells,
@@ -786,7 +787,7 @@ function roomContext(
         footprintAccepted: probe.footprint.accepted,
       };
     } catch (error) {
-      out["ghost"] = { error: String(error) };
+      out["standIn"] = { error: String(error) };
     }
   }
   return Object.keys(out).length > 0 ? out : null;

@@ -1,7 +1,7 @@
 /**
- * Room Studio's keyboard. Every key pressed inside the studio stops at its
+ * PICTURE editor's keyboard. Every key pressed inside the studio stops at its
  * root, so none reaches the paused game or its parser (`[` and `]` included).
- * Widgets keep the keys they use (the Scene list, the lens switch, the
+ * Widgets keep the keys they use (the Items panel, the lens switch, the
  * scrubber, text fields); the rest are studio shortcuts:
  *
  * - 1/2 lens; `,` `.` Home End scrub; + - 0 zoom; Esc lets go of one
@@ -28,7 +28,7 @@
 
 import type { StudioLens } from "./studioView.ts";
 
-const LENS_KEYS: Record<string, StudioLens> = { "1": "art", "2": "depth" };
+const LENS_KEYS: Record<string, StudioLens> = { "1": "visual", "2": "priority" };
 
 const ARROWS: Record<string, readonly [number, number]> = {
   ArrowUp: [0, -1],

@@ -61,9 +61,9 @@ export function resourceReferenceOperand(
 
 const HELP: Record<string, string> = {
   "set.priority":
-    "Sets a literal priority and already fixes object depth. release.priority restores automatic baseline depth.",
-  "set.priority.v": "Sets fixed object depth from a variable value.",
-  "release.priority": "Restores automatic depth from the object baseline.",
+    "Sets a literal priority and already fixes object priority. release.priority restores automatic baseline priority.",
+  "set.priority.v": "Sets fixed object priority from a variable value.",
+  "release.priority": "Restores automatic priority from the object baseline.",
   "get.priority": "Writes the object priority into the destination variable.",
   "cycle.time":
     "Sets animation cel interval AND resets its countdown from the variable value. Initialize once on room entry; 1 advances each logic cycle. Global v10 controls cycle pacing. This changes animation, not movement.",

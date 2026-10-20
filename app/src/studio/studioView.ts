@@ -1,8 +1,8 @@
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
- * Pure view helpers for the Room Studio: lens painting, mask geometry for
+ * Pure view helpers for the PICTURE editor: lens painting, mask geometry for
  * the SVG overlay, priority band guides, the
- * draw-order tick layout and Scene list labels. No Vue and no DOM, so tests drive them directly.
+ * draw-order tick layout and Items panel labels. No Vue and no DOM, so tests drive them directly.
  */
 
 import { EGA_PALETTE } from "../render/palette.ts";
@@ -12,7 +12,7 @@ import type { PictureSourceSpan } from "../../../src/picture/source.ts";
 import { linePoints } from "../../../src/studio/editPoints.ts";
 import type { PictureItemKind } from "../../../src/studio/pictureDocument.ts";
 import type { TimelineEntry } from "../../../src/studio/pictureQuery.ts";
-import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../src/studio/itemGroups.ts";
 
 import type { StudioLens } from "../../../src/studio/lensRules.ts";
 
@@ -21,18 +21,18 @@ export type StudioViewMode = "blend" | "split" | "priority";
 
 /**
  * The lenses' names, as Sierra named the planes: Visual is what the player
- * sees; Priority holds the distance bands and the control lines (walls,
+ * sees; Priority holds the priority bands and the control lines (walls,
  * gates, triggers, water) the player never sees.
  */
 export const LENS_NAMES: Record<StudioLens, { label: string; help: string }> = {
-  art: { label: "Visual", help: "What players see." },
-  depth: {
+  visual: { label: "Visual", help: "What players see." },
+  priority: {
     label: "Priority",
-    help: "Depth, walls, water, triggers and gates.",
+    help: "Priority, walls, water, triggers and gates.",
   },
 };
 
-/** What the Priority view shows: all of it, the distance bands, the control lines, or one value. */
+/** What the Priority view shows: all of it, the priority bands, the control lines, or one value. */
 export type PriorityFilter = "all" | "bands" | "controls" | number;
 
 /** The priority plane as `filter` leaves it: kept cells stay, the rest read as background. */
@@ -48,7 +48,7 @@ export function filterPriority(priority: Uint8Array, filter: PriorityFilter): Ui
   return out;
 }
 /** What one canvas pane shows. */
-export type PaneLayer = "art" | "depth" | "depth-only";
+export type PaneLayer = "visual" | "priority" | "priority-only";
 
 export interface ControlValue {
   readonly value: 0 | 1 | 2 | 3;
@@ -61,7 +61,7 @@ export interface ControlValue {
   readonly pattern: "solid" | "dashed" | "dotted" | "long-dash";
 }
 
-/** Priority values 0-3 are control lines, not depth (spec "Priority and control"). */
+/** Priority values 0-3 are control lines, not priority (spec "Priority and control"). */
 export const CONTROL_VALUES: readonly ControlValue[] = [
   {
     value: 0,
@@ -100,7 +100,7 @@ export const CONTROL_VALUES: readonly ControlValue[] = [
 /** The meaning of a priority value, for labels. */
 export function priorityMeaning(value: number): string {
   const control = CONTROL_VALUES[value];
-  return control ? control.name : value === 4 ? "background" : `depth band ${value}`;
+  return control ? control.name : value === 4 ? "background" : `priority band ${value}`;
 }
 
 /** Whether cell x,y of a control run is painted at full strength for `pattern`. */
@@ -113,15 +113,15 @@ export function patternOn(pattern: ControlValue["pattern"], x: number, y: number
 
 /** Each pane's accessible name. */
 export const PANE_LABELS: Record<PaneLayer, string> = {
-  art: "Picture",
-  depth: "Picture with its priority blended over it",
-  "depth-only": "Priority",
+  visual: "Picture",
+  priority: "Picture with its priority blended over it",
+  "priority-only": "Priority",
 };
 
 /** The panes a lens and view mode put on screen, left to right. */
 export function panesFor(lens: StudioLens, mode: StudioViewMode): PaneLayer[] {
-  if (lens === "art") return ["art"];
-  if (mode === "split") return ["art", `${lens}-only`];
+  if (lens === "visual") return ["visual"];
+  if (mode === "split") return ["visual", `${lens}-only`];
   return [mode === "priority" ? `${lens}-only` : lens];
 }
 
@@ -142,11 +142,11 @@ function put(
 }
 
 /** Share of the priority colour in the Priority blend. */
-const DEPTH_BLEND = 0.5;
+const PRIORITY_BLEND = 0.5;
 
 /**
  * Paint one pane into RGBA `out` (160x168x4). Art is the visual plane in the
- * game's colours (`palette`, EGA by default). Priority blends each distance band's colour over the art (or
+ * game's colours (`palette`, EGA by default). Priority blends each priority band's colour over the art (or
  * shows the priority plane alone, background 4 as black) and draws control
  * lines 0-3 in their own colour and pattern.
  */
@@ -161,11 +161,11 @@ export function paintLayer(
   for (let i = 0; i < visual.length; i++) {
     const art = palette[visual[i]! & 0x0f]!;
     const pri = priority[i]! & 0x0f;
-    if (layer === "art") {
+    if (layer === "visual") {
       put(out, i, art);
       continue;
     }
-    const only = layer === "depth-only";
+    const only = layer === "priority-only";
     const control = pri < 4 ? CONTROL_VALUES[pri]! : undefined;
     if (control) {
       const x = i % SCREEN_WIDTH;
@@ -175,7 +175,7 @@ export function paintLayer(
       continue;
     }
     if (pri >= 5)
-      put(out, i, only ? palette[pri]! : art, only ? undefined : palette[pri]!, DEPTH_BLEND);
+      put(out, i, only ? palette[pri]! : art, only ? undefined : palette[pri]!, PRIORITY_BLEND);
     else put(out, i, only ? BLACK : art);
   }
 }
@@ -323,7 +323,7 @@ export function pictureSize(bytes: number, commands: number): PictureSize {
   return { bytes: size, commands: drawing, full: `${size} · ${drawing}` };
 }
 
-/** A Scene list label split for a middle ellipsis: `head` gives way first, `tail` stays whole. */
+/** A Items panel label split for a middle ellipsis: `head` gives way first, `tail` stays whole. */
 export interface LabelParts {
   readonly full: string;
   readonly head: string;
@@ -352,10 +352,10 @@ export function labelParts(full: string): LabelParts {
 
 /**
  * Labels the Studio itself generates: "Element 5", "Element 5 part 2",
- * "Line 3", "Depth polygon 1", "Wall line 1", each with a " copy" tail.
+ * "Line 3", "Priority polygon 1", "Wall line 1", each with a " copy" tail.
  */
 const GENERATED_LABEL =
-  /^(?:Element (\d+)(?: part (\d+))?|(?:Line|Rect|Polygon|Fill|Brush) \d+|(?:Depth|Wall|Gate|Trigger|Water) (?:line|rect|polygon|fill|brush) \d+)( copy(?: \d+)?)?$/;
+  /^(?:Element (\d+)(?: part (\d+))?|(?:Line|Rect|Polygon|Fill|Brush) \d+|(?:Priority|Wall|Gate|Trigger|Water) (?:line|rect|polygon|fill|brush) \d+)( copy(?: \d+)?)?$/;
 
 /** The noun a drawing command's plain name takes. */
 const NOUNS: Record<string, string> = {
@@ -372,7 +372,7 @@ const NOUNS: Record<string, string> = {
 
 /**
  * A generated label as the calm UI says it: "Red line · 6 points", "Blue
- * fill", "Depth band 9 polygon", "Wall line". The value is the one colour or
+ * fill", "Priority band 9 polygon", "Wall line". The value is the one colour or
  * priority the item draws with; an item drawing several keeps its generated
  * label, as does one with no drawing commands. Null keeps the label.
  */
@@ -408,7 +408,9 @@ export function plainItemName(input: {
     name = `${EGA_COLOUR_NAMES[visual]!} ${noun}`;
   if (name === null && priority !== undefined && priority !== null)
     name =
-      priority < 4 ? `${CONTROL_VALUES[priority]!.name} ${noun}` : `depth band ${priority} ${noun}`;
+      priority < 4
+        ? `${CONTROL_VALUES[priority]!.name} ${noun}`
+        : `priority band ${priority} ${noun}`;
   if (name === null) return null;
   const parts = [name];
   if (points > 0) parts.push(`${points} ${points === 1 ? "point" : "points"}`);

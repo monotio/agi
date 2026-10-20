@@ -1,5 +1,5 @@
 /**
- * What Room Studio reads out about its model: the scrubber's ticks and
+ * What PICTURE editor reads out about its model: the scrubber's ticks and
  * current command, the selected row's commands and the values it draws, the
  * inspected pixel (and why a fill at the playhead does or does not reach it),
  * and the status line. Derived only; nothing here edits.

@@ -11,7 +11,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Every ⓘ in the Studios explains itself: in each lens of Room Studio and in
+ * Every ⓘ in the Studios explains itself: in each lens of PICTURE editor and in
  * VIEW editor, every visible `[data-term]` opens its registry sentence
  * (studioTerms.ts), Esc closes it before the Studio's own Esc chain runs and
  * hands focus back to it, and Learn more opens Help at its topic. The chrome
@@ -32,7 +32,7 @@ async function playTutorial(page: Page): Promise<void> {
 
 async function openRoomOne(page: Page): Promise<Locator> {
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -53,12 +53,12 @@ async function everyExplainer(
   const seen: string[] = [];
   for (let i = 0; i < count; i++) {
     const trigger = triggers.nth(i);
-    const term = (await trigger.getAttribute("data-term")) as StudioTerm | "drawing-depth";
+    const term = (await trigger.getAttribute("data-term")) as StudioTerm | "drawing-priority";
     const entry =
-      term === "drawing-depth"
+      term === "drawing-priority"
         ? {
-            name: VOCABULARY.drawingDepth.label,
-            says: VOCABULARY.drawingDepth.help,
+            name: VOCABULARY.drawingPriority.label,
+            says: VOCABULARY.drawingPriority.help,
             help: undefined,
           }
         : STUDIO_TERMS[term];
@@ -82,7 +82,7 @@ async function everyExplainer(
   return seen;
 }
 
-test("Room Studio: every explainer in every lens says its sentence and gives Esc back", async ({
+test("PICTURE editor: every explainer in every lens says its sentence and gives Esc back", async ({
   page,
 }) => {
   await playTutorial(page);
@@ -130,7 +130,7 @@ test("Room Studio: every explainer in every lens says its sentence and gives Esc
   await expect(pop).toHaveCount(0);
 });
 
-test("Room Studio's chrome says depth, walk lines and steps", async ({ page }) => {
+test("PICTURE editor's chrome says priority, walk lines and steps", async ({ page }) => {
   await playTutorial(page);
   const studio = await openRoomOne(page);
   await studio.getByRole("treeitem", { name: /^Text band/ }).click();

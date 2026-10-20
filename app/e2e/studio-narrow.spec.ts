@@ -11,7 +11,7 @@ import { expect, test } from "./test.ts";
 /**
  * The Studios in small windows: a small laptop's 1024×600, a 900 px wide
  * window, and 900×480, the smallest window the Studios are laid out for.
- * Room Studio's top bar never draws the draft controls over the lens switch,
+ * PICTURE editor's top bar never draws the draft controls over the lens switch,
  * and a tool rail shorter than its tools says so with a "more tools" button
  * that scrolls the rest into view. VIEW editor's options bar folds its view
  * options into a More menu instead of drawing the tool's options under them.
@@ -60,7 +60,7 @@ for (const viewport of [
   { width: 1024, height: 600 },
   { width: 900, height: 480 },
 ]) {
-  test(`Room Studio at ${viewport.width}×${viewport.height}: the top bar never overlaps and every tool can be reached`, async ({
+  test(`PICTURE editor at ${viewport.width}×${viewport.height}: the top bar never overlaps and every tool can be reached`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -68,7 +68,7 @@ for (const viewport of [
     await page.emulateMedia({ reducedMotion: "reduce" });
     await playTutorial(page);
     await openWorkspacePicture(page, 2, false);
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await expect(studio).toBeVisible();
     const lens = studio.getByRole("radiogroup", { name: "Lens", exact: true });
     const bar = studio.getByRole("radiogroup", { name: "Lens", exact: true });
@@ -124,7 +124,7 @@ for (const viewport of [
       await expect(below).toBeVisible();
     }
     await page.screenshot({
-      path: test.info().outputPath(`room-studio-${viewport.width}x${viewport.height}.png`),
+      path: test.info().outputPath(`picture-studio-${viewport.width}x${viewport.height}.png`),
     });
     const overflow = await page.evaluate(
       () => document.documentElement.scrollHeight - window.innerHeight,

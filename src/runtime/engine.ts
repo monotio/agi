@@ -1248,7 +1248,7 @@ export class Engine {
       this.flags[F_RESTART] = 1;
     }
     // Initial object/inventory setup: item locations start where the game's
-    // metadata puts them (spec "Objects and inventory items").
+    // metadata puts them (spec "Objects and objects").
     this.initInventory();
   }
 
@@ -1836,7 +1836,7 @@ export class Engine {
         }
         for (let index = 0; index < this.objects.length; index++) {
           const object = this.objects[index]!;
-          // Only animated actors hold a live cel binding; unanimated rows
+          // Only animated screen objects hold a live cel binding; unanimated rows
           // carry view 0 by default and re-clamp on their next set.view.
           if (!object.active || object.view !== change.num) continue;
           const cel = readViewCel(stagedView, object.loop, object.cel);
@@ -6303,7 +6303,7 @@ export class Engine {
   }
 
   private updateObjects(): void {
-    // The dispatcher skips movement entirely without an updating actor;
+    // The dispatcher skips movement entirely without an updating screen object;
     // border bytes and ego restrictions survive that case.
     // docs/fidelity.md: Original complete movement and follow audit.
     if (!this.objects.some((o) => o.active && o.update && !o.earlierPartition)) return;
@@ -6323,7 +6323,7 @@ export class Engine {
       this.updateCycle(obj);
     }
     // All cels (and therefore collision dimensions) change before the
-    // movement dispatcher visits its first actor. docs/fidelity.md:
+    // movement dispatcher visits its first screen object. docs/fidelity.md:
     // Original complete movement and follow audit.
     const due: ScreenObject[] = [];
     for (const obj of this.objects) {
@@ -6344,7 +6344,7 @@ export class Engine {
       }
     }
     // The previous position is committed once the whole pass has moved, and
-    // only for actors whose step countdown reloaded: later actors in the same
+    // only for screen objects whose step countdown reloaded: later screen objects in the same
     // pass still test against the pre-move value, and the next pass's crossing
     // test sees the mover's own current baseline (docs/fidelity.md, "Original
     // previous-position commit").
@@ -6357,7 +6357,7 @@ export class Engine {
       this.stampDraw(obj);
     }
     // Ego's terrain restriction is a one-pass request, even when only
-    // another actor updated. Non-ego restrictions persist.
+    // another screen object updated. Non-ego restrictions persist.
     this.objects[0]!.waterGate = null;
   }
 
@@ -7875,7 +7875,7 @@ export class Engine {
     return this.itemLocations[item] ?? 0;
   }
 
-  /** Host inventory writes use OBJECT identities; room 255 means carried (Objects and inventory items). */
+  /** Host inventory writes use OBJECT identities; room 255 means carried (Objects and objects). */
   setItemLocation(item: number, room: number): void {
     if (
       !Number.isInteger(item) ||
@@ -8184,8 +8184,8 @@ export class Engine {
         const o = obj(0);
         if (!o.update) {
           // animate.obj resets the state flags, not the object's scalar data.
-          // Reusing a title actor must not carry fixed priority or ignored
-          // boundaries into an ordinary room actor.
+          // Reusing a title screen object must not carry fixed priority or ignored
+          // boundaries into an ordinary room screen object.
           o.active = false;
           o.update = true;
           o.earlierPartition = false;

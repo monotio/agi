@@ -136,7 +136,7 @@ each view's own cels (Opus appears once, at high effort):
 
 One room as the player sees it, beside its walkable ground, barriers and horizon:
 
-![A castle gate beside its walkability map](genesis-depth.png)
+![A castle gate beside its walkability map](genesis-priority.png)
 
 Regenerate them from the snapshot with:
 

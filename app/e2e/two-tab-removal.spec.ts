@@ -227,7 +227,7 @@ test("a game removed in another tab stops storing, says so once, and never comes
   // Home never offers to continue the removed game.
   await page.reload();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  await expect(page.getByTestId("hero-primary")).toHaveText("Play the tutorial");
+  await expect(page.getByTestId("intro-primary")).toHaveText("Play the tutorial");
   await expect(page.getByTestId("btn-resume-autosave")).toHaveCount(0);
 
   // Download game keeps a copy of the running game; Back to games leaves it.
@@ -236,7 +236,7 @@ test("a game removed in another tab stops storing, says so once, and never comes
   expect((await download).suggestedFilename()).toMatch(/\.zip$/);
   await note.getByTestId("removed-tab-leave").click();
   await expect(tabB.getByTestId("saved-game-gallery")).toBeVisible();
-  await expect(tabB.getByTestId("hero-primary")).toHaveText("Play the tutorial");
+  await expect(tabB.getByTestId("intro-primary")).toHaveText("Play the tutorial");
   expect(await held(tabB, locator)).toEqual({
     projectNamedKeys: [
       "monotio_agi.authored.a.b",

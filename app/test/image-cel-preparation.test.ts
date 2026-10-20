@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { prepareImageCels, type ImageFrame } from "../../src/creative/imageOperations.ts";
+import { prepareImageCels, type ImageCel } from "../../src/creative/imageOperations.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
@@ -25,7 +25,7 @@ test("moving a crop reuses the image hash and prepares the exact settled cel", (
       return set.call(this, source, offset);
     },
   );
-  const frame = (x: number): ImageFrame => ({
+  const frame = (x: number): ImageCel => ({
     region: { x, y: 0, width: 1, height: 1 },
     width: 1,
     height: 1,

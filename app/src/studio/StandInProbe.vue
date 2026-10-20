@@ -5,28 +5,28 @@ import { computed, useId, useTemplateRef } from "vue";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import { toLogical, toScreen, type Viewport } from "../../../src/studio/viewport.ts";
 import { CONTROL_VALUES, maskFillPath, maskOutlinePath } from "./studioView.ts";
-import type { GhostProbe } from "./useGhostProbe.ts";
+import type { StandInProbe } from "./useStandInProbe.ts";
 
 /**
- * The ghost-actor overlay for one picture pane: the probe's cel drawn where
+ * The stand-in-actor overlay for one picture pane: the probe's cel drawn where
  * the engine would draw it (hidden pixels faint and hatched), its baseline and
  * footprint control hits, and a drag handle; nothing else lies on the art.
- * Its readout docks beside the canvas (GhostReadout.vue). It fills its
+ * Its readout docks beside the canvas (StandInReadout.vue). It fills its
  * positioned parent exactly like StudioCanvas's own overlay, so it must sit
- * over a pane at the pane's origin. State lives in `useGhostProbe`.
+ * over a pane at the pane's origin. State lives in `useStandInProbe`.
  *
  * Mounting (the harness's `?probe=1` entry does the same): the host creates
- * `useGhostProbe({ views: listGameViews(files, profile), picture, profile,
+ * `useStandInProbe({ views: listGameViews(files, profile), picture, profile,
  * priorityBase })`, wraps the art pane in a `position: relative` box with
- * this component beside the StudioCanvas, docks GhostReadout off the
+ * this component beside the StudioCanvas, docks StandInReadout off the
  * picture, adds a pressed-state tool button calling `probe.toggle()`, and
  * routes its root keydown through
- * `probe.handleStudioKey` for G. Arrow keys on the focused ghost call
+ * `probe.handleStudioKey` for G. Arrow keys on the focused standIn call
  * preventDefault, so a host that skips prevented keys keeps its own arrows.
  */
-const { probe, viewport } = defineProps<{ probe: GhostProbe; viewport: Viewport }>();
+const { probe, viewport } = defineProps<{ probe: StandInProbe; viewport: Viewport }>();
 
-const hatchId = `ghost-hatch-${useId()}`;
+const hatchId = `stand-in-hatch-${useId()}`;
 const root = useTemplateRef("root");
 const handle = useTemplateRef("handle");
 const width = computed(() => SCREEN_WIDTH * viewport.pixelAspect * viewport.zoom);
@@ -74,7 +74,7 @@ const box = computed(() => {
   };
 });
 
-/** Whether the picture hides the ghost: its root says so for the host and tests. */
+/** Whether the picture hides the standIn: its root says so for the host and tests. */
 const verdict = computed(() => {
   const total = pixels.value.length;
   const hidden = pixels.value.filter((p) => p.hidden).length;
@@ -128,13 +128,13 @@ function onKeydown(event: KeyboardEvent): void {
   <div
     v-if="probe.active.value"
     ref="root"
-    class="ghost"
-    data-testid="ghost-probe"
+    class="standIn"
+    data-testid="stand-in-probe"
     :data-verdict="verdict"
     :style="{ width: `${width}px`, height: `${height}px` }"
   >
     <svg
-      class="ghost__svg"
+      class="standIn__svg"
       :viewBox="`0 0 ${SCREEN_WIDTH} ${SCREEN_HEIGHT}`"
       preserveAspectRatio="none"
       aria-hidden="true"
@@ -147,11 +147,11 @@ function onKeydown(event: KeyboardEvent): void {
           patternUnits="userSpaceOnUse"
           patternTransform="rotate(45)"
         >
-          <line x1="0" y1="0" x2="0" y2="1.5" class="ghost__hatch" />
+          <line x1="0" y1="0" x2="0" y2="1.5" class="standIn__hatch" />
         </pattern>
       </defs>
       <line
-        class="ghost__baseline-guide"
+        class="standIn__baseline-guide"
         x1="0"
         :x2="SCREEN_WIDTH"
         :y1="baselineY + 0.5"
@@ -161,11 +161,11 @@ function onKeydown(event: KeyboardEvent): void {
       <path
         v-for="layer in drawnLayers"
         :key="`d${layer.color}`"
-        data-role="ghost-drawn"
+        data-role="stand-in-drawn"
         :d="layer.d"
         :style="{ fill: `var(--agi-${layer.color})` }"
       />
-      <g class="ghost__hidden">
+      <g class="standIn__hidden">
         <path
           v-for="layer in hiddenLayers"
           :key="`h${layer.color}`"
@@ -173,12 +173,12 @@ function onKeydown(event: KeyboardEvent): void {
           :style="{ fill: `var(--agi-${layer.color})` }"
         />
       </g>
-      <path data-role="ghost-hidden" :d="hiddenPath" :fill="`url(#${hatchId})`" />
-      <path class="ghost__outline" :d="outline" vector-effect="non-scaling-stroke" />
+      <path data-role="stand-in-hidden" :d="hiddenPath" :fill="`url(#${hatchId})`" />
+      <path class="standIn__outline" :d="outline" vector-effect="non-scaling-stroke" />
       <line
         v-if="cel"
-        class="ghost__baseline"
-        data-role="ghost-baseline"
+        class="standIn__baseline"
+        data-role="stand-in-baseline"
         :x1="x"
         :x2="x + cel.width"
         :y1="baselineY + 0.5"
@@ -189,8 +189,8 @@ function onKeydown(event: KeyboardEvent): void {
         <rect
           v-for="cell in hit.cells"
           :key="cell.x"
-          class="ghost__hit"
-          data-role="ghost-control"
+          class="standIn__hit"
+          data-role="stand-in-control"
           :data-value="hit.value"
           :x="cell.x"
           :y="cell.y"
@@ -205,8 +205,8 @@ function onKeydown(event: KeyboardEvent): void {
     <div
       v-if="box"
       ref="handle"
-      class="ghost__handle"
-      data-testid="ghost-probe-handle"
+      class="standIn__handle"
+      data-testid="stand-in-probe-handle"
       data-role="drag-handle"
       tabindex="0"
       role="application"
@@ -223,58 +223,58 @@ function onKeydown(event: KeyboardEvent): void {
 </template>
 
 <style scoped>
-.ghost {
+.standIn {
   position: absolute;
   top: 0;
   left: 0;
   pointer-events: none;
 }
-.ghost__svg {
+.standIn__svg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
 }
-.ghost__hidden {
+.standIn__hidden {
   opacity: 0.3;
 }
-.ghost__hatch {
+.standIn__hatch {
   stroke: var(--ink);
   stroke-width: 0.4;
   stroke-opacity: 0.7;
 }
-.ghost__outline {
+.standIn__outline {
   fill: none;
   stroke: var(--action);
   stroke-width: 1px;
   stroke-dasharray: 2 2;
 }
-.ghost__baseline-guide {
+.standIn__baseline-guide {
   stroke: var(--action);
   stroke-opacity: 0.35;
   stroke-width: 1px;
   stroke-dasharray: 4 3;
 }
-.ghost__baseline {
+.standIn__baseline {
   stroke: var(--action);
   stroke-width: 2px;
 }
-.ghost__hit {
+.standIn__hit {
   fill: none;
   stroke-width: 2px;
 }
-.ghost__handle {
+.standIn__handle {
   position: absolute;
   pointer-events: auto;
   cursor: grab;
   touch-action: none;
   border-radius: var(--radius-sm);
 }
-.ghost__handle:active {
+.standIn__handle:active {
   cursor: grabbing;
 }
-.ghost__handle:focus-visible {
+.standIn__handle:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }

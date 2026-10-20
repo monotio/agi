@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
-import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../src/studio/itemGroups.ts";
 import { priorityMeaning } from "./studioView.ts";
 
 /**
- * One plane's value for an item: the 16 AGI colours (art) or depth values
+ * One plane's value for an item: the 16 AGI colours (art) or priority values
  * 0–15 (AGI's priority; 0–3 are walk lines, named on their tooltips), plus
  * "off", which stops the item drawing on that plane. A radio group; `value` undefined means the item
  * draws several values and none is checked.
@@ -36,7 +36,7 @@ const options = computed(() =>
       name:
         plane === "visual"
           ? `Colour ${v}, ${EGA_COLOUR_NAMES[v]}`
-          : `Depth ${v}, ${priorityMeaning(v)}${v < 4 ? " walk line" : ""}`,
+          : `Priority ${v}, ${priorityMeaning(v)}${v < 4 ? " walk line" : ""}`,
     };
   }),
 );

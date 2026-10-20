@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("first visit has one route per action and aligned sections @phone", async ({ page }) => {
-  const hero = page.locator(".hero");
+  const hero = page.locator(".intro");
   await expect(hero).toBeVisible();
   await expect(hero.getByRole("button").nth(0)).toBeVisible();
   await expect(hero.getByRole("button").nth(1)).toBeVisible();

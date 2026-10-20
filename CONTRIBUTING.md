@@ -446,7 +446,7 @@ that crosses the budget pauses the task with Continue and Stop. Hero preview cha
 pixels; interpreter state and recorded play retain the admitted game.
 `src/creative/imageOperations.ts` detects alpha or corner-colour backgrounds,
 boxes connected figures across sheet gaps and derives cel width from one height.
-`src/creative/imageFrameGeometry.ts` owns pixel snapping, bounded drawing,
+`src/creative/imageCelGeometry.ts` owns pixel snapping, bounded drawing,
 linked edge resizing, unlinking, ordering and loop assignment. The sheet editor
 asks before replacing edited boxes and renders thumbnails from prepared cels.
 The marks stay local until Add cels stages the VIEW. Update and restart submits the proposal. Editing a mirror loop gives it independent cels while

@@ -18,7 +18,7 @@ import {
 } from "../picture/source.ts";
 import { computePictureMetrics, DEFAULT_HORIZON } from "../picture/metrics.ts";
 import {
-  actorLayoutFeedback,
+  screenObjectLayoutFeedback,
   colourGrid,
   editReport,
   formatLayoutDiff,
@@ -180,7 +180,7 @@ function formatPictureMetrics(m: {
   return [
     `fill coverage ${pct(m.fillCoverage)} (target >= 95%), ${m.distinctColors} distinct colours (target 8-14)`,
     `${m.commandCount} commands, ${m.regionCount} regions, edge density ${pct(m.edgeDensity)}`,
-    `priority: ${pct(m.priorityBandFraction)} of cells in depth bands, ${m.priorityBands} distinct bands, walkable below horizon ${pct(m.walkableFraction)}, sky above horizon on band 4 ${pct(m.priorityHorizonSanity)}`,
+    `priority: ${pct(m.priorityBandFraction)} of cells in priority bands, ${m.priorityBands} distinct bands, walkable below horizon ${pct(m.walkableFraction)}, sky above horizon on band 4 ${pct(m.priorityHorizonSanity)}`,
   ].join("\n");
 }
 
@@ -853,8 +853,9 @@ function executeLegacyTool(
             `${blockedFills.length} ${label} fill seeds did nothing: ${samples.join("; ")}${blockedFills.length > samples.length ? `; +${blockedFills.length - samples.length} more` : ""}. Enclose and fill regions while their interiors still have the target value.`,
           );
         }
-        const actors = actorLayoutFeedback(source, surface.priority);
-        if (actors.length > 0) feedback.push("Declared actor placement checks:", actors);
+        const screenObjects = screenObjectLayoutFeedback(source, surface.priority);
+        if (screenObjects.length > 0)
+          feedback.push("Declared screen object placement checks:", screenObjects);
         const masses = layoutDiff(source, surface.visual);
         if (masses.length > 0) {
           feedback.push("Declared `# layout:` masses vs what rendered:", formatLayoutDiff(masses));
@@ -925,10 +926,12 @@ function executeLegacyTool(
         renderPicture(session.container.getResource("picture", num)!, surface, {
           profile: session.profile,
         });
-        const actors = actorLayoutFeedback(editableSource, surface.priority);
+        const screenObjects = screenObjectLayoutFeedback(editableSource, surface.priority);
         const diagnostics = [
           formatPriorityDiagnostics(surface.priority),
-          ...(actors.length > 0 ? ["Declared actor placement checks:", actors] : []),
+          ...(screenObjects.length > 0
+            ? ["Declared screen object placement checks:", screenObjects]
+            : []),
         ].join("\n");
         return {
           success: true,
@@ -1243,7 +1246,7 @@ function executeLegacyTool(
         if (!obj || name.length === 0 || !Number.isInteger(startingRoom))
           return {
             success: false,
-            error: `Invalid inventory item at index ${index}: expected { name: non-empty string, startingRoom: integer or null }. The table was not changed.`,
+            error: `Invalid object at index ${index}: expected { name: non-empty string, startingRoom: integer or null }. The table was not changed.`,
           };
         objects.push({ name, startingRoom: startingRoom as number });
       }
@@ -1260,7 +1263,7 @@ function executeLegacyTool(
         session.sources.objects = objects;
         return {
           success: true,
-          message: `OBJECT file compiled successfully with ${objects.length} inventory items (${payload.length} bytes, profile ${session.profile.id}).`,
+          message: `OBJECT file compiled successfully with ${objects.length} objects (${payload.length} bytes, profile ${session.profile.id}).`,
           details: {
             objectCount: objects.length,
             bytes: payload.length,

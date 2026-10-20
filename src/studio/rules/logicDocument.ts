@@ -1,11 +1,11 @@
 /**
- * Room Studio logic document: a room's logic source whose rules are
+ * PICTURE editor logic document: a room's logic source whose rules are
  * structured comments, so annotations never change the compiled bytes.
  *
  *   // @rule <id> "<label>" <exit|region> [item=<picture item id>]   opens a rule
  *   // @end                                                          closes it
  *
- * `item=` ties the rule to a Room Studio picture item (`# @item` in the
+ * `item=` ties the rule to a PICTURE editor picture item (`# @item` in the
  * room's picture document): when the item moves, the rule's box moves with
  * it (ruleBinding.ts).
  * Rules are flat and cover consecutive source lines; the lines between the

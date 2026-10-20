@@ -1,8 +1,8 @@
 /**
- * Automatic groups for the Room Studio's Scene list. An imported picture
+ * Automatic groups for the PICTURE editor's Items panel. An imported picture
  * becomes one native item per drawing element (hundreds for a detailed
  * scene), so consecutive items that share their kind and their dominant value
- * (visual colour for art and mixed, priority for depth and walk) fold into one
+ * (visual colour for art and mixed, priority for priority and walk) fold into one
  * group. Only inferred elements may join one (see `isInferredItemId` in
  * nativeItems.ts): an authored item always stands alone. Groups are a view
  * over the document: nothing is written to the source, so the bytes and
@@ -17,11 +17,11 @@ export interface SceneGroupMember<K extends string = string> {
    * automatic group; any other item stands alone and breaks a run.
    */
   readonly id: string;
-  /** The item's kind (`art`, `depth`, `walk` or `mixed`). */
+  /** The item's kind (`art`, `priority`, `walk` or `mixed`). */
   readonly kind: K;
   /**
    * The value most of the item's own pixels hold on its plane (visual for
-   * art and mixed, priority for depth and walk), or null when later drawing
+   * art and mixed, priority for priority and walk), or null when later drawing
    * covered all of them.
    */
   readonly value: number | null;
@@ -84,7 +84,7 @@ export function groupSceneItems<K extends string>(
   return groups;
 }
 
-/** Above this many top-level rows, the Scene list folds them into draw-order sections. */
+/** Above this many top-level rows, the Items panel folds them into draw-order sections. */
 const SECTION_ROW_LIMIT = 60;
 /** About how many sections a long list gets. */
 const SECTION_TARGET = 36;
@@ -103,7 +103,7 @@ export interface SceneSpan {
  * swallow several shares and leave fewer sections. Returns null when there
  * are at most `limit` rows: short lists need no sections.
  */
-export function sectionSceneRows(
+export function sectionItemRows(
   weights: readonly number[],
   { limit = SECTION_ROW_LIMIT, target = SECTION_TARGET } = {},
 ): SceneSpan[] | null {

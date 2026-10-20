@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ROOM_ACTION_LABELS as labels, type RoomActionKind } from "./guidedActions.ts";
-import { roomHeroView } from "../logic/guided/guidedPreview.ts";
+import { roomEgoView } from "../logic/guided/guidedPreview.ts";
 import { computed, onBeforeUnmount, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
@@ -210,7 +210,7 @@ function open(next: WorkspaceAction["kind"]): void {
   const bindings = props.snapshot.read("bindings")?.content;
   view.value =
     typeof source === "string"
-      ? (roomHeroView(source, typeof bindings === "string" ? bindings : undefined) ?? 0)
+      ? (roomEgoView(source, typeof bindings === "string" ? bindings : undefined) ?? 0)
       : 0;
   guidedPlacement.value?.cancel();
   guidedPlacement.value = undefined;

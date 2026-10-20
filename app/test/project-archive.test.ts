@@ -170,7 +170,7 @@ test("first-release project and public metadata versions reject future data", ()
   );
 });
 
-test("readProjectContext bounds depth, missing attachments, attachment fan-out and content budgets", () => {
+test("readProjectContext bounds priority, missing attachments, attachment fan-out and content budgets", () => {
   const imageHash = "a".repeat(64);
   const imagePath = `IMAGES/${imageHash}.png`;
   const imageBytes = new Uint8Array(256).fill(42);
@@ -200,7 +200,7 @@ test("readProjectContext bounds depth, missing attachments, attachment fan-out a
     /A project image attachment is missing/,
   );
 
-  // 2. Excessive nesting depth (> 40) fails promptly
+  // 2. Excessive nesting priority (> 40) fails promptly
   let nested: unknown = { leaf: "deep" };
   for (let i = 0; i < 45; i++) {
     nested = { child: nested };

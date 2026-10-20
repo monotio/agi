@@ -103,30 +103,30 @@ describe("tool state machines", () => {
 
   it("picks values into the planes the lens leaves open", () => {
     const picked = { visual: 6, priority: 11 };
-    assert.deepEqual(pipetteValues(defaultValues("art"), picked, "art", NO_UNLOCKS), {
+    assert.deepEqual(pipetteValues(defaultValues("visual"), picked, "visual", NO_UNLOCKS), {
       visual: 6,
       priority: null,
     });
-    assert.deepEqual(pipetteValues(defaultValues("depth"), picked, "depth", NO_UNLOCKS), {
+    assert.deepEqual(pipetteValues(defaultValues("priority"), picked, "priority", NO_UNLOCKS), {
       visual: null,
       priority: 11,
     });
     // The Priority lens picks a control line as readily as a band.
     assert.deepEqual(
-      pipetteValues(defaultValues("depth"), { visual: 6, priority: 2 }, "depth", NO_UNLOCKS),
+      pipetteValues(defaultValues("priority"), { visual: 6, priority: 2 }, "priority", NO_UNLOCKS),
       { visual: null, priority: 2 },
     );
     const open: LensUnlocks = { visual: true, priority: true };
-    assert.deepEqual(pipetteValues(defaultValues("depth"), picked, "depth", open), picked);
-    assert.deepEqual(pipetteValues(defaultValues("art"), picked, "art", open), picked);
+    assert.deepEqual(pipetteValues(defaultValues("priority"), picked, "priority", open), picked);
+    assert.deepEqual(pipetteValues(defaultValues("visual"), picked, "visual", open), picked);
   });
 
-  it("follows the band under the cursor in the Depth lens, 10 without one", () => {
-    const depth = defaultValues("depth");
-    assert.equal(resolvePriority(depth, undefined), 10);
-    assert.equal(resolvePriority(depth, 20), 4);
-    assert.equal(resolvePriority(depth, 167), 14);
-    assert.equal(resolvePriority(defaultValues("art"), 100), null);
+  it("follows the band under the cursor in the Priority lens, 10 without one", () => {
+    const priority = defaultValues("priority");
+    assert.equal(resolvePriority(priority, undefined), 10);
+    assert.equal(resolvePriority(priority, 20), 4);
+    assert.equal(resolvePriority(priority, 167), 14);
+    assert.equal(resolvePriority(defaultValues("visual"), 100), null);
   });
 
   it("names new items by what they draw, numbered from the first free label", () => {
@@ -144,8 +144,8 @@ describe("tool state machines", () => {
       kind: "walk",
     });
     assert.deepEqual(newItemNames(document, "Polygon", null, 10), {
-      id: "depth-polygon-1",
-      label: "Depth polygon 1",
+      id: "priority-polygon-1",
+      label: "Priority polygon 1",
       kind: "depth",
     });
     assert.equal(newItemNames(document, "Fill", 2, 9).kind, "mixed");
@@ -236,7 +236,7 @@ const at = (x: number, y: number) => y * 160 + x;
 
 describe("useStudioTools", () => {
   it("draws a filled rect in the Art lens as one undo step that leaves priority alone", () => {
-    const { draft, tools, selectedId, flush, press } = setup("art");
+    const { draft, tools, selectedId, flush, press } = setup("visual");
     const before = draft.compiled.value;
     tools.setTool("rect");
     tools.filled.value = true;
@@ -262,7 +262,7 @@ describe("useStudioTools", () => {
   });
 
   it("clicks out a Wall line in the Priority lens that never touches art", () => {
-    const { draft, tools, flush, press } = setup("depth");
+    const { draft, tools, flush, press } = setup("priority");
     const before = draft.compiled.value;
     tools.setValues({ priority: 0 });
     tools.setTool("line");
@@ -282,8 +282,8 @@ describe("useStudioTools", () => {
     assert.equal(after.priority[at(10, 141)], before.priority[at(10, 141)]);
   });
 
-  it("draws a Depth rect on the priority plane only", () => {
-    const { draft, tools, press } = setup("depth");
+  it("draws a Priority rect on the priority plane only", () => {
+    const { draft, tools, press } = setup("priority");
     const before = draft.compiled.value;
     tools.setTool("rect");
     tools.filled.value = true;
@@ -294,11 +294,11 @@ describe("useStudioTools", () => {
     assert.deepEqual(after.visual, before.visual);
     // The band under the cursor at row 160 is 14.
     assert.equal(after.priority[at(20, 155)], 14);
-    assert.equal(draft.document.value.items.at(-1)!.label, "Depth rect 1");
+    assert.equal(draft.document.value.items.at(-1)!.label, "Priority rect 1");
   });
 
   it("recolours the painter on a painted spot; a locked painter explains; a white seed fills", async () => {
-    const { draft, doc, tools, press } = setup("art");
+    const { draft, doc, tools, press } = setup("visual");
     tools.setTool("fill");
     tools.setValues({ visual: 2 });
     tools.press(press(80, 50));
@@ -311,7 +311,7 @@ describe("useStudioTools", () => {
 
     // A locked wall's painter cannot be recoloured: the bucket explains.
     const locked = setup(
-      "art",
+      "visual",
       SOURCE.replace('item wall "Wall" art', 'item wall "Wall" art locked'),
     );
     locked.tools.setTool("fill");
@@ -335,7 +335,7 @@ describe("useStudioTools", () => {
   });
 
   it("previews a fill's flood with a trial edit that changes nothing", () => {
-    const { draft, tools, flush } = setup("art");
+    const { draft, tools, flush } = setup("visual");
     tools.setTool("fill");
     tools.hover(p(80, 140));
     flush();
@@ -349,7 +349,7 @@ describe("useStudioTools", () => {
   });
 
   it("draws an open path on to the cursor with the picture's own pixels; only clicks commit", () => {
-    const { draft, tools, reports, flush, press } = setup("art");
+    const { draft, tools, reports, flush, press } = setup("visual");
     tools.setValues({ visual: 4 });
     tools.setTool("line");
     tools.press(press(10, 120));
@@ -393,7 +393,7 @@ describe("useStudioTools", () => {
   });
 
   it("refuses a self-intersecting polygon and keeps its points to fix", () => {
-    const { draft, tools, reports, press } = setup("art");
+    const { draft, tools, reports, press } = setup("visual");
     tools.setTool("polygon");
     for (const [x, y] of [
       [10, 120],
@@ -421,7 +421,7 @@ describe("useStudioTools", () => {
   });
 
   it("inserts at a mid playhead, at that draw-order position, and later commands still draw over it", async () => {
-    const { draft, doc, tools, press, selectedId } = setup("art");
+    const { draft, doc, tools, press, selectedId } = setup("visual");
     doc.playhead.value = 3;
     tools.setTool("rect");
     tools.filled.value = true;
@@ -445,7 +445,7 @@ describe("useStudioTools", () => {
   });
 
   it("insert here before Bench writes the new line's bytes between Wall and Bench", () => {
-    const { draft, doc, tools, press } = setup("art");
+    const { draft, doc, tools, press } = setup("visual");
     // "insert here" on Bench stands the marker at Bench's first step.
     const bench = doc.model.value.rows.find((row) => row.id === "bench")!;
     doc.playhead.value = bench.entries[0]!;
@@ -482,17 +482,17 @@ describe("useStudioTools", () => {
   });
 
   it("picks the colour and priority under the cursor into the lens's values", () => {
-    const { tools, press, lens } = setup("art");
+    const { tools, press, lens } = setup("visual");
     tools.setTool("pipette");
     tools.press(press(80, 92));
     assert.deepEqual(tools.current.value, { visual: 6, priority: null });
-    lens.value = "depth";
+    lens.value = "priority";
     tools.press(press(80, 90));
     assert.deepEqual(tools.current.value, { visual: null, priority: 10 });
   });
 
   it("paints a brush stroke as one de-duplicated plot", () => {
-    const { draft, tools, flush, press } = setup("art");
+    const { draft, tools, flush, press } = setup("visual");
     tools.setTool("brush");
     tools.setValues({ visual: 12 });
     tools.press(press(10, 150));
@@ -538,10 +538,10 @@ describe("the keyboard cursor (useStudioInput)", () => {
   }
 
   it("starts at the centre, or where the pointer last was, and stays on the surface", () => {
-    const fresh = keys("art", null);
+    const fresh = keys("visual", null);
     fresh.tools.setTool("rect");
     assert.deepEqual(fresh.input.overlay.value.crosshair, p(80, 84));
-    const { tools, input, move, canvasCell } = keys("art", 3, 2);
+    const { tools, input, move, canvasCell } = keys("visual", 3, 2);
     tools.setTool("line");
     assert.deepEqual(input.overlay.value.crosshair, p(3, 2));
     move(-8, -8);
@@ -556,7 +556,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("leaves the arrows to Select, and hides once the pointer presses", () => {
-    const { tools, input, press, fallback } = keys("art", 40, 40);
+    const { tools, input, press, fallback } = keys("visual", 40, 40);
     assert.equal(input.move(1, 0), false, "Select nudges instead");
     assert.equal(input.click(false), false);
     assert.equal(input.overlay.value.crosshair, null);
@@ -571,7 +571,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("draws a rect: Space starts, the arrows size it, Space again finishes as one undo step", () => {
-    const { draft, tools, input, move, flush, selectedId } = keys("art", 10, 120);
+    const { draft, tools, input, move, flush, selectedId } = keys("visual", 10, 120);
     const before = draft.compiled.value;
     tools.setTool("rect");
     tools.filled.value = true;
@@ -596,7 +596,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("clicks out a Wall line: Enter adds a point, Enter on the last point finishes", () => {
-    const { draft, tools, input, move } = keys("depth", 10, 140);
+    const { draft, tools, input, move } = keys("priority", 10, 140);
     const before = draft.compiled.value;
     tools.setValues({ priority: 0 });
     tools.setTool("line");
@@ -617,7 +617,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("closes a polygon with Enter on its last point", () => {
-    const { draft, tools, input, move } = keys("art", 10, 120);
+    const { draft, tools, input, move } = keys("visual", 10, 120);
     tools.setTool("polygon");
     input.click(false);
     move(8, 0, 3);
@@ -631,7 +631,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("paints with the pen down, and Esc lifts nothing into the picture", () => {
-    const { draft, tools, input, move, flush } = keys("art", 10, 150);
+    const { draft, tools, input, move, flush } = keys("visual", 10, 150);
     tools.setTool("brush");
     tools.setValues({ visual: 12 });
     input.click(false);
@@ -652,7 +652,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("seeds a fill and picks with the pipette where the cursor stands", () => {
-    const { draft, tools, input, move } = keys("art", 80, 140);
+    const { draft, tools, input, move } = keys("visual", 80, 140);
     tools.setTool("fill");
     tools.setValues({ visual: 2 });
     input.click(false);
@@ -664,7 +664,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
   });
 
   it("Space on the keyboard's canvas clicks; anywhere else, or after the pointer, it pans", () => {
-    const { tools, input, press } = keys("art", 40, 40);
+    const { tools, input, press } = keys("visual", 40, 40);
     tools.setTool("rect");
     const space = (target: unknown) => ({ key: " ", target }) as unknown as KeyboardEvent;
     assert.equal(input.spaceKey(space(stage), true), false, "left to the click");
@@ -683,7 +683,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
       ["the tab hiding", (host) => host.document.dispatchEvent(new Event("visibilitychange"))],
     ];
     for (const [name, leave] of releases) {
-      const { tools } = setup("art");
+      const { tools } = setup("visual");
       const host = { window: new EventTarget(), document: new EventTarget() };
       const scope = effectScope();
       const input = scope.run(() =>

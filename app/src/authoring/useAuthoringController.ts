@@ -287,13 +287,13 @@ export interface AuthoringController {
     repaired?: Pick<ViewEdit, "bytes" | "baseRevision" | "baseAuthoring">,
   ): Promise<ResourceCommitResult>;
   /**
-   * Commit Room Studio's picture edit — bytes plus the source that compiles
+   * Commit PICTURE editor's picture edit — bytes plus the source that compiles
    * to them — to storage and the running game as one transaction. Throws a
    * ResourceCommitError; "unchanged" when there was nothing to write.
    */
   commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult>;
   /**
-   * Commit Room Studio's combined Keep: the picture and the room's logic
+   * Commit PICTURE editor's combined Keep: the picture and the room's logic
    * (door rules and the bindings they reserved) in one transaction.
    */
   commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult>;

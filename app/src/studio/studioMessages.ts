@@ -1,6 +1,6 @@
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
- * Room Studio's plain wording for the edit kernel's refusals. The kernel's
+ * PICTURE editor's plain wording for the edit kernel's refusals. The kernel's
  * own text names lines, operands and coordinate ranges, which is right for
  * logs, tests and the agent; the creator reads one short sentence and can
  * open the technical text as its detail.
@@ -46,7 +46,7 @@ const PLAIN: readonly (readonly [
     () => "This item shares steps with another item. Expand its source before editing.",
   ],
   [/self-intersects/, () => "These edges cross. Remove the last point or start again."],
-  [/draws on neither plane/, () => "Choose an art colour or a depth value to draw with."],
+  [/draws on neither plane/, () => "Choose an art colour or a priority value to draw with."],
   [/is inside item/, () => "Move the step marker out of this item, then draw."],
   [
     /continues the command on line/,
@@ -104,7 +104,7 @@ export function edgeRefusal(
 
 /**
  * After a move that carried planes the lens does not paint: "Moved Pond with
- * its walk lines.", "Moved 3 items with their depth and walk lines.";
+ * its walk lines.", "Moved 3 items with their priority and walk lines.";
  * null when it carried none.
  */
 export function movedWith(

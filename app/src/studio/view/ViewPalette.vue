@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import { explain } from "../studioTerms.ts";
 import { swatchInk } from "./viewStudioView.ts";
 import { useGamePalette } from "../../render/useGamePalette.ts";

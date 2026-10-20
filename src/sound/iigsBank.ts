@@ -33,7 +33,7 @@ export interface IigsInstrument {
   readonly releaseSegment: number;
   readonly priorityIncrement: number;
   readonly pitchBendRange: number;
-  readonly vibratoDepth: number;
+  readonly vibratoPriority: number;
   readonly vibratoSpeed: number;
   readonly a: readonly IigsWave[];
   readonly b: readonly IigsWave[];
@@ -112,7 +112,7 @@ export function parseIigsInstrument(
       releaseSegment: u8(24),
       priorityIncrement: u8(25),
       pitchBendRange: u8(26),
-      vibratoDepth: u8(27),
+      vibratoPriority: u8(27),
       vibratoSpeed: u8(28), // u8(29) is a spare byte
       a: waves.slice(0, aCount),
       b: waves.slice(aCount),

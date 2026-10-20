@@ -32,7 +32,7 @@ const INSTRUMENT: IigsInstrument = {
   releaseSegment: 2,
   priorityIncrement: 32,
   pitchBendRange: 2,
-  vibratoDepth: 0,
+  vibratoPriority: 0,
   vibratoSpeed: 0,
   a: [wave(59, 0x10, 0x00), wave(127, 0x20, 0x02, 256)],
   b: [wave(127, 0x30, 0x01)],
@@ -601,7 +601,7 @@ it("reusing a host voice handle replaces its previous oscillator pair", () => {
 });
 
 it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators across NoteOff", () => {
-  // TOOL025+0686..0749 with SQ2 program 16's vibratoDepth=66, vibratoSpeed=25:
+  // TOOL025+0686..0749 with SQ2 program 16's vibratoPriority=66, vibratoSpeed=25:
   // step 0 (at=0, phase=25):     lfo[25]=105, 105+66-128=43,  vol[43]=6  -> +12
   // step 1 (at=1/60, phase=50):  lfo[50]=121, 121+66-128=59,  vol[59]=13 -> +26
   // step 2 (at=3/60, phase=75):  lfo[75]=122, 122+66-128=60,  vol[60]=14 -> +28
@@ -618,7 +618,7 @@ it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators acr
   const { ctx, sources } = fakeContext();
   const vibratoInst: IigsInstrument = {
     ...INSTRUMENT,
-    vibratoDepth: 66,
+    vibratoPriority: 66,
     vibratoSpeed: 25,
     releaseSegment: 2,
     b: [wave(127, 0x30, 0x00)],
@@ -669,7 +669,7 @@ it("NoteOn and odd 60 Hz heartbeats step TOOL025 vibrato on both oscillators acr
 
 it("sustained vibrato loops through phase wrap beyond ten seconds and stops with its voice", () => {
   const { ctx, sources } = fakeContext();
-  const instrument: IigsInstrument = { ...INSTRUMENT, vibratoDepth: 66, vibratoSpeed: 25 };
+  const instrument: IigsInstrument = { ...INSTRUMENT, vibratoPriority: 66, vibratoSpeed: 25 };
   const instance = new IigsSynth(ctx as unknown as BaseAudioContext, {} as AudioNode, {
     doc: new Uint8Array(0x10000).fill(0x90),
     bank: { programs: [instrument], defaultInstrument: instrument },
@@ -695,11 +695,11 @@ it("repeated vibrato notes share control buffers per instrument, note and half",
   const { ctx, sources } = fakeContext();
   const instrument: IigsInstrument = {
     ...INSTRUMENT,
-    vibratoDepth: 66,
+    vibratoPriority: 66,
     vibratoSpeed: 25,
     b: [wave(127, 0x30, 0)],
   };
-  const other = { ...instrument, vibratoDepth: 75 };
+  const other = { ...instrument, vibratoPriority: 75 };
   const instance = new IigsSynth(ctx as unknown as BaseAudioContext, {} as AudioNode, {
     doc: new Uint8Array(0x10000).fill(0x90),
     bank: { programs: [instrument, other], defaultInstrument: instrument },
@@ -730,7 +730,7 @@ it("one-shot vibrato controls stop at a finite envelope end and when the carrier
   const { ctx, sources } = fakeContext();
   const instrument: IigsInstrument = {
     ...INSTRUMENT,
-    vibratoDepth: 66,
+    vibratoPriority: 66,
     vibratoSpeed: 25,
     a: [wave(127, 0x10, 2)],
     envelope: [flat(127, 32512), flat(0, 256), ...Array.from({ length: 6 }, () => flat(0, 0))],
@@ -758,7 +758,7 @@ it("one-shot vibrato continues when NoteOff extends a finite contour into sustai
   const { ctx, sources } = fakeContext();
   const instrument: IigsInstrument = {
     ...INSTRUMENT,
-    vibratoDepth: 66,
+    vibratoPriority: 66,
     vibratoSpeed: 25,
     releaseSegment: 3,
     a: [wave(127, 0x10, 2)],

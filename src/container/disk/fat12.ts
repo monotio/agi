@@ -111,8 +111,8 @@ export function readFat12(
   };
   const result: DiskFiles = { files: new Map(), unreadable: new Map() };
   const directories = new Set<number>();
-  const visit = (bytes: Uint8Array, path: string, depth: number): void => {
-    if (depth > 32)
+  const visit = (bytes: Uint8Array, path: string, priority: number): void => {
+    if (priority > 32)
       throw new Error("The disk has a damaged directory tree. Add a fresh copy of the disk.");
     const directory = diskView(bytes, 0, bytes.length);
     for (let at = 0; at + 32 <= bytes.length; at += 32) {
@@ -131,7 +131,7 @@ export function readFat12(
         if (directories.has(first))
           throw new Error("The disk has a directory cycle. Add a fresh copy of the disk.");
         directories.add(first);
-        visit(chain(first), name + "/", depth + 1);
+        visit(chain(first), name + "/", priority + 1);
       } else
         addDiskFile(result, name, budget, () => chain(first, directory.getUint32(at + 28, true)));
     }

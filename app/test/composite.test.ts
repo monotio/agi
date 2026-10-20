@@ -49,7 +49,7 @@ test("split wipes priority in from the divider column", () => {
   assert.deepEqual(pixelAt(out, 164, y), EGA_PALETTE[2], "right of divider is priority");
 });
 
-test("blend tints depth bands and hatches control lines", () => {
+test("blend tints priority bands and hatches control lines", () => {
   const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
   compositeFrame(fixture(), out, "blend");
   // Band 15 tint (0xff,0x90,0x30) over white at a=0.34.
@@ -223,7 +223,7 @@ test("the window frame renders the decoded sub-cell OpenWndw fill and bars acros
 
 // Amiga look (docs/fidelity.md "Amiga screen, font and pointer"): the
 // build's own colour table, the status line as the 11 px screen title bar
-// with the depth gadgets, and gadget labels at the original's off-grid
+// with the priority gadgets, and gadget labels at the original's off-grid
 // position. Expected pixels are hand-computed from the recorded geometry.
 import { appearanceForProfile, loadAppearance } from "../src/render/appearance.ts";
 import { AMIGA_FONT } from "../src/render/fontAmiga.ts";
@@ -289,7 +289,7 @@ test("the Amiga status line is the screen title bar: 10 white rows, text at (2,1
   const lead = Math.clz32(top) - 24;
   assert.deepEqual(pixelAt(out, 2 + lead, 1), AMIGA_PALETTE[0], "title text starts at (2, 1)");
   assert.deepEqual(pixelAt(out, 2 + lead, 0), AMIGA_PALETTE[15], "nothing on bar row 0");
-  // The depth gadgets fill the bar's last 34 columns, on a 2 px pen 0 border.
+  // The priority gadgets fill the bar's last 34 columns, on a 2 px pen 0 border.
   assert.deepEqual(pixelAt(out, 286, 0), AMIGA_PALETTE[0], "back gadget border");
   assert.deepEqual(pixelAt(out, 303, 5), AMIGA_PALETTE[0], "front gadget border");
   assert.deepEqual(pixelAt(out, 288, 0), AMIGA_PALETTE[1], "gadget ground is pen 1");
@@ -1158,7 +1158,7 @@ test("the Amiga menu strip: Kickstart's bar over the title, titles 2 px in, the 
   for (const y of [0, 8, 9])
     assert.deepEqual(pixelAt(out, 250, y), AMIGA_PALETTE[15], `bar row ${y}`);
   assert.deepEqual(pixelAt(out, 250, 10), AMIGA_PALETTE[0], "the bar's bottom line");
-  assert.deepEqual(pixelAt(out, 300, 5), AMIGA_PALETTE[15], "no depth gadgets on the strip");
+  assert.deepEqual(pixelAt(out, 300, 5), AMIGA_PALETTE[15], "no priority gadgets on the strip");
   // "Sierra": the S glyph's top row lit from column 2 of the glyph, drawn at x = 2, y = 1.
   const sLead = Math.clz32(AMIGA_FONT[0x53 * 8]!) - 24;
   assert.deepEqual(pixelAt(out, 2 + sLead, 1), AMIGA_PALETTE[0], "title text at (2, 1)");
@@ -1188,9 +1188,9 @@ test("the Amiga menu strip: Kickstart's bar over the title, titles 2 px in, the 
   assert.deepEqual(pixelAt(out, 62 + sLead, 14), AMIGA_PALETTE[0], "first item text");
   const rLead = Math.clz32(AMIGA_FONT[0x52 * 8]!) - 24;
   assert.deepEqual(pixelAt(out, 62 + rLead, 23), AMIGA_PALETTE[0], "second item text");
-  // The ghosted separator: its dashes (glyph row 3, y 35) lose every pixel where x % 4 == 1.
+  // The standIned separator: its dashes (glyph row 3, y 35) lose every pixel where x % 4 == 1.
   assert.deepEqual(pixelAt(out, 63, 35), AMIGA_PALETTE[0]);
-  assert.deepEqual(pixelAt(out, 65, 35), AMIGA_PALETTE[15], "ghost pattern");
+  assert.deepEqual(pixelAt(out, 65, 35), AMIGA_PALETTE[15], "standIn pattern");
   assert.deepEqual(pixelAt(out, 66, 35), AMIGA_PALETTE[0]);
   assert.deepEqual(pixelAt(out, 73, 35), AMIGA_PALETTE[15]);
   // A highlighted item complements its select box.

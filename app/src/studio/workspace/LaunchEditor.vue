@@ -289,7 +289,7 @@ function addSeed(): void {
   commitLaunch({ ...activeLaunch.value, seed: 58235 });
 }
 
-function addHero(): void {
+function addEgo(): void {
   if (!activeLaunch.value) return;
   const x = props.livePreview.state?.egoX ?? 80;
   const y = props.livePreview.state?.egoY ?? 120;
@@ -392,7 +392,7 @@ function setSeedValue(event: Event): void {
   commitLaunch({ ...activeLaunch.value, seed });
 }
 
-function setHeroX(event: Event): void {
+function setEgoX(event: Event): void {
   const x = Math.max(0, Math.min(159, Number((event.target as HTMLInputElement).value)));
   if (!activeLaunch.value?.hero) return;
   commitLaunch({
@@ -401,7 +401,7 @@ function setHeroX(event: Event): void {
   });
 }
 
-function setHeroY(event: Event): void {
+function setEgoY(event: Event): void {
   const y = Math.max(0, Math.min(167, Number((event.target as HTMLInputElement).value)));
   if (!activeLaunch.value?.hero) return;
   commitLaunch({
@@ -412,16 +412,16 @@ function setHeroY(event: Event): void {
 
 // ---- Canvas rendering for hero position ----------------------------------
 
-const heroCanvas = useTemplateRef("heroCanvas");
-const heroDraft = shallowRef<{ x: number; y: number }>();
-const heroFrame = frameTask();
-let heroPointer: number | undefined;
-let heroLaunch: string | undefined;
-onBeforeUnmount(heroFrame.cancel);
+const egoCanvas = useTemplateRef("egoCanvas");
+const egoDraft = shallowRef<{ x: number; y: number }>();
+const egoFrame = frameTask();
+let egoPointer: number | undefined;
+let egoLaunch: string | undefined;
+onBeforeUnmount(egoFrame.cancel);
 const palette = useGamePalette();
 
-function renderHeroStage(): void {
-  const canvasEl = heroCanvas.value;
+function renderEgoStage(): void {
+  const canvasEl = egoCanvas.value;
   if (!canvasEl) return;
   const ctx = canvasEl.getContext("2d");
   if (!ctx) return;
@@ -448,7 +448,7 @@ function renderHeroStage(): void {
   }
 
   // Draw hero crosshair marker
-  const hero = heroDraft.value ?? activeLaunch.value?.hero;
+  const hero = egoDraft.value ?? activeLaunch.value?.hero;
   if (hero) {
     const hx = Math.max(0, Math.min(159, hero.x));
     const hy = Math.max(0, Math.min(167, hero.y));
@@ -470,56 +470,51 @@ function renderHeroStage(): void {
 
 watchEffect(() => {
   if (activeLaunch.value?.hero) {
-    renderHeroStage();
+    renderEgoStage();
   }
 });
 
-function heroPoint(event: PointerEvent) {
-  const rect = heroCanvas.value!.getBoundingClientRect();
+function egoPoint(event: PointerEvent) {
+  const rect = egoCanvas.value!.getBoundingClientRect();
   return {
     x: Math.max(0, Math.min(159, Math.round(((event.clientX - rect.left) / rect.width) * 160))),
     y: Math.max(0, Math.min(167, Math.round(((event.clientY - rect.top) / rect.height) * 168))),
   };
 }
-function heroDown(event: PointerEvent): void {
-  if (
-    props.readOnly ||
-    event.button !== 0 ||
-    heroPointer !== undefined ||
-    !activeLaunch.value?.hero
-  )
+function egoDown(event: PointerEvent): void {
+  if (props.readOnly || event.button !== 0 || egoPointer !== undefined || !activeLaunch.value?.hero)
     return;
-  heroLaunch = activeLaunch.value.id;
-  heroPointer = event.pointerId;
-  heroCanvas.value!.setPointerCapture(event.pointerId);
-  heroDraft.value = heroPoint(event);
+  egoLaunch = activeLaunch.value.id;
+  egoPointer = event.pointerId;
+  egoCanvas.value!.setPointerCapture(event.pointerId);
+  egoDraft.value = egoPoint(event);
 }
-function heroMove(event: PointerEvent): void {
-  if (heroPointer !== event.pointerId) return;
-  const point = heroPoint(event);
-  heroFrame.schedule(() => {
-    heroDraft.value = point;
+function egoMove(event: PointerEvent): void {
+  if (egoPointer !== event.pointerId) return;
+  const point = egoPoint(event);
+  egoFrame.schedule(() => {
+    egoDraft.value = point;
   });
 }
-function heroUp(event: PointerEvent): void {
-  if (heroPointer !== event.pointerId) return;
-  heroFrame.cancel();
-  const hero = heroPoint(event);
-  heroPointer = undefined;
-  heroDraft.value = undefined;
-  if (!props.readOnly && activeLaunch.value && activeLaunch.value.id === heroLaunch)
+function egoUp(event: PointerEvent): void {
+  if (egoPointer !== event.pointerId) return;
+  egoFrame.cancel();
+  const hero = egoPoint(event);
+  egoPointer = undefined;
+  egoDraft.value = undefined;
+  if (!props.readOnly && activeLaunch.value && activeLaunch.value.id === egoLaunch)
     commitLaunch({ ...activeLaunch.value, hero });
-  heroLaunch = undefined;
-  heroCanvas.value?.releasePointerCapture(event.pointerId);
+  egoLaunch = undefined;
+  egoCanvas.value?.releasePointerCapture(event.pointerId);
 }
-function heroCancel(event?: PointerEvent): void {
-  if (event && heroPointer !== event.pointerId) return;
-  heroLaunch = undefined;
-  heroFrame.cancel();
-  heroPointer = undefined;
-  heroDraft.value = undefined;
+function egoCancel(event?: PointerEvent): void {
+  if (event && egoPointer !== event.pointerId) return;
+  egoLaunch = undefined;
+  egoFrame.cancel();
+  egoPointer = undefined;
+  egoDraft.value = undefined;
 }
-watch([() => activeLaunch.value?.id, () => props.readOnly], () => heroCancel());
+watch([() => activeLaunch.value?.id, () => props.readOnly], () => egoCancel());
 </script>
 
 <template>
@@ -900,9 +895,9 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => heroCancel());
                   max="159"
                   class="launch-coord-input"
                   aria-label="Hero X position"
-                  :value="heroDraft?.x ?? activeLaunch.hero.x"
+                  :value="egoDraft?.x ?? activeLaunch.hero.x"
                   :disabled="readOnly"
-                  @change="setHeroX"
+                  @change="setEgoX"
                 />
               </label>
               <label>
@@ -913,24 +908,24 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => heroCancel());
                   max="167"
                   class="launch-coord-input"
                   aria-label="Hero Y position"
-                  :value="heroDraft?.y ?? activeLaunch.hero.y"
+                  :value="egoDraft?.y ?? activeLaunch.hero.y"
                   :disabled="readOnly"
-                  @change="setHeroY"
+                  @change="setEgoY"
                 />
               </label>
             </div>
             <div class="launch-canvas-wrapper">
               <canvas
-                ref="heroCanvas"
+                ref="egoCanvas"
                 width="160"
                 height="168"
                 class="launch-canvas"
                 aria-label="Room picture hero position"
-                @pointerdown="heroDown"
-                @pointermove="heroMove"
-                @pointerup="heroUp"
-                @pointercancel="heroCancel"
-                @lostpointercapture="heroCancel"
+                @pointerdown="egoDown"
+                @pointermove="egoMove"
+                @pointerup="egoUp"
+                @pointercancel="egoCancel"
+                @lostpointercapture="egoCancel"
               ></canvas>
             </div>
           </div>
@@ -996,7 +991,7 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => heroCancel());
             role="menuitem"
             :disabled="Boolean(activeLaunch.hero)"
             :title="activeLaunch.hero ? 'Hero position is already set' : ''"
-            @click="addHero"
+            @click="addEgo"
           >
             Hero position
           </button>

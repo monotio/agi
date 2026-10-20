@@ -1,7 +1,7 @@
 /** Temporary cel audition changes presentation pixels only. */
 import type { Engine } from "../../../src/runtime/engine.ts";
 import { parseView } from "../../../src/view/view.ts";
-export function createImageHeroPreview(
+export function createImageEgoPreview(
   engine: Engine,
   bytes: Uint8Array,
   started: number,

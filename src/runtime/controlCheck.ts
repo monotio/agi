@@ -1,6 +1,6 @@
 /**
  * Footprint control acceptance, shared by the engine's movement code and the
- * Room Studio probe: the scan of the priority/control cells along an object's
+ * PICTURE editor probe: the scan of the priority/control cells along an object's
  * baseline, exactly the cel width, left to right, and the verdict it gives.
  * docs/fidelity.md: footprint-class-flags
  */

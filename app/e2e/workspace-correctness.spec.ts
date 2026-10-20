@@ -91,7 +91,7 @@ for (const [group, kind] of [
       kind === "logic"
         ? "workspace-logic-editor"
         : kind === "picture"
-          ? "room-studio"
+          ? "picture-studio"
           : kind === "view"
             ? "view-studio"
             : "workspace-sound";
@@ -168,7 +168,7 @@ test("picture strokes share keyboard and header Undo, and a fresh stroke clears 
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await page.getByTestId("workspace-focus").click();
   const initial = await draftText(page, "picture:1");
@@ -202,7 +202,7 @@ test("a hero drag with the Views list open undoes before older committed work @w
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:8:picture:8");
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await page.getByTestId("workspace-focus").click();
   await studio.getByRole("slider", { name: "Views", exact: true }).evaluate((element) => {
@@ -217,7 +217,7 @@ test("a hero drag with the Views list open undoes before older committed work @w
   const figure = studio.locator('[data-object="0"]');
   await expect(figure).toBeVisible();
   const initial = await draftText(page, "logic:8");
-  const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
+  const pane = (await studio.locator('.studio-pane[data-layer="visual"]').boundingBox())!;
   const px = (column: number) => Math.round(pane.x + ((column + 0.5) * pane.width) / 160);
   const y = Math.round(pane.y + (138.5 * pane.height) / 168);
   await page.mouse.move(px(60), y);

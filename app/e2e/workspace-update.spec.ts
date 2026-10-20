@@ -147,7 +147,7 @@ for (const [width, height] of [
         );
       });
       await page.getByTestId("part-room:1:picture:1").click();
-      const studio = page.getByTestId("room-studio");
+      const studio = page.getByTestId("picture-studio");
       await expect(studio).toBeVisible();
       await studio.locator('[data-tool="rect"]').click();
       await studio.getByTestId("studio-tool-filled").check();

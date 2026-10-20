@@ -88,7 +88,7 @@ steer the hero.
   it.
 - Click an item to select it, or drag a box to select the items wholly inside it. Drag the
   selection, or its points with the Point tool, and nudge it with the arrow keys. Change its colour,
-  depth or draw order, duplicate it or delete it.
+  priority or draw order, duplicate it or delete it.
 - Alt+click, or Alt+Enter, adds a point to a selected line.
 - A box, Shift+click, a group row or Shift+Alt+arrows select several items, which then move, copy
   and delete together as one step. **Group** (⌘G) names neighbours as one item without changing a

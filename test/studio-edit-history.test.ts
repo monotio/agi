@@ -86,14 +86,14 @@ describe("edit history", () => {
     refused(redo(undone, "a-edited-elsewhere"), /changed outside/);
   });
 
-  it("keeps at most `depth` steps, dropping the oldest", () => {
+  it("keeps at most `priority` steps, dropping the oldest", () => {
     const history = chain(createHistory("s0", 3), "s1", "s2", "s3", "s4", "s5");
     assert.deepEqual(
       history.past.map((step) => step.source),
       ["s2", "s3", "s4"],
     );
     assert.equal(history.dropped, 2, "it counts the steps it dropped");
-    assert.equal(createHistory("x").depth, 200);
-    assert.throws(() => createHistory("x", 0), /depth/);
+    assert.equal(createHistory("x").priority, 200);
+    assert.throws(() => createHistory("x", 0), /priority/);
   });
 });

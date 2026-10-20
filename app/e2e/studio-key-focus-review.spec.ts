@@ -20,9 +20,9 @@ async function playTutorial(page: Page): Promise<void> {
   await enterCreateMode(page);
 }
 
-async function openRoomStudio(page: Page): Promise<Locator> {
+async function openPictureStudio(page: Page): Promise<Locator> {
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -52,7 +52,7 @@ async function sheetRoundTrip(
 
 for (const studio of ["room", "view"] as const) {
   const name = studio === "room" ? "PICTURE" : "VIEW editor";
-  const open = studio === "room" ? openRoomStudio : openViewStudio;
+  const open = studio === "room" ? openPictureStudio : openViewStudio;
   const stage = (root: Locator) =>
     studio === "room"
       ? root.getByRole("group", { name: /^Canvas/ })

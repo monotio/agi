@@ -59,7 +59,7 @@ const probe = (over: Partial<ProbeInput>) =>
     ...over,
   });
 
-describe("ghost actor probe", () => {
+describe("standIn actor probe", () => {
   it("hides an actor behind the pri-10 bench exactly where the bench is", () => {
     // Band at y 95: 5 + floor((95-48)*10/120) = 5 + 3 = 8 < 10. Rows 86..95.
     const result = probe({});

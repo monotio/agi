@@ -95,14 +95,14 @@ export function useViewDraft(options: {
   /** Loops the last accepted edit split from a shared block. */
   const isolated = shallowRef<readonly number[]>([]);
   /** How many undo steps the history held when the draft was last kept (or opened). */
-  const keptDepth = shallowRef(0);
+  const keptPriority = shallowRef(0);
 
   /** What the canvas and previews show: the gesture's preview, else the document. */
   const shown = computed(() => preview.value ?? document.value);
   const bytes = computed(() => document.value.payload);
   const dirty = computed(() => !samePixels(document.value.payload, kept.value.bytes));
   const changes = computed(() =>
-    dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptDepth.value)) : 0,
+    dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptPriority.value)) : 0,
   );
   const gesturing = computed(() => history.value.gesture !== undefined);
   const canUndo = computed(() => !gesturing.value && history.value.past.length > 0);
@@ -112,7 +112,7 @@ export function useViewDraft(options: {
     kept.value = base;
     document.value = openViewDocument(base.bytes, toValue(options.profile));
     history.value = createViewHistory(document.value);
-    keptDepth.value = 0;
+    keptPriority.value = 0;
     preview.value = null;
     gestureBase = null;
     refusal.value = null;
@@ -124,7 +124,7 @@ export function useViewDraft(options: {
       if (base.bytes === old.bytes && base.revision === old.revision) return;
       if (samePixels(base.bytes, document.value.payload)) {
         kept.value = base;
-        keptDepth.value = history.value.past.length;
+        keptPriority.value = history.value.past.length;
       } else reset(base);
     },
   );
@@ -289,7 +289,7 @@ export function useViewDraft(options: {
    */
   function markKept(revision: ResourceRevision): void {
     kept.value = { bytes: document.value.payload, revision };
-    keptDepth.value = history.value.past.length;
+    keptPriority.value = history.value.past.length;
     refusal.value = null;
   }
 

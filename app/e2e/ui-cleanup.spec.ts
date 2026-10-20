@@ -24,7 +24,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     page
       // First visit: the Continue card introduces the tutorial; shelf cards keep one meta line.
       .getByTestId("home-continue")
-      .getByText("Learn pictures, views and depth in a three-room tutorial."),
+      .getByText("Learn pictures, views and priority in a three-room tutorial."),
   ).toBeVisible();
 
   await expect(page.getByTestId("create-adventure-disclosure")).not.toHaveAttribute("open");

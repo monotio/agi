@@ -839,7 +839,7 @@ reports missing resources by name.
 
 Tests never block a game edit. Deleting a room offers **Also delete tests that
 use this room**, checked by default. Clear it to keep the tests; those tests
-will fail when run. A recorded setup's inventory item locations do not make its
+will fail when run. A recorded setup's object locations do not make its
 test use those rooms. The room and optional test deletions share one Undo.
 
 Recorded game tests store a host snapshot and a bounded operation tape in

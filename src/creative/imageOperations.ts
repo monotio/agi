@@ -5,7 +5,7 @@ import { sha256Hex } from "../crypto.ts";
 import type { ProjectChange, ProjectContent } from "../authoring/projectContent.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildView, parseView, type BuildViewInput } from "../view/view.ts";
-import { prepareView, type ViewRecipeFrame } from "../view/preparation.ts";
+import { prepareView, type ViewRecipeCel } from "../view/preparation.ts";
 import type { Rect } from "./catalog.ts";
 import {
   readImageReferences,
@@ -21,7 +21,7 @@ export {
 } from "./imageAttachments.ts";
 type Documents = Readonly<Record<string, ProjectContent>>;
 
-export interface ImageFrame {
+export interface ImageCel {
   readonly region: Rect;
   readonly width: number;
   readonly height: number;
@@ -137,7 +137,7 @@ export interface PrepareImageCelsOptions {
 }
 
 /** One scale for both axes, rounded to native cel pixels. */
-export function scaleImageFrame(region: Rect, requestedHeight: number) {
+export function scaleImageCel(region: Rect, requestedHeight: number) {
   const scale =
     Math.min(Math.max(1, Math.round(requestedHeight)), 168, (160 * region.height) / region.width) /
     region.height;
@@ -147,10 +147,10 @@ export function scaleImageFrame(region: Rect, requestedHeight: number) {
   };
 }
 /** Separate figures at empty column and row gaps, then box each region tightly. */
-export function suggestImageFrames(
+export function suggestImageCels(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
   count?: number,
-): readonly ImageFrame[] {
+): readonly ImageCel[] {
   const background = detectImageBackground(image);
   const foreground = new Uint8Array(image.width * image.height);
   for (let i = 0; i < foreground.length; i++) {
@@ -252,13 +252,13 @@ export function suggestImageFrames(
   }
   return regions.map((region) => ({
     region,
-    ...scaleImageFrame(region, Math.min(24, region.height)),
+    ...scaleImageCel(region, Math.min(24, region.height)),
     loop: 0,
   }));
 }
 export function prepareImageCels(
   image: ProjectImageInput,
-  frames: readonly ImageFrame[],
+  frames: readonly ImageCel[],
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
@@ -267,7 +267,7 @@ export function prepareImageCels(
   const sourceId = options?.sourceId ?? sha256Hex(image.rgba);
   const look = options?.look;
   const identity = { id: sourceId, incarnation: "image", revision: 0 };
-  const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
+  const preparedCels: ViewRecipeCel[] = frames.map((frame, i) => ({
     id: `frame-${i}`,
     source: identity,
     region: frame.region,
@@ -299,7 +299,7 @@ export function prepareImageCels(
         alphaThreshold: transparent ? 128 : 0,
         key: !transparent || background === null ? null : { mode: "ega-index-v1", rgb: background },
       },
-      frames: preparedFrames,
+      frames: preparedCels,
       loops: loops.map((loop) => ({
         id: `loop-${loop}`,
         frameIds: frames.flatMap((f, i) => (f.loop === loop ? [`frame-${i}`] : [])),
@@ -314,7 +314,7 @@ export function makeCelsChanges(
   documents: Documents,
   target: string,
   image: ProjectImageInput,
-  frames: readonly ImageFrame[],
+  frames: readonly ImageCel[],
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,

@@ -18,10 +18,10 @@ import { itemVisualFootprint } from "./pictureQuery.ts";
 import type { PictureItem } from "./pictureDocument.ts";
 
 /** Remove only the metadata, retaining the ordinary painted priority commands. */
-export function clearItemDepth(ctx: Context, item: PictureItem): EditSuccess {
+export function clearItemPriority(ctx: Context, item: PictureItem): EditSuccess {
   return finish(
     inputLines(ctx, 1, ctx.lines.length).filter(
-      (line) => line.from !== item.depth?.openLine && line.from !== item.depth?.closeLine,
+      (line) => line.from !== item.priority?.openLine && line.from !== item.priority?.closeLine,
     ),
     ctx,
   );
@@ -30,12 +30,12 @@ export function clearItemDepth(ctx: Context, item: PictureItem): EditSuccess {
 /**
  * Replace all of the item's painted priority with its visual coverage's band.
  * Horizontal runs cost at most five bytes each (three for a single pixel).
- * Lines overwrite existing priority, so other items' depth cannot stop a fill.
+ * Lines overwrite existing priority, so other items' priority cannot stop a fill.
  * With `wall` (Stand in the room) a control-0 line along the base row is
  * drawn too: the item stands on it, and the wall is regenerated with the
  * coverage. The marker `# @depth ... wall` keeps the choice on the item.
  */
-export function addDepth(
+export function addPriority(
   ctx: Context,
   itemId: string,
   baseY?: number,
@@ -43,11 +43,11 @@ export function addDepth(
   wall?: boolean,
 ): EditSuccess {
   const item = editableItem(ctx, itemId);
-  refuseCopiesOf(ctx, item, "setting depth for");
+  refuseCopiesOf(ctx, item, "setting priority for");
   const { mask, bottom } = itemVisualFootprint(ctx.document, itemId, ctx.profile);
-  if (bottom === null && !item.depth)
+  if (bottom === null && !item.priority)
     throw new EditRefusal(`item '${itemId}' draws no visual pixels`);
-  const base = baseY ?? bottom ?? item.depth!.baseY;
+  const base = baseY ?? bottom ?? item.priority!.baseY;
   if (!Number.isInteger(base) || base < 0 || base >= SCREEN_HEIGHT) {
     throw new EditRefusal("baseY must be a surface row 0..167");
   }
@@ -55,15 +55,16 @@ export function addDepth(
     throw new EditRefusal("priorityBase must be a surface row 0..167");
   }
   const effectiveBase = ctx.profile.priorityBaseAction === "effect" ? priorityBase : 48;
-  const withWall = wall ?? item.depth?.wall ?? false;
+  const withWall = wall ?? item.priority?.wall ?? false;
   const originalEnd = stateBefore(ctx, item.closeLine);
   const body = bodyOf(ctx, item).filter((line) => {
     const from = line.from!;
-    if (item.depth && from >= item.depth.openLine && from <= item.depth.closeLine) return false;
+    if (item.priority && from >= item.priority.openLine && from <= item.priority.closeLine)
+      return false;
     const head = commandHead(line.text);
     if (["raw", "copy", "end"].includes(head)) {
       throw new EditRefusal(
-        `line ${from} uses ${head}; expand it into drawing commands before setting depth`,
+        `line ${from} uses ${head}; expand it into drawing commands before setting priority`,
       );
     }
     if (head === "pri" || head === "priority") return false;
@@ -72,11 +73,11 @@ export function addDepth(
         head,
       )
     ) {
-      return item.depth !== undefined || stateBefore(ctx, from).visual !== null;
+      return item.priority !== undefined || stateBefore(ctx, from).visual !== null;
     }
     return true;
   });
-  const depth = [
+  const priority = [
     `# @depth base=${base}${effectiveBase === 48 ? "" : ` pri-base=${effectiveBase}`}${withWall ? " wall" : ""}`,
     "vis off",
     `pri ${priorityForY(base, effectiveBase)}`,
@@ -86,19 +87,19 @@ export function addDepth(
       if (!mask[y * SCREEN_WIDTH + x]) continue;
       const start = x;
       while (x + 1 < SCREEN_WIDTH && mask[y * SCREEN_WIDTH + x + 1]) x++;
-      depth.push(`line ${start},${y}${start === x ? "" : ` ${x},${y}`}`);
+      priority.push(`line ${start},${y}${start === x ? "" : ` ${x},${y}`}`);
     }
   }
   if (withWall) {
-    depth.push("pri 0");
+    priority.push("pri 0");
     for (let x = 0; x < SCREEN_WIDTH; x++) {
       if (!mask[base * SCREEN_WIDTH + x]) continue;
       const start = x;
       while (x + 1 < SCREEN_WIDTH && mask[base * SCREEN_WIDTH + x + 1]) x++;
-      depth.push(`line ${start},${base}${start === x ? "" : ` ${x},${base}`}`);
+      priority.push(`line ${start},${base}${start === x ? "" : ` ${x},${base}`}`);
     }
   }
-  depth.push(
+  priority.push(
     registerLine("visual", originalEnd, ctx.profile),
     registerLine("priority", originalEnd, ctx.profile),
     "# @depth end",
@@ -108,7 +109,7 @@ export function addDepth(
       ...inputLines(ctx, 1, item.openLine),
       newLine(ctx, "pri off"),
       ...body,
-      ...depth.map((text) => newLine(ctx, text)),
+      ...priority.map((text) => newLine(ctx, text)),
       ...inputLines(ctx, item.closeLine, ctx.lines.length),
     ],
     ctx,
@@ -117,9 +118,9 @@ export function addDepth(
 }
 
 /**
- * Stand in the room: the item's derived depth takes the band of its base row
+ * Stand in the room: the item's derived priority takes the band of its base row
  * and a control-0 wall line is drawn along that base, both inside the item's
- * depth block so they travel and regenerate with it.
+ * priority block so they travel and regenerate with it.
  */
 export function standInRoom(
   ctx: Context,
@@ -127,5 +128,5 @@ export function standInRoom(
   baseY?: number,
   priorityBase = 48,
 ): EditSuccess {
-  return addDepth(ctx, itemId, baseY, priorityBase, true);
+  return addPriority(ctx, itemId, baseY, priorityBase, true);
 }

@@ -17,7 +17,7 @@ async function start(page: Page) {
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("picture-studio")).not.toHaveClass(/is-live-game/);
 }
 async function upload(page: Page) {
   const rgba = new Uint8Array(160 * 168 * 4);
@@ -48,7 +48,7 @@ async function upload(page: Page) {
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
 }
 function pixel(page: Page) {
-  return page.locator('[data-layer="art"] canvas').evaluate((element) => {
+  return page.locator('[data-layer="visual"] canvas').evaluate((element) => {
     const canvas = element as HTMLCanvasElement;
     const rgba = [
       ...canvas
@@ -125,9 +125,9 @@ test("reference snaps to EGA and blends above Starter art while placement follow
 });
 test("Trace and Generate retain the PICTURE split and canvas size", async ({ page }) => {
   await start(page);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   const editor = page.getByTestId("workspace-editor");
-  const canvas = page.locator('[data-layer="art"] canvas');
+  const canvas = page.locator('[data-layer="visual"] canvas');
   const normalEditor = (await editor.boundingBox())!;
   const normalCanvas = (await canvas.boundingBox())!;
   await page.getByRole("button", { name: "Trace an image", exact: true }).click();

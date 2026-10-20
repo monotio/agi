@@ -1,5 +1,5 @@
 /**
- * State behind the Room Studio ghost-actor probe (GhostProbe.vue): which
+ * State behind the PICTURE editor stand-in-actor probe (StandInProbe.vue): which
  * VIEW/loop/cel stands where, and what the engine would do with it there.
  * The verdicts come from src/studio/probe.ts, which shares the engine's cel
  * blit and footprint scan; this module only chooses inputs and keys.
@@ -17,7 +17,7 @@ import {
   type ViewCel,
 } from "../../../src/view/view.ts";
 
-export interface GhostView {
+export interface StandInView {
   readonly number: number;
   readonly view: AgiView;
 }
@@ -26,9 +26,9 @@ export interface GhostView {
 export function listGameViews(
   files: ReadonlyMap<string, Uint8Array>,
   profile: AgiProfile,
-): GhostView[] {
+): StandInView[] {
   const container = openContainer(files, { profile });
-  const views: GhostView[] = [];
+  const views: StandInView[] = [];
   for (let number = 0; number < 256; number++) {
     try {
       const payload = container.getResource("view", number);
@@ -41,14 +41,14 @@ export function listGameViews(
 }
 
 /** One placed cel pixel: its cell, colour, and whether the picture hides it. */
-export interface GhostPixel {
+export interface StandInPixel {
   cell: number;
   color: number;
   hidden: boolean;
 }
 
-export interface GhostProbeOptions {
-  views: MaybeRefOrGetter<readonly GhostView[]>;
+export interface StandInProbeOptions {
+  views: MaybeRefOrGetter<readonly StandInView[]>;
   picture: MaybeRefOrGetter<{ readonly visual: Uint8Array; readonly priority: Uint8Array }>;
   profile: MaybeRefOrGetter<AgiProfile>;
   /** The room's set.pri.base when known. */
@@ -57,7 +57,7 @@ export interface GhostProbeOptions {
 
 const wrap = (value: number, count: number): number => ((value % count) + count) % count;
 
-export function useGhostProbe(options: GhostProbeOptions) {
+export function useStandInProbe(options: StandInProbeOptions) {
   const active = ref(false);
   const viewNumber = ref<number>();
   const loop = ref(0);
@@ -115,11 +115,11 @@ export function useGhostProbe(options: GhostProbeOptions) {
   });
 
   /** The cel's opaque pixels where the engine's blit places them. */
-  const pixels = computed<GhostPixel[]>(() => {
+  const pixels = computed<StandInPixel[]>(() => {
     const c = cel.value;
     const r = result.value;
     if (!c || !r) return [];
-    const out: GhostPixel[] = [];
+    const out: StandInPixel[] = [];
     forEachPaintedPixel(picture.value, c, x.value, baselineY.value, 15, (cell, color) =>
       out.push({ cell, color, hidden: r.hiddenMask[cell] === 1 }),
     );
@@ -179,4 +179,4 @@ export function useGhostProbe(options: GhostProbeOptions) {
   };
 }
 
-export type GhostProbe = ReturnType<typeof useGhostProbe>;
+export type StandInProbe = ReturnType<typeof useStandInProbe>;

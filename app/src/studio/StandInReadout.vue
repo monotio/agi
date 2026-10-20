@@ -7,11 +7,11 @@ import { explain } from "./studioTerms.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { CONTROL_VALUES } from "./studioView.ts";
-import type { GhostProbe } from "./useGhostProbe.ts";
+import type { StandInProbe } from "./useStandInProbe.ts";
 
 /**
  * The probe's readout, docked at the top of the inspector while the probe
- * stands on the picture (GhostProbe.vue draws the figure and its handle):
+ * stands on the picture (StandInProbe.vue draws the figure and its handle):
  * which view, loop and cel, the priority it draws at, where its feet stand
  * and what the engine makes of that spot.
  */
@@ -20,7 +20,7 @@ const {
   describeCell = undefined,
   labels = {},
 } = defineProps<{
-  probe: GhostProbe;
+  probe: StandInProbe;
   labels?: NumberedLabelContext;
   /** The priority-plane item owning a cell, for the verdict. */
   describeCell?: ((x: number, y: number) => string | undefined) | undefined;
@@ -51,7 +51,7 @@ const standing = computed(() => {
   const value = probe.picture.value.priority[baselineY.value * SCREEN_WIDTH + cx] ?? 4;
   const control = CONTROL_VALUES[value];
   const label = describeCell?.(cx, baselineY.value);
-  const name = control ? `${control.name} line` : value === 4 ? "background" : `depth ${value}`;
+  const name = control ? `${control.name} line` : value === 4 ? "background" : `priority ${value}`;
   return label ? `${label} · ${name}` : name;
 });
 
@@ -64,7 +64,7 @@ const occluder = computed(() => {
     if (!pixel.hidden) continue;
     const px = pixel.cell % SCREEN_WIDTH;
     const py = (pixel.cell - px) / SCREEN_WIDTH;
-    const name = describeCell?.(px, py) ?? `depth ${priority[pixel.cell]}`;
+    const name = describeCell?.(px, py) ?? `priority ${priority[pixel.cell]}`;
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return [...counts].sort((a, b) => b[1] - a[1])[0]![0];
@@ -97,7 +97,7 @@ const hits = computed(() =>
 const footprintText = computed(() => {
   const footprint = result.value?.footprint;
   if (!footprint) return "";
-  if (footprint.bypassed) return "Anywhere (depth 15)";
+  if (footprint.bypassed) return "Anywhere (priority 15)";
   if (footprint.accepted) {
     const { signal, water } = footprint.controls;
     return `Allowed${signal ? " · Trigger (sets flag 3 for the hero)" : ""}${water ? " · Water (sets flag 0 for the hero)" : ""}`;
@@ -112,71 +112,75 @@ const viewLabel = (number: number, description: string | undefined): string =>
 
 <template>
   <section
-    class="ghost-readout"
-    data-testid="ghost-probe-readout"
+    class="stand-in-readout"
+    data-testid="stand-in-probe-readout"
     aria-label="Stand-in"
     aria-live="polite"
   >
-    <div class="ghost-readout__title">
-      <h2 class="ghost-readout__head">Stand-in</h2>
-      <UiExplain v-bind="explain('ghost')" />
+    <div class="stand-in-readout__title">
+      <h2 class="stand-in-readout__head">Stand-in</h2>
+      <UiExplain v-bind="explain('standIn')" />
     </div>
-    <label class="ghost-readout__row">
-      <span class="ghost-readout__key">{{ VOCABULARY.view.label }}</span>
-      <select v-model="viewNumber" class="ghost-readout__select" data-role="ghost-view">
+    <label class="stand-in-readout__row">
+      <span class="stand-in-readout__key">{{ VOCABULARY.view.label }}</span>
+      <select v-model="viewNumber" class="stand-in-readout__select" data-role="stand-in-view">
         <option v-for="entry in probe.views.value" :key="entry.number" :value="entry.number">
           {{ viewLabel(entry.number, entry.view.description) }}
         </option>
       </select>
     </label>
-    <p class="ghost-readout__row" data-role="ghost-cel">
-      <span class="ghost-readout__key">Cel</span>
+    <p class="stand-in-readout__row" data-role="stand-in-cel">
+      <span class="stand-in-readout__key">Cel</span>
       <span>loop {{ loop }}/{{ loopCount }} · cel {{ celIndex }}/{{ celCount }}</span>
-      <span class="ghost-readout__hint">←→ cel · ↑↓ loop · {{ keyLabel("Shift") }} move</span>
+      <span class="stand-in-readout__hint">←→ cel · ↑↓ loop · {{ keyLabel("Shift") }} move</span>
     </p>
-    <label class="ghost-readout__row">
-      <span class="ghost-readout__key ghost-readout__with"
-        >Depth <UiExplain v-bind="explain('depth')"
+    <label class="stand-in-readout__row">
+      <span class="stand-in-readout__key stand-in-readout__with"
+        >Priority <UiExplain v-bind="explain('priority')"
       /></span>
-      <select v-model="fixedPriority" class="ghost-readout__select" data-role="ghost-priority">
-        <option value="band">Depth band at feet</option>
+      <select
+        v-model="fixedPriority"
+        class="stand-in-readout__select"
+        data-role="stand-in-priority"
+      >
+        <option value="band">Priority band at feet</option>
         <option v-for="p in PRIORITIES" :key="p" :value="p">Fixed {{ p }}</option>
       </select>
     </label>
-    <p class="ghost-readout__row" data-role="ghost-band">
-      <span class="ghost-readout__key ghost-readout__with"
+    <p class="stand-in-readout__row" data-role="stand-in-band">
+      <span class="stand-in-readout__key stand-in-readout__with"
         >Feet <UiExplain v-bind="explain('feet')"
       /></span>
       <span
-        >x {{ x }} y {{ baselineY }} → {{ VOCABULARY.depthBand.label }} {{ result?.bandPriority
+        >x {{ x }} y {{ baselineY }} → {{ VOCABULARY.priorityBand.label }} {{ result?.bandPriority
         }}<template v-if="result && fixedPriority !== 'band'">
           · draws at {{ result.drawPriority }}</template
         ></span
       >
     </p>
-    <p v-if="standing" class="ghost-readout__row" data-role="ghost-under">
-      <span class="ghost-readout__key">Standing</span>
+    <p v-if="standing" class="stand-in-readout__row" data-role="stand-in-under">
+      <span class="stand-in-readout__key">Standing</span>
       <span>{{ standing }}</span>
     </p>
-    <p class="ghost-readout__verdict" :data-kind="verdict.kind" data-role="ghost-verdict">
+    <p class="stand-in-readout__verdict" :data-kind="verdict.kind" data-role="stand-in-verdict">
       {{ verdict.text }}
     </p>
-    <div class="ghost-readout__controls" data-role="ghost-controls">
-      <p class="ghost-readout__row">
-        <span class="ghost-readout__key">Footprint</span>
+    <div class="stand-in-readout__controls" data-role="stand-in-controls">
+      <p class="stand-in-readout__row">
+        <span class="stand-in-readout__key">Footprint</span>
         <span>{{ footprintText }}</span>
       </p>
       <p
         v-for="hit in hits"
         :key="hit.value"
-        class="ghost-readout__hit"
-        data-role="ghost-control-hit"
+        class="stand-in-readout__hit"
+        data-role="stand-in-control-hit"
         :data-value="hit.value"
       >
         <i :style="{ background: `var(--agi-${CONTROL_VALUES[hit.value]!.colour})` }"></i>
         {{ hit.value }} · {{ hit.name }}: x {{ hit.runs }} at y {{ hit.cells[0]!.y }}
       </p>
-      <p v-if="hits.length === 0" class="ghost-readout__hit ghost-readout__hit--none">
+      <p v-if="hits.length === 0" class="stand-in-readout__hit stand-in-readout__hit--none">
         No walk lines under the feet
       </p>
     </div>
@@ -184,7 +188,7 @@ const viewLabel = (number: number, description: string | undefined): string =>
 </template>
 
 <style scoped>
-.ghost-readout {
+.stand-in-readout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
@@ -194,42 +198,42 @@ const viewLabel = (number: number, description: string | undefined): string =>
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
 }
-.ghost-readout p {
+.stand-in-readout p {
   margin: 0;
 }
-.ghost-readout__title {
+.stand-in-readout__title {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   margin: 0 0 var(--space-2);
 }
-.ghost-readout__with {
+.stand-in-readout__with {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
 }
-.ghost-readout__head {
+.stand-in-readout__head {
   margin: 0;
   color: var(--ink-3);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
-.ghost-readout__row {
+.stand-in-readout__row {
   display: grid;
   grid-template-columns: 4.5rem minmax(0, 1fr);
   align-items: baseline;
   gap: var(--space-0) var(--space-2);
 }
-.ghost-readout__key {
+.stand-in-readout__key {
   color: var(--ink-3);
 }
-.ghost-readout__hint {
+.stand-in-readout__hint {
   grid-column: 2;
   color: var(--ink-3);
   font-size: var(--text-2xs);
 }
-.ghost-readout__select {
+.stand-in-readout__select {
   width: 100%;
   min-width: 0;
   padding: var(--space-0) var(--space-1);
@@ -239,35 +243,35 @@ const viewLabel = (number: number, description: string | undefined): string =>
   color: var(--ink);
   font: inherit;
 }
-.ghost-readout__verdict {
+.stand-in-readout__verdict {
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--ok-soft);
   color: var(--ok);
   font-weight: var(--weight-semibold);
 }
-.ghost-readout__verdict[data-kind="behind"],
-.ghost-readout__verdict[data-kind="hidden"] {
+.stand-in-readout__verdict[data-kind="behind"],
+.stand-in-readout__verdict[data-kind="hidden"] {
   background: var(--warn-soft);
   color: var(--warn);
 }
-.ghost-readout__controls {
+.stand-in-readout__controls {
   display: grid;
   gap: var(--space-0);
 }
-.ghost-readout__hit {
+.stand-in-readout__hit {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   font-family: var(--font-mono);
 }
-.ghost-readout__hit i {
+.stand-in-readout__hit i {
   width: var(--space-3);
   height: var(--space-3);
   flex: none;
   border-radius: var(--radius-sm);
 }
-.ghost-readout__hit--none {
+.stand-in-readout__hit--none {
   color: var(--ink-3);
   font-family: inherit;
 }

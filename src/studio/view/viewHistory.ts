@@ -1,5 +1,5 @@
 /**
- * VIEW editor undo/redo: the Room Studio edit history (editHistory.ts) over
+ * VIEW editor undo/redo: the PICTURE editor edit history (editHistory.ts) over
  * snapshots of the encoded VIEW payload, one character per byte. Snapshots
  * compare by value, so a history refuses to undo over a document that
  * changed outside it; gestures (`begin`/`commit`) make a drag one step.
@@ -7,7 +7,7 @@
 import {
   cancel,
   createHistory,
-  DEFAULT_HISTORY_DEPTH,
+  DEFAULT_HISTORY_PRIORITY,
   record,
   redo,
   undo,
@@ -38,9 +38,9 @@ function restore(document: ViewDocument, snapshot: string): ViewDocument {
 
 export function createViewHistory(
   document: ViewDocument,
-  depth = DEFAULT_HISTORY_DEPTH,
+  priority = DEFAULT_HISTORY_PRIORITY,
 ): EditHistory {
-  return createHistory(viewSnapshot(document), depth, "view");
+  return createHistory(viewSnapshot(document), priority, "view");
 }
 
 /** Record the edit that turned `before` into `after` (inside a gesture: extend it). */

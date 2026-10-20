@@ -355,7 +355,7 @@ export type WorkerInbound =
     }
   | { type: "state"; id: number }
   | {
-      type: "imageHeroPreview";
+      type: "imageEgoPreview";
       runToken: string;
       bytes: Uint8Array | null;
       loops?: readonly number[];

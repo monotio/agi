@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import UiIconButton from "../../ui/UiIconButton.vue";
 import type { IconName } from "../../ui/icons.ts";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import type { ViewTool } from "./useViewTools.ts";
 
 /**

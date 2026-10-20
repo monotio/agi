@@ -47,10 +47,10 @@ import UiSegmented from "../ui/UiSegmented.vue";
 import PaletteStrip from "./workspace/PaletteStrip.vue";
 import { useStudioPalette } from "./useStudioPalette.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
-import GhostProbe from "./GhostProbe.vue";
-import GhostReadout from "./GhostReadout.vue";
+import StandInProbe from "./StandInProbe.vue";
+import StandInReadout from "./StandInReadout.vue";
 import PixelInspector from "./PixelInspector.vue";
-import SceneList from "./SceneList.vue";
+import ItemList from "./ItemList.vue";
 import StudioCanvas, { type MaskPaths } from "./StudioCanvas.vue";
 import StudioCanvasMenu, { type CanvasMenuItem } from "./StudioCanvasMenu.vue";
 import StudioCombineDialog from "./StudioCombineDialog.vue";
@@ -71,7 +71,7 @@ import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
 import RoomViewsOverlay from "./RoomViewsOverlay.vue";
 import StudioViewsPanel from "./StudioViewsPanel.vue";
-import { pictureViewsOpacity as viewsOpacity } from "./pictureViews.ts";
+import { pictureOpensOpacity as viewsOpacity } from "./pictureOpens.ts";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
@@ -103,7 +103,7 @@ import {
   LENS_NAMES,
   tickFor,
 } from "./studioView.ts";
-import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
+import { listGameViews, useStandInProbe } from "./useStandInProbe.ts";
 import { filterScene, resolveStudioSource, useStudioDocument } from "./useStudioDocument.ts";
 import { exposeStudioDraft, useStudioDraft } from "./useStudioDraft.ts";
 import { useStudioFocus } from "./useStudioFocus.ts";
@@ -120,7 +120,7 @@ import { DEFAULT_EGO, useStudioWalk, type EgoShape } from "./useStudioWalk.ts";
 import { useUndoOrder } from "./useUndoOrder.ts";
 
 /**
- * Room Studio: one picture's items, draw order and planes, edited as a draft
+ * PICTURE editor: one picture's items, draw order and planes, edited as a draft
  * (useStudioDraft); the workspace owns saving and the agent. It takes the
  * picture bytes (and authored text, trusted only while it compiles to those
  * bytes) and the revision they were read at. Keys are handled at the root
@@ -208,7 +208,7 @@ const emit = defineEmits<{
   "play-here": [target: PlayHereTarget];
 }>();
 
-const lens = ref<StudioLens>("art");
+const lens = ref<StudioLens>("visual");
 const mode = ref<StudioViewMode>("blend");
 const BANDS_KEY = "monotio_agi.studioBands";
 /** Band lines start off so the picture stays clear; the choice is remembered. */
@@ -491,7 +491,7 @@ const onCanvas = (id: string): boolean =>
     false);
 /**
  * The selection's cells on the canvas, on both planes in every lens (a move
- * takes an item's art, depth and walk lines along); while a drag previews,
+ * takes an item's art, priority and walk lines along); while a drag previews,
  * the moving items' footprints. Unassigned lines show under the lens.
  */
 const selectionMask = computed(() => {
@@ -724,7 +724,7 @@ const input = useStudioInput({
   selection,
   fallback: drag,
   stage: () => stage.value,
-  probe: () => views.value.length > 0 && ghost.toggle(),
+  probe: () => views.value.length > 0 && standIn.toggle(),
 });
 const views = computed(() => (files ? listGameViews(files, profile) : []));
 /** Spots the Views list previews for computed or conditional placements, by object. */
@@ -744,7 +744,7 @@ function copyFigureSpot(figure: RoomPlacement, x: number, y: number): void {
     () => editing.say({ tone: "warn", text: `The position is ${line}` }),
   );
 }
-const ghost = useGhostProbe({
+const standIn = useStandInProbe({
   views,
   picture: () => shown.value,
   profile: () => profile,
@@ -802,7 +802,7 @@ const handles = computed(() => {
   return null;
 });
 /** Alt held over the selected line with Select or Point: the "+" where a click adds a point. */
-const insertGhost = computed(() => {
+const insertMark = computed(() => {
   const id = editableId.value;
   const cell = selection.canvasCell.value;
   if (!input.altHeld.value || id === undefined || cell === undefined || drag.dragging.value)
@@ -825,7 +825,7 @@ function insertPointAtCursor(): boolean {
   return true;
 }
 const guides = computed(() =>
-  showBands.value && lens.value !== "art" && !midOrder.value ? bandGuides() : null,
+  showBands.value && lens.value !== "visual" && !midOrder.value ? bandGuides() : null,
 );
 
 /** The selection's priority picker in the options bar is open. */
@@ -933,7 +933,7 @@ const palette = useStudioPalette({
 
 /** A walk tool in the Visual lens hands back to Select. */
 watch(lens, (next) => {
-  if (next === "art" && isWalkTool(tools.tool.value)) tools.setTool("select");
+  if (next === "visual" && isWalkTool(tools.tool.value)) tools.setTool("select");
 });
 /** While the goal is chosen, the estimate follows the pointer or the keyboard cursor. */
 watch(tools.cursor, (cell) => {
@@ -953,7 +953,7 @@ watch(walker.selectedDoorId, (id) => {
 /** A walk tool opens the Priority lens first, and the Inspector where its panel is. */
 function walkView(next: StudioTool): boolean {
   if (!isWalkTool(next)) return true;
-  lens.value = "depth";
+  lens.value = "priority";
   side.value = "inspector";
   return true;
 }
@@ -988,7 +988,7 @@ const pictureItems = computed(() => {
   }
   return items;
 });
-/** The picture item at a cell (its art, else its depth or walk lines): what a door can follow. */
+/** The picture item at a cell (its art, else its priority or walk lines): what a door can follow. */
 function itemAt(x: number, y: number): string | undefined {
   const id = doc.rowAt(x, y, "visual") ?? doc.rowAt(x, y, "priority");
   return draft.document.value.items.some((item) => item.id === id) ? id : undefined;
@@ -1046,7 +1046,7 @@ const menuItems = computed<CanvasMenuItem[]>(() => [
     label: "Play here",
     disabled: !walk || walk.room < 1,
   },
-  ...(lens.value === "depth"
+  ...(lens.value === "priority"
     ? [
         { id: "walk-from", label: "Start a test walk here" },
         { id: "walk-to", label: "Test walk to here", disabled: !walker.start.value },
@@ -1337,9 +1337,9 @@ function onKeyup(event: KeyboardEvent): void {
     class="studio"
     :class="{
       'has-reference': !!underlay,
-      'is-art-idle': lens === 'art' && !draft.gesturing.value,
+      'is-art-idle': lens === 'visual' && !draft.gesturing.value,
     }"
-    data-testid="room-studio"
+    data-testid="picture-studio"
     tabindex="-1"
     role="region"
     :aria-label="`PICTURE: ${title}`"
@@ -1355,9 +1355,9 @@ function onKeyup(event: KeyboardEvent): void {
     <div class="studio__scrubber studio__palette-row">
       <PaletteStrip
         :context="palette.context.value"
-        :value="lens === 'art' ? palette.values.value.visual : palette.values.value.priority"
+        :value="lens === 'visual' ? palette.values.value.visual : palette.values.value.priority"
         :disabled="frozen()"
-        @choose="palette.choose(lens === 'art' ? { visual: $event } : { priority: $event })"
+        @choose="palette.choose(lens === 'visual' ? { visual: $event } : { priority: $event })"
       />
       <DrawOrderScrubber
         v-model="playhead"
@@ -1431,8 +1431,8 @@ function onKeyup(event: KeyboardEvent): void {
         size="sm"
         :label="VOCABULARY.lens.label"
         :options="[
-          { value: 'art', label: LENS_NAMES.art.label, title: LENS_NAMES.art.help },
-          { value: 'depth', label: LENS_NAMES.depth.label, title: LENS_NAMES.depth.help },
+          { value: 'visual', label: LENS_NAMES.visual.label, title: LENS_NAMES.visual.help },
+          { value: 'priority', label: LENS_NAMES.priority.label, title: LENS_NAMES.priority.help },
         ]"
       />
       <StudioViewBar
@@ -1448,7 +1448,7 @@ function onKeyup(event: KeyboardEvent): void {
       :tool="tools.tool.value"
       class="studio__rail"
       :frozen="frozen()"
-      :probe-active="ghost.active.value"
+      :probe-active="standIn.active.value"
       :probe-available="views.length > 0"
       :lens
       :unlocks
@@ -1457,7 +1457,7 @@ function onKeyup(event: KeyboardEvent): void {
       :cursor-y="tools.cursor.value?.y"
       :doors-editable="logic.editable.value"
       @update:tool="pickTool"
-      @probe="ghost.toggle()"
+      @probe="standIn.toggle()"
       @values="palette.choose"
       @unlocks="(next) => (unlocks = next)"
     />
@@ -1489,13 +1489,13 @@ function onKeyup(event: KeyboardEvent): void {
             :dpr
             :highlight="hoverPaths"
             :selection="selectionPaths"
-            :guides="layer === 'art' ? null : guides"
+            :guides="layer === 'visual' ? null : guides"
             :handles
-            :ghost="insertGhost"
+            :insert-mark="insertMark"
             :flash="flashPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
-            :underlay="layer === 'art' ? underlay : null"
+            :underlay="layer === 'visual' ? underlay : null"
             @hover="input.pointer.hover"
             @press="pressCanvas"
             @drag="input.pointer.drag"
@@ -1505,7 +1505,7 @@ function onKeyup(event: KeyboardEvent): void {
             @menu="openMenu"
           >
             <RoomViewsOverlay
-              v-if="viewsOpacity > 0 && !midOrder && (layer === 'art' || panes.length === 1)"
+              v-if="viewsOpacity > 0 && !midOrder && (layer === 'visual' || panes.length === 1)"
               :figures
               :views
               :viewport
@@ -1523,7 +1523,7 @@ function onKeyup(event: KeyboardEvent): void {
               @keydown.stop
               @click.stop
             />
-            <template v-if="layer === 'art' && underlay?.adjust && lens === 'art'">
+            <template v-if="layer === 'visual' && underlay?.adjust && lens === 'visual'">
               <button
                 v-for="kind in ['move', 'scale'] as const"
                 :key="kind"
@@ -1545,7 +1545,7 @@ function onKeyup(event: KeyboardEvent): void {
               </button>
             </template>
             <StudioWalkOverlay
-              v-if="lens === 'depth' && !midOrder && index === panes.length - 1"
+              v-if="lens === 'priority' && !midOrder && index === panes.length - 1"
               :walk="walker"
               :viewport
               :tool="tools.tool.value"
@@ -1555,9 +1555,9 @@ function onKeyup(event: KeyboardEvent): void {
             />
             <StudioToolOverlay v-if="tools.tool.value !== 'select'" v-bind="input.overlay.value" />
             <!-- The probe's own presses never reach the pane below. -->
-            <GhostProbe
+            <StandInProbe
               v-if="index === 0 && !midOrder"
-              :probe="ghost"
+              :probe="standIn"
               :viewport
               @pointerdown.stop
               @pointermove.stop
@@ -1590,7 +1590,7 @@ function onKeyup(event: KeyboardEvent): void {
         @copy="copyFigureSpot"
         @reveal="(line) => emit('reveal-figure', line)"
       />
-      <SceneList
+      <ItemList
         v-show="side === 'items'"
         v-model:filter="filter"
         class="studio__scene"
@@ -1601,7 +1601,7 @@ function onKeyup(event: KeyboardEvent): void {
         :loose="scene.loose"
         :hovered-id="hoveredId"
         :selected-ids="selection.selectedIds.value"
-        :quiet-tag="lens === 'art' ? 'art' : undefined"
+        :quiet-tag="lens === 'visual' ? 'art' : undefined"
         :groupable="editing.editableItems.value.length > 1"
         @hover="selection.listHover.value = $event"
         @select="
@@ -1618,7 +1618,7 @@ function onKeyup(event: KeyboardEvent): void {
       />
       <PixelInspector
         class="studio__inspector"
-        :class="{ 'is-compact': !selectedRow && lens !== 'depth' && !lesson.session.value }"
+        :class="{ 'is-compact': !selectedRow && lens !== 'priority' && !lesson.session.value }"
         :row="selectedRow"
         :commands="readout.commands.value"
         :colours="drawn('visual')"
@@ -1645,10 +1645,10 @@ function onKeyup(event: KeyboardEvent): void {
             :session="lesson.session.value"
             :outcome="lesson.outcome.value"
           />
-          <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
-          <GhostReadout
-            v-if="ghost.active.value"
-            :probe="ghost"
+          <!-- The probe's readout docks here too: on the art, only the standIn and its handle. -->
+          <StandInReadout
+            v-if="standIn.active.value"
+            :probe="standIn"
             :describe-cell="describeCell"
             :labels="probeLabels"
           />
@@ -1671,7 +1671,7 @@ function onKeyup(event: KeyboardEvent): void {
           />
           <!-- The room tools' panel follows the selection's own editor. -->
           <StudioWalkPanel
-            v-if="lens === 'depth'"
+            v-if="lens === 'priority'"
             v-model:tint="walkTint"
             :walk="walker"
             :tool="tools.tool.value"
@@ -1691,10 +1691,10 @@ function onKeyup(event: KeyboardEvent): void {
           />
           <section
             v-else-if="editing.several.value && editing.editableItems.value.length > 1"
-            class="studio__depth-all"
-            data-role="depth-all"
+            class="studio__priority-all"
+            data-role="priority-all"
           >
-            <h3>Priority for all <UiExplain v-bind="explain('depth')" /></h3>
+            <h3>Priority for all <UiExplain v-bind="explain('priority')" /></h3>
             <StudioValuePicker
               plane="priority"
               label="Priority for all"
@@ -1894,13 +1894,13 @@ function onKeyup(event: KeyboardEvent): void {
   line-height: 1.2;
   white-space: normal;
 }
-.studio__depth-all {
+.studio__priority-all {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--hairline);
 }
-.studio__depth-all h3 {
+.studio__priority-all h3 {
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -1965,21 +1965,21 @@ function onKeyup(event: KeyboardEvent): void {
   flex-shrink: 0;
   margin: var(--space-2);
 }
-.studio__side > .scene-list,
+.studio__side > .item-list,
 .studio__side > .inspector {
   flex: 1;
   min-height: 0;
   height: 0;
 }
-.studio__side > .scene-list {
+.studio__side > .item-list {
   flex: 2;
   min-height: 0;
   min-width: 0;
 }
-.studio__side > .scene-list :deep(.ui-panel__foot) {
+.studio__side > .item-list :deep(.ui-panel__foot) {
   padding-block: var(--space-1);
 }
-.studio__side:has(.scene-list:not([style*="display: none"])) > .inspector.is-compact {
+.studio__side:has(.item-list:not([style*="display: none"])) > .inspector.is-compact {
   display: none;
 }
 /* The Views list has the column to itself. */
@@ -2019,12 +2019,12 @@ function onKeyup(event: KeyboardEvent): void {
     grid-row: 4;
     border-top: 1px solid var(--hairline);
   }
-  .studio .studio__side > .scene-list {
+  .studio .studio__side > .item-list {
     flex: 1;
     height: 0;
     min-height: 0;
   }
-  .studio .studio__side:has(.scene-list:not([style*="display: none"])) > .inspector {
+  .studio .studio__side:has(.item-list:not([style*="display: none"])) > .inspector {
     display: none;
   }
   .studio .studio__panes {

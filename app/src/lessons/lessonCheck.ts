@@ -33,7 +33,7 @@ export interface LessonOutcome {
 }
 
 const KIND: Record<LessonSession["lesson"]["open"]["studio"], LessonKeep["kind"]> = {
-  room: "picture",
+  picture: "picture",
   view: "view",
 };
 
@@ -46,7 +46,7 @@ export function checkLessonKeep(
   const { lesson } = session;
   const challenge = lesson.challenge;
   const target = lesson.open;
-  const num = target.studio === "room" ? target.picture : target.view;
+  const num = target.studio === "picture" ? target.picture : target.view;
   if (!challenge || KIND[target.studio] !== keep.kind || num !== keep.num) return null;
   const input: LessonVerifyInput = {
     kind: keep.kind,

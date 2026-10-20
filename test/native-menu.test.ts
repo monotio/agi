@@ -212,7 +212,7 @@ test("holding the right button opens the strip; the pull-down follows the title 
   assert.equal(engine.nativeMenuMove(70, 25), true);
   assert.equal(engine.getPresentation().menu!.pulldown!.highlighted, 1);
   assert.equal(engine.nativeMenuMove(72, 25), false, "no change reports no change");
-  // A ghosted item never highlights.
+  // A standIned item never highlights.
   engine.nativeMenuMove(70, 35);
   assert.equal(engine.getPresentation().menu!.pulldown!.highlighted, null);
   // Leaving the pull-down keeps it open with no item.
@@ -236,7 +236,7 @@ test("releasing over an enabled item delivers its controller at the next input p
   assert.equal(engine.vars[100], 0, "delivered exactly once");
 });
 
-test("releasing elsewhere, over a ghosted item or on the bar cancels without a controller", () => {
+test("releasing elsewhere, over a standIned item or on the bar cancels without a controller", () => {
   for (const [x, y] of [
     [300, 150],
     [70, 35],

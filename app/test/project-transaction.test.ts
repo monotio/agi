@@ -321,7 +321,7 @@ test("a tab that hears another tab's authoring edit is stale for authoring at on
 
 test("a Studio draft keeps against the authoring it opened on, even after a session hydrates newer", async (t) => {
   const { projectId, files, revision } = await storeProject(t, "two-tab-draft");
-  // B opens Room Studio on the sky with no session live: the booted record's text.
+  // B opens PICTURE editor on the sky with no session live: the booted record's text.
   const b = await openTab(projectId, files, false);
   const opened = { revision: b.game.revision, authoring: openDraft(b.game) };
   // A renames the sky; then B's first AI request hydrates a session from storage.

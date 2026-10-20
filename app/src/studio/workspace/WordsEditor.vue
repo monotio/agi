@@ -284,7 +284,7 @@ function askAgent(value: Exclude<WordsTask, { kind: "review" }>): void {
 function typeInGame(): void {
   engine.sendInput(sentence.value);
 }
-function dismissGhosts(event: KeyboardEvent): void {
+function dismissPopovers(event: KeyboardEvent): void {
   if (!moving.value && !teaching.value && adding.value === undefined && !more.value) return;
   event.stopPropagation();
   adding.value = undefined;
@@ -294,7 +294,7 @@ function dismissGhosts(event: KeyboardEvent): void {
 }
 </script>
 <template>
-  <div class="words-editor" data-testid="workspace-words-editor" @keydown.esc="dismissGhosts">
+  <div class="words-editor" data-testid="workspace-words-editor" @keydown.esc="dismissPopovers">
     <header class="words-toolbar">
       <input
         v-model="find"

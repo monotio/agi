@@ -60,9 +60,9 @@ test("Studio previews an Amiga game in the colours Play draws", async ({ page })
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
   await page.getByRole("button", { name: "PICTURE 0", exact: true }).click();
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
-  const pane = studio.locator('.studio-pane[data-layer="art"] canvas').first();
+  const pane = studio.locator('.studio-pane[data-layer="visual"] canvas').first();
   for (const [width, height] of [
     [1063, 815],
     [1440, 900],

@@ -20,7 +20,7 @@ import type { StudioEditing } from "./useStudioEditing.ts";
 
 /**
  * The inspector's editor for the selected item, at its essentials: its kind
- * and Lock, its art colour and its depth (each checked against the lens
+ * and Lock, its art colour and its priority (each checked against the lens
  * locks; a locked one says so), and its actions: Duplicate, Delete, Earlier and
  * Later in the draw order, and Ungroup for an item grouped here. Its
  * points wait under Details (StudioItemPoints.vue). Every change is one
@@ -64,7 +64,7 @@ function bandTop(value: number): number | undefined {
   return undefined;
 }
 /** What the item's priority does to a character, in a few words. */
-const depthNote = computed(() => {
+const priorityNote = computed(() => {
   const value = priority;
   if (value === undefined) return "mixed";
   if (value === null) return "off";
@@ -74,7 +74,7 @@ const depthNote = computed(() => {
   const top = bandTop(value);
   return top === undefined ? "hides every character" : `hides characters above y ${top}`;
 });
-/** The pen's distance band: its own when the item draws one, else a middle band. */
+/** The pen's priority band: its own when the item draws one, else a middle band. */
 const band = computed(() =>
   typeof priority === "number" && priority >= 4 ? priority : DEFAULT_BAND,
 );
@@ -131,11 +131,13 @@ const penReason = computed(
 
     <section class="item-editor__sec" data-role="priority">
       <h3>
-        <span class="item-editor__with">Priority pen <UiExplain v-bind="explain('depth')" /></span>
+        <span class="item-editor__with"
+          >Priority pen <UiExplain v-bind="explain('priority')"
+        /></span>
         <em v-if="locks.priority" class="item-editor__lock"
           ><UiIcon name="lock" :size="12" />locked</em
         >
-        <em v-else>{{ depthNote }}</em>
+        <em v-else>{{ priorityNote }}</em>
       </h3>
       <div
         class="item-editor__pen"

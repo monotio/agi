@@ -123,7 +123,7 @@ test("overlayBoxes converts object records to logical-pixel boxes", () => {
     h: 20,
     baseline: 100,
     num: 2,
-    label: "Object 2",
+    label: "Actor 2",
     priority: 9,
     direction: 3,
     stepSize: 1,
@@ -166,7 +166,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
   const latch = latchPickAt(frame, PICK)!;
   assert.equal(latch.cycle, 42);
   assert.equal(latch.patchGeneration, 7); // the frame's own revision, not a poll
-  assert.equal(describeObject(latch.object!), "Object 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
+  assert.equal(describeObject(latch.object!), "Actor 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
 
   // The object moves, changes, then disappears in later observations; newer
   // frames arrive out of order. The latched card keeps its original fields.
@@ -175,7 +175,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
   frame.objects.length = 0;
   const stale = { ...frame, cycle: 41, objects: [objectFixture({ num: 2, x: 5 })] };
   const newer = { ...frame, cycle: 55, patchGeneration: 8, objects: [] };
-  assert.equal(describeObject(latch.object!), "Object 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
+  assert.equal(describeObject(latch.object!), "Actor 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
   assert.equal(latch.cycle, 42);
   assert.equal(latch.patchGeneration, 7);
   assert.ok(latchIsStale(latch, stale)); // restore/seek/new game regresses cycle

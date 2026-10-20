@@ -3,7 +3,7 @@ import { test, expect } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 
-test("large image frame drags keep pointer work within a frame @perf", async ({ page }) => {
+test("large image cel drags keep pointer work within a cel @perf", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(installPointerFrameMeasurement);
   await isolateStorage(page);
@@ -15,7 +15,7 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
       message: { type?: string; bytes?: Uint8Array | null },
       options?: StructuredSerializeOptions | Transferable[],
     ) {
-      if (message.type === "imageHeroPreview")
+      if (message.type === "imageEgoPreview")
         posts.push({ at: performance.now(), bytes: message.bytes ? [...message.bytes] : null });
       if (Array.isArray(options)) post.call(this, message, { transfer: options });
       else post.call(this, message, options);
@@ -37,19 +37,19 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
     mimeType: "image/png",
     buffer: Buffer.from(encodePngRgba(1024, 1024, rgba)),
   });
-  await expect(page.getByTestId("image-frame")).toHaveCount(8);
+  await expect(page.getByTestId("image-cel")).toHaveCount(8);
   await page.getByRole("button", { name: "Pause animation", exact: true }).click();
   await page.getByTestId("image-preview-hero").click();
   const thumbnails = page.getByTestId("prepared-cel-thumbnail");
   const before = await thumbnails.evaluateAll((images) =>
     images.map((image) => (image as HTMLImageElement).src),
   );
-  const frame = page.getByRole("button", { name: "Frame 1", exact: true });
-  const bounds = (await frame.boundingBox())!;
+  const cel = page.getByRole("button", { name: "Cel 1", exact: true });
+  const bounds = (await cel.boundingBox())!;
   await page.mouse.move(bounds.x + 10, bounds.y + 12);
   await page.mouse.down();
   const result = await page
-    .getByTestId("image-frame")
+    .getByTestId("image-cel")
     .first()
     .evaluate(async (box) => {
       const rect = box.getBoundingClientRect();
@@ -64,7 +64,7 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
       return { batches, before };
     });
   const samples = await page
-    .getByTestId("frame-sheet")
+    .getByTestId("cel-sheet")
     .evaluate(measurePointerFrames, result.batches);
   expect(
     await thumbnails.evaluateAll((images) =>
@@ -72,11 +72,11 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
     ),
   ).toEqual(before);
   const dx = await page
-    .getByTestId("image-frame")
+    .getByTestId("image-cel")
     .first()
     .evaluate((box) => {
       const rect = box.getBoundingClientRect();
-      const sheet = box.closest('[data-testid="frame-sheet"]')!;
+      const sheet = box.closest('[data-testid="cel-sheet"]')!;
       const event = (type: string, x: number) =>
         new PointerEvent(type, {
           bubbles: true,
@@ -89,8 +89,8 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
       return Math.round(12 / (sheet.getBoundingClientRect().width / 1024));
     });
   await page.mouse.up();
-  console.log("frame pointer timings ms", JSON.stringify(samples));
-  // Handler + frame effects peaked at 2 ms in Linux WebKit; allow three times that cost.
+  console.log("cel pointer timings ms", JSON.stringify(samples));
+  // Handler + cel effects peaked at 2 ms in Linux WebKit; allow three times that cost.
   expect(Math.max(...samples)).toBeLessThan(6);
   await expect(thumbnails.first()).not.toHaveAttribute("src", before[0]!);
   const after = await thumbnails.evaluateAll((images) =>
@@ -106,7 +106,7 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
   await expect.poll(async () => (await posts()).length).toBe(2);
   const settledBytes = (await posts()).at(-1)!.bytes;
   const postsBeforeNudges = (await posts()).length;
-  await frame.focus();
+  await cel.focus();
   for (let i = 0; i < dx; i++) await page.keyboard.press("ArrowLeft");
   for (let i = 0; i < dx; i++) await page.keyboard.press("ArrowRight");
   await expect.poll(async () => (await posts()).length).toBeGreaterThan(postsBeforeNudges);
@@ -126,7 +126,7 @@ test("large image frame drags keep pointer work within a frame @perf", async ({ 
   ]) {
     await page.setViewportSize({ width: width!, height: height! });
     await page.screenshot({
-      path: test.info().outputPath(`frames-${width}.png`),
+      path: test.info().outputPath(`cels-${width}.png`),
       animations: "disabled",
     });
   }

@@ -7,7 +7,7 @@ import {
   prepareGuidedAddRoom,
   prepareGuidedBoilerplate,
   prepareGuidedConnectDoor,
-  prepareGuidedPlaceHero,
+  prepareGuidedPlaceEgo,
   prepareGuidedPlaySound,
   prepareGuidedRespondToCommand,
   type GuidedChange,
@@ -190,7 +190,7 @@ if (isset(new_room)) {
   test("places a supplied existing view as the hero with a runnable entry", () => {
     const { ctx } = workspace("starter");
     const op = mustPrepare(
-      prepareGuidedAddRoom(ctx, { heroView: "hero_view", spawn: { x: 76, y: 110 } }),
+      prepareGuidedAddRoom(ctx, { egoView: "hero_view", spawn: { x: 76, y: 110 } }),
     );
     const room = op.changes.find((c) => c.key === "logic:2")!.content as string;
     assert.match(room, /animate\.obj\(o0\);/);
@@ -326,13 +326,13 @@ if (isset(new_room)) {
 
   test("refuses a missing hero view and an off-picture spawn", () => {
     const { ctx } = workspace("starter");
-    const missing = prepareGuidedAddRoom(ctx, { heroView: 42 });
+    const missing = prepareGuidedAddRoom(ctx, { egoView: 42 });
     assert.equal(missing.ok, false);
     if (!missing.ok) {
       assert.equal(missing.code, "missing");
       assert.equal(missing.key, "view:42");
     }
-    const offscreen = prepareGuidedAddRoom(ctx, { heroView: 0, spawn: { x: 158, y: 100 } });
+    const offscreen = prepareGuidedAddRoom(ctx, { egoView: 0, spawn: { x: 158, y: 100 } });
     assert.equal(offscreen.ok, false);
     if (!offscreen.ok) assert.equal(offscreen.code, "invalid-input");
   });
@@ -342,7 +342,7 @@ describe("guided place hero", () => {
   test("rewrites only the position literals of the recognized entry block", () => {
     const { ctx, draft } = workspace("starter");
     const before = docText(draft, "logic:1");
-    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, x: 100, y: 130 }));
+    const op = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 100, y: 130 }));
     const after = op.changes[0]!.content as string;
     assert.equal(
       after,
@@ -362,7 +362,7 @@ describe("guided place hero", () => {
     bindings.shadow_view = { kind: "view", num: 0 };
     draft.edit("bindings", JSON.stringify(bindings), draft.capture().version("bindings"));
     const before = docText(draft, "logic:1");
-    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, view: 0 }));
+    const op = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, view: 0 }));
     const after = op.changes[0]!.content as string;
     assert.equal(
       after,
@@ -375,7 +375,7 @@ describe("guided place hero", () => {
 
   test("refuses an entry block without a literal ego position", () => {
     const { ctx } = workspace("boilerplate");
-    const op = prepareGuidedPlaceHero(ctx, { room: 1, x: 10, y: 100 });
+    const op = prepareGuidedPlaceEgo(ctx, { room: 1, x: 10, y: 100 });
     assert.equal(op.ok, false);
     if (!op.ok) {
       assert.equal(op.code, "custom-code");
@@ -391,7 +391,7 @@ describe("guided place hero", () => {
       "  position(o0, 80, 140);\n  position(o0, 10, 140);",
     );
     draft.edit("logic:1", doubled, draft.capture().version("logic:1"));
-    const op = prepareGuidedPlaceHero(ctx, { room: 1, x: 5 });
+    const op = prepareGuidedPlaceEgo(ctx, { room: 1, x: 5 });
     assert.equal(op.ok, false);
     if (!op.ok) assert.equal(op.code, "custom-code");
   });
@@ -399,14 +399,14 @@ describe("guided place hero", () => {
   test("refuses an unparseable room without rewriting it", () => {
     const { ctx, draft } = workspace("starter");
     draft.edit("logic:1", "if (isset(f5) {\n", draft.capture().version("logic:1"));
-    const op = prepareGuidedPlaceHero(ctx, { room: 1, x: 5 });
+    const op = prepareGuidedPlaceEgo(ctx, { room: 1, x: 5 });
     assert.equal(op.ok, false);
     if (!op.ok) assert.equal(op.code, "uncompilable");
   });
 
   test("refuses a position that cannot hold the hero below the horizon", () => {
     const { ctx } = workspace("starter");
-    const op = prepareGuidedPlaceHero(ctx, { room: 1, x: 80, y: 30 });
+    const op = prepareGuidedPlaceEgo(ctx, { room: 1, x: 80, y: 30 });
     assert.equal(op.ok, false);
     if (!op.ok) {
       assert.equal(op.code, "invalid-input");
@@ -582,7 +582,7 @@ describe("guided respond to command", () => {
 describe("guided connect door", () => {
   function twoRooms() {
     const ws = workspace("starter");
-    mustPrepare(prepareGuidedAddRoom(ws.ctx, { heroView: "hero_view" })).apply();
+    mustPrepare(prepareGuidedAddRoom(ws.ctx, { egoView: "hero_view" })).apply();
     return ws;
   }
 
@@ -732,7 +732,7 @@ describe("guided connect door", () => {
 describe("world metadata keeps the names the creator gave", () => {
   test("a door never resets the title or description of either room", () => {
     const { ctx, draft } = workspace("starter");
-    mustPrepare(prepareGuidedAddRoom(ctx, { heroView: "hero_view" })).apply();
+    mustPrepare(prepareGuidedAddRoom(ctx, { egoView: "hero_view" })).apply();
     // The creator renamed the new room and wrote a description for room 1.
     const before = draft.capture();
     const world = JSON.parse(before.read("world")!.content as string);
@@ -1038,14 +1038,14 @@ return;
 describe("prepared proposal authority", () => {
   test("a stale base refuses at apply; a replayed proposal refuses again", () => {
     const { ctx, draft } = workspace("starter");
-    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, x: 100 }));
+    const op = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 100 }));
     draft.edit(
       "logic:1",
       docText(draft, "logic:1") + "// typed\n",
       draft.capture().version("logic:1"),
     );
     assert.throws(() => op.apply(), /Stale proposal/);
-    const fresh = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, x: 100 }));
+    const fresh = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 100 }));
     fresh.apply();
     assert.throws(() => fresh.apply(), /already applied/);
   });
@@ -1053,14 +1053,14 @@ describe("prepared proposal authority", () => {
   test("a proposal cannot apply to a different workspace", () => {
     const a = workspace("starter");
     const b = workspace("starter");
-    const op = mustPrepare(prepareGuidedPlaceHero(a.ctx, { room: 1, x: 100 }));
+    const op = mustPrepare(prepareGuidedPlaceEgo(a.ctx, { room: 1, x: 100 }));
     assert.throws(() => b.draft.apply(op.proposal), /another workspace/);
   });
 
   test("an unrelated broken in-flight room does not block an independent edit", () => {
     const { ctx, draft } = workspace("starter");
     draft.edit("logic:9", "if (never ", 0);
-    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, x: 90 }));
+    const op = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 90 }));
     op.apply();
     assert.match(docText(draft, "logic:1"), /position\(o0, 90, 140\)/);
     assert.equal(
@@ -1074,7 +1074,7 @@ describe("prepared proposal authority", () => {
     const { ctx, draft } = workspace("starter");
     const boot = docText(draft, "logic:0") + "\n// custom note\n";
     draft.edit("logic:0", boot, draft.capture().version("logic:0"));
-    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, x: 90 }));
+    const op = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 90 }));
     op.apply();
     assert.equal(docText(draft, "logic:0"), boot, "unrelated custom source is preserved");
   });
@@ -1083,7 +1083,7 @@ describe("prepared proposal authority", () => {
 describe("guided operation surface", () => {
   test("exposes the reviewable contract the caller renders", () => {
     const { ctx } = workspace("starter");
-    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, x: 90 }));
+    const op = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 90 }));
     const kind: GuidedOperationKind = op.kind;
     assert.equal(kind, "place-hero");
     const changes: readonly GuidedChange[] = op.changes;
@@ -1092,7 +1092,7 @@ describe("guided operation surface", () => {
     assert.ok(changes.length > 0 && ranges.length > 0);
     assert.ok(ranges.every((r) => r.start >= 1 && r.end >= r.start));
 
-    const refusal = prepareGuidedPlaceHero(ctx, { room: 9, x: 90 });
+    const refusal = prepareGuidedPlaceEgo(ctx, { room: 9, x: 90 });
     assert.equal(refusal.ok, false);
     if (!refusal.ok) {
       const failure: GuidedRefusal = refusal;

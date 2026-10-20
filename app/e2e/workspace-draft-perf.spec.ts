@@ -63,7 +63,7 @@ test(
       .filter({ hasText: /^PICTURE/ })
       .first()
       .click();
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await expect(studio).toBeVisible();
     await studio.locator('[data-tool="brush"]').click();
     await studio.locator('.workspace-palette [data-colour="4"]').click();

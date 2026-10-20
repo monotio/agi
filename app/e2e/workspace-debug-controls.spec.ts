@@ -23,7 +23,7 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   const header = page.locator(".workspace-context");
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
   await page.getByTestId("part-room:1:logic").click();
@@ -49,7 +49,7 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   await page.getByTestId("project-tab-close-debug:variables").click();
   await expect(panel).toBeHidden();
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await expect(header.getByRole("group", { name: "Debug controls" })).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+j");
   await expect(page.getByTestId("workspace-problems")).toBeVisible();
@@ -62,7 +62,7 @@ test("debug controls follow LOGIC and a paused session @webkit-desktop", async (
   // While the session is stopped the controls stay on every tab's context row.
   await parts(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await expect(header.getByRole("button", { name: "Step over (F10)", exact: true })).toBeVisible();
   await expect(header.getByTestId("debug-stop")).toBeVisible();
   await header.getByTestId("debug-stop").click();
@@ -99,7 +99,7 @@ for (const [width, height] of [
     await expect(status).toHaveText("Paused at first_room · LOGIC 1, line 3");
     await parts(page);
     await page.getByTestId("part-room:1:picture:1").click();
-    await expect(page.getByTestId("room-studio")).toBeVisible();
+    await expect(page.getByTestId("picture-studio")).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath(`picture-${width}.png`),
       animations: "disabled",

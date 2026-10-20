@@ -1,12 +1,12 @@
 /**
- * Room Studio picture document: picture source text whose objects are
+ * PICTURE editor picture document: picture source text whose objects are
  * structured comments, so annotations never change the compiled bytes.
  *
  *   # @item <id> "<label>" [art|depth|walk|mixed] [locked]   opens an item
  *   # @end                                                   closes it
- *   # @depth base=<y> [pri-base=<y>] [wall] ... # @depth end  derived depth
+ *   # @depth base=<y> [pri-base=<y>] [wall] ... # @depth end  derived priority
  *
- * A depth block inside an item holds ordinary priority commands and their
+ * A priority block inside an item holds ordinary priority commands and their
  * register restoration. Its base is a surface row; pri-base records the
  * effective set.pri.base (48 when omitted). `wall` marks the block Stand in
  * the room made: it also paints a control-0 line along the base, regenerated
@@ -14,8 +14,8 @@
  * coverage and shift the chosen base by the change in the lowest art row.
  * Removing the two markers makes those commands hand-painted. Older readers
  * treat these annotations as comments and compile the same bytes. Group and
- * Ungroup keep the drawing bytes and convert derived depth to painted depth;
- * Add depth derives one base for the resulting item.
+ * Ungroup keep the drawing bytes and convert derived priority to painted priority;
+ * Add priority derives one base for the resulting item.
  *
  * Items are flat and cover consecutive source lines; lines outside items are
  * loose. A malformed directive is reported and otherwise read as a plain
@@ -38,7 +38,7 @@ export type PictureItemKind = "art" | "depth" | "walk" | "mixed";
 
 export const PICTURE_ITEM_KINDS: readonly PictureItemKind[] = ["art", "depth", "walk", "mixed"];
 
-interface DerivedPictureDepth {
+interface DerivedPicturePriority {
   readonly baseY: number;
   readonly priorityBase: number;
   readonly openLine: number;
@@ -52,7 +52,7 @@ export interface PictureItem {
   readonly label: string;
   readonly kind: PictureItemKind;
   readonly locked: boolean;
-  readonly depth?: DerivedPictureDepth;
+  readonly priority?: DerivedPicturePriority;
   /** 1-based line of the `@item` directive. */
   readonly openLine: number;
   /** 1-based line of the `@end`; one past the last line when unterminated. */
@@ -246,13 +246,19 @@ export function parsePictureDocument(source: string): {
     items.push({ ...open, closeLine: lines.length + 1, commandLines });
   }
   const annotated = items.map((item) => {
-    let depth: DerivedPictureDepth | undefined;
+    let priority: DerivedPicturePriority | undefined;
     let start: { baseY: number; priorityBase: number; openLine: number; wall: boolean } | undefined;
     for (let line = item.openLine + 1; line < item.closeLine; line++) {
       const text = lines[line - 1]!.trim();
       if (!/^#\s*@depth(?=\s|$)/.test(text)) continue;
       const match = /^#\s*@depth base=(\d+)(?: pri-base=(\d+))?( wall)?$/.exec(text);
-      if (match && !start && !depth && Number(match[1]) <= 167 && Number(match[2] ?? 48) <= 167) {
+      if (
+        match &&
+        !start &&
+        !priority &&
+        Number(match[1]) <= 167 &&
+        Number(match[2] ?? 48) <= 167
+      ) {
         start = {
           baseY: Number(match[1]),
           priorityBase: Number(match[2] ?? 48),
@@ -260,19 +266,19 @@ export function parsePictureDocument(source: string): {
           wall: match[3] !== undefined,
         };
       } else if (/^#\s*@depth end$/.test(text) && start) {
-        depth = { ...start, closeLine: line };
+        priority = { ...start, closeLine: line };
         start = undefined;
       } else {
         report(
           line,
           "bad-directive",
-          "depth needs one base row 0..167 and a matching end",
+          "priority needs one base row 0..167 and a matching end",
           item.id,
         );
       }
     }
-    if (start) report(start.openLine, "bad-directive", "depth needs a matching end", item.id);
-    return depth ? { ...item, depth } : item;
+    if (start) report(start.openLine, "bad-directive", "priority needs a matching end", item.id);
+    return priority ? { ...item, priority } : item;
   });
   return { document: { lines, items: annotated }, diagnostics };
 }

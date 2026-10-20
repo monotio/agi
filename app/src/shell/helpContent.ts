@@ -163,13 +163,13 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-depth",
-        title: VOCABULARY.depth.label,
+        id: "studio-priority",
+        title: VOCABULARY.priority.label,
         body: [
-          VOCABULARY.depth.help,
-          VOCABULARY.depth.technical,
-          VOCABULARY.depthBand.help,
-          VOCABULARY.addDepth.help,
+          VOCABULARY.priority.help,
+          VOCABULARY.priority.technical,
+          VOCABULARY.priorityBand.help,
+          VOCABULARY.addPriority.help,
         ],
       },
       {
@@ -206,7 +206,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-ghost",
+        id: "studio-standIn",
         title: VOCABULARY.standIn.label,
         body: [
           VOCABULARY.standIn.help,
@@ -279,7 +279,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: VOCABULARY.feet.label,
         body: [
           VOCABULARY.feet.help,
-          "The Feet guide marks the bottom row of the cel. In room previews the cel against the room’s real Depth.",
+          "The Feet guide marks the bottom row of the cel. In room previews the cel against the room’s real Priority.",
         ],
       },
       {

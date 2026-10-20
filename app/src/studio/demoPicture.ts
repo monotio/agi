@@ -1,6 +1,6 @@
 /**
  * The studio harness's demo picture: a small room whose `@item` annotations
- * give every lens something to show. Art: floor, wall, bench, lamp. Depth: a
+ * give every lens something to show. Art: floor, wall, bench, lamp. Priority: a
  * bench occluder at priority 10. Walk: a barrier (0), a conditional gate (1),
  * a signal exit (2) and a pond that is both art and water (3). Shapes come
  * from src/studio/shapes.ts; tests hand-check the geometry below.
@@ -18,7 +18,7 @@ const item = (id: string, label: string, kind: string, lines: readonly string[])
 ];
 
 export const DEMO_PICTURE_SOURCE = `${[
-  "# Studio demo: a gallery corner with depth and walk marks.",
+  "# Studio demo: a gallery corner with priority and walk marks.",
   ...item("floor", "Floor", "art", [
     ...shapeSource({
       kind: "rect",
@@ -63,7 +63,7 @@ export const DEMO_PICTURE_SOURCE = `${[
       ],
     }),
   ]),
-  ...item("bench-occluder", "Bench depth", "depth", [
+  ...item("bench-occluder", "Bench priority", "depth", [
     ...shapeSource({ kind: "rect", color: null, priority: 10, filled: true, ...DEMO_OCCLUDER }),
   ]),
   ...item("floor-edge", "Floor edge", "walk", [

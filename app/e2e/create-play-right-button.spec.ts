@@ -180,7 +180,7 @@ async function retainPictureEditor(page: Page): Promise<void> {
   const show = page.getByTestId("workspace-show-game");
   if (await show.isVisible()) await show.click();
   await page.getByRole("button", { name: "PICTURE 0", exact: true }).click();
-  await expect(page.getByTestId("room-studio")).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
+  await expect(page.getByTestId("picture-studio")).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
 }
 
 /** The room menu's open state, read live from the app's own module. */

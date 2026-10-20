@@ -338,7 +338,7 @@ test("v3 extension dispatch consumes its profile operands and saves the menu gat
   assert.equal(early.vars[62], 17);
 });
 
-// The pure band function the engine and the Room Studio's band guides share,
+// The pure band function the engine and the PICTURE editor's band guides share,
 // hand-computed from 5 + floor((y - base) * 10 / (168 - base)).
 test("priorityForY maps the default base 48 to bands 4..14", () => {
   assert.equal(priorityForY(47), 4); // above the base

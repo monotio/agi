@@ -54,7 +54,7 @@ import { sha256Hex } from "../../../src/crypto.ts";
 import { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
 import { validateToolArguments } from "../../../src/agent/schemaValidate.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
-import type { ImageFrame } from "../../../src/creative/imageOperations.ts";
+import type { ImageCel } from "../../../src/creative/imageOperations.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
 import { colourIdForProfile, colourTableForProfile } from "../../../src/runtime/colourTables.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
@@ -1320,8 +1320,8 @@ export function createWorkspaceAgent(options: Options) {
                         target,
                         image,
                         call.input["frames"] === null
-                          ? operations.suggestImageFrames(image)
-                          : (call.input["frames"] as ImageFrame[]),
+                          ? operations.suggestImageCels(image)
+                          : (call.input["frames"] as ImageCel[]),
                         PROFILES[profileId]!,
                         undefined,
                         undefined,

@@ -21,8 +21,8 @@ import type { ViewRoom } from "../../world/studioSource.ts";
  * The edited cel standing in one of the rooms that use the view: the room's
  * picture rendered by the engine's renderer, the cel placed by the engine's
  * own blit with its baseline band's priority (src/studio/probe.ts, the same
- * probe as Room Studio's ghost actor), so pixels the room's priority hides
- * show hidden: "Depth 11 at y 120 · fully visible", and a warning when its
+ * probe as PICTURE editor's standIn actor), so pixels the room's priority hides
+ * show hidden: "Priority 11 at y 120 · fully visible", and a warning when its
  * feet touch a walk line. Drag, click or the arrow keys move it; the room
  * picker lists the rooms that use the view. A short window shows the verdict
  * alone, with the room itself behind Show (useShortWindow.ts).
@@ -115,7 +115,7 @@ const verdict = computed(() => {
       ? null
       : `The feet touch ${touched.join(" and ")}${r.footprint.accepted ? "" : ": the game keeps it from standing here"}.`;
   return {
-    priority: `Depth ${r.drawPriority} at y ${baselineY.value}`,
+    priority: `Priority ${r.drawPriority} at y ${baselineY.value}`,
     cover,
     footing,
     hidden,
@@ -250,7 +250,7 @@ function onKey(event: KeyboardEvent): void {
         @keydown="onKey"
       ></canvas>
       <p class="room-preview__verdict" data-testid="view-room-verdict">
-        {{ verdict.priority }} · {{ verdict.cover }} <UiExplain v-bind="explain('depth')" />
+        {{ verdict.priority }} · {{ verdict.cover }} <UiExplain v-bind="explain('priority')" />
       </p>
       <p v-if="verdict.footing" class="room-preview__warn">
         {{ verdict.footing }}

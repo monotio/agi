@@ -77,7 +77,7 @@ async function bootIslandGame(page: Page): Promise<void> {
 
 async function openStudio(page: Page): Promise<Locator> {
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }

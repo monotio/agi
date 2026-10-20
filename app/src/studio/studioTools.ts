@@ -1,5 +1,5 @@
 /**
- * Room Studio's drawing tools as pure state: which tools exist and their
+ * PICTURE editor's drawing tools as pure state: which tools exist and their
  * keys, the values new content draws with, the click and drag sequences of
  * the line, polygon, rect and brush tools, the pipette's pick, the names new
  * items get, and where in draw order an insert lands. No Vue and no DOM;
@@ -81,7 +81,7 @@ export interface CurrentValues {
 
 /** Each lens starts on its own plane: Visual draws colour, Priority the band under the cursor. */
 export function defaultValues(lens: StudioLens): CurrentValues {
-  if (lens === "art") return { visual: 0, priority: null };
+  if (lens === "visual") return { visual: 0, priority: null };
   return { visual: null, priority: "band" };
 }
 
@@ -232,7 +232,7 @@ export const TOOL_NOUNS: Record<"line" | "rect" | "polygon" | "fill" | "brush", 
 };
 
 /**
- * A new item's id, label and kind: "Rect 3", "Barrier line 2", "Depth
+ * A new item's id, label and kind: "Rect 3", "Barrier line 2", "Priority
  * polygon 1", numbered with the first number whose label and id are free.
  */
 export function newItemNames(
@@ -246,7 +246,7 @@ export function newItemNames(
     kind === "walk"
       ? `${capitalise(CONTROL_VALUES[priority!]!.name)} ${noun.toLowerCase()}`
       : kind === "depth"
-        ? `Depth ${noun.toLowerCase()}`
+        ? `Priority ${noun.toLowerCase()}`
         : noun;
   const labels = new Set(document.items.map((item) => item.label));
   const ids = new Set(document.items.map((item) => item.id));

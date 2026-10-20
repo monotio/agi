@@ -13,7 +13,7 @@ import type { StudioRequest } from "../shell/workspaceEditor.ts";
 
 import { studioPictureSource } from "./studioSource.ts";
 
-export function useRoomStudio(engine: EngineApi = useEngineApi()) {
+export function usePictureStudio(engine: EngineApi = useEngineApi()) {
   const map = engine.roomMap;
 
   /**

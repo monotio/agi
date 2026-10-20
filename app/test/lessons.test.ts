@@ -65,7 +65,7 @@ test("every registered lesson has a unique id, 2-4 steps and a target", async ()
     assert.equal(new Set(ids).size, ids.length);
     for (const lesson of set.lessons) {
       assert.ok(lesson.steps.length >= 2 && lesson.steps.length <= 4, lesson.id);
-      assert.ok(lesson.open.studio === "room" || lesson.open.studio === "view", lesson.id);
+      assert.ok(lesson.open.studio === "picture" || lesson.open.studio === "view", lesson.id);
     }
   }
 });
@@ -199,7 +199,7 @@ function session(verify?: NonNullable<StudioLesson["challenge"]>["verify"]): Les
       title: "Move the sun",
       teaser: "",
       steps: ["a", "b"],
-      open: { studio: "room", picture: 1 },
+      open: { studio: "picture", picture: 1 },
       ...(verify ? { challenge: { prompt: "Move the sun.", verify } } : {}),
     },
     before: Uint8Array.of(1, 2),

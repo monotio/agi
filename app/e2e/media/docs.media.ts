@@ -60,7 +60,7 @@ async function starter(page: Page): Promise<void> {
 }
 
 /** Build a sheet from Starter's original hero, with gaps for frame detection. */
-function heroSheet(): Buffer {
+function egoSheet(): Buffer {
   const cels = createStarterProject("starter").sources.views.get(0)!.loops[0]!.cels!;
   const height = Math.max(...cels.map((cel) => cel.height)) + 8;
   const width = cels.reduce((sum, cel) => sum + cel.width * 2 + 8, 0);
@@ -108,7 +108,7 @@ test("play-crt-1.2", async ({ page }) => {
 test("workspace-picture-1.2", async ({ page }) => {
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await shot(page, "workspace-picture-1.2");
 });
 
@@ -136,8 +136,8 @@ test("view-cels-1.2", async ({ page }) => {
   await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
   await page
     .getByTestId("image-file")
-    .setInputFiles({ name: "starter-hero.png", mimeType: "image/png", buffer: heroSheet() });
-  await expect(page.getByTestId("image-frame").first()).toBeVisible();
+    .setInputFiles({ name: "starter-hero.png", mimeType: "image/png", buffer: egoSheet() });
+  await expect(page.getByTestId("image-cel").first()).toBeVisible();
   await page.getByTestId("image-add-cels").click();
   await expect(page.getByTestId("image-status")).toContainText("Added");
   await workspaceSaved(page);
@@ -228,7 +228,7 @@ test("blank-start-1.2", async ({ page }) => {
 test("agent-drawer-1.2", async ({ page }) => {
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await openWorkspaceAgent(page);
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
@@ -243,7 +243,7 @@ test("agent-drawer-1.2", async ({ page }) => {
 test("picture-line-1.2", async ({ page }) => {
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await page.getByTestId("workspace-focus").click();
   await studio.locator('button[data-tool="line"]').click();
@@ -391,7 +391,7 @@ test("test-run-1.2", async ({ page }) => {
 test("room-setting-1.2", async ({ page }) => {
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await page.getByTestId("workspace-more").click();
   await page.getByRole("menuitem", { name: "Details…", exact: true }).click();
   const details = page.getByTestId("workspace-game-details");

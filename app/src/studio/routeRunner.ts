@@ -1,5 +1,5 @@
 /**
- * Room Studio's test walk off the main thread: `testRoute`
+ * PICTURE editor's test walk off the main thread: `testRoute`
  * (src/studio/route.ts) boots a throwaway copy of the game and walks ego
  * through it, which takes too long to run while the canvas waits. A fresh
  * worker (route.worker.ts) runs each walk and is terminated after it; a

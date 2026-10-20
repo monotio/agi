@@ -21,7 +21,7 @@ moat, a hero and a game behind it, for between three cents and two dollars. From
 
 Open [agi.monotio.com](https://agi.monotio.com/) and choose **Play the tutorial**. **Adventure
 Department** is a three-room tutorial about how these games are made: you repair a picture, wake up
-an actor and sort out a clerk's Depth.
+an actor and sort out a clerk's Priority.
 
 ![Adventure Department in Play with the CRT display](docs/media/play-crt-1.2.png)
 

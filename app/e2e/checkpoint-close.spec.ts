@@ -127,7 +127,7 @@ test("closing during a notes save resumes the checkpoint stored before pagehide"
     (keys) => Promise.all(keys.map((key) => navigator.locks.request(key, () => {}))),
     journals,
   );
-  await reopened.getByTestId("hero-primary").click();
+  await reopened.getByTestId("intro-primary").click();
   await waitForGameInput(reopened);
   expect(await position(reopened)).toEqual(walked);
   await expect

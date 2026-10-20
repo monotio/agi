@@ -782,12 +782,12 @@ test("viewing the tape replays it in a scratch session the live engine never fee
 
   // Player input while viewing is transport traffic, never engine input:
   // neither the scratch's stream nor the parked engine's queues move.
-  const queueDepth = ctx.run.input.keyQueue.length;
+  const queuePriority = ctx.run.input.keyQueue.length;
   send({ type: "key", code: 65 });
   send({ type: "click", x: 161, y: 108 });
   send({ type: "input", text: "jump" });
   send({ type: "direction", dir: 8 });
-  assert.equal(ctx.run.input.keyQueue.length, queueDepth, "the parked engine heard nothing");
+  assert.equal(ctx.run.input.keyQueue.length, queuePriority, "the parked engine heard nothing");
   assert.equal(ctx.run.input.clickQueue.length, 0, "the parked engine took no click");
 
   // The live engine sat through the whole session untouched.

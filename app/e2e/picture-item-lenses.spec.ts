@@ -12,11 +12,11 @@ test("PICTURE items show their drawing lenses", async ({ page }) => {
   const tree = page.locator('[role="treeitem"][data-row="tree"]');
   await expect(tree.getByRole("img", { name: "Visual", exact: true })).toHaveAttribute(
     "title",
-    `Visual: ${LENS_NAMES.art.help}`,
+    `Visual: ${LENS_NAMES.visual.help}`,
   );
   await expect(tree.getByRole("img", { name: "Priority", exact: true })).toHaveAttribute(
     "title",
-    `Priority: ${LENS_NAMES.depth.help}`,
+    `Priority: ${LENS_NAMES.priority.help}`,
   );
   await expect(tree).not.toContainText("mixed");
   await expect(page.locator('[role="treeitem"][data-row="sun"]').getByRole("img")).toHaveCount(0);

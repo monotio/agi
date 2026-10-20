@@ -44,7 +44,7 @@ test(
 
     // Room 1's picture (the castle courtyard) was decoded by the authentic
     // vector renderer: a hand-authored AGI picture has rich color variety and
-    // distinct priority bands for depth sorting.
+    // distinct priority bands for priority sorting.
     const colors = new Set(engine.surface.visual);
     const priorities = new Set(engine.surface.priority);
     assert.ok(colors.size >= 8, `expected >= 8 distinct visual colors, got ${colors.size}`);

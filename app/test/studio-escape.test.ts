@@ -31,7 +31,10 @@ const escape = (target: unknown = null) =>
   ({ key: "Escape", defaultPrevented: false, repeat: false, target }) as unknown as KeyboardEvent;
 
 const STUDIOS = [
-  ["Room Studio", (event: KeyboardEvent, act: object) => studioKey(event, act as StudioKeyActions)],
+  [
+    "PICTURE editor",
+    (event: KeyboardEvent, act: object) => studioKey(event, act as StudioKeyActions),
+  ],
   ["VIEW editor", (event: KeyboardEvent, act: object) => viewKey(event, act as ViewKeyActions)],
 ] as const;
 

@@ -34,7 +34,7 @@ import type { PortableProjectWorkspace } from "../../../src/authoring/projectWor
  *
  * The authoring base belongs to the booted game, not to a session: the tab
  * holds one authoring state per game at a time — its live session, or,
- * without one, the booted record Room Studio opens a draft on — and every
+ * without one, the booted record PICTURE editor opens a draft on — and every
  * session a game gets hydrates from the same record.
  */
 import { resourceCacheHint } from "../../../src/agent/authoringState.ts";

@@ -189,16 +189,16 @@ export function verifyMirrorEdit(input: LessonVerifyInput): Verdict {
   return { ok: true };
 }
 
-/** Challenge 3: give the ledger stand the counter's depth without touching the picture. */
-export function verifyStandDepth(input: LessonVerifyInput): Verdict {
+/** Challenge 3: give the ledger stand the counter's priority without touching the picture. */
+export function verifyStandPriority(input: LessonVerifyInput): Verdict {
   if (input.kind !== "picture" || input.num !== ARCHIVE)
     return fail("This challenge uses the archive (PICTURE 3). Open it from the lesson.");
   if (sameBytes(input.before, input.after))
-    return fail("To begin, switch to the Depth lens and select Counter depth.");
+    return fail("To begin, switch to the Priority lens and select the counter's priority item.");
   const a = planes(input.before, input);
   const b = planes(input.after, input);
   if (a.visual.some((value, i) => value !== b.visual[i]))
-    return fail("The Art changed. Undo that change, then edit in the Depth lens.");
+    return fail("The picture changed. Undo that change, then edit in the Priority lens.");
 
   // The stand's pixels, from the shipped archive: its art item's visual footprint.
   const shipped = parsePictureDocument(TUTORIAL_PICTURES[ARCHIVE]!).document;
@@ -216,7 +216,7 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
     const x = i % SCREEN_WIDTH;
     const y = (i - x) / SCREEN_WIDTH;
     [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
-    // Barrier lines (0..3) are control, not depth: they don't count either way.
+    // Barrier lines (0..3) are control, not priority: they don't count either way.
     if (b.priority[i]! < 4) continue;
     standCells++;
     if (b.priority[i] === COUNTER_PRIORITY) hidden++;
@@ -228,12 +228,12 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
       b.priority[i] !== COUNTER_PRIORITY
     )
       return fail(
-        "The counter lost some of its depth, so Felix would float again. Undo that part.",
+        "The counter lost some of its priority, so Felix would float again. Undo that part.",
       );
   }
   if (a.priority.some((value, i) => value < 4 && b.priority[i] !== value))
     return fail(
-      "That covered a walk barrier, so the apprentice could walk through things. Draw the depth earlier: undo, click Counter depth's last step under Details › Steps (or drag the draw order back before the barriers), and draw it again.",
+      "That covered a walk barrier, so the apprentice could walk through things. Draw the priority earlier: undo, click the last step of the counter's priority item under Details › Steps (or drag the draw order back before the barriers), and draw it again.",
     );
   let outside = 0;
   for (let i = 0; i < CELLS; i++) {
@@ -244,26 +244,26 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
   }
   if (outside > 0)
     return fail(
-      `${outside} pixels of depth landed away from the ledger stand. Keep it to the stand.`,
+      `${outside} pixels of priority landed away from the ledger stand. Keep it to the stand.`,
     );
   if (hidden < standCells * 0.9) {
     const others = [...b.priority].some((value, i) => stand[i] === 1 && value > COUNTER_PRIORITY);
     return fail(
       others
         ? "Some of the stand is closer than 11 (a bigger number), so it would hide the apprentice standing in front. Use the counter's 11."
-        : `The stand has ${hidden} of ${standCells} pixels at depth 11. Paint depth 11 over the rest.`,
+        : `The stand has ${hidden} of ${standCells} pixels at priority 11. Paint priority 11 over the rest.`,
     );
   }
   const before = beforeDocument(input);
   if (before && input.afterSource !== undefined) {
     const after = parsePictureDocument(input.afterSource).document;
-    const notDepth = changedItems(before, after).filter((id) => {
+    const notPriority = changedItems(before, after).filter((id) => {
       const item = after.items.find((candidate) => candidate.id === id);
       return item !== undefined && item.kind !== "depth";
     });
-    if (notDepth.length > 0)
+    if (notPriority.length > 0)
       return fail(
-        `${labelOf([after], notDepth[0]!)} contains Art. Undo that change, then put Depth in Counter depth.`,
+        `${labelOf([after], notPriority[0]!)} contains visual drawing. Undo that change, then put Priority in the counter's priority item.`,
       );
   }
   return { ok: true };
@@ -284,7 +284,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
         "Watch the sky: it pours in last, because a fill only floods white.",
         "Click Sun in the list. Every step in it lights up.",
       ],
-      open: { studio: "room", picture: MURAL },
+      open: { studio: "picture", picture: MURAL },
       challenge: {
         prompt: "Change the sun: a new colour, size or place. Leave everything else as it is.",
         verify: verifyMuralObject,
@@ -308,19 +308,19 @@ export const TUTORIAL_LESSONS: LessonSet = {
     },
     {
       id: "ad-archive-depth",
-      title: "Depth decides who is in front",
+      title: "Priority decides who is in front",
       teaser: "Drag a stand-in behind the counter and see why its 11 hides Felix at 10.",
       steps: [
-        "Switch to the Depth lens. Every colour is a depth number, which AGI calls priority.",
+        "Switch to the Priority lens. Every colour is a priority number, which AGI calls priority.",
         "Place the stand-in and drag it behind the counter: the counter's 11 hides it. Lower on the screen means a bigger number, so in front it shows.",
-        "Now drag it behind the ledger stand. It floats in front: the stand needs Depth.",
-        "Click Counter depth in the list, then its last step under Details › Steps. New steps go from there, before the Walls and Gates.",
+        "Now drag it behind the ledger stand. It floats in front: the stand needs Priority.",
+        "Click the counter's priority item in the list, then its last step under Details › Steps. New steps go from there, before the Walls and Gates.",
       ],
-      open: { studio: "room", picture: ARCHIVE },
+      open: { studio: "picture", picture: ARCHIVE },
       challenge: {
         prompt:
-          "Draw a filled rectangle of depth 11 over the ledger stand, so the stand-in hides behind it too. Change depth only.",
-        verify: verifyStandDepth,
+          "Draw a filled rectangle of priority 11 over the ledger stand, so the stand-in hides behind it too. Change priority only.",
+        verify: verifyStandPriority,
       },
     },
   ],

@@ -1,5 +1,5 @@
 /**
- * What the Studios open on. Room Studio: one picture's stored bytes, the
+ * What the Studios open on. PICTURE editor: one picture's stored bytes, the
  * interpreter profile that reads them, and the authored picture text when it
  * can be trusted. The bytes, and the container files handed on for the actor
  * probe's VIEWs, come from the same booted-resource snapshot the world map
@@ -7,7 +7,7 @@
  * for a game played without one (a catalog game such as the tutorial, or its
  * remix), the stored project's authoring sources. VIEW editor: one VIEW's
  * bytes from the same snapshot, the rooms whose logic names it
- * (viewUsage.ts) and the pictures they draw. Room Studio's Walk view also
+ * (viewUsage.ts) and the pictures they draw. PICTURE editor's Walk view also
  * reads the room's LOGIC: its annotated text under the same trust rule
  * (it must assemble to the booted bytes), the bindings and plan it names,
  * and the game's stored tests.
@@ -105,7 +105,7 @@ export interface StudioRoomChoice {
 }
 
 /**
- * What Room Studio's Walk view reads about the room framing the picture:
+ * What PICTURE editor's Walk view reads about the room framing the picture:
  * its logic, the names and plan the logic uses, and the game's tests.
  */
 export interface StudioRoomSource {

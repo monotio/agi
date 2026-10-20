@@ -27,9 +27,9 @@ export function useStudioLauncher() {
     if (shell.mode.value !== "create") return false;
     // Lazy imports: the studio sources stay off the Play boot path (check:bundle).
     const request =
-      target.studio === "room"
-        ? (await import("../world/useRoomStudio.ts"))
-            .useRoomStudio(engine)
+      target.studio === "picture"
+        ? (await import("../world/usePictureStudio.ts"))
+            .usePictureStudio(engine)
             .requestPicture(target.picture, lesson)
         : (await import("../world/useViewStudio.ts"))
             .useViewStudio(engine, editor)

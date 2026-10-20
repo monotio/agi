@@ -97,7 +97,7 @@ export function encodePngRgb(width: number, height: number, rgb: Uint8Array): Ui
   const v = new DataView(ihdr.buffer);
   v.setUint32(0, width);
   v.setUint32(4, height);
-  ihdr[8] = 8; // bit depth
+  ihdr[8] = 8; // bit priority
   ihdr[9] = 2; // colour type: truecolour RGB
   const parts = [
     new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),

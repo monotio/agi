@@ -181,9 +181,9 @@ test("editor action tooltips bind to shared action help", () => {
 test("workspace copy shares vocabulary labels and explainers", () => {
   const bindings: Readonly<Record<string, readonly string[]>> = {
     "app/src/shell/commands/CreateKeyboard.vue": ["VOCABULARY.closeEditor.label"],
-    "app/src/studio/RoomStudio.vue": ["VOCABULARY.lens.label"],
+    "app/src/studio/PictureStudio.vue": ["VOCABULARY.lens.label"],
     "app/src/studio/StudioCurrentValues.vue": [
-      "VOCABULARY.drawingDepth.help",
+      "VOCABULARY.drawingPriority.help",
       "VOCABULARY.none.label",
     ],
     "app/src/App.vue": ["VOCABULARY.waitingUpdate.label"],

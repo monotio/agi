@@ -14,10 +14,10 @@ export function validateTranscript(
   function string(value: unknown): void {
     if (typeof value !== "string") throw new Error("Invalid conversation text or identity.");
   }
-  function inspect(value: unknown, depth = 0): void {
-    if (depth > 40) throw new Error("Project conversation nesting is too deep.");
+  function inspect(value: unknown, priority = 0): void {
+    if (priority > 40) throw new Error("Project conversation nesting is too deep.");
     if (Array.isArray(value)) {
-      for (const item of value) inspect(item, depth + 1);
+      for (const item of value) inspect(item, priority + 1);
     } else if (value && typeof value === "object") {
       for (const [key, child] of Object.entries(value)) {
         if (
@@ -26,7 +26,7 @@ export function validateTranscript(
           )
         )
           throw new Error("Invalid conversation field.");
-        inspect(child, depth + 1);
+        inspect(child, priority + 1);
       }
     }
   }

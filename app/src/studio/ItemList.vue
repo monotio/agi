@@ -8,10 +8,10 @@ import UiPanel from "../ui/UiPanel.vue";
 import { explain } from "./studioTerms.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
 import { CONTROL_VALUES, labelParts, LENS_NAMES, type LabelParts } from "./studioView.ts";
-import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./useStudioDocument.ts";
+import type { ItemBranch, ItemGroupRow, ItemRow, ItemSectionRow } from "./useStudioDocument.ts";
 
 /**
- * The Scene list: a tree of items in draw order (automatic groups of
+ * The Items panel: a tree of items in draw order (automatic groups of
  * consecutive look-alike items, then their members; a long list first folds
  * into draw-order sections), then the loose steps under Loose. Arrow keys
  * move a cursor that also hovers (so the canvas highlights it), Right and Left
@@ -38,13 +38,13 @@ const {
   insertAt = null,
   movable = undefined,
 } = defineProps<{
-  branches: readonly SceneBranch[];
+  branches: readonly ItemBranch[];
   /** Draw-order sections over `branches`; empty for a short list. */
-  sections: readonly SceneSectionRow[];
+  sections: readonly ItemSectionRow[];
   /** Items matching the filter, flat; null while the filter is empty. */
-  matches: readonly SceneRow[] | null;
+  matches: readonly ItemRow[] | null;
   /** The Unassigned row, when there are loose lines (and it matches the filter). */
-  loose: SceneRow | undefined;
+  loose: ItemRow | undefined;
   hoveredId: string | undefined;
   /** The selected rows: one item or group, or several items. */
   selectedIds: readonly string[];
@@ -75,12 +75,12 @@ const drawOrder = defineModel<boolean>("drawOrder", { required: true });
 const OPEN_UP_TO = 40;
 
 interface Entry {
-  row: SceneRow;
+  row: ItemRow;
   level: 1 | 2 | 3;
   /** Set on a section's or group's own row: the rows it folds. */
-  fold?: SceneGroupRow;
+  fold?: ItemGroupRow;
   /** Set on a section's own row. */
-  section?: SceneSectionRow;
+  section?: ItemSectionRow;
   /** The section or group the row sits in. */
   parent?: string;
 }
@@ -117,7 +117,7 @@ watch(
 );
 
 function branchEntries(
-  list: readonly SceneBranch[],
+  list: readonly ItemBranch[],
   level: 1 | 2,
   parent: string | undefined,
 ): Entry[] {
@@ -300,9 +300,9 @@ function onDrop(entry: Entry, event: DragEvent): void {
 </script>
 
 <template>
-  <UiPanel title="Items" flush class="scene-list">
+  <UiPanel title="Items" flush class="item-list">
     <template #actions>
-      <span class="scene-list__meta"
+      <span class="item-list__meta"
         ><UiButton
           variant="ghost"
           size="sm"
@@ -317,19 +317,19 @@ function onDrop(entry: Entry, event: DragEvent): void {
         v-if="folds.length > 0 && matches === null && !drawOrder"
         variant="ghost"
         size="sm"
-        class="scene-list__all"
+        class="item-list__all"
         data-testid="scene-toggle-groups"
         @click="toggleAll"
       >
         {{ allOpen ? "Collapse all" : "Expand all" }}
       </UiButton>
     </template>
-    <div class="scene-list__filter">
+    <div class="item-list__filter">
       <UiIcon name="search" :size="14" />
       <input
         v-model="filter"
         type="search"
-        class="scene-list__input"
+        class="item-list__input"
         placeholder="Filter"
         aria-label="Filter items"
         @keydown="onFilterKeydown"
@@ -338,9 +338,9 @@ function onDrop(entry: Entry, event: DragEvent): void {
     <ul
       :id="listId"
       ref="list"
-      class="scene-list__rows"
+      class="item-list__rows"
       role="tree"
-      aria-label="Scene items in draw order"
+      aria-label="Items in draw order"
       aria-multiselectable="true"
       tabindex="0"
       :aria-activedescendant="cursor === undefined ? undefined : optionId(cursor)"
@@ -349,12 +349,12 @@ function onDrop(entry: Entry, event: DragEvent): void {
       @pointerleave="emit('hover', undefined)"
     >
       <template v-for="entry in entries" :key="entry.row.id">
-        <li v-if="entry.row === loose" class="scene-list__heading" role="presentation">
+        <li v-if="entry.row === loose" class="item-list__heading" role="presentation">
           <span>Loose</span><UiExplain v-bind="explain('loose')" />
         </li>
         <li
           v-if="entry.row.id === markerBefore"
-          class="scene-list__marker"
+          class="item-list__marker"
           role="presentation"
           data-testid="scene-insert-marker"
         >
@@ -362,7 +362,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
         </li>
         <li
           :id="optionId(entry.row.id)"
-          class="scene-list__row"
+          class="item-list__row"
           :class="{
             'is-group': entry.fold,
             'is-hover': isHover(entry),
@@ -392,7 +392,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
         >
           <span
             v-if="entry.fold"
-            class="scene-list__twisty"
+            class="item-list__twisty"
             data-role="twisty"
             aria-hidden="true"
             @click.stop="setOpen([entry.fold.id], !expanded.has(entry.fold.id))"
@@ -402,7 +402,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
           /></span>
           <i
             v-if="!entry.section"
-            class="scene-list__swatch"
+            class="item-list__swatch"
             :class="{ 'is-empty': entry.row.swatch === null }"
             :style="
               entry.row.swatch === null
@@ -411,11 +411,11 @@ function onDrop(entry: Entry, event: DragEvent): void {
             "
             aria-hidden="true"
           ></i>
-          <span class="scene-list__label" :title="entry.label.full"
-            ><span class="scene-list__head">{{ entry.label.head }}</span
-            ><span class="scene-list__tail">{{ entry.label.tail }}</span></span
+          <span class="item-list__label" :title="entry.label.full"
+            ><span class="item-list__head">{{ entry.label.head }}</span
+            ><span class="item-list__tail">{{ entry.label.tail }}</span></span
           >
-          <span v-if="entry.section" class="scene-list__swatches" data-role="section-swatches">
+          <span v-if="entry.section" class="item-list__swatches" data-role="section-swatches">
             <i
               v-for="colour in entry.section.swatches"
               :key="colour"
@@ -423,7 +423,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
               aria-hidden="true"
             ></i>
           </span>
-          <span v-else-if="(entry.row.lenses?.length ?? 0) > 1" class="scene-list__lenses">
+          <span v-else-if="(entry.row.lenses?.length ?? 0) > 1" class="item-list__lenses">
             <span
               v-for="lens in entry.row.lenses"
               :key="lens"
@@ -431,13 +431,13 @@ function onDrop(entry: Entry, event: DragEvent): void {
               :aria-label="LENS_NAMES[lens].label"
               :title="`${LENS_NAMES[lens].label}: ${LENS_NAMES[lens].help}`"
               ><UiIcon
-                :name="lens === 'art' ? 'eye' : lens === 'depth' ? 'layers' : 'footprints'"
+                :name="lens === 'visual' ? 'eye' : lens === 'priority' ? 'layers' : 'footprints'"
                 :size="12"
             /></span>
           </span>
           <span
             v-else-if="entry.row.kind === 'walk' && entry.row.tag !== quietTag"
-            class="scene-list__tag"
+            class="item-list__tag"
             :title="
               CONTROL_VALUES.find((control) => control.name === entry.row.tag)?.help ??
               VOCABULARY.walk.help
@@ -445,17 +445,17 @@ function onDrop(entry: Entry, event: DragEvent): void {
             >{{ entry.row.tag }}</span
           >
           <span
-            class="scene-list__count"
+            class="item-list__count"
             :title="`${entry.row.entries.length} ${entry.row.entries.length === 1 ? 'step' : 'steps'}`"
             >{{ entry.row.entries.length }}</span
           >
-          <span v-if="entry.row.locked" class="scene-list__lock" title="Locked item"
+          <span v-if="entry.row.locked" class="item-list__lock" title="Locked item"
             ><UiIcon name="lock" :size="12"
           /></span>
           <button
             v-if="entry.row !== loose && entry.row.entries.length > 0"
             type="button"
-            class="scene-list__insert"
+            class="item-list__insert"
             data-testid="row-insert"
             tabindex="-1"
             :aria-label="`Insert here: new shapes draw before ${entry.label.full}`"
@@ -466,21 +466,21 @@ function onDrop(entry: Entry, event: DragEvent): void {
           </button>
         </li>
       </template>
-      <li v-if="entries.length === 0" class="scene-list__empty" role="presentation">
+      <li v-if="entries.length === 0" class="item-list__empty" role="presentation">
         {{ filter ? `No items match “${filter}”.` : "Nothing drawn yet." }}
       </li>
     </ul>
     <template #footer>
-      <div class="scene-list__footer">
-        <span class="scene-list__foot" data-role="scene-count">
+      <div class="item-list__footer">
+        <span class="item-list__foot" data-role="scene-count">
           <template v-if="matches !== null">{{ matches.length }} of {{ itemTotal }} items</template>
           <template v-else>{{ itemTotal }} {{ itemTotal === 1 ? "item" : "items" }}</template>
         </span>
-        <span v-if="groupable" class="scene-list__with">
+        <span v-if="groupable" class="item-list__with">
           <UiButton
             variant="ghost"
             size="sm"
-            class="scene-list__group"
+            class="item-list__group"
             :shortcut="keyLabel('Mod+G')"
             data-testid="scene-group"
             @click="emit('group')"
@@ -494,16 +494,16 @@ function onDrop(entry: Entry, event: DragEvent): void {
 </template>
 
 <style scoped>
-.scene-list {
+.item-list {
   min-height: 0;
   height: 100%;
 }
-.scene-list :deep(.ui-panel__body) {
+.item-list :deep(.ui-panel__body) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.scene-list__meta {
+.item-list__meta {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -511,10 +511,10 @@ function onDrop(entry: Entry, event: DragEvent): void {
   font-size: var(--text-xs);
   white-space: nowrap;
 }
-.scene-list__all {
+.item-list__all {
   white-space: nowrap;
 }
-.scene-list__filter {
+.item-list__filter {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -526,15 +526,15 @@ function onDrop(entry: Entry, event: DragEvent): void {
   color: var(--ink-3);
   background: var(--surface-0);
 }
-.scene-list__filter:focus-within {
+.item-list__filter:focus-within {
   border-color: var(--action-line);
 }
 /* The field itself draws no outline: the ring every control shows goes round the whole box. */
-.scene-list__filter:has(.scene-list__input:focus-visible) {
+.item-list__filter:has(.item-list__input:focus-visible) {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
-.scene-list__input {
+.item-list__input {
   flex: 1;
   min-width: 0;
   border: 0;
@@ -543,7 +543,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
   background: transparent;
   font: var(--text-xs) var(--font-sans);
 }
-.scene-list__rows {
+.item-list__rows {
   flex: 1;
   min-height: 0;
   container-type: inline-size;
@@ -553,10 +553,10 @@ function onDrop(entry: Entry, event: DragEvent): void {
   list-style: none;
   outline: 0;
 }
-.scene-list__rows:focus-visible {
+.item-list__rows:focus-visible {
   box-shadow: inset 0 0 0 2px var(--focus);
 }
-.scene-list__heading {
+.item-list__heading {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -566,7 +566,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
-.scene-list__row {
+.item-list__row {
   position: relative;
   display: grid;
   grid-template-columns: 12px 12px minmax(8ch, 1fr) auto 28px 12px;
@@ -580,50 +580,50 @@ function onDrop(entry: Entry, event: DragEvent): void {
   /* Shift+click extends the item selection and leaves the text alone. */
   user-select: none;
 }
-.scene-list__row > * {
+.item-list__row > * {
   grid-row: 1;
 }
-.scene-list__row[aria-level="2"] {
+.item-list__row[aria-level="2"] {
   padding-left: var(--space-7);
 }
-.scene-list__row[aria-level="3"] {
+.item-list__row[aria-level="3"] {
   padding-left: calc(var(--space-7) + var(--space-6));
 }
-.scene-list__swatches {
+.item-list__swatches {
   grid-column: 4;
   display: flex;
   gap: var(--space-0);
 }
-.scene-list__swatches i {
+.item-list__swatches i {
   width: 8px;
   height: 8px;
   border-radius: var(--radius-sm);
   box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
-.scene-list__row.is-group {
+.item-list__row.is-group {
   color: var(--ink);
 }
-.scene-list__twisty {
+.item-list__twisty {
   grid-column: 1;
   display: grid;
   place-items: center;
   color: var(--ink-3);
 }
-.scene-list__row.is-dim {
+.item-list__row.is-dim {
   color: var(--ink-3);
 }
-.scene-list__row.is-hover,
-.scene-list__row.is-cursor {
+.item-list__row.is-hover,
+.item-list__row.is-cursor {
   background: var(--surface-2);
 }
-.scene-list__row.is-cursor {
+.item-list__row.is-cursor {
   box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
-.scene-list__row[aria-selected="true"] {
+.item-list__row[aria-selected="true"] {
   color: var(--ink);
   background: var(--action-soft);
 }
-.scene-list__row[aria-selected="true"]::before {
+.item-list__row[aria-selected="true"]::before {
   content: "";
   position: absolute;
   top: var(--space-1);
@@ -633,51 +633,51 @@ function onDrop(entry: Entry, event: DragEvent): void {
   border-radius: var(--radius-sm);
   background: var(--action);
 }
-.scene-list__row[draggable="true"] {
+.item-list__row[draggable="true"] {
   cursor: grab;
 }
-.scene-list__row.is-dragged {
+.item-list__row.is-dragged {
   opacity: 0.4;
 }
-.scene-list__row.is-drop-before {
+.item-list__row.is-drop-before {
   box-shadow: inset 0 2px 0 0 var(--action);
 }
-.scene-list__row.is-drop-after {
+.item-list__row.is-drop-after {
   box-shadow: inset 0 -2px 0 0 var(--action);
 }
-.scene-list__swatch {
+.item-list__swatch {
   grid-column: 2;
   width: 12px;
   height: 12px;
   border-radius: var(--radius-sm);
   box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
-.scene-list__swatch.is-empty {
+.item-list__swatch.is-empty {
   background: repeating-linear-gradient(45deg, var(--surface-3) 0 2px, transparent 2px 4px);
 }
-.scene-list__label {
+.item-list__label {
   grid-column: 3;
   display: flex;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
 }
-.scene-list__head {
+.item-list__head {
   min-width: 1.5em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.scene-list__tail {
+.item-list__tail {
   flex: none;
   white-space: pre;
 }
-.scene-list__lenses {
+.item-list__lenses {
   grid-column: 4;
   display: flex;
   gap: var(--space-1);
   color: var(--ink-3);
 }
-.scene-list__tag {
+.item-list__tag {
   grid-column: 4;
   padding: 0 var(--space-1);
   border: 1px solid var(--hairline-strong);
@@ -685,38 +685,38 @@ function onDrop(entry: Entry, event: DragEvent): void {
   color: var(--ink-3);
   font: var(--text-2xs) / 1.4 var(--font-mono);
 }
-.scene-list__count {
+.item-list__count {
   grid-column: 5;
   color: var(--ink-3);
   font: var(--text-2xs) var(--font-mono);
   text-align: right;
 }
-.scene-list__lock {
+.item-list__lock {
   grid-column: 6;
   display: grid;
   color: var(--ink-3);
 }
 /* A narrow list (1024 wide) keeps the names: the counts and chips go first. */
 @container (max-width: 232px) {
-  .scene-list__row {
+  .item-list__row {
     grid-template-columns: 12px 12px minmax(8ch, 1fr) 12px;
   }
-  .scene-list__count,
-  .scene-list__tag,
-  .scene-list__swatches {
+  .item-list__count,
+  .item-list__tag,
+  .item-list__swatches {
     display: none;
   }
-  .scene-list__lock {
+  .item-list__lock {
     grid-column: 4;
   }
 }
-.scene-list__row.is-later {
+.item-list__row.is-later {
   color: var(--ink-3);
 }
-.scene-list__row.is-later .scene-list__swatch {
+.item-list__row.is-later .item-list__swatch {
   opacity: 0.5;
 }
-.scene-list__marker {
+.item-list__marker {
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -728,7 +728,7 @@ function onDrop(entry: Entry, event: DragEvent): void {
   box-shadow: inset 0 -1px 0 0 var(--action-line);
 }
 /* "insert here" waits at the row's right edge: it shows on hover, focus and the selected row. */
-.scene-list__insert {
+.item-list__insert {
   position: absolute;
   top: 50%;
   right: var(--space-2);
@@ -743,37 +743,37 @@ function onDrop(entry: Entry, event: DragEvent): void {
   cursor: pointer;
   opacity: 0;
 }
-.scene-list__row:hover .scene-list__insert,
-.scene-list__row.is-cursor .scene-list__insert,
-.scene-list__row[aria-selected="true"] .scene-list__insert,
-.scene-list__insert:focus-visible {
+.item-list__row:hover .item-list__insert,
+.item-list__row.is-cursor .item-list__insert,
+.item-list__row[aria-selected="true"] .item-list__insert,
+.item-list__insert:focus-visible {
   opacity: 1;
 }
-.scene-list__insert:hover {
+.item-list__insert:hover {
   background: var(--action-soft);
 }
-.scene-list__empty {
+.item-list__empty {
   padding: var(--space-4) var(--space-5);
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
-.scene-list__footer {
+.item-list__footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   min-height: var(--control-h-sm);
 }
-.scene-list__foot {
+.item-list__foot {
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
-.scene-list__with {
+.item-list__with {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
 }
-.scene-list__group {
+.item-list__group {
   color: var(--ink-2);
 }
 </style>

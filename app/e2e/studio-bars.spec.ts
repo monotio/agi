@@ -81,7 +81,7 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   };
 
   await openWorkspacePicture(page, 2);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
   await page.getByTestId("workspace-focus").click();
   await look("room top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
@@ -130,7 +130,7 @@ function hiddenTools(rail: Locator): Promise<string[]> {
 test("at 1024×600 every rail tool is on screen or behind a chevron", async ({ page }) => {
   await playTutorial(page);
   await openWorkspacePicture(page, 2);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   const rail = studio.getByRole("toolbar", { name: "Tools" });
   const seen: string[] = [];
   for (const lens of ["1", "2"]) {

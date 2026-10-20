@@ -1,8 +1,8 @@
-/** Pixel-grid geometry for marking image frames; regions use exclusive right/bottom edges. */
+/** Pixel-grid geometry for marking image cels; regions use exclusive right/bottom edges. */
 import type { Rect } from "./catalog.ts";
-import { scaleImageFrame, type ImageFrame } from "./imageOperations.ts";
+import { scaleImageCel, type ImageCel } from "./imageOperations.ts";
 
-export interface FrameBox extends ImageFrame {
+export interface CelBox extends ImageCel {
   readonly id: string;
   readonly edited: boolean;
   readonly linked?: boolean;
@@ -15,7 +15,7 @@ interface Point {
   readonly x: number;
   readonly y: number;
 }
-export type FrameHandle = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+export type CelHandle = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
@@ -26,11 +26,11 @@ function snapSize(value: number, sizes: readonly number[], max: number) {
     .sort((a, b) => Math.abs(a - rounded) - Math.abs(b - rounded) || a - b)[0];
   return nearest ?? rounded;
 }
-export function drawFrameRegion(
+export function drawCelRegion(
   start: Point,
   end: Point,
   sheet: Size,
-  peers: readonly ImageFrame[],
+  peers: readonly ImageCel[],
 ): Rect {
   const x = clamp(Math.min(start.x, end.x), 0, sheet.width - 1);
   const y = clamp(Math.min(start.y, end.y), 0, sheet.height - 1);
@@ -49,20 +49,20 @@ export function drawFrameRegion(
     ),
   };
 }
-export function moveFrameRegion(region: Rect, dx: number, dy: number, sheet: Size): Rect {
+export function moveCelRegion(region: Rect, dx: number, dy: number, sheet: Size): Rect {
   return {
     ...region,
     x: clamp(region.x + dx, 0, sheet.width - region.width),
     y: clamp(region.y + dy, 0, sheet.height - region.height),
   };
 }
-export function resizeFrameRegion(
+export function resizeCelRegion(
   region: Rect,
-  handle: FrameHandle,
+  handle: CelHandle,
   dx: number,
   dy: number,
   sheet: Size,
-  peers: readonly ImageFrame[],
+  peers: readonly ImageCel[],
 ): Rect {
   let { x, y, width, height } = region;
   const right = x + width,
@@ -97,7 +97,7 @@ export function resizeFrameRegion(
     );
   return { x, y, width, height };
 }
-export function lockFrameSizes(boxes: readonly FrameBox[], size: Size, sheet: Size): FrameBox[] {
+export function lockFrameSizes(boxes: readonly CelBox[], size: Size, sheet: Size): CelBox[] {
   const width = clamp(size.width, 1, sheet.width),
     height = clamp(size.height, 1, sheet.height);
   return boxes.map((f) => ({
@@ -114,7 +114,7 @@ export function lockFrameSizes(boxes: readonly FrameBox[], size: Size, sheet: Si
   }));
 }
 /** Give found figures the smallest shared crop that contains every figure. */
-export function linkFoundFrames(boxes: readonly FrameBox[], sheet: Size): FrameBox[] {
+export function linkFoundCels(boxes: readonly CelBox[], sheet: Size): CelBox[] {
   if (!boxes.length) return [];
   const width = Math.max(...boxes.map((f) => f.region.width));
   const height = Math.max(...boxes.map((f) => f.region.height));
@@ -125,18 +125,18 @@ export function linkFoundFrames(boxes: readonly FrameBox[], sheet: Size): FrameB
       width,
       height,
     };
-    return { ...f, region, linked: true, ...scaleImageFrame(region, f.height) };
+    return { ...f, region, linked: true, ...scaleImageCel(region, f.height) };
   });
 }
 /** Resize a linked set by the same edge deltas, constrained by every member. */
-export function resizeLinkedFrameBoxes(
-  boxes: readonly FrameBox[],
+export function resizeLinkedCelBoxes(
+  boxes: readonly CelBox[],
   id: string,
-  handle: FrameHandle,
+  handle: CelHandle,
   dx: number,
   dy: number,
   sheet: Size,
-): FrameBox[] {
+): CelBox[] {
   const active = boxes.find((f) => f.id === id);
   if (!active) return [...boxes];
   const members = boxes.filter((f) => f.id === id || (active.linked && f.linked));
@@ -170,7 +170,7 @@ export function resizeLinkedFrameBoxes(
   });
 }
 /** Relink to the first shared size while preserving the figure's top-left offset. */
-export function toggleFrameLink(boxes: readonly FrameBox[], id: string, sheet: Size): FrameBox[] {
+export function toggleCelLink(boxes: readonly CelBox[], id: string, sheet: Size): CelBox[] {
   const active = boxes.find((f) => f.id === id);
   if (!active) return [...boxes];
   const shared = boxes.find((f) => f.id !== id && f.linked)?.region;
@@ -179,29 +179,29 @@ export function toggleFrameLink(boxes: readonly FrameBox[], id: string, sheet: S
     const region =
       !f.linked && shared ? { ...f.region, width: shared.width, height: shared.height } : f.region;
     if (region.x + region.width > sheet.width || region.y + region.height > sheet.height)
-      throw new Error("Move this frame inside the sheet to link it.");
+      throw new Error("Move this cel inside the sheet to link it.");
     return { ...f, edited: true, linked: !f.linked, region };
   });
 }
-export function orderFrameBoxes(boxes: readonly FrameBox[]): FrameBox[] {
-  const rows: FrameBox[][] = [];
-  let row: FrameBox[] = [];
+export function orderCelBoxes(boxes: readonly CelBox[]): CelBox[] {
+  const rows: CelBox[][] = [];
+  let row: CelBox[] = [];
   let bottom = 0;
-  for (const frame of [...boxes].sort((a, b) => a.region.y - b.region.y)) {
-    if (!row.length || frame.region.y >= bottom) {
+  for (const cel of [...boxes].sort((a, b) => a.region.y - b.region.y)) {
+    if (!row.length || cel.region.y >= bottom) {
       row = [];
       rows.push(row);
-      bottom = frame.region.y + frame.region.height;
-    } else bottom = Math.min(bottom, frame.region.y + frame.region.height);
-    row.push(frame);
+      bottom = cel.region.y + cel.region.height;
+    } else bottom = Math.min(bottom, cel.region.y + cel.region.height);
+    row.push(cel);
   }
-  return rows.flatMap((frames) => frames.sort((a, b) => a.region.x - b.region.x));
+  return rows.flatMap((cels) => cels.sort((a, b) => a.region.x - b.region.x));
 }
-export function reorderFrameBoxes(
-  boxes: readonly FrameBox[],
+export function reorderCelBoxes(
+  boxes: readonly CelBox[],
   source: string,
   destination: string,
-): FrameBox[] {
+): CelBox[] {
   const from = boxes.findIndex((f) => f.id === source),
     to = boxes.findIndex((f) => f.id === destination);
   if (from < 0 || to < 0 || from === to) return [...boxes];
@@ -209,20 +209,20 @@ export function reorderFrameBoxes(
   next.splice(to, 0, ...next.splice(from, 1));
   return next;
 }
-export function assignFrameLoop(
-  boxes: readonly FrameBox[],
+export function assignCelLoop(
+  boxes: readonly CelBox[],
   ids: readonly string[],
   loop: number,
-): FrameBox[] {
+): CelBox[] {
   if (!Number.isInteger(loop) || loop < 0 || loop > 7)
     throw new Error("Choose a loop from 0 to 7.");
   return boxes.map((f) => (ids.includes(f.id) ? { ...f, loop, edited: true } : f));
 }
-export function mergeFrameSuggestions(
-  boxes: readonly FrameBox[],
-  suggestions: readonly FrameBox[],
+export function mergeCelSuggestions(
+  boxes: readonly CelBox[],
+  suggestions: readonly CelBox[],
   replace = false,
-): FrameBox[] {
+): CelBox[] {
   const kept = replace ? [] : boxes.filter((f) => f.edited);
   const fresh = suggestions.filter(
     (f) =>
@@ -234,5 +234,5 @@ export function mergeFrameSuggestions(
           f.region.y + f.region.height > r.y,
       ),
   );
-  return orderFrameBoxes([...kept, ...fresh]);
+  return orderCelBoxes([...kept, ...fresh]);
 }

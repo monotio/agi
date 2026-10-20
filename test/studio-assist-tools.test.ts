@@ -62,10 +62,10 @@ function bridgeAssist(
       num: 1,
       compiled,
       targetIds: ["bridge"],
-      lens: "depth",
+      lens: "priority",
     }),
     draft,
-    lens: "depth",
+    lens: "priority",
   });
 }
 
@@ -279,9 +279,9 @@ test("edit_selection takes insertPoint: a new vertex on the selected item's line
     DEFAULT_V2_PROFILE,
   );
   const assist = createSelectionEdit({
-    scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "art" }),
+    scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "visual" }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-    lens: "art",
+    lens: "visual",
   });
   const result = await propose(session(), assist, [
     op("pictureOps", {
@@ -332,9 +332,9 @@ test("a move that re-pours another item's fill is a candidate, the side effect i
     DEFAULT_V2_PROFILE,
   );
   const assist = createSelectionEdit({
-    scope: pictureAssistScope({ num: 1, compiled, targetIds: ["island"], lens: "art" }),
+    scope: pictureAssistScope({ num: 1, compiled, targetIds: ["island"], lens: "visual" }),
     draft: () => ({ kind: "picture", source: ISLAND_SOURCE }),
-    lens: "art",
+    lens: "visual",
   });
   const moved = await propose(state, assist, [
     op("pictureOps", { type: "moveItem", itemId: "island", dx: ISLAND_MOVE.dx, dy: 0 }),
@@ -391,7 +391,7 @@ test("art under the lock is refused in plain words, and a retry replaces nothing
   assert.deepEqual([assist.proposals, assist.refusals], [2, 1]);
 });
 
-test("depth painted under the selection in the Priority lens is proposed", async () => {
+test("priority painted under the selection in the Priority lens is proposed", async () => {
   // The Priority lens paints distance and control lines alike: floor (4)
   // over the river under the bridge passes where only control lines once did.
   const state = session();
@@ -483,7 +483,11 @@ test("a propagated recolor reaching the unselected mirror is refused", async () 
  * A rect over cells that already hold its value, or under art that covers it,
  * draws the same planes: the candidate would add bytes and show no diff.
  */
-const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "depth" | "art") => {
+const sameRender = (
+  atLine: number,
+  shape: Record<string, unknown>,
+  lens: "priority" | "visual",
+) => {
   const compiled = compileEditDocument(
     parsePictureDocument(BRIDGE_SOURCE).document,
     DEFAULT_V2_PROFILE,
@@ -499,7 +503,7 @@ const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "depth
     shape: { color: null, priority: null, filled: true, points: null, kind: "rect", ...shape },
     id: "no-op",
     label: "No-op",
-    kind: lens,
+    kind: lens === "visual" ? "art" : "depth",
   });
   return { assist, insert };
 };
@@ -511,7 +515,7 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
   const equal = sameRender(
     AFTER_BRIDGE,
     { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 },
-    "depth",
+    "priority",
   );
   const refused = await propose(state, equal.assist, [equal.insert]);
   assert.equal(refused.success, false);
@@ -533,7 +537,7 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
 
   // Art the bridge paints over: a colour-2 rect inserted before the bridge
   // item, inside its 60..99 x 118..141 block, is fully covered.
-  const covered = sameRender(12, { color: 2, x1: 70, y1: 120, x2: 89, y2: 139 }, "art");
+  const covered = sameRender(12, { color: 2, x1: 70, y1: 120, x2: 89, y2: 139 }, "visual");
   const hidden = await propose(state, covered.assist, [covered.insert]);
   assert.match(hidden.error ?? "", /draw the same pixels as the draft/);
   assert.equal(covered.assist.candidate, null);
@@ -541,7 +545,7 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
 
 test("a label or kind change is a candidate though it draws the same pixels", async () => {
   const state = session();
-  const { assist } = sameRender(AFTER_BRIDGE, {}, "depth");
+  const { assist } = sameRender(AFTER_BRIDGE, {}, "priority");
   const meta = op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "Old bridge" });
   const renamed = await propose(state, assist, [meta]);
   assert.equal(renamed.success, true, renamed.error ?? "");
@@ -553,7 +557,7 @@ test("a label or kind change is a candidate though it draws the same pixels", as
   const { insert } = sameRender(
     AFTER_BRIDGE,
     { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 },
-    "depth",
+    "priority",
   );
   const mixed = await propose(state, assist, [
     op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "New bridge" }),

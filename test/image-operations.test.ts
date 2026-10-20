@@ -8,7 +8,7 @@ import {
   traceOptionsChanges,
   makeCelsChanges,
   prepareImageCels,
-  suggestImageFrames,
+  suggestImageCels,
   readImageReferences,
   readProjectImage,
   imageTraceUnderlay,
@@ -70,7 +70,7 @@ test("four suggested frames become four appended cels in one detached operation"
   const existing = buildView({
     loops: [{ cels: [{ width: 1, height: 1, pixels: [2], transparentColor: 15 }] }],
   });
-  const frames = suggestImageFrames(image, 4);
+  const frames = suggestImageCels(image, 4);
   assert.deepEqual(
     frames.map((f) => f.region),
     [0, 2, 4, 6].map((x) => ({ x, y: 0, width: 2, height: 2 })),
@@ -266,7 +266,7 @@ test("released traces without a transform retain contain placement", () => {
 
 test("preparation identifies the current pixels after an in-place image edit", () => {
   const source = { ...image, rgba: image.rgba.slice() };
-  const frames = suggestImageFrames(source, 4);
+  const frames = suggestImageCels(source, 4);
   const first = prepareImageCels(source, frames, PROFILES["2.936"]);
   source.rgba[0] = 170;
   const next = prepareImageCels(source, frames, PROFILES["2.936"]);

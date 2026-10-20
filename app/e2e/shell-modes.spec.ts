@@ -195,7 +195,7 @@ test("short windows fit the whole game under the bar and the top bar never overl
 test("a game started from the keyboard takes the keyboard", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
-  const play = page.getByTestId("hero-primary");
+  const play = page.getByTestId("intro-primary");
   await expect(play).toBeEnabled();
   await play.focus();
   await page.keyboard.press("Enter");
@@ -341,7 +341,7 @@ test("a cold deep link boots the stored game it names, or says it is not in this
   await page.goto("/#play/not-in-this-browser");
   const note = page.getByTestId("route-note");
   await expect(note).toHaveText("That game isn't in this browser.");
-  await expect(page.getByTestId("hero-primary")).toBeVisible();
+  await expect(page.getByTestId("intro-primary")).toBeVisible();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
 });
 

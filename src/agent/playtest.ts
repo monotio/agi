@@ -590,7 +590,7 @@ function object(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** Validate the actor's entire AGI baseline, dimensions, horizon and object overlaps. */
+/** Validate the screen object's entire AGI baseline, dimensions, horizon and object overlaps. */
 function footprint(engine: Engine, x: number, y: number): string[] {
   const ego = engine.screenObjects[0]!;
   const issues: string[] = [];
@@ -639,7 +639,7 @@ interface ControlSpan {
   x1: number;
 }
 
-/** Exact scene controls under a proposed actor baseline, grouped into horizontal spans. */
+/** Exact scene controls under a proposed screen object baseline, grouped into horizontal spans. */
 function baselineProbe(engine: Engine, x: number, y: number) {
   const ego = engine.screenObjects[0]!;
   const values = new Set<number>();
@@ -663,7 +663,7 @@ function baselineProbe(engine: Engine, x: number, y: number) {
   };
 }
 
-/** Current rendered depth over ego's logical bounding box; flag f1 is the exact engine verdict. */
+/** Current rendered priority over ego's logical bounding box; flag f1 is the exact engine verdict. */
 function occlusionProbe(engine: Engine) {
   const ego = engine.screenObjects[0]!;
   let actorBoxCells = 0;

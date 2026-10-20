@@ -2,7 +2,7 @@
 import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed, ref, useTemplateRef, watch } from "vue";
 import { priorityForY } from "../../../src/runtime/priority.ts";
-import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../src/studio/itemGroups.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
@@ -17,9 +17,9 @@ import { CONTROL_VALUES, patternOn, priorityMeaning, type StudioLens } from "./s
  * recolour the selection in its current lens. Each swatch opens its picker. A
  * plane the lens locks says so, with Unlock for now. The Priority picker
  * offers the band under the cursor, the four control lines (wall, gate,
- * trigger, water) and the distance bands 4–15.
+ * trigger, water) and the priority bands 4–15.
  * The picker opens to the
- * rail's left, over the Scene list and away from the picture, when that
+ * rail's left, over the Items panel and away from the picture, when that
  * column has room for it (focus mode hides it: then it opens to the right).
  */
 const {
@@ -54,7 +54,7 @@ function unavailable(plane: "visual" | "priority"): boolean {
   return (
     frozen ||
     paletteAction === "hint" ||
-    (paletteAction === "recolour" && (plane === "visual" ? lens !== "art" : lens === "art"))
+    (paletteAction === "recolour" && (plane === "visual" ? lens !== "visual" : lens === "visual"))
   );
 }
 const locked = computed(() => lockedPlanes(lens, unlocks));
@@ -88,7 +88,7 @@ const POP_MAX = 272;
 /** The gap between the picker and the rail, and the picker and the window's edge. */
 const POP_GAP = 12;
 const root = useTemplateRef("root");
-/** Where the picker opens: over the Scene list when it fits there, with its width. */
+/** Where the picker opens: over the Items panel when it fits there, with its width. */
 const side = ref<{ left: boolean; width: number }>({ left: false, width: POP_MAX });
 function toggle(plane: "visual" | "priority"): void {
   if (unavailable(plane)) return;
@@ -146,10 +146,10 @@ function pick(patch: Partial<CurrentValues>): void {
     </button>
     <span class="values__name"
       ><UiExplain
-        term="drawing-depth"
+        term="drawing-priority"
         name="Priority"
-        :says="VOCABULARY.drawingDepth.help"
-        :technical="VOCABULARY.drawingDepth.technical"
+        :says="VOCABULARY.drawingPriority.help"
+        :technical="VOCABULARY.drawingPriority.technical"
         >Priority</UiExplain
       ></span
     >
@@ -176,7 +176,7 @@ function pick(patch: Partial<CurrentValues>): void {
         />
       </template>
       <template v-else>
-        <span v-if="lens === 'depth' && paletteAction === 'draw'" class="values__with">
+        <span v-if="lens === 'priority' && paletteAction === 'draw'" class="values__with">
           <button
             type="button"
             role="radio"

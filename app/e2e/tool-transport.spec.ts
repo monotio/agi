@@ -132,7 +132,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const recoveryRequest = JSON.stringify(requests[3]);
     expect(recoveryRequest).toContain("release.priority(object)");
     expect(recoveryRequest).toContain("relatedCommands");
-    expect(recoveryRequest).toContain("automatic depth");
+    expect(recoveryRequest).toContain("automatic priority");
     const request = requests[1]! as {
       input?: { type: string; output: { type: string; text?: string; image_url?: string }[] }[];
       messages?: {

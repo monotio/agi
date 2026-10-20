@@ -20,7 +20,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio's tool rail, end to end on the real app: a stored project
+ * PICTURE editor's tool rail, end to end on the real app: a stored project
  * whose room 1 draws PIC 5, with one character VIEW for the actor probe.
  * Expected planes are decoded here with the engine's renderer from bytes
  * read out of the page and storage; cells are hand-placed in SOURCE.
@@ -110,7 +110,7 @@ async function openStudio(page: Page): Promise<Locator> {
   await waitForCycles(page, 2);
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -341,16 +341,16 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
 });
 
-test("G stands the ghost actor on the draft; dragged behind the occluder it reads Behind", async ({
+test("G stands the standIn actor on the draft; dragged behind the occluder it reads Behind", async ({
   page,
 }) => {
   const studio = await openStudio(page);
   await page.keyboard.press("g");
-  const ghost = studio.getByTestId("ghost-probe");
-  await expect(ghost).toBeVisible();
+  const standIn = studio.getByTestId("stand-in-probe");
+  await expect(standIn).toBeVisible();
   await expect(studio.getByTestId("studio-probe-toggle")).toHaveAttribute("aria-pressed", "true");
   // From its start (baseline 120, band 11: in front) up to baseline 97 (band 9).
-  const handle = studio.getByTestId("ghost-probe-handle");
+  const handle = studio.getByTestId("stand-in-probe-handle");
   const box = (await handle.boundingBox())!;
   const zoom = (await page.locator(".studio-pane").first().boundingBox())!.height / 168;
   const x = box.x + box.width / 2;
@@ -359,18 +359,20 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   await page.mouse.down();
   await page.mouse.move(x, y - 23 * zoom, { steps: 8 });
   await page.mouse.up();
-  await expect(ghost).toHaveAttribute("data-verdict", "behind");
-  await expect(studio.locator('[data-role="ghost-verdict"]')).toContainText(
+  await expect(standIn).toHaveAttribute("data-verdict", "behind");
+  await expect(studio.locator('[data-role="stand-in-verdict"]')).toContainText(
     "Behind Bench occluder",
   );
-  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → distance band 9");
-  // Dragging the ghost edited nothing.
+  await expect(studio.locator('[data-role="stand-in-band"]')).toContainText(
+    "y 97 → priority band 9",
+  );
+  // Dragging the standIn edited nothing.
   await workspaceUpdated(page);
   await page.keyboard.press("g");
-  await expect(ghost).toHaveCount(0);
+  await expect(standIn).toHaveCount(0);
 });
 
-/** A one-step Depth edit: the occluder one row down. */
+/** A one-step Priority edit: the occluder one row down. */
 async function nudgeOccluder(page: Page, studio: Locator) {
   await page.keyboard.press("2");
   await studio.locator('[data-row="occluder"]').click();

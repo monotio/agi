@@ -7,7 +7,7 @@ import { watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 const { picRow } = defineProps<{ picRow: number }>();
 const root = useTemplateRef("root");
-const ghost = useTemplateRef("ghost");
+const placementPreview = useTemplateRef("placementPreview");
 onMounted(() => root.value?.focus({ preventScroll: true }));
 const dragging = ref(false);
 let anchor: { x: number; y: number } | undefined;
@@ -37,9 +37,9 @@ const boxStyle = computed(() => {
 });
 const palette = useGamePalette();
 watch(
-  [ghost, () => guidedPlacement.value?.cel, palette],
+  [placementPreview, () => guidedPlacement.value?.cel, palette],
   () => {
-    const canvas = ghost.value;
+    const canvas = placementPreview.value;
     const cel = guidedPlacement.value?.cel;
     if (!canvas || !cel) return;
     canvas.width = cel.width;
@@ -155,13 +155,13 @@ function keys(event: KeyboardEvent): void {
     />
     <canvas
       v-if="guidedPlacement?.kind === 'hero' && guidedPlacement.cel"
-      ref="ghost"
-      class="placement-ghost"
+      ref="placementPreview"
+      class="placement-placementPreview"
       :style="pointStyle"
     />
     <span
       v-else-if="guidedPlacement?.kind === 'hero'"
-      class="placement-ghost placement-mark"
+      class="placement-placementPreview placement-mark"
       :style="pointStyle"
       >✚</span
     >
@@ -189,7 +189,7 @@ function keys(event: KeyboardEvent): void {
   height: 84%;
   image-rendering: pixelated;
 }
-.placement-ghost {
+.placement-placementPreview {
   position: absolute;
   transform: translateY(-100%);
   opacity: 0.7;

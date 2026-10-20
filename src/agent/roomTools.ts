@@ -32,7 +32,7 @@ export const ROOM_TOOLS: readonly ToolDefinition[] = [
     name: "write_room",
     description: toolDescription(
       "write_room",
-      `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceCacheHint(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
+      `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceCacheHint(null)}" for a new room; otherwise match its revision. Picture, ego view and objects must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
     ),
     parameters: parameterDescriptions("write_room", {
       type: "object",
@@ -308,7 +308,7 @@ export function executeRoomTool(
       const id = integer(value, label, 0, 255);
       if (!inventory[id])
         throw new Error(
-          `${label}: inventory item ${id} is missing. Define it with write_objects mode "merge" first.`,
+          `${label}: object ${id} is missing. Define it with write_objects mode "merge" first.`,
         );
       return id;
     };
@@ -404,7 +404,7 @@ export function executeRoomTool(
           index += match.length;
           if (match.id === undefined) {
             while (nextWord <= 65535 && usedIds.has(nextWord)) nextWord++;
-            if (nextWord > 65535) throw new Error("No vocabulary IDs remain.");
+            if (nextWord > 65535) throw new Error("No word group ids remain.");
             dictionary.set(match.text, nextWord);
             usedIds.add(nextWord);
             addedWords.push({ word: match.text, id: nextWord++ });

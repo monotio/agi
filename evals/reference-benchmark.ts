@@ -191,7 +191,7 @@ function moodBoard(): DecodedImage {
 }
 
 /** Four walking poses, 48x64 cells on a magenta key, drawn at twice size. */
-function heroSheet(): DecodedImage {
+function egoSheet(): DecodedImage {
   const c = new Canvas(384, 128, MAGENTA_KEY);
   for (let pose = 0; pose < 4; pose++) {
     const left = pose * 96;
@@ -414,7 +414,7 @@ const CASES: Record<string, ReferenceCase> = {
     },
   ),
   "hero-view": (() => {
-    const image = heroSheet();
+    const image = egoSheet();
     const references = () => [
       stageCharacterView(
         "ref-hero-view",

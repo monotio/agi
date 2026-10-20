@@ -19,7 +19,7 @@ import {
 import { expect, keepDetectedProfile, test } from "./test.ts";
 
 /**
- * Two tabs of one browser share its storage. Tab B keeps a Room Studio edit
+ * Two tabs of one browser share its storage. Tab B keeps a PICTURE editor edit
  * while tab A still runs the revision it booted; nothing tab A does after
  * that — Download game, Ask, leaving — may put its older game back in
  * storage, and when the browser can say so, tab A hears of the edit at once.
@@ -103,7 +103,7 @@ async function resume(page: Page): Promise<void> {
   await waitForCycles(page, 2);
 }
 
-/** Tab B: the same project, one autosaved Room Studio edit. Returns Studio. */
+/** Tab B: the same project, one autosaved PICTURE editor edit. Returns Studio. */
 async function keepInTabB(page: Page): Promise<Locator> {
   const tabB = await page.context().newPage();
   await keepDetectedProfile(tabB);
@@ -120,7 +120,7 @@ async function keepInTabB(page: Page): Promise<Locator> {
   return studio;
 }
 
-/** Tab B: the same project, one autosaved Room Studio label edit. */
+/** Tab B: the same project, one autosaved PICTURE editor label edit. */
 async function keepLabelInTabB(page: Page): Promise<void> {
   const tabB = await page.context().newPage();
   await keepDetectedProfile(tabB);

@@ -10,7 +10,7 @@ import { defineAsyncComponent, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
-import HomeHero from "./HomeHero.vue";
+import HomeIntro from "./HomeIntro.vue";
 import UnsupportedProject from "./UnsupportedProject.vue";
 import type { UnsupportedStoredProject } from "../project/gameStorage.ts";
 import { emptyProject } from "./emptyProjectRoute.ts";
@@ -61,9 +61,9 @@ watch(
 );
 
 /** Nested dragenter/dragleave pairs: the outline stays while anything is over Home. */
-const dragDepth = ref(0);
+const dragPriority = ref(0);
 function onDrop(event: DragEvent): void {
-  dragDepth.value = 0;
+  dragPriority.value = 0;
   void onGameDrop(event.dataTransfer ?? undefined);
 }
 </script>
@@ -71,10 +71,10 @@ function onDrop(event: DragEvent): void {
   <div
     v-if="!routePending && (state.phase === 'idle' || state.phase === 'error')"
     class="setup-panel"
-    :class="{ dragging: dragDepth > 0, 'new-game-page': createOpen }"
+    :class="{ dragging: dragPriority > 0, 'new-game-page': createOpen }"
     data-testid="game-zip-drop"
-    @dragenter.prevent="dragDepth++"
-    @dragleave="dragDepth = Math.max(0, dragDepth - 1)"
+    @dragenter.prevent="dragPriority++"
+    @dragleave="dragPriority = Math.max(0, dragPriority - 1)"
     @dragover.prevent
     @drop.prevent="onDrop"
   >
@@ -89,7 +89,7 @@ function onDrop(event: DragEvent): void {
       data-testid="unsupported-project-route"
     />
     <EmptyProjectStage v-if="emptyProject" :project="emptyProject" />
-    <HomeHero v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
+    <HomeIntro v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
     <div
       v-if="state.phase === 'error' && !emptyProject && !latestVersion"
       class="error-banner"

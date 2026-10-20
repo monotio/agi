@@ -150,7 +150,7 @@ test("a one-term OR group beside a plain clause", () => {
   );
 });
 
-test("a jump into a block gets a label at that depth, not a hoisted one", () => {
+test("a jump into a block gets a label at that priority, not a hoisted one", () => {
   // ff 07 05 ff <4:2> | 65 01 (6) | 65 01 (8) | fe <-5:2> (10) targets 8.
   assert.equal(
     dis([0xff, 0x07, 0x05, 0xff, 0x04, 0x00, 0x65, 0x01, 0x65, 0x01, 0xfe, 0xfb, 0xff], ["x"]),

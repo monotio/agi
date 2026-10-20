@@ -964,7 +964,7 @@ test("model switch continues with a summary handoff and keeps thinking blocks aw
   session.dispose();
 });
 
-test("whole-game tools stage Add depth and deduplicated notes in one project commit", async () => {
+test("whole-game tools stage Add priority and deduplicated notes in one project commit", async () => {
   const { session } = fixture();
   const picture = '# @item tree "Tree" art\nvis 2\nrect 20,20 30,30\nfill 25,25\n# @end\nend\n';
   await session.submit({
@@ -1005,7 +1005,7 @@ test("whole-game tools stage Add depth and deduplicated notes in one project com
               toolCalls: [
                 {
                   id: "depth",
-                  name: "add_depth",
+                  name: "add_priority",
                   input: {
                     num: 1,
                     itemId: "tree",
@@ -1021,7 +1021,7 @@ test("whole-game tools stage Add depth and deduplicated notes in one project com
                 },
               ],
             };
-          return { text: "Added depth.", toolCalls: [] };
+          return { text: "Added priority.", toolCalls: [] };
         },
         getTranscript() {
           return [];
@@ -1029,7 +1029,7 @@ test("whole-game tools stage Add depth and deduplicated notes in one project com
       };
     },
   });
-  await agent.send("Add depth to the tree");
+  await agent.send("Add priority to the tree");
   assert.deepEqual(
     agent
       .pending()!
@@ -2414,7 +2414,7 @@ test("selected art tools use the workspace review and one Undo", async () => {
   });
   await agent.send(
     "bad: make this bridge walkable",
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.",
   );
   assert.equal(agent.pending()?.changes().length, 1);
   assert.equal(agent.pending()?.changes()[0]?.key, "picture:1");
@@ -2542,7 +2542,7 @@ test("read-only agent inspects selected art and withdraw clears every pending ed
     author: "creator",
   });
   const context =
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.";
   const agent = createWorkspaceAgent({
     session,
     profileId: "2.936",
@@ -2585,7 +2585,7 @@ test("selection context carries the live horizon and actor probe", async () => {
   });
   await agent.ask(
     "impossible: change the selection",
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.",
   );
   const result = agent
     .current()
@@ -2602,7 +2602,7 @@ test("selection context carries the live horizon and actor probe", async () => {
     })
     .find((entry) => entry.result?.details?.["selectionArea"])?.result?.details;
   assert.equal((result?.["walkable"] as { overall: number })?.overall, 55 * 160 - 356);
-  assert.equal((result?.["roomContext"] as { ghost?: { x: number } })?.ghost?.x, 64);
+  assert.equal((result?.["roomContext"] as { standIn?: { x: number } })?.standIn?.x, 64);
   session.dispose();
 });
 
@@ -2675,7 +2675,7 @@ test("selected art carries reference handles and thumbnails once, then reuses th
     }),
   });
   const context =
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.";
   await agent.send("Match the reference", context);
   assert.match(
     agent.current().messages.at(-1)!.text,

@@ -104,7 +104,7 @@ test("Help, Game controls and the map close with the standard × button", async 
 test("settings draw switches, and Developer activity is off every page", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await expect(page.getByTestId("hero-primary")).toBeVisible();
+  await expect(page.getByTestId("intro-primary")).toBeVisible();
   await expect(page.getByTestId("agent-panel")).toBeHidden();
   await expect(page.getByTestId("developer-activity-summary")).toHaveCount(0);
   await expect(page.getByText("Copy debug bundle")).toBeHidden();
@@ -238,7 +238,7 @@ test("the Inspect tab groups its views as one segmented control with a caption",
     "aria-checked",
     "true",
   );
-  await expect(page.getByTestId("dbg-mode-note")).toContainText("Depth values");
+  await expect(page.getByTestId("dbg-mode-note")).toContainText("Priority values");
   await expect(page.getByTestId("dbg-overlay-toggle")).toHaveRole("switch");
   await expect(page.getByTestId("dbg-inspect-toggle")).toHaveRole("switch");
 });

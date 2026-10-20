@@ -26,7 +26,7 @@ import { migrateAgentChats } from "../../src/agent/chats.ts";
 import {
   traceImageChanges,
   makeCelsChanges,
-  suggestImageFrames,
+  suggestImageCels,
 } from "../../src/creative/imageOperations.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
@@ -219,7 +219,7 @@ test("version 1 optional chats, notes, images, native art and History round trip
     documents,
     "view:255",
     image,
-    suggestImageFrames(image, 2),
+    suggestImageCels(image, 2),
     PROFILES["2.936"]!,
   ))
     documents[change.key] = change.content!;

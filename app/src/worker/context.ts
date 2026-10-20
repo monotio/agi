@@ -649,7 +649,7 @@ export interface RunSession {
 export interface WorkerContext {
   appearanceLoading?: { queue: WorkerInbound[] } | undefined;
   imagePreviewEngine?: Engine | undefined;
-  imageHeroPreview?:
+  imageEgoPreview?:
     ((frame: ReturnType<Engine["getPresentation"]>, cycle: number) => void) | undefined;
   imagePreviewSerial?: number;
   ports: WorkerPorts;

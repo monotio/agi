@@ -212,7 +212,7 @@ function ihdrChunk(width: number, height: number): Uint8Array {
   const view = new DataView(ihdr.buffer);
   view.setUint32(0, width);
   view.setUint32(4, height);
-  ihdr[8] = 8; // bit depth
+  ihdr[8] = 8; // bit priority
   ihdr[9] = 6; // colour type: truecolour with alpha
   return chunk("IHDR", ihdr);
 }

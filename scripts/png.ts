@@ -62,7 +62,7 @@ export function encodePngRgb(width: number, height: number, rgb: Uint8Array): Ui
   const v = new DataView(ihdr.buffer);
   v.setUint32(0, width);
   v.setUint32(4, height);
-  ihdr[8] = 8; // bit depth
+  ihdr[8] = 8; // bit priority
   ihdr[9] = 2; // colour type RGB
   const idat = new Uint8Array(deflateSync(raw));
   const parts = [
@@ -188,7 +188,7 @@ export function decodePng(bytes: Uint8Array): DecodedPng {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let width = 0;
   let height = 0;
-  let bitDepth = 0;
+  let bitPriority = 0;
   let colorType = -1;
   const idat: Uint8Array[] = [];
   let pos = 8;
@@ -199,7 +199,7 @@ export function decodePng(bytes: Uint8Array): DecodedPng {
     if (type === "IHDR") {
       width = view.getUint32(pos + 8);
       height = view.getUint32(pos + 12);
-      bitDepth = data[8]!;
+      bitPriority = data[8]!;
       colorType = data[9]!;
       if (data[10] !== 0) throw new Error("compressed PNGs only (method 0)");
       if (data[12] !== 0) throw new Error("interlaced PNGs are not supported");
@@ -210,9 +210,9 @@ export function decodePng(bytes: Uint8Array): DecodedPng {
     }
     pos += 12 + length;
   }
-  if (bitDepth !== 8 || (colorType !== 2 && colorType !== 6)) {
+  if (bitPriority !== 8 || (colorType !== 2 && colorType !== 6)) {
     throw new Error(
-      `unsupported PNG: bit depth ${bitDepth}, colour type ${colorType} (need 8-bit RGB or RGBA)`,
+      `unsupported PNG: bit priority ${bitPriority}, colour type ${colorType} (need 8-bit RGB or RGBA)`,
     );
   }
   const channels = colorType === 6 ? 4 : 3;

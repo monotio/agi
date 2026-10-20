@@ -217,7 +217,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - LOGIC code intelligence, Problems, guided actions and a step debugger.
 - Game state names and Rename across the game, with inline printed text.
 - Answer a sentence and Teach beside missed sentences, with a game message preview.
-- PICTURE image tracing and Add depth; VIEW cels from an image.
+- PICTURE image tracing and Add priority; VIEW cels from an image.
 - WORDS meanings, sentence testing and missed-command collection.
 - SOUND grid, tracker, presets, MIDI and VGM import, and MIDI export.
 - Agent Review and Auto-approve across resource types, task chats and optional

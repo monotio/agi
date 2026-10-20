@@ -1,5 +1,5 @@
 /**
- * Room Studio's working draft: the picture text being edited, its undo
+ * PICTURE editor's working draft: the picture text being edited, its undo
  * history, the compiled result and the last check, all against the text and
  * resource revision last kept (or opened). Every edit goes through the kernel
  * (applyEdits), then the lens locks (studioLocks.ts), which an edit of whole
@@ -70,8 +70,8 @@ export interface StudioDraftOptions {
   readonly priorityBase?: MaybeRefOrGetter<number | undefined>;
   readonly lens: MaybeRefOrGetter<StudioLens>;
   readonly unlocks: MaybeRefOrGetter<LensUnlocks>;
-  /** The most undo steps the history keeps; DEFAULT_HISTORY_DEPTH when omitted. */
-  readonly historyDepth?: number;
+  /** The most undo steps the history keeps; DEFAULT_HISTORY_PRIORITY when omitted. */
+  readonly historyPriority?: number;
 }
 
 /** Why an edit did not happen: `message` in plain words, `detail` the technical account. */
@@ -180,7 +180,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const initial = toValue(options.base);
   /** The text and revision the game holds: the last Keep, or what Studio opened. */
   const kept = shallowRef<DraftBase>(initial);
-  const history = shallowRef<EditHistory>(createHistory(initial.source, options.historyDepth));
+  const history = shallowRef<EditHistory>(createHistory(initial.source, options.historyPriority));
   /** The accepted candidate of the open gesture; null shows the draft itself. */
   const preview = shallowRef<DraftCandidate | null>(null);
   /** The last refusal; cleared by the next accepted edit. */
@@ -193,10 +193,10 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const compiled = computed(() => compileEditDocument(document.value, profile()));
   const dirty = computed(() => source.value !== kept.value.source);
   /** How many undo steps the history held when the draft was last kept (or opened). */
-  const keptDepth = shallowRef(0);
+  const keptPriority = shallowRef(0);
   /** Undo or redo steps between the draft and the last Keep, while they differ. */
   const changes = computed(() =>
-    dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptDepth.value)) : 0,
+    dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptPriority.value)) : 0,
   );
   /** The kept text's compiled bytes, compiled once per kept text and profile. */
   let keptBytes: { source: string; profile: AgiProfile; bytes: Uint8Array } | undefined;
@@ -213,13 +213,13 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const gesturing = computed(() => history.value.gesture !== undefined);
   const canUndo = computed(() => !gesturing.value && history.value.past.length > 0);
   const canRedo = computed(() => !gesturing.value && history.value.future.length > 0);
-  /** Oldest undo steps the depth cap dropped so far (useUndoOrder `dropped`). */
+  /** Oldest undo steps the priority cap dropped so far (useUndoOrder `dropped`). */
   const dropped = computed(() => ({ past: history.value.dropped, future: 0 }));
 
   function reset(base: DraftBase): void {
     kept.value = base;
-    history.value = createHistory(base.source, options.historyDepth);
-    keptDepth.value = 0;
+    history.value = createHistory(base.source, options.historyPriority);
+    keptPriority.value = 0;
     preview.value = null;
     refusal.value = null;
     validation.value = null;
@@ -230,7 +230,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       if (base.source === old.source && base.revision === old.revision) return;
       if (base.source === source.value) {
         kept.value = base;
-        keptDepth.value = history.value.past.length;
+        keptPriority.value = history.value.past.length;
       } else reset(base);
     },
   );
@@ -414,7 +414,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
   function markKept(revision: ResourceRevision): void {
     keptBytes = { source: source.value, profile: profile(), bytes: compiled.value.bytes };
     kept.value = { source: source.value, revision };
-    keptDepth.value = history.value.past.length;
+    keptPriority.value = history.value.past.length;
     refusal.value = null;
   }
 

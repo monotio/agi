@@ -1,7 +1,7 @@
 /**
  * Picture elements: groups of source lines that draw one thing, from one
  * traced render. Behind `annotatePictureSource` (agent orientation) and the
- * Room Studio's native items (`src/studio/nativeItems.ts`).
+ * PICTURE editor's native items (`src/studio/nativeItems.ts`).
  */
 
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
@@ -88,8 +88,8 @@ export function pictureStateAt(
 export const PLANE_VISUAL = 1;
 /** Priority values 0..3: barriers, triggers and water. */
 export const PLANE_CONTROL = 2;
-/** Priority values 4..15: depth bands. */
-export const PLANE_DEPTH = 4;
+/** Priority values 4..15: priority bands. */
+export const PLANE_PRIORITY = 4;
 
 interface PictureBox {
   x0: number;
@@ -208,7 +208,7 @@ export function groupPictureElements(source: string, opts?: GroupPictureOptions)
         const { visual, priority } = pictureStateAt(states, opcode);
         statePlanes =
           (visual === null ? 0 : PLANE_VISUAL) |
-          (priority === null ? 0 : priority < 4 ? PLANE_CONTROL : PLANE_DEPTH);
+          (priority === null ? 0 : priority < 4 ? PLANE_CONTROL : PLANE_PRIORITY);
       }
       planes[k] = planes[k]! | statePlanes;
       if (touchedBy[index] === k) return;

@@ -69,25 +69,25 @@ export function callArgSpan(
   const tokens = room.tokens.filter(
     (token) => token.start >= stmt.tok.start && token.end <= stmt.end,
   );
-  let depth = 0;
+  let priority = 0;
   let index = -1;
   let open = -1;
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (token.type === "punct" && token.text === "(") {
-      depth++;
-      if (depth === 1) {
+      priority++;
+      if (priority === 1) {
         open = i;
         continue;
       }
     }
     if (open < 0) continue;
     if (token.type === "punct" && token.text === ")") {
-      depth--;
-      if (depth === 0) break;
+      priority--;
+      if (priority === 0) break;
       continue;
     }
-    if (depth !== 1) continue;
+    if (priority !== 1) continue;
     if (token.type === "punct" && token.text === ",") continue;
     index++;
     if (index === argIndex) return authoredSpan(room.base, token.start, token.end);
@@ -138,16 +138,16 @@ export function actionsNamed(stmts: readonly Stmt[], name: string): (Stmt & { ty
  */
 function thenCloseBrace(room: ParsedRoom, stmt: Stmt): Token | null {
   if (stmt.type !== "if") return null;
-  let depth = 0;
+  let priority = 0;
   let seenOpen = false;
   for (const token of stmtTokens(room, stmt)) {
     if (token.type !== "punct") continue;
     if (token.text === "{") {
-      depth++;
+      priority++;
       seenOpen = true;
     } else if (token.text === "}") {
-      depth--;
-      if (seenOpen && depth === 0) return token;
+      priority--;
+      if (seenOpen && priority === 0) return token;
     }
   }
   return null;

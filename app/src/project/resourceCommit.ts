@@ -1,10 +1,10 @@
 import { AUTHORING_CONVENTIONS_VERSION } from "../../../src/authoring/projectConventions.ts";
 /**
- * The durable resource transaction behind every Keep — a staged reference
- * view, a Room Studio picture, a VIEW editor view: the edited bytes, the source that describes
+ * The durable resource transaction behind every commit — a staged reference
+ * view, a PICTURE editor picture, a VIEW editor view: the edited bytes, the source that describes
  * them, the stored project and the live worker move together or not at all.
  * The authoring controller owns the session and wires this in; the edit
- * descriptors below say what each Keep writes.
+ * descriptors below say what each commit writes.
  */
 import type { AgentSession } from "../agent/agentSession.ts";
 import type { AuthoringLoader } from "../agent/authoringLoader.ts";
@@ -60,13 +60,13 @@ export interface ResourceCommitResult {
   projectId: ProjectId | null;
   /** The resource revision of the committed files. */
   revision: ResourceRevision;
-  /** The authoring fingerprint storage holds after the Keep: the draft's next base. */
+  /** The authoring fingerprint storage holds after the commit: the draft's next base. */
   authoring: AuthoringFingerprint;
 }
 
 /**
- * The authoring content a Studio draft was opened (or last kept) on —
- * `openDraft` when Studio opened, then each Keep's `authoring`. A Keep
+ * The authoring content a Studio draft was opened (or last saved) on —
+ * `openDraft` when Studio opened, then each commit's `authoring`. A commit
  * refuses when the tab's authoring moved on since; undefined asks nothing
  * (an installed edition's draft, which opens on no authored text).
  */
@@ -74,7 +74,7 @@ interface DraftBase {
   baseAuthoring?: AuthoringFingerprint | undefined;
 }
 
-/** Room Studio's Keep request: new PIC bytes and the source that compiles to them. */
+/** PICTURE editor's commit request: new PIC bytes and the source that compiles to them. */
 export interface PictureEdit extends DraftBase {
   pictureNumber: number;
   bytes: Uint8Array;
@@ -86,7 +86,7 @@ export interface PictureEdit extends DraftBase {
   reason?: string | undefined;
 }
 
-/** VIEW editor's Keep request: new VIEW bytes, decoded and re-encoded by the view kernel. */
+/** VIEW editor's commit request: new VIEW bytes, decoded and re-encoded by the view kernel. */
 export interface ViewEdit extends DraftBase {
   viewNumber: number;
   bytes: Uint8Array;
@@ -97,7 +97,7 @@ export interface ViewEdit extends DraftBase {
 }
 
 /**
- * Room Studio's combined Keep: the picture and the room's LOGIC in one
+ * PICTURE editor's combined commit: the picture and the room's LOGIC in one
  * transaction — a door box that follows the doorway art moves with it, or
  * neither lands. Either part may be absent (a door edit alone, a picture
  * edit alone); the logic source must assemble to exactly its bytes with the
@@ -166,7 +166,7 @@ export interface ResourceEdit {
   validate?(author: AgentSession): void;
 }
 
-/** The refusal of a Keep whose installed edition's authoring changed in another tab. */
+/** The refusal of a commit whose installed edition's authoring changed in another tab. */
 function staleAuthoring(what: string): ResourceCommitError {
   return new ResourceCommitError(
     "stale",
@@ -216,7 +216,7 @@ export interface ResourceCommitContext {
   readonly postSessionSnapshot: (author: AgentSession) => void;
   /** The commit landed everywhere; `author` is the live session, if any. */
   readonly onCommitted: (author: AgentSession | null) => void;
-  /** Loads the authoring stack, whose session records a Keep made without a live one. */
+  /** Loads the authoring stack, whose session records a commit made without a live one. */
   readonly loadAuthoring: AuthoringLoader;
 }
 
@@ -242,8 +242,8 @@ export function createResourceCommit(
   } = ctx;
 
   /**
-   * The one durable resource transaction behind every Keep — a staged view,
-   * a Room Studio picture — in this order:
+   * The one durable resource transaction behind every commit — a staged view,
+   * a PICTURE editor picture — in this order:
    *
    * 1. refuse while an agent turn runs; reserve the session; pause the game;
    * 2. refuse unless the booted game, the stored project (same lifetime,
@@ -255,7 +255,7 @@ export function createResourceCommit(
    *    (catalog entries and installed editions fork into a new remix);
    * 5. install the changed resources in the worker as one all-or-nothing
    *    patch and wait for its ack naming each resource's bytes (a Room
-   *    Studio Keep installs a picture and a logic together);
+   *    Studio commit installs a picture and a logic together);
    * 6. adopt the session and booted identity, re-enter the room when the
    *    edit shows there, post the tape's authoring checkpoint, and take a
    *    fresh autosave under the new revision.
@@ -280,7 +280,7 @@ export function createResourceCommit(
    * - A game, session or worker replaced after the save (step 4) never
    *   takes the edit: that is an `install` failure too, never "committed".
    * - A stored project that moved past the running game (step 2: another
-   *   tab kept an edit, even one that changed only labels, locks or
+   *   tab saved an edit, even one that changed only labels, locks or
    *   bindings) refuses as `stale` with `behindStorage`: the only way on is
    *   the same reload from storage.
    */
@@ -347,11 +347,11 @@ export function createResourceCommit(
       const exported = await query("exportFiles");
       const room = edit.reenter === undefined ? undefined : (await query("state"))?.room;
       if (!exported || moved())
-        throw new ResourceCommitError("stale", `The game changed while ${what} was being kept.`);
+        throw new ResourceCommitError("stale", `The game changed while ${what} was being saved.`);
       if ((await gameRevision(exported)) !== baseRevision)
         throw new ResourceCommitError(
           "stale",
-          `The running game changed before ${what} could be kept.`,
+          `The running game changed before ${what} could be saved.`,
         );
 
       const editProfile = author?.state.profile ?? stored?.library?.profile;
@@ -441,7 +441,7 @@ export function createResourceCommit(
         // is projected from the saved files and claims, and every unrelated
         // document is preserved exactly, so the envelope an editable open
         // re-verifies can never trail the files it describes. The module is
-        // loaded by the Keep itself — the source compilers it verifies with
+        // loaded by the commit itself — the source compilers it verifies with
         // stay off the Play startup graph.
         const workspace =
           stored.workspace === undefined
@@ -519,7 +519,7 @@ export function createResourceCommit(
         };
       }
       if (moved())
-        throw new ResourceCommitError("stale", `The game changed while ${what} was being kept.`);
+        throw new ResourceCommitError("stale", `The game changed while ${what} was being saved.`);
 
       // One conditional write: a fork must be new, an in-place edit must
       // find the generation and lifetime it read. An installed edition's
@@ -535,7 +535,7 @@ export function createResourceCommit(
         );
         if (historyLifetime === null) {
           // Refused over the record it read: another tab's save won the race
-          // (a Keep there at the same moment). The gate says so as `stale`,
+          // (a commit there at the same moment). The gate says so as `stale`,
           // with the reload that continues; a retry would only refuse again.
           if (targetId === game.projectId) await requireSaved(game, savedBase);
           throw new ResourceCommitError(
@@ -558,7 +558,7 @@ export function createResourceCommit(
 
       // Navigating away during the write keeps the durable result for the
       // next boot; it must never patch a replacement worker or its game.
-      // The running game did not take the edit, so it is not reported kept.
+      // The running game did not take the edit, so it is not reported saved.
       const notInstalled = () => {
         markBehindStorage(game);
         return new ResourceCommitError(
@@ -658,9 +658,9 @@ export function createResourceCommit(
 }
 
 /**
- * Keep a staged reference VIEW: its bytes, its build input and the spent
+ * commit a staged reference VIEW: its bytes, its build input and the spent
  * offer. `repaired` is the candidate as VIEW editor left it: those bytes
- * are kept instead, with the spec read back from them.
+ * are saved instead, with the spec read back from them.
  */
 export function stagedViewEdit(
   game: BootedGame,
@@ -721,7 +721,7 @@ function editedViewSpec(payload: Uint8Array, profile: AgiProfile): BuildViewInpu
 }
 
 /**
- * Keep a Room Studio picture: the edited PIC bytes and the annotated source
+ * commit a PICTURE editor picture: the edited PIC bytes and the annotated source
  * that compiles to exactly them. The live room re-enters when its own logic
  * provably draws the picture (its static scan), whatever its number.
  */
@@ -757,7 +757,7 @@ export function pictureEdit(edit: PictureEdit): ResourceEdit {
 }
 
 /**
- * Keep Room Studio's picture and room logic together: the edited PIC with
+ * commit PICTURE editor's picture and room logic together: the edited PIC with
  * the annotated text that compiles to it, and the room's LOGIC with the
  * annotated source that assembles to it (door and edge exit rules), plus the
  * flag bindings the rule edits reserved. Both install in one all-or-nothing
@@ -849,7 +849,7 @@ export function roomEdit(edit: RoomEdit): ResourceEdit {
 }
 
 /**
- * Keep a VIEW editor view: the edited VIEW bytes, with `sources.views`
+ * commit a VIEW editor view: the edited VIEW bytes, with `sources.views`
  * following them as the spec read back from the bytes. Animated objects pick
  * the new cels up from the install itself (Engine.patchResources re-parses a
  * loaded view in place and re-clamps its objects' loop and cel); the live

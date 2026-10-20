@@ -87,7 +87,7 @@ away each part of the scene is, and where the hero may walk. The agent paints th
 knight walks around the notice board and the chest, stops at the water's edge and crosses by the
 drawbridge.
 
-![A castle gate as the player sees it, beside the walkable ground, barriers and horizon the agent painted into it](media/genesis-depth.png)
+![A castle gate as the player sees it, beside the walkable ground, barriers and horizon the agent painted into it](media/genesis-priority.png)
 
 The agent checks its work with rendered previews, compiler messages and its own playtests. It can
 still get art, puzzles or writing wrong, so play the result and ask for revisions. What it writes

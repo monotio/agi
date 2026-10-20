@@ -25,7 +25,7 @@ import { frameTask } from "../../ui/frameTask.ts";
 import { setPixels } from "../../../../src/studio/view/viewCels.ts";
 import type { ViewDocumentCel } from "../../../../src/view/viewDocument.ts";
 import type { ViewEdit } from "../../../../src/studio/view/viewOperations.ts";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import type { StudioNotice } from "../useStudioNotice.ts";
 import {
   clearSelectionChanges,

@@ -10,7 +10,7 @@ async function picture(page: Page) {
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -77,7 +77,7 @@ for (const width of [1063, 390]) {
         .getByRole("radio", { name: "Priority", exact: true })
         .click();
       const beforeRefusal = await history(page);
-      const band = strip.getByRole("radio", { name: /^Depth 8:/ });
+      const band = strip.getByRole("radio", { name: /^Priority 8:/ });
       await expect(band).toBeVisible();
       await band.click();
       const notice = page.locator(".workspace-status").getByTestId("studio-notice");
@@ -97,26 +97,29 @@ test("lenses, rail wells and colour keys share the selection context", async ({ 
   const options = studio.getByTestId("studio-options-bar");
   await studio.locator('button[data-tool="brush"]').click();
   await options.getByRole("radio", { name: "Priority", exact: true }).click();
-  // Priority: the four control lines, then the distance bands 4–15.
+  // Priority: the four control lines, then the priority bands 4–15.
   const bands = strip.getByRole("radiogroup", { name: "Priority", exact: true });
   await expect(bands).toBeVisible();
   await expect(bands.getByRole("radio")).toHaveCount(16);
-  await page.screenshot({ path: test.info().outputPath("depth-1063.png"), animations: "disabled" });
-  await bands.getByRole("radio", { name: /^Depth 8:/ }).click();
+  await page.screenshot({
+    path: test.info().outputPath("priority-1063.png"),
+    animations: "disabled",
+  });
+  await bands.getByRole("radio", { name: /^Priority 8:/ }).click();
   const well = studio.getByTestId("studio-value-priority");
   await expect(well).toBeVisible();
   await expect(well).toHaveAttribute("data-value", "8");
   await well.click();
-  const depthPicker = studio.getByRole("dialog", {
+  const priorityPicker = studio.getByRole("dialog", {
     name: "Priority for new shapes",
     exact: true,
   });
-  await expect(depthPicker).toBeVisible();
+  await expect(priorityPicker).toBeVisible();
   // The picker offers the control lines beside the bands.
   await expect(
-    depthPicker.getByRole("radiogroup", { name: "Wall, gate, trigger or water for new shapes" }),
+    priorityPicker.getByRole("radiogroup", { name: "Wall, gate, trigger or water for new shapes" }),
   ).toBeVisible();
-  await depthPicker.getByRole("radio", { name: /^Depth 9,/ }).click();
+  await priorityPicker.getByRole("radio", { name: /^Priority 9,/ }).click();
   await expect(well).toHaveAttribute("data-value", "9");
   await bands.getByRole("radio", { name: /^Water:/ }).click();
   await expect(well).toHaveAttribute("data-value", "3");
@@ -146,7 +149,7 @@ test("lenses, rail wells and colour keys share the selection context", async ({ 
   expect((await history(page)).source).toEqual(beforeKey.source);
   await options.getByRole("radio", { name: "Priority", exact: true }).click();
   const beforeRefusal = await history(page);
-  await bands.getByRole("radio", { name: /^Depth 8:/ }).click();
+  await bands.getByRole("radio", { name: /^Priority 8:/ }).click();
   const notice = page.locator(".workspace-status").getByTestId("studio-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText(

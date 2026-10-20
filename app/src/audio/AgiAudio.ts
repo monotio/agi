@@ -48,7 +48,7 @@ const EMPTY_IIGS_BANK: IigsSources["bank"] = {
     releaseSegment: 0,
     priorityIncrement: 0,
     pitchBendRange: 0,
-    vibratoDepth: 0,
+    vibratoPriority: 0,
     vibratoSpeed: 0,
     a: [],
     b: [],

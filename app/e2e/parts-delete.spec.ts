@@ -50,7 +50,7 @@ for (const [width, height] of [
       page,
     }) => {
       await start(page);
-      await expect(page.getByTestId("room-studio")).toBeVisible();
+      await expect(page.getByTestId("picture-studio")).toBeVisible();
       await parts(page);
       await expect(page.getByTestId("part-picture:1")).toHaveText("PICTURE 1 · Room 1");
       await reviewShot(page, `parts-${width}`);

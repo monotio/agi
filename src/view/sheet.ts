@@ -201,7 +201,7 @@ function detectBorderKey(
   return best;
 }
 
-export interface SheetFrame {
+export interface SheetCel {
   readonly width: number;
   readonly height: number;
   /** EGA nibble per pixel, row-major. Only meaningful where `mask` is 1. */
@@ -242,7 +242,7 @@ export function cutGrid(
   columns: number,
   rows: number,
   opts?: CutGridOptions,
-): SheetFrame[] {
+): SheetCel[] {
   if (!Number.isInteger(columns) || !Number.isInteger(rows) || columns < 1 || rows < 1) {
     throw new RangeError(`columns and rows must be positive integers (got ${columns}x${rows})`);
   }
@@ -303,7 +303,7 @@ export function cutGrid(
     outWidth = Math.max(1, Math.round((boxWidth * (targetHeight / boxHeight)) / pixelAspect));
   }
 
-  const frames: SheetFrame[] = [];
+  const frames: SheetCel[] = [];
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < columns; col++) {
       const originX = col * cellWidth + left;
@@ -362,7 +362,7 @@ export interface SheetViewLayout {
  * transparent colour and is rejected rather than silently recoloured.
  */
 export function sheetViewInput(
-  frames: readonly SheetFrame[],
+  frames: readonly SheetCel[],
   layout: SheetViewLayout,
 ): BuildViewInput {
   const loops: BuildLoopInput[] = [];
@@ -383,7 +383,7 @@ export function sheetViewInput(
           `loop ${loopIndex} references frame ${frameIndex}, but only ${frames.length} were cut`,
         );
       }
-      cels.push(celFromFrame(frame, layout.preferTransparent));
+      cels.push(celFromSheetCel(frame, layout.preferTransparent));
     }
     loops.push({ cels });
   }
@@ -395,14 +395,14 @@ export function sheetViewInput(
  * contract — this is the input built and immediately encoded.
  */
 export function buildViewFromSheet(
-  frames: readonly SheetFrame[],
+  frames: readonly SheetCel[],
   layout: SheetViewLayout,
   profile: ViewCapabilities = DEFAULT_V2_PROFILE,
 ): Uint8Array {
   return buildView(sheetViewInput(frames, layout), profile);
 }
 
-function celFromFrame(frame: SheetFrame, prefer: number | undefined): BuildCelInput {
+function celFromSheetCel(frame: SheetCel, prefer: number | undefined): BuildCelInput {
   const used = new Array<boolean>(16).fill(false);
   for (let i = 0; i < frame.mask.length; i++) {
     if (frame.mask[i] === 1) used[frame.pixels[i]! & 0x0f] = true;

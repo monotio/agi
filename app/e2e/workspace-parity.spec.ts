@@ -21,7 +21,7 @@ async function picture(page: Page) {
   await enterCreateMode(page);
   if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -377,7 +377,7 @@ test("Create Inspector opens screen, state and timeline controls @phone", async 
   await page.getByTestId("dbg-mode-blend").click();
   await expect(page.getByTestId("dbg-mode-note")).toBeVisible();
   await expect(page.getByTestId("dbg-mode-note")).toHaveText(
-    "Depth shading over the game, with control lines hatched",
+    "Priority shading over the game, with control lines hatched",
   );
   await page.screenshot({ path: test.info().outputPath("game-inspector.png") });
 });
@@ -664,7 +664,7 @@ test("a door keeps an unfinished box number when its saved LOGIC refreshes @phon
   await expect(box).toHaveValue("121");
 });
 
-test("stand-in readout and an item's depth controls are reachable @phone", async ({ page }) => {
+test("stand-in readout and an item's priority controls are reachable @phone", async ({ page }) => {
   const studio = await picture(page);
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");
   await studio.locator('[role="treeitem"][data-row]').first().click();
@@ -683,7 +683,7 @@ test("stand-in readout and an item's depth controls are reachable @phone", async
   await band.fill("8");
   await expect(band).toHaveValue("8");
   await studio.getByTestId("studio-probe-toggle").click();
-  await expect(studio.getByTestId("ghost-probe-readout")).toBeVisible();
+  await expect(studio.getByTestId("stand-in-probe-readout")).toBeVisible();
 });
 
 test("an empty picture names the next drawing action @phone", async ({ page }) => {
@@ -710,7 +710,7 @@ test("an empty picture names the next drawing action @phone", async ({ page }) =
     });
   });
   await page.getByTestId("part-room:1:picture:1").click();
-  const empty = page.locator(".scene-list__empty");
+  const empty = page.locator(".item-list__empty");
   await expect(empty).toBeVisible();
   await expect(empty).toHaveText("Nothing drawn yet.");
 });
@@ -727,7 +727,7 @@ test("drawing preserves invalid room LOGIC and Walk refuses to overwrite it", as
     await session.drafts().flush();
   }, source);
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await studio.locator('button[data-tool="line"]').click();
   for (const [x, y] of [
@@ -828,7 +828,7 @@ test("an open line shows in the context row after the picture loads behind Words
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route(/\/RoomStudio\.vue/, async (route) => {
+  await page.route(/\/PictureStudio\.vue/, async (route) => {
     await held;
     await route.continue();
   });
@@ -837,7 +837,7 @@ test("an open line shows in the context row after the picture loads behind Words
   await page.getByTestId("part-words").click();
   await expect(page.getByTestId("workspace-context")).toHaveCount(0);
   release();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toHaveCount(1);
   await page.getByTestId("project-tab-picture:1").click();
   await expect(studio).toBeVisible();

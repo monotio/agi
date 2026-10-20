@@ -1,7 +1,7 @@
 /**
  * Studio lessons: Help guide topics that open a Studio on one resource of the
  * current game, with a "Try this" card and an optional challenge the app
- * checks after a Keep. A lesson set belongs to one catalog release; its
+ * checks after a commit. A lesson set belongs to one catalog release; its
  * content lives beside the game, and the app registers it by catalog id and
  * version (registry.ts). A challenge's badge is per-viewer app state, never game
  * score (lessonStorage.ts).
@@ -9,7 +9,7 @@
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 
 export type LessonTarget =
-  | { readonly studio: "room"; readonly picture: number }
+  | { readonly studio: "picture"; readonly picture: number }
   | {
       readonly studio: "view";
       readonly view: number;
@@ -23,11 +23,11 @@ export interface LessonVerifyInput {
   readonly num: number;
   /** The resource's bytes when the studio opened. */
   readonly before: Uint8Array;
-  /** The bytes just kept. */
+  /** The bytes just saved. */
   readonly after: Uint8Array;
   /** The annotated picture source the studio opened on, when trusted. */
   readonly beforeSource?: string;
-  /** The annotated picture source just kept. */
+  /** The annotated picture source just saved. */
   readonly afterSource?: string;
   readonly profile: AgiProfile;
 }

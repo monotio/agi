@@ -60,9 +60,9 @@ snapshots:
       style: primary
       start: 7
       end: 18
-  <span>Edit<small>Open in Logic Studio; no engine needed</small></span>:
+  <span>Edit<small>Open in LOGIC editor; no engine needed</small></span>:
     labels:
-    - source: Open in Logic Studio; no engine needed
+    - source: Open in LOGIC editor; no engine needed
       style: primary
       start: 17
       end: 55

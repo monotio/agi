@@ -48,7 +48,7 @@ export function renumberTestSetup(input: {
     for (let i = 0; i < pairs.length; i++) {
       const pair = pairs[i]!;
       if (REPLAY_KINDS[input.kind].includes(pair.kind)) pair.value = replace(pair.value);
-      // add.to.pic's following three pairs carry geometry and depth, rather than resource IDs.
+      // add.to.pic's following three pairs carry geometry and priority, rather than resource IDs.
       if (pair.kind === 5) i += 3;
     }
   }

@@ -17,7 +17,7 @@ import { workspaceDocument } from "./workspaceShared.ts";
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio read-only and inspection behaviors in the workspace. Expected
+ * PICTURE editor read-only and inspection behaviors in the workspace. Expected
  * pixels and masks come from the kernel evaluated on its own
  * compile of the source, or are hand-placed in the demo picture
  * (app/src/studio/demoPicture.ts), never from the component's state.
@@ -127,7 +127,7 @@ async function bootReadonlyGame(page: Page): Promise<void> {
   await waitForCycles(page, 2);
 }
 
-async function openRoomStudio(page: Page, room: number): Promise<void> {
+async function openPictureStudio(page: Page, room: number): Promise<void> {
   await openWorkspacePicture(page, room, false);
 }
 
@@ -167,7 +167,7 @@ async function hoverCell(page: Page, x: number, y: number): Promise<void> {
 
 test("hovering a scene row highlights exactly that item's pixels", async ({ page }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 1);
+  await openPictureStudio(page, 1);
   await page.locator('[data-row="bench-occluder"]').hover();
   // The occluder is the filled rectangle 40,90..119,105 on the priority plane.
   const box = await page.locator('[data-role="hover-fill"]').evaluate((path) => {
@@ -180,7 +180,7 @@ test("hovering a scene row highlights exactly that item's pixels", async ({ page
   expect(await highlightCells(page)).toEqual(expected);
 
   // The gallery picture as an import sees it: bytes only, one item per element.
-  await openRoomStudio(page, 2);
+  await openPictureStudio(page, 2);
   await page.getByTestId("scene-toggle-groups").click();
   for (const id of ["el-1", "el-20"]) {
     await page.locator(`[data-row="${id}"]`).hover();
@@ -200,7 +200,7 @@ for (const deviceScaleFactor of [1, 2]) {
     });
     const page = await context.newPage();
     await bootReadonlyGame(page);
-    await openRoomStudio(page, 1);
+    await openPictureStudio(page, 1);
     await page
       .getByRole("radiogroup", { name: "Side panel", exact: true })
       .getByRole("radio", { name: "Inspector", exact: true })
@@ -211,20 +211,20 @@ for (const deviceScaleFactor of [1, 2]) {
     for (const step of ["fit", "+"]) {
       if (step === "+") await page.keyboard.press("+");
       zooms.push((await zoomLevel.textContent()) ?? "");
-      // 80,97 is inside the art bench and the depth occluder drawn over it.
+      // 80,97 is inside the art bench and the priority occluder drawn over it.
       await page.keyboard.press("1");
       await hoverCell(page, 80, 97);
-      await expect(page.locator(".scene-list__row.is-hover")).toHaveAttribute("data-row", "bench");
+      await expect(page.locator(".item-list__row.is-hover")).toHaveAttribute("data-row", "bench");
       await page.keyboard.press("2");
       await hoverCell(page, 80, 97);
-      await expect(page.locator(".scene-list__row.is-hover")).toHaveAttribute(
+      await expect(page.locator(".item-list__row.is-hover")).toHaveAttribute(
         "data-row",
         "bench-occluder",
       );
       await expect(page.locator('[data-role="pixel"]')).toContainText("Pixel 80,97");
-      // 80,60 is bare wall: the Depth lens falls back to the visual owner.
+      // 80,60 is bare wall: the Priority lens falls back to the visual owner.
       await hoverCell(page, 80, 60);
-      await expect(page.locator(".scene-list__row.is-hover")).toHaveAttribute("data-row", "wall");
+      await expect(page.locator(".item-list__row.is-hover")).toHaveAttribute("data-row", "wall");
     }
     expect(new Set(zooms).size).toBe(2);
     // The backing store carries the device ratio, so pixels stay crisp.
@@ -242,7 +242,9 @@ for (const deviceScaleFactor of [1, 2]) {
       "aria-selected",
       "true",
     );
-    await expect(page.locator('[data-role="announce"]')).toHaveText("Bench depth, depth, 18 steps");
+    await expect(page.locator('[data-role="announce"]')).toHaveText(
+      "Bench priority, priority, 18 steps",
+    );
     await context.close();
   });
 }
@@ -251,7 +253,7 @@ test("a group row highlights the union of its members, and a canvas click opens 
   page,
 }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 2);
+  await openPictureStudio(page, 2);
   const groups = page.locator('[role="treeitem"][aria-expanded]');
   // More than 40 items: every group starts closed, and no member row is shown.
   expect(await groups.count()).toBeGreaterThan(0);
@@ -265,7 +267,7 @@ test("a group row highlights the union of its members, and a canvas click opens 
   const header = page.locator(
     await groups.evaluateAll((rows) => {
       const size = (row: Element): number =>
-        Number(/· (\d+)$/.exec(row.querySelector(".scene-list__label")?.textContent ?? "")?.[1]);
+        Number(/· (\d+)$/.exec(row.querySelector(".item-list__label")?.textContent ?? "")?.[1]);
       const best = rows.reduce((a, b) => (size(b) > size(a) ? b : a));
       return `[data-row="${best.getAttribute("data-row")}"]`;
     }),
@@ -304,7 +306,7 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
   page,
 }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 4);
+  await openPictureStudio(page, 4);
   const sections = page.locator('[role="treeitem"][aria-level="1"][aria-expanded]');
   await expect(sections).toHaveCount(36);
   expect(
@@ -316,7 +318,7 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
 
   // The first section holds items 0 and 1 (commands 1-4): lines at x 0 and 2, y 0-5.
   const first = page.locator('[data-row="(section)i0"]');
-  await expect(first.locator(".scene-list__label")).toHaveText("Steps 1–4");
+  await expect(first.locator(".item-list__label")).toHaveText("Steps 1–4");
   await expect(first.locator('[data-role="section-swatches"] i')).toHaveCount(2);
   await first.hover();
   const expected: number[] = [];
@@ -339,7 +341,7 @@ test("Alt+arrow keys on the canvas step through items; Tab and Shift+Tab leave",
   page,
 }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 1);
+  await openPictureStudio(page, 1);
   const canvas = page.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
   const selected = page.locator('[role="treeitem"][aria-selected="true"]');
@@ -364,7 +366,7 @@ test("Alt+arrow keys on the canvas step through items; Tab and Shift+Tab leave",
 
 test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 1);
+  await openPictureStudio(page, 1);
   const lens = (name: string) =>
     page
       .getByRole("radiogroup", { name: "Lens", exact: true })
@@ -388,7 +390,7 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
 
 test("dragging the transport to a shape paints exactly renderUpTo(k)", async ({ page }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 5);
+  await openPictureStudio(page, 5);
   const slider = page.getByRole("slider", { name: "Draw order", exact: true });
   await expect(slider).toBeVisible();
   const total = Number(await slider.getAttribute("aria-valuemax"));
@@ -434,7 +436,7 @@ test("dragging the transport to a shape paints exactly renderUpTo(k)", async ({ 
 
 test("lens keys switch lenses and studio keys never reach a window listener", async ({ page }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 1);
+  await openPictureStudio(page, 1);
   await page.evaluate(() => {
     const seen: string[] = [];
     (window as unknown as { seenKeys: string[] }).seenKeys = seen;
@@ -489,7 +491,7 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
 
   // Esc with nothing in hand stays in Studio (its tab's × closes it, as in the workspace).
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { seenKeys: string[] }).seenKeys)).toEqual(
     [],
   );
@@ -499,7 +501,7 @@ test("a picture rebuilt from the game's bytes reads as its own source once its d
   page,
 }) => {
   await bootReadonlyGame(page);
-  await openRoomStudio(page, 3);
+  await openPictureStudio(page, 3);
   const source = page.getByTestId("studio-source-kind");
   await expect(source).toHaveText("Rebuilt");
   // A rect by keys: R, Enter at the cursor, three cells right and down, Enter.

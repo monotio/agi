@@ -1,7 +1,7 @@
 import { waitUntil } from "./async.ts";
 import { scheduler as testScheduler } from "node:timers/promises";
 /**
- * Room Studio's Walk view below the canvas: the pure door and outcome
+ * PICTURE editor's Walk view below the canvas: the pure door and outcome
  * helpers (walkView.ts), the room logic draft (useRoomLogicDraft.ts), the
  * shared undo order (useUndoOrder.ts) and the Walk composable
  * (useStudioWalk.ts) driving real kernels: the walkable estimate, rule
@@ -116,7 +116,7 @@ describe("walkView: doors and words", () => {
     assert.deepEqual(doors[0]!.box, { x1: 120, y1: 124, x2: 133, y2: 130 });
     assert.equal(doors[0]!.line, 1);
     assert.equal(doors[2]!.label, "Leaves by the west edge");
-    assert.equal(doors[3]!.label, "Planned exit by the room's script");
+    assert.equal(doors[3]!.label, "Planned exit by the room's LOGIC");
   });
 
   it("words where a door leads and its two sides", () => {
@@ -305,7 +305,7 @@ describe("walkView: doors and words", () => {
     );
     assert.equal(
       doorTestNote({ shape: "other" }, false, null),
-      "Exits made by the room's script run in play: play the game to test this one.",
+      "Exits made by the room's LOGIC run in play: play the game to test this one.",
     );
   });
 

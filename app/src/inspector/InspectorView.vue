@@ -61,10 +61,14 @@ const COLOR_NAMES = [
 
 const MODES: readonly { id: DebugViewMode; label: string; title: string }[] = [
   { id: "visual", label: "Game", title: "Normal picture" },
-  { id: "priority", label: "Priority", title: "Depth values" },
-  { id: "blend", label: "Blend", title: "Depth shading over the game, with control lines hatched" },
-  { id: "split", label: "Split", title: "Half game, half depth values" },
-  { id: "explode", label: "Layers", title: "Depth layers that tilt with the pointer" },
+  { id: "priority", label: "Priority", title: "Priority values" },
+  {
+    id: "blend",
+    label: "Blend",
+    title: "Priority shading over the game, with control lines hatched",
+  },
+  { id: "split", label: "Split", title: "Half game, half priority values" },
+  { id: "explode", label: "Layers", title: "Priority layers that tilt with the pointer" },
 ];
 
 /** The view choices as one segmented control; Layers needs the GPU stage. */
@@ -191,7 +195,7 @@ watch(
         @update:model-value="inspector.setInspectArmed($event)"
       >
         Pick a pixel<small>{{
-          inspectArmed ? "Click the scene to latch a pick" : "Read colour, depth and owner"
+          inspectArmed ? "Click the scene to latch a pick" : "Read colour, priority and owner"
         }}</small>
       </UiSwitch>
     </div>
@@ -247,7 +251,7 @@ watch(
   <section v-else-if="tab === 'state'" class="dd-body">
     <div class="dd-row dd-statehead">
       <span
-        >room {{ report?.room ?? "?" }} · ego ({{ report?.egoX }},{{ report?.egoY }}) dir
+        >room {{ report?.room ?? "?" }} · hero ({{ report?.egoX }},{{ report?.egoY }}) dir
         {{ report?.egoDirection }}</span
       >
       <span>rev {{ report?.patchGeneration ?? 0 }}</span>

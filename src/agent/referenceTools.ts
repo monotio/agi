@@ -16,7 +16,7 @@ import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
  */
 import { sha256Hex } from "../crypto.ts";
 import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
-import { EGA_COLOUR_NAMES } from "../studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../studio/itemGroups.ts";
 import type { AgentToolImage, AgentToolResult } from "./agentState.ts";
 import type { ToolDefinition } from "./tools.ts";
 import { REFERENCE_WORKING_EDGE } from "./toolTransport.ts";

@@ -15,7 +15,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio without a pointer and on screens that change under it: the
+ * PICTURE editor without a pointer and on screens that change under it: the
  * keyboard cursor draws and keeps, a layout too small for Studio covers it
  * with a notice instead of closing it, and while it is open the page holds
  * still with Tab kept to Studio and the bar above it. Room 1 draws PIC 5;
@@ -114,7 +114,7 @@ async function openStudio(page: Page): Promise<Locator> {
   await expect(page).toHaveURL(/#create\//);
   await page.getByTestId("part-room:1:picture:5").focus();
   await page.keyboard.press("Enter");
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -188,7 +188,7 @@ test("keyboard only: an Art rectangle and a Priority wall line autosave @webkit-
   await repeat(page, "ArrowDown", 4);
   await expect(announce).toHaveText("x 40 y 140");
   // The sized rect previews as the picture's own pixels: black over the grey floor at 30,130.
-  const art = studio.locator('[data-layer="art"] canvas');
+  const art = studio.locator('[data-layer="visual"] canvas');
   await expect
     .poll(() =>
       art.evaluate((element) => {
@@ -209,7 +209,7 @@ test("keyboard only: an Art rectangle and a Priority wall line autosave @webkit-
   await page.keyboard.press("l");
   const palette = studio.getByRole("radiogroup", { name: "Priority", exact: true });
   await palette
-    .getByRole("radio", { name: /^Depth/ })
+    .getByRole("radio", { name: /^Priority/ })
     .first()
     .focus();
   // Arrow keys walk the palette: left from band 4 lands on Water, then Trigger, Gate and Wall.
@@ -275,7 +275,7 @@ test("while Studio is open the page holds still and Tab stays in its workspace",
       if (!focused || focused === document.body) return "body";
       if (
         focused.closest(
-          '[data-testid="room-studio"], .play-bar, [data-testid="parts-list"], [data-testid="workspace-editor"], .workspace-splitter, .play-area',
+          '[data-testid="picture-studio"], .play-bar, [data-testid="parts-list"], [data-testid="workspace-editor"], .workspace-splitter, .play-area',
         )
       )
         return null;
@@ -288,14 +288,14 @@ test("while Studio is open the page holds still and Tab stays in its workspace",
   await expect(page.getByTestId("workspace-focus")).toHaveAttribute("aria-pressed", "false");
 
   // The full label is the row's tooltip; the filter shows a focus ring.
-  await expect(studio.locator('[data-row="occluder"] .scene-list__label')).toHaveAttribute(
+  await expect(studio.locator('[data-row="occluder"] .item-list__label')).toHaveAttribute(
     "title",
     "Bench occluder part 12",
   );
-  await expect(studio.locator('[data-row="occluder"] .scene-list__tail')).toHaveText(" 12");
+  await expect(studio.locator('[data-row="occluder"] .item-list__tail')).toHaveText(" 12");
   await studio.getByRole("searchbox", { name: "Filter items" }).focus();
-  await expect(studio.locator(".scene-list__filter")).toHaveCSS("outline-style", "solid");
-  await expect(studio.locator(".scene-list__filter")).toHaveCSS("outline-width", "3px");
+  await expect(studio.locator(".item-list__filter")).toHaveCSS("outline-style", "solid");
+  await expect(studio.locator(".item-list__filter")).toHaveCSS("outline-width", "3px");
 
   await closeWorkspaceEditor(page);
   await expect(studio).toBeHidden();

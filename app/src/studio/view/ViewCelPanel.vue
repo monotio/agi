@@ -12,7 +12,7 @@ import {
   type ResizeAnchor,
 } from "../../../../src/studio/view/viewCels.ts";
 import type { ViewDocumentCel } from "../../../../src/view/viewDocument.ts";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import { explain } from "../studioTerms.ts";
 import { feetOf, feetWarning } from "./viewStudioView.ts";
 

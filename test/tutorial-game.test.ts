@@ -316,11 +316,11 @@ test("tutorial resources are pinned to the released catalog version", async () =
   );
 });
 
-// Room Studio opens the tutorial's pictures on their authored sources, so
+// PICTURE editor opens the tutorial's pictures on their authored sources, so
 // every drawing command sits in a named item. The items are comments: the
 // bytes are pinned per picture (and by the revision above) to what the
 // sources compiled to before they were annotated.
-test("the tutorial pictures are named Studio items without moving a byte", () => {
+test("the tutorial pictures are named picture items without moving a byte", () => {
   const pinned: Record<string, string> = {
     1: "80913e1c0e69cfc9fd953d52a046de1634494a1a3d0c2451c9068b602a10fed0",
     2: "2f34a21875ce5f91e4135600055790ee9b05a6b12941d1ef6c30b09a81fdfe40",
@@ -351,7 +351,7 @@ test("the tutorial pictures are named Studio items without moving a byte", () =>
     assert.ok(labels.length >= 10, `PIC ${num} has ${labels.length} items`);
     assert.equal(new Set(labels).size, labels.length, `PIC ${num} labels are distinct`);
   }
-  // The priority exhibit's counter is the depth item; the barrier lines are walk items.
+  // The priority exhibit's counter is the priority item; the barrier lines are walk items.
   const archive = parsePictureDocument(TUTORIAL_PICTURE_SOURCES[3]!).document.items;
   assert.deepEqual(
     archive.filter((item) => item.kind !== "art").map(({ id, kind }) => [id, kind]),
@@ -820,7 +820,7 @@ test("the lab lever sweeps around a fixed pivot and retains its repaired positio
   assert.equal(interrupted.engine.vars[3], 10, "an interrupted sweep retains its single score");
 });
 
-test("priority repair demonstrates scenery occlusion without changing ego depth", () => {
+test("priority repair demonstrates scenery occlusion without changing ego priority", () => {
   const { engine, host } = startTutorial();
   enter(engine, host, "east");
   enter(engine, host, "east");
@@ -882,7 +882,7 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
   assert.equal(
     engine.surface.priority[150 * SCREEN_WIDTH + 83],
     4,
-    "floor has no painted depth bands",
+    "floor has no painted priority bands",
   );
 
   const headInFront = visualDifferences(
@@ -951,7 +951,7 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
   assert.equal(engine.getFrame().visual[72 * SCREEN_WIDTH + 112], 10);
 });
 
-test("the ledger stand's missing depth explains itself the first time ego walks behind it", () => {
+test("the ledger stand's missing priority explains itself the first time ego walks behind it", () => {
   const { engine, host } = startTutorial();
   enter(engine, host, "east");
   enter(engine, host, "east");
@@ -1028,7 +1028,7 @@ test("the archive globe stands fully inside the picture", () => {
   for (const [x, y] of points) {
     assert.ok(x >= 2 && x <= 157 && y <= 160, `globe point ${x},${y} keeps a margin from the edge`);
   }
-  // Its depth covers it; the walk barrier keeps the apprentice out from behind it.
+  // Its priority covers it; the walk barrier keeps the apprentice out from behind it.
   assert.equal(surface.priority[130 * SCREEN_WIDTH + 147], 14);
   assert.equal(surface.priority[150 * SCREEN_WIDTH + 143], 0);
   assert.equal(surface.priority[157 * SCREEN_WIDTH + 150], 0);

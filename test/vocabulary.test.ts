@@ -15,7 +15,7 @@ import { executeAgentTool, ASK_TOOLS } from "../src/agent/tools.ts";
 import { renderPicture } from "../src/picture/renderer.ts";
 import { createPictureSurface } from "../src/types.ts";
 
-test("Add depth uses the item kernel, preserves art and rejects stale revisions", () => {
+test("Add priority uses the item kernel, preserves art and rejects stale revisions", () => {
   const state = createAgentSessionState();
   const source =
     '# @item tree "Tree" art\nvis 2\npri off\nrect 20,50 30,80\nfill 25,60\n# @end\nend';
@@ -24,21 +24,21 @@ test("Add depth uses the item kernel, preserves art and rejects stale revisions"
   const revision = read.details?.["revision"];
   const before = createPictureSurface();
   renderPicture(state.container.getResource("picture", 1)!, before);
-  const added = executeAgentTool(state, "add_depth", {
+  const added = executeAgentTool(state, "add_priority", {
     num: 1,
     itemId: "tree",
     expectedRevision: revision,
     baseY: 80,
     priorityBase: 48,
   });
-  assert.ok(added.success, added.error ?? "Add depth failed");
+  assert.ok(added.success, added.error ?? "Add priority failed");
   const after = createPictureSurface();
   renderPicture(state.container.getResource("picture", 1)!, after);
   assert.deepEqual(after.visual, before.visual);
   assert.equal(after.priority[60 * 160 + 25], 7);
   assert.equal(after.priority[60 * 160 + 40], 4);
   const bytes = state.container.getResource("picture", 1)!.slice();
-  const stale = executeAgentTool(state, "add_depth", {
+  const stale = executeAgentTool(state, "add_priority", {
     num: 1,
     itemId: "tree",
     expectedRevision: revision,
@@ -47,7 +47,7 @@ test("Add depth uses the item kernel, preserves art and rejects stale revisions"
   });
   assert.equal(stale.success, false);
   assert.deepEqual(state.container.getResource("picture", 1), bytes);
-  assert.ok(!ASK_TOOLS.includes("add_depth"));
+  assert.ok(!ASK_TOOLS.includes("add_priority"));
 });
 
 test("vocabulary records have stable ids, plain help and technical hover", () => {
@@ -77,19 +77,19 @@ test("each action shares its name stem and help with every tool catalog", () => 
   }
   for (const tool of tools) assert.ok(tool.name in VOCABULARY_ACTIONS, tool.name);
   assert.equal(
-    toolDescription("add_depth", "Uses the selected item."),
-    VOCABULARY.addDepth.help + " Uses the selected item.",
+    toolDescription("add_priority", "Uses the selected item."),
+    VOCABULARY.addPriority.help + " Uses the selected item.",
   );
 });
 
 test("UI explainers use the canonical help lines", () => {
   const pairs = {
-    depth: "depth",
-    bands: "depthBand",
+    priority: "priority",
+    bands: "priorityBand",
     "walk-lines": "walk",
     order: "drawOrder",
     step: "step",
-    ghost: "standIn",
+    standIn: "standIn",
     loops: "loop",
     mirror: "mirrorLoop",
     transparent: "transparentColour",

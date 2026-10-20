@@ -121,7 +121,7 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   );
   const pick = page.getByTestId("dbg-pick");
   await expect(pick).toBeVisible();
-  await expect(pick).toContainText("Object 0");
+  await expect(pick).toContainText("Actor 0");
   await expect(pick).toContainText("VIEW 0");
 
   // State tab: v42 was written by logic → shows 7; flag 42 shows set.

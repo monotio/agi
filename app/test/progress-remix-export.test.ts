@@ -64,7 +64,7 @@ const STUB: LlmConfig = { provider: "stub", apiKey: "", model: "offline-stub" };
 /** Two installations' shared vocabulary spelling, as released storage knew it. */
 const SHARED_HASH = "sharedhash-sharedhash";
 
-// Room Studio's red picture and its same-bytes rename (the source-only edit).
+// PICTURE editor's red picture and its same-bytes rename (the source-only edit).
 const BLUE = ["vis 1", "fill 80,80", "end"].join("\n");
 const NAMED_BLUE = ['# @item sky "Sky" art', "vis 1", "fill 80,80", "# @end", "end"].join("\n");
 const RED = ["vis 4", "fill 80,80", "end"].join("\n");

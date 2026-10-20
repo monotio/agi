@@ -1,7 +1,7 @@
 /**
  * Deterministic manual picture underlay preparation: one canonical source
  * raster and one stored recipe -> a detached 160x168 logical RGBA surface for
- * the Room Studio reference layer.
+ * the PICTURE editor reference layer.
  *
  * A stored recipe's `crop` and `destination` are final. The creator captured
  * them — directly or through `derivePicturePlacement` — under a declared
@@ -67,7 +67,7 @@ const CELL_ASPECT: Record<PictureAspect, { readonly w: number; readonly h: numbe
   "original-4:3": { w: 5, h: 3 },
 };
 
-/** The detached prepared surface for the Room Studio canvas. */
+/** The detached prepared surface for the PICTURE editor canvas. */
 export interface PreparedPictureUnderlay {
   readonly algorithm: typeof PICTURE_UNDERLAY_ALGORITHM;
   /** The recipe's own versioned identity, for staleness labelling. */

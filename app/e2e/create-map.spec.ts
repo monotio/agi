@@ -21,7 +21,7 @@ test("Create map opens from the top bar and quick open; room picks open PICTURE"
   });
   await map.getByTestId("map-node-1").click();
   await expect(map).toHaveCount(0);
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await expect(page.getByTestId("workspace-editor")).toContainText("PICTURE 1");
   await page.keyboard.press("ControlOrMeta+p");
   const chooser = page.getByRole("dialog");
@@ -31,7 +31,7 @@ test("Create map opens from the top bar and quick open; room picks open PICTURE"
   await map.getByTestId("world-all-rooms").click();
   await map.getByTestId("map-room-1").getByRole("button").first().click();
   await expect(map).toHaveCount(0);
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
 });
 
 test("Play uses the shared Agent name and retains hint mode", async ({ page }) => {

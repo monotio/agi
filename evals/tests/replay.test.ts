@@ -44,7 +44,7 @@ interface StudioCase {
   source?: string;
   draftSource?: string;
   targetIds?: string[];
-  lens?: StudioLens;
+  lens?: "art" | "depth";
   unlocks?: LensUnlocks;
   horizon?: number;
   payload?: number[];
@@ -82,6 +82,7 @@ function referenceSource(cases: readonly ReferenceCase[]): ReferenceSource {
 function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDeps {
   if (studio.kind === "picture") {
     const source = studio.source!;
+    const lens: StudioLens = studio.lens === "depth" ? "priority" : "visual";
     const compiled = compileEditDocument(parsePictureDocument(source).document, session.profile);
     const draft = studio.draftSource ?? source;
     return {
@@ -91,11 +92,11 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
           num: studio.num,
           compiled,
           targetIds: studio.targetIds ?? [],
-          lens: studio.lens ?? "art",
+          lens,
           ...(studio.unlocks ? { unlocks: studio.unlocks } : {}),
         }),
         draft: () => ({ kind: "picture", source: draft }),
-        lens: studio.lens,
+        lens,
         horizon: studio.horizon,
       }),
     };

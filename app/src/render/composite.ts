@@ -213,7 +213,7 @@ function drawText(
  * under it, titles two pixels in and one row down, the active title's box
  * complemented, and the pull-down with a one-pixel top and bottom line,
  * two-pixel sides, item text four pixels in and one row down inside each
- * select box, the highlighted box complemented, and ghosted items erased
+ * select box, the highlighted box complemented, and hidden items erased
  * through Intuition's 0x4444/0x1111 pattern.
  */
 function drawIntuitionMenu(

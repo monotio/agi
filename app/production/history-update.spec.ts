@@ -182,7 +182,7 @@ for (const edits of [0, 200, 400]) {
       // and verifies megabytes of edits, which takes seconds on a CI runner.
       await expect(page.getByTestId("parts-list")).toBeVisible({ timeout: 30_000 });
       await page.getByTestId("part-room:1:picture:1").click();
-      const studio = page.getByTestId("room-studio");
+      const studio = page.getByTestId("picture-studio");
       const pane = studio.locator(".studio-pane").last();
       await pane.evaluate(() => document.fonts.ready);
       await pane.click({ trial: true });

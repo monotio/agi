@@ -4,4 +4,4 @@ valid:
   - "filled++;"
 invalid:
   - "counts[c]!++;"
-  - "--depth!;"
+  - "--priority!;"

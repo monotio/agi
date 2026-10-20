@@ -204,7 +204,7 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
 /**
  * The Vite dev server serves code one module at a time, so the first time a page
  * loads a module graph waits for all of it: the game boot (and any fresh page load
- * or deep link), and each lazily imported editor (Create's workspace, Room Studio,
+ * or deep link), and each lazily imported editor (Create's workspace, PICTURE editor,
  * VIEW editor, Monaco). Under a loaded suite that can sit far past the default
  * expect budget, so a wait that covers a first load spends this budget instead.
  */
@@ -594,7 +594,7 @@ export async function openWorkspacePicture(
     (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
   )
     await page.getByTestId("workspace-focus").click();
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   return studio;

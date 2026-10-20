@@ -190,8 +190,8 @@ export const VOCABULARY = {
     help: "Shows Visual or Priority while you draw.",
     technical: "",
   },
-  drawingDepth: {
-    id: "drawingDepth",
+  drawingPriority: {
+    id: "drawingPriority",
     label: "Priority",
     help: "The priority the drawing tools also paint. None leaves the existing priority as you draw.",
     technical: "PICTURE priority drawing value.",
@@ -323,16 +323,16 @@ export const VOCABULARY = {
     technical: "",
   },
   art: { id: "art", label: "Art", help: "What the player sees.", technical: "Visual plane." },
-  depth: {
-    id: "depth",
+  priority: {
+    id: "priority",
     label: "Priority",
     help: "What stands in front. Lower on the screen is nearer.",
     technical: "AGI calls this priority.",
   },
-  depthBand: {
-    id: "depthBand",
-    label: "distance band",
-    help: "Each row of the screen sits in a distance band. A character's priority comes from the row its feet are on.",
+  priorityBand: {
+    id: "priorityBand",
+    label: "priority band",
+    help: "Each row of the screen sits in a priority band. A character's priority comes from the row its feet are on.",
     technical: "Priority band from set.pri.base.",
   },
   walk: {
@@ -378,9 +378,9 @@ export const VOCABULARY = {
     help: "The row where an item touches the ground. Characters behind it are drawn behind the item.",
     technical: "",
   },
-  addDepth: {
-    id: "addDepth",
-    label: "Add depth",
+  addPriority: {
+    id: "addPriority",
+    label: "Add priority",
     help: "Characters walk behind it above its base line and in front of it below.",
     technical: "Fills the item's PRIORITY for the band of its base row.",
   },
@@ -686,16 +686,16 @@ export const VOCABULARY = {
     help: "Shows a flag or variable while the game runs.",
     technical: "",
   },
-  depthDerived: {
-    id: "depthDerived",
-    label: "Depth: from base line",
-    help: "Depth follows the item when you move or reshape it.",
+  priorityDerived: {
+    id: "priorityDerived",
+    label: "Priority: from base line",
+    help: "Priority follows the item when you move or reshape it.",
     technical: "# @depth base=N.",
   },
-  depthPainted: {
-    id: "depthPainted",
-    label: "Depth: painted",
-    help: "Depth was painted by hand.",
+  priorityPainted: {
+    id: "priorityPainted",
+    label: "Priority: painted",
+    help: "Priority was painted by hand.",
     technical: "Ordinary priority commands.",
   },
   gameTests: {
@@ -842,7 +842,12 @@ export const VOCABULARY_ACTIONS = {
     label: "Draw picture items",
     tool: "draw_picture_items",
   },
-  add_depth: { ...VOCABULARY.addDepth, id: "add_depth", label: "Add depth", tool: "add_depth" },
+  add_priority: {
+    ...VOCABULARY.addPriority,
+    id: "add_priority",
+    label: "Add priority",
+    tool: "add_priority",
+  },
   read_view: { ...VOCABULARY.view, id: "read_view", label: "Read view", tool: "read_view" },
   write_view: { ...VOCABULARY.view, id: "write_view", label: "Write view", tool: "write_view" },
   edit_cels: { ...VOCABULARY.view, id: "edit_cels", label: "Edit cels", tool: "edit_cels" },
@@ -992,8 +997,8 @@ const PARAMETER_TERMS: Readonly<Record<string, keyof typeof VOCABULARY>> = {
   egoView: "hero",
   itemId: "item",
   baseY: "baseLine",
-  priority: "depth",
-  priorityBase: "depthBand",
+  priority: "priority",
+  priorityBase: "priorityBand",
   plane: "art",
   loop: "loop",
   cel: "cel",

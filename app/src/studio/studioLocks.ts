@@ -1,5 +1,5 @@
 /**
- * Lens locks for Room Studio edits, judged on decoded pixels, never on the
+ * Lens locks for PICTURE editor edits, judged on decoded pixels, never on the
  * edit's operations. The lens rules themselves
  * (src/studio/lensRules.ts) are shared with AI proposals (assistScope.ts),
  * so both pass the same validators. A refusal says why in plain words, keeps
@@ -42,7 +42,7 @@ export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
 
 /**
  * A locked plane, as the lock chip names it, with its verb: the priority
- * plane holds both depth and walk lines.
+ * plane holds both priority and walk lines.
  */
 export const LOCKED_PLANES: Record<PicturePlane, string> = {
   visual: "Visual is locked",
@@ -195,7 +195,7 @@ export function violationCells(check: StudioCheck): Uint8Array {
 
 /**
  * What moving `ids` carried that `lens` does not paint, in the lock chip's
- * words: "priority" (both distance bands and control lines) in the Visual
+ * words: "priority" (both priority bands and control lines) in the Visual
  * lens, "visual" in the Priority lens. Read from the cells the items own in
  * `compiled`, so lines drawn over entirely count for nothing.
  */
@@ -211,6 +211,6 @@ export function carriedPlanes(
     priority ||= footprintMask(compiled, id, "priority").includes(1);
   }
   const hidden: readonly [string, boolean][] =
-    lens === "art" ? [["priority", priority]] : [["visual", visual]];
+    lens === "visual" ? [["priority", priority]] : [["visual", visual]];
   return hidden.flatMap(([name, carried]) => (carried ? [name] : []));
 }

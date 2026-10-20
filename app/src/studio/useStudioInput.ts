@@ -1,5 +1,5 @@
 /**
- * How input reaches Room Studio's tools (useStudioTools.ts): the canvas's
+ * How input reaches PICTURE editor's tools (useStudioTools.ts): the canvas's
  * pointer (the active tool first, then selection and dragging), Space held
  * to pan, the rail's letters, and the keyboard cursor, which makes every
  * drawing tool and the pipette work without a pointer (WCAG 2.5.7).

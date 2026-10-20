@@ -10,7 +10,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * The calm canvas, as a rule over every element: in Room Studio and View
+ * The calm canvas, as a rule over every element: in PICTURE editor and View
  * Studio, with the probe, the control-line legend, the values popover and a
  * selection open, anything positioned over the picture that takes the
  * pointer and says something is a menu or a dialog the creator opened, or
@@ -65,7 +65,7 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     await openWorkspacePicture(page, 2);
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await expect(studio).toBeVisible();
     const pictures = ".studio-pane__pixels, .game-surface";
     /** Every stray, by the step that showed it: all of them are reported at once. */
@@ -77,7 +77,7 @@ for (const [width, height] of [
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("g");
-    await expect(studio.getByTestId("ghost-probe")).toBeVisible();
+    await expect(studio.getByTestId("stand-in-probe")).toBeVisible();
     await look("art", studio, pictures);
 
     // The Priority lens with its room panel showing.

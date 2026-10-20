@@ -3,7 +3,7 @@ import { computed, nextTick, ref, useTemplateRef } from "vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import type { ViewDocument } from "../../../../src/view/viewDocument.ts";
 import { recolorCount, recolorEdit, type RecolorEdit, type RecolorScope } from "./viewRecolor.ts";
 import { swatchInk } from "./viewStudioView.ts";

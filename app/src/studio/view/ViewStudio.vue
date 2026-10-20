@@ -5,7 +5,7 @@ import { computed, nextTick, onBeforeUnmount, ref, shallowRef, useTemplateRef, w
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { AgentTarget } from "../../agent/agentNavigation.ts";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import { openContainer } from "../../../../src/container/container.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
@@ -23,7 +23,7 @@ import type {
   ViewEdit as ViewResourceEdit,
 } from "../../project/resourceCommit.ts";
 import type { ViewRoom } from "../../world/studioSource.ts";
-import { VIEW_TOOL_HINTS, CEL_TOOL_NAMES, viewKeySheet } from "../studioHelp.ts";
+import { VIEW_TOOL_HINTS, VIEW_TOOL_NAMES, viewKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
 import { useFold } from "../useFold.ts";
 import StudioStatusNotice from "../StudioStatusNotice.vue";
@@ -327,7 +327,7 @@ function setPropagate(target: number, on: boolean): void {
 const stage = useTemplateRef("stage");
 const onionPrev = ref(true);
 const onionNext = ref(true);
-const onionDepth = ref(1);
+const onionCount = ref(1);
 const showGrid = ref(true);
 const showBaseline = ref(true);
 /** What shows behind transparent pixels while drawing: per viewer, never the view's data. */
@@ -376,7 +376,7 @@ const onion = computed<OnionSkin[]>(() => {
   const cels = shown.value.loops[loop.value]?.cels ?? [];
   const out: OnionSkin[] = [];
   const used = new Set([cel.value]);
-  for (let distance = 1; distance <= onionDepth.value; distance++)
+  for (let distance = 1; distance <= onionCount.value; distance++)
     for (const side of ["prev", "next"] as const) {
       if (!(side === "prev" ? onionPrev.value : onionNext.value)) continue;
       const index =
@@ -519,11 +519,11 @@ const status = computed(() => {
       <div
         class="view-options"
         role="group"
-        :aria-label="`${CEL_TOOL_NAMES[tools.tool.value]} options`"
+        :aria-label="`${VIEW_TOOL_NAMES[tools.tool.value]} options`"
         data-testid="view-tool-options"
         :data-tool="tools.tool.value"
       >
-        <b class="view-options__name">{{ CEL_TOOL_NAMES[tools.tool.value] }}</b>
+        <b class="view-options__name">{{ VIEW_TOOL_NAMES[tools.tool.value] }}</b>
         <span v-if="paints" class="view-options__colour" :title="`Colour ${color}`">
           <i :style="{ background: `var(--agi-${color})` }" aria-hidden="true"></i>
           {{ color }} {{ EGA_COLOUR_NAMES[color] }}
@@ -556,7 +556,7 @@ const status = computed(() => {
         v-model:sheet="sheet"
         v-model:prev="onionPrev"
         v-model:next="onionNext"
-        v-model:depth="onionDepth"
+        v-model:count="onionCount"
         v-model:grid="showGrid"
         v-model:baseline="showBaseline"
         v-model:background="background"

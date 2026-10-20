@@ -16,7 +16,7 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     id: "adventure-department",
     version: "1.2.0",
     title: "Adventure Department",
-    description: "Learn pictures, views and depth in a three-room tutorial.",
+    description: "Learn pictures, views and priority in a three-room tutorial.",
     author: "Monotio",
     license: "MIT",
     preview: "catalog/adventure-department.png",

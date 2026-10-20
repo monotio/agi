@@ -151,7 +151,7 @@
   --control-h: 40px;
   --control-h-touch: 44px;
 
-  /* Depth. */
+  /* Priority. */
   --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.4);
   --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.6);
   --shadow-stage: 0 0 0 1px var(--hairline-strong), 0 20px 60px rgb(0 0 0 / 0.55);

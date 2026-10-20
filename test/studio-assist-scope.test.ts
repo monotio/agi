@@ -68,7 +68,7 @@ function priorityScope(before: CompiledDocument, overrides: Partial<PictureAssis
       num: 1,
       compiled: before,
       targetIds: ["bridge"],
-      lens: "depth",
+      lens: "priority",
     }),
     ...overrides,
   };
@@ -124,7 +124,7 @@ test("a control-only crossing under the selected bridge is allowed in the Priori
   assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
 });
 
-test("depth painted under the selected bridge is allowed in the Priority lens", () => {
+test("priority painted under the selected bridge is allowed in the Priority lens", () => {
   // Floor (4) over the whole river under the bridge: banks 0 -> 4 and water
   // 3 -> 4. The Priority lens paints distance and control lines alike.
   const before = compile(BRIDGE_SOURCE);
@@ -254,7 +254,7 @@ test("a moved target licenses its new footprint, and only that", () => {
       num: 1,
       compiled: before,
       targetIds: ["bridge"],
-      lens: "depth",
+      lens: "priority",
       unlocks: { ...NO_UNLOCKS, visual: true },
     }),
   };
@@ -304,7 +304,7 @@ test("a target's fill that escapes its shrunken outline is a side effect, report
     num: 1,
     compiled: before,
     targetIds: ["river"],
-    lens: "depth",
+    lens: "priority",
   });
   const after = edit(before, { type: "setPoint", line: RIVER_RECT, pointIndex: 1, x: 3, y: 122 });
   const area = footprintMask(before, "river", "both");
@@ -337,7 +337,7 @@ test("a reshaped line keeps its licence past the selection: bounded geometry", (
     num: 1,
     compiled: before,
     targetIds: ["bridge"],
-    lens: "art",
+    lens: "visual",
   });
   assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
 });
@@ -357,7 +357,7 @@ test("a moved target's fill may land in its old area moved by the same offset", 
     num: 1,
     compiled: before,
     targetIds: ["river"],
-    lens: "depth",
+    lens: "priority",
   });
   assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
 });
@@ -381,7 +381,7 @@ test("a fill the proposal inserts reports what it pours over outside the selecti
     num: 1,
     compiled: before,
     targetIds: ["river"],
-    lens: "depth",
+    lens: "priority",
   });
   const check = checkCandidate(before, after, scope);
   assert.equal(check.ok, true);
@@ -391,7 +391,7 @@ test("a fill the proposal inserts reports what it pours over outside the selecti
 });
 
 test("a new bare fill does not pass as a moved copy of a selected bare fill", () => {
-  // The sky is one fill (0,0); a floor-depth fill seeded at 45,29 is the same
+  // The sky is one fill (0,0); a floor-priority fill seeded at 45,29 is the same
   // geometry moved, but encloses nothing. It floods the floor down to the
   // river's top bank, rows 0..119; the sky's area misses the bridge there,
   // x 60..99 on rows 118 and 119: 80 cells.
@@ -410,7 +410,7 @@ test("a new bare fill does not pass as a moved copy of a selected bare fill", ()
     num: 1,
     compiled: before,
     targetIds: ["sky"],
-    lens: "art",
+    lens: "visual",
     unlocks: { ...NO_UNLOCKS, priority: true },
   });
   // Not licensed as a copy: those 80 cells are side effects.
@@ -430,7 +430,7 @@ const shape = (check: AssistCheck) =>
 
 /** The scope of an Art-lens selection of `targetIds`: priority locked, their area licensed on the art. */
 const artScope = (compiled: CompiledDocument, ...targetIds: string[]) =>
-  pictureAssistScope({ num: 1, compiled, targetIds, lens: "art" });
+  pictureAssistScope({ num: 1, compiled, targetIds, lens: "visual" });
 
 /** A new art item `n` drawing `commands` in colour 5. */
 const newItem = (...commands: string[]) => ['# @item n "N" art', "vis 5", ...commands, "# @end"];
@@ -445,21 +445,21 @@ test("a selection naming items the draft lacks is refused in words", () => {
     checkCandidate(
       before,
       after,
-      pictureAssistScope({ num: 1, compiled: before, targetIds, lens: "depth" }),
+      pictureAssistScope({ num: 1, compiled: before, targetIds, lens: "priority" }),
     );
-  assert.deepEqual(check("ghost"), {
+  assert.deepEqual(check("standIn"), {
     ok: false,
     violations: [
       {
         constraint: "unknown-target",
-        message: "the selection names an item the draft does not have: ghost",
+        message: "the selection names an item the draft does not have: standIn",
       },
     ],
   });
-  assert.deepEqual(check("bridge", "ghost", "wisp").violations, [
+  assert.deepEqual(check("bridge", "standIn", "wisp").violations, [
     {
       constraint: "unknown-target",
-      message: "the selection names items the draft does not have: ghost, wisp",
+      message: "the selection names items the draft does not have: standIn, wisp",
     },
   ]);
 });
@@ -551,7 +551,7 @@ test("without an allowedMask a target licenses only its own footprint on each pl
     baseRevision: draftRevision({ kind: "picture", source: BRIDGE_SOURCE }),
     targetIds: ["bridge"],
     lockedPlanes: [],
-    lens: "depth",
+    lens: "priority",
     unlocks: NO_UNLOCKS,
     maxBytes: PAYLOAD_MAX_BYTES,
   };
@@ -568,7 +568,7 @@ test("without an allowedMask a target licenses only its own footprint on each pl
 
 test("the scope's byte budget is the caller's, or the payload limit", () => {
   const before = compile(BRIDGE_SOURCE);
-  const input = { num: 1, compiled: before, targetIds: ["bridge"], lens: "depth" } as const;
+  const input = { num: 1, compiled: before, targetIds: ["bridge"], lens: "priority" } as const;
   assert.equal(pictureAssistScope(input).maxBytes, PAYLOAD_MAX_BYTES);
   const after = edit(before, walkRect(60, 99));
   const budget = before.bytes.length;
@@ -746,7 +746,7 @@ test("a locked plane refuses its changes whole; on the others new outlines outsi
   const check = checkCandidate(
     before,
     after,
-    pictureAssistScope({ num: 1, compiled: before, targetIds: ["t"], lens: "depth" }),
+    pictureAssistScope({ num: 1, compiled: before, targetIds: ["t"], lens: "priority" }),
   );
   const outline = { x0: 50, y0: 50, x1: 52, y1: 52 };
   const seed = { x0: 51, y0: 51, x1: 51, y1: 51 };
@@ -758,7 +758,7 @@ test("a locked plane refuses its changes whole; on the others new outlines outsi
   assert.equal(
     assistRefusalText(check),
     "the art (visual plane) is locked, but 9 cells at 50,50..52,52 would change; " +
-      "8 cells at 50,50..52,52 of the depth and walk (priority plane) outside the selection would change",
+      "8 cells at 50,50..52,52 of the priority and walk (priority plane) outside the selection would change",
   );
 });
 
@@ -847,7 +847,7 @@ test("look-alikes in other colours get no licence: of six tiles of the bridge, o
   );
 });
 
-test("a copy that draws depth the selected art never drew is refused in the Priority lens", () => {
+test("a copy that draws priority the selected art never drew is refused in the Priority lens", () => {
   // Dot is a 3-cell colour-6 line at 10..12,10 with priority off. W repeats
   // it at 100..102,100 with art off and priority 2: its 3 cells turn floor 4
   // into signal 2, which the Priority lens itself would allow as control.
@@ -856,7 +856,12 @@ test("a copy that draws depth the selected art never drew is refused in the Prio
   const walk = ['# @item w "W" walk', "vis off", "pri 2", "line 100,100 102,100", "# @end"];
   const before = picture(...sky, ...dot, "end");
   const after = picture(...sky, ...dot, ...walk, "end");
-  const scope = pictureAssistScope({ num: 1, compiled: before, targetIds: ["dot"], lens: "depth" });
+  const scope = pictureAssistScope({
+    num: 1,
+    compiled: before,
+    targetIds: ["dot"],
+    lens: "priority",
+  });
   assert.deepEqual(shape(checkCandidate(before, after, scope)), [
     ["extra-copy", "priority", 3, { x0: 100, y0: 100, x1: 102, y1: 100 }],
   ]);
@@ -1231,7 +1236,12 @@ test("in the Art lens a proposal may move or copy a whole mixed target, walk lin
       "end",
     ].join("\n"),
   );
-  const scope = pictureAssistScope({ num: 1, compiled: before, targetIds: ["pond"], lens: "art" });
+  const scope = pictureAssistScope({
+    num: 1,
+    compiled: before,
+    targetIds: ["pond"],
+    lens: "visual",
+  });
   assert.deepEqual(scope.lockedPlanes, ["priority"]);
   const moved = edit(before, { type: "moveItem", itemId: "pond", dx: 6, dy: 4 });
   assert.deepEqual(checkCandidate(before, moved, scope).violations, []);

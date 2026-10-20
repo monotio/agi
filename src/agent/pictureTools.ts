@@ -40,12 +40,12 @@ const POINT_SCHEMA = {
 /** Strict-compatible schema for deterministic scene geometry. */
 export const PICTURE_TOOLS: readonly ToolDefinition[] = [
   {
-    name: "add_depth",
+    name: "add_priority",
     description: toolDescription(
-      "add_depth",
-      "Adds derived Depth to picture `num` item `itemId`. Read the picture first and pass its `expectedRevision`. Null `baseY` uses the item's lowest drawn row; null `priorityBase` uses 48, the default set.pri.base. Supply the room's current priority base when it differs. Replaces the item's painted Depth with ordinary AGI lines and records the base line so later item edits regenerate it. Locked items, stale revisions, invalid source or excessive byte size leave the resource unchanged. Returns the new editable-source revision and written resource. Art stays unchanged.",
+      "add_priority",
+      "Adds derived Priority to picture `num` item `itemId`. Read the picture first and pass its `expectedRevision`. Null `baseY` uses the item's lowest drawn row; null `priorityBase` uses 48, the default set.pri.base. Supply the room's current priority base when it differs. Replaces the item's painted Priority with ordinary AGI lines and records the base line so later item edits regenerate it. Locked items, stale revisions, invalid source or excessive byte size leave the resource unchanged. Returns the new editable-source revision and written resource. Art stays unchanged.",
     ),
-    parameters: parameterDescriptions("add_depth", {
+    parameters: parameterDescriptions("add_priority", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -234,7 +234,7 @@ export function executePictureTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name === "add_depth") {
+  if (name === "add_priority") {
     try {
       const num = integer(args["num"], "Picture number", 0, 255);
       const source = editableSource(state, "picture", num);
@@ -248,7 +248,7 @@ export function executePictureTool(
       const result = applyEdit(
         parsed.document,
         {
-          type: "addDepth",
+          type: "addPriority",
           itemId: String(args["itemId"]),
           ...(args["baseY"] == null ? {} : { baseY: integer(args["baseY"], "Base line", 0, 167) }),
         },
@@ -264,12 +264,12 @@ export function executePictureTool(
       const next = serializePictureDocument(result.document);
       const compiled = compilePictureSource(next, { profile: state.profile });
       if (compiled.bytes.length > MAX_PAYLOAD_BYTES)
-        throw new Error(`Depth exceeds ${MAX_PAYLOAD_BYTES} bytes. Simplify the item first.`);
+        throw new Error(`Priority exceeds ${MAX_PAYLOAD_BYTES} bytes. Simplify the item first.`);
       state.container.putResource("picture", num, compiled.bytes);
       state.sources.pictures.set(num, next);
       return {
         success: true,
-        message: `Added depth to ${args["itemId"]}.`,
+        message: `Added priority to ${args["itemId"]}.`,
         details: {
           revision: sourceContextRevision(state, "picture", num, next),
           writtenResources: [{ kind: "picture", num }],

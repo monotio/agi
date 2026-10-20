@@ -312,7 +312,7 @@ export class NavigationController {
           planningOptions,
         )
       ) {
-        // Moving actors, ceiling changes and animated water-scan widths need
+        // Moving screen objects, ceiling changes and animated water-scan widths need
         // replacement search only when the remaining trace is no longer legal.
         // Other geometry changes always consume the replacement-search budget.
         this.modelKey = key;

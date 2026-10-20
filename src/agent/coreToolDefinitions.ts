@@ -395,7 +395,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
     name: "read_words",
     description: toolDescription(
       "read_words",
-      "Inspect parser words and synonym groups by word ID. `prefix` or `exact` narrows the words; `offset` and `limit` page the groups (null: 0 and up to 65536). The compiled dictionary determines what said() can match.",
+      "Inspect parser words and synonym groups by word ID. `prefix` or `exact` narrows the words; `offset` and `limit` page the groups (null: 0 and up to 65536). The compiled WORDS determines what said() can match.",
     ),
     parameters: parameterDescriptions("read_words", {
       type: "object",

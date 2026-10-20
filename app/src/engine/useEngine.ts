@@ -1601,7 +1601,7 @@ export function useEngine(
     previewImageCels(bytes: Uint8Array | null, loops?: readonly number[]): void {
       if (projectSession)
         link.getWorker()?.postMessage({
-          type: "imageHeroPreview",
+          type: "imageEgoPreview",
           runToken: projectSession.runToken,
           bytes,
           ...(loops ? { loops } : {}),
@@ -1816,7 +1816,7 @@ export function useEngine(
     playHere,
     visitRoom,
     launchRoom,
-    /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
+    /** The live screen objects (ego first when animated): PICTURE editor's walkable estimate. */
     readObjects: () => link.query("objects"),
     debugEventsSince: async (
       ...args: Parameters<ReturnType<typeof useEngineDebug>["debugEventsSince"]>

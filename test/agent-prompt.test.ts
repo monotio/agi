@@ -107,8 +107,8 @@ describe("agent system prompt", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Trigger 2"), "priority 2");
     assert.ok(AGI_SYSTEM_PROMPT.includes("Water 3"), "priority 3");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Default actor depth is 4 at feet rows 0..47"),
-      "priority 4..15 depth bands",
+      AGI_SYSTEM_PROMPT.includes("Default screen object priority is 4 at feet rows 0..47"),
+      "priority 4..15 priority bands",
     );
   });
 
@@ -133,11 +133,11 @@ describe("agent system prompt", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Enclose every region"), "enclose then fill");
     assert.ok(AGI_SYSTEM_PROMPT.includes("far to near"), "far-to-near ordering");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("A Depth fill floods the connected depth-4 region"),
+      AGI_SYSTEM_PROMPT.includes("A Priority fill floods the connected priority-4 region"),
       "priority band recipe warns about flooding",
     );
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Paint depth 4 across open walking floor"),
+      AGI_SYSTEM_PROMPT.includes("Paint priority 4 across open walking floor"),
       "open floor is not sliced into artificial priority bands",
     );
     assert.ok(
@@ -155,7 +155,7 @@ describe("agent system prompt", () => {
       "add.to.pic",
       "draw.pic resets",
       "Control/margin 4",
-      "Actor collisions require animated actors",
+      "Screen object collisions require animated screen objects",
       "wall contact",
       "walking behind",
     ]) {
@@ -193,7 +193,7 @@ describe("agent system prompt", () => {
   it("uses VIEW screen objects for interactive state and PICTUREs for painted scenery", () => {
     for (const contract of [
       "player manipulates, picks up or sees animate",
-      "VIEW-backed actor",
+      "VIEW-backed screen object",
       "architecture, terrain, backgrounds and broad static fills",
       "commit state when the action commits",
       "room re-entry",

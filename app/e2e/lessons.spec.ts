@@ -29,7 +29,7 @@ const PIC_4 = TUTORIAL.getResource("picture", 4)!;
 const VIEW_2 = TUTORIAL.getResource("view", 2)!;
 const MURAL = "ad-gallery-recipe";
 const MIRROR = "ad-lab-mirror";
-const DEPTH = "ad-archive-depth";
+const PRIORITY = "ad-archive-priority";
 
 const planes = (bytes: Uint8Array) => {
   const surface = createPictureSurface();
@@ -72,7 +72,7 @@ async function cell(page: Page, x: number, y: number): Promise<[number, number]>
   return [box.x + (x + 0.5) * 2 * zoom, box.y + (y + 0.5) * zoom];
 }
 
-/** Select a Scene list object and nudge it right by `steps` pixels from the canvas. */
+/** Select a Items panel object and nudge it right by `steps` pixels from the canvas. */
 async function nudge(page: Page, studio: Locator, row: string, steps: number): Promise<void> {
   await studio.locator(`[data-row="${row}"]`).click();
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
@@ -88,7 +88,7 @@ test("the Help guide lists the three lessons and opens the mural PICTURE", async
   for (const [id, title] of [
     [MURAL, "PICTURE steps"],
     [MIRROR, "VIEW loops"],
-    [DEPTH, "Depth"],
+    [PRIORITY, "Priority"],
   ] as const) {
     const lesson = guide.getByTestId(`help-lesson-${id}`);
     await expect(lesson.getByRole("heading")).toBeVisible();
@@ -100,7 +100,7 @@ test("the Help guide lists the three lessons and opens the mural PICTURE", async
 
   // The Help action opens the overlay itself, PIC 4, not the gallery's first picture.
   await guide.getByTestId(`help-lesson-${MURAL}`).getByTestId("help-lesson-open").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await expect(page).toHaveURL(/#create\//);
   expect(await studioBytes(page)).toEqual(PIC_4);
@@ -156,20 +156,20 @@ test("the VIEW lesson opens its resource and repainting a mirror preserves its s
   await shot(page, "lessons-view-edited");
 });
 
-test("the Depth lesson opens the archive and a mid-order edit preserves the barrier", async ({
+test("the Priority lesson opens the archive and a mid-order edit preserves the barrier", async ({
   page,
 }) => {
   await playTutorial(page);
-  await openLesson(page, DEPTH);
-  const studio = page.getByTestId("room-studio");
+  await openLesson(page, PRIORITY);
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   expect(await studioBytes(page)).toEqual(PIC_3);
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("2");
-  // 2. The ghost behind the counter: its verdict shows, with nothing over it.
+  // 2. The standIn behind the counter: its verdict shows, with nothing over it.
   const probe = studio.getByTestId("studio-probe-toggle");
   await probe.click();
-  const handle = studio.getByTestId("ghost-probe-handle");
+  const handle = studio.getByTestId("stand-in-probe-handle");
   await expect(handle).toBeVisible();
   const grip = (await handle.boundingBox())!;
   const zoom = (await page.locator(".studio-pane").last().boundingBox())!.height / 168;
@@ -179,29 +179,29 @@ test("the Depth lesson opens the archive and a mid-order edit preserves the barr
     steps: 8,
   });
   await page.mouse.up();
-  const verdict = studio.locator('[data-role="ghost-verdict"]');
+  const verdict = studio.locator('[data-role="stand-in-verdict"]');
   await expect(verdict).toBeVisible();
-  await expect(verdict).toContainText("Behind Counter depth");
-  await expect(studio.getByTestId("ghost-probe")).toHaveAttribute("data-verdict", "behind");
-  await shot(page, "lessons-archive-ghost-behind");
+  await expect(verdict).toContainText("Behind Counter priority");
+  await expect(studio.getByTestId("stand-in-probe")).toHaveAttribute("data-verdict", "behind");
+  await shot(page, "lessons-archive-stand-in-behind");
   await probe.click();
   await expect(handle).toHaveCount(0);
 
   const shipped = parsePictureDocument(TUTORIAL_PICTURES[3]!).document;
-  const counter = shipped.items.find(({ id }) => id === "counter-depth")!;
+  const counter = shipped.items.find(({ id }) => id === "counter-priority")!;
   const drawn = compileEditDocument(shipped, DEFAULT_V2_PROFILE).spans.filter(
     ({ line }) => line < counter.closeLine,
   ).length;
-  await studio.locator('[data-row="counter-depth"]').click();
+  await studio.locator('[data-row="counter-priority"]').click();
   await page.getByTestId("workspace-focus").click();
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
   await page.keyboard.press("Home");
   for (let index = 0; index < drawn; index++) await page.keyboard.press(".");
   await page.keyboard.press("r");
-  // The playhead stands just after the counter's depth: the next shape goes
-  // before what draws next, the globe's depth.
-  await expect(page.getByTestId("studio-insert-at")).toHaveText("Drawing before Globe depth");
+  // The playhead stands just after the counter's priority: the next shape goes
+  // before what draws next, the globe's priority.
+  await expect(page.getByTestId("studio-insert-at")).toHaveText("Drawing before Globe priority");
   await studio.getByTestId("studio-tool-filled").check();
   await studio.locator('.workspace-palette [data-colour="11"]').click();
   await page.mouse.move(...(await cell(page, 38, 84)));
@@ -243,6 +243,6 @@ test("Help opens a visible lesson card on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await playTutorial(page);
   await openLesson(page, MURAL);
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await expect(page.getByTestId("lesson-card")).toBeVisible();
 });

@@ -13,25 +13,25 @@ import {
   watch,
 } from "vue";
 import {
-  suggestImageFrames,
+  suggestImageCels,
   prepareImageCels,
-  scaleImageFrame,
+  scaleImageCel,
   type ProjectImageInput,
-  type ImageFrame,
+  type ImageCel,
 } from "../../../../src/creative/imageOperations.ts";
 import {
-  assignFrameLoop,
-  drawFrameRegion,
-  linkFoundFrames,
-  resizeLinkedFrameBoxes,
-  toggleFrameLink,
-  mergeFrameSuggestions,
-  moveFrameRegion,
-  orderFrameBoxes,
-  reorderFrameBoxes,
-  type FrameBox,
-  type FrameHandle,
-} from "../../../../src/creative/imageFrameGeometry.ts";
+  assignCelLoop,
+  drawCelRegion,
+  linkFoundCels,
+  resizeLinkedCelBoxes,
+  toggleCelLink,
+  mergeCelSuggestions,
+  moveCelRegion,
+  orderCelBoxes,
+  reorderCelBoxes,
+  type CelBox,
+  type CelHandle,
+} from "../../../../src/creative/imageCelGeometry.ts";
 import type { Rect } from "../../../../src/creative/catalog.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { paletteCss, useGamePalette, useGamePaletteLook } from "../../render/useGamePalette.ts";
@@ -47,14 +47,14 @@ const props = defineProps<{
   backgroundTransparent: boolean;
 }>();
 const emit = defineEmits<{ prepared: [value: ReturnType<typeof prepareImageCels> | null] }>();
-const frames = defineModel<ImageFrame[]>({ required: true });
+const cels = defineModel<ImageCel[]>({ required: true });
 const sourceId = computed(() => sha256Hex(props.image.rgba));
-const boxes = ref<FrameBox[]>([]);
+const boxes = ref<CelBox[]>([]);
 const dragFrame = frameTask();
 let gesture: Gesture | undefined;
 const gesturing = ref(false);
 const outline = shallowRef<{ id: string; region: Rect }>();
-const settledBoxes = shallowRef<FrameBox[]>([]);
+const settledBoxes = shallowRef<CelBox[]>([]);
 const selected = ref<string[]>([]);
 const chosenLoop = ref(0);
 const celHeight = ref(props.loopHeights[0] ?? 24);
@@ -84,7 +84,7 @@ let serial = 0;
 let observer: ResizeObserver | undefined;
 let fitRaf: number | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
-const handles: readonly { value: FrameHandle; label: string; x: number; y: number }[] = [
+const handles: readonly { value: CelHandle; label: string; x: number; y: number }[] = [
   { value: "nw", label: "northwest", x: 0, y: 0 },
   { value: "n", label: "north", x: 50, y: 0 },
   { value: "ne", label: "northeast", x: 100, y: 0 },
@@ -111,21 +111,21 @@ const colours = computed(() =>
 const active = computed(() => boxes.value.find((f) => f.id === selected.value.at(-1)));
 const scale = computed(() => zoom.value ?? fitScale.value);
 const summary = computed(() => {
-  const frame = active.value;
-  if (!frame) return `${boxes.value.length} frames. Drag on the sheet to mark a frame.`;
-  return `Frame ${boxes.value.indexOf(frame) + 1} · ${frame.region.width} × ${frame.region.height} at ${frame.region.x}, ${frame.region.y}`;
+  const cel = active.value;
+  if (!cel) return `${boxes.value.length} cels. Drag on the sheet to mark a cel.`;
+  return `Cel ${boxes.value.indexOf(cel) + 1} · ${cel.region.width} × ${cel.region.height} at ${cel.region.x}, ${cel.region.y}`;
 });
 const linkLabel = computed(() =>
   active.value?.linked
-    ? `⛓ ${boxes.value.filter((f) => f.linked).length} frames · same size`
-    : `Frame ${active.value ? boxes.value.indexOf(active.value) + 1 : 1} unlinked`,
+    ? `⛓ ${boxes.value.filter((f) => f.linked).length} cels · same size`
+    : `Cel ${active.value ? boxes.value.indexOf(active.value) + 1 : 1} unlinked`,
 );
 const preview = computed(() => {
   try {
     return settledBoxes.value.length
       ? prepareImageCels(
           props.image,
-          settledBoxes.value.map((f) => ({ ...f, ...scaleImageFrame(f.region, celHeight.value) })),
+          settledBoxes.value.map((f) => ({ ...f, ...scaleImageCel(f.region, celHeight.value) })),
           props.profile,
           props.background,
           props.backgroundTransparent,
@@ -149,17 +149,17 @@ const animationScale = computed(() => {
   return Math.max(1, Math.floor(animationWidth.value / width));
 });
 function suggestions() {
-  const found = suggestImageFrames(
+  const found = suggestImageCels(
     props.image,
     suggestion.value === "grid" ? count.value : undefined,
-  ).map((frame) => ({
-    ...frame,
-    ...scaleImageFrame(frame.region, celHeight.value),
-    id: `frame-${serial++}`,
+  ).map((cel) => ({
+    ...cel,
+    ...scaleImageCel(cel.region, celHeight.value),
+    id: `cel-${serial++}`,
     edited: false,
     loop: chosenLoop.value,
   }));
-  return linkFoundFrames(found, props.image);
+  return linkFoundCels(found, props.image);
 }
 watch(
   () => props.image,
@@ -182,16 +182,16 @@ watch(
     if (gesturing.value) return;
     settledBoxes.value = boxes.value;
     celHeight.value = Math.max(1, Math.min(maximumHeight.value, celHeight.value || 1));
-    frames.value = boxes.value.map(({ region, loop }) => ({
+    cels.value = boxes.value.map(({ region, loop }) => ({
       region,
       loop,
-      ...scaleImageFrame(region, celHeight.value),
+      ...scaleImageCel(region, celHeight.value),
     }));
   },
   { deep: true, immediate: true },
 );
-watch(active, (frame) => {
-  if (frame) chosenLoop.value = frame.loop;
+watch(active, (cel) => {
+  if (cel) chosenLoop.value = cel.loop;
 });
 watch(
   [canvas, () => props.image],
@@ -271,7 +271,7 @@ function select(id: string, multiple = false) {
 function focusBox(id: string) {
   void nextTick(() =>
     surface.value
-      ?.querySelector<HTMLElement>(`[data-frame-id="${id}"]`)
+      ?.querySelector<HTMLElement>(`[data-cel-id="${id}"]`)
       ?.focus({ preventScroll: true }),
   );
 }
@@ -291,20 +291,20 @@ function updateRegion(id: string, region: Rect) {
           ...f,
           edited: true,
           region,
-          ...scaleImageFrame(region, celHeight.value),
+          ...scaleImageCel(region, celHeight.value),
         }
       : f,
   );
 }
 function sort() {
-  if (!manualOrder.value) boxes.value = orderFrameBoxes(boxes.value);
+  if (!manualOrder.value) boxes.value = orderCelBoxes(boxes.value);
 }
 function paint(loop: number) {
   chosenLoop.value = loop;
-  boxes.value = assignFrameLoop(boxes.value, selected.value, loop);
+  boxes.value = assignCelLoop(boxes.value, selected.value, loop);
   notice.value = selected.value.length
-    ? `Assigned ${selected.value.length} frames to loop ${loop}.`
-    : `New frames use loop ${loop}.`;
+    ? `Assigned ${selected.value.length} cels to loop ${loop}.`
+    : `New cels use loop ${loop}.`;
 }
 function remove() {
   cancel();
@@ -316,13 +316,12 @@ function remove() {
   else surface.value?.focus();
 }
 function find() {
-  if (boxes.value.some((f) => f.edited) && !window.confirm("Replace the edited frame boxes?"))
-    return;
+  if (boxes.value.some((f) => f.edited) && !window.confirm("Replace the edited cel boxes?")) return;
   try {
-    boxes.value = mergeFrameSuggestions(boxes.value, suggestions(), true);
+    boxes.value = mergeCelSuggestions(boxes.value, suggestions(), true);
     manualOrder.value = false;
     selected.value = boxes.value[0] ? [boxes.value[0].id] : [];
-    notice.value = `${boxes.value.length} frames found.`;
+    notice.value = `${boxes.value.length} cels found.`;
   } catch (error) {
     notice.value = error instanceof Error ? error.message : String(error);
   }
@@ -330,7 +329,7 @@ function find() {
 function link() {
   if (!active.value) return;
   try {
-    boxes.value = toggleFrameLink(boxes.value, active.value.id, props.image);
+    boxes.value = toggleCelLink(boxes.value, active.value.id, props.image);
   } catch (error) {
     notice.value = String(error);
   }
@@ -342,7 +341,7 @@ function destination(event: Event) {
       ? Math.min(7, Math.max(4, props.mirrors.length, chosenLoop.value + 1))
       : Number(value);
   chosenLoop.value = loop;
-  boxes.value = assignFrameLoop(
+  boxes.value = assignCelLoop(
     boxes.value,
     boxes.value.map((f) => f.id),
     loop,
@@ -350,7 +349,7 @@ function destination(event: Event) {
   celHeight.value = props.loopHeights[loop] ?? 24;
 }
 function reorder(source: string, destination: string) {
-  boxes.value = reorderFrameBoxes(boxes.value, source, destination);
+  boxes.value = reorderCelBoxes(boxes.value, source, destination);
   manualOrder.value = true;
   select(source);
   void nextTick(() =>
@@ -377,12 +376,12 @@ function orderStep(direction: number) {
 interface Gesture {
   id: string;
   pointer: number;
-  mode: "draw" | "move" | FrameHandle;
+  mode: "draw" | "move" | CelHandle;
   start: { x: number; y: number };
   clientStart: { x: number; y: number };
   scale: number;
   region: Rect;
-  original: FrameBox[];
+  original: CelBox[];
 }
 function point(event: PointerEvent) {
   const rect = surface.value!.getBoundingClientRect();
@@ -391,21 +390,21 @@ function point(event: PointerEvent) {
     y: (event.clientY - rect.top) / scale.value,
   };
 }
-function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
+function begin(event: PointerEvent, cel?: CelBox, handle?: CelHandle) {
   if (event.button !== 0 || gesture) return;
   event.preventDefault();
   const start = point(event),
     original = [...boxes.value];
-  if (frame) {
+  if (cel) {
     if (event.shiftKey && !handle) {
-      select(frame.id, true);
+      select(cel.id, true);
       return;
     }
-    if (!selected.value.includes(frame.id)) select(frame.id);
+    if (!selected.value.includes(cel.id)) select(cel.id);
   } else {
-    const region = drawFrameRegion(start, start, props.image, []);
-    frame = {
-      id: `frame-${serial++}`,
+    const region = drawCelRegion(start, start, props.image, []);
+    cel = {
+      id: `cel-${serial++}`,
       edited: true,
       linked: false,
       region,
@@ -413,22 +412,22 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
       height: 1,
       loop: chosenLoop.value,
     };
-    boxes.value = [...boxes.value, frame];
-    select(frame.id);
+    boxes.value = [...boxes.value, cel];
+    select(cel.id);
   }
   gesturing.value = true;
   gesture = {
-    id: frame.id,
+    id: cel.id,
     pointer: event.pointerId,
-    mode: handle ?? (original.includes(frame) ? "move" : "draw"),
+    mode: handle ?? (original.includes(cel) ? "move" : "draw"),
     start,
     clientStart: { x: event.clientX, y: event.clientY },
     scale: scale.value,
-    region: frame.region,
+    region: cel.region,
     original,
   };
   surface.value?.setPointerCapture(event.pointerId);
-  focusBox(frame.id);
+  focusBox(cel.id);
 }
 function move(event: PointerEvent) {
   if (gesture?.pointer === event.pointerId) dragFrame.schedule(() => applyMove(event));
@@ -441,10 +440,10 @@ function applyMove(event: PointerEvent, commit = false) {
   const end = { x: start.x + dx, y: start.y + dy };
   const peers = original.filter((f) => f.id !== id);
   let next: Rect;
-  if (mode === "move") next = moveFrameRegion(region, dx, dy, props.image);
-  else if (mode === "draw") next = drawFrameRegion(start, end, props.image, peers);
+  if (mode === "move") next = moveCelRegion(region, dx, dy, props.image);
+  else if (mode === "draw") next = drawCelRegion(start, end, props.image, peers);
   else {
-    const resized = resizeLinkedFrameBoxes(original, id, mode, dx, dy, props.image);
+    const resized = resizeLinkedCelBoxes(original, id, mode, dx, dy, props.image);
     next = resized.find((f) => f.id === id)!.region;
     if (commit) boxes.value = resized;
   }
@@ -490,11 +489,11 @@ function key(event: KeyboardEvent) {
     paint(Number(event.key));
     return;
   }
-  const frame = active.value;
-  if (!frame || !event.key.startsWith("Arrow")) return;
+  const cel = active.value;
+  if (!cel || !event.key.startsWith("Arrow")) return;
   if (
     event.altKey &&
-    target.closest(".frame-strip") &&
+    target.closest(".cel-strip") &&
     (event.key === "ArrowLeft" || event.key === "ArrowRight")
   ) {
     event.preventDefault();
@@ -502,55 +501,48 @@ function key(event: KeyboardEvent) {
     return;
   }
   event.preventDefault();
-  const amount = event.shiftKey ? frame.region.width : 1;
+  const amount = event.shiftKey ? cel.region.width : 1;
   const dx = event.key === "ArrowLeft" ? -amount : event.key === "ArrowRight" ? amount : 0;
   const dy = event.key === "ArrowUp" ? -amount : event.key === "ArrowDown" ? amount : 0;
   if (event.altKey)
-    boxes.value = resizeLinkedFrameBoxes(
-      boxes.value,
-      frame.id,
-      dx ? "e" : "s",
-      dx,
-      dy,
-      props.image,
-    );
-  else updateRegion(frame.id, moveFrameRegion(frame.region, dx, dy, props.image));
+    boxes.value = resizeLinkedCelBoxes(boxes.value, cel.id, dx ? "e" : "s", dx, dy, props.image);
+  else updateRegion(cel.id, moveCelRegion(cel.region, dx, dy, props.image));
   sort();
-  focusBox(frame.id);
+  focusBox(cel.id);
 }
 function detail(event: Event, field: keyof Rect) {
-  const frame = active.value;
-  if (!frame) return;
+  const cel = active.value;
+  if (!cel) return;
   const value = Math.round(Number((event.target as HTMLInputElement).value));
   if (!Number.isFinite(value)) return;
   if (field === "width" || field === "height") {
-    boxes.value = resizeLinkedFrameBoxes(
+    boxes.value = resizeLinkedCelBoxes(
       boxes.value,
-      frame.id,
+      cel.id,
       field === "width" ? "e" : "s",
-      field === "width" ? value - frame.region.width : 0,
-      field === "height" ? value - frame.region.height : 0,
+      field === "width" ? value - cel.region.width : 0,
+      field === "height" ? value - cel.region.height : 0,
       props.image,
     );
   } else
     updateRegion(
-      frame.id,
-      moveFrameRegion(
-        frame.region,
-        field === "x" ? value - frame.region.x : 0,
-        field === "y" ? value - frame.region.y : 0,
+      cel.id,
+      moveCelRegion(
+        cel.region,
+        field === "x" ? value - cel.region.x : 0,
+        field === "y" ? value - cel.region.y : 0,
         props.image,
       ),
     );
 }
-function regionStyle(frame: FrameBox) {
-  const region = outline.value?.id === frame.id ? outline.value.region : frame.region;
+function regionStyle(cel: CelBox) {
+  const region = outline.value?.id === cel.id ? outline.value.region : cel.region;
   return {
     left: `${region.x * scale.value}px`,
     top: `${region.y * scale.value}px`,
     width: `${region.width * scale.value}px`,
     height: `${region.height * scale.value}px`,
-    "--loop-colour": colours.value[frame.loop],
+    "--loop-colour": colours.value[cel.loop],
   };
 }
 let thumbnailCache: Record<string, { key: string; url: string }> = {};
@@ -561,14 +553,14 @@ const thumbnails = computed(() => {
   const counts: Record<string, number> = {};
   const previous = thumbnailCache;
   thumbnailCache = {};
-  return settledBoxes.value.map((frame) => {
-    const index = counts[frame.loop] ?? 0;
-    counts[frame.loop] = index + 1;
-    const cel = prepared.input.loops[loops.indexOf(frame.loop)]!.cels![index]!;
+  return settledBoxes.value.map((region) => {
+    const index = counts[region.loop] ?? 0;
+    counts[region.loop] = index + 1;
+    const cel = prepared.input.loops[loops.indexOf(region.loop)]!.cels![index]!;
     const key = `${cel.width}:${cel.height}:${cel.transparentColor}:${palette.value.map((c) => c.join(",")).join(";")}:${[...cel.pixels].join(",")}`;
-    const cached = previous[frame.id];
+    const cached = previous[region.id];
     if (cached?.key === key) {
-      thumbnailCache[frame.id] = cached;
+      thumbnailCache[region.id] = cached;
       return cached.url;
     }
     const target = document.createElement("canvas");
@@ -584,30 +576,30 @@ const thumbnails = computed(() => {
     }
     target.getContext("2d")!.putImageData(pixels, 0, 0);
     const url = target.toDataURL();
-    thumbnailCache[frame.id] = { key, url };
+    thumbnailCache[region.id] = { key, url };
     return url;
   });
 });
 </script>
 
 <template>
-  <div ref="editor" class="frame-editor" @keydown.stop="key" @keyup.stop @keypress.stop>
-    <div class="frame-main">
-      <div class="frame-sheet-area">
+  <div ref="editor" class="cel-editor" @keydown.stop="key" @keyup.stop @keypress.stop>
+    <div class="cel-main">
+      <div class="cel-sheet-area">
         <UiButton
-          class="frame-link"
+          class="cel-link"
           size="sm"
           :aria-pressed="active?.linked ?? false"
           :disabled="!active"
-          :title="active ? 'Click to unlink or relink this frame' : 'Select a frame to link'"
-          aria-label="Link selected frame"
+          :title="active ? 'Click to unlink or relink this cel' : 'Select a cel to link'"
+          aria-label="Link selected cel"
           @click="link"
           >{{ linkLabel }}</UiButton
         >
-        <div class="frame-find">
-          <UiButton size="sm" @click="find">Find frames again</UiButton>
-          <details class="frame-find-menu">
-            <summary aria-label="Frame finding options">
+        <div class="cel-find">
+          <UiButton size="sm" @click="find">Find cels again</UiButton>
+          <details class="cel-find-menu">
+            <summary aria-label="Cel finding options">
               <UiIcon name="chevron-down" :size="16" />
             </summary>
             <div>
@@ -617,14 +609,14 @@ const thumbnails = computed(() => {
                 >Count<input
                   v-model.number="count"
                   type="number"
-                  aria-label="Grid frame count"
+                  aria-label="Grid cel count"
                   min="1"
                   :max="image.width"
               /></label>
             </div>
           </details>
         </div>
-        <div class="frame-zoom">
+        <div class="cel-zoom">
           <UiButton
             size="sm"
             :aria-pressed="zoom === undefined"
@@ -641,13 +633,13 @@ const thumbnails = computed(() => {
             ><UiIcon name="plus" :size="16"
           /></UiButton>
         </div>
-        <div ref="viewport" class="frame-viewport">
+        <div ref="viewport" class="cel-viewport">
           <div
             ref="surface"
-            class="frame-surface"
-            data-testid="frame-sheet"
+            class="cel-surface"
+            data-testid="cel-sheet"
             role="group"
-            aria-label="Image frames: drag to draw, arrows to move, Alt and arrows to resize"
+            aria-label="Image cels: drag to draw, arrows to move, Alt and arrows to resize"
             tabindex="0"
             :style="{ width: `${image.width * scale}px`, height: `${image.height * scale}px` }"
             @pointerdown.self="begin($event)"
@@ -658,47 +650,47 @@ const thumbnails = computed(() => {
           >
             <canvas ref="canvas" aria-hidden="true" />
             <div
-              v-for="(frame, index) in boxes"
-              :key="frame.id"
-              class="frame-box"
-              :class="{ 'is-selected': selected.includes(frame.id) }"
-              :style="regionStyle(frame)"
-              data-testid="image-frame"
+              v-for="(cel, index) in boxes"
+              :key="cel.id"
+              class="cel-box"
+              :class="{ 'is-selected': selected.includes(cel.id) }"
+              :style="regionStyle(cel)"
+              data-testid="image-cel"
             >
               <div
-                class="frame-box__body"
+                class="cel-box__body"
                 role="button"
                 tabindex="0"
-                :data-frame-id="frame.id"
-                :aria-label="`Frame ${index + 1}`"
-                :aria-pressed="selected.includes(frame.id)"
-                @focus="selected.includes(frame.id) || select(frame.id)"
-                @pointerdown.stop="begin($event, frame)"
-                @keydown.enter.prevent="select(frame.id, $event.shiftKey)"
-                @keydown.space.prevent="select(frame.id, $event.shiftKey)"
+                :data-cel-id="cel.id"
+                :aria-label="`Cel ${index + 1}`"
+                :aria-pressed="selected.includes(cel.id)"
+                @focus="selected.includes(cel.id) || select(cel.id)"
+                @pointerdown.stop="begin($event, cel)"
+                @keydown.enter.prevent="select(cel.id, $event.shiftKey)"
+                @keydown.space.prevent="select(cel.id, $event.shiftKey)"
               >
                 <span>{{ index + 1 }}</span>
               </div>
               <button
-                v-for="handle in selected.includes(frame.id) ? handles : []"
+                v-for="handle in selected.includes(cel.id) ? handles : []"
                 :key="handle.value"
-                class="frame-handle"
+                class="cel-handle"
                 type="button"
                 tabindex="-1"
-                :aria-label="`Resize frame ${index + 1} ${handle.label}`"
+                :aria-label="`Resize cel ${index + 1} ${handle.label}`"
                 :style="{
                   left: `${handle.x}%`,
                   top: `${handle.y}%`,
                   cursor: `${handle.value}-resize`,
                 }"
-                @pointerdown.stop="begin($event, frame, handle.value)"
+                @pointerdown.stop="begin($event, cel, handle.value)"
               ></button>
             </div>
           </div>
         </div>
       </div>
-      <aside class="frame-preview">
-        <div class="frame-preview__header">
+      <aside class="cel-preview">
+        <div class="cel-preview__header">
           <strong>Animation</strong>
           <UiButton
             size="sm"
@@ -709,12 +701,7 @@ const thumbnails = computed(() => {
             >{{ animated ? "Pause" : "Play" }}</UiButton
           >
         </div>
-        <div
-          ref="animationPanel"
-          class="frame-animation"
-          role="group"
-          aria-label="Animation preview"
-        >
+        <div ref="animationPanel" class="cel-animation" role="group" aria-label="Animation preview">
           <canvas
             v-show="previewCel"
             ref="animation"
@@ -730,9 +717,9 @@ const thumbnails = computed(() => {
             "
           />
         </div>
-        <label class="frame-size"
+        <label class="cel-size"
           >Size
-          <span class="frame-stepper">
+          <span class="cel-stepper">
             <button
               type="button"
               aria-label="Smaller cels"
@@ -758,17 +745,17 @@ const thumbnails = computed(() => {
           px tall · like {{ name }}</label
         >
         <slot name="preview" />
-        <p class="frame-hint">Drag on empty space to add a frame.</p>
-        <details v-if="active" class="frame-details">
+        <p class="cel-hint">Drag on empty space to add a cel.</p>
+        <details v-if="active" class="cel-details">
           <summary>
-            <span data-testid="frame-summary" role="status" aria-live="polite">{{ summary }}</span>
+            <span data-testid="cel-summary" role="status" aria-live="polite">{{ summary }}</span>
           </summary>
-          <div class="frame-detail-fields">
+          <div class="cel-detail-fields">
             <label v-for="field in ['x', 'y', 'width', 'height'] as const" :key="field"
               >{{ field
               }}<input
                 type="number"
-                :aria-label="`Selected frame ${field}`"
+                :aria-label="`Selected cel ${field}`"
                 :value="active.region[field]"
                 :min="field === 'width' || field === 'height' ? 1 : 0"
                 :max="field === 'x' || field === 'width' ? image.width : image.height"
@@ -778,23 +765,23 @@ const thumbnails = computed(() => {
         </details>
       </aside>
     </div>
-    <div class="frame-strip" role="group" aria-label="Frame order: drag thumbnails to reorder">
-      <div v-for="(frame, index) in boxes" :key="frame.id" class="frame-strip-item">
+    <div class="cel-strip" role="group" aria-label="Cel order: drag thumbnails to reorder">
+      <div v-for="(cel, index) in boxes" :key="cel.id" class="cel-strip-item">
         <button
-          class="frame-thumbnail"
+          class="cel-thumbnail"
           type="button"
           draggable="true"
-          :data-order-id="frame.id"
-          :aria-label="`Select frame ${index + 1} in order strip`"
-          :aria-pressed="selected.includes(frame.id)"
-          :style="{ '--loop-colour': colours[frame.loop] }"
-          @click="select(frame.id, $event.shiftKey)"
-          @dragstart.stop="startOrder($event, frame.id)"
+          :data-order-id="cel.id"
+          :aria-label="`Select cel ${index + 1} in order strip`"
+          :aria-pressed="selected.includes(cel.id)"
+          :style="{ '--loop-colour': colours[cel.loop] }"
+          @click="select(cel.id, $event.shiftKey)"
+          @dragstart.stop="startOrder($event, cel.id)"
           @dragend="dragged = undefined"
           @dragover.prevent.stop
-          @drop.prevent.stop="dropOrder(frame.id)"
+          @drop.prevent.stop="dropOrder(cel.id)"
         >
-          <span class="frame-thumbnail__image"
+          <span class="cel-thumbnail__image"
             ><img
               v-if="thumbnails[index]"
               :src="thumbnails[index]"
@@ -805,12 +792,12 @@ const thumbnails = computed(() => {
           <span>{{ index + 1 }}</span>
         </button>
         <button
-          class="frame-thumbnail__remove"
+          class="cel-thumbnail__remove"
           type="button"
-          :aria-label="`Remove frame ${index + 1}`"
-          @focus="select(frame.id)"
+          :aria-label="`Remove cel ${index + 1}`"
+          @focus="select(cel.id)"
           @click.stop="
-            select(frame.id);
+            select(cel.id);
             remove();
           "
         >
@@ -818,7 +805,7 @@ const thumbnails = computed(() => {
         </button>
       </div>
     </div>
-    <div class="frame-add">
+    <div class="cel-add">
       <label
         >Add to
         <select aria-label="Add to loop" :value="chosenLoop" @change="destination">
@@ -830,27 +817,27 @@ const thumbnails = computed(() => {
       >
       <slot name="commit" />
     </div>
-    <p v-if="notice" class="frame-hint" role="status">{{ notice }}</p>
+    <p v-if="notice" class="cel-hint" role="status">{{ notice }}</p>
   </div>
 </template>
 
 <style scoped>
-.frame-editor {
+.cel-editor {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   min-height: 0;
 }
-.frame-toolbar,
-.frame-loops,
-.frame-bottom,
-.frame-animation {
+.cel-toolbar,
+.cel-loops,
+.cel-bottom,
+.cel-animation {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-.frame-toolbar label {
+.cel-toolbar label {
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -866,7 +853,7 @@ select {
   border-radius: var(--radius-sm);
   padding: var(--space-1);
 }
-.frame-viewport {
+.cel-viewport {
   height: 100%;
   min-height: 0;
   box-sizing: border-box;
@@ -878,36 +865,36 @@ select {
   border-radius: var(--radius);
   padding: 12px;
 }
-.frame-surface {
+.cel-surface {
   position: relative;
   flex-shrink: 0;
   touch-action: none;
   background: repeating-conic-gradient(var(--surface-2) 0% 25%, var(--surface-sunken) 0% 50%) 0 0 /
     16px 16px;
 }
-.frame-surface > canvas {
+.cel-surface > canvas {
   width: 100%;
   height: 100%;
   image-rendering: pixelated;
   pointer-events: none;
   display: block;
 }
-.frame-box {
+.cel-box {
   position: absolute;
   border: 1px solid var(--loop-colour);
   box-sizing: border-box;
   background: color-mix(in srgb, var(--loop-colour) 10%, transparent);
 }
-.frame-box.is-selected {
+.cel-box.is-selected {
   border-width: 2px;
   background: color-mix(in srgb, var(--loop-colour) 18%, transparent);
 }
-.frame-box__body {
+.cel-box__body {
   position: absolute;
   inset: 0;
   cursor: move;
 }
-.frame-box__body span {
+.cel-box__body span {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -920,7 +907,7 @@ select {
   border-radius: var(--radius-sm);
   pointer-events: none;
 }
-.frame-handle {
+.cel-handle {
   position: absolute;
   width: 10px;
   height: 10px;
@@ -930,20 +917,20 @@ select {
   border-radius: var(--radius-sm);
   padding: 0;
 }
-.frame-hint,
-.frame-summary {
+.cel-hint,
+.cel-summary {
   margin: 0;
   font-size: var(--text-xs);
   color: var(--ink-2);
 }
-.frame-strip {
+.cel-strip {
   display: flex;
   gap: var(--space-2);
   overflow-x: auto;
   flex-shrink: 0;
   padding: var(--space-1);
 }
-.frame-thumbnail {
+.cel-thumbnail {
   flex-shrink: 0;
   display: grid;
   place-items: center;
@@ -958,11 +945,11 @@ select {
   cursor: grab;
   position: relative;
 }
-.frame-thumbnail[aria-pressed="true"] {
+.cel-thumbnail[aria-pressed="true"] {
   outline: 1px solid var(--loop-colour);
   color: var(--ink);
 }
-.frame-thumbnail__image {
+.cel-thumbnail__image {
   width: 40px;
   height: 48px;
   display: grid;
@@ -970,86 +957,86 @@ select {
   overflow: hidden;
   background: var(--surface-sunken);
 }
-.frame-thumbnail img {
+.cel-thumbnail img {
   display: block;
   max-width: 100%;
   max-height: 48px;
   image-rendering: pixelated;
   pointer-events: none;
 }
-.frame-bottom {
+.cel-bottom {
   justify-content: space-between;
   align-items: start;
 }
-.frame-details {
+.cel-details {
   flex: 1;
 }
-.frame-details summary {
+.cel-details summary {
   cursor: pointer;
   font-size: var(--text-xs);
   padding: var(--space-2) 0;
 }
-.frame-detail-fields {
+.cel-detail-fields {
   display: flex;
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-.frame-detail-fields label {
+.cel-detail-fields label {
   display: grid;
   gap: var(--space-1);
   font-size: var(--text-xs);
 }
-.frame-animation {
+.cel-animation {
   min-height: 120px;
   width: 100%;
   justify-content: flex-start;
   background: var(--surface-sunken);
 }
-.frame-animation canvas {
+.cel-animation canvas {
   flex: none;
   margin: auto;
   image-rendering: pixelated;
   background: var(--surface-sunken);
 }
-.frame-main {
+.cel-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 180px;
   flex: 1;
   min-height: 0;
   gap: var(--space-3);
 }
-.frame-sheet-area {
+.cel-sheet-area {
   position: relative;
   min-height: 240px;
 }
-.frame-link,
-.frame-find,
-.frame-zoom {
+.cel-link,
+.cel-find,
+.cel-zoom {
   position: absolute;
   z-index: 2;
   background: var(--surface-1);
   border-radius: var(--radius);
 }
-.frame-link {
+.cel-link {
   left: 10px;
   top: 10px;
 }
-.frame-find {
+.cel-find {
   left: 10px;
   bottom: 10px;
   display: flex;
 }
-.frame-zoom {
+.cel-zoom {
   right: 10px;
   bottom: 10px;
   display: flex;
 }
-.frame-find-menu summary {
+.cel-find-menu summary {
   padding: var(--space-2);
   cursor: pointer;
   list-style: none;
 }
-.frame-find-menu > div {
+.cel-find-menu > div {
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -1060,7 +1047,7 @@ select {
   gap: var(--space-2);
   min-width: 100px;
 }
-.frame-preview {
+.cel-preview {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1070,7 +1057,7 @@ select {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
 }
-.frame-preview__header {
+.cel-preview__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1078,41 +1065,41 @@ select {
   width: 100%;
   font-size: var(--text-sm);
 }
-.frame-size {
+.cel-size {
   font-size: var(--text-xs);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-1);
 }
-.frame-stepper {
+.cel-stepper {
   display: flex;
   align-items: center;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
 }
-.frame-stepper input {
+.cel-stepper input {
   width: 30px;
   border: 0;
   padding: 0;
   text-align: center;
   appearance: textfield;
 }
-.frame-stepper input::-webkit-inner-spin-button {
+.cel-stepper input::-webkit-inner-spin-button {
   appearance: none;
 }
-.frame-stepper button {
+.cel-stepper button {
   background: none;
   border: 0;
   color: var(--ink-2);
   cursor: pointer;
   padding: var(--space-1);
 }
-.frame-strip-item {
+.cel-strip-item {
   position: relative;
   flex-shrink: 0;
 }
-.frame-thumbnail__remove {
+.cel-thumbnail__remove {
   color: var(--ink-2);
   border: 1px solid var(--hairline);
   cursor: pointer;
@@ -1124,11 +1111,11 @@ select {
   border-radius: var(--radius);
   opacity: 0;
 }
-.frame-strip-item:hover .frame-thumbnail__remove,
-.frame-strip-item:focus-within .frame-thumbnail__remove {
+.cel-strip-item:hover .cel-thumbnail__remove,
+.cel-strip-item:focus-within .cel-thumbnail__remove {
   opacity: 1;
 }
-.frame-add {
+.cel-add {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1137,15 +1124,15 @@ select {
   border-top: 1px solid var(--hairline);
   padding-top: var(--space-2);
 }
-.frame-add label {
+.cel-add label {
   font-size: var(--text-xs);
 }
 @media (max-width: 900px) {
-  .frame-main {
+  .cel-main {
     grid-template-columns: minmax(0, 1fr);
     overflow: auto;
   }
-  .frame-sheet-area {
+  .cel-sheet-area {
     min-height: 300px;
   }
 }

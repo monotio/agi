@@ -20,7 +20,7 @@ import {
   quantizeToEga,
   sheetViewInput,
   type EgaSheet,
-  type SheetFrame,
+  type SheetCel,
   type SheetLoopLayout,
 } from "./sheet.ts";
 import { buildView, type BuildViewInput, type ViewCapabilities } from "./view.ts";
@@ -80,15 +80,15 @@ export interface ConvertedCharacter {
 }
 
 /** One frame's opaque-pixel bounding box, in source cell coordinates. */
-interface FrameBox {
+interface CelBox {
   left: number;
   right: number;
   top: number;
   bottom: number;
 }
 
-function frameBox(sheet: EgaSheet, col: number, cellWidth: number, cellHeight: number): FrameBox {
-  const box: FrameBox = { left: cellWidth, right: -1, top: cellHeight, bottom: -1 };
+function celBox(sheet: EgaSheet, col: number, cellWidth: number, cellHeight: number): CelBox {
+  const box: CelBox = { left: cellWidth, right: -1, top: cellHeight, bottom: -1 };
   const originX = col * cellWidth;
   for (let y = 0; y < cellHeight; y++) {
     for (let x = 0; x < cellWidth; x++) {
@@ -110,9 +110,9 @@ function frameBox(sheet: EgaSheet, col: number, cellWidth: number, cellHeight: n
  */
 function poseDiagnostics(sheet: EgaSheet, facing: SheetFacing, poses: number): string[] {
   const cellWidth = sheet.width / poses;
-  const boxes: FrameBox[] = [];
+  const boxes: CelBox[] = [];
   for (let col = 0; col < poses; col++) {
-    const box = frameBox(sheet, col, cellWidth, sheet.height);
+    const box = celBox(sheet, col, cellWidth, sheet.height);
     if (box.right >= 0) boxes.push(box);
   }
   if (boxes.length < 2) return [];
@@ -167,7 +167,7 @@ export function convertCharacterSheet(
 
   const warnings: string[] = [];
   const substitutions: string[] = [];
-  const frames: SheetFrame[] = [];
+  const frames: SheetCel[] = [];
   const facingFrames = new Map<SheetFacing, number[]>();
   let preferTransparent: number | undefined;
   for (const facing of FACING_LOOP_ORDER) {

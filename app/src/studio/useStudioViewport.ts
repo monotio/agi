@@ -1,7 +1,7 @@
 /**
  * Canvas sizing for a Studio: the largest integer zoom at which every pane
  * fits the stage (or the user's own zoom), and the device pixel ratio for a
- * crisp backing store. Room Studio's panes are the 160×168 picture; View
+ * crisp backing store. PICTURE editor's panes are the 160×168 picture; View
  * Studio's one pane is the edited cel, with room kept for its baseline. The
  * transform itself is src/studio/viewport.ts.
  */

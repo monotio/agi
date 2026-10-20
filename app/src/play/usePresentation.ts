@@ -81,7 +81,7 @@ export function createPresentation() {
     const compositeMode: ScreenViewMode =
       mode === "explode" ? (stage ? "visual" : "priority") : mode;
     // Explode needs the text surface as its own texture: baked into the frame
-    // it would smear across every depth band a dialog happens to cover.
+    // it would smear across every priority band a dialog happens to cover.
     const exploded = mode === "explode" && stage !== null;
     const look = {
       appearance: shakeAppearance ?? appearance,
