@@ -519,29 +519,8 @@ export function prepareView(
       if (target === undefined || target >= i) {
         fail(`${what}.mirrorOf "${String(mirrorOf)}" must name an earlier loop`);
       }
-      const targetLoop = resolvedLoops[target]!;
-      if (targetLoop.mirrorOf !== null) {
-        fail(
-          `${what} mirrors loop ${target} which is itself a mirror; the native format cannot ` +
-            `chain data blocks — reference the original loop or supply an explicit ` +
-            `pixel-flipped independent copy`,
-        );
-      }
-      if (packed) {
-        if (i > 3 || target > 3) {
-          fail(
-            `${what} mirrors loop ${target} at index ${i}; profile "${profile.id}" can only ` +
-              `encode mirrored loops for indices 0..3 — supply an explicit pixel-flipped ` +
-              `independent copy instead`,
-          );
-        }
-      } else if ((i & 7) === (target & 7)) {
-        fail(
-          `${what} mirrors loop ${target} at index ${i}; the format's orientation nibbles ` +
-            `are equal mod 8 so it would display unmirrored — supply an explicit ` +
-            `pixel-flipped independent copy instead`,
-        );
-      }
+      // buildView materializes the requested facing when the profile's
+      // mutable orientation field cannot share it stably (F-VIEWS-01).
       resolvedLoops.push({ spec: loop, frameIndexes: [], mirrorOf: target });
     }
   }
@@ -932,7 +911,7 @@ function verifyEncoded(
         cel.height === want.height &&
         cel.transparentColor === want.transparent &&
         samePixels(cel.pixels, want.pixels);
-      if (!matches || (loop.mirrorOf !== null && !cel.mirrored)) {
+      if (!matches) {
         if (loop.mirrorOf !== null) {
           fail(
             `loop ${i} cannot be represented natively as a mirror of loop ${loop.mirrorOf} ` +

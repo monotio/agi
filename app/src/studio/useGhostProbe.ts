@@ -13,7 +13,6 @@ import { probeActor, type ProbeResult } from "../../../src/studio/probe.ts";
 import {
   forEachPaintedPixel,
   parseView,
-  selectViewCel,
   type AgiView,
   type ViewCel,
 } from "../../../src/view/view.ts";
@@ -80,7 +79,7 @@ export function useGhostProbe(options: GhostProbeOptions) {
   // the probe keeps its own copy so a later alias cannot change it.
   const cel = computed<ViewCel | undefined>(() => {
     const view = entry.value?.view;
-    const selected = view && selectViewCel(view, loop.value, celIndex.value);
+    const selected = view && view.loops[loop.value]?.cels[celIndex.value];
     return selected && { ...selected, pixels: selected.pixels.slice() };
   });
 

@@ -130,23 +130,23 @@ describe("2.230 view authoring", () => {
     );
   });
 
-  it("rejects a packed mutable loop alias outside orientation range 0..3", () => {
-    assert.throws(
-      () =>
-        views.buildView(
-          {
-            loops: [
-              { cels: [{ width: 1, height: 1, pixels: [1] }] },
-              { mirrorLoop: 0 },
-              { mirrorLoop: 0 },
-              { mirrorLoop: 0 },
-              { mirrorLoop: 0 },
-            ],
-          },
-          PROFILES["2.230"],
-        ),
-      /0\.\.3/,
+  it("materializes packed mirror aliases outside orientation range 0..3", () => {
+    const profile = PROFILES["2.230"];
+    const payload = views.buildView(
+      {
+        loops: [
+          { cels: [{ width: 3, height: 1, pixels: [1, 2, 0] }] },
+          { mirrorLoop: 0 },
+          { mirrorLoop: 0 },
+          { mirrorLoop: 0 },
+          { mirrorLoop: 0 },
+        ],
+      },
+      profile,
     );
+    const view = views.parseView(payload, profile);
+    assert.deepEqual([...views.selectViewCel(view, 4, 0)!.pixels], [0, 2, 1]);
+    assert.deepEqual([...views.selectViewCel(view, 4, 0)!.pixels], [0, 2, 1]);
   });
 });
 

@@ -76,9 +76,66 @@ export interface AgiView {
   readonly description?: string;
 }
 
+/** Native VIEW capabilities shared by readers, authoring and previews. */
+export type ViewCapabilities = Pick<AgiProfile, "packedViewLoopHeader" | "celMirrorLoopMask">;
+
+/** Compile displayed art, materializing mirrors the native profile cannot share stably. */
 export function buildView(
   input: BuildViewInput,
-  profile: Pick<AgiProfile, "packedViewLoopHeader"> = DEFAULT_V2_PROFILE,
+  profile: ViewCapabilities = DEFAULT_V2_PROFILE,
+): Uint8Array {
+  const loops: BuildLoopInput[] = [];
+  const displayed: (readonly BuildCelInput[])[] = [];
+  const shared = new Set<number>();
+  const limit = profile.packedViewLoopHeader ? 3 : profile.celMirrorLoopMask;
+  for (const [index, loop] of input.loops.entries()) {
+    if (loop.cels?.length) {
+      // A mirror flag on an independent high-index cel must not cause the
+      // native truncated orientation to toggle at every blit (F-VIEWS-01).
+      const cels = loop.cels.map((cel) => ({
+        ...cel,
+        mirror: index <= limit && profile.celMirrorLoopMask !== 0 && cel.mirror === true,
+      }));
+      displayed.push(cels);
+      loops.push({ cels });
+      continue;
+    }
+    const source = loop.mirrorLoop;
+    if (typeof source !== "number" || !Number.isInteger(source) || source < 0 || source >= index)
+      throw new RangeError(`loop ${index} mirrorLoop must reference a preceding loop`);
+    const cels = displayed[source]!.map((cel) => {
+      const pixels = new Uint8Array(cel.pixels);
+      for (let row = 0; row < cel.height; row++)
+        pixels.subarray(row * cel.width, (row + 1) * cel.width).reverse();
+      return { ...cel, pixels, mirror: false };
+    });
+    displayed.push(cels);
+    // Native orientation is mutable: three distinct aliases toggle on every
+    // change, rather than each keeping a fixed facing (docs/fidelity.md,
+    // F-VIEWS-01). One source/alias pair is stable inside the mask range.
+    if (
+      profile.celMirrorLoopMask !== 0 &&
+      index <= limit &&
+      source <= limit &&
+      !shared.has(source) &&
+      loops[source]!.cels?.length
+    ) {
+      loops.push({ mirrorLoop: source });
+      shared.add(source);
+      shared.add(index);
+    } else loops.push({ cels });
+  }
+  return encodeViewBlocks({ ...input, loops }, profile);
+}
+
+/**
+ * Encode physical native blocks: pixels are stored rows and mirrorLoop shares
+ * an offset verbatim. Metadata-preserving codecs use this before restoring
+ * native headers; authoring intent goes through buildView instead.
+ */
+export function encodeViewBlocks(
+  input: BuildViewInput,
+  profile: ViewCapabilities = DEFAULT_V2_PROFILE,
 ): Uint8Array {
   const packed = profile.packedViewLoopHeader;
   const loopCount = input.loops.length;
@@ -98,9 +155,6 @@ export function buildView(
         throw new RangeError(
           `loop ${i} mirrorLoop ${loop.mirrorLoop} must reference a preceding loop (0..${i - 1})`,
         );
-      }
-      if (packed && i > 3) {
-        throw new RangeError("packed mutable loop indices must be in 0..3");
       }
       isMirroredLoop.add(loop.mirrorLoop!);
     } else {
@@ -138,9 +192,6 @@ export function buildView(
     const celCount = cels.length;
     const forceMirror = isMirroredLoop.has(loopIndex);
     const packedMirror = packed && (forceMirror || cels.some((cel) => cel.mirror));
-    if (packedMirror && loopIndex > 3) {
-      throw new RangeError("packed mutable loop indices must be in 0..3");
-    }
 
     const encodedCels: Uint8Array[] = [];
     for (let celIndex = 0; celIndex < celCount; celIndex++) {
@@ -315,13 +366,12 @@ const loadedViews = new WeakMap<AgiView, LoadedView>();
 
 /**
  * Validate a view and provide independent, initially selected cel previews.
- * Runtime users call selectViewCel on selection and readViewCel for drawing:
+ * Runtime users select packed loops on binding and call celForBlitting to draw:
  * selecting three aliases in sequence cannot be represented by static images.
  */
 export function parseView(
   payload: Uint8Array,
-  profile: Pick<AgiProfile, "packedViewLoopHeader"> &
-    Partial<Pick<AgiProfile, "celMirrorLoopMask">> = DEFAULT_V2_PROFILE,
+  profile: ViewCapabilities = DEFAULT_V2_PROFILE,
 ): AgiView {
   if (payload.length < 5) {
     throw new RangeError("view payload shorter than the 5-byte header");
@@ -331,7 +381,7 @@ export function parseView(
     throw new RangeError("loop offset table extends past the payload");
   }
   const packed = profile.packedViewLoopHeader;
-  const celMask = profile.celMirrorLoopMask ?? 7;
+  const celMask = profile.celMirrorLoopMask;
   const celsByOffset = new Map<number, LoadedCel>();
   const loopsByOffset = new Map<number, LoadedLoop>();
   const loaded: LoadedView = { loops: [], packed, celMask };
@@ -366,16 +416,21 @@ export function parseView(
       loopsByOffset.set(loopStart, loop);
     }
     loaded.loops.push(loop);
-    loops.push({
-      cels: loop.cels.map((state) => {
-        const mirrored = packed
-          ? loop.mutable && loop.mirrorable && loop.orientation !== loopIndex
-          : state.mirrorable && state.orientation !== loopIndex;
-        const cel = { ...state.cel, pixels: state.cel.pixels.slice(), mirrored: false };
-        if (mirrored) mirrorPixels(cel);
-        return cel;
-      }),
-    });
+    // Preview each loop from the file's initial state, through the same
+    // blit boundary as runtime. These detached pixels never mutate the
+    // resource's loaded orientation or another loop's preview (F-VIEWS-01).
+    const preview: AgiView = { loops: [] };
+    const previewLoops: LoadedLoop[] = [];
+    previewLoops[loopIndex] = {
+      ...loop,
+      cels: loop.cels.map((state) => ({
+        ...state,
+        cel: { ...state.cel, pixels: state.cel.pixels.slice() },
+      })),
+    };
+    loadedViews.set(preview, { loops: previewLoops, packed, celMask });
+    if (packed) selectViewCel(preview, loopIndex, 0);
+    loops.push({ cels: loop.cels.map((_, cel) => celForBlitting(preview, loopIndex, cel)!) });
   }
 
   const descOffset = u16le(payload, 3);
@@ -431,6 +486,17 @@ export function selectViewCel(
     state.orientation = loopIndex & loaded.celMask;
   }
   return state.cel;
+}
+
+/**
+ * The native cel at the actual blit boundary. Nonpacked MirrorCell belongs
+ * here, while packed 2.230 keeps SetLoop's selection-time orientation
+ * (docs/fidelity.md, F-VIEWS-01). Consume shared pixels before the next blit.
+ */
+export function celForBlitting(view: AgiView, loop: number, cel: number): ViewCel | undefined {
+  return loadedViews.get(view)?.packed
+    ? readViewCel(view, loop, cel)
+    : selectViewCel(view, loop, cel);
 }
 
 function mirrorPixels(cel: ViewCel): void {

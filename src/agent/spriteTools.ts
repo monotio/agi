@@ -6,7 +6,7 @@ import type { ToolDefinition } from "./tools.ts";
 import { viewFeedback } from "./viewFeedback.ts";
 
 import { patchedView } from "../view/celEdit.ts";
-import { parseView, selectViewCel, type BuildCelInput } from "../view/view.ts";
+import { parseView, type BuildCelInput } from "../view/view.ts";
 
 const CEL_ROWS_SCHEMA = {
   type: "array",
@@ -210,7 +210,7 @@ export function executeSpriteTool(
       const revision = resourceCacheHint(payload);
       const geometry = [...targets.entries()].flatMap(([loop, cels]) =>
         [...cels.keys()].map((cel) => {
-          const selected = selectViewCel(after, loop, cel)!;
+          const selected = after.loops[loop]?.cels[cel]!;
           return {
             loop,
             cel,

@@ -16,11 +16,10 @@
  * An untouched document encodes to its original payload byte for byte, and so
  * does any document whose decoded state is again the original's.
  */
-import type { AgiProfile } from "../runtime/profile.ts";
 import { aliasGroups, applyMetadata, type AliasGroup, type MetadataPlan } from "./celEdit.ts";
-import { buildView, parseView, type BuildLoopInput } from "./view.ts";
+import { encodeViewBlocks, parseView, type BuildLoopInput, type ViewCapabilities } from "./view.ts";
 
-export type SpriteProfile = Pick<AgiProfile, "packedViewLoopHeader">;
+export type SpriteProfile = ViewCapabilities;
 
 export interface SpriteCel {
   readonly width: number;
@@ -53,6 +52,7 @@ export interface SpriteDocument {
   readonly description?: string;
   /** The packed (2.230) loop-header encoding. */
   readonly packed: boolean;
+  readonly capabilities: ViewCapabilities;
   /** The payload the document was opened from. */
   readonly original: Uint8Array;
   /** The original payload's alias groups. */
@@ -99,6 +99,7 @@ export function sameLoops(
   a: readonly SpriteLoop[],
   b: readonly SpriteLoop[],
   exact: boolean,
+  aliases = true,
 ): boolean {
   const same = exact ? sameCel : sameDisplay;
   return (
@@ -106,7 +107,7 @@ export function sameLoops(
     a.every((loop, index) => {
       const other = b[index]!;
       return (
-        loop.alias === other.alias &&
+        (!aliases || loop.alias === other.alias) &&
         loop.cels.length === other.cels.length &&
         loop.cels.every((cel, c) => same(cel, other.cels[c]!))
       );
@@ -120,8 +121,9 @@ interface Decoded {
   readonly groups: AliasGroup[];
 }
 
-function decode(payload: Uint8Array, packed: boolean): Decoded {
-  const view = parseView(payload, { packedViewLoopHeader: packed });
+function decode(payload: Uint8Array, profile: ViewCapabilities): Decoded {
+  const packed = profile.packedViewLoopHeader;
+  const view = parseView(payload, profile);
   const groups = aliasGroups(payload, view, packed);
   const loops: SpriteLoop[] = new Array(view.loops.length);
   for (const group of groups) {
@@ -155,11 +157,12 @@ function decode(payload: Uint8Array, packed: boolean): Decoded {
 export function openSprite(payload: Uint8Array, profile: SpriteProfile): SpriteDocument {
   const packed = profile.packedViewLoopHeader;
   const original = payload.slice();
-  const { loops, groups, description } = decode(original, packed);
+  const { loops, groups, description } = decode(original, profile);
   return {
     loops,
     ...(description === undefined ? {} : { description }),
     packed,
+    capabilities: { packedViewLoopHeader: packed, celMirrorLoopMask: profile.celMirrorLoopMask },
     original,
     groups,
     payload: original,
@@ -168,16 +171,21 @@ export function openSprite(payload: Uint8Array, profile: SpriteProfile): SpriteD
 
 /** The document's VIEW payload: the original bytes while nothing changed. */
 export function buildSprite(document: SpriteDocument, profile: SpriteProfile): Uint8Array {
-  if (profile.packedViewLoopHeader !== document.packed)
+  if (
+    profile.packedViewLoopHeader !== document.packed ||
+    profile.celMirrorLoopMask !== document.capabilities.celMirrorLoopMask
+  )
     throw new RangeError("the document was opened for a different VIEW loop-header encoding");
   return document.payload.slice();
 }
 
 /** Whether a member displays its block flipped under stored nibble `high`. */
-function flips(high: number, member: number, packed: boolean): boolean {
-  return packed
+function flips(high: number, member: number, profile: ViewCapabilities): boolean {
+  return profile.packedViewLoopHeader
     ? (high & 0xc0) === 0xc0 && ((high >>> 4) & 3) !== member
-    : (high & 0x80) !== 0 && ((high >>> 4) & 7) !== (member & 7);
+    : profile.celMirrorLoopMask !== 0 &&
+        (high & 0x80) !== 0 &&
+        ((high >>> 4) & profile.celMirrorLoopMask) !== member;
 }
 
 /**
@@ -198,13 +206,14 @@ function candidates(
   mirrorBit: boolean,
   owner: number,
   sharing: Sharing,
-  packed: boolean,
+  profile: ViewCapabilities,
 ) {
+  const packed = profile.packedViewLoopHeader;
   const flags = packed ? 0xc0 : 0x80;
   const usable =
     hint !== null &&
     (sharing === "alone"
-      ? !flips(hint, owner, packed)
+      ? !flips(hint, owner, profile)
       : sharing === "alike" || (hint & flags) === flags);
   const out: number[] = usable ? [hint] : [];
   if (sharing === "alone") out.push(packed ? 0 : (owner & 7) << 4);
@@ -227,8 +236,9 @@ function chooseEncoding(
   loops: readonly SpriteLoop[],
   members: readonly number[],
   cels: readonly number[],
-  packed: boolean,
-): { high: number; rows: Uint8Array[] } {
+  profile: ViewCapabilities,
+): { high: number; rows: Uint8Array[] } | undefined {
+  const packed = profile.packedViewLoopHeader;
   const owner = members[0]!;
   const lead = loops[owner]!.cels[cels[0]!]!;
   const rowsFor = (flipped: boolean) =>
@@ -245,13 +255,20 @@ function chooseEncoding(
           )
         ? "mirrored"
         : "alike";
-  for (const high of candidates(lead.encoding, lead.mirrorBit, owner, sharing, packed)) {
+  for (const high of candidates(lead.encoding, lead.mirrorBit, owner, sharing, profile)) {
+    const mutableMirror = packed
+      ? (high & 0xc0) === 0xc0
+      : profile.celMirrorLoopMask !== 0 && (high & 0x80) !== 0;
+    const limit = packed ? 3 : profile.celMirrorLoopMask;
+    // A shared block with three mutable orientations cannot preserve each
+    // facing across blits; out-of-mask indices toggle on repeat (F-VIEWS-01).
+    if (mutableMirror && (members.length > 2 || members.some((member) => member > limit))) continue;
     for (const rows of orientations) {
       const fits = members.every((member) =>
         cels.every((c, i) => {
           const cel = loops[member]!.cels[c]!;
           const stored = rows[i]!;
-          const shown = flips(high, member, packed)
+          const shown = flips(high, member, profile)
             ? mirrorPixels(stored, cel.width, cel.height)
             : stored;
           return samePixels(shown, cel.pixels);
@@ -260,10 +277,7 @@ function chooseEncoding(
       if (fits) return { high, rows };
     }
   }
-  const label = packed ? "" : `, cel ${cels[0]}`;
-  throw new RangeError(
-    `loops ${members.join(", ")} share a data block (loop ${owner}${label}) that no stored orientation can display as drawn`,
-  );
+  return undefined;
 }
 
 /** Check one alias group's cels agree on geometry and transparency. */
@@ -294,7 +308,34 @@ function checkMembers(loops: readonly SpriteLoop[], members: readonly number[]):
  * `buildSprite`/`withLoops` take, so round-trip checks see real re-encodes.
  */
 export function encodeSprite(document: SpriteDocument, loops: readonly SpriteLoop[]): Uint8Array {
-  const { description, packed } = document;
+  const { description, packed, capabilities } = document;
+  // Retain representable physical sharing. Otherwise store the displayed
+  // art independently; opening an untouched document never reaches here.
+  const physical = [...loops];
+  for (let index = 0; index < loops.length; index++) {
+    if (loops[index]!.alias !== null) continue;
+    const members = [index, ...loops.flatMap((loop, at) => (loop.alias === index ? [at] : []))];
+    checkMembers(loops, members);
+    const all = loops[index]!.cels.map((_, c) => c);
+    const buckets: number[][] = [];
+    for (const member of members) {
+      const bucket = buckets.find((earlier) => {
+        const proposed = [...earlier, member];
+        return packed
+          ? chooseEncoding(loops, proposed, all, capabilities) !== undefined
+          : all.every((c) => chooseEncoding(loops, proposed, [c], capabilities) !== undefined);
+      });
+      if (bucket) bucket.push(member);
+      else buckets.push([member]);
+    }
+    for (const bucket of buckets)
+      for (const member of bucket)
+        physical[member] = {
+          ...loops[member]!,
+          alias: member === bucket[0] ? null : bucket[0]!,
+        };
+  }
+  loops = physical;
   const spec: BuildLoopInput[] = [];
   const plans: MetadataPlan[] = [];
   for (let index = 0; index < loops.length; index++) {
@@ -309,8 +350,8 @@ export function encodeSprite(document: SpriteDocument, loops: readonly SpriteLoo
     checkMembers(loops, members);
     const all = loop.cels.map((_, c) => c);
     const chosen = packed
-      ? [chooseEncoding(loops, members, all, packed)]
-      : all.map((c) => chooseEncoding(loops, members, [c], packed));
+      ? [chooseEncoding(loops, members, all, capabilities)!]
+      : all.map((c) => chooseEncoding(loops, members, [c], capabilities)!);
     const rows = chosen.flatMap((choice) => choice.rows);
     spec.push({
       cels: loop.cels.map((cel, c) => ({
@@ -327,9 +368,9 @@ export function encodeSprite(document: SpriteDocument, loops: readonly SpriteLoo
       controlHighs: chosen.map((choice) => choice.high),
     });
   }
-  const payload = buildView(
+  const payload = encodeViewBlocks(
     description === undefined ? { loops: spec } : { loops: spec, description },
-    { packedViewLoopHeader: packed },
+    capabilities,
   );
   applyMetadata(payload, packed, plans);
   // Bytes 0..1 precede the loop count; the builder zeroes them and parseView
@@ -346,10 +387,10 @@ export function encodeSprite(document: SpriteDocument, loops: readonly SpriteLoo
  */
 export function withLoops(document: SpriteDocument, loops: readonly SpriteLoop[]): SpriteDocument {
   const payload = encodeSprite(document, loops);
-  const decoded = decode(payload, document.packed);
-  if (!sameLoops(decoded.loops, loops, false))
+  const decoded = decode(payload, document.capabilities);
+  if (!sameLoops(decoded.loops, loops, false, false))
     throw new RangeError("the edited view does not decode to the pixels drawn");
-  const base = decode(document.original, document.packed);
+  const base = decode(document.original, document.capabilities);
   if (sameLoops(decoded.loops, base.loops, true))
     return { ...document, loops: base.loops, payload: document.original };
   return { ...document, loops: decoded.loops, payload };
@@ -362,9 +403,9 @@ export function withLoops(document: SpriteDocument, loops: readonly SpriteLoop[]
  */
 export function withPayload(document: SpriteDocument, payload: Uint8Array): SpriteDocument {
   if (samePixels(payload, document.original)) {
-    const { loops } = decode(document.original, document.packed);
+    const { loops } = decode(document.original, document.capabilities);
     return { ...document, loops, payload: document.original };
   }
   const bytes = payload.slice();
-  return { ...document, loops: decode(bytes, document.packed).loops, payload: bytes };
+  return { ...document, loops: decode(bytes, document.capabilities).loops, payload: bytes };
 }

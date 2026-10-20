@@ -28,7 +28,14 @@ import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { authoredScriptFloor } from "./authoredScriptBuffer.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
-import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
+import {
+  parseView,
+  selectViewCel,
+  readViewCel,
+  celForBlitting,
+  drawCel,
+  type AgiView,
+} from "../view/view.ts";
 import { cgaRgbViewPayload, effectivePcDisplay, MONITOR_TYPE, type PcDisplay } from "./display.ts";
 import {
   detectProfile,
@@ -3363,7 +3370,7 @@ export class Engine {
     let view: AgiView;
     try {
       view = this.loadView(viewNum);
-      selectViewCel(view, 0, 0);
+      if (this.profile.packedViewLoopHeader) selectViewCel(view, 0, 0);
     } finally {
       this.replayRecording = recording;
     }
@@ -5539,7 +5546,8 @@ export class Engine {
     margin: number,
   ): void {
     const view = this.loadView(viewNum);
-    const c = selectViewCel(view, loop, cel);
+    if (this.profile.packedViewLoopHeader) selectViewCel(view, loop, cel);
+    const c = celForBlitting(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
     // Verified on 2.936 and 3.002.086: AddToPic stores x/y into a scratch entry
     // with pri=15, IGNRHRZ and IGNROBJS and runs FindPosn before objinpic
@@ -6624,6 +6632,10 @@ export class Engine {
    */
   private setLoop(obj: ScreenObject, loop: number): void {
     obj.loop = loop;
+    // Packed 2.230 mutates the whole loop only at SetLoop, never during
+    // dimension lookup or blitting (docs/fidelity.md, F-VIEWS-01).
+    const view = this.views.get(obj.view);
+    if (view && this.profile.packedViewLoopHeader) selectViewCel(view, loop, 0);
     if (obj.cel >= this.celCount(obj)) obj.cel = 0;
     this.updateCelSize(obj);
   }
@@ -6642,7 +6654,7 @@ export class Engine {
 
   private updateCelSize(obj: ScreenObject, clipPosition = true): void {
     const view = this.views.get(obj.view);
-    const cel = view && selectViewCel(view, obj.loop, obj.cel);
+    const cel = view && readViewCel(view, obj.loop, obj.cel);
     if (cel) {
       obj.width = cel.width;
       obj.height = cel.height;
@@ -6795,11 +6807,7 @@ export class Engine {
     const controlScanFallbackPriority = this.profile.presentation === "pc" ? null : 4;
     for (const { o, num } of active) {
       const view = this.views.get(o.view);
-      const cel =
-        view &&
-        (this.profile.packedViewLoopHeader
-          ? readViewCel(view, o.loop, o.cel)
-          : selectViewCel(view, o.loop, o.cel));
+      const cel = view && celForBlitting(view, o.loop, o.cel);
       if (!cel) continue;
       const pri = o.fixedPriority ? o.priority : priorityForY(o.y, this.priorityBase);
       drawCel(frame, cel, o.x, o.y, {
@@ -6817,7 +6825,7 @@ export class Engine {
     if (this.modal?.kind === "showObj") {
       // show.obj preview: the view's first cel, bottom centre of the picture.
       const view = this.views.get(this.modal.view);
-      const cel = view && readViewCel(view, 0, 0);
+      const cel = view && celForBlitting(view, 0, 0);
       if (cel)
         drawCel(frame, cel, Math.trunc((SCREEN_WIDTH - 1 - cel.width) / 2), SCREEN_HEIGHT - 1, {
           priority: 15,

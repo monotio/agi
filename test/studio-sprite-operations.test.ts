@@ -214,7 +214,10 @@ describe("sprite cel and loop structure", () => {
     refused(open(), { type: "linkMirror", loop: 2, of: 0 }, /not exact mirror images/);
     refused(open(), { type: "linkMirror", loop: 1, of: 0 }, /already shares/);
     const forced = applied(open(), { type: "linkMirror", loop: 2, of: 0, force: true });
-    assert.equal(forced.loops[2]!.alias, 0);
+    // A third mutable alias cannot keep the requested facing across blits;
+    // Studio keeps the original pair and stores the new facing independently.
+    assert.equal(forced.loops[1]!.alias, 0);
+    assert.equal(forced.loops[2]!.alias, null);
     assert.deepEqual(pixels(forced, 2, 0), [2, 1, 0, 3]);
     assert.deepEqual(pixels(forced, 2, 1), [6, 5, 4, 8, 7, 0]);
   });
@@ -303,7 +306,10 @@ describe("sprite copy-on-write", () => {
     const block = (payload: Uint8Array, loop: number, packed: boolean) => {
       const at = payload[5 + loop * 2]! | (payload[6 + loop * 2]! << 8);
       const cel = at + (payload[at + 1]! | (payload[at + 2]! << 8));
-      const view = parseView(payload, { packedViewLoopHeader: packed });
+      const view = parseView(payload, {
+        packedViewLoopHeader: packed,
+        celMirrorLoopMask: packed ? 3 : 7,
+      });
       return [payload[at]!, payload[cel + 2]!, [...readViewCel(view, loop, 0)!.pixels]];
     };
     const packed = PROFILES["2.230"];

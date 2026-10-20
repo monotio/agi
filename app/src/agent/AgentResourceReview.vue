@@ -11,7 +11,7 @@ import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { renderPicture } from "../../../src/picture/renderer.ts";
 import { encodePngRgba } from "../../../src/creative/composite.ts";
 import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.ts";
-import { parseView, selectViewCel } from "../../../src/view/view.ts";
+import { parseView } from "../../../src/view/view.ts";
 import { colourTableForProfile } from "../../../src/runtime/colourTables.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
 import {
@@ -116,7 +116,7 @@ const views = computed(() => {
             loops: view.loops.map((loop, loopIndex) => ({
               index: loopIndex,
               cels: loop.cels.map((_cel, celIndex) => {
-                const cel = selectViewCel(view, loopIndex, celIndex)!;
+                const cel = view.loops[loopIndex]?.cels[celIndex]!;
                 const rgba = new Uint8Array(cel.width * 2 * cel.height * 4);
                 for (let y = 0; y < cel.height; y++)
                   for (let x = 0; x < cel.width * 2; x++) {
