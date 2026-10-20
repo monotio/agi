@@ -2,7 +2,7 @@ import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Cross-editor coherence, end to end over fake ports: a stored project keeps
  * both its native files and its workspace envelope; an ordinary Room/View
- * Studio Keep through the real authoring controller, worker link and Engine
+ * Studio commit through the real authoring controller, worker link and Engine
  * must leave the envelope agreeing with the files it describes — the next
  * editable open re-verifies every claim, so a stale claim would refuse the
  * whole build. Each case keeps a resource, reopens through
@@ -279,10 +279,10 @@ const PIC_EDIT_RENAMED = [
 ].join("\n");
 assert.deepEqual(compile(PIC_EDIT), compile(PIC_EDIT_RENAMED));
 
-test("a picture Keep updates its own workspace claim, preserves the rest and lets Logic build", async (t) => {
+test("a picture commit updates its own workspace claim, preserves the rest and lets Logic build", async (t) => {
   const { projectId, revision, r } = await projectRig(t, "ws-picture-keep");
 
-  // First the reverse order: a LOGIC editor Keep wins before the resource Keep.
+  // First the reverse order: a LOGIC editor commit wins before the resource commit.
   const editable = await openEditableProject(projectId);
   assert.equal(editable.inspection.requiresSourceReview, false);
   await keepLogic(editable, "logic:1", COMMENTED_LOGIC);
@@ -320,7 +320,7 @@ test("a picture Keep updates its own workspace claim, preserves the rest and let
   assert.equal(reopened2.draft.capture().read("logic:1")!.content, SECOND_LOGIC);
 });
 
-test("a source-only picture Keep projects the new text without inventing a native edit", async (t) => {
+test("a source-only picture commit projects the new text without inventing a native edit", async (t) => {
   const { projectId, revision, r } = await projectRig(t, "ws-picture-source-only");
 
   const bytes = await r.controller.commitPictureEdit({
@@ -345,7 +345,7 @@ test("a source-only picture Keep projects the new text without inventing a nativ
   assert.equal(
     readProjectWorkspace(stored.workspace)["picture:1"],
     PIC_EDIT_RENAMED,
-    "the claim text followed the source-only Keep",
+    "the claim text followed the source-only commit",
   );
 
   const reopened = await openEditableProject(projectId);
@@ -354,10 +354,10 @@ test("a source-only picture Keep projects the new text without inventing a nativ
   assert.equal(follow.kind, "savedOnly");
 });
 
-test("a view Keep updates its own workspace claim, preserves metadata and lets Logic build", async (t) => {
+test("a view commit updates its own workspace claim, preserves metadata and lets Logic build", async (t) => {
   const { projectId, revision, files, r } = await projectRig(t, "ws-view-keep", "starter");
 
-  // Owner metadata a View Keep must carry through untouched.
+  // Owner metadata a View commit must carry through untouched.
   const seeded = (await loadAuthoredGame(projectId))!;
   seeded.workspace = writeProjectWorkspace({
     ...readProjectWorkspace(seeded.workspace),
@@ -425,10 +425,10 @@ test("a stale generation or a recreated lifetime still refuses and loses nothing
     (e) => e instanceof ResourceCommitError && e.code === "stale",
   );
   const after = (await loadAuthoredGame(projectId))!;
-  assert.equal(after.generation, moved.generation, "the refused Keep wrote nothing");
+  assert.equal(after.generation, moved.generation, "the refused commit wrote nothing");
   assert.deepEqual(after.workspace, moved.workspace, "the moved project's envelope stands");
 
-  // A removed-and-recreated project is another lifetime; the Keep refuses too.
+  // A removed-and-recreated project is another lifetime; the commit refuses too.
   await clearCachedGame(projectId);
   assert.equal(await saveAuthoredGame(projectId, moved), true);
   await assert.rejects(
@@ -445,7 +445,7 @@ test("a stale generation or a recreated lifetime still refuses and loses nothing
   assert.deepEqual(recreated.workspace, moved.workspace);
 });
 
-test("a resource Keep advances stored History before the next editable open", async (t) => {
+test("a resource commit advances stored History before the next editable open", async (t) => {
   const { ProjectHistory } = await import("../../src/authoring/projectHistory.ts");
   const { writeProjectHistory, readProjectHistory } =
     await import("../../src/authoring/projectHistoryCodec.ts");

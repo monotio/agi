@@ -643,7 +643,7 @@ describe("the room logic draft", () => {
     rig.stop();
   });
 
-  it("stores a box following moved art in the kept frame, and the Keep moves it for real", () => {
+  it("stores a box following moved art in the kept frame, and the commit moves it for real", () => {
     const rig = walkRig();
     const { logic, walk } = rig;
     walk.addDoor({ x1: 122, y1: 124, x2: 133, y2: 130 });
@@ -675,7 +675,7 @@ describe("the room logic draft", () => {
     rig.stop();
   });
 
-  it("unbinds a door whose art the Keep deletes, and names it", () => {
+  it("unbinds a door whose art the commit deletes, and names it", () => {
     const rig = walkRig();
     const { logic, walk } = rig;
     walk.addDoor({ x1: 120, y1: 125, x2: 135, y2: 130 });
@@ -693,13 +693,13 @@ describe("the room logic draft", () => {
     rig.stop();
   });
 
-  it("rebases its undo history into the frame a Keep moved the art to", () => {
+  it("rebases its undo history into the frame a commit moved the art to", () => {
     const rig = walkRig();
     const { logic, walk } = rig;
     walk.addDoor({ x1: 120, y1: 125, x2: 135, y2: 130 });
     walk.setFollows("door-1", "doorway");
     walk.moveDoor("door-1", { x1: 120, y1: 120, x2: 135, y2: 125 });
-    // The doorway moves 10 px east, and the Keep moves the door with it.
+    // The doorway moves 10 px east, and the commit moves the door with it.
     const moved = applyEdit(rig.kept, { type: "moveItem", itemId: "doorway", dx: 10, dy: 0 });
     assert.ok(!("error" in moved));
     const keep = logic.forCommit(rig.kept, moved.document);
@@ -735,7 +735,7 @@ describe("the room logic draft", () => {
     again.stop();
   });
 
-  it("drops the history a Keep's follow cannot carry, with every older step", () => {
+  it("drops the history a commit's follow cannot carry, with every older step", () => {
     const rig = walkRig();
     const { logic, walk } = rig;
     walk.addDoor({ x1: 140, y1: 125, x2: 159, y2: 130 });
@@ -753,7 +753,7 @@ describe("the room logic draft", () => {
     rig.stop();
   });
 
-  it("keeps the shared undo order when a Keep drops older door steps", () => {
+  it("keeps the shared undo order when a commit drops older door steps", () => {
     const rig = walkRig();
     const { logic, walk } = rig;
     const scope = effectScope();
@@ -782,7 +782,7 @@ describe("the room logic draft", () => {
         },
       ]),
     )!;
-    // Three door steps the Keep will drop: add at 140..159, follow, move to 120..135.
+    // Three door steps the commit will drop: add at 140..159, follow, move to 120..135.
     walk.addDoor({ x1: 140, y1: 125, x2: 159, y2: 130 });
     walk.setFollows("door-1", "doorway");
     walk.moveDoor("door-1", { x1: 120, y1: 125, x2: 135, y2: 130 });

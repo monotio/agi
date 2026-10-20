@@ -161,7 +161,7 @@ test("keyboard only: an Art rectangle and a Priority wall line autosave @webkit-
   const crosshair = studio.locator('[data-role="key-cursor"]').last();
   const announce = studio.locator('[data-role="announce"]');
 
-  // Art lens, the rect tool, Filled: the ? sheet lists its keys, and Esc returns to the canvas.
+  // Visual lens, the rect tool, Filled: the ? sheet lists its keys, and Esc returns to the canvas.
   await page.keyboard.press("r");
   await studio.getByTestId("studio-tool-filled").press("Space");
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();

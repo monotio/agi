@@ -13,7 +13,7 @@
  *
  * `add.to.pic` bakes a view's cel into the room's picture when the room is
  * drawn, so a changed view shows there only once the room is entered again;
- * `roomBakesView` answers that for a Keep. Animated objects read the view
+ * `roomBakesView` answers that for a commit. Animated objects read the view
  * afresh every frame and need no re-entry.
  */
 import { decodeLogicInsns } from "../logic/disassembler.ts";

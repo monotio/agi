@@ -190,7 +190,7 @@ export const STUDIO_TERMS = {
     help: topic("view-mirror"),
   },
   "shared-view": {
-    name: "Shared character",
+    name: "Shared VIEW",
     says: "Editing this VIEW changes it in every room that uses it.",
     help: topic("view-loops"),
   },

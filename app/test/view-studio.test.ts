@@ -228,7 +228,7 @@ describe("useViewDraft", () => {
     assert.equal(draft.canRedo.value, true, "a refusal leaves the history alone");
   });
 
-  it("rebases on Keep and discards back to the kept bytes", () => {
+  it("rebases on commit and discards back to the kept bytes", () => {
     const { draft } = setup();
     const paint = (x: number) =>
       draft.apply(

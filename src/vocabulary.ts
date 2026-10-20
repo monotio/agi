@@ -1104,7 +1104,7 @@ export const GLOSSARY: Readonly<Record<string, GlossaryEntry>> = {
     code: "room",
     avoid: ["scene", "screen", "level", "location", "stage", "map node"],
     avoidPattern:
-      "\\b(?:scenes?|levels?)\\b|\\bscreen \\d|\\bthe screen of room\\b|\\bscreens? (?:of|in) (?:your|the) game\\b",
+      "\\b(?:current scene|scene \\d|levels?)\\b|\\bscreen \\d|\\bthe screen of room\\b|\\bscreens? (?:of|in) (?:your|the) game\\b",
   },
   picture: {
     concept: "PICTURE",
@@ -1144,7 +1144,8 @@ export const GLOSSARY: Readonly<Record<string, GlossaryEntry>> = {
     technical: "VIEW N",
     code: "view, ViewDocument",
     avoid: ["sprite", "actor", "character", "animation", "art asset", "image"],
-    avoidPattern: "\\bsprites?\\b|\\b(?:actor|character|animation) editor\\b|\\bart assets?\\b",
+    avoidPattern:
+      "\\bsprites?\\b|\\b(?:actor|character|animation) editor\\b|\\bshared character\\b|\\bcharacter \\d+\\b|\\bart assets?\\b",
   },
   loop: {
     concept: "loop",
@@ -1611,6 +1612,7 @@ export const GLOSSARY: Readonly<Record<string, GlossaryEntry>> = {
 
 /** Stored and wire spellings, with the format that fixes each one. */
 export const FORMAT_LITERALS: Readonly<Record<string, string>> = {
+  "monotio_agi.pictureViews": "viewer preference for Views overlay opacity (0–100)",
   depthDrawnPct: "archived genesis report.json metric key",
   "depth and walk": "stored eval priority-plane diagnostic text",
   spriteOps: "edit_selection schema field in stored calls and replay cases",

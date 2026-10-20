@@ -330,7 +330,7 @@ test("a Studio draft keeps against the authoring it opened on, even after a sess
   await b.controller.openPowerUp(STUB);
   b.controller.closePowerUp();
 
-  // B's draft, made on the old text, locks the sky: Keep must not drop A's label.
+  // B's draft, made on the old text, locks the sky: commit must not drop A's label.
   await assert.rejects(
     b.controller.commitPictureEdit({
       pictureNumber: 1,

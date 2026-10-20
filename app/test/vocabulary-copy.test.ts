@@ -137,6 +137,11 @@ const COPY_EXCEPTIONS: readonly {
     reason: "Amiga window stacking gadget, distinct from AGI priority.",
   },
   {
+    file: "src/agent/authoringGuide.ts",
+    pattern: /gives depth to a flat picture/g,
+    reason: "Visual depth created by composition, distinct from AGI priority values.",
+  },
+  {
     file: "src/agent/history.ts",
     pattern: /\bdictionary\b/g,
     reason: "Stored history field validation names the dictionary field.",
@@ -448,7 +453,10 @@ const SWEEP_RULES: readonly {
   { key: "view", pattern: /\bsprites?\b/gi },
   { key: "background", pattern: /\bbackdrop\b/gi },
   { key: "standIn", pattern: /\bghost\b/gi },
-  { key: "pictureEditor", pattern: /\b(?:Room|Sprite|Logic)\s+(?:\*\s*)?Studio\b/g },
+  { key: "pictureEditor", pattern: /\b(?:Room|Sprite|Logic)\s+(?:\*\s*)?Studio\b|\broomStudio\b/g },
+  { key: "lens", pattern: /\b(?:Art|Depth)\s+(?:\*\s*)?lens\b/g },
+  { key: "room", pattern: /\b(?:createSceneBrief|sceneBrief)\b/g },
+  { key: "ego", pattern: /\b[Aa] ego\b/g },
   { key: "items", pattern: /\b(?:sceneList|SceneList|sceneGroups)\b/g },
   {
     key: "ego",
@@ -468,7 +476,7 @@ const SWEEP_RULES: readonly {
   {
     key: "saved",
     pattern:
-      /\b(?:useStudioKeep|DraftKeepAdmission|EditableKeep(?:Result|Review)|Keep(?:Banner|Recovery|ableDraft)|ViewKeepFn|LessonKeep|admitKeep|acknowledgeAdmittedKeep|finishKeepAdmission|keepCandidate|keepStagedView|markKept)\b/g,
+      /\b(?:useStudioKeep|DraftKeepAdmission|EditableKeep(?:Result|Review)|Keep(?:Banner|Recovery|ableDraft)|ViewKeepFn|LessonKeep|admitKeep|acknowledgeAdmittedKeep|finishKeepAdmission|keepCandidate|keepStagedView|markKept)\b|\b(?:after|before|what|implies|past|on) Keep\b|\bKeep (?:writes|that|moves|rebases|is|must|refuses|reserves|owns|can)\b|\b(?:[Aa]|the|pending|staged|admitted|refused|unrelated|same|whole|resource|picture|view|editor|Studio|combined|native|in-place|source-only|byte-changing|lease-refused|storage-waiting|pre|next|through|across|at|may|cannot|versus|tab's|page's|own) Keep\b|\bKeep(?=['’]s\b|\/reload)/g,
   },
   { key: "cel", pattern: /\b(?:SheetFrame|sheetFrame)\w*\b/g },
 ];
@@ -487,7 +495,15 @@ function maskFormats(source: string): string {
 }
 
 function terminologyViolations(file: string, source: string): string[] {
-  let masked = maskFormats(source);
+  // Tutorial resource text is released game content; check its comments without changing bytes.
+  const text =
+    file === "games/adventure-department/game.ts"
+      ? source
+          .split("\n")
+          .map((line) => (/^\s*(?:\/\/|\/\*|\*)/.test(line) ? line : ""))
+          .join("\n")
+      : source;
+  let masked = maskFormats(text);
   for (const exception of SWEEP_EXCEPTIONS)
     if (file === exception.file)
       masked = masked.replace(exception.pattern, (match) => match.replace(/[^\n]/g, " "));
@@ -508,7 +524,12 @@ test("tracked text uses the glossary's code and technical names", () => {
     .filter(
       (file) =>
         /^(?:src|app\/src|test|app\/test|app\/e2e|scripts|docs)\//.test(file) ||
-        ["README.md", "CONTRIBUTING.md", "games/adventure-department/lessons.ts"].includes(file),
+        [
+          "README.md",
+          "CONTRIBUTING.md",
+          "games/adventure-department/lessons.ts",
+          "games/adventure-department/game.ts",
+        ].includes(file),
     );
   const violations: string[] = [];
   for (const file of paths) {
@@ -547,6 +568,39 @@ test("the terminology sweep catches mixed names and preserves format literals", 
     ),
     [],
   );
+});
+
+test("lens, editor and commit names stay coherent in comments and identifiers", () => {
+  for (const text of [
+    "// the Art lens",
+    "// try the Depth lens",
+    "// Room Studio lesson",
+    "const roomStudio = editor;",
+    "// what Keep writes",
+    "// implies Keep",
+    "// a Keep that needs a reload",
+    "// an A ego typo",
+    "// a ego typo",
+    "const sceneBrief = brief;",
+    "function createSceneBrief() {}",
+  ])
+    assert.ok(terminologyViolations("app/src/example.ts", text).length > 0, text);
+  for (const text of [
+    "// Keep the tab open",
+    "// A keeper of stories",
+    "// in keeping with the story",
+    "// ordinary visual depth",
+    "// a night scene",
+    "const scene = new Scene();",
+  ])
+    assert.deepEqual(terminologyViolations("app/src/example.ts", text), [], text);
+});
+
+test("VIEW labels use VIEW while story characters retain their ordinary meaning", () => {
+  assert.ok(copyPattern("view").test("Shared character"));
+  assert.ok(copyPattern("view").test("Character 5"));
+  assert.equal(copyPattern("view").test("Let character voices fit the story."), false);
+  assert.equal(copyPattern("room").test("Night scenes use a cool palette."), false);
 });
 
 test("actors name screen objects in visible movement help", () => {

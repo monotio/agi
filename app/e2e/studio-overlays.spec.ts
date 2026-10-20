@@ -73,7 +73,7 @@ for (const [width, height] of [
     const look = async (step: string, root: Locator, over: string) =>
       seen.push(...(await strays(root, over)).map((stray) => `${step}: ${stray}`));
 
-    // A selection and the probe, in the Art lens.
+    // A selection and the probe, in the Visual lens.
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("g");

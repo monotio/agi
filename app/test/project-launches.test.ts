@@ -191,7 +191,7 @@ test("a second page cannot silently overwrite another page's Launch edits", asyn
   );
   await first.commitCandidate(first.buildSelected(["world"]));
 
-  // Opened before the first page's Keep landed: its write must refuse rather
+  // Opened before the first page's commit landed: its write must refuse rather
   // than silently drop the other page's launch.
   applyWorld(
     second,

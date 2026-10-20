@@ -355,7 +355,7 @@ test("import and copy rebind a verified staged reference; a stale one keeps its 
   );
   const imported = (await loadAuthoredGame(importedId))!;
   const [rebound, stillStale] = imported.references!;
-  // The import's fresh project id adopts the verified candidate — Keep can
+  // The import's fresh project id adopts the verified candidate — the commit can
   // proceed — while the stale draft stays refused.
   assert.equal(
     stagedRefusal(rebound!, { project: importedId, revision: imported.library!.revision }),

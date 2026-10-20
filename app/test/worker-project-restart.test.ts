@@ -779,7 +779,7 @@ test("an edit to a VIEW a room stamped only once asks for a restart", async () =
   }
 });
 
-test("a stamped VIEW edit after Keep playing dismisses the message and shows the new art", async () => {
+test("a stamped VIEW edit after commit playing dismisses the message and shows the new art", async () => {
   const cel = { width: 2, height: 2, pixels: [7, 7, 7, 7] };
   const source =
     'if (isset(f5)) { load.pic(0); draw.pic(0); load.view(1); add.to.pic(1,0,0,40,100,4,0); discard.view(1); show.pic(); accept.input(); } if (said("look")) { print("Wait"); } return;';

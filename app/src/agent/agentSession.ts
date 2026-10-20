@@ -65,7 +65,7 @@ import {
   createGenesisPrompt,
   createOrientationPrompt,
   createRuntimeRoomPrompt,
-  createSceneBrief,
+  createRoomBrief,
   type OrientationInput,
 } from "../../../src/agent/prompt.ts";
 import {
@@ -524,7 +524,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         : null;
     const prompt = createOrientationPrompt({
       ...input,
-      sceneBrief: createSceneBrief(roomContext, picture, objects),
+      roomBrief: createRoomBrief(roomContext, picture, objects),
     });
     this.onEvent(
       "request",

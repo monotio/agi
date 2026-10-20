@@ -201,7 +201,7 @@ describe("useStudioDraft", () => {
     assert.ok(art.refusal.cells.includes(1));
     assert.equal(draft.source.value, SOURCE);
 
-    // The occluder's priority in the Art lens: its outline, 80 + 80 + 14 + 14 cells.
+    // The occluder's priority in the Visual lens: its outline, 80 + 80 + 14 + 14 cells.
     lens.value = "visual";
     const priority = { type: "setItemColor", itemId: "occ", plane: "priority", value: 12 } as const;
     const priorityResult = draft.apply(priority, "Priority 12");
@@ -223,7 +223,7 @@ describe("useStudioDraft", () => {
 
   it("moves, copies and deletes whole items with every plane they draw, in any lens", () => {
     const { draft, unlocks } = setup("priority");
-    // The box's art moves in the Priority lens; the occluder's priority in the Art lens.
+    // The box's art moves in the Priority lens; the occluder's priority in the Visual lens.
     assert.equal(draft.apply(both(), "Move 2 items").ok, true);
     assert.equal(line(draft, 3), "rect 10,11 30,31");
     assert.deepEqual(unlocks.value, NO_UNLOCKS, "the locks stay as they were");
@@ -425,7 +425,7 @@ describe("useStudioDraft", () => {
     );
   });
 
-  it("rebases on Keep and throws changes away on Discard", () => {
+  it("rebases on commit and throws changes away on Discard", () => {
     const { draft } = setup("priority");
     assert.equal(draft.apply(move("occ", 0, 2), "Move Occluder").ok, true);
     const edited = draft.source.value;
@@ -439,7 +439,7 @@ describe("useStudioDraft", () => {
     assert.equal(draft.source.value, edited);
   });
 
-  it("keeps the undo history across Keep: undo then reverts the kept edit as an unkept change", () => {
+  it("keeps the undo history across commit: undo then reverts the kept edit as an unkept change", () => {
     const { draft } = setup("priority");
     assert.equal(draft.apply(move("occ", 0, 2), "Move Occluder").ok, true);
     assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
@@ -448,7 +448,7 @@ describe("useStudioDraft", () => {
     assert.equal(draft.changes.value, 0);
     assert.equal(draft.canUndo.value, true, "the kept edits stay undoable");
     assert.equal(draft.undo(), true);
-    assert.equal(draft.dirty.value, true, "undoing past Keep is an unkept change");
+    assert.equal(draft.dirty.value, true, "undoing past commit is an unkept change");
     assert.equal(draft.changes.value, 1);
     assert.equal(draft.saved.value.source, kept, "the kept text stays the base");
     assert.equal(draft.undo(), true);

@@ -259,7 +259,7 @@ test("an unsatisfied challenge shows its hint and awards nothing", () => {
   assert.deepEqual(awarded, []);
 });
 
-test("a throwing check awards nothing and never escapes the Keep", () => {
+test("a throwing check awards nothing and never escapes the commit", () => {
   const awarded: string[] = [];
   const outcome = checkLessonCommit(
     session(() => {

@@ -47,7 +47,7 @@ function busy(error: unknown, reason: string): boolean {
   return true;
 }
 
-test("a lease-refused Keep performs zero durable writes before a genuine retry", async () => {
+test("a lease-refused commit performs zero durable writes before a genuine retry", async () => {
   const projectId = await seedProject("actual-busy-keep-storage");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", "return; // pending candidate");
@@ -75,7 +75,7 @@ test("a lease-refused Keep performs zero durable writes before a genuine retry",
   assert.deepEqual(ws.draft.dirtyKeys(), []);
 });
 
-test("failed durable publication releases the Keep reservation and exact candidate retry reacquires it", async () => {
+test("failed durable publication releases the commit reservation and exact candidate retry reacquires it", async () => {
   const projectId = await seedProject("actual-keep-retry-lease");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", "return; // exact retry");

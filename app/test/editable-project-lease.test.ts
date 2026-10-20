@@ -47,7 +47,7 @@ function busy(error: unknown, reason: string): boolean {
   return true;
 }
 
-test("a Keep refused during a history lease commits nothing and stays keepable", async () => {
+test("a commit refused during a history lease commits nothing and stays keepable", async () => {
   const projectId = await seedProject("ws-lease-blocks-keep");
   const ws = await openEditableProject(projectId);
   const before = ws.savedIdentity();
@@ -65,7 +65,7 @@ test("a Keep refused during a history lease commits nothing and stays keepable",
   assert.deepEqual(ws.draft.dirtyKeys(), []);
 });
 
-test("an admitted Keep reserves the draft until it settles while typing stays free", async () => {
+test("an admitted commit reserves the draft until it settles while typing stays free", async () => {
   const projectId = await seedProject("ws-keep-reserves");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", "return; // a");
@@ -86,7 +86,7 @@ test("an admitted Keep reserves the draft until it settles while typing stays fr
   ws.draft.releaseHistoryMutation(lease);
 });
 
-test("a duplicate pending Keep shares the admitted attempt and its receipt", async () => {
+test("a duplicate pending commit shares the admitted attempt and its receipt", async () => {
   const projectId = await seedProject("ws-keep-dup");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", "return; // a");

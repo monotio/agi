@@ -889,7 +889,7 @@ test("handleRoomAuthoring establishes on-demand session for imported authorable 
 });
 
 test("handleRoomAuthoring moves the booted game to the revision it saved once the game confirms it", async (t) => {
-  // A later remix or Keep compares the booted revision with storage; a room
+  // A later remix or commit compares the booted revision with storage; a room
   // written mid-play that left it behind made every later turn look stale.
   // The worker installs the room as its answer, after this turn returns, so
   // the booted game follows when the running game confirms the saved files.
@@ -1581,13 +1581,13 @@ test("commitStagedView refuses a busy turn and a moved durable base, then commit
   );
   const stagedPayload = base64ToBytes(reference.staged!.payload);
 
-  // A running turn owns the session — Keep refuses and the offer survives.
+  // A running turn owns the session — the commit refuses and the offer survives.
   powerUp.busy = true;
   await assert.rejects(controller.commitStagedView(reference.id), /current agent turn/);
   assert.equal(patches.length, 0);
   powerUp.busy = false;
 
-  // A second writer moved the durable project since boot — Keep refuses and
+  // A second writer moved the durable project since boot — the commit refuses and
   // the offer survives for a reloaded game to take.
   const moved = createTestFiles();
   const movedContainer = openContainer(new Map(Object.entries(moved)));
@@ -1623,7 +1623,7 @@ test("commitStagedView refuses a busy turn and a moved durable base, then commit
 });
 
 for (const withSession of [false, true]) {
-  test(`Keep owns its base through export and persistence (session: ${withSession})`, async (t) => {
+  test(`A commit owns its base through export and persistence (session: ${withSession})`, async (t) => {
     installLocalStorageMock(t);
     const projectId = testProjectId(`keep-race-${withSession}`);
     const files = createTestFiles();
@@ -1729,7 +1729,7 @@ for (const withSession of [false, true]) {
     await assert.rejects(controller.commitStagedView(reference.id), /changed|removed/i);
     game.historyLifetime = await readHistoryLifetime(projectId);
     duringExport = async () => {
-      assert.equal(powerUp.busy, true, "Keep reserves the controller before exporting");
+      assert.equal(powerUp.busy, true, "A commit reserves the controller before exporting");
       await assert.rejects(controller.commitStagedView(reference.id), /current agent turn/);
       if (withSession) {
         await assert.rejects(author.runPowerUp("change it", 1), /keeping a staged view/i);
@@ -1864,8 +1864,8 @@ test("a remix turn is refused when the stored project moved mid-turn", async (t)
   };
   const powerUp = createMockPowerUp();
   const { posts, worker, query } = remixHarness(files);
-  // A Keep's bytes land while the remix turn is in flight — the running game
-  // still holds the pre-Keep revision, so the turn's result is stale.
+  // A commit's bytes land while the remix turn is in flight — the running game
+  // still holds the pre-commit revision, so the turn's result is stale.
   const moved = openContainer(new Map(Object.entries(files)));
   moved.putResource("logic", 2, assembleLogic("return;", { dictionary: new Map() }).payload);
   const movedFiles = Object.fromEntries(moved.files);
@@ -2100,7 +2100,7 @@ for (const when of ["before the turn", "mid-turn"] as const) {
       files,
       words: [],
     };
-    // A Studio Keep from another tab: the stored project moves past the
+    // A Studio commit from another tab: the stored project moves past the
     // revision the running game was built on.
     const moved = openContainer(new Map(Object.entries(files)));
     moved.putResource("logic", 3, assembleLogic("return;", { dictionary: new Map() }).payload);

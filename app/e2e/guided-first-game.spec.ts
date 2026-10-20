@@ -220,9 +220,9 @@ test.describe("the first guided game", () => {
     await isolateStorage(page);
     projectId = await createStarter(page, "Guided grove");
 
-    const roomStudio = await openWorkspacePicture(page, 1);
-    await roomStudio.locator("[data-row]").first().click();
-    await roomStudio.getByRole("group", { name: /^Canvas/ }).focus();
+    const pictureStudio = await openWorkspacePicture(page, 1);
+    await pictureStudio.locator("[data-row]").first().click();
+    await pictureStudio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("ArrowDown");
     await workspaceUpdated(page);
     await closeWorkspaceEditor(page);

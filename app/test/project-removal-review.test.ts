@@ -54,7 +54,7 @@ test("an explicitly reviewed unreferenced SOUND removal keeps and reopens as rem
   assert.equal(reopened.draft.capture().read("sound:42"), undefined);
 });
 
-test("a reviewed removal with a surviving real LOGIC reference cannot Keep", async () => {
+test("a reviewed removal with a surviving real LOGIC reference cannot be committed", async () => {
   const workspace = await cueProject("Referenced cue removal", true);
   const generation = workspace.savedIdentity().generation;
   workspace.draft.edit("sound:42", null, workspace.draft.capture().version("sound:42"));
@@ -67,7 +67,7 @@ test("a reviewed removal with a surviving real LOGIC reference cannot Keep", asy
   assert.ok(openContainer(new Map(Object.entries(data.files))).getResource("sound", 42));
 });
 
-test("a complete reviewed LOGIC repair and SOUND removal land in one Keep", async () => {
+test("a complete reviewed LOGIC repair and SOUND removal land in one commit", async () => {
   const workspace = await cueProject("Coordinated cue removal", true);
   const base = workspace.draft.capture();
   workspace.draft.apply(

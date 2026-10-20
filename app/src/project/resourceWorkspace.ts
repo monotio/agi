@@ -1,5 +1,5 @@
 /**
- * The workspace half of a resource Keep. A stored project holds both its
+ * The workspace half of a resource commit. A stored project holds both its
  * playable files and the workspace document envelope each editor opens;
  * a commit that writes new resource bytes or new source claims must leave
  * the envelope agreeing with them in the same write, or the next editable
@@ -124,7 +124,7 @@ function sourceClaims(sources: unknown): Record<string, string> {
  * The verified workspace envelope for the record a resource commit is
  * saving, or undefined when it carries none. Throws when the stored
  * envelope cannot be read or the committed authoring record is invalid —
- * a Keep that cannot project coherently refuses rather than writing a
+ * a commit that cannot project coherently refuses rather than writing a
  * claim it has not verified.
  */
 export function reconcileResourceWorkspace(
@@ -161,7 +161,7 @@ export function reconcileResourceWorkspace(
     else documents[key] = next;
   }
 
-  // The bindings document tracks the committed bindings — a Keep that
+  // The bindings document tracks the committed bindings — a commit that
   // reserved a name lets its logic claim compile — by semantic value,
   // keeping its exact text while the value is unchanged.
   const canonicalBindings = verified.documents["bindings"];

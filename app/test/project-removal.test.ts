@@ -54,7 +54,7 @@ function edit(ws: EditableProject, key: string, content: string | Uint8Array | n
   ws.draft.edit(key, content, ws.draft.capture().version(key));
 }
 
-/** Add a kept SOUND 42 to the project through a real Keep. */
+/** Add a kept SOUND 42 to the project through a real commit. */
 async function keepSound(ws: EditableProject, num = 42) {
   const doc = ws.draft.capture().read(`sound:${num}`);
   if (doc !== undefined) return;
@@ -136,7 +136,7 @@ test("a stale selection refuses even with a complete review", async () => {
   await assert.rejects(ws.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] }), /stale/i);
 });
 
-test("a pending Keep is idempotent: a second call joins it without a second review", async () => {
+test("a pending commit is idempotent: a second call joins it without a second review", async () => {
   const projectId = await seedProject("rm-pending");
   const ws = await openEditableProject(projectId);
   await keepSound(ws);

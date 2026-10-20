@@ -81,7 +81,7 @@ export type { AutosaveRecord, AutosaveGame };
  * Storage holds another revision than the running project game: it is
  * marked behind, or the project index names a newer save. Only a reason to
  * skip this game's saves — the conditional file write and the cross-tab
- * notice decide `behindStorage`, since this tab's own Keep also passes
+ * notice decide `behindStorage`, since this tab's own commit also passes
  * through a moment where the index is ahead of the game it installs into.
  */
 export function storageMovedPast(game: BootedGame): boolean {
@@ -752,7 +752,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       }
       if (msg.files) {
         if (booted.installed) return false;
-        // Behind storage (a Keep saved but not installed, a newer write from
+        // Behind storage (a commit saved but not installed, a newer write from
         // elsewhere) the running game's files are older than the record:
         // nothing is written over it until the game reloads from storage.
         if (booted.behindStorage) return false;
@@ -784,7 +784,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         target = rebound;
       }
       // A checkpoint names the revision this game runs. Once storage holds
-      // another one (a Keep in another tab, which took its own checkpoint),
+      // another one (a commit in another tab, which took its own checkpoint),
       // this one could never resume and would bury that tab's: skip it.
       if (
         storageMovedPast(game) ||
@@ -1743,7 +1743,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
    * reached the live game. Nothing is flushed first — the running game's
    * checkpoint would name bytes storage no longer holds. The stored
    * checkpoint resumes only when it belongs to the live body's epoch and
-   * names the stored revision (another tab's Keep takes a fresh one);
+   * names the stored revision (another tab's commit takes a fresh one);
    * otherwise the game starts from the top rather than refusing the
    * mismatch. False when the running game is no stored project; a removed
    * one is marked so and told (`onRemoved`).

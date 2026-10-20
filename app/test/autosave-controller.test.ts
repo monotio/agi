@@ -608,7 +608,7 @@ test("reloading from storage resumes only a progress entry of the stored bytes, 
   // the stored game starts from the top instead of refusing the mismatch.
   await checkpoint(before, "this-tab");
   assert.equal(await controller.reloadFromStorage(config), true);
-  // The other tab's Keep took a checkpoint of the stored bytes under the
+  // The other tab's commit took a checkpoint of the stored bytes under the
   // live epoch's locator: that owned physical record resumes.
   assert.notEqual(
     writeAutosave(localStorage, storedTarget, {
@@ -697,7 +697,7 @@ test("a tab behind storage never writes its progress entry over the newer save's
   // A game on the stored revision checkpoints as before.
   const current: BootedGame = { ...running, revision: await gameRevision(after), files: after };
   const onStored = useAutosaveController(context(current));
-  // Unless it is marked behind (a removed-and-recreated project, a Keep
+  // Unless it is marked behind (a removed-and-recreated project, a commit
   // that never installed): then nothing writes until it reloads.
   current.behindStorage = true;
   onStored.handleAutosave({ image: "marked", cycle: 91, room: 3 });

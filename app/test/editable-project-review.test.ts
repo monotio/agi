@@ -40,7 +40,7 @@ test("mutating review diagnostics cannot authorize a broken resource reference",
   assert.equal((await loadAuthoredGame(seed.projectId))!.generation, before);
 });
 
-test("a consumer's saved identity copy cannot corrupt the next Keep baseline", async () => {
+test("a consumer's saved identity copy cannot corrupt the next commit baseline", async () => {
   const seed = prepareLocalProject({ title: "Saved identity", kind: "boilerplate" });
   await seed.save();
   const workspace = await openEditableProject(seed.projectId);

@@ -1222,7 +1222,7 @@ test("a view exactly at its byte budget fits; a byte over is refused with the ov
   ]);
 });
 
-test("in the Art lens a proposal may move or copy a whole mixed target, walk lines and all, but not repaint them", () => {
+test("in the Visual lens a proposal may move or copy a whole mixed target, walk lines and all, but not repaint them", () => {
   // The pond: water art and a barrier line (priority 0) far below it.
   const before = compile(
     [

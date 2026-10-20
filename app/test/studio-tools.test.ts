@@ -235,7 +235,7 @@ function setup(lens: StudioLens, source = SOURCE) {
 const at = (x: number, y: number) => y * 160 + x;
 
 describe("useStudioTools", () => {
-  it("draws a filled rect in the Art lens as one undo step that leaves priority alone", () => {
+  it("draws a filled rect in the Visual lens as one undo step that leaves priority alone", () => {
     const { draft, tools, selectedId, flush, press } = setup("visual");
     const before = draft.compiled.value;
     tools.setTool("rect");

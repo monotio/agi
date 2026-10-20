@@ -2,7 +2,7 @@
  * VIEW editor's tool rail at work on one cel. Pencil and eraser strokes,
  * lines, rects and selection moves are each one gesture whose preview is
  * pixel kernel's preview, drawn once per frame and encoded when released,
- * so what the canvas shows is what Keep writes; fill, flip and the selection's delete
+ * so what the canvas shows is what a commit writes; fill, flip and the selection's delete
  * and flip are single edits. The eraser writes transparency; no tool paints
  * the transparent colour.
  *

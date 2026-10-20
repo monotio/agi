@@ -2,7 +2,7 @@
  * Rules bound to PICTURE editor picture items (`// @rule … item=<id>`) follow
  * them: after a picture edit, every bound door exit or region box moves by
  * its item's translation, so moving a doorway in PICTURE editor moves the exit
- * that walks through it in the same Keep.
+ * that walks through it in the same commit.
  *
  * An item's translation is how far the centre of its points' bounding box
  * moved (itemHandles: every vertex and fill seed). A moveItem shifts every
@@ -116,7 +116,7 @@ export type FollowResult =
 /**
  * Move every rule bound to an item of the edited picture by that item's
  * translation, through the same moveRegionBox edit the UI uses, and assemble
- * the result. Refuses — so the whole Keep can be refused — when a bound rule
+ * the result. Refuses — so the whole commit can be refused — when a bound rule
  * is native or its box would leave the picture.
  */
 export function followPictureEdit(

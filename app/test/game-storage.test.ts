@@ -932,7 +932,7 @@ test("reference mutators merge concurrent attachments instead of losing one", as
     "both writers' attachments survived",
   );
 
-  // Removal versus Keep's stage-clear: the clear must not resurrect the
+  // Removal versus commit's stage-clear: the clear must not resurrect the
   // removed reference.
   await storage.updateAuthoredReferences(projectId, (current) =>
     current.filter((r) => r.id !== "ref-a"),

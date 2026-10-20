@@ -111,7 +111,7 @@ export interface PowerUpUiState {
 
 /**
  * The refusal a stale authoring turn ends with — plain text for the
- * agent panel, matching the wording a Keep's `behindStorage` refusal
+ * agent panel, matching the wording a commit's `behindStorage` refusal
  * points at: only reloading the game from storage continues.
  */
 const STALE_TURN_MESSAGE =
@@ -293,7 +293,7 @@ export interface AuthoringController {
    */
   commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult>;
   /**
-   * Commit PICTURE editor's combined Keep: the picture and the room's logic
+   * Commit PICTURE editor's combined commit: the picture and the room's logic
    * (door rules and the bindings they reserved) in one transaction.
    */
   commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult>;
@@ -372,7 +372,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * Capture the revision a turn builds on and return its commit gate: the
    * booted game must still be this one, and storage must still hold that
    * revision and the authoring content this tab holds (requireSaved) while
-   * the staged result may land. A Keep saved elsewhere, or one whose install
+   * the staged result may land. A commit saved elsewhere, or one whose install
    * never reached the running game, leaves the project ahead of the live
    * state; refusing there discards the turn like a failed one instead of
    * overwriting the saved edit. Installed editions have no project record
@@ -406,7 +406,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * Save `author`'s conversation and authoring state (its sources and
    * bindings describe the bytes) over the record this game runs — an
    * authoring write: storage must still hold this game's revision and the
-   * authoring content this tab holds. A newer save (another tab, a Keep the
+   * authoring content this tab holds. A newer save (another tab, a commit the
    * game never loaded) refuses as stale with STALE_SAVE_MESSAGE; `files` (a
    * history adoption's) ride the same write. False when storage itself
    * refused.
@@ -1036,7 +1036,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const authoringState = author.getAuthoringState();
     const writtenRev = planRevisionOf(author);
     const base: SavedBase = { authoring: true, message: STALE_TURN_MESSAGE };
-    // A write landing since boot (a Keep whose install never arrived,
+    // A write landing since boot (a commit whose install never arrived,
     // another tab) is newer than these files: refuse rather than overwrite
     // it, and let the write below stay conditional on this read.
     const saved = game.installed ? null : await requireSaved(game, base);
@@ -1322,7 +1322,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       }
       if (!booted) throw new Error("No game is running.");
       // The revision this turn builds on: the stored project must still hold
-      // it when the staged result commits — the same gate a Keep applies.
+      // it when the staged result commits — the same gate a commit applies.
       // A write already ahead fails fast, before the turn spends; the same
       // check inside the turn's commit gate catches one landing mid-turn.
       const turnBase = turnBaseGuard(booted, await refreshProjectTask(session));

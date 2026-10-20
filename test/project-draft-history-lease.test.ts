@@ -210,7 +210,7 @@ test("a net-zero group still restores its origin under a lease", () => {
   assert.equal(d.capture().read("logic:1")?.content, "gone;");
 });
 
-test("a pending Keep admission blocks history acquisition while typing stays free", () => {
+test("a pending commit admission blocks history acquisition while typing stays free", () => {
   const d = draft();
   d.edit("logic:1", "a", 1);
   const selection = d.select(["logic:1"]);

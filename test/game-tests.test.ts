@@ -918,7 +918,7 @@ test("genesis and orientation prompts require a stored test per puzzle", () => {
     game: "kq1",
     profile: "2.917",
     room: 1,
-    sceneBrief: "logic 1",
+    roomBrief: "logic 1",
   });
   assert.match(orientation, /write_game_tests/);
   assert.match(orientation, /run_game_tests/);

@@ -2,7 +2,7 @@
  * The authoring session's state and the light helpers that read it: the
  * source store beside the container, the OBJECT file builder, and the
  * trusted-source checks. Kept apart from the tool registry (tools.ts) so the
- * Play boot path — a project export, a Studio Keep, the Studio's source
+ * Play boot path — a project export, a Studio commit, the Studio's source
  * reader — can use them without loading the authoring tools.
  */
 import { compileProjectLogic } from "../authoring/projectLogic.ts";

@@ -1,6 +1,6 @@
 /**
  * Build a dependency-closed selection over the kept project. This produces a
- * candidate, not Keep authorization: reference diagnostics, potential uses in
+ * candidate, not commit authorization: reference diagnostics, potential uses in
  * open drafts/metadata, removal review and storage CAS belong to admission.
  */
 import { openContainer } from "../container/container.ts";

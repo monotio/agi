@@ -82,7 +82,7 @@ export interface BootedGame {
   readonly parent?: GameIdentity | undefined;
   authoredGame?: CachedGameData | undefined;
   /**
-   * The stored project holds a newer save than the running game: a Keep
+   * The stored project holds a newer save than the running game: a commit
    * saved but not installed, or a write from elsewhere. Nothing writes this
    * game's files to storage until it reloads from storage, which boots a
    * fresh BootedGame without the mark.

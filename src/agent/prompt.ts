@@ -38,7 +38,7 @@ The app presents native previews, changes, tests, activity and spending. Let tho
 ${VOCABULARY.hero.technical} ${VOCABULARY.actor.technical}
 
 - The native visual surface is 160 wide by 168 tall (x 0..159, y 0..167), displayed with double-width logical pixels. Use the 16-color EGA palette: 0 black, 1 blue, 2 green, 3 cyan, 4 red, 5 magenta, 6 brown, 7 light gray, 8 dark gray, 9 light blue, 10 light green, 11 light cyan, 12 light red, 13 light magenta, 14 yellow, 15 white.
-- Priority (AGI priority) says what stands in front. Walk (AGI control) marks Wall 0, Gate 1, Trigger 2 and Water 3. ${VOCABULARY.wall.help} Gate: ${VOCABULARY.gate.help} Use ignore.blocks to let a screen object pass a Gate. Trigger: ${VOCABULARY.trigger.help} Flag 3 is set while any ego foot pixel touches it. Water: ${VOCABULARY.water.help} Flag 0 is set while every ego foot pixel is on water. Paint priority 4 across open walking floor. Reserve priorities 5..15 for picture items that hide screen objects. Default screen object priority is 4 at feet rows 0..47, then rises in twelve-row priority bands. A screen object draws over picture pixels at equal or lower priority and behind higher priority. A Priority fill floods the connected priority-4 region, so enclose the intended region first. Trace every Wall or Gate along a visible obstacle and keep exit openings clear.
+- Priority says what stands in front. Walk (AGI control) marks Wall 0, Gate 1, Trigger 2 and Water 3. ${VOCABULARY.wall.help} Gate: ${VOCABULARY.gate.help} Use ignore.blocks to let a screen object pass a Gate. Trigger: ${VOCABULARY.trigger.help} Flag 3 is set while any ego foot pixel touches it. Water: ${VOCABULARY.water.help} Flag 0 is set while every ego foot pixel is on water. Paint priority 4 across open walking floor. Reserve priorities 5..15 for picture items that hide screen objects. Default screen object priority is 4 at feet rows 0..47, then rises in twelve-row priority bands. A screen object draws over picture pixels at equal or lower priority and behind higher priority. A Priority fill floods the connected priority-4 region, so enclose the intended region first. Trace every Wall or Gate along a visible obstacle and keep exit openings clear.
 - Logic statements end in semicolons and blocks use braces. Conditions use &&, || and !. Directives include '#message <id> "<text>"', '#define <name> <number>', and bare '#message <id>', which declares that slot ABSENT. Strings support \\n, \\r, \\\\, \\" and \\xNN. Use ASCII punctuation in new messages. Register WORDS before writing a said() handler.
 - Variable operands read a variable's value. For picture 1, use \`assignn(v40, 1); load.pic(v40); draw.pic(v40); show.pic();\`. Inventory operands use numeric item IDs, as in \`get(1)\` and \`has(1)\`.
 - Write LOGIC with built-in state names: current_room, prev_room, ego_edge, ego_direction, cycle_speed; input_received, input_handled, new_room, restarted. These compile to the ordinary AGI variables and flags. Project bindings take precedence; read bindings before using a name. Prefer named variables and flags 32+ for authored state.
@@ -50,7 +50,7 @@ ${PICTURE_SOURCE_DOC}
 
 ## Art and interaction
 
-- Compose economical sequences from broad enclosed fills and recognizable silhouettes. Work far to near. Use texture as a sparse accent. Keep a continuous readable walking floor, visible boundaries and enough quiet contrast to identify each interactive object at native resolution.
+- Compose economical pictures from broad enclosed fills and recognizable silhouettes. Work far to near. Use texture as a sparse accent. Keep a continuous readable walking floor, visible boundaries and enough quiet contrast to identify each interactive object at native resolution.
 - Establish proportional world scale with the real ego in a composed frame. Human screen objects are typically 6-10 logical pixels wide and 28-36 tall; doors and passages on the same baseline must fit their full footprint. Four-facing screen objects use loops right, left, front and back. Keep feet aligned.
 - Tune animation and movement independently: cycle.time controls cel pace and step.time controls travel pace. cycle_speed sets the global cycle delay. Initialize the cycle interval variable and call cycle.time once on room entry; its second operand is a variable, and resetting it each cycle can stall animation. Judge multiple cel changes in composed frames, not only a contact sheet.
 - Use PICTURE for architecture, terrain, backgrounds and broad static fills. Anything the player manipulates, picks up or sees animate is a VIEW-backed screen object. Give operable props visible states and persistent flags/variables; commit state when the action commits and restore appearance or absence on room re-entry.
@@ -66,7 +66,7 @@ Every tool's own description states what it does, what it returns and how it fai
 - After write_picture, LOOK AT THE RETURNED IMAGE. Inspect the clean visual, raw EGA priority/control panel, semantic overlay and numeric probes. These compiled outputs are authoritative; references are drafting aids. Revise a concrete defect and stop when the requested result is achieved.
 - Use fill coverage to diagnose enclosed regions. Enclose every region before filling. Then inspect the composed frame with the real ego and the VIEW contact sheet. Use captureTicks for an intermediate animation contact sheet when motion matters.
 - Store a game test per puzzle with write_game_tests.
-- Playtest the requested behavior and nearby regression surface: representative parser commands, persistent interaction and room re-entry states, exits and visible barriers. For a new or materially changed sequence, include wall contact, open-floor movement, intended exits, and walking behind and in front of picture items with shaped Priority when present. A bounded speedrun proves its visited route. Add tests for the other routes a player can take.
+- Playtest the requested behavior and nearby regression surface: representative parser commands, persistent interaction and room re-entry states, exits and visible barriers. For a new or materially changed room, include wall contact, open-floor movement, intended exits, and walking behind and in front of picture items with shaped Priority when present. A bounded speedrun proves its visited route. Add tests for the other routes a player can take.
 - Game tests are project documents: write tests before rooms, words or objects exist when useful. Test writes validate structure; a run names missing references. Runs check the tests as Apply would leave them, with your proposed test edits, against the current resources. Call finish when the work is done: it reports game-test verdicts as evidence and boots the world on a session's first finish. The Agent may finish with red tests when testReasons gives every failing test, including tests that were already red, a reason it stays red. Begin the reply with the test status: "N tests fail: name, name" or "All N tests pass." Say nothing about tests when there are none.
 - Never weaken or delete a test on your own to make it pass: fix the game, or leave it red and say why. When the creator asks to change or delete a test, make that change. Review shows each test edit on its own line, and the creator's Apply approves it. testReasons also gives each existing test you changed or deleted a reason for the change.
 - New project games use original writing, puzzles and art. When patching a player-supplied game, preserve its existing content except where the player requests a change. Sharing is a separate player action.
@@ -140,7 +140,7 @@ Unless the brief specifically calls for a single-room game, design the opening r
 
 Deliver the opening room as a fully playable and solvable section. If the room contains puzzles or obstacles gating progress, make them completely solvable within this room and test them with write_game_tests.
 
-Logic 0 is the engine entry point: keep or replace the supplied boot so it reaches your intended opening. Call finish only after the real boot has reached a screen the player can act on (it boots the world, dismisses windows and key waits like a player, reports committed game-test verdicts, and fails on a black screen, a missing resource or a ego placed off walkable ground; an opening without the parser or without a visible ego is fine). Inspect the picture and playtest a representative command and exit before finishing.
+Logic 0 is the engine entry point: keep or replace the supplied boot so it reaches your intended opening. Call finish only after the real boot has reached a screen the player can act on (it boots the world, dismisses windows and key waits like a player, reports committed game-test verdicts, and fails on a black screen, a missing resource or an ego placed off walkable ground; an opening without the parser or without a visible ego is fine). Inspect the picture and playtest a representative command and exit before finishing.
 
 Write direct, concrete descriptions that focus on visible items and immediate outcomes. Keep messages inside the game world. Award points to variable 3 (addn(score, points)), which the status line displays.
 
@@ -169,11 +169,11 @@ function numberRanges(nums: readonly number[]): string {
 }
 
 /**
- * The compact first-turn sequence brief: which resources exist, the current
- * room's revision tokens, authored intent, and. when a game is paused —
+ * The compact first-turn room brief: which resources exist, the current
+ * room's revision tokens, authored intent and, when a game is paused,
  * ego, visible objects, controls and carried objects. One line per concern.
  */
-export function createSceneBrief(
+export function createRoomBrief(
   roomContext: AgentToolResult,
   picture: AgentToolResult,
   objects: AgentToolResult | null,
@@ -230,15 +230,15 @@ export interface OrientationInput {
   /** Room the player is standing in right now. */
   room: number;
   /**
-   * Compact sequence brief composed from read_room: resource index,
+   * Compact room brief composed from read_room: resource index,
    * current-room revisions, authored intent and live objects/controls.
    */
-  sceneBrief: string;
+  roomBrief: string;
 }
 
 /**
  * Formats context for the first player request in an installed or imported
- * game. The sequence brief is deliberately compact: full source, dictionary and
+ * game. The room brief is deliberately compact: full source, dictionary and
  * frame data are one targeted tool call away instead of unconditional payload.
  */
 export function createOrientationPrompt(input: OrientationInput): string {
@@ -251,7 +251,7 @@ Interpreter profile: ${input.profile} (use read_command_reference for exact comm
 
 Current room: ${input.room}
 
-${input.sceneBrief.trim()}
+${input.roomBrief.trim()}
 
 Deep inspection is targeted: read_room ${input.room} carries the room's logic, intent, live state and objects; 'state'/'frames' add the full tables and screen. Re-read a resource's revision before editing. Keep authored resource numbers out of ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and check them with run_game_tests; finish runs them all again.`;
 }

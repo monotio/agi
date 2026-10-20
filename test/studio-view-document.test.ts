@@ -25,7 +25,7 @@ function displays(payload: Uint8Array, profile: ViewDocumentProfile): number[][]
   );
 }
 
-/** Whether the spec a Keep records for `payload` rebuilds the same display. */
+/** Whether the spec a commit records for `payload` rebuilds the same display. */
 function assertSpecRebuilds(
   payload: Uint8Array,
   profile: ViewDocumentProfile,

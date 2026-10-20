@@ -291,14 +291,14 @@ describe("first-turn prompts", () => {
       game: "kq1",
       profile: "2.917",
       room: 1,
-      sceneBrief:
+      roomBrief:
         'Staged set 42-abcd1234: logic [0-1] (next free 2); dictionary 3 words; bindings none\nRoom 1: logic revision "10-1", picture revision "5-2"\nLive: room 1, ego (80,120); objects o0=view0@(80,120); controls F1=Help',
     });
     assert.ok(prompt.includes("ORIENTATION"), "orientation header");
     assert.ok(prompt.includes("kq1"), "game id");
     assert.ok(prompt.includes("2.917"), "interpreter profile");
-    assert.ok(prompt.includes("next free 2"), "scene brief index");
-    assert.ok(prompt.includes("F1=Help"), "scene brief controls");
+    assert.ok(prompt.includes("next free 2"), "room brief index");
+    assert.ok(prompt.includes("F1=Help"), "room brief controls");
     assert.ok(prompt.includes("read_room"), "points at the deep read");
     assert.ok(!prompt.includes("GENESIS"), "no genesis framing for an installed original");
     assert.ok(!prompt.includes("finish_genesis"), "installed originals do not finish genesis");

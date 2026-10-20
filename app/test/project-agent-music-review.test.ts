@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
-test("removing authored music intent stays removed through Keep and reopen", async () => {
+test("removing authored music intent stays removed through commit and reopen", async () => {
   const project = prepareLocalProject({ title: "Clear cue intent", kind: "blank" });
   await project.save();
   const workspace = await openEditableProject(project.projectId);

@@ -97,7 +97,7 @@ test("a blank project opens, keeps a source edit and reopens it byte-exact, with
   );
 });
 
-test("a picture-only Keep excludes an unrelated malformed logic draft", async () => {
+test("a picture-only commit excludes an unrelated malformed logic draft", async () => {
   const projectId = await seedProject("ws-picture-only");
   const ws = await openEditableProject(projectId);
   const original = ws.draft.capture().read("logic:1")!.content;
@@ -188,7 +188,7 @@ test("a kept music document stores the authored tempo and reopening recovers it"
   assert.equal(reopened.draft.capture().read("music")!.content, music);
 });
 
-test("legacy authored music hydrates as a document and survives an unrelated Keep", async () => {
+test("legacy authored music hydrates as a document and survives an unrelated commit", async () => {
   const projectId = await seedProject("ws-music-legacy", "boilerplate", (data) => {
     (data.authoringState!["authoring"] as { music?: Record<string, unknown> }).music = {
       "9": { revision: "21-abcdef12", tempo: 90 },
@@ -208,7 +208,7 @@ test("legacy authored music hydrates as a document and survives an unrelated Kee
   assert.equal(reopened.draft.capture().read("music")!.content, musicDoc);
 });
 
-test("a source-only Keep advances authoring identity and leaves the playable revision", async () => {
+test("a source-only commit advances authoring identity and leaves the playable revision", async () => {
   const projectId = await seedProject("ws-source-only");
   const ws = await openEditableProject(projectId);
   const base = ws.savedIdentity();
@@ -227,7 +227,7 @@ test("a source-only Keep advances authoring identity and leaves the playable rev
   assert.equal(readProjectWorkspace(data.workspace)["logic:1"], commented);
 });
 
-test("a storage-waiting Keep still lets newer typing through and leaves it dirty", async () => {
+test("a storage-waiting commit still lets newer typing through and leaves it dirty", async () => {
   const projectId = await seedProject("ws-inflight-typing");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", ROOM1_REDRAW);
@@ -427,7 +427,7 @@ test("tests and references documents pass through unchanged but refuse edits and
     /references|metadata|preserved/i,
   );
 
-  // The unchanged documents ride along with an unrelated Keep byte-exact.
+  // The unchanged documents ride along with an unrelated commit byte-exact.
   const current = ws.draft.capture();
   ws.draft.edit("logic:1", ROOM1_REDRAW, current.version("logic:1"));
   await ws.commitCandidate(ws.buildSelected(["logic:1"]));
@@ -478,7 +478,7 @@ test("a byte-only view document drops its stale source claim", async () => {
   assert.ok(openContainer(new Map(Object.entries(data.files))).getResource("view", 0) !== null);
 });
 
-test("removing a kept resource is refused at Keep", async () => {
+test("removing a kept resource is refused at commit", async () => {
   const projectId = await seedProject("ws-removal");
   const ws = await openEditableProject(projectId);
   const snapshot = ws.draft.capture();

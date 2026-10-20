@@ -331,7 +331,7 @@ test("the playhead shows the picture drawn up to it and the pixel owners at that
     rowId: undefined,
   });
   assert.equal(doc.rowAt(1, 2, "visual"), UNASSIGNED);
-  // The Art lens reads the visual plane first, then falls back to priority.
+  // The Visual lens reads the visual plane first, then falls back to priority.
   assert.equal(doc.rowAtForLens(1, 1, "visual"), "d");
   assert.equal(doc.rowAtForLens(1, 0, "priority"), "a");
 

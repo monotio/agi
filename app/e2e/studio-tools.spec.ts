@@ -169,7 +169,7 @@ const order = (studio: Locator) =>
     .locator('[role="treeitem"][data-row]')
     .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-row")));
 
-test("a filled rect drawn in the Art lens keeps as those pixels and leaves priority alone", async ({
+test("a filled rect drawn in the Visual lens keeps as those pixels and leaves priority alone", async ({
   page,
 }) => {
   const studio = await openStudio(page);

@@ -2,7 +2,7 @@ import { numberedLabel, type NumberedLabelContext } from "../logic/numberedLabel
 /**
  * Removal admission review for a compiled project candidate: the inventory of
  * definite and potential uses that must be empty before a reviewed resource
- * deletion may Keep. compileProjectSelection already strict-compiles the
+ * deletion may be committed. compileProjectSelection already strict-compiles the
  * candidate and inventories its native image; this review adds the candidate's
  * authoring intent (bindings reservations, world room plans, music intent),
  * the preserved reference-art associations it carries and every unselected open

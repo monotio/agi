@@ -44,7 +44,7 @@ describe("view usage", () => {
     assert.deepEqual(index.dynamicLogics, [2]);
   });
 
-  it("says which rooms bake a view into their picture, so a Keep re-enters only those", () => {
+  it("says which rooms bake a view into their picture, so a commit re-enters only those", () => {
     const logic = (source: string) => assembleLogic(source, { dictionary: new Map() }).payload;
     const index = scanViewUsage(
       new Map([

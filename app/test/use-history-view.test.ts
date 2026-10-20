@@ -563,7 +563,7 @@ test("a take acknowledged but never promoted stays pending — no player vote", 
   await view.resumeFromHere();
   // The worker adopted — the transport must NOT keep posing as a view of
   // history: it closes, parks the now-live adopted session, and shows the
-  // quiet pending status rather than a Keep it / Let it go vote.
+  // quiet pending status rather than a commit it / Let it go vote.
   assert.equal(v.active, false, "the adopted session went live");
   assert.equal(v.parked, true, "the surface returns parked — Resume releases it");
   assert.deepEqual(resumes, ["history"], "the view's hold released");
@@ -1128,7 +1128,7 @@ test("an opening seek keeps its lane when stored extents differ from the live ou
   assert.deepEqual(seeks, [{ segment: 1, tick: 1 }]);
 });
 
-test("history adoption cannot overlap a staged Keep without an agent session", async () => {
+test("history adoption cannot overlap a staged commit without an agent session", async () => {
   await importGameHistory(await bindViewGame(), { recording: RECORDING });
   const { state, view, takes } = makeHarness({ noSession: true });
   await view.openHistory({ segment: 0, tick: 3 });

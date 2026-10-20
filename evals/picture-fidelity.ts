@@ -465,7 +465,7 @@ const BRIEF_USER = `Below is the complete vector source of a 160x168 game backgr
 2. Elements: every distinct thing in the scene (buildings, terrain, water, plants, props) with shape, size and placement in plain language.
 3. Colours: which of the 16 EGA colours (0 black,1 blue,2 green,3 cyan,4 red,5 magenta,6 brown,7 light grey,8 dark grey,9 light blue,10 light green,11 light cyan,12 light red,13 light magenta,14 yellow,15 white) dominate each element; approximate area share of the top 5 colours.
 4. Lighting and texture: shading, outlines, stippling/texture areas, highlights.
-5. Playable space: where the player can walk (ground plane), what blocks movement (walls, water, cliffs), exits at the edges, and how priority reads from top (far) to bottom (near).
+5. Playable space: where the player can walk (ground plane), what blocks movement (walls, water, cliffs), exits at the edges, and how depth reads from top (far) to bottom (near).
 Aim for 250-450 words. Prose and bullet points only.`;
 
 const BRIEF_BOUNDS_SECTION = `
@@ -479,7 +479,7 @@ Vector source:
 `;
 
 const JUDGE_SYSTEM = `You are a strict art judge comparing two 16-colour game backgrounds: an ORIGINAL and a RECREATION painted from a written brief of the original. Score the recreation 1..10 on each rubric item (10 = indistinguishable in that respect, 1 = absent). Return ONLY a JSON object: {"composition": n, "fill": n, "detail": n, "palette": n, "ground": n, "overall": n, "notes": "one or two sentences"}.
-Rubric: composition (horizon, masses, placement, proportions), fill (no unpainted white, regions closed, no leaks), detail (density of outlines, texture, small elements), palette (same dominant colours in similar proportions), ground = ground plane legibility (the walkable ground reads as one continuous plane with priority, the player can see where to walk).`;
+Rubric: composition (horizon, masses, placement, proportions), fill (no unpainted white, regions closed, no leaks), detail (density of outlines, texture, small elements), palette (same dominant colours in similar proportions), ground = ground plane legibility (the walkable ground reads as one continuous plane with depth, the player can see where to walk).`;
 
 // ---------------------------------------------------------------------------
 // Pipeline

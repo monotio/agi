@@ -71,7 +71,7 @@ import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
 import RoomViewsOverlay from "./RoomViewsOverlay.vue";
 import StudioViewsPanel from "./StudioViewsPanel.vue";
-import { pictureOpensOpacity as viewsOpacity } from "./pictureOpens.ts";
+import { viewOverlayOpacity } from "./viewOverlay.ts";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
@@ -1423,8 +1423,14 @@ function onKeyup(event: KeyboardEvent): void {
       <span class="studio__spacer"></span>
       <label class="studio__views-slider"
         >Views
-        <input v-model.number="viewsOpacity" type="range" min="0" max="100" aria-label="Views" />
-        <output>{{ viewsOpacity }}%</output>
+        <input
+          v-model.number="viewOverlayOpacity"
+          type="range"
+          min="0"
+          max="100"
+          aria-label="Views"
+        />
+        <output>{{ viewOverlayOpacity }}%</output>
       </label>
       <UiSegmented
         v-model="lens"
@@ -1505,11 +1511,13 @@ function onKeyup(event: KeyboardEvent): void {
             @menu="openMenu"
           >
             <RoomViewsOverlay
-              v-if="viewsOpacity > 0 && !midOrder && (layer === 'visual' || panes.length === 1)"
+              v-if="
+                viewOverlayOpacity > 0 && !midOrder && (layer === 'visual' || panes.length === 1)
+              "
               :figures
               :views
               :viewport
-              :opacity="viewsOpacity / 100"
+              :opacity="viewOverlayOpacity / 100"
               :picture="shown"
               :profile
               :priority-base="priorityBase"

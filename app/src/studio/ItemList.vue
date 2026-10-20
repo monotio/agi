@@ -48,7 +48,7 @@ const {
   hoveredId: string | undefined;
   /** The selected rows: one item or group, or several items. */
   selectedIds: readonly string[];
-  /** A tag that says nothing in this lens (`art` in the Art lens): rows leave it out. */
+  /** A tag that says nothing in this lens (`art` in the Visual lens): rows leave it out. */
   quietTag?: string | undefined;
   /** Two items or more are selected and may be grouped. */
   groupable?: boolean;

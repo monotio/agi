@@ -94,7 +94,7 @@ test("prompts load command details on demand using the imported game's profile",
     game: "custom",
     profile: "2.230",
     room: 1,
-    sceneBrief: "",
+    roomBrief: "",
   });
   assert.ok(!text.includes(formatCommandCatalog(PROFILES["2.230"])));
   assert.match(text, /Interpreter profile: 2\.230/);

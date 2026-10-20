@@ -167,7 +167,7 @@ export interface StudioWalkOptions {
   readonly itemLabel: (id: string) => string;
   readonly ego: () => EgoShape;
   readonly say: (notice: StudioNotice | null) => void;
-  /** Door edits are blocked: view only, or a Keep that needs a reload. */
+  /** Door edits are blocked: view only, or a commit that needs a reload. */
   readonly frozen: () => boolean;
   /** Door edits wait for an AI proposal's verdict (or its request). */
   readonly paused?: () => boolean;
