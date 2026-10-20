@@ -281,6 +281,14 @@ function createSession(
       ),
       data.workspace,
     );
+  // A native-byte baseline keeps existing History immutable and makes Undo exact.
+  if (Object.keys(viewRebuilds).length)
+    history.record(documents, {
+      label: "VIEWs before the 1.2.5 update",
+      origin: "view",
+      author: "creator",
+      time: openedAt,
+    });
   if (history.capture().cursor === null) {
     const genesis = data.chats.chats.find((chat) => chat.title === `Created ${data.title}`);
     const result = genesis?.messages.findLast((message) => message.role === "assistant");
@@ -1519,7 +1527,7 @@ function createSession(
       });
   return session;
 }
-const VIEW_MIGRATION_LABEL = "Sprites updated for 1.2.5";
+const VIEW_MIGRATION_LABEL = "VIEWs updated for 1.2.5";
 /** The History entry an older authored game receives once (CHANGELOG 1.2.5). */
 export const SCRIPT_SIZE_MIGRATION_LABEL = "Room memory raised for this version";
 export type ProjectSession = ReturnType<typeof openOwnedProjectSession>;
