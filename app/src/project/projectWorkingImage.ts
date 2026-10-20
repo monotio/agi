@@ -63,10 +63,25 @@ export function compileWorkingProjectImage(input: {
     input.documentId !== undefined &&
     projectDocumentId(input.fallback, sha256Hex) !== input.documentId
   )
-    throw new Error("The pending project's working documents are missing from History.");
-  return compileProjectDocuments({
-    files: input.files,
-    profileId: input.profileId,
-    documents: input.fallback,
-  });
+    throw Object.assign(
+      new Error("The pending project's working documents are missing from History."),
+      { name: "ProjectJournalRefusalError" },
+    );
+  try {
+    return compileProjectDocuments({
+      files: input.files,
+      profileId: input.profileId,
+      documents: input.fallback,
+    });
+  } catch (error) {
+    // The compiler is synchronous and uses only the supplied source and bytes.
+    // A refused recovery image will fail again with the same inputs.
+    if (
+      input.documentId !== undefined &&
+      error instanceof Error &&
+      !(error instanceof DOMException)
+    )
+      throw Object.assign(new Error(error.message), { name: "ProjectJournalRefusalError" });
+    throw error;
+  }
 }

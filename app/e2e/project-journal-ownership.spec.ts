@@ -202,7 +202,7 @@ test("a stale journal in the live lifetime offers discard in Create and Home", a
   await page.reload();
   const notice = page.getByTestId("pending-edit-recovery").filter({ visible: true });
   await expect(notice).toContainText(
-    "Some edits could not be restored. Download unsaved edits to keep a copy.",
+    "Some edits were not saved because this game changed in another tab or window.",
   );
   await page.screenshot({ path: test.info().outputPath("pending-recovery.png") });
   await page.getByRole("button", { name: "Back to library", exact: true }).click();

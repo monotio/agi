@@ -1463,7 +1463,9 @@ function createSession(
               ? undefined
               : history.restore(model, operation.action.target, operation.metadata);
       if (operation.action !== undefined && action?.target !== operation.action.target)
-        throw new Error("Project journal History differs from its base.");
+        throw Object.assign(new Error("Project journal History differs from its base."), {
+          name: "ProjectJournalRefusalError",
+        });
       return apply(
         action?.proposal ??
           model.propose(model.capture(), operation.metadata.label, operation.changes),
@@ -1569,8 +1571,14 @@ export async function rebuildProjectJournal(
       (session.model.capture().lastAdmissibleBuild?.identity.buildId !== capture.identity.buildId ||
         session.model.capture().lastAdmissibleBuild?.documentId !== capture.image)
     )
-      throw new Error("Project journal could not rebuild its exact accepted image.");
-    if (rebuilt === undefined) throw new Error("Project journal has no accepted capture.");
+      throw Object.assign(
+        new Error("Project journal could not rebuild its exact accepted image."),
+        { name: "ProjectJournalRefusalError" },
+      );
+    if (rebuilt === undefined)
+      throw Object.assign(new Error("Project journal has no accepted capture."), {
+        name: "ProjectJournalRefusalError",
+      });
     const snapshot = session.model.capture();
     return journalCandidate(
       capture,

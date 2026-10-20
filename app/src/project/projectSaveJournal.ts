@@ -19,12 +19,25 @@ function entryIdentity(entry: JournalEntry): string {
 function readEntries(storage: Storage, key: string): JournalEntry[] {
   const raw = storage.getItem(key);
   if (raw === null) return [];
-  const journal = JSON.parse(raw) as { version: number; entries: unknown };
-  if (journal.version !== 1 && journal.version !== 2)
-    throw new Error("This pending project write version is not supported.");
-  const entries = decodeJournalValue(journal.entries) as JournalEntry[];
-  if (!Array.isArray(entries)) throw new Error("Invalid pending project writes.");
-  return entries;
+  try {
+    const journal = JSON.parse(raw) as { version: number; entries: unknown };
+    if (journal.version !== 1 && journal.version !== 2)
+      throw new Error("This pending project write version is not supported.");
+    const entries = decodeJournalValue(journal.entries) as JournalEntry[];
+    if (!Array.isArray(entries)) throw new Error("Invalid pending project writes.");
+    return entries;
+  } catch (cause) {
+    if (cause instanceof DOMException) throw cause;
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw Object.assign(
+      new Error(
+        /version.*not supported/.test(message)
+          ? message
+          : `Invalid pending project write: ${message}`,
+      ),
+      { name: "ProjectJournalDecodeError" },
+    );
+  }
 }
 const PREFIX = "monotio_agi.project-writes.";
 const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
@@ -91,6 +104,15 @@ export function readProjectSaveRecoveries(
     }
   }
   return found;
+}
+
+/** Only deterministic refusals retire work; storage and module-load failures retry on open. */
+function lastingFailure(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    !(error instanceof DOMException) &&
+    ["ProjectJournalDecodeError", "ProjectJournalRefusalError"].includes(error.name)
+  );
 }
 
 const recovering = new Map<string, Promise<void>>();
@@ -228,7 +250,9 @@ export function resumeProjectSaveJournals(
           try {
             if (entry.capture !== undefined) {
               if (rebuild === undefined)
-                throw new Error("Project journal recovery is unavailable.");
+                throw Object.assign(new Error("Project journal recovery is unavailable."), {
+                  name: "ProjectJournalRefusalError",
+                });
               previous = (await rebuild(entry.capture)).receipt;
             } else previous = (await write(entry.request!)).receipt;
           } catch (error) {
@@ -254,7 +278,10 @@ export function resumeProjectSaveJournals(
             const conflict =
               error instanceof Error &&
               ["ConcurrencyConflictError", "ProjectExistsError"].includes(error.name);
-            if (!conflict || current.every((candidate) => observed.has(entryIdentity(candidate))))
+            if (
+              lastingFailure(error) ||
+              (conflict && current.every((candidate) => observed.has(entryIdentity(candidate))))
+            )
               markProjectSaveRecovery(
                 storage,
                 key,
@@ -301,11 +328,12 @@ export function resumeProjectSaveJournals(
           // Decoding, preparation and acknowledgement can fail too. A pending
           // journal must never prevent reading the last saved project body.
           try {
-            markProjectSaveRecovery(
-              storage,
-              key,
-              error instanceof Error ? error.message : String(error),
-            );
+            if (lastingFailure(error))
+              markProjectSaveRecovery(
+                storage,
+                key,
+                error instanceof Error ? error.message : String(error),
+              );
           } catch {
             // Storage itself may be unreadable; leave its bytes untouched.
           }

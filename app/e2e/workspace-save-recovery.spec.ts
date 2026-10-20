@@ -747,9 +747,9 @@ test("recovery download reports browser failure and keeps the recovery data", as
   });
   const recovery = page.getByTestId("pending-edit-recovery");
   await expect(recovery).toBeVisible();
-  await recovery.getByRole("button", { name: "Download unsaved edits", exact: true }).click();
+  await recovery.getByRole("button", { name: "Download pending edits", exact: true }).click();
   await expect(recovery.getByRole("alert")).toHaveText(
-    "Could not download unsaved edits: Browser refused the download. Try Download unsaved edits again.",
+    "Could not download pending edits: Browser refused the download. Try Download pending edits again.",
   );
   await page.screenshot({ path: test.info().outputPath("recovery-download-failure.png") });
   expect(errors).toEqual([]);
@@ -905,19 +905,19 @@ test("an older JSON VIEW journal opens its saved game with an edits download and
   const notice = page.getByTestId("pending-edit-recovery");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText(
-    "Some edits could not be restored. Download unsaved edits to keep a copy.",
+    "These edits were made in an older version and can’t be added back automatically.",
   );
   await expect(page.getByRole("heading", { name: "Older journal", exact: true })).toBeVisible();
   await workspaceSaved(page);
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     await expect(
-      notice.getByRole("button", { name: "Download unsaved edits", exact: true }),
+      notice.getByRole("button", { name: "Download pending edits", exact: true }),
     ).toBeVisible();
     await page.screenshot({ path: test.info().outputPath(`older-journal-${viewport.width}.png`) });
   }
   const downloading = page.waitForEvent("download");
-  await notice.getByRole("button", { name: "Download unsaved edits", exact: true }).click();
+  await notice.getByRole("button", { name: "Download pending edits", exact: true }).click();
   const file = await downloading;
   expect(file.suggestedFilename()).toBe("agi-unsaved-edits.zip");
   const bytes = await readFile((await file.path())!);

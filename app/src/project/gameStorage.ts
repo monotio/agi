@@ -1143,14 +1143,20 @@ export async function commitProject(
           if (raw !== undefined) {
             const stored = raw as StoredProjectCommit;
             if (stored.format !== "monotio.agi.project-commit" || stored.version !== 1)
-              throw new Error("This project commit version is not supported by this app.");
+              throw Object.assign(
+                new Error("This project commit version is not supported by this app."),
+                { name: "ProjectJournalDecodeError" },
+              );
             if (
               stored.projectId !== receiptKey ||
               (stored.receipt.candidateHash !== candidateHash &&
                 stored.receipt.candidateHash !==
                   sha256Hex(new TextEncoder().encode(JSON.stringify(commitContent(request)))))
             )
-              throw new Error("This commit ID was reused for a different candidate.");
+              throw Object.assign(
+                new Error("This commit ID was reused for a different candidate."),
+                { name: "ProjectJournalDecodeError" },
+              );
             if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
               throw new ProjectDeletedError(
                 "This commit belongs to a removed or replaced project lifetime.",
@@ -1375,7 +1381,9 @@ async function recoverProjectJournal(
 ): Promise<{ receipt: ProjectCommitReceipt }> {
   const { hash, ...intent } = capture;
   if (sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(intent)))) !== hash)
-    throw new Error("Invalid pending project write identity.");
+    throw Object.assign(new Error("Invalid pending project write identity."), {
+      name: "ProjectJournalDecodeError",
+    });
   const base = await serializeWrite(capture.base.projectId, async () => {
     const rows = await readBodyRecordSet([
       `commit/${capture.identity.projectId}/${capture.identity.commitId}`,
@@ -1386,7 +1394,10 @@ async function recoverProjectJournal(
     ) as StoredProjectCommit | undefined;
     if (committed !== undefined) {
       if (committed.format !== "monotio.agi.project-commit" || committed.version !== 1)
-        throw new Error("This project commit version is not supported by this app.");
+        throw Object.assign(
+          new Error("This project commit version is not supported by this app."),
+          { name: "ProjectJournalDecodeError" },
+        );
       if (
         liveLifetime(rows.get(`lifetime/${capture.identity.projectId}`) as HistoryLifetime) !==
         committed.receipt.saved.lifetime
@@ -1395,7 +1406,9 @@ async function recoverProjectJournal(
           "This commit belongs to a removed or replaced project lifetime.",
         );
       if (committed.receipt.journalHash !== capture.hash)
-        throw new Error("This commit ID was reused for a different candidate.");
+        throw Object.assign(new Error("This commit ID was reused for a different candidate."), {
+          name: "ProjectJournalDecodeError",
+        });
       return { receipt: committed.receipt };
     }
     let lifetime: string | null = null;
