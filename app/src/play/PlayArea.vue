@@ -13,7 +13,7 @@ import {
 } from "vue";
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
-import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
+import { gameRoomMenu } from "./roomActionMenu.ts";
 import {
   connectedGamepad,
   createGamepadPoll,
@@ -450,16 +450,37 @@ function menuPoint(clientX: number, clientY: number): { x: number; y: number } |
   );
 }
 
+/**
+ * The right button's owner for its whole gesture: Create's room actions
+ * while Create is on stage, Intuition's strip while the game offers one, the
+ * game's own double-click word once the strip is withdrawn — and the
+ * browser's own menu on a non-Amiga Play. The mode decides, not the lazily
+ * mounted workspace: Create owns the button from the moment it is on stage.
+ */
+type RightButtonOwner = "create" | "strip" | "game" | "browser";
+function currentRightButtonOwner(): RightButtonOwner {
+  if (props.inspectorDocked) return "create";
+  if (screenPresentation.value !== "amiga") return "browser";
+  // Intuition owns the right button while the strip can open or is open;
+  // the double-click word belongs to the game only when the verify fails.
+  return amigaMenuReady.value || amigaMenuOpen.value || menuDrag ? "strip" : "game";
+}
+/** The owner the last right press recorded; contextmenu honours it even after the release. */
+let rightButtonOwner: RightButtonOwner | null = null;
+
 function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
-  // The right button has one owner, settled before either side effect: while
-  // Create's room actions are armed the press stays theirs; only Play's
-  // native path may open the strip and capture the pointer.
+  // One owner per gesture, settled at the press: contextmenu arrives after
+  // the release on Windows, and a mode switch mid-gesture must not hand the
+  // same press to two owners.
+  if (ev.button === 2) rightButtonOwner = currentRightButtonOwner();
+  // While Create is on stage the press stays theirs; only Play's native
+  // path may open the strip and capture the pointer.
   if (
     ev.button === 2 &&
     ev.pointerType === "mouse" &&
-    amigaMenuReady.value &&
-    !roomMenuArmed.value
+    rightButtonOwner === "strip" &&
+    amigaMenuReady.value
   ) {
     const point = menuPoint(ev.clientX, ev.clientY);
     if (!point) return;
@@ -517,7 +538,10 @@ function onScreenPointerCancel(): void {
 }
 
 // A mode switch under a held button ends the gesture its old owner started.
-watch(roomMenuArmed, () => onScreenPointerCancel());
+watch(
+  () => props.inspectorDocked,
+  () => onScreenPointerCancel(),
+);
 
 /** The touch Menu button: open the strip without a button and keep it open. */
 function onTouchMenu(): void {
@@ -526,23 +550,24 @@ function onTouchMenu(): void {
   sendMenu("open", -1, -1, true);
 }
 
-/** Right-click offers the current room's actions while Create is armed; Amiga Play gets its right button. */
+/** Right-click offers the current room's actions while Create is on stage; Amiga Play gets its right button. */
 function onScreenContextMenu(ev: MouseEvent): void {
-  if (roomMenuArmed.value) {
+  // Honour the owner the press recorded; a contextmenu with no right press
+  // behind it asks the mode directly.
+  const owner = rightButtonOwner ?? currentRightButtonOwner();
+  if (owner === "create") {
+    // Create's menu answers the press even with no room under it, and the
+    // browser's own menu never opens over the game.
+    ev.preventDefault();
     const room = engine.roomMap?.currentRoom.value ?? null;
-    if (room === null) return;
-    ev.preventDefault();
-    gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
+    if (room !== null) gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
     return;
   }
-  if (screenPresentation.value !== "amiga") return;
-  // Intuition owns the right button while the strip can open or is open;
-  // the double-click word belongs to the game only when the verify fails.
-  if (amigaMenuReady.value || amigaMenuOpen.value || menuDrag) {
+  if (owner === "strip") {
     ev.preventDefault();
     return;
   }
-  onAmigaRightButton(ev);
+  if (owner === "game") onAmigaRightButton(ev);
 }
 
 /**

@@ -1,10 +1,11 @@
 /**
- * The right mouse button has one owner at a time on an Amiga game (review
- * F7): Create owns it for the room's actions while its workspace is on
- * stage, and Play hands it back — to Intuition's menu strip while the game
- * offers one, or to the game's own double-click word once the strip is
- * withdrawn. The workspace's retained editor tabs keep it mounted in Play,
- * so ownership follows the mode, never the component's lifetime.
+ * The right mouse button has one owner at a time on an Amiga game: Create
+ * owns it for the room's actions while its mode is on stage, and Play hands
+ * it back — to Intuition's menu strip while the game offers one, or to the
+ * game's own double-click word once the strip is withdrawn. Ownership
+ * follows the mode itself: the workspace's chunk loads lazily and its
+ * retained editor tabs keep it mounted in Play, so the owner can never be
+ * the component's lifetime.
  */
 import { test, expect } from "./test.ts";
 import type { Page } from "@playwright/test";
@@ -116,6 +117,10 @@ async function framePoint(page: Page, x: number, y: number): Promise<{ x: number
 const modal = async (page: Page) => (await textHook(page)).modal;
 const row = async (page: Page, r: number) => (await textHook(page)).rows[r] ?? "";
 
+/** Every contextmenu the page saw, in order — true means the game surface kept the browser's menu off. */
+const contextMenus = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __contextMenus?: boolean[] }).__contextMenus ?? []);
+
 /** The workspace's own mount: its game bar lands once Create is on stage. */
 async function createMounted(page: Page): Promise<void> {
   await enterCreateMode(page);
@@ -132,11 +137,11 @@ async function retainPictureEditor(page: Page): Promise<void> {
   await expect(page.getByTestId("room-studio")).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
 }
 
-/** The module the gesture's owner lives in, read live from the app's own state. */
-async function roomMenuState(page: Page): Promise<{ armed: boolean; open: boolean }> {
+/** The room menu's open state, read live from the app's own module. */
+async function roomMenuState(page: Page): Promise<{ open: boolean }> {
   return page.evaluate(async () => {
     const menu = await import("/src/play/roomActionMenu.ts");
-    return { armed: menu.roomMenuArmed.value, open: menu.gameRoomMenu.value !== undefined };
+    return { open: menu.gameRoomMenu.value !== undefined };
   });
 }
 
@@ -154,13 +159,44 @@ test("in Create a right-click on the game offers only the room's actions @webkit
   // room menu is the gesture's only answer.
   await waitForCycles(page, 2);
   expect(await modal(page)).toBeNull();
-  const contextMenus = await page.evaluate(
-    () => (window as unknown as { __contextMenus?: boolean[] }).__contextMenus ?? [],
-  );
-  expect(contextMenus.length).toBeGreaterThan(0);
-  expect(contextMenus.every((prevented) => prevented)).toBe(true);
+  const menus = await contextMenus(page);
+  expect(menus.length).toBeGreaterThan(0);
+  expect(menus.every((prevented) => prevented)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
+});
+
+test("Create owns the right button from the mode switch, before its workspace mounts @webkit-desktop", async ({
+  page,
+}) => {
+  await bootMenuGame(page, "right-owner-early");
+  // Hold the workspace's module back so the press lands while the chunk is
+  // still loading: the mode itself must own the button, not the mounted
+  // component.
+  let releaseWorkspace!: () => void;
+  const workspaceGate = new Promise<void>((resolve) => (releaseWorkspace = resolve));
+  await page.route("**/src/studio/workspace/CreateWorkspace.vue*", async (route) => {
+    await workspaceGate;
+    await route.continue();
+  });
+  await enterCreateMode(page);
+  await expect(page.getByTestId("workspace-game-bar")).toHaveCount(0);
+
+  const at = await framePoint(page, 160, 100);
+  await page.mouse.click(at.x, at.y, { button: "right" });
+  // Create already owns the press: its room menu answers, the native strip
+  // never opens, and the browser's own menu stays off the game.
+  await expect.poll(async () => (await roomMenuState(page)).open).toBe(true);
+  expect(await modal(page)).toBeNull();
+  const menus = await contextMenus(page);
+  expect(menus.length).toBeGreaterThan(0);
+  expect(menus.every((prevented) => prevented)).toBe(true);
+
+  releaseWorkspace();
+  await expect(page.getByTestId("workspace-game-bar")).toBeVisible({
+    timeout: FIRST_LOAD_BUDGET_MS,
+  });
+  await expect(page.getByTestId("game-room-menu")).toBeVisible();
 });
 
 test("with an editor tab retained Play's right-drag picks a native menu item @webkit-desktop", async ({
@@ -181,8 +217,42 @@ test("with an editor tab retained Play's right-drag picks a native menu item @we
   await page.mouse.up({ button: "right" });
   await expect.poll(() => modal(page)).toBeNull();
   await expect.poll(() => row(page, 3)).toContain("RESTORE PICKED");
-  // The retained workspace never claimed the gesture: no room menu armed or opened.
-  expect(await roomMenuState(page)).toEqual({ armed: false, open: false });
+  // "RESTORE PICKED" proves the strip answered the drag; it does not prove
+  // the gesture never touched Create. The room menu has no visible surface
+  // in Play, so that narrower guarantee comes from the module state: no
+  // room menu was ever opened.
+  expect(await roomMenuState(page)).toEqual({ open: false });
+});
+
+test("a mode switch mid right-drag keeps the gesture's first owner @webkit-desktop", async ({
+  page,
+}) => {
+  await bootMenuGame(page, "right-owner-mid-gesture");
+  await createMounted(page);
+  await playFromCreate(page);
+  await waitForCycles(page, 2);
+
+  const title = await framePoint(page, FILE_TITLE.x, FILE_TITLE.y);
+  await page.mouse.move(title.x, title.y);
+  await page.mouse.down({ button: "right" });
+  await expect.poll(() => modal(page)).toBe("menu");
+  // Escape closes the strip so the switch can land — Create refuses a game
+  // mid-question — while the button stays down.
+  await page.keyboard.press("Escape");
+  await expect.poll(() => modal(page)).toBeNull();
+  // Back lands on the Create entry mid-gesture; the drag is still held.
+  await page.evaluate(() => history.back());
+  await expect(page).toHaveURL(/#create\//);
+  await expect(page.getByTestId("workspace-game-bar")).toBeVisible();
+  await page.mouse.up({ button: "right" });
+  // Where contextmenu follows the release (Windows), it still honours the
+  // press's owner — never re-aimed at Create's room menu.
+  const at = await framePoint(page, 160, 100);
+  await page
+    .locator(".screen")
+    .dispatchEvent("contextmenu", { button: 2, clientX: at.x, clientY: at.y });
+  await expect(page.getByTestId("game-room-menu")).toBeHidden();
+  expect(await roomMenuState(page)).toEqual({ open: false });
 });
 
 test("with the strip withdrawn Play's right double-click still reaches the game @webkit-desktop", async ({
