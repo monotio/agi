@@ -251,7 +251,11 @@ for (const operation of ["patch", "restore"] as const) {
     const row = () => [...engine.getFrame().visual.slice(80 * 160 + 20, 80 * 160 + 23)];
     assert.deepEqual(row(), [15, 2, 1]);
     if (operation === "patch") engine.patchResources([{ kind: "view", num: 1, payload }]);
-    else engine.restoreImage(engine.recordingImage(true));
+    else {
+      const image = engine.recordingImage(true);
+      assert.ok(image, "the native resource replay fits its buffer");
+      engine.restoreImage(image);
+    }
     assert.deepEqual(row(), [15, 2, 1]);
   });
 }
