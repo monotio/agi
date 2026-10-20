@@ -1,3 +1,7 @@
+import {
+  projectConventions,
+  AUTHORING_CONVENTIONS_VERSION,
+} from "../../../src/authoring/projectConventions.ts";
 /**
  * The durable resource transaction behind every Keep — a staged reference
  * view, a Room Studio picture, a Sprite Studio view: the edited bytes, the source that describes
@@ -480,6 +484,7 @@ export function createResourceCommit(
         }
         data = {
           ...stored,
+          authoringConventions: projectConventions(stored),
           ...(projectHistory === undefined ? {} : { projectHistory }),
           files,
           words,
@@ -507,6 +512,7 @@ export function createResourceCommit(
           projectId: targetId!,
           authoredAt: new Date().toISOString(),
           title: `${game.title} Remix`,
+          authoringConventions: { version: AUTHORING_CONVENTIONS_VERSION },
           library: remixLibrary(undefined),
           files,
           words,

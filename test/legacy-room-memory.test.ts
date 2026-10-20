@@ -5,10 +5,8 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
 import { buildView } from "../src/view/view.ts";
-import { releasedTemplates } from "./released-template-fixtures.ts";
-const source =
-  releasedTemplates.at(-1)!.source.replaceAll("f200", "f199") +
-  "\nif (isset(f230)) { set(f16); restart.game(); }";
+import { customizedLegacyBoot } from "./released-template-fixtures.ts";
+const source = customizedLegacyBoot + "\nif (isset(f230)) { set(f16); restart.game(); }";
 const host = {
   print() {},
   displayAt() {},

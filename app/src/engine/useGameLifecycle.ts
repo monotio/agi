@@ -57,6 +57,7 @@ import type { CachedGameData } from "../project/gameStorage.ts";
 import type { WorkerInbound } from "../worker/workerProtocol.ts";
 import { admitQualifiedOpening, type QualifiedGameOpening } from "./openingAdmission.ts";
 import {
+  AUTHORING_CONVENTIONS_VERSION,
   isRecognizedOriginal,
   isLegacyAuthoredProject,
 } from "../../../src/authoring/projectConventions.ts";
@@ -842,7 +843,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     let authoredGame: CachedGameData = {
       projectId,
       templateId,
-      authoringConventions: { version: 1 },
+      authoringConventions: { version: AUTHORING_CONVENTIONS_VERSION },
       title,
       authoredAt: new Date().toISOString(),
       provider: config.provider,
@@ -880,7 +881,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (authoredGame.chats.chats[0]) authoredGame.chats.chats[0].title = `Created ${title}`;
     const saved = await saveAuthoredGameCapture(projectId, {
       templateId,
-      authoringConventions: { version: 1 },
+      authoringConventions: { version: AUTHORING_CONVENTIONS_VERSION },
       title,
       provider: config.provider,
       model: config.model,

@@ -70,7 +70,10 @@ test("Create explains legacy updates and previews Add before changing code @phon
     if (width === 390 && !(await page.getByTestId("parts-list").isVisible()))
       await page.getByTestId("workspace-parts").click();
     await expect(notice).toBeInViewport();
-    await page.screenshot({ path: test.info().outputPath(`updates-${width}.png`) });
+    await page.screenshot({
+      animations: "disabled",
+      path: test.info().outputPath(`updates-${width}.png`),
+    });
     await page
       .getByTestId("game-update-memory")
       .getByRole("button", { name: "Add", exact: true })
@@ -78,7 +81,10 @@ test("Create explains legacy updates and previews Add before changing code @phon
     const preview = page.getByTestId("game-update-preview");
     await expect(preview).toBeVisible();
     await expect(preview.locator("pre")).toHaveText("script.size(200);");
-    await page.screenshot({ path: test.info().outputPath(`updates-preview-${width}.png`) });
+    await page.screenshot({
+      animations: "disabled",
+      path: test.info().outputPath(`updates-preview-${width}.png`),
+    });
     await expect
       .poll(() =>
         page.evaluate(() =>

@@ -1,5 +1,5 @@
 import { decodeSave } from "../../src/runtime/persistence.ts";
-import { releasedTemplates } from "../../test/released-template-fixtures.ts";
+import { customizedLegacyBoot, releasedTemplates } from "../../test/released-template-fixtures.ts";
 import { Engine, HostWait } from "../../src/runtime/engine.ts";
 import { isLegacyAuthoredProject } from "../../src/authoring/projectConventions.ts";
 import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchive.ts";
@@ -495,7 +495,7 @@ test("a pruned or cleared History never reapplies an undone upgrade", async () =
 });
 
 test("customized f199 keeps busy rooms playable through session admission and both export/reimports", async () => {
-  const source = PRE_125_LOGIC0.replaceAll("f200", "f199");
+  const source = customizedLegacyBoot;
   const id = await storedProject("f199-round-trip", {
     logic0: source,
     documents: {

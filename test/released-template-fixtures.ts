@@ -19,3 +19,9 @@ export const releasedTemplates = [
     file.split("export const BASE_TEMPLATE_LOGIC0_SOURCE = ")[1]!.split("`;\n")[0]! + "`";
   return { version, source: runInNewContext(literal) as string };
 });
+
+/** Released 1.2.4 source with only its boot flag customized; retained as authored bytes. */
+export const customizedLegacyBoot = readFileSync(
+  new URL("./fixtures/released-templates/f199.logic", import.meta.url),
+  "utf8",
+);

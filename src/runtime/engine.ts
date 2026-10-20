@@ -25,7 +25,7 @@ import {
 import { renderPicture } from "../picture/renderer.ts";
 import { SoundPlayback, type SoundOutput } from "../sound/sound.ts";
 import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
-import { authoredScriptFloor } from "./authoredScriptBuffer.ts";
+import { AUTHORED_SCRIPT_BUFFER_PAIRS, authoredScriptFloor } from "./authoredScriptBuffer.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
@@ -1224,7 +1224,9 @@ export class Engine {
     this.profileKind = decision.kind;
     this.profileBuild = decision.build;
     this.inputQueue = new InputQueue(this.profile.keypadWordsNormalized);
-    this.scriptCapacity = this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs;
+    this.scriptCapacity = this.legacyRoomMemory
+      ? AUTHORED_SCRIPT_BUFFER_PAIRS
+      : this.profile.defaultScriptBufferPairs;
     this.raiseToAuthoredScriptFloor(false);
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
@@ -1666,7 +1668,7 @@ export class Engine {
               staged.getResource("logic", 0),
               this.profile,
               true,
-              this.legacyRoomMemory ? 200 : 0,
+              this.legacyRoomMemory ? AUTHORED_SCRIPT_BUFFER_PAIRS : 0,
             )
           : null,
     };
@@ -1746,7 +1748,13 @@ export class Engine {
           takeKeys: () => [],
         },
         this.dictionary,
-        { profile: this.profile, amigaRegion: this.amigaRegion, pcDisplay: this.pcDisplay },
+        {
+          profile: this.profile,
+          amigaRegion: this.amigaRegion,
+          pcDisplay: this.pcDisplay,
+          adoptDeclaredScriptSize: this.adoptsDeclaredScriptSize,
+          legacyRoomMemory: this.legacyRoomMemory,
+        },
       );
       // Never call the live prepareRoom hook from a speculative entry: it
       // may start authoring or write resources. An entry that needs a missing
@@ -4920,7 +4928,12 @@ export class Engine {
         },
       },
       this.dictionary,
-      { profile: this.profile, pcDisplay: this.pcDisplay },
+      {
+        profile: this.profile,
+        pcDisplay: this.pcDisplay,
+        adoptDeclaredScriptSize: this.adoptsDeclaredScriptSize,
+        legacyRoomMemory: this.legacyRoomMemory,
+      },
     );
     try {
       candidate.applyRestore(image, screen);
@@ -5025,7 +5038,10 @@ export class Engine {
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
     this.scriptCapacity =
-      s.replayCapacity || (this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs);
+      s.replayCapacity ||
+      (this.legacyRoomMemory
+        ? AUTHORED_SCRIPT_BUFFER_PAIRS
+        : this.profile.defaultScriptBufferPairs);
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
@@ -9457,7 +9473,9 @@ export class Engine {
     this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
     this.replayRecording = true;
-    this.scriptCapacity = this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs;
+    this.scriptCapacity = this.legacyRoomMemory
+      ? AUTHORED_SCRIPT_BUFFER_PAIRS
+      : this.profile.defaultScriptBufferPairs;
     this.raiseToAuthoredScriptFloor(false);
     this.maximumReplayPairs = 0;
     this.menu = [];

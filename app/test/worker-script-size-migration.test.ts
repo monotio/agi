@@ -1,3 +1,4 @@
+import { customizedLegacyBoot } from "../../test/released-template-fixtures.ts";
 /**
  * Player-visible rule (CHANGELOG 1.2.5; docs/fidelity.md "Authored script
  * buffer on live edits"): an older authored game opened in Create gains
@@ -341,7 +342,7 @@ test("a released (format-2) cold-boot segment of a busy authored room replays at
     load.view(1); ${"add.to.pic(1, 0, 0, 0, 0, 9, 0);".repeat(12)} discard.pic(1); show.pic(); }
   return;`;
   const docs = {
-    "logic:0": PRE_125_LOGIC0.replaceAll("f200", "f199"),
+    "logic:0": customizedLegacyBoot,
     "logic:1": busy,
     "picture:1": "vis 1\nfill 1,1\nend\n",
     "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
@@ -455,8 +456,7 @@ test("without the authored-project option the running game keeps the buffer its 
 });
 
 test("legacy f199 worker runs, resumes, restores and records a busy boot independently of later room sizing", () => {
-  const custom =
-    PRE_125_LOGIC0.replaceAll("f200", "f199") + "\nif (isset(f221)) { set(f16); restart.game(); }";
+  const custom = customizedLegacyBoot + "\nif (isset(f221)) { set(f16); restart.game(); }";
   const docs = {
     ...documents(custom),
     "logic:1": BUSY_ROOM.replace("if (isset(f220))", "if (isset(f5))"),

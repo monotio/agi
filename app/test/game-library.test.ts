@@ -1201,5 +1201,26 @@ test("private imports without conventions are legacy; a raw customized game stay
   const data = (await loadAuthoredGame(id))!;
   assert.deepEqual(data.authoringConventions, { version: 0, legacyRoomMemory: true });
   const raw = await addLibraryGame({ files, words: [] }, "External game", "zip", opening);
-  assert.equal((await loadAuthoredGame(raw))!.authoringConventions, undefined);
+  assert.deepEqual((await loadAuthoredGame(raw))!.authoringConventions, { version: 1 });
+});
+
+test("a new external import records current conventions before gaining assistant context", async (t) => {
+  installLocalStorage(t);
+  const id = await addLibraryGame(
+    { files: game("set(f198); return;"), words: [] },
+    "New import",
+    "zip",
+    opening,
+  );
+  assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, { version: 1 });
+});
+
+test("a first assistant conversation adopts an older external import without legacy room memory", async (t) => {
+  installLocalStorage(t);
+  const { saveAuthoredGame, updateGameConversation } =
+    await import("../src/project/gameStorage.ts");
+  const id = testProjectId("adopt-external-conventions");
+  await saveAuthoredGame(id, { title: "Older external", files: game(), words: [], imported: true });
+  await updateGameConversation(id, [], "current-session", undefined, "stub", "offline-stub");
+  assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, { version: 1 });
 });

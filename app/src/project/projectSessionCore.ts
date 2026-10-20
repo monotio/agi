@@ -1,4 +1,5 @@
 import {
+  AUTHORING_CONVENTIONS_VERSION,
   projectConventions,
   isLegacyAuthoredProject,
 } from "../../../src/authoring/projectConventions.ts";
@@ -235,7 +236,8 @@ function createSession(
         : readProjectWorkspace(data.workspace);
   const conventions = projectConventions(data);
   const scriptSizeMigration =
-    (data.authoringConventions?.version ?? 0) < 1 && isLegacyAuthoredProject(data)
+    (data.authoringConventions?.version ?? 0) < AUTHORING_CONVENTIONS_VERSION &&
+    isLegacyAuthoredProject(data)
       ? migrateScriptSize(openedDocuments, data.files)
       : null;
   const documents = openedDocuments;

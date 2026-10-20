@@ -1,4 +1,5 @@
 import {
+  AUTHORING_CONVENTIONS_VERSION,
   projectConventions,
   isRecognizedOriginal,
 } from "../../../src/authoring/projectConventions.ts";
@@ -70,7 +71,9 @@ export async function addLibraryGame(
   const conventions =
     game.project?.authoringConventions ??
     game.authoringConventions ??
-    (legacyImport ? { version: 0, legacyRoomMemory: true as const } : undefined);
+    (legacyImport
+      ? { version: 0, legacyRoomMemory: true as const }
+      : { version: AUTHORING_CONVENTIONS_VERSION });
   const roomGeneration =
     source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
   // A remix names its parent in GAME.JSON, and stays its own game wherever it
