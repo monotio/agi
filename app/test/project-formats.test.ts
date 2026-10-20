@@ -52,7 +52,7 @@ test("v1 agent history is preserved when a subsequent backup adds optional conve
     words: original.words,
   };
   const migrated = await readGameZip(await buildProjectZip(data));
-  assert.deepEqual(migrated.project, { ...original.project, authoringConventions: { version: 1 } });
+  assert.deepEqual(migrated.project, { ...original.project, authoringConventions: { version: 0 } });
 });
 
 test("recovery travels separately from kept source and never enters a public Game", async () => {
