@@ -1,3 +1,5 @@
+import { projectConventions, isRecognizedOriginal } from "../../../src/authoring/projectConventions.ts";
+import { hasReleasedBoot } from "../../../src/authoring/scriptSizeMigration.ts";
 import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import {
   detectKnownGame,
@@ -142,6 +144,8 @@ export async function addLibraryGame(
   const effectiveTitle = game.title ?? known?.title ?? title;
   const data = {
     title: effectiveTitle,
+    authoringConventions: game.project?.authoringConventions ?? game.authoringConventions ??
+      (!isRecognizedOriginal(game.files, source) && (game.project !== undefined || hasReleasedBoot(game.files)) ? {version:0,legacyRoomMemory:true as const} : undefined),
     library,
     provider: game.project?.provider,
     model: game.project?.model,
@@ -241,6 +245,7 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
   } = original;
   const data = {
     ...rest,
+    authoringConventions: projectConventions(original),
     // The copy's bytes are identical, so every still-current staged
     // candidate verifies and rebinds; stale ones keep their refusal.
     references: rebindStagedReferences(

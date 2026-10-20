@@ -1,3 +1,4 @@
+import { readAuthoringConventions, type AuthoringConventions } from "../../../src/authoring/projectConventions.ts";
 import { readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { hydrateImageAttachments } from "./projectImageArchive.ts";
 import {
@@ -46,6 +47,7 @@ export { validateTranscript } from "./projectArchiveShared.ts";
 export { continuationTranscript } from "./projectConversation.ts";
 
 export interface ProjectContext {
+  authoringConventions?: AuthoringConventions | undefined;
   chats?: AgentChats | undefined;
   provider?: string | undefined;
   model?: string | undefined;
@@ -72,7 +74,7 @@ export interface ProjectSoundContext {
 }
 
 export function buildPublicGameZip(
-  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
+  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library" | "authoringConventions" | "templateId" | "provider" | "sessionId" | "imported">,
 ): Uint8Array<ArrayBuffer> {
   return finishArchive(gameEntries(data));
 }
@@ -212,6 +214,7 @@ export function readProjectContext(
   knownFields(envelope, [
     "format",
     "version",
+    "authoringConventions",
     "provider",
     "model",
     "sessionId",
@@ -509,6 +512,7 @@ export function readProjectContext(
           conversationHistory,
         }
       : {}),
+    authoringConventions: readAuthoringConventions(envelope.authoringConventions),
     authoringState: authoringState as Record<string, unknown>,
     ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
     ...(chats !== undefined ? { chats } : {}),

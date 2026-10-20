@@ -443,6 +443,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
           amigaRegion: boot.amigaRegion ?? "ntsc",
           ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
           ...(boot.adoptDeclaredScriptSize === true ? { adoptDeclaredScriptSize: true } : {}),
+          legacyRoomMemory: boot.legacyRoomMemory === true,
         },
       );
       engine.flags[9] = 1;

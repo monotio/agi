@@ -1,3 +1,4 @@
+import type { AuthoringConventions } from "../../../src/authoring/projectConventions.ts";
 import { MAX_AUXILIARY_BYTES } from "./gameZipLimits.ts";
 import { MAX_GAME_ZIP_BYTES } from "./gameZipLimits.ts";
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
@@ -27,6 +28,7 @@ const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 
 /** Read stored/deflated ZIPs into memory; no paths are written to disk. */
 export interface OpenedGame {
+  authoringConventions?: AuthoringConventions | undefined;
   files: Record<string, Uint8Array>;
   words: [string, number][];
   title?: string;

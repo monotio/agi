@@ -16,9 +16,6 @@ export const AUTHORED_SCRIPT_BUFFER_PAIRS = 200;
  * - LOGIC 0 calls script.size: its largest operand when `includeDeclared`
  *   (a live commit or a host resume, where the boot block already ran),
  *   otherwise 0 because the game's own call sets the buffer;
- * - LOGIC 0 has the template boot shape — a `set(f200)` inside an
- *   `!isset(f200)` guard — and no script.size: the
- *   `AUTHORED_SCRIPT_BUFFER_PAIRS` the migration would add;
  * - otherwise, or when LOGIC 0 is missing or cannot be decoded, 0.
  *
  * Callers only ever raise a capacity to this value, never lower one.
@@ -43,18 +40,5 @@ export function authoredScriptFloor(
       declared = Math.max(declared, insn.args?.[0] ?? 0);
     }
   if (sized) return includeDeclared ? declared : 0;
-  const templateShape = insns.some(
-    (guard) =>
-      guard.kind === "if" &&
-      guard.text === "!isset(f200)" &&
-      insns.some(
-        (insn) =>
-          insn.kind === "action" &&
-          insn.name === "set" &&
-          insn.args?.[0] === 200 &&
-          insn.at >= guard.end &&
-          insn.at < guard.target,
-      ),
-  );
-  return templateShape ? AUTHORED_SCRIPT_BUFFER_PAIRS : 0;
+  return 0;
 }

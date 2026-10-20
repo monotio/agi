@@ -139,6 +139,7 @@ export function adoptResumePoint(
       ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
       adoptDeclaredScriptSize:
         ctx.boot.adoptDeclaredScriptSize || boot.adoptDeclaredScriptSize === true,
+      legacyRoomMemory: ctx.boot.legacyRoomMemory || boot.legacyRoomMemory === true,
     },
   );
   if (options.currentFiles && boot.image !== undefined) {
@@ -237,6 +238,7 @@ export function adoptResumePoint(
           amigaRegion: boot.amigaRegion ?? "ntsc",
           pcDisplay: candidate.pcDisplay,
           adoptDeclaredScriptSize: candidate.adoptsDeclaredScriptSize,
+          legacyRoomMemory: candidate.legacyRoomMemory,
         },
       );
       restoreOnto(candidate);

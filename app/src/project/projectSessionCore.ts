@@ -1,3 +1,4 @@
+import { projectConventions, isLegacyAuthoredProject } from "../../../src/authoring/projectConventions.ts";
 /** One editable model and immutable History for an opened project's lifetime. */
 import { migrateAgentChats, readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
@@ -14,7 +15,6 @@ import {
 } from "../../../src/authoring/projectHistory.ts";
 import { readProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import {
-  isRecognizedOriginal,
   migrateScriptSize,
 } from "../../../src/authoring/scriptSizeMigration.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
@@ -232,20 +232,9 @@ function createSession(
       : data.projectHistory === undefined
         ? { ...inspection.documents, ...readProjectWorkspace(data.workspace) }
         : readProjectWorkspace(data.workspace);
-  // A pre-1.2.5 authored game predates the authentic 50-pair script buffer:
-  // logic 0 gains the template's script.size(200) once, as a visible History
-  // commit through the ordinary edit path below, admitted to the running
-  // game like any logic edit. Re-imported archives and remixes with the
-  // template's boot shape migrate too; a recognized original release keeps
-  // its released image. Once is by History, not just by the line: a project
-  // whose History already holds the migration commit — an Undo, a restore
-  // or a deleted line can leave LOGIC 0 without script.size again — opens
-  // untouched rather than gaining a second entry.
-  const scriptSizeMigration =
-    isRecognizedOriginal(data.files, data.library?.source) ||
-    history.capture().commits.some((commit) => commit.label === SCRIPT_SIZE_MIGRATION_LABEL)
-      ? null
-      : migrateScriptSize(openedDocuments);
+  const conventions = projectConventions(data);
+  const scriptSizeMigration = (data.authoringConventions?.version ?? 0) < 1 && isLegacyAuthoredProject(data)
+    ? migrateScriptSize(openedDocuments, data.files) : null;
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
@@ -592,6 +581,7 @@ function createSession(
     );
     const next = {
       ...data,
+      authoringConventions: conventions,
       ...(authoringState === undefined ? {} : { authoringState }),
       files: Object.fromEntries(image.files()),
       library: projectCommitLibrary(data.library, {
@@ -988,6 +978,7 @@ function createSession(
     return outcome;
   }
   const session = {
+    legacyRoomMemory: isLegacyAuthoredProject(data),
     model,
     history,
     ready,
@@ -1491,7 +1482,7 @@ function createSession(
   return session;
 }
 /** The History entry an older authored game receives once (CHANGELOG 1.2.5). */
-export const SCRIPT_SIZE_MIGRATION_LABEL = "Room memory raised for this version";
+export const SCRIPT_SIZE_MIGRATION_LABEL = "Updated for 1.2.5";
 export type ProjectSession = ReturnType<typeof openOwnedProjectSession>;
 
 /** Re-run the same preparation and History path before exposing any recovered project. */

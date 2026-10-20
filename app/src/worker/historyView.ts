@@ -475,6 +475,7 @@ export function createHistoryView(
       ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),
       ...(engine.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(engine.adoptsDeclaredScriptSize ? { adoptDeclaredScriptSize: true as const } : {}),
+      ...(engine.legacyRoomMemory ? { legacyRoomMemory: true as const } : {}),
       image: bytesToBase64(image),
       replay: engine.captureReplayState(),
       menus: engine.readMenuState(),

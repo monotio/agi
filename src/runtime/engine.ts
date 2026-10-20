@@ -903,6 +903,8 @@ export class Engine {
    * edits"). Never set for an original release.
    */
   readonly adoptsDeclaredScriptSize: boolean;
+  /** Durable legacy project policy, independent of editable boot conventions. */
+  readonly legacyRoomMemory: boolean;
   private maximumReplayPairs = 0;
   private menu: MenuHeading[] = [];
   private menuFinalized = false;
@@ -1186,12 +1188,14 @@ export class Engine {
        * "Authored script buffer on live edits").
        */
       adoptDeclaredScriptSize?: boolean;
+      legacyRoomMemory?: boolean;
     },
   ) {
     this.container = container;
     this.host = host;
     this.dictionary = dictionary;
     this.adoptsDeclaredScriptSize = options?.adoptDeclaredScriptSize === true;
+    this.legacyRoomMemory = options?.legacyRoomMemory === true;
     if (
       options?.instructionBudget !== undefined &&
       (!Number.isInteger(options.instructionBudget) || options.instructionBudget < 1)
@@ -1220,7 +1224,7 @@ export class Engine {
     this.profileKind = decision.kind;
     this.profileBuild = decision.build;
     this.inputQueue = new InputQueue(this.profile.keypadWordsNormalized);
-    this.scriptCapacity = this.profile.defaultScriptBufferPairs;
+    this.scriptCapacity = this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs;
     this.raiseToAuthoredScriptFloor(false);
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
@@ -1658,7 +1662,7 @@ export class Engine {
       declaredScriptSize:
         this.adoptsDeclaredScriptSize &&
         changes.some((change) => change.kind === "logic" && change.num === 0)
-          ? authoredScriptFloor(staged.getResource("logic", 0), this.profile, true)
+          ? Math.max(this.legacyRoomMemory ? 200 : 0, authoredScriptFloor(staged.getResource("logic", 0), this.profile, true))
           : null,
     };
   }
@@ -5015,7 +5019,7 @@ export class Engine {
       : null;
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
-    this.scriptCapacity = s.replayCapacity || this.profile.defaultScriptBufferPairs;
+    this.scriptCapacity = s.replayCapacity || (this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs);
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
@@ -9447,7 +9451,7 @@ export class Engine {
     this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
     this.replayRecording = true;
-    this.scriptCapacity = this.profile.defaultScriptBufferPairs;
+    this.scriptCapacity = this.legacyRoomMemory ? 200 : this.profile.defaultScriptBufferPairs;
     this.raiseToAuthoredScriptFloor(false);
     this.maximumReplayPairs = 0;
     this.menu = [];

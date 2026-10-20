@@ -340,7 +340,7 @@ test("a re-imported project archive or remix with the template boot shape migrat
   for (const source of ["zip", "remix"] as const) {
     const projectId = await storedProject(`script-size-${source}`, {
       source,
-      data: { imported: true },
+      data: { imported: true, authoringConventions:{version:0,legacyRoomMemory:true} },
     });
     const before = (await loadAuthoredGame(projectId))!;
     assert.equal(before.library?.source, source);

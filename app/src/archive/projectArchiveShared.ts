@@ -1,3 +1,4 @@
+import { projectConventions } from "../../../src/authoring/projectConventions.ts";
 /**
  * Shared project-archive format helpers used by both the synchronous
  * readers/public ZIP writer (`projectArchive.ts`) and the on-demand full
@@ -25,7 +26,7 @@ export const PROJECT_SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
  * same bytes it was imported as, with the same revision.
  */
 export function gameEntries(
-  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
+  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library" | "authoringConventions" | "templateId" | "provider" | "sessionId" | "imported">,
   supplyInventory = true,
 ): ZipFileInput[] {
   const files = new Map(Object.entries(data.files));
@@ -41,6 +42,7 @@ export function gameEntries(
       version: 1,
       metadata: publicGameMetadata(data.library),
       title: data.title,
+      authoringConventions: projectConventions(data),
       // The player's interpreter choice travels with the game; detection
       // evidence does not — the importer checks the opening itself.
       ...(data.library?.profile ? { profile: data.library.profile } : {}),

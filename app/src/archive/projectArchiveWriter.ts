@@ -1,3 +1,4 @@
+import { projectConventions } from "../../../src/authoring/projectConventions.ts";
 import { readAgentChats } from "../../../src/agent/chats.ts";
 import { externalizeImageAttachments } from "./projectImageArchive.ts";
 import { sha256Hex as sha256HexSync } from "../../../src/crypto.ts";
@@ -258,6 +259,7 @@ export async function collectProjectArchiveEntries(
   entries.push({
     name: "PROJECT.JSON",
     data: JSON.stringify({
+      authoringConventions: projectConventions(data),
       format: "monotio.agi.project",
       version: 1,
       ...(data.chats !== undefined ? { chats: await visit(readAgentChats(data.chats)) } : {}),

@@ -1,3 +1,4 @@
+import type { AuthoringConventions } from "../../../src/authoring/projectConventions.ts";
 import type { AgentChats } from "../../../src/agent/chats.ts";
 import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
@@ -22,6 +23,7 @@ import type { ProgressTarget } from "./progressTarget.ts";
 export type { ProjectId, ResourceRevision };
 
 export interface CachedGameMeta {
+  authoringConventions?: AuthoringConventions | undefined;
   library?: LibraryMetadata | undefined;
   projectId: ProjectId;
   templateId?: string | undefined;

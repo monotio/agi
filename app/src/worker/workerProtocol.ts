@@ -246,6 +246,7 @@ export interface BootMessage {
    * (docs/fidelity.md, "Authored script buffer on live edits").
    */
   adoptDeclaredScriptSize?: boolean;
+  legacyRoomMemory?: boolean;
   /**
    * base64 save image to restore into the freshly booted engine (autosave
    * resume). Applied BEFORE the first cycle: the alternative, a message sent

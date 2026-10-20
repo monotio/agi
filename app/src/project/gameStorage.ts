@@ -1,3 +1,4 @@
+import { readAuthoringConventions } from "../../../src/authoring/projectConventions.ts";
 import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import { sealedProjectHistory } from "../../../src/authoring/projectHistoryData.ts";
 import {
@@ -621,6 +622,7 @@ function metadata(data: CachedGameData): CachedGameMeta {
   return {
     projectId: data.projectId,
     templateId: data.templateId,
+    authoringConventions: data.authoringConventions,
     generation: data.generation,
     library: data.library,
     title: data.title,
@@ -670,6 +672,7 @@ function readStoredFormat(raw: unknown, format: string | undefined, message: str
 export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameData {
   readStoredFormat(raw, "monotio.agi.stored-project", UNREADABLE_PROJECT_MESSAGE);
   const record = raw as StoredGameBody;
+  readAuthoringConventions(record.authoringConventions);
   const storedId = record.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
