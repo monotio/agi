@@ -428,7 +428,7 @@ const picture = (...lines: string[]) => compile(lines.join("\n"));
 const shape = (check: AgentCheck) =>
   check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]);
 
-/** The scope of an Art-lens selection of `targetIds`: priority locked, their area licensed on the art. */
+/** The scope of a selection in the Visual lens of `targetIds`: priority locked, their area licensed on the art. */
 const artScope = (compiled: CompiledDocument, ...targetIds: string[]) =>
   pictureAgentScope({ num: 1, compiled, targetIds, lens: "visual" });
 

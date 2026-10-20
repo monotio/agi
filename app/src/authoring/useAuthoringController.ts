@@ -293,7 +293,7 @@ export interface AuthoringController {
    */
   commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult>;
   /**
-   * Commit PICTURE editor's combined commit: the picture and the room's logic
+   * Commit the PICTURE editor's picture and room LOGIC edits
    * (door rules and the bindings they reserved) in one transaction.
    */
   commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult>;

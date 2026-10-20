@@ -454,7 +454,8 @@ const SWEEP_RULES: readonly {
   { key: "background", pattern: /\bbackdrop\b/gi },
   { key: "standIn", pattern: /\bghost\b/gi },
   { key: "pictureEditor", pattern: /\b(?:Room|Sprite|Logic)\s+(?:\*\s*)?Studio\b|\broomStudio\b/g },
-  { key: "lens", pattern: /\b(?:Art|Depth)\s+(?:\*\s*)?lens\b/g },
+  { key: "lens", pattern: /\b(?:Art|Depth)(?:\s+(?:\*\s*)?|-)lens\b/g },
+  { key: "lens", pattern: /\bArt (?:pane|is (?:locked|the visual plane))\b/g },
   { key: "room", pattern: /\b(?:createSceneBrief|sceneBrief)\b/g },
   { key: "ego", pattern: /\b[Aa] ego\b/g },
   { key: "items", pattern: /\b(?:sceneList|SceneList|sceneGroups)\b/g },
@@ -573,6 +574,7 @@ test("the terminology sweep catches mixed names and preserves format literals", 
 test("lens, editor and commit names stay coherent in comments and identifiers", () => {
   for (const text of [
     "// the Art lens",
+    "// an Art-lens selection",
     "// try the Depth lens",
     "// Room Studio lesson",
     "const roomStudio = editor;",

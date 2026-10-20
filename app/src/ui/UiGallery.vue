@@ -147,7 +147,7 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
           <li class="selected">Bench priority</li>
           <li>Floor edge</li>
         </ul>
-        <template #footer>Art is locked in the Priority lens.</template>
+        <template #footer>The visual plane is locked in the Priority lens.</template>
       </UiPanel>
       <UiPanel title="Room">
         <div class="stack">

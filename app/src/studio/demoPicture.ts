@@ -1,6 +1,6 @@
 /**
  * The studio harness's demo picture: a small room whose `@item` annotations
- * give every lens something to show. Art: floor, wall, bench, lamp. Priority: a
+ * give every lens something to show. Visual: floor, wall, bench, lamp. Priority: a
  * bench occluder at priority 10. Walk: a barrier (0), a conditional gate (1),
  * a signal exit (2) and a pond that is both art and water (3). Shapes come
  * from src/studio/shapes.ts; tests hand-check the geometry below.

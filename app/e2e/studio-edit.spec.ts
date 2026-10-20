@@ -335,7 +335,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
   await workspaceUpdated(page);
-  // Art is locked in the Priority lens for editing within it: with the Point
+  // The visual plane is locked in the Priority lens for editing within it: with the Point
   // tool, a corner of the frame dragged up a row is refused, with the count and box of the art
   // cells it would change (row 91 gains 44..116, row 92 loses 45..115), and
   // nothing changes.

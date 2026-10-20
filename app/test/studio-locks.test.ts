@@ -61,7 +61,7 @@ describe("an edit that changes another object's output reports it as a side effe
     "end",
   ];
 
-  it("moves an outline another item's fill pours around, naming that fill (Art)", () => {
+  it("moves an outline another item's fill pours around, naming that fill (Visual)", () => {
     // Refused before: the island moved 8 right re-pours the grass.
     const lines = ISLAND_SOURCE.trimEnd().split("\n");
     const op = { type: "moveItem", itemId: "island", dx: ISLAND_MOVE.dx, dy: 0 } as const;
@@ -136,7 +136,7 @@ describe("an edit that changes another object's output reports it as a side effe
     }
   });
 
-  it("reports deleting an outline a later mixed fill stopped at, on both planes (Art, priority unlocked)", () => {
+  it("reports deleting an outline a later mixed fill stopped at, on both planes (Visual, priority unlocked)", () => {
     const outlined = [
       ...FRAME,
       '# @item wall "Wall" art', //          6
@@ -196,7 +196,7 @@ describe("refusalText", () => {
       "# @end",
       "end",
     ];
-    // Art: moving the frame moves the floor's priority, on a plane the lens locks.
+    // Visual: moving the frame moves the floor's priority, on a plane the lens locks.
     const art = check(scene, { type: "moveItem", itemId: "frame", dx: 0, dy: -1 }, "visual");
     assert.deepEqual(
       art.verdict.violations.map((v) => v.rule),

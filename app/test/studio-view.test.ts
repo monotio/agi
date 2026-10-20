@@ -33,7 +33,7 @@ function planes(): { visual: Uint8Array; priority: Uint8Array; out: Uint8Clamped
   };
 }
 
-test("the Art pane is the visual plane in EGA colours", () => {
+test("the Visual pane is the visual plane in EGA colours", () => {
   const { visual, priority, out } = planes();
   visual[at(3, 2)] = 6;
   priority[at(3, 2)] = 10;

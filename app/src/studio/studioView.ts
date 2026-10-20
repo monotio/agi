@@ -145,7 +145,7 @@ function put(
 const PRIORITY_BLEND = 0.5;
 
 /**
- * Paint one pane into RGBA `out` (160x168x4). Art is the visual plane in the
+ * Paint one pane into RGBA `out` (160x168x4). Visual shows the visual plane in the
  * game's colours (`palette`, EGA by default). Priority blends each priority band's colour over the art (or
  * shows the priority plane alone, background 4 as black) and draws control
  * lines 0-3 in their own colour and pattern.
