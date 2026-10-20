@@ -18,7 +18,12 @@ export function migrateRecordedReplayState(
   getSound: (num: number) => Uint8Array | null,
 ): EngineReplayState {
   const state = validateEngineReplayState(value);
-  if (state.version === REPLAY_STATE_VERSION) return state;
+  if (
+    state.version === REPLAY_STATE_VERSION ||
+    profile.sound !== "booter-2.001" ||
+    state.sound === null
+  )
+    return state;
   if (profile.sound === "booter-2.001" && state.sound !== null) {
     const sound = state.sound;
     const payload = getSound(sound.num);

@@ -43,6 +43,60 @@ export function connectedGamepad(): JoystickSample | null {
 }
 
 /**
+ * The controller's 60 Hz poll, sharing the keyboard's ownership rule: only
+ * while the game owns the page do its samples and fire buttons reach it.
+ * While a page control, sheet or dialog holds the keyboard the poll posts a
+ * neutral sample instead, so nothing held crosses the handoff and no stale
+ * press can fire late when the game takes the page back.
+ */
+export function createGamepadPoll(deps: {
+  /** The whole ownership gate: engine phase, readiness and who owns the page. */
+  gameOwnsPad(): boolean;
+  /** The live pad snapshot, or null when none answers. */
+  sample(): JoystickSample | null;
+  /** Post a pad sample (or neutral) to the game; the caller dedupes. */
+  send(sample: JoystickSample | null): void;
+  /** A blocking get.string/get.num prompt turns fire-button edges into words. */
+  prompt(): boolean;
+  /** Deliver a fire word (0x0101/0x0201) into the open prompt. */
+  promptKey(code: number): void;
+  /** "amiga" has one fire button; "iigs" fires on press, the rest on release. */
+  presentation(): string;
+}): () => void {
+  let buttons = [false, false];
+  // A button that crossed the handoff still held is stale until a poll sees
+  // it released: its press edge happened under the host control, so neither
+  // convention may fire it — not on return (IIgs) and not on its late release.
+  let stale = [false, false];
+  return () => {
+    if (!deps.gameOwnsPad()) {
+      buttons = [false, false];
+      stale = [true, true];
+      deps.send(null);
+      return;
+    }
+    const sample = deps.sample();
+    const next = [Boolean(sample?.button1), Boolean(sample?.button2)];
+    // A button held across the handoff stays stale until an owned poll sees
+    // it up — prompt or no prompt — and that release is not a fire edge.
+    const wasStale = [stale[0], stale[1]];
+    for (let i = 0; i < 2; i++) if (!next[i]) stale[i] = false;
+    if (deps.prompt()) {
+      deps.send(null);
+      // The Amiga gameport has one fire button (F-IN-17).
+      for (let i = 0; i < (deps.presentation() === "amiga" ? 1 : 2); i++) {
+        if (wasStale[i]!) continue;
+        const pressed = next[i]!;
+        const wasPressed = buttons[i]!;
+        if (deps.presentation() === "iigs" ? pressed && !wasPressed : wasPressed && !pressed)
+          deps.promptKey(i === 0 ? 0x0101 : 0x0201);
+      }
+    } else deps.send(sample);
+    buttons = next;
+  };
+}
+
+/**
  * The native key word for a physical key, or undefined when the browser keeps
  * it. The Command key belongs to the browser (copy, paste, reload) unless the
  * game binds the word it makes: no shipped game binds an Amiga-qualified word

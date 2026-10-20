@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
-import { gameHint, isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  gameHint,
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+} from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -223,6 +229,43 @@ for (const profile of ["2.936", "amiga-2.202", "iigs-1.014"]) {
       .toContain("Primary action");
   });
 }
+
+test("a host control's focus holds the controller: held input releases and returns, never stuck @webkit-desktop", async ({
+  page,
+}) => {
+  // The pad follows the keyboard's owner: while Settings (or any page
+  // control) holds focus the game gets nothing and its held input releases;
+  // focus back on the game resumes it with no stuck buttons.
+  await page.addInitScript(() => {
+    const pad = {
+      connected: true,
+      axes: [0, 0],
+      buttons: Array.from({ length: 16 }, () => ({ pressed: false })),
+    };
+    (window as unknown as { gamepad: typeof pad }).gamepad = pad;
+    Object.defineProperty(navigator, "getGamepads", { value: () => [pad] });
+  });
+  await boot(page, "amiga-2.202", true);
+  await page.evaluate(() => {
+    (window as unknown as { gamepad: { axes: number[] } }).gamepad.axes[0] = 0.9;
+  });
+  await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 3");
+  await openGameOptions(page, "settings-menu");
+  const held = page.getByTestId("toggle-touch-controls");
+  await expect(held).toBeVisible();
+  await held.focus();
+  await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 0");
+  await page.keyboard.press("Escape");
+  // Focus returns the way a player's does: a click on the game. Aim past
+  // ego so click-to-walk agrees with the held stick's rightward push.
+  const egoX = (await textHook(page)).egoX;
+  const box = (await page.locator(".screen").boundingBox())!;
+  await page.mouse.click(
+    box.x + ((Math.min(egoX + 40, 315) + 0.5) * box.width) / 320,
+    box.y + ((120 + 0.5) * box.height) / 200,
+  );
+  await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 3");
+});
 
 test("a Gamepad revealed after the game started walks the hero without a calibration window", async ({
   page,

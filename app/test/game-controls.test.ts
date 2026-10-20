@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gameShortcuts, movementDirection } from "../src/play/gameControls.ts";
-import { nativeGameKey } from "../src/play/useGameKeys.ts";
-import { translatePlatformKey } from "../../src/runtime/keys.ts";
+import { createGamepadPoll, nativeGameKey } from "../src/play/useGameKeys.ts";
+import { translatePlatformKey, type JoystickSample } from "../../src/runtime/keys.ts";
 
 const pcKey = (event: KeyboardEvent) => translatePlatformKey(event, "2.936");
 
@@ -111,3 +111,137 @@ test("the Command key stays with the browser unless the game binds its word", ()
   assert.equal(nativeGameKey(commandX, "amiga-2.202", [{ key: 0x0178 }]), 0x0178);
   assert.equal(nativeGameKey(key("v", { metaKey: true }), "2.936", [{ key: 0x76 }]), undefined);
 });
+
+function gamepadRig(presentation = "pc"): {
+  sent: (JoystickSample | null)[];
+  keys: number[];
+  owns: boolean;
+  prompt: boolean;
+  pad: { x: number; y: number; button1: boolean; button2: boolean };
+  poll: () => void;
+} {
+  const rig = {
+    sent: [] as (JoystickSample | null)[],
+    keys: [] as number[],
+    owns: true,
+    prompt: false,
+    pad: { x: 0.9, y: 0, button1: false, button2: false },
+    poll: () => {},
+  };
+  rig.poll = createGamepadPoll({
+    gameOwnsPad: () => rig.owns,
+    sample: () => rig.pad,
+    send: (sample) => rig.sent.push(sample),
+    prompt: () => rig.prompt,
+    promptKey: (code) => rig.keys.push(code),
+    presentation: () => presentation,
+  });
+  return rig;
+}
+
+test("the controller follows the keyboard's owner: while a host control holds focus the game gets nothing, its held buttons release, and focus back resumes it with no stuck buttons", () => {
+  const rig = gamepadRig();
+  rig.poll();
+  assert.deepEqual(rig.sent, [rig.pad]);
+  // A Settings field or editor takes the keyboard: the held stick posts a
+  // neutral sample, and later polls keep it neutral rather than replaying it.
+  rig.owns = false;
+  rig.poll();
+  assert.deepEqual(rig.sent.at(-1), null);
+  rig.pad.x = 0;
+  rig.poll();
+  assert.deepEqual(rig.sent.at(-1), null);
+  // Focus back on the game resumes the live sample at once.
+  rig.owns = true;
+  rig.pad.x = 0.9;
+  rig.poll();
+  assert.deepEqual(rig.sent.at(-1), rig.pad);
+});
+
+test("a fire button released while a host control holds focus does not fire late into the game's prompt", () => {
+  const rig = gamepadRig();
+  rig.prompt = true;
+  rig.pad.button1 = true;
+  rig.poll();
+  assert.deepEqual(rig.keys, []);
+  // The press crosses into a host control, and the finger lifts there.
+  rig.owns = false;
+  rig.poll();
+  rig.pad.button1 = false;
+  rig.poll();
+  assert.deepEqual(rig.keys, []);
+  // Focus returns: the stale release must not reach the waiting prompt.
+  rig.owns = true;
+  rig.poll();
+  assert.deepEqual(rig.keys, []);
+  // A fresh press-and-release still fires its word.
+  rig.pad.button1 = true;
+  rig.poll();
+  rig.pad.button1 = false;
+  rig.poll();
+  assert.deepEqual(rig.keys, [0x0101]);
+});
+
+// A button the game never saw released must not fire: a finger still down
+// across the focus handoff carries no fresh edge for either fire convention.
+for (const presentation of ["iigs", "pc", "amiga"]) {
+  test(`a fire button held across a focus loss stays stale until seen released (${presentation})`, () => {
+    const rig = gamepadRig(presentation);
+    rig.prompt = true;
+    // Establish a working fire button while the game owns the page.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(rig.keys, [0x0101]);
+    // Press and hold, then a host control takes the keyboard mid-hold.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.owns = false;
+    rig.poll();
+    // Focus returns with the finger still down: no fresh edge on either
+    // convention, so nothing may fire — not on the press (IIgs) and not on
+    // the release the game never saw begin (PC, Amiga).
+    rig.owns = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(rig.keys, presentation === "iigs" ? [0x0101, 0x0101] : [0x0101]);
+    // Once the held button has been seen released, the next press fires.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(
+      rig.keys,
+      presentation === "iigs" ? [0x0101, 0x0101, 0x0101] : [0x0101, 0x0101],
+    );
+  });
+}
+
+// The stale flag ends at the first owned poll that sees the button up, prompt
+// or no prompt: a press that started during play and ended under a prompt the
+// game opened later is a fresh gesture, never a swallowed one.
+for (const presentation of ["iigs", "pc", "amiga"]) {
+  test(`a fire button released before a prompt opens fires on its next press (${presentation})`, () => {
+    const rig = gamepadRig(presentation);
+    // Press in play, a host control takes the keyboard mid-hold, and the
+    // finger lifts there.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.owns = false;
+    rig.poll();
+    // Focus returns to ordinary play with the button already up: this owned
+    // poll sees the release and ends the stale flag.
+    rig.owns = true;
+    rig.pad.button1 = false;
+    rig.poll();
+    // The game then opens a prompt; the next press-and-release is fresh.
+    rig.prompt = true;
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(rig.keys, [0x0101]);
+  });
+}

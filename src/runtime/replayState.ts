@@ -137,7 +137,7 @@ export function validateJoystickState(value: unknown): JoystickReplayState {
 export const REPLAY_STATE_VERSION = 2;
 
 export interface EngineReplayState {
-  /** Omission is the released version-1 recording contract. */
+  /** Omitted for released/unchanged semantics; version 2 marks corrected booter playback. */
   version?: 1 | typeof REPLAY_STATE_VERSION;
   joystick?: JoystickReplayState;
   amigaRegion?: "ntsc" | "pal";

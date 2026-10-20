@@ -13,8 +13,13 @@ import {
 } from "vue";
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
-import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
-import { connectedGamepad, nativeGameKey, PAGE_CONTROLS } from "./useGameKeys.ts";
+import { gameRoomMenu } from "./roomActionMenu.ts";
+import {
+  connectedGamepad,
+  createGamepadPoll,
+  nativeGameKey,
+  PAGE_CONTROLS,
+} from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -134,7 +139,6 @@ function onFocusMove(): void {
   setTimeout(readKeyboard, 0);
 }
 let gamepadTimer: ReturnType<typeof setInterval> | null = null;
-let gamepadButtons = [false, false];
 /** The last sample posted; the worker hears only changes, never a 60 Hz stream. */
 let gamepadSent = "null";
 function postGamepad(sample: JoystickSample | null): void {
@@ -143,40 +147,39 @@ function postGamepad(sample: JoystickSample | null): void {
   gamepadSent = text;
   sendJoystick(sample);
 }
-function pollGamepad(): void {
-  if (
-    state.phase !== "running" ||
-    document.hidden ||
-    !document.hasFocus() ||
-    !state.inputReady ||
-    state.paused ||
-    agentBlocksGame.value ||
-    state.walkthrough.active ||
-    state.historyView.active
-  )
-    return;
-  const sample = connectedGamepad();
-  const buttons = [Boolean(sample?.button1), Boolean(sample?.button2)];
-  if (state.prompt) {
-    postGamepad(null);
-    // The Amiga gameport has one fire button (F-IN-17).
-    for (let i = 0; i < (screenPresentation.value === "amiga" ? 1 : 2); i++) {
-      const pressed = buttons[i]!;
-      const wasPressed = gamepadButtons[i]!;
-      if (screenPresentation.value === "iigs" ? pressed && !wasPressed : wasPressed && !pressed)
-        onVirtualKey(i === 0 ? 0x0101 : 0x0201);
-    }
-  } else postGamepad(sample);
-  gamepadButtons = buttons;
-}
 function releaseGamepad(): void {
-  gamepadButtons = [false, false];
   gamepadSent = "null";
   sendJoystick(null);
 }
+/**
+ * The pad follows the keyboard's owner (useGameKeys): while a page control,
+ * sheet or dialog holds the keyboard the game's held input releases, and it
+ * resumes when the game takes the page back.
+ */
+const pollGamepad = createGamepadPoll({
+  gameOwnsPad: () =>
+    state.phase === "running" &&
+    !document.hidden &&
+    document.hasFocus() &&
+    gameFocused.value &&
+    state.inputReady &&
+    !state.paused &&
+    !agentBlocksGame.value &&
+    !state.walkthrough.active &&
+    !state.historyView.active,
+  sample: connectedGamepad,
+  send: postGamepad,
+  prompt: () => state.prompt !== null,
+  promptKey: onVirtualKey,
+  presentation: () => screenPresentation.value,
+});
 watch(
   () =>
-    state.paused || agentBlocksGame.value || state.historyView.active || state.walkthrough.active,
+    state.paused ||
+    agentBlocksGame.value ||
+    state.historyView.active ||
+    state.walkthrough.active ||
+    !gameFocused.value,
   (blocked) => {
     if (blocked) releaseGamepad();
   },
@@ -447,9 +450,38 @@ function menuPoint(clientX: number, clientY: number): { x: number; y: number } |
   );
 }
 
+/**
+ * The right button's owner for its whole gesture: Create's room actions
+ * while Create is on stage, Intuition's strip while the game offers one, the
+ * game's own double-click word once the strip is withdrawn — and the
+ * browser's own menu on a non-Amiga Play. The mode decides, not the lazily
+ * mounted workspace: Create owns the button from the moment it is on stage.
+ */
+type RightButtonOwner = "create" | "strip" | "game" | "browser";
+function currentRightButtonOwner(): RightButtonOwner {
+  if (props.inspectorDocked) return "create";
+  if (screenPresentation.value !== "amiga") return "browser";
+  // Intuition owns the right button while the strip can open or is open;
+  // the double-click word belongs to the game only when the verify fails.
+  return amigaMenuReady.value || amigaMenuOpen.value || menuDrag ? "strip" : "game";
+}
+/** The owner the last right press recorded; contextmenu honours it even after the release. */
+let rightButtonOwner: RightButtonOwner | null = null;
+
 function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
-  if (ev.button === 2 && ev.pointerType === "mouse" && amigaMenuReady.value) {
+  // One owner per gesture, settled at the press: contextmenu arrives after
+  // the release on Windows, and a mode switch mid-gesture must not hand the
+  // same press to two owners.
+  if (ev.button === 2) rightButtonOwner = currentRightButtonOwner();
+  // While Create is on stage the press stays theirs; only Play's native
+  // path may open the strip and capture the pointer.
+  if (
+    ev.button === 2 &&
+    ev.pointerType === "mouse" &&
+    rightButtonOwner === "strip" &&
+    amigaMenuReady.value
+  ) {
     const point = menuPoint(ev.clientX, ev.clientY);
     if (!point) return;
     ev.preventDefault();
@@ -505,6 +537,16 @@ function onScreenPointerCancel(): void {
   sendMenu("cancel", 0, 0);
 }
 
+// A mode switch under a held button ends the gesture its old owner started.
+watch(
+  () => props.inspectorDocked,
+  (docked) => {
+    onScreenPointerCancel();
+    // A room menu asked for before Create's workspace mounted leaves with it.
+    if (!docked) gameRoomMenu.value = undefined;
+  },
+);
+
 /** The touch Menu button: open the strip without a button and keep it open. */
 function onTouchMenu(): void {
   resumeAudio();
@@ -512,23 +554,26 @@ function onTouchMenu(): void {
   sendMenu("open", -1, -1, true);
 }
 
-/** Right-click offers the current room's actions while Create is armed; Amiga Play gets its right button. */
+/** Right-click offers the current room's actions while Create is on stage; Amiga Play gets its right button. */
 function onScreenContextMenu(ev: MouseEvent): void {
-  if (roomMenuArmed.value) {
+  // The press's owner answers one contextmenu, for its own button only: a
+  // keyboard or long-press contextmenu (button 0) asks the mode on stage.
+  const pressed = rightButtonOwner;
+  rightButtonOwner = null;
+  const owner = ev.button === 2 && pressed !== null ? pressed : currentRightButtonOwner();
+  if (owner === "create") {
+    // Create's menu answers the press even with no room under it, and the
+    // browser's own menu never opens over the game.
+    ev.preventDefault();
     const room = engine.roomMap?.currentRoom.value ?? null;
-    if (room === null) return;
-    ev.preventDefault();
-    gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
+    if (room !== null) gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
     return;
   }
-  if (screenPresentation.value !== "amiga") return;
-  // Intuition owns the right button while the strip can open or is open;
-  // the double-click word belongs to the game only when the verify fails.
-  if (amigaMenuReady.value || amigaMenuOpen.value || menuDrag) {
+  if (owner === "strip") {
     ev.preventDefault();
     return;
   }
-  onAmigaRightButton(ev);
+  if (owner === "game") onAmigaRightButton(ev);
 }
 
 /**
