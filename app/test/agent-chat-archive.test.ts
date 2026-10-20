@@ -61,7 +61,7 @@ test("private archives preserve chats and notes while public games carry playabl
     !Object.keys(publicGame.files).some((name) => name.includes("CHAT") || name.includes("NOTES")),
   );
 });
-test("notes and progress entrys declare versions and readers reject unknown chat fields", () => {
+test("notes and checkpoints declare versions and readers reject unknown chat fields", () => {
   const workspace = writeProjectWorkspace({ notes: "Friendly" });
   assert.equal(workspace.version, 1);
   assert.throws(() => readProjectWorkspace({ ...workspace, version: 2 }), /version/i);

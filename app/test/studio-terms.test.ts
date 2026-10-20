@@ -27,7 +27,7 @@ test("editor explainers and walk labels use the shared vocabulary", () => {
   assert.equal(STUDIO_TERMS.onion.name, "Onion skin");
   assert.equal(
     STUDIO_TERMS.transparent.says,
-    "Pixels in this colour show the room behind the character.",
+    "Pixels in this colour show the room behind the actor.",
   );
   assert.equal(
     STUDIO_TERMS.order.says,

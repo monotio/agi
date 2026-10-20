@@ -221,11 +221,11 @@ test("from the keyboard alone: step to an item, grow the run with Shift+Alt+arro
   await canvas.focus();
   await page.keyboard.press("Alt+ArrowDown");
   await expect(studio.locator('[data-role="announce"]')).toHaveText(
-    "Green line · 7 points, art, 2 steps",
+    "Green line · 7 points, visual, 2 steps",
   );
   await page.keyboard.press("Shift+Alt+ArrowDown");
   await page.keyboard.press("Shift+Alt+ArrowDown");
-  await expect(studio.locator('[data-role="announce"]')).toHaveText("3 items, art, 6 steps");
+  await expect(studio.locator('[data-role="announce"]')).toHaveText("3 items, visual, 6 steps");
   expect(await selectedRows(studio)).toEqual(["el-1", "el-2", "el-1-2"]);
   // Shift+Alt+Up takes the last one away again, and Down brings it back.
   await page.keyboard.press("Shift+Alt+ArrowUp");

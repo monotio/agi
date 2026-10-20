@@ -91,7 +91,7 @@ import {
 
 export type GuidedOperationKind =
   | "add-room"
-  | "place-hero"
+  | "place-ego"
   | "respond-to-command"
   | "connect-door"
   | "play-sound"
@@ -221,7 +221,7 @@ interface GuidedImage {
   readonly words: WordEntry[];
   readonly dictionary: ReadonlyMap<string, number>;
   readonly profile: AgiProfile;
-  readonly keptContainer: GameContainer;
+  readonly savedContainer: GameContainer;
 }
 
 function readJson(text: string): unknown {
@@ -301,7 +301,7 @@ function consult(
       "words",
     );
   }
-  const keptContainer = openContainer(
+  const savedContainer = openContainer(
     new Map(Object.entries(ctx.files).map(([name, bytes]) => [name, new Uint8Array(bytes)])),
     { profile },
   );
@@ -313,7 +313,7 @@ function consult(
     words,
     dictionary: new Map(words.map((entry) => [entry.word, entry.id])),
     profile,
-    keptContainer,
+    savedContainer,
   };
 }
 
@@ -336,13 +336,13 @@ function occupiedResourceIds(img: GuidedImage, kind: "logic" | "picture" | "view
     if (binding.kind === kind) used.add(binding.num);
   for (let num = 0; num < 256; num++) {
     try {
-      if (img.keptContainer.getResource(kind, num)) used.add(num);
+      if (img.savedContainer.getResource(kind, num)) used.add(num);
     } catch {
       used.add(num);
     }
   }
   const analysis = inspectProjectReferences({
-    container: img.keptContainer,
+    container: img.savedContainer,
     profile: img.profile,
     bindings: img.bindings,
   });
@@ -648,7 +648,7 @@ function allocateState(
       );
   }
   const context = {
-    container: img.keptContainer,
+    container: img.savedContainer,
     profile: img.profile,
     dictionary: img.dictionary,
     bindings: inFlight,
@@ -953,7 +953,7 @@ function viewOf(img: GuidedImage, num: number): AgiView | null {
     if (typeof doc === "string")
       return parseView(buildView(readJson(doc) as BuildViewInput, img.profile), img.profile);
     if (doc instanceof Uint8Array) return parseView(doc, img.profile);
-    const payload = img.keptContainer.getResource("view", num);
+    const payload = img.savedContainer.getResource("view", num);
     return payload ? parseView(payload, img.profile) : null;
   } catch {
     return null;
@@ -989,7 +989,7 @@ function pictureSurface(img: GuidedImage, num: number): Uint8Array | null {
     if (doc instanceof Uint8Array) payload = doc;
     else if (typeof doc === "string")
       payload = compilePictureSource(doc, { profile: img.profile }).bytes;
-    else payload = img.keptContainer.getResource("picture", num);
+    else payload = img.savedContainer.getResource("picture", num);
     if (!payload) return null;
     const surface = createPictureSurface();
     renderPicture(payload, surface, { profile: img.profile });
@@ -1570,7 +1570,7 @@ export function prepareGuidedPlaceEgo(
   ctx: GuidedContext,
   input: GuidedPlaceEgoInput,
 ): GuidedOutcome {
-  const kind: GuidedOperationKind = "place-hero";
+  const kind: GuidedOperationKind = "place-ego";
   const label = "Place hero";
   const consulted = consult(ctx, kind, label);
   if ("code" in consulted) return consulted;

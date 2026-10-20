@@ -239,14 +239,14 @@ describe("useViewDraft", () => {
         "Pencil",
       );
     paint(1);
-    draft.markKept(testRevision("kept"));
+    draft.markSaved(testRevision("kept"));
     const kept = draft.bytes.value;
     assert.equal(draft.dirty.value, false);
     paint(2);
     assert.equal(draft.changes.value, 1);
     draft.discard();
     assert.deepEqual(draft.bytes.value, kept);
-    assert.equal(draft.kept.value.revision, testRevision("kept"));
+    assert.equal(draft.saved.value.revision, testRevision("kept"));
   });
 });
 

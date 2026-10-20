@@ -36,7 +36,7 @@ test("mutating review diagnostics cannot authorize a broken resource reference",
   } catch (caught) {
     assert.ok(caught instanceof TypeError);
   }
-  await assert.rejects(workspace.keepCandidate(candidate), /reference/i);
+  await assert.rejects(workspace.commitCandidate(candidate), /reference/i);
   assert.equal((await loadAuthoredGame(seed.projectId))!.generation, before);
 });
 
@@ -47,7 +47,7 @@ test("a consumer's saved identity copy cannot corrupt the next Keep baseline", a
   const snapshot = workspace.draft.capture();
   const source = snapshot.read("logic:1")!.content;
   workspace.draft.edit("logic:1", `${source}\n// first edit`, snapshot.version("logic:1"));
-  const first = await workspace.keepCandidate(workspace.buildSelected(["logic:1"]));
+  const first = await workspace.commitCandidate(workspace.buildSelected(["logic:1"]));
   const generation = first.saved.generation;
   for (const exposed of [first.saved, workspace.savedIdentity()]) {
     try {
@@ -59,6 +59,6 @@ test("a consumer's saved identity copy cannot corrupt the next Keep baseline", a
   assert.equal(workspace.savedIdentity().generation, generation);
   const newer = workspace.draft.capture();
   workspace.draft.edit("logic:1", `${source}\n// next edit`, newer.version("logic:1"));
-  const second = await workspace.keepCandidate(workspace.buildSelected(["logic:1"]));
+  const second = await workspace.commitCandidate(workspace.buildSelected(["logic:1"]));
   assert.equal(second.saved.generation, generation + 1);
 });

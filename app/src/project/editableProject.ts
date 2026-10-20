@@ -3,7 +3,7 @@
  * stored project body and its history lifetime in one storage snapshot,
  * verifies its claimed authored source through inspectEditableProject, and
  * hands out one owned ProjectDraft. buildSelected freezes an immutable
- * candidate over the complete current draft; keepCandidate admits it through
+ * candidate over the complete current draft; commitCandidate admits it through
  * the durable commitProject receipt, then acknowledges exactly the admitted
  * selection so newer typing stays dirty.
  *
@@ -14,11 +14,11 @@
  * running game.
  *
  * Bounded first slice: a project whose source claims need review refuses
- * build/Keep until an explicit resolution step exists; a candidate that
+ * build/commit until an explicit resolution step exists; a candidate that
  * changes the `tests`/`references` metadata documents is refused at
  * admission; a pending portable recoveryDraft is carried through every body
  * unchanged. Resource removal needs an explicit per-candidate review
- * (reviewedRemovals) and an empty surviving-use inventory before Keep.
+ * (reviewedRemovals) and an empty surviving-use inventory before commit.
  */
 import { ProjectHistory } from "../../../src/authoring/projectHistory.ts";
 import {
@@ -33,7 +33,7 @@ import {
   type AuthoringState,
 } from "../../../src/authoring/authoringState.ts";
 import { captureProjectBuild } from "../../../src/authoring/projectBuild.ts";
-import { ProjectDraft, type DraftKeepAdmission } from "../../../src/authoring/projectDraft.ts";
+import { ProjectDraft, type DraftCommitAdmission } from "../../../src/authoring/projectDraft.ts";
 import {
   readBindingsDocument,
   readMusicDocument,
@@ -67,7 +67,7 @@ import {
 /** One kept or refused document: authored text or retained native bytes. */
 type EditableDocumentContent = EditableProjectInspection["documents"][string];
 
-/** The durable identity a committed Keep advanced storage to. */
+/** The durable identity a committed commit advanced storage to. */
 export interface EditableSavedIdentity {
   readonly projectId: ProjectId;
   readonly generation: number;
@@ -90,9 +90,9 @@ export interface EditableCandidate {
   readonly buildId: string;
   readonly revision: ResourceRevision;
   readonly profileId: ProfileId;
-  /** Reference findings on the built image; errors block Keep, warnings stay visible. */
+  /** Reference findings on the built image; errors block commit, warnings stay visible. */
   readonly diagnostics: ReferenceDiagnostics;
-  /** Kept native resources this candidate deletes; Keep needs them reviewed. */
+  /** Saved native resources this candidate deletes; commit needs them reviewed. */
   readonly removedResources: readonly string[];
   /** The complete compiled document set, detached on every call. */
   documents(): Readonly<Record<string, EditableDocumentContent>>;
@@ -101,16 +101,16 @@ export interface EditableCandidate {
 }
 
 /**
- * The caller's explicit review of a candidate's removals, supplied at Keep.
+ * The caller's explicit review of a candidate's removals, supplied at commit.
  * `reviewedRemovals` must equal the candidate's own removedResources exactly:
  * it records that the listed removals were seen, never which resources to
  * delete — the issued candidate's image remains the only authority.
  */
-export interface EditableKeepReview {
+export interface EditableCommitReview {
   readonly reviewedRemovals?: readonly string[];
 }
 
-export interface EditableKeepResult {
+export interface EditableCommitResult {
   /** Durable save only: a receipt acknowledges storage, never a running game. */
   readonly kind: "savedOnly";
   readonly commitId: string;
@@ -155,10 +155,10 @@ export interface EditableProject {
    * naming exactly those removals, and refuses while any surviving or
    * unprovable use remains.
    */
-  keepCandidate(
+  commitCandidate(
     candidate: EditableCandidate,
-    review?: EditableKeepReview,
-  ): Promise<EditableKeepResult>;
+    review?: EditableCommitReview,
+  ): Promise<EditableCommitResult>;
 }
 
 type Selection = ReturnType<ProjectDraft["select"]>;
@@ -176,12 +176,12 @@ interface CandidateState {
   readonly image: SelectionCompile["references"];
   readonly removedResources: readonly string[];
   /** The kept baseline's named bindings, captured at build for draft review. */
-  readonly keptBindings: AuthoringState["bindings"];
+  readonly savedBindings: AuthoringState["bindings"];
   readonly documents: Readonly<Record<string, EditableDocumentContent>>;
   readonly files: Readonly<Record<string, Uint8Array>>;
   readonly versions: readonly { readonly key: string; readonly version: number }[];
   request: ProjectCommitRequest | undefined;
-  pending: Promise<EditableKeepResult> | undefined;
+  pending: Promise<EditableCommitResult> | undefined;
   receipt: ProjectCommitReceipt | undefined;
 }
 
@@ -336,7 +336,7 @@ class EditableProjectService implements EditableProject {
       ...(dependencies === undefined ? {} : { dependencies }),
       allowMissingRooms: this.allowMissingRooms,
     });
-    const keptBindings = this.draft.select([]).documents()["bindings"];
+    const savedBindings = this.draft.select([]).documents()["bindings"];
     const state: CandidateState = {
       selection: result.selection,
       commitId: crypto.randomUUID(),
@@ -346,7 +346,7 @@ class EditableProjectService implements EditableProject {
       diagnostics: result.references.diagnostics,
       image: result.references,
       removedResources: result.removedResources,
-      keptBindings: readBindingsDocument(typeof keptBindings === "string" ? keptBindings : "{}"),
+      savedBindings: readBindingsDocument(typeof savedBindings === "string" ? savedBindings : "{}"),
       documents: result.compiled.documents(),
       files: Object.fromEntries(result.compiled.files()),
       versions: result.selection.keys.map((key) => ({
@@ -372,10 +372,10 @@ class EditableProjectService implements EditableProject {
     return candidate;
   }
 
-  async keepCandidate(
+  async commitCandidate(
     candidate: EditableCandidate,
-    review?: EditableKeepReview,
-  ): Promise<EditableKeepResult> {
+    review?: EditableCommitReview,
+  ): Promise<EditableCommitResult> {
     const state = this.candidates.get(candidate);
     if (state === undefined)
       throw new Error("These changes were created by another workspace or service.");
@@ -387,7 +387,7 @@ class EditableProjectService implements EditableProject {
       review?.reviewedRemovals === undefined
         ? undefined
         : Object.freeze([...review.reviewedRemovals]);
-    if (state.receipt !== undefined) return this.replayKeep(state);
+    if (state.receipt !== undefined) return this.replayCommit(state);
     if (state.pending !== undefined) return state.pending;
     this.draft.assertCurrent(state.selection);
     // The prospective request is built locally before admission: a review or
@@ -395,7 +395,7 @@ class EditableProjectService implements EditableProject {
     // request is registered or the async tail opens — is what lets the draft
     // hold a native history step out of this save's settlement window.
     const request = this.admissionRequest(state, reviewedRemovals);
-    const admission = this.draft.admitKeep(state.selection);
+    const admission = this.draft.admitCommit(state.selection);
     try {
       state.request = request;
       const pending = this.tail.then(() => this.commitAdmitted(state, admission));
@@ -409,7 +409,7 @@ class EditableProjectService implements EditableProject {
       });
       return pending;
     } catch (error) {
-      this.draft.finishKeepAdmission(admission);
+      this.draft.finishCommitAdmission(admission);
       throw error;
     }
   }
@@ -444,7 +444,7 @@ class EditableProjectService implements EditableProject {
         authoring: this.candidateAuthoring(state.documents),
         references: state.documents["references"],
         drafts,
-        keptBindings: state.keptBindings,
+        savedBindings: state.savedBindings,
         profile,
       });
       if (findings.length > 0)
@@ -464,7 +464,7 @@ class EditableProjectService implements EditableProject {
     const errors = state.diagnostics.filter((entry) => entry.severity === "error");
     if (errors.length > 0)
       throw new Error(
-        `Reference errors block this Keep: ${errors
+        `Reference errors block this commit: ${errors
           .map((entry) => `${entry.document}: ${entry.message}`)
           .join("; ")}`,
       );
@@ -669,13 +669,13 @@ class EditableProjectService implements EditableProject {
    */
   private async commitAdmitted(
     state: CandidateState,
-    admission: DraftKeepAdmission,
-  ): Promise<EditableKeepResult> {
+    admission: DraftCommitAdmission,
+  ): Promise<EditableCommitResult> {
     try {
       const result = await commitProject(state.request!);
       state.receipt = result.receipt;
       const saved: EditableSavedIdentity = Object.freeze({ ...result.receipt.saved });
-      if (this.draft.acknowledgeAdmittedKeep(admission)) {
+      if (this.draft.acknowledgeAdmittedCommit(admission)) {
         this.saved = saved;
         this.files = state.files;
         this.keptHistory = state.request!.data.projectHistory;
@@ -687,7 +687,7 @@ class EditableProjectService implements EditableProject {
         warnings: Object.freeze([...result.warnings]),
       });
     } finally {
-      this.draft.finishKeepAdmission(admission);
+      this.draft.finishCommitAdmission(admission);
     }
   }
 
@@ -696,7 +696,7 @@ class EditableProjectService implements EditableProject {
    * the commit record, without rechecking the draft or moving the baseline
    * back to an older save.
    */
-  private replayKeep(state: CandidateState): Promise<EditableKeepResult> {
+  private replayCommit(state: CandidateState): Promise<EditableCommitResult> {
     const pending = this.tail.then(async () => {
       const result = await commitProject(state.request!);
       return Object.freeze({

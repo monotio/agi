@@ -350,7 +350,7 @@ for (const [changedResources, refusedCheckpoint] of [
 }
 
 for (const failed of [false, true]) {
-  test(`a ${failed ? "failed" : "pending"} resource write refuses progress entrys until its revision commits`, async () => {
+  test(`a ${failed ? "failed" : "pending"} resource write refuses checkpoints until its revision commits`, async () => {
     const starter = createStarterProject("starter");
     const files = Object.fromEntries(starter.files());
     const id = testProjectId(`resource-checkpoint-${failed}`);

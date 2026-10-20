@@ -1520,7 +1520,7 @@ function decodedSheet(): DecodedImage {
   return { width, height, rgba, mime: "image/png", bytes: Uint8Array.of(1, 2, 3) };
 }
 
-test("keepStagedView refuses a busy turn and a moved durable base, then commits once", async (t) => {
+test("commitStagedView refuses a busy turn and a moved durable base, then commits once", async (t) => {
   installLocalStorageMock(t);
   const projectId = testProjectId("keep-staged-view");
   const files = createTestFiles();
@@ -1583,7 +1583,7 @@ test("keepStagedView refuses a busy turn and a moved durable base, then commits 
 
   // A running turn owns the session — Keep refuses and the offer survives.
   powerUp.busy = true;
-  await assert.rejects(controller.keepStagedView(reference.id), /current agent turn/);
+  await assert.rejects(controller.commitStagedView(reference.id), /current agent turn/);
   assert.equal(patches.length, 0);
   powerUp.busy = false;
 
@@ -1598,14 +1598,14 @@ test("keepStagedView refuses a busy turn and a moved durable base, then commits 
   );
   const movedFiles = Object.fromEntries(movedContainer.files);
   assert.equal(await updateAuthoredGameFiles(projectId, movedFiles), true);
-  await assert.rejects(controller.keepStagedView(reference.id), /changed elsewhere/);
+  await assert.rejects(controller.commitStagedView(reference.id), /changed elsewhere/);
   assert.equal(patches.length, 0);
   assert.ok((await controller.listReferences())[0]?.staged, "staged offer must survive");
 
   // Restore the booted base and keep: the staged view lands in the project,
   // the worker gets the patch, and the stored offer is spent.
   assert.equal(await updateAuthoredGameFiles(projectId, files), true);
-  await controller.keepStagedView(reference.id);
+  await controller.commitStagedView(reference.id);
   const stored = await loadAuthoredGame(projectId);
   const storedContainer = openContainer(new Map(Object.entries(stored!.files)));
   assert.deepEqual(storedContainer.getResource("view", 0), stagedPayload);
@@ -1691,7 +1691,7 @@ for (const withSession of [false, true]) {
     duringExport = async () => {
       assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(moved.files)), true);
     };
-    await assert.rejects(controller.keepStagedView(reference.id), /changed|save/i);
+    await assert.rejects(controller.commitStagedView(reference.id), /changed|save/i);
     assert.equal(author.resourceSet(), before);
     assert.equal(game.files, files);
     assert.equal(posts.length, 0);
@@ -1715,7 +1715,7 @@ for (const withSession of [false, true]) {
       assert.equal((await loadAuthoredGame(projectId))!.generation, beforeRecreation.generation);
       assert.notEqual(await readHistoryLifetime(projectId), game.historyLifetime);
     };
-    await assert.rejects(controller.keepStagedView(reference.id), /changed|save/i);
+    await assert.rejects(controller.commitStagedView(reference.id), /changed|save/i);
     const replacement = (await loadAuthoredGame(projectId))!;
     assert.equal(replacement.title, "Replacement project");
     assert.ok(openContainer(new Map(Object.entries(replacement.files))).getResource("logic", 2));
@@ -1726,11 +1726,11 @@ for (const withSession of [false, true]) {
     // Even identical bytes in the replacement cannot revive the old boot's ownership.
     await updateAuthoredGameFiles(projectId, files);
     duringExport = async () => assert.fail("an obsolete boot must refuse before export");
-    await assert.rejects(controller.keepStagedView(reference.id), /changed|removed/i);
+    await assert.rejects(controller.commitStagedView(reference.id), /changed|removed/i);
     game.historyLifetime = await readHistoryLifetime(projectId);
     duringExport = async () => {
       assert.equal(powerUp.busy, true, "Keep reserves the controller before exporting");
-      await assert.rejects(controller.keepStagedView(reference.id), /current agent turn/);
+      await assert.rejects(controller.commitStagedView(reference.id), /current agent turn/);
       if (withSession) {
         await assert.rejects(author.runPowerUp("change it", 1), /keeping a staged view/i);
         assert.throws(() => author.holdAdoption("rewind"), /keeping a staged view/i);
@@ -1745,7 +1745,7 @@ for (const withSession of [false, true]) {
       if (key === projectId) throw new DOMException("Quota injected", "QuotaExceededError");
       return originalSet(key, value);
     });
-    await assert.rejects(controller.keepStagedView(reference.id), /save/i);
+    await assert.rejects(controller.commitStagedView(reference.id), /save/i);
     assert.equal(author.resourceSet(), before, "failed persistence cannot mutate the live session");
     assert.equal(posts.length, 0);
     assert.ok((await loadAuthoredGame(projectId))!.references?.[0]?.staged);
@@ -1753,7 +1753,7 @@ for (const withSession of [false, true]) {
     assert.equal(author.adoptionHeld, null);
     t.mock.restoreAll();
 
-    await controller.keepStagedView(reference.id);
+    await controller.commitStagedView(reference.id);
     const kept = (await loadAuthoredGame(projectId))!;
     assert.equal(kept.references?.[0]?.staged, undefined);
     const reopened = AgentSession.fromAuthoredData(
@@ -1793,7 +1793,7 @@ for (const withSession of [false, true]) {
     );
     const sourceBefore = (await loadAuthoredGame(projectId))!;
     duringExport = async () => {};
-    await controller.keepStagedView(nextReference.id);
+    await controller.commitStagedView(nextReference.id);
     assert.notEqual(game.projectId, projectId);
     assert.equal(game.historyLifetime, await readHistoryLifetime(game.projectId!));
     const original = (await loadAuthoredGame(projectId))!;

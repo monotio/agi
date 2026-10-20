@@ -577,7 +577,7 @@ test("a guided action finishing keeps Draft saving while LOGIC typing is pending
       return put.apply(this, args);
     };
   });
-  await clickContextAction(page, "room-action-place-hero");
+  await clickContextAction(page, "room-action-place-ego");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

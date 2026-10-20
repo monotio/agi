@@ -42,7 +42,7 @@ export interface StudioInputOptions {
   readonly fallback: PointerFallback;
   /** The focusable canvas stage. */
   readonly stage: () => HTMLElement | null;
-  /** G: show or hide the actor probe. */
+  /** G: show or hide the Stand-in probe. */
   readonly probe?: () => void;
   /**
    * Where a held Space or Alt can be let go outside the studio: a keyup

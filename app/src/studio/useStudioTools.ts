@@ -236,7 +236,7 @@ export function useStudioTools(options: StudioToolsOptions) {
     });
   }
 
-  /** Drawing is blocked (view only, or a Keep that needs a reload): say so. */
+  /** Drawing is blocked (view only, or a commit that needs a reload): say so. */
   function blocked(): boolean {
     if (options.frozen()) {
       options.say({ tone: "warn", text: "This picture is read-only." });
@@ -618,7 +618,7 @@ export function useStudioTools(options: StudioToolsOptions) {
 
   // A lens change or a frozen draft ends what was being drawn with the old values.
   watch([lens, options.frozen, () => options.paused?.() ?? false], () => cancel());
-  // The picture changed under the fill tool's explanation (undo, Keep), or the
+  // The picture changed under the fill tool's explanation (undo, commit), or the
   // scrubber moved from where it was asked: it no longer holds.
   watch([() => draft.source.value, () => insertion.value.index], () => (fillWhy.value = null));
 

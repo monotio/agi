@@ -1085,7 +1085,7 @@ describe("guided operation surface", () => {
     const { ctx } = workspace("starter");
     const op = mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 90 }));
     const kind: GuidedOperationKind = op.kind;
-    assert.equal(kind, "place-hero");
+    assert.equal(kind, "place-ego");
     const changes: readonly GuidedChange[] = op.changes;
     const previews: readonly GuidedSourcePreview[] = op.showCode;
     const ranges: readonly GuidedLineRange[] = previews.flatMap((p) => p.lines);

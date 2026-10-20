@@ -1,9 +1,9 @@
 /**
- * A lesson challenge's check after a successful Keep. Studio opened from a
+ * A lesson challenge's check after a successful commit. Studio opened from a
  * lesson carries a session: the lesson and the resource as the studio first
- * opened on it. Each Keep of that resource runs the challenge's verify() on
+ * opened on it. Each commit of that resource runs the challenge's verify() on
  * those bytes and the ones just kept. A pass awards the badge; a miss or a
- * check that throws says so and awards nothing. The Keep itself is never
+ * check that throws says so and awards nothing. The commit itself is never
  * blocked: it has already happened when this runs.
  */
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
@@ -17,8 +17,8 @@ export interface LessonSession {
   readonly beforeSource?: string | undefined;
 }
 
-/** What a Keep just saved: the resource, and its annotated source for pictures. */
-export interface LessonKeep {
+/** What a commit just saved: the resource, and its annotated source for pictures. */
+export interface LessonCommit {
   readonly kind: "picture" | "view";
   readonly num: number;
   readonly after: Uint8Array;
@@ -32,30 +32,30 @@ export interface LessonOutcome {
   readonly message: string;
 }
 
-const KIND: Record<LessonSession["lesson"]["open"]["studio"], LessonKeep["kind"]> = {
+const KIND: Record<LessonSession["lesson"]["open"]["studio"], LessonCommit["kind"]> = {
   picture: "picture",
   view: "view",
 };
 
-/** The challenge's verdict on a Keep, or null when the Keep is not the lesson's resource. */
-export function checkLessonKeep(
+/** The challenge's verdict on a commit, or null when the commit is not the lesson's resource. */
+export function checkLessonCommit(
   session: LessonSession,
-  keep: LessonKeep,
+  commit: LessonCommit,
   award: (id: string) => void,
 ): LessonOutcome | null {
   const { lesson } = session;
   const challenge = lesson.challenge;
   const target = lesson.open;
   const num = target.studio === "picture" ? target.picture : target.view;
-  if (!challenge || KIND[target.studio] !== keep.kind || num !== keep.num) return null;
+  if (!challenge || KIND[target.studio] !== commit.kind || num !== commit.num) return null;
   const input: LessonVerifyInput = {
-    kind: keep.kind,
-    num: keep.num,
+    kind: commit.kind,
+    num: commit.num,
     before: session.before,
-    after: keep.after,
+    after: commit.after,
     ...(session.beforeSource !== undefined ? { beforeSource: session.beforeSource } : {}),
-    ...(keep.afterSource !== undefined ? { afterSource: keep.afterSource } : {}),
-    profile: keep.profile,
+    ...(commit.afterSource !== undefined ? { afterSource: commit.afterSource } : {}),
+    profile: commit.profile,
   };
   let verdict: ReturnType<typeof challenge.verify>;
   try {

@@ -150,7 +150,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "PICTURE editor",
         body: [
           VOCABULARY.picture.help,
-          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide characters. Press 1 or 2 to switch.",
+          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide actors. Press 1 or 2 to switch.",
           VOCABULARY.focus.help,
         ],
       },
@@ -242,7 +242,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-keep",
+        id: "studio-commit",
         title: VOCABULARY.saved.label,
         body: [VOCABULARY.saved.help, VOCABULARY.history.help, VOCABULARY.nameVersion.help],
       },

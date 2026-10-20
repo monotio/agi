@@ -101,7 +101,7 @@ test("version-1 autosaves allow optional previews and reject other formats", () 
   }
 });
 
-test("format-less and corrupt progress entrys are replaceable; future versions are not", () => {
+test("format-less and corrupt checkpoints are replaceable; future versions are not", () => {
   const values = new Map<string, string>();
   const storage = {
     getItem: (key: string) => values.get(key) ?? null,

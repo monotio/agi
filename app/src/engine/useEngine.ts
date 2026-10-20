@@ -1755,9 +1755,9 @@ export function useEngine(
     detachReference: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["detachReference"]>
     ) => (await loadAuthoringController()).detachReference(...args),
-    keepStagedView: async (
-      ...args: Parameters<ReturnType<typeof useAuthoringController>["keepStagedView"]>
-    ) => (await loadAuthoringController()).keepStagedView(...args),
+    commitStagedView: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["commitStagedView"]>
+    ) => (await loadAuthoringController()).commitStagedView(...args),
     commitPictureEdit: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["commitPictureEdit"]>
     ) => (await loadAuthoringController()).commitPictureEdit(...args),

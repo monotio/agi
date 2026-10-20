@@ -53,15 +53,15 @@ export function compileProjectSelection(input: {
 }) {
   const profile = PROFILES[input.profileId];
   if (!profile) throw new Error(`Unknown build profile: ${input.profileId}`);
-  const keptDocuments = input.draft.select([]).documents();
+  const savedDocuments = input.draft.select([]).documents();
   const baselineContainer = openContainer(new Map(Object.entries(input.files)), { profile });
-  const keptBindings = keptDocuments["bindings"];
-  if (keptBindings !== undefined && typeof keptBindings !== "string")
+  const savedBindings = savedDocuments["bindings"];
+  if (savedBindings !== undefined && typeof savedBindings !== "string")
     throw new Error("Invalid project document bindings: expected JSON text.");
   const baseline = inspectProjectReferences({
     container: baselineContainer,
     profile,
-    bindings: readBindingsDocument(keptBindings ?? "{}"),
+    bindings: readBindingsDocument(savedBindings ?? "{}"),
     allowMissingRooms: input.allowMissingRooms === true,
   });
   const dependencies: Record<string, string[]> = Object.fromEntries(
@@ -102,7 +102,7 @@ export function compileProjectSelection(input: {
       }
       // A selected removal pulls in the referring draft so its repair can be
       // compiled together. An unchanged use remains a visible reference error.
-      if (keptDocuments[key] !== undefined && documents[key] === undefined) {
+      if (savedDocuments[key] !== undefined && documents[key] === undefined) {
         for (const [origin, uses] of Object.entries(baseline.dependencies)) {
           if (uses.includes(key)) changed = addDependency(key, origin) || changed;
         }
@@ -195,7 +195,7 @@ export function compileProjectSelection(input: {
       references,
       // Only the four AGI resource families are native removals: tagged
       // source keys such as music:<id> carry intent, not resource bytes.
-      removedResources: Object.keys(keptDocuments)
+      removedResources: Object.keys(savedDocuments)
         .filter((key) => PROJECT_RESOURCE_KEY.test(key) && documents[key] === undefined)
         .sort(),
     };

@@ -61,7 +61,7 @@ test("a lease-refused Keep performs zero durable writes before a genuine retry",
   };
   const lease = ws.draft.acquireHistoryMutation(ws.draft.capture().revision);
   try {
-    await assert.rejects(ws.keepCandidate(candidate), (error: unknown) =>
+    await assert.rejects(ws.commitCandidate(candidate), (error: unknown) =>
       busy(error, "native-history"),
     );
     assert.equal(writes, 0);
@@ -70,7 +70,7 @@ test("a lease-refused Keep performs zero durable writes before a genuine retry",
     ws.draft.releaseHistoryMutation(lease);
     records.set = write;
   }
-  const result = await ws.keepCandidate(candidate);
+  const result = await ws.commitCandidate(candidate);
   assert.equal(result.kind, "savedOnly");
   assert.deepEqual(ws.draft.dirtyKeys(), []);
 });
@@ -92,7 +92,7 @@ test("failed durable publication releases the Keep reservation and exact candida
     return write(key, value);
   };
   try {
-    await assert.rejects(ws.keepCandidate(candidate));
+    await assert.rejects(ws.commitCandidate(candidate));
     assert.equal(failed, true);
     assert.deepEqual(records.get(projectId), body);
     assert.equal(ws.savedIdentity(), before);
@@ -102,15 +102,15 @@ test("failed durable publication releases the Keep reservation and exact candida
   }
   const lease = ws.draft.acquireHistoryMutation(ws.draft.capture().revision);
   ws.draft.releaseHistoryMutation(lease);
-  const retry = ws.keepCandidate(candidate);
+  const retry = ws.commitCandidate(candidate);
   assert.throws(
     () => ws.draft.acquireHistoryMutation(ws.draft.capture().revision),
-    (error: unknown) => busy(error, "keep-pending"),
+    (error: unknown) => busy(error, "commit-pending"),
   );
   const kept = await retry;
   assert.equal(kept.saved.generation, before.generation + 1);
   assert.deepEqual(ws.draft.dirtyKeys(), []);
-  const replay = await ws.keepCandidate(candidate);
+  const replay = await ws.commitCandidate(candidate);
   assert.equal(replay.commitId, kept.commitId);
   assert.equal(ws.savedIdentity().generation, before.generation + 1);
   ws.draft.releaseHistoryMutation(ws.draft.acquireHistoryMutation(ws.draft.capture().revision));

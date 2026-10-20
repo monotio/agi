@@ -56,7 +56,7 @@ function move(event: PointerEvent): void {
   if (!value || !dragging.value || !rect || event.pointerId !== pointer) return;
   const point = dockPicturePoint(event.clientX, event.clientY, rect, picRow);
   guidedPlacement.value =
-    value.kind === "hero"
+    value.kind === "ego"
       ? { ...value, ...point }
       : {
           ...value,
@@ -106,7 +106,7 @@ function keys(event: KeyboardEvent): void {
     const value = guidedPlacement.value!;
     const dx = Number(event.key === "ArrowRight") - Number(event.key === "ArrowLeft");
     const dy = Number(event.key === "ArrowDown") - Number(event.key === "ArrowUp");
-    if (value.kind === "hero")
+    if (value.kind === "ego")
       guidedPlacement.value = {
         ...value,
         x: Math.max(0, Math.min(159, value.x + dx)),
@@ -154,14 +154,14 @@ function keys(event: KeyboardEvent): void {
       :style="{ top: `${picRow * 4}%` }"
     />
     <canvas
-      v-if="guidedPlacement?.kind === 'hero' && guidedPlacement.cel"
+      v-if="guidedPlacement?.kind === 'ego' && guidedPlacement.cel"
       ref="placementPreview"
-      class="placement-placementPreview"
+      class="placement-preview"
       :style="pointStyle"
     />
     <span
-      v-else-if="guidedPlacement?.kind === 'hero'"
-      class="placement-placementPreview placement-mark"
+      v-else-if="guidedPlacement?.kind === 'ego'"
+      class="placement-preview placement-mark"
       :style="pointStyle"
       >✚</span
     >
@@ -189,7 +189,7 @@ function keys(event: KeyboardEvent): void {
   height: 84%;
   image-rendering: pixelated;
 }
-.placement-placementPreview {
+.placement-preview {
   position: absolute;
   transform: translateY(-100%);
   opacity: 0.7;

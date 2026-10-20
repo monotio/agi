@@ -18,7 +18,7 @@ import {
   freshItemId,
   useStudioDraft,
 } from "../src/studio/useStudioDraft.ts";
-import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
+import { useDraftCommit } from "../src/studio/useDraftCommit.ts";
 import { useUndoOrder } from "../src/studio/useUndoOrder.ts";
 import type { PictureEdit } from "../src/project/resourceCommit.ts";
 import { authoringFingerprint } from "../src/project/gameStorage.ts";
@@ -429,8 +429,8 @@ describe("useStudioDraft", () => {
     const { draft } = setup("priority");
     assert.equal(draft.apply(move("occ", 0, 2), "Move Occluder").ok, true);
     const edited = draft.source.value;
-    draft.markKept(testRevision("kept"));
-    assert.equal(draft.kept.value.revision, testRevision("kept"));
+    draft.markSaved(testRevision("kept"));
+    assert.equal(draft.saved.value.revision, testRevision("kept"));
     assert.equal(draft.dirty.value, false);
     assert.equal(draft.changes.value, 0);
     assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
@@ -444,13 +444,13 @@ describe("useStudioDraft", () => {
     assert.equal(draft.apply(move("occ", 0, 2), "Move Occluder").ok, true);
     assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
     const kept = draft.source.value;
-    draft.markKept(testRevision("kept"));
+    draft.markSaved(testRevision("kept"));
     assert.equal(draft.changes.value, 0);
     assert.equal(draft.canUndo.value, true, "the kept edits stay undoable");
     assert.equal(draft.undo(), true);
     assert.equal(draft.dirty.value, true, "undoing past Keep is an unkept change");
     assert.equal(draft.changes.value, 1);
-    assert.equal(draft.kept.value.source, kept, "the kept text stays the base");
+    assert.equal(draft.saved.value.source, kept, "the kept text stays the base");
     assert.equal(draft.undo(), true);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.changes.value, 2);
@@ -471,9 +471,9 @@ describe("useStudioDraft", () => {
     assert.equal(changeCount(draft.changes.value, draft.notesOnly.value), "1 note change");
 
     const kept: PictureEdit[] = [];
-    const keeper = useStudioKeep({
+    const keeper = useDraftCommit({
       draft,
-      keep: async (baseRevision) => {
+      commit: async (baseRevision) => {
         kept.push(draftPictureEdit(draft, 5, baseRevision));
         return {
           status: "committed",
@@ -483,7 +483,7 @@ describe("useStudioDraft", () => {
         };
       },
     });
-    assert.equal(await keeper.keep(), true);
+    assert.equal(await keeper.commit(), true);
     // The kept bytes are the stored ones: the transaction saves only the text.
     assert.deepEqual(kept[0]!.bytes, original);
     assert.equal(kept[0]!.reason, "1 note change");

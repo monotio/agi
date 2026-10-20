@@ -138,7 +138,7 @@ test("a forced progress entry refused before the first picture is taken once the
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 1);
 });
 
-test("periodic progress entrys continue when every host poll arrives a heartbeat apart", (t) => {
+test("periodic checkpoints continue when every host poll arrives a heartbeat apart", (t) => {
   // A busy browser can deliver the poll timer late; the cycle report must not
   // take every poll and starve the checkpoint.
   const { ctx, presentation } = workerHarness(drawnGame());

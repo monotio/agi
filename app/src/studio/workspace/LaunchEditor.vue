@@ -448,10 +448,10 @@ function renderEgoStage(): void {
   }
 
   // Draw hero crosshair marker
-  const hero = egoDraft.value ?? activeLaunch.value?.hero;
-  if (hero) {
-    const hx = Math.max(0, Math.min(159, hero.x));
-    const hy = Math.max(0, Math.min(167, hero.y));
+  const ego = egoDraft.value ?? activeLaunch.value?.hero;
+  if (ego) {
+    const hx = Math.max(0, Math.min(159, ego.x));
+    const hy = Math.max(0, Math.min(167, ego.y));
 
     ctx.strokeStyle = paletteCss(palette.value, 14);
     ctx.lineWidth = 1;
@@ -499,11 +499,11 @@ function egoMove(event: PointerEvent): void {
 function egoUp(event: PointerEvent): void {
   if (egoPointer !== event.pointerId) return;
   egoFrame.cancel();
-  const hero = egoPoint(event);
+  const ego = egoPoint(event);
   egoPointer = undefined;
   egoDraft.value = undefined;
   if (!props.readOnly && activeLaunch.value && activeLaunch.value.id === egoLaunch)
-    commitLaunch({ ...activeLaunch.value, hero });
+    commitLaunch({ ...activeLaunch.value, hero: ego });
   egoLaunch = undefined;
   egoCanvas.value?.releasePointerCapture(event.pointerId);
 }
@@ -879,14 +879,14 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => egoCancel());
         <!-- Hero position row -->
         <div
           v-if="activeLaunch.hero"
-          class="launch-row launch-row--hero"
+          class="launch-row launch-row--ego"
           data-testid="launch-row-hero"
         >
           <div class="launch-row__label">
             <strong>Hero position</strong>
           </div>
-          <div class="launch-row__controls launch-row__controls--hero">
-            <div class="launch-hero-inputs">
+          <div class="launch-row__controls launch-row__controls--ego">
+            <div class="launch-ego-inputs">
               <label>
                 <span>X</span>
                 <input
@@ -933,7 +933,7 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => egoCancel());
             icon="trash"
             size="sm"
             label="Remove hero position row"
-            data-testid="launch-remove-hero"
+            data-testid="launch-remove-ego"
             :disabled="readOnly"
             :title="readOnly ? 'Project is read-only' : 'Remove hero position row'"
             @click="removeRow('hero')"
@@ -1188,7 +1188,7 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => egoCancel());
   border-radius: var(--radius-sm);
 }
 
-.launch-row--hero {
+.launch-row--ego {
   align-items: flex-start;
 }
 
@@ -1216,7 +1216,7 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => egoCancel());
   flex: 1;
 }
 
-.launch-row__controls--hero {
+.launch-row__controls--ego {
   flex-direction: column;
   align-items: flex-start;
 }
@@ -1242,12 +1242,12 @@ watch([() => activeLaunch.value?.id, () => props.readOnly], () => egoCancel());
   margin-left: var(--space-1);
 }
 
-.launch-hero-inputs {
+.launch-ego-inputs {
   display: flex;
   gap: var(--space-4);
 }
 
-.launch-hero-inputs label {
+.launch-ego-inputs label {
   display: inline-flex;
   align-items: center;
   font: var(--weight-medium) var(--text-xs) var(--font-sans);

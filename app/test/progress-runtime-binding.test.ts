@@ -494,7 +494,7 @@ test("a newer resume's pending intent is never consumed or cleared by an older b
   const revision = rig.revision;
   const firstImage = bytesToBase64(starterCheckpoint(rig));
   const secondImage = bytesToBase64(starterCheckpoint(rig, 4));
-  assert.notEqual(secondImage, firstImage, "the two progress entrys are distinct real images");
+  assert.notEqual(secondImage, firstImage, "the two checkpoints are distinct real images");
   const descriptors = [
     {
       folder: "games/kq1",

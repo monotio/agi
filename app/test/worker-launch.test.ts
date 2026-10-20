@@ -248,7 +248,7 @@ test("Launch carries state within a profile and starts fresh when the profile ch
   assert.equal(ctx.run.engine, engine);
 });
 
-test("Create entry progress entrys Play once before temporary play", (t) => {
+test("Create entry checkpoints Play once before temporary play", (t) => {
   const { ctx, presentation, control } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   ctx.fns.tickEngine();

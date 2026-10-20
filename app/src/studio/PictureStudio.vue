@@ -127,7 +127,7 @@ import { useUndoOrder } from "./useUndoOrder.ts";
  * and stopped (studioKeys.ts), so none reach the game, and focus never falls
  * out of the studio while it is open. The tool rail (useStudioTools, by
  * pointer or keys: useStudioInput) inserts new items at the playhead; the
- * actor probe stands a VIEW from the game's `files` on the draft. The Walk
+ * Stand-in probe stands a VIEW from the game's `files` on the draft. The Walk
  * view (useStudioWalk) adds test walks, Play here and the room's doors,
  * whose logic edits emit room-edit for the workspace to keep with the
  * picture. The selected items follow the workspace agent's context chip
@@ -166,7 +166,7 @@ const {
   title: string;
   /** The game revision the bytes were read at; without one the picture is view only. */
   baseRevision?: ResourceRevision | undefined;
-  /** The game's container files, read at the same revision: the actor probe's VIEWs. */
+  /** The game's container files, read at the same revision: the Stand-in probe's VIEWs. */
   files?: ReadonlyMap<string, Uint8Array> | undefined;
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
   walk?: StudioRoomSource | null | undefined;
@@ -258,7 +258,7 @@ const doc = useStudioDocument(() => ({
   source: draft.source.value,
   // A write-back stores the draft's annotated text beside the bytes: from
   // then on it is the picture's authored source, not a disassembly.
-  trusted: resolved.value.trusted || draft.kept.value.revision !== baseRevision,
+  trusted: resolved.value.trusted || draft.saved.value.revision !== baseRevision,
   profile,
 }));
 const { model, playhead, total, surface } = doc;
@@ -364,7 +364,7 @@ const followingDoors = computed(() =>
 const followLabel = (id: string): string =>
   followedItem(draft.document.value, id)?.label ?? labelOf(id);
 /** The picture as last kept: door boxes are stored in its frame. */
-const keptDocument = computed(() => parsePictureDocument(draft.kept.value.source).document);
+const savedDocument = computed(() => parsePictureDocument(draft.saved.value.source).document);
 watch([draft.source, draft.gesturing], ([source, gesturing]) => {
   if (readOnly || gesturing) return;
   // Receiving native bytes resets an untouched draft; it is not a drawing edit.
@@ -382,12 +382,12 @@ watch([draft.source, draft.gesturing], ([source, gesturing]) => {
   });
 });
 /** Editing is blocked while the picture is view only (no revision to write to). */
-const frozen = (): boolean => readOnly || draft.kept.value.revision === undefined;
+const frozen = (): boolean => readOnly || draft.saved.value.revision === undefined;
 
 watch(logic.source, () => {
   if (readOnly) return;
   if (walk && logic.editable.value && logic.dirty.value) {
-    const followed = logic.forKeep(keptDocument.value, draft.document.value);
+    const followed = logic.forCommit(savedDocument.value, draft.document.value);
     if (!followed.ok) {
       editing.say({ tone: "warn", text: followed.error });
       return;
@@ -655,17 +655,17 @@ onMounted(async () => {
       engineApi.readObjects(),
       engineApi.readEngineState(),
     ]);
-    const actor = objects.find((object) => object.num === 0);
-    if (!actor || actor.width < 1) return;
+    const screenObject = objects.find((object) => object.num === 0);
+    if (!screenObject || screenObject.width < 1) return;
     ego.value = {
       ...DEFAULT_EGO,
-      width: actor.width,
-      height: actor.height,
-      bypassControl: actor.fixedPriority && actor.priority === 15,
+      width: screenObject.width,
+      height: screenObject.height,
+      bypassControl: screenObject.fixedPriority && screenObject.priority === 15,
       horizon: state && state.room === walk?.room ? state.horizon : DEFAULT_EGO.horizon,
     };
   } catch {
-    // The estimate keeps its default actor.
+    // The estimate keeps its default ego.
   }
 });
 const walker = useStudioWalk({
@@ -673,7 +673,7 @@ const walker = useStudioWalk({
   files: () => files,
   profile: () => profile,
   pictureNumber: () => pictureNumber,
-  keptPicture: () => keptDocument.value,
+  savedPicture: () => savedDocument.value,
   shownPicture: () => draft.preview.value?.document ?? draft.document.value,
   pictureBytes: () => draft.compiled.value.bytes,
   priority: () => shown.value.priority,

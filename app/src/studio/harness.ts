@@ -2,7 +2,7 @@
 // `?pic=1|2|3` opens the tutorial's scene art, `?pic=demo` (the default) the
 // annotated demo picture, `?pic=injected` the source or bytes a test or script
 // set on `window.studioHarnessInput` before the page loads. `&probe=1` mounts
-// the standIn actor probe over the picture's art pane, its readout beside it,
+// the standIn Stand-in probe over the picture's art pane, its readout beside it,
 // with the tutorial's character VIEWs as its game. The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
 import { createApp, defineComponent, h } from "vue";

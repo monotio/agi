@@ -145,13 +145,13 @@ export const STUDIO_TERMS = {
   "view-only": {
     name: "View only",
     says: "Reload the game to edit this part.",
-    help: topic("studio-keep"),
+    help: topic("studio-commit"),
   },
-  keep: {
+  saved: {
     name: VOCABULARY.saved.label,
     says: VOCABULARY.saved.help,
     technical: VOCABULARY.saved.technical,
-    help: topic("studio-keep"),
+    help: topic("studio-commit"),
   },
   loops: {
     name: VOCABULARY.loop.label,
@@ -196,7 +196,7 @@ export const STUDIO_TERMS = {
   },
   "recolour-scope": {
     name: "Recolour",
-    says: "Swaps one colour for another in this cel, this loop or the whole character.",
+    says: "Swaps one colour for another in this cel, this loop or the whole VIEW.",
     help: topic("view-tools"),
   },
   shift: {

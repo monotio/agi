@@ -423,7 +423,7 @@ test("custom code stays precise: a rewritten entry block refuses Custom code, gu
   );
   expect(custom).not.toBe(source);
   await replaceWorkspaceDocument(page, "logic:1", custom);
-  await clickContextAction(page, "room-action-place-hero");
+  await clickContextAction(page, "room-action-place-ego");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

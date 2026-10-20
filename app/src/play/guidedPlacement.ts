@@ -2,7 +2,7 @@ import { shallowRef } from "vue";
 import type { ViewDocumentCel } from "../../../src/view/viewDocument.ts";
 
 export interface GuidedPlacement {
-  kind: "hero" | "box";
+  kind: "ego" | "box";
   x: number;
   y: number;
   box: { x1: number; y1: number; x2: number; y2: number };

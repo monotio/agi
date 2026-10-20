@@ -745,7 +745,7 @@ test("an interpreter override travels with both exports and decodes the saves th
     );
 });
 
-test("imported progress entrys publish only after acquiring their project lock", async (t) => {
+test("imported checkpoints publish only after acquiring their project lock", async (t) => {
   installLocalStorage(t);
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   t.after(() => {

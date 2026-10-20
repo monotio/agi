@@ -10,11 +10,11 @@ import { keyLabel } from "../ui/keyLabel.ts";
 import { changeCount } from "./useStudioDraft.ts";
 
 /** Where the draft stands, for the status chip. */
-export type DraftStatus = "view-only" | "clean" | "changed" | "keeping" | "kept" | "reload";
+export type DraftStatus = "view-only" | "clean" | "changed" | "saving" | "saved" | "reload";
 
 /**
  * The draft's controls at the right of every Studio's top bar: undo and
- * redo, where the draft stands, Discard, Keep with its change count, and
+ * redo, where the draft stands, Discard, commit with its change count, and
  * the way out.
  */
 const {
@@ -23,8 +23,8 @@ const {
   notesOnly = false,
   canUndo,
   canRedo,
-  canKeep,
-  keepTitle = undefined,
+  canCommit,
+  commitTitle = undefined,
 } = defineProps<{
   status: DraftStatus;
   changes: number;
@@ -32,11 +32,11 @@ const {
   notesOnly?: boolean;
   canUndo: boolean;
   canRedo: boolean;
-  canKeep: boolean;
-  /** Why Keep is disabled right now, on its button. */
-  keepTitle?: string | undefined;
+  canCommit: boolean;
+  /** Why commit is disabled right now, on its button. */
+  commitTitle?: string | undefined;
 }>();
-const emit = defineEmits<{ close: []; undo: []; redo: []; keep: []; discard: [] }>();
+const emit = defineEmits<{ close: []; undo: []; redo: []; commit: []; discard: [] }>();
 const STATUS: Record<
   DraftStatus,
   { tone: "neutral" | "action" | "ok" | "warn" | "danger"; text: string }
@@ -44,8 +44,8 @@ const STATUS: Record<
   "view-only": { tone: "warn", text: "View only" },
   clean: { tone: "neutral", text: "No changes" },
   changed: { tone: "action", text: "" },
-  keeping: { tone: "action", text: "Keeping…" },
-  kept: { tone: "ok", text: "Kept" },
+  saving: { tone: "action", text: "Saving…" },
+  saved: { tone: "ok", text: "Saved" },
   reload: { tone: "danger", text: "Reload to edit" },
 };
 const chip = computed(() =>
@@ -88,8 +88,8 @@ const historyBlocked = (which: "undo" | "redo"): string =>
   <UiButton
     variant="ghost"
     size="sm"
-    :disabled="changes === 0 || status === 'keeping'"
-    :title="status === 'keeping' ? 'Saving the changes' : changes === 0 ? 'No changes' : undefined"
+    :disabled="changes === 0 || status === 'saving'"
+    :title="status === 'saving' ? 'Saving the changes' : changes === 0 ? 'No changes' : undefined"
     data-testid="studio-discard"
     @click="emit('discard')"
   >
@@ -98,10 +98,10 @@ const historyBlocked = (which: "undo" | "redo"): string =>
   <UiButton
     variant="primary"
     size="sm"
-    :disabled="!canKeep"
-    :title="keepTitle ?? 'Save your changes into the game'"
-    data-testid="studio-keep"
-    @click="emit('keep')"
+    :disabled="!canCommit"
+    :title="commitTitle ?? 'Save your changes into the game'"
+    data-testid="studio-commit"
+    @click="emit('commit')"
   >
     Save<span v-if="changes > 0" class="draft-controls__count">{{ changes }}</span>
   </UiButton>

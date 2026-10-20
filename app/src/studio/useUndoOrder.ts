@@ -5,8 +5,8 @@
  * it holds; every new step gets a stamp from one clock, so undo takes the
  * newest past step of any history and redo the step undone last. Undo and
  * redo must go through this composable, which is how it tells them from new
- * edits. A history that drops steps outside undo and redo (a Keep that
- * cannot carry old steps over, a priority cap) reports them in `dropped`, and
+ * edits. A history that drops steps outside undo and redo (a commit that
+ * cannot carry old steps over, a history limit) reports them in `dropped`, and
  * exactly their stamps go with them.
  *
  * Stamps follow a history's net change, never its intermediate states: a

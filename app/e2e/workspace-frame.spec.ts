@@ -251,7 +251,7 @@ for (const [width, height] of [
     await page.getByTestId("part-room:1:logic").click();
     const context = page.getByTestId("workspace-context");
     await expect(context).toBeVisible();
-    await clickContextAction(page, "room-action-place-hero");
+    await clickContextAction(page, "room-action-place-ego");
     const form = context.getByTestId("workspace-guided-form");
     const here = form.getByRole("button", { name: "Start here", exact: true });
     await expect(form).toBeVisible();

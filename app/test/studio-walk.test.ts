@@ -543,7 +543,7 @@ function walkRig(
       files: () => files,
       profile: () => DEFAULT_V2_PROFILE,
       pictureNumber: () => 1,
-      keptPicture: () => kept,
+      savedPicture: () => kept,
       shownPicture: () => shown.value,
       pictureBytes: () => compileEditDocument(shown.value, DEFAULT_V2_PROFILE).bytes,
       priority: () => compileEditDocument(shown.value, DEFAULT_V2_PROFILE).priority,
@@ -654,7 +654,7 @@ describe("the room logic draft", () => {
     rig.shown.value = moved.document;
     assert.deepEqual(walk.selectedDoor.value?.box, { x1: 102, y1: 124, x2: 113, y2: 130 });
     assert.match(logic.source.value, /posn\(o0, 122, 124, 133, 130\)/, "stored unmoved");
-    const keep = logic.forKeep(rig.kept, moved.document);
+    const keep = logic.forCommit(rig.kept, moved.document);
     assert.ok(keep.ok && "bytes" in keep);
     assert.match(keep.source, /posn\(o0, 102, 124, 113, 130\)/);
     // Placing the box on screen stores it back in the kept frame.
@@ -682,7 +682,7 @@ describe("the room logic draft", () => {
     walk.setFollows("door-1", "doorway");
     const deleted = applyEdit(rig.kept, { type: "deleteItem", itemId: "doorway" });
     assert.ok(!("error" in deleted));
-    const keep = logic.forKeep(rig.kept, deleted.document);
+    const keep = logic.forCommit(rig.kept, deleted.document);
     assert.ok(keep.ok && "bytes" in keep);
     assert.deepEqual(keep.unfollowed, [{ door: "Door to room 2", art: "Doorway" }]);
     assert.match(keep.source, /\/\/ @rule door-1 "Door to room 2" exit\nif \(posn\(o0, 120, 125/);
@@ -702,9 +702,9 @@ describe("the room logic draft", () => {
     // The doorway moves 10 px east, and the Keep moves the door with it.
     const moved = applyEdit(rig.kept, { type: "moveItem", itemId: "doorway", dx: 10, dy: 0 });
     assert.ok(!("error" in moved));
-    const keep = logic.forKeep(rig.kept, moved.document);
+    const keep = logic.forCommit(rig.kept, moved.document);
     assert.ok(keep.ok && "bytes" in keep);
-    logic.markKept(keep, { before: rig.kept, after: moved.document });
+    logic.markSaved(keep, { before: rig.kept, after: moved.document });
     assert.match(logic.source.value, /posn\(o0, 130, 120, 145, 125\)/);
     // Undo the art move and the door move: the door is back where it began.
     const shownBox = () => {
@@ -727,9 +727,9 @@ describe("the room logic draft", () => {
     again.walk.setFollows("door-1", "doorway");
     again.walk.moveDoor("door-1", { x1: 120, y1: 120, x2: 135, y2: 125 });
     again.logic.undo();
-    const kept = again.logic.forKeep(again.kept, moved.document);
+    const kept = again.logic.forCommit(again.kept, moved.document);
     assert.ok(kept.ok && "bytes" in kept);
-    again.logic.markKept(kept, { before: again.kept, after: moved.document });
+    again.logic.markSaved(kept, { before: again.kept, after: moved.document });
     assert.equal(again.logic.redo(), true);
     assert.match(again.logic.source.value, /posn\(o0, 130, 120, 145, 125\)/);
     again.stop();
@@ -743,9 +743,9 @@ describe("the room logic draft", () => {
     walk.moveDoor("door-1", { x1: 120, y1: 125, x2: 135, y2: 130 });
     const moved = applyEdit(rig.kept, { type: "moveItem", itemId: "doorway", dx: 10, dy: 0 });
     assert.ok(!("error" in moved));
-    const keep = logic.forKeep(rig.kept, moved.document);
+    const keep = logic.forCommit(rig.kept, moved.document);
     assert.ok(keep.ok && "bytes" in keep);
-    logic.markKept(keep, { before: rig.kept, after: moved.document });
+    logic.markSaved(keep, { before: rig.kept, after: moved.document });
     // The bound 140..159 box moved 10 east would leave the picture: that step
     // can't be undone to, so neither can anything before it.
     assert.equal(logic.past.value, 0);
@@ -794,9 +794,9 @@ describe("the room logic draft", () => {
     // it and every older door step go; the last door move stays.
     const moved = applyEdit(rig.kept, { type: "moveItem", itemId: "doorway", dx: 10, dy: 0 });
     assert.ok(!("error" in moved));
-    const keep = logic.forKeep(rig.kept, moved.document);
+    const keep = logic.forCommit(rig.kept, moved.document);
     assert.ok(keep.ok && "bytes" in keep);
-    logic.markKept(keep, { before: rig.kept, after: moved.document });
+    logic.markSaved(keep, { before: rig.kept, after: moved.document });
     assert.equal(logic.past.value, 1);
     assert.deepEqual(logic.dropped.value, { past: 3, future: 0 });
     const trail: string[] = [];
@@ -1174,7 +1174,7 @@ describe("test walks", () => {
         files: () => files,
         profile: () => DEFAULT_V2_PROFILE,
         pictureNumber: () => 2,
-        keptPicture: () => kept,
+        savedPicture: () => kept,
         shownPicture: () => kept,
         pictureBytes: () => compiled.bytes,
         priority: () => compiled.priority,

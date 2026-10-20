@@ -49,7 +49,7 @@ export function useStudioEditing(options: {
   readonly itemIds?: () => readonly string[];
   /** Select exactly these items: the copies after Duplicate, the group, or its parts after Ungroup. */
   readonly selectItems?: (ids: readonly string[]) => void;
-  /** Editing is blocked (view only, or a Keep that needs a reload). */
+  /** Editing is blocked (view only, or a commit that needs a reload). */
   readonly frozen: () => boolean;
   /** Edits wait (an AI request or its proposal is open); undo and redo still run. */
   readonly paused?: () => boolean;

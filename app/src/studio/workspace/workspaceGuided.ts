@@ -18,7 +18,7 @@ import type { BoilerplatePart } from "../../../../src/authoring/boilerplateParts
 export type WorkspaceAction =
   | { kind: "add-room"; title: string }
   | { kind: "make-room"; key: string }
-  | { kind: "place-hero"; room: number; x: number; y: number; view: number }
+  | { kind: "place-ego"; room: number; x: number; y: number; view: number }
   | {
       kind: "response";
       room: number;
@@ -61,7 +61,7 @@ export function prepareWorkspaceAction(
           ? { existingPicture: Number(action.key.slice(8)) }
           : { egoView: Number(action.key.slice(5)) },
       );
-    case "place-hero":
+    case "place-ego":
       return prepareGuidedPlaceEgo(context, action);
     case "response": {
       const documents = { ...snapshot.documents() };

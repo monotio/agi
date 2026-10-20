@@ -1,4 +1,4 @@
-/** Canonical editor and agent vocabulary. Platform-free; technical AGI terms stay on hover. */
+/** Canonical editor copy and technical AGI contracts, independent of the platform. */
 export interface VocabularyTerm {
   readonly id: string;
   readonly label: string;
@@ -332,56 +332,55 @@ export const VOCABULARY = {
   priorityBand: {
     id: "priorityBand",
     label: "priority band",
-    help: "Each row of the screen sits in a priority band. A character's priority comes from the row its feet are on.",
+    help: "Each row of the screen sits in a priority band. An actor's priority comes from the row its feet are on.",
     technical: "Priority band from set.pri.base.",
   },
   walk: {
     id: "walk",
     label: "Walk",
-    help: "Walls, gates, triggers and water: what happens where characters walk.",
+    help: "Walls, gates, triggers and water: what happens where actors walk.",
     technical: "AGI calls this control.",
   },
   wall: {
     id: "wall",
     label: "Wall",
-    help: "Characters can't cross a wall.",
+    help: "Actors can't cross a wall.",
     technical: "Control 0.",
   },
   gate: {
     id: "gate",
     label: "Gate",
-    help: "Characters stop here unless the room's LOGIC lets them through.",
+    help: "Actors stop here unless the room's LOGIC lets them through.",
     technical: "Control 1; ignore.blocks lets an actor pass.",
   },
   trigger: {
     id: "trigger",
     label: "Trigger",
     help: "Tells the room's LOGIC when the hero steps here.",
-    technical: "Control 2; sets flag 3 while the hero's feet touch it.",
+    technical: "Control 2; sets flag 3 while ego's feet touch it.",
   },
   water: {
     id: "water",
     label: "Water",
-    help: "Marks water. The room's LOGIC can keep a character on water or on land.",
-    technical:
-      "Control 3; object.on.water / object.on.land; flag 0 while the hero stands fully on water.",
+    help: "Marks water. The room's LOGIC can keep an actor on water or on land.",
+    technical: "Control 3; obj.on.water / obj.on.land; flag 0 while ego stands fully on water.",
   },
   horizon: {
     id: "horizon",
     label: "horizon",
-    help: "The highest row characters can walk on.",
+    help: "The highest row actors can walk on.",
     technical: "set.horizon.",
   },
   baseLine: {
     id: "baseLine",
     label: "base line",
-    help: "The row where an item touches the ground. Characters behind it are drawn behind the item.",
+    help: "The row where an item touches the ground. Actors behind it are drawn behind the item.",
     technical: "",
   },
   addPriority: {
     id: "addPriority",
     label: "Add priority",
-    help: "Characters walk behind it above its base line and in front of it below.",
+    help: "Actors walk behind it above its base line and in front of it below.",
     technical: "Fills the item's PRIORITY for the band of its base row.",
   },
   standIn: {
@@ -429,13 +428,13 @@ export const VOCABULARY = {
   standingCel: {
     id: "standingCel",
     label: "standing cel",
-    help: "Cel 0. Characters rest on it when they stop.",
+    help: "Cel 0. Actors rest on it when they stop.",
     technical: "",
   },
   feet: {
     id: "feet",
     label: "feet",
-    help: "The game places a character by its feet, the bottom row of its cel.",
+    help: "The game places an actor by its feet, the bottom row of its cel.",
     technical: "Baseline.",
   },
   mirrorLoop: {
@@ -447,7 +446,7 @@ export const VOCABULARY = {
   transparentColour: {
     id: "transparentColour",
     label: "transparent colour",
-    help: "Pixels in this colour show the room behind the character.",
+    help: "Pixels in this colour show the room behind the actor.",
     technical: "Transparency index.",
   },
   onionSkin: {
@@ -465,7 +464,7 @@ export const VOCABULARY = {
   hero: {
     id: "hero",
     label: "hero",
-    help: "The character the player controls.",
+    help: "The actor the player controls.",
     technical: "ego, screen object 0 (o0).",
   },
   actor: {
@@ -986,9 +985,10 @@ export const VOCABULARY_ACTIONS = {
   },
 } as const satisfies Record<string, VocabularyAction>;
 
-/** Start a tool contract with the same plain help the editor displays. */
+/** Tool contracts use the technical register, with plain help for shared terms. */
 export function toolDescription(name: keyof typeof VOCABULARY_ACTIONS, contract: string): string {
-  return `${VOCABULARY_ACTIONS[name].help} ${contract}`;
+  const term: VocabularyTerm = VOCABULARY_ACTIONS[name];
+  return `${term.technical || term.help} ${contract}`;
 }
 
 const PARAMETER_TERMS: Readonly<Record<string, keyof typeof VOCABULARY>> = {
@@ -1029,10 +1029,11 @@ const PARAMETER_TERMS: Readonly<Record<string, keyof typeof VOCABULARY>> = {
   quests: "plan",
 };
 
-/** The plain opening of a parameter's contract, shared with editor terms. */
+/** The technical opening of a parameter's contract, from the shared terms. */
 export function parameterHelp(name: keyof typeof VOCABULARY_ACTIONS, field: string): string {
   const term = PARAMETER_TERMS[field];
-  return term === undefined ? VOCABULARY_ACTIONS[name].help : VOCABULARY[term].help;
+  const entry = term === undefined ? VOCABULARY_ACTIONS[name] : VOCABULARY[term];
+  return entry.technical || entry.help;
 }
 
 /** Attach input contracts while retaining the schema's validation and strict-mode shape. */
@@ -1293,7 +1294,8 @@ export const GLOSSARY: Readonly<Record<string, GlossaryEntry>> = {
     technical: "screen object oN",
     code: "ScreenObject, screenObject",
     avoid: ["sprite", "view", "character", "entity", "animated object"],
-    avoidPattern: "\\b(?:sprites?|entities|animated objects?)\\b",
+    avoidPattern:
+      "\\b(?:sprites?|entities|animated objects?)\\b|\\bcharacters?\\b(?=[^\\n]*\\b(?:walk|cross|priority|cel|feet|water|land|drawn|controls|stop)\\b)|\\b(?:cel|feet|water|land|drawn|pixels)\\b[^\\n]*\\bcharacters?\\b",
   },
   ego: {
     concept: "ego",
@@ -1565,8 +1567,9 @@ export const GLOSSARY: Readonly<Record<string, GlossaryEntry>> = {
     plain: "Saved",
     technical: "commit",
     code: "commit, resourceCommit",
-    avoid: ["Keep", "kept"],
-    avoidPattern: "^Keep(?: (?:it(?: and apply)?|changes|edits|this tab open changes))?$",
+    avoid: ["Keep", "Keeping", "Kept"],
+    avoidPattern:
+      "^(?:Keep(?: (?:it(?: and apply)?|changes|edits|this tab open changes))?|Keeping\u2026|Kept)$",
   },
   plan: {
     concept: "plan",

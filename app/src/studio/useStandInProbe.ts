@@ -1,5 +1,5 @@
 /**
- * State behind the PICTURE editor stand-in-actor probe (StandInProbe.vue): which
+ * State behind the PICTURE editor stand-in-Stand-in probe (StandInProbe.vue): which
  * VIEW/loop/cel stands where, and what the engine would do with it there.
  * The verdicts come from src/studio/probe.ts, which shares the engine's cel
  * blit and footprint scan; this module only chooses inputs and keys.

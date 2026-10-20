@@ -39,7 +39,7 @@ export const isWalkTool = (tool: StudioTool): tool is WalkTool => WALK_TOOLS.inc
 
 /**
  * Each tool's single-letter shortcut, the one list the rail shows and the
- * keyboard handler reads; G toggles the actor probe, which is not a tool.
+ * keyboard handler reads; G toggles the Stand-in probe, which is not a tool.
  */
 export const TOOL_SHORTCUTS: Record<StudioTool | "probe", string> = {
   walk: "T",

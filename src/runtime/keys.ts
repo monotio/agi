@@ -79,7 +79,7 @@ export const KEYPAD_DIRECTION_WORDS: Record<number, number> = {
 };
 
 /**
- * Whether unmodified Keypad 5 stops the hero (0xf500, direction 0). The INT 9
+ * Whether unmodified Keypad 5 stops ego (0xf500, direction 0). The INT 9
  * hooks of 2.272 and later post it; 2.001, 2.089 and 2.230 have neither the
  * hook check nor a keypad-5 table entry (docs/fidelity.md F-IN-07).
  */

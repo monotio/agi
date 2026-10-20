@@ -5,6 +5,7 @@ import {
   VOCABULARY_ACTIONS,
   toolDescription,
   parameterHelp,
+  type VocabularyAction,
 } from "../src/vocabulary.ts";
 import { AGENT_TOOLS } from "../src/agent/tools.ts";
 import { WORKSPACE_AGENT_TOOLS } from "../app/src/agent/workspaceAgentTools.ts";
@@ -57,28 +58,28 @@ test("vocabulary records have stable ids, plain help and technical hover", () =>
     assert.match(term.help, /\.$/);
     assert.equal(typeof term.technical, "string");
   }
-  assert.equal(
-    VOCABULARY.gate.help,
-    "Characters stop here unless the room's LOGIC lets them through.",
-  );
+  assert.equal(VOCABULARY.gate.help, "Actors stop here unless the room's LOGIC lets them through.");
   assert.match(VOCABULARY.gate.technical, /ignore\.blocks/);
 });
 
-test("each action shares its name stem and help with every tool catalog", () => {
+test("each tool catalog uses the action name and technical help", () => {
   const tools = [...AGENT_TOOLS, ...PROJECT_ASSIST_TOOLS, ...WORKSPACE_AGENT_TOOLS];
-  for (const action of Object.values(VOCABULARY_ACTIONS)) {
+  for (const action of Object.values(VOCABULARY_ACTIONS) as readonly VocabularyAction[]) {
     assert.equal(action.label.toLowerCase().replaceAll(" ", "_"), action.tool);
     const definitions = tools.filter((tool) => tool.name === action.tool);
     assert.ok(definitions.length > 0, action.tool);
     for (const definition of definitions) {
-      assert.ok(definition.description.startsWith(action.help + " "), action.tool);
+      assert.ok(
+        definition.description.startsWith((action.technical || action.help) + " "),
+        action.tool,
+      );
       assert.ok(definition.description.length > action.help.length + 20, action.tool);
     }
   }
   for (const tool of tools) assert.ok(tool.name in VOCABULARY_ACTIONS, tool.name);
   assert.equal(
     toolDescription("add_priority", "Uses the selected item."),
-    VOCABULARY.addPriority.help + " Uses the selected item.",
+    VOCABULARY.addPriority.technical + " Uses the selected item.",
   );
 });
 
@@ -94,7 +95,7 @@ test("UI explainers use the canonical help lines", () => {
     mirror: "mirrorLoop",
     transparent: "transparentColour",
     onion: "onionSkin",
-    keep: "saved",
+    saved: "saved",
   } as const;
   for (const [ui, id] of Object.entries(pairs)) {
     assert.equal(STUDIO_TERMS[ui as keyof typeof STUDIO_TERMS].says, VOCABULARY[id].help, ui);

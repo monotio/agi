@@ -75,7 +75,7 @@ export function inspectPartDraftRemovals(
       authoring,
       references: documents["references"],
       drafts: [],
-      keptBindings: bindings,
+      savedBindings: bindings,
       profile,
     });
     const problems: DraftRemovalProblem[] = [];

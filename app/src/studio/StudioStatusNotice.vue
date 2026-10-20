@@ -2,28 +2,28 @@
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { StudioNotice } from "./useStudioNotice.ts";
-import type { KeepBanner, KeepRecovery } from "./useStudioKeep.ts";
+import type { CommitBanner, CommitRecovery } from "./useDraftCommit.ts";
 
 /**
  * Studio's messages, in the status line where they never cover the
- * picture: a failed Keep with the one recovery it allows, else the last
+ * picture: a failed commit with the one recovery it allows, else the last
  * edit's notice (why it was refused, or what it did) with the step it
  * offers and its technical detail behind a disclosure that opens above the
  * line. Each has its own close button.
  */
 const { banner = null, notice } = defineProps<{
-  banner?: KeepBanner | null;
+  banner?: CommitBanner | null;
   notice: StudioNotice | null;
 }>();
 const emit = defineEmits<{
-  recover: [recovery: KeepRecovery];
+  recover: [recovery: CommitRecovery];
   /** Close the notice. */
   dismiss: [];
-  /** Close the failed Keep's message. */
+  /** Close the failed commit's message. */
   close: [];
 }>();
 
-const RECOVERY_LABELS: Record<KeepRecovery, string> = {
+const RECOVERY_LABELS: Record<CommitRecovery, string> = {
   reopen: "Reopen",
   reload: "Reload game",
   retry: "Retry",
@@ -35,7 +35,7 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
     v-if="banner"
     class="status-notice status-notice--error"
     role="alert"
-    data-testid="studio-keep-error"
+    data-testid="studio-commit-error"
   >
     <span class="status-notice__text">{{ banner.message }}</span>
     <UiButton
@@ -50,7 +50,7 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
       icon="x"
       label="Close"
       size="sm"
-      data-testid="studio-keep-error-close"
+      data-testid="studio-commit-error-close"
       @click="emit('close')"
     />
   </span>

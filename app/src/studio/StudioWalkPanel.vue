@@ -167,7 +167,7 @@ const roomChoices = computed(() => {
 <template>
   <div class="walk-panel" data-testid="walk-panel">
     <section class="walk-panel__sec">
-      <h3>Where characters walk</h3>
+      <h3>Where actors walk</h3>
       <label class="walk-panel__check">
         <input v-model="tint" type="checkbox" />
         <i class="walk-panel__swatch" aria-hidden="true"></i>

@@ -13,7 +13,6 @@ const IDENTIFIERS: Readonly<Record<string, true>> = {
   ghost: true, // UiButton variant.
   stipple: true, // Picture source and pen field.
   onion: true, // Editor option id.
-  keep: true, // In-memory commit mode.
   snapshot: true, // State notification protocol discriminator.
   checkpoint: true, // Engine-state protocol discriminator.
   dictionary: true, // Stored history field.
@@ -461,6 +460,11 @@ const SWEEP_RULES: readonly {
     pattern: /\bdepth\b|[a-z]Depth\b/g,
     applies: (file) => /^(?:app\/src|src)\/studio\//.test(file),
   },
+  {
+    key: "saved",
+    pattern:
+      /\b(?:useStudioKeep|DraftKeepAdmission|EditableKeep(?:Result|Review)|Keep(?:Banner|Recovery|ableDraft)|ViewKeepFn|LessonKeep|admitKeep|acknowledgeAdmittedKeep|finishKeepAdmission|keepCandidate|keepStagedView|markKept)\b/g,
+  },
   { key: "cel", pattern: /\b(?:SheetFrame|sheetFrame)\w*\b/g },
 ];
 
@@ -530,4 +534,9 @@ test("the terminology sweep catches mixed names and preserves format literals", 
     ),
     [],
   );
+});
+
+test("actors name screen objects in visible movement help", () => {
+  assert.equal(VOCABULARY.hero.help, "The actor the player controls.");
+  assert.ok(copyPattern("screenObject").test("Where characters walk"));
 });

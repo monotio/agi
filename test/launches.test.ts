@@ -232,7 +232,7 @@ test("removal review allows Launch references that the candidate prunes", () => 
       authoring: authored,
       references: undefined,
       drafts: [],
-      keptBindings: {},
+      savedBindings: {},
       profile,
     } satisfies Partial<ProjectRemovalInput> as ProjectRemovalInput);
 
@@ -296,7 +296,7 @@ test("pruneRoomLaunches deletes the room's launches and strips cameFrom and item
     authoring: validateAuthoringState({ version: 1, bindings: {}, world: pruned }),
     references: undefined,
     drafts: [],
-    keptBindings: {},
+    savedBindings: {},
     profile,
   } satisfies Partial<ProjectRemovalInput> as ProjectRemovalInput);
 

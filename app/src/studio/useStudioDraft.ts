@@ -1,7 +1,7 @@
 /**
  * PICTURE editor's working draft: the picture text being edited, its undo
  * history, the compiled result and the last check, all against the text and
- * resource revision last kept (or opened). Every edit goes through the kernel
+ * resource revision last saved (or opened). Every edit goes through the kernel
  * (applyEdits), then the lens locks (studioLocks.ts), which an edit of whole
  * items passes in any lens (lensRules.ts editUnlocks); a refused edit changes
  * nothing and says why. An accepted edit that changes other items' output
@@ -10,9 +10,9 @@
  * multi-selection's move, copy or delete): a batch is checked as one edit of
  * all its items and recorded as one undo step, or refused whole. A drag is one gesture: `move` previews each frame's
  * candidate from the text the gesture started on, and `end` records one undo
- * step or snaps back. Keep rebases the draft but keeps its history. A draft
- * whose compiled bytes equal the kept ones differs only in its notes (labels,
- * kinds, locks, annotations): Keep then saves the text without a patch.
+ * step or snaps back. commit rebases the draft but keeps its history. A draft
+ * whose compiled bytes equal the saved ones differs only in its notes (labels,
+ * kinds, locks, annotations): commit then saves the text without a patch.
  */
 
 import { computed, onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
@@ -60,7 +60,7 @@ import type { StudioLens } from "./studioView.ts";
 /** What the draft starts from: the text Studio opened on and its revision. */
 export interface DraftBase {
   readonly source: string;
-  /** The booted resource revision; undefined when the picture cannot be kept. */
+  /** The booted resource revision; undefined when the picture cannot be saved. */
   readonly revision: ResourceRevision | undefined;
 }
 
@@ -106,7 +106,7 @@ const accepted = (sideEffects: SideEffectReport | null): DraftOutcome =>
 const sameBytes = (a: Uint8Array, b: Uint8Array): boolean =>
   a.length === b.length && a.every((byte, i) => byte === b[i]);
 
-/** The draft's unkept changes for a label: "1 change", "2 changes", "1 note change". */
+/** The draft's unsaved changes for a label: "1 change", "2 changes", "1 note change". */
 export function changeCount(changes: number, notesOnly: boolean): string {
   return `${changes} ${notesOnly ? "note " : ""}${changes === 1 ? "change" : "changes"}`;
 }
@@ -178,8 +178,8 @@ export function editedItems(document: PictureDocument, edit: DraftEdit): string[
 export function useStudioDraft(options: StudioDraftOptions) {
   const profile = (): AgiProfile => toValue(options.profile);
   const initial = toValue(options.base);
-  /** The text and revision the game holds: the last Keep, or what Studio opened. */
-  const kept = shallowRef<DraftBase>(initial);
+  /** The text and revision the game holds: the last commit, or what Studio opened. */
+  const saved = shallowRef<DraftBase>(initial);
   const history = shallowRef<EditHistory>(createHistory(initial.source, options.historyLimit));
   /** The accepted candidate of the open gesture; null shows the draft itself. */
   const preview = shallowRef<DraftCandidate | null>(null);
@@ -191,35 +191,35 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const source = computed(() => history.value.current);
   const document = computed(() => parsePictureDocument(source.value).document);
   const compiled = computed(() => compileEditDocument(document.value, profile()));
-  const dirty = computed(() => source.value !== kept.value.source);
-  /** How many undo steps the history held when the draft was last kept (or opened). */
-  const keptPriority = shallowRef(0);
-  /** Undo or redo steps between the draft and the last Keep, while they differ. */
+  const dirty = computed(() => source.value !== saved.value.source);
+  /** How many undo steps the history held when the draft was last saved (or opened). */
+  const savedStepCount = shallowRef(0);
+  /** Undo or redo steps between the draft and the last commit, while they differ. */
   const changes = computed(() =>
-    dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptPriority.value)) : 0,
+    dirty.value ? Math.max(1, Math.abs(history.value.past.length - savedStepCount.value)) : 0,
   );
-  /** The kept text's compiled bytes, compiled once per kept text and profile. */
-  let keptBytes: { source: string; profile: AgiProfile; bytes: Uint8Array } | undefined;
+  /** The saved text's compiled bytes, compiled once per saved text and profile. */
+  let savedBytes: { source: string; profile: AgiProfile; bytes: Uint8Array } | undefined;
   function baseBytes(): Uint8Array {
-    const { source: text } = kept.value;
-    if (keptBytes?.source !== text || keptBytes.profile !== profile()) {
+    const { source: text } = saved.value;
+    if (savedBytes?.source !== text || savedBytes.profile !== profile()) {
       const bytes = compileEditDocument(parsePictureDocument(text).document, profile()).bytes;
-      keptBytes = { source: text, profile: profile(), bytes };
+      savedBytes = { source: text, profile: profile(), bytes };
     }
-    return keptBytes.bytes;
+    return savedBytes.bytes;
   }
-  /** The draft differs from the kept text only where the picture's bytes do not show it. */
+  /** The draft differs from the saved text only where the picture's bytes do not show it. */
   const notesOnly = computed(() => dirty.value && sameBytes(compiled.value.bytes, baseBytes()));
   const gesturing = computed(() => history.value.gesture !== undefined);
   const canUndo = computed(() => !gesturing.value && history.value.past.length > 0);
   const canRedo = computed(() => !gesturing.value && history.value.future.length > 0);
-  /** Oldest undo steps the priority cap dropped so far (useUndoOrder `dropped`). */
+  /** Oldest undo steps the history limit dropped so far (useUndoOrder `dropped`). */
   const dropped = computed(() => ({ past: history.value.dropped, future: 0 }));
 
   function reset(base: DraftBase): void {
-    kept.value = base;
+    saved.value = base;
     history.value = createHistory(base.source, options.historyLimit);
-    keptPriority.value = 0;
+    savedStepCount.value = 0;
     preview.value = null;
     refusal.value = null;
     validation.value = null;
@@ -229,8 +229,8 @@ export function useStudioDraft(options: StudioDraftOptions) {
     (base, old) => {
       if (base.source === old.source && base.revision === old.revision) return;
       if (base.source === source.value) {
-        kept.value = base;
-        keptPriority.value = history.value.past.length;
+        saved.value = base;
+        savedStepCount.value = history.value.past.length;
       } else reset(base);
     },
   );
@@ -409,22 +409,22 @@ export function useStudioDraft(options: StudioDraftOptions) {
 
   /**
    * The game now holds the draft at `revision`: it is the new base. The undo
-   * history stays, so undoing past a Keep is an unkept change like any other.
+   * history stays, so undoing past a commit is an unsaved change like any other.
    */
-  function markKept(revision: ResourceRevision): void {
-    keptBytes = { source: source.value, profile: profile(), bytes: compiled.value.bytes };
-    kept.value = { source: source.value, revision };
-    keptPriority.value = history.value.past.length;
+  function markSaved(revision: ResourceRevision): void {
+    savedBytes = { source: source.value, profile: profile(), bytes: compiled.value.bytes };
+    saved.value = { source: source.value, revision };
+    savedStepCount.value = history.value.past.length;
     refusal.value = null;
   }
 
-  /** Throw the changes away: back to the last kept text. */
+  /** Throw the changes away: back to the last saved text. */
   function discard(): void {
-    reset(kept.value);
+    reset(saved.value);
   }
 
   return {
-    kept,
+    saved,
     history,
     source,
     document,
@@ -448,7 +448,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     cancelGesture,
     undo: () => step("undo"),
     redo: () => step("redo"),
-    markKept,
+    markSaved,
     discard,
     reset,
   };
@@ -456,7 +456,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
 
 export type StudioDraft = ReturnType<typeof useStudioDraft>;
 
-/** The Keep request for the draft as it stands: its bytes and the text that compiles to them. */
+/** The commit request for the draft as it stands: its bytes and the text that compiles to them. */
 export function draftPictureEdit(
   draft: StudioDraft,
   pictureNumber: number,

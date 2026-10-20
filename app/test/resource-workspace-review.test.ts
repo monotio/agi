@@ -265,7 +265,7 @@ const SECOND_LOGIC = "// A later note\nreturn;\n";
 function keepLogic(ws: EditableProject, key: string, source: string) {
   const snapshot = ws.draft.capture();
   ws.draft.edit(key, source, snapshot.version(key));
-  return ws.keepCandidate(ws.buildSelected([key]));
+  return ws.commitCandidate(ws.buildSelected([key]));
 }
 
 const PIC_EDIT = ['# @item sky "Sky" art', "vis 4", "fill 80,80", "# @end", "end"].join("\n");

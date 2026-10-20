@@ -35,7 +35,7 @@ The app presents native previews, changes, tests, activity and spending. Let tho
 
 ## Engine conventions
 
-${VOCABULARY.hero.technical} AGI calls the ego ego, screen object 0 (o0). ${VOCABULARY.actor.technical}
+${VOCABULARY.hero.technical} ${VOCABULARY.actor.technical}
 
 - The native visual surface is 160 wide by 168 tall (x 0..159, y 0..167), displayed with double-width logical pixels. Use the 16-color EGA palette: 0 black, 1 blue, 2 green, 3 cyan, 4 red, 5 magenta, 6 brown, 7 light gray, 8 dark gray, 9 light blue, 10 light green, 11 light cyan, 12 light red, 13 light magenta, 14 yellow, 15 white.
 - Priority (AGI priority) says what stands in front. Walk (AGI control) marks Wall 0, Gate 1, Trigger 2 and Water 3. ${VOCABULARY.wall.help} Gate: ${VOCABULARY.gate.help} Use ignore.blocks to let a screen object pass a Gate. Trigger: ${VOCABULARY.trigger.help} Flag 3 is set while any ego foot pixel touches it. Water: ${VOCABULARY.water.help} Flag 0 is set while every ego foot pixel is on water. Paint priority 4 across open walking floor. Reserve priorities 5..15 for picture items that hide screen objects. Default screen object priority is 4 at feet rows 0..47, then rises in twelve-row priority bands. A screen object draws over picture pixels at equal or lower priority and behind higher priority. A Priority fill floods the connected priority-4 region, so enclose the intended region first. Trace every Wall or Gate along a visible obstacle and keep exit openings clear.

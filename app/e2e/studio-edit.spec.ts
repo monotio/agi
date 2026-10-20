@@ -352,7 +352,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   // The refusal offers the way out: unlocked for the session, the same drag goes through.
   await page.locator(".workspace-status").getByTestId("studio-notice-action").click();
   await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
-    "Unlocked until you close Studio. Try it again.",
+    "Unlocked until you close the editor. Try it again.",
   );
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
   await workspaceUpdated(page);

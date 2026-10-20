@@ -13,7 +13,7 @@ import type { StudioLens } from "./studioView.ts";
 /**
  * The tool rail on the canvas's left edge: select and point, the drawing
  * tools, the pipette, in the Priority lens the test walk and door tools, the
- * actor probe and the hand, each with its key, and under them the values
+ * Stand-in probe and the hand, each with its key, and under them the values
  * for new drawing or the current selection.
  *
  * The tools scroll inside the rail's column when it is shorter than they are

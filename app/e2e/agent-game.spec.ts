@@ -109,7 +109,7 @@ test("returning to the menu preserves the saved room and offers continue", async
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
-test("a late project session progress entrys a generated room while its entry window waits", async ({
+test("a late project session checkpoints a generated room while its entry window waits", async ({
   page,
 }) => {
   let release!: () => void;

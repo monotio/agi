@@ -1,13 +1,13 @@
 /**
  * VIEW editor's working draft: the VIEW document being edited
  * (src/view/viewDocument.ts), its undo history over encoded
- * payloads (viewHistory.ts), and the bytes and resource revision last kept
+ * payloads (viewHistory.ts), and the bytes and resource revision last saved
  * (or opened). Every edit goes through the kernel (`applyViewEdit`), then
  * `validateViewEdit` with the loops the edit targets, so an accidental
  * change to any other loop is refused; a refused edit changes nothing and
  * says why. A stroke or drag is one gesture: `move` previews each candidate
  * from the document the gesture started on, and `end` records one undo step
- * or snaps back. Keep rebases the draft but keeps its history. An untouched
+ * or snaps back. commit rebases the draft but keeps its history. An untouched
  * draft holds the opened bytes themselves, so closing it writes nothing.
  */
 
@@ -46,7 +46,7 @@ import { plainViewRefusal, validationRefusal } from "./viewMessages.ts";
 /** What the draft starts from: the VIEW bytes Studio opened on and their revision. */
 export interface ViewDraftBase {
   readonly bytes: Uint8Array;
-  /** The booted resource revision; undefined when the view cannot be kept. */
+  /** The booted resource revision; undefined when the view cannot be saved. */
   readonly revision: ResourceRevision | undefined;
 }
 
@@ -80,8 +80,8 @@ export function useViewDraft(options: {
   readonly profile: MaybeRefOrGetter<ViewDocumentProfile>;
 }) {
   const initial = toValue(options.base);
-  /** The bytes and revision the game holds: the last Keep, or what Studio opened. */
-  const kept = shallowRef<ViewDraftBase>(initial);
+  /** The bytes and revision the game holds: the last commit, or what Studio opened. */
+  const saved = shallowRef<ViewDraftBase>(initial);
   const document = shallowRef<ViewDocument>(
     openViewDocument(initial.bytes, toValue(options.profile)),
   );
@@ -94,25 +94,25 @@ export function useViewDraft(options: {
   const refusal = shallowRef<ViewRefusal | null>(null);
   /** Loops the last accepted edit split from a shared block. */
   const isolated = shallowRef<readonly number[]>([]);
-  /** How many undo steps the history held when the draft was last kept (or opened). */
-  const keptPriority = shallowRef(0);
+  /** How many undo steps the history held when the draft was last saved (or opened). */
+  const savedStepCount = shallowRef(0);
 
   /** What the canvas and previews show: the gesture's preview, else the document. */
   const shown = computed(() => preview.value ?? document.value);
   const bytes = computed(() => document.value.payload);
-  const dirty = computed(() => !samePixels(document.value.payload, kept.value.bytes));
+  const dirty = computed(() => !samePixels(document.value.payload, saved.value.bytes));
   const changes = computed(() =>
-    dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptPriority.value)) : 0,
+    dirty.value ? Math.max(1, Math.abs(history.value.past.length - savedStepCount.value)) : 0,
   );
   const gesturing = computed(() => history.value.gesture !== undefined);
   const canUndo = computed(() => !gesturing.value && history.value.past.length > 0);
   const canRedo = computed(() => !gesturing.value && history.value.future.length > 0);
 
   function reset(base: ViewDraftBase): void {
-    kept.value = base;
+    saved.value = base;
     document.value = openViewDocument(base.bytes, toValue(options.profile));
     history.value = createViewHistory(document.value);
-    keptPriority.value = 0;
+    savedStepCount.value = 0;
     preview.value = null;
     gestureBase = null;
     refusal.value = null;
@@ -123,8 +123,8 @@ export function useViewDraft(options: {
     (base, old) => {
       if (base.bytes === old.bytes && base.revision === old.revision) return;
       if (samePixels(base.bytes, document.value.payload)) {
-        kept.value = base;
-        keptPriority.value = history.value.past.length;
+        saved.value = base;
+        savedStepCount.value = history.value.past.length;
       } else reset(base);
     },
   );
@@ -285,21 +285,21 @@ export function useViewDraft(options: {
 
   /**
    * The game now holds the draft at `revision`: it is the new base. The undo
-   * history stays, so undoing past a Keep is an unkept change like any other.
+   * history stays, so undoing past a commit is an unsaved change like any other.
    */
-  function markKept(revision: ResourceRevision): void {
-    kept.value = { bytes: document.value.payload, revision };
-    keptPriority.value = history.value.past.length;
+  function markSaved(revision: ResourceRevision): void {
+    saved.value = { bytes: document.value.payload, revision };
+    savedStepCount.value = history.value.past.length;
     refusal.value = null;
   }
 
-  /** Throw the changes away: back to the last kept bytes. */
+  /** Throw the changes away: back to the last saved bytes. */
   function discard(): void {
-    reset(kept.value);
+    reset(saved.value);
   }
 
   return {
-    kept,
+    saved,
     document,
     history,
     preview,
@@ -322,10 +322,10 @@ export function useViewDraft(options: {
     cancelGesture,
     undo: () => step("undo"),
     redo: () => step("redo"),
-    markKept,
+    markSaved,
     discard,
     reset,
-    /** The Keep log's words for the changes: "1 change", "3 changes". */
+    /** The commit log's words for the changes: "1 change", "3 changes". */
     reason: () => changeCount(changes.value, false),
   };
 }

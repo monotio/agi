@@ -42,7 +42,7 @@ import type {
   WorkerPresentation,
 } from "../src/worker/workerProtocol.ts";
 import { studioCommitFailure, useStudioCommit } from "../src/studio/useStudioCommit.ts";
-import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
+import { useDraftCommit } from "../src/studio/useDraftCommit.ts";
 import { useAutosaveController } from "../src/saves/useAutosaveController.ts";
 import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
 import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
@@ -758,16 +758,16 @@ function keeper(r: Rig, source: string, revision: ResourceRevision) {
   const draft = {
     dirty: ref(true),
     gesturing: ref(false),
-    kept: ref({ revision }),
+    saved: ref({ revision }),
     changes: ref(1),
     notesOnly: ref(false),
     compiled: ref({ bytes: compile(source) }),
     source: ref(source),
-    markKept: () => {},
+    markSaved: () => {},
   } as unknown as StudioDraft;
-  return useStudioKeep({
+  return useDraftCommit({
     draft,
-    keep: (baseRevision) =>
+    commit: (baseRevision) =>
       r.controller.commitPictureEdit(draftPictureEdit(draft, 1, baseRevision)),
   });
 }
@@ -777,7 +777,7 @@ test("a commit behind a project saved elsewhere reopens by reloading from storag
   // Studio opened on another revision of the running game: reopening on the
   // running game is enough, and nothing needs a reload.
   const behindGame = keeper(r, RED, testRevision("before"));
-  assert.equal(await behindGame.keep(), false);
+  assert.equal(await behindGame.commit(), false);
   assert.equal(behindGame.banner.value?.recovery, "reopen");
   assert.equal(behindGame.banner.value?.fromStorage, false);
 
@@ -786,7 +786,7 @@ test("a commit behind a project saved elsewhere reopens by reloading from storag
   elsewhere.putResource("picture", 1, compile(RED));
   assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(elsewhere.files)), true);
   const behindStorage = keeper(r, RED_RENAMED, revision);
-  assert.equal(await behindStorage.keep(), false);
+  assert.equal(await behindStorage.commit(), false);
   assert.deepEqual(behindStorage.banner.value, {
     message: "The game changed since you opened the editor. Reopen to continue.",
     recovery: "reopen",
@@ -818,7 +818,7 @@ test("a commit behind a project saved elsewhere reopens by reloading from storag
 
 test("a commit that loses the race to another tab's commit says reopen from storage, not retry", async (t) => {
   const files = gameFiles();
-  const projectId = testProjectId("studio-keep-race");
+  const projectId = testProjectId("studio-commit-race");
   const revision = await gameRevision(files);
   await saveAuthoredGame(projectId, {
     title: "Studio room",
@@ -855,7 +855,7 @@ test("a commit that loses the race to another tab's commit says reopen from stor
     },
   );
   const loser = keeper(r, RED, revision);
-  assert.equal(await loser.keep(), false);
+  assert.equal(await loser.commit(), false);
   assert.equal(await raced, true);
   // Retry would only refuse again: the one way on is the reload from storage.
   assert.deepEqual(loser.banner.value, {
@@ -925,8 +925,8 @@ test("a worker that never acks the patch fails the commit as an install, after a
     },
   );
   const keep = keeper(r, RED, revision);
-  const saved = keep.keep();
-  assert.equal(keep.status.value, "keeping");
+  const saved = keep.commit();
+  assert.equal(keep.status.value, "saving");
   assert.equal(await saved, false);
   assert.equal(timeouts.length, 1);
   assert.ok(
@@ -1114,7 +1114,7 @@ test("a staged changes repaired in VIEW editor keeps the repaired bytes and spen
   });
   r.game().historyLifetime = await readHistoryLifetime(projectId);
   const repaired = viewView([5, 6, 13, 5]);
-  const result = await r.controller.keepStagedView("ref-staged", {
+  const result = await r.controller.commitStagedView("ref-staged", {
     bytes: repaired,
     baseRevision: revision,
   });

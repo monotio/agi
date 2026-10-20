@@ -2087,7 +2087,7 @@ watch(gameRoomMenu, (open) => {
   window.addEventListener("keydown", keys);
   onWatcherCleanup(() => window.removeEventListener("keydown", keys));
 });
-function pickRoomAction(kind: "door" | "response" | "place-hero" | "play-sound"): void {
+function pickRoomAction(kind: "door" | "response" | "place-ego" | "play-sound"): void {
   const menu = gameRoomMenu.value;
   gameRoomMenu.value = undefined;
   if (!menu) return;
@@ -3349,9 +3349,7 @@ onBeforeUnmount(() => {
       <button type="button" role="menuitem" @click="pickRoomAction('response')">
         Answer a sentence
       </button>
-      <button type="button" role="menuitem" @click="pickRoomAction('place-hero')">
-        Place hero
-      </button>
+      <button type="button" role="menuitem" @click="pickRoomAction('place-ego')">Place hero</button>
       <button type="button" role="menuitem" @click="pickRoomAction('play-sound')">
         Sound when…
       </button>

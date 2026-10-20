@@ -59,7 +59,7 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await expect(page.locator(".play-area")).toBeVisible();
   const before = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(before);
-  await expect(page.getByTestId("studio-keep")).toHaveCount(0);
+  await expect(page.getByTestId("studio-commit")).toHaveCount(0);
   await page.getByTestId("workspace-focus").click();
   await expect(page.locator(".play-area")).toBeHidden();
   await expect(page.getByTestId("workspace-show-game")).toBeVisible();

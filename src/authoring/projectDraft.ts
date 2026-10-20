@@ -1,6 +1,6 @@
 /**
  * Provider-free, in-memory authoring documents and atomic draft transactions.
- * Drafts may be incomplete. Resource validation, durable Keep and run installation
+ * Drafts may be incomplete. Resource validation, durable commit and run installation
  * belong to their respective services; accepting a proposal performs none of them.
  */
 import { checkProjectDocumentKey } from "./projectDocumentKey.ts";
@@ -30,16 +30,16 @@ export interface DraftHistoryLease {
 }
 
 /**
- * Issued by `admitKeep` for one admitted storage attempt. The reservation
+ * Issued by `admitCommit` for one admitted storage attempt. The reservation
  * holds baseline acknowledgement authority for its exact selection until the
  * attempt settles; it is not an exclusive lock on ordinary editing.
  */
-export interface DraftKeepAdmission {
-  readonly kind: "keep-admission";
+export interface DraftCommitAdmission {
+  readonly kind: "commit-admission";
 }
 
 /** Why an ordinary mutation is currently refused. */
-export type DraftBusyReason = "native-history" | "keep-pending";
+export type DraftBusyReason = "native-history" | "commit-pending";
 
 /** The typed refusal a busy draft gives ordinary writers before any mutation. */
 export class DraftBusyError extends Error {
@@ -80,13 +80,13 @@ interface DraftProposal {
 interface DraftSelection {
   readonly snapshot: DraftSnapshot;
   readonly keys: readonly string[];
-  /** Kept documents overlaid with this selected draft closure, owned by the selection. */
+  /** Saved documents overlaid with this selected draft closure, owned by the selection. */
   documents(): Readonly<Record<string, DocumentContent>>;
 }
 interface SelectionState {
   readonly snapshot: SnapshotState;
   readonly keys: readonly string[];
-  readonly keptRevision: number;
+  readonly savedRevision: number;
   acknowledged: boolean;
 }
 interface TransactionId {
@@ -136,7 +136,7 @@ interface HistoryLeaseState {
   cancelled: boolean;
   released: boolean;
 }
-interface KeepAdmissionState {
+interface CommitAdmissionState {
   readonly selection: DraftSelection;
   resolved: boolean;
 }
@@ -194,14 +194,14 @@ export class ProjectDraft {
   private transactions = new WeakMap<TransactionId, UndoState>();
   private editReceipts = new WeakMap<DraftEditReceipt, EditReceiptState>();
   private historyLeases = new WeakMap<DraftHistoryLease, HistoryLeaseState>();
-  private keepAdmissions = new WeakMap<DraftKeepAdmission, KeepAdmissionState>();
+  private commitAdmissions = new WeakMap<DraftCommitAdmission, CommitAdmissionState>();
   /** The currently held native-history lease; its exclusion outlives cancel. */
   private historyLease: DraftHistoryLease | undefined;
-  /** Admitted Keep attempts whose durable settlement has not yet been reported. */
-  private unresolvedKeeps = new Set<DraftKeepAdmission>();
+  /** Admitted commit attempts whose durable settlement has not yet been reported. */
+  private unresolvedCommits = new Set<DraftCommitAdmission>();
   private nextTransaction = 1;
-  private kept: Readonly<Record<string, DocumentSlot>> = Object.create(null);
-  private keptRevision = 0;
+  private saved: Readonly<Record<string, DocumentSlot>> = Object.create(null);
+  private savedRevision = 0;
   private selections = new WeakMap<DraftSelection, SelectionState>();
   private pendingGroups: { readonly revision: number; readonly keys: readonly string[] }[] = [];
 
@@ -211,12 +211,12 @@ export class ProjectDraft {
       undefined,
       OPEN_WRITE,
     );
-    this.kept = { ...this.documents };
+    this.saved = { ...this.documents };
     this.pendingGroups = [];
   }
 
   /**
-   * Reopen accepted recovery against the kept document set. The caller must
+   * Reopen accepted recovery against the saved document set. The caller must
    * first check its saved-base identities and obtain the user's Restore choice.
    * Document versions restart in this new workspace; old proposals, selections
    * and undo handles retain no authority here.
@@ -311,18 +311,18 @@ export class ProjectDraft {
 
   /** Documents whose current content differs from the acknowledged saved baseline. */
   dirtyKeys(): readonly string[] {
-    const keys = new Set([...Object.keys(this.documents), ...Object.keys(this.kept)]);
+    const keys = new Set([...Object.keys(this.documents), ...Object.keys(this.saved)]);
     return [...keys]
       .filter(
         (key) =>
-          !sameContent(this.documents[key]?.content ?? null, this.kept[key]?.content ?? null),
+          !sameContent(this.documents[key]?.content ?? null, this.saved[key]?.content ?? null),
       )
       .sort();
   }
 
   /**
    * Select complete pending operations and the analysis-supplied dependency closure.
-   * Unselected documents come from the kept baseline, not unrelated unfinished edits.
+   * Unselected documents come from the saved baseline, not unrelated unfinished edits.
    * Dependency analysis must describe this current workspace and include any compiler
    * context it changes (for example, vocabulary or named bindings).
    */
@@ -350,7 +350,7 @@ export class ProjectDraft {
       }
     }
     const closedKeys = Object.freeze([...selected].sort());
-    const documents = { ...this.kept };
+    const documents = { ...this.saved };
     for (const key of closedKeys) {
       const slot = state.documents[key];
       if (slot) documents[key] = slot;
@@ -372,7 +372,7 @@ export class ProjectDraft {
     this.selections.set(selection, {
       snapshot: state,
       keys: closedKeys,
-      keptRevision: this.keptRevision,
+      savedRevision: this.savedRevision,
       acknowledged: false,
     });
     return selection;
@@ -382,8 +382,8 @@ export class ProjectDraft {
   assertCurrent(selection: DraftSelection): void {
     const state = this.selections.get(selection);
     if (!state) throw new Error("Selection belongs to another workspace.");
-    if (state.snapshot.revision !== this.revision || state.keptRevision !== this.keptRevision)
-      throw new Error("Stale selection: rebuild against the current draft and kept project.");
+    if (state.snapshot.revision !== this.revision || state.savedRevision !== this.savedRevision)
+      throw new Error("Stale selection: rebuild against the current draft and saved project.");
   }
 
   /**
@@ -392,20 +392,20 @@ export class ProjectDraft {
    * means another save baseline superseded this selection: reconcile with storage,
    * without turning a durable success into a failure or rolling back newer content.
    */
-  acknowledgeKept(selection: DraftSelection): boolean {
+  acknowledgeSaved(selection: DraftSelection): boolean {
     this.ordinaryWrite();
     return this.acknowledgeSelection(selection);
   }
 
   /**
-   * The admitted-Keep acknowledgement: the reservation issued for this exact
+   * The admitted-commit acknowledgement: the reservation issued for this exact
    * selection is the authority. History acquisition remains excluded until
-   * the admitted save settles. Everything else matches acknowledgeKept.
+   * the admitted save settles. Everything else matches acknowledgeSaved.
    */
-  acknowledgeAdmittedKeep(admission: DraftKeepAdmission): boolean {
-    const state = this.keepAdmissions.get(admission);
-    if (!state) throw new Error("Keep admission belongs to another workspace.");
-    if (state.resolved) throw new Error("Keep admission is already settled.");
+  acknowledgeAdmittedCommit(admission: DraftCommitAdmission): boolean {
+    const state = this.commitAdmissions.get(admission);
+    if (!state) throw new Error("commit admission belongs to another workspace.");
+    if (state.resolved) throw new Error("commit admission is already settled.");
     return this.acknowledgeSelection(state.selection);
   }
 
@@ -413,17 +413,17 @@ export class ProjectDraft {
     const state = this.selections.get(selection);
     if (!state) throw new Error("Selection belongs to another workspace.");
     if (state.acknowledged) return true;
-    if (state.keptRevision !== this.keptRevision) return false;
-    if (!Number.isSafeInteger(this.keptRevision + 1))
-      throw new Error("Kept revision exhausted; reopen the workspace.");
-    const kept = { ...this.kept };
+    if (state.savedRevision !== this.savedRevision) return false;
+    if (!Number.isSafeInteger(this.savedRevision + 1))
+      throw new Error("Saved revision exhausted; reopen the workspace.");
+    const saved = { ...this.saved };
     for (const key of state.keys) {
       const slot = state.snapshot.documents[key];
-      if (slot) kept[key] = slot;
-      else delete kept[key];
+      if (slot) saved[key] = slot;
+      else delete saved[key];
     }
-    this.kept = kept;
-    this.keptRevision++;
+    this.saved = saved;
+    this.savedRevision++;
     state.acknowledged = true;
     const dirty = new Set(this.dirtyKeys());
     this.pendingGroups = this.pendingGroups.filter(
@@ -440,7 +440,7 @@ export class ProjectDraft {
   /**
    * Reserve one document's native history step. Acquisition is synchronous and
    * pins the expected revision; it refuses while another lease is held — even
-   * a cancelled one awaiting release — or while any admitted Keep is still
+   * a cancelled one awaiting release — or while any admitted commit is still
    * settling. The returned token is opaque: only this issuer recognizes it.
    */
   acquireHistoryMutation(expectedRevision: number): DraftHistoryLease {
@@ -449,10 +449,10 @@ export class ProjectDraft {
         "native-history",
         "A native history step is already running on this draft.",
       );
-    if (this.unresolvedKeeps.size > 0)
+    if (this.unresolvedCommits.size > 0)
       throw new DraftBusyError(
-        "keep-pending",
-        "A Keep is still settling; the next history step must wait for it.",
+        "commit-pending",
+        "A commit is still settling; the next history step must wait for it.",
       );
     if (expectedRevision !== this.revision)
       throw new Error(
@@ -487,35 +487,35 @@ export class ProjectDraft {
   }
 
   /**
-   * Admit one Keep's storage attempt for this exact selection: the caller has
+   * Admit one commit's storage attempt for this exact selection: the caller has
    * already built and reviewed the request, so admission is synchronous —
    * selection identity and currentness plus native-history exclusion. Several
    * admissions may be pending at once; each blocks history acquisition until
    * its attempt settles. Not a lock on ordinary editing.
    */
-  admitKeep(selection: DraftSelection): DraftKeepAdmission {
+  admitCommit(selection: DraftSelection): DraftCommitAdmission {
     if (this.historyLease !== undefined)
       throw new DraftBusyError(
         "native-history",
-        "A native history step is running; this Keep must wait for it to settle.",
+        "A native history step is running; this commit must wait for it to settle.",
       );
     this.assertCurrent(selection);
-    const admission: DraftKeepAdmission = Object.freeze({ kind: "keep-admission" });
-    this.keepAdmissions.set(admission, { selection, resolved: false });
-    this.unresolvedKeeps.add(admission);
+    const admission: DraftCommitAdmission = Object.freeze({ kind: "commit-admission" });
+    this.commitAdmissions.set(admission, { selection, resolved: false });
+    this.unresolvedCommits.add(admission);
     return admission;
   }
 
   /**
-   * Report that an admitted Keep attempt settled — durably saved or failed.
+   * Report that an admitted commit attempt settled — durably saved or failed.
    * Idempotent for the issuing token; foreign tokens refuse.
    */
-  finishKeepAdmission(admission: DraftKeepAdmission): void {
-    const state = this.keepAdmissions.get(admission);
-    if (state === undefined) throw new Error("Keep admission belongs to another workspace.");
+  finishCommitAdmission(admission: DraftCommitAdmission): void {
+    const state = this.commitAdmissions.get(admission);
+    if (state === undefined) throw new Error("commit admission belongs to another workspace.");
     if (state.resolved) return;
     state.resolved = true;
-    this.unresolvedKeeps.delete(admission);
+    this.unresolvedCommits.delete(admission);
   }
 
   /** Capture the complete consulted workspace, including dependencies not written. */

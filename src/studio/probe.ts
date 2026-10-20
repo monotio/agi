@@ -1,5 +1,5 @@
 /**
- * The PICTURE editor stand-in-actor probe: what the engine would do with one cel
+ * The PICTURE editor stand-in-Stand-in probe: what the engine would do with one cel
  * standing still at one place on a picture. Occlusion is the engine's cel
  * blit (`forEachPaintedPixel`), priority its baseline bands, and control hits
  * its footprint scan, so the probe cannot disagree with a real frame. It is a

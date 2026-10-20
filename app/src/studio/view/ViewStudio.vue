@@ -61,7 +61,7 @@ import { exposeViewDraft, useViewDraft, type ViewOutcome } from "./useViewDraft.
 import { VIEW_TOOL_KEYS, useViewTools } from "./useViewTools.ts";
 
 /** A VIEW commit transaction: the edit, and the staged reference it spends, if any. */
-export type ViewKeepFn = (
+export type ViewCommitFn = (
   edit: ViewResourceEdit,
   stagedReference: string | undefined,
 ) => Promise<ResourceCommitResult>;
@@ -242,7 +242,7 @@ function targetsOf(op: ViewEdit): number[] | undefined {
 }
 
 /** Editing is blocked: read-only, or a view with no revision to save against. */
-const frozen = (): boolean => readOnly || draft.kept.value.revision === undefined;
+const frozen = (): boolean => readOnly || draft.saved.value.revision === undefined;
 
 /** Say what an edit did: why it was refused, a split-off copy, feet that moved. */
 function report(outcome: ViewOutcome, feetFrom?: typeof currentCel.value): void {

@@ -282,7 +282,7 @@ export interface AuthoringController {
    * when the game's identity moved since the reference was attached.
    * `repaired` keeps VIEW editor's repair of the candidate instead.
    */
-  keepStagedView(
+  commitStagedView(
     id: string,
     repaired?: Pick<ViewEdit, "bytes" | "baseRevision" | "baseAuthoring">,
   ): Promise<ResourceCommitResult>;
@@ -2158,7 +2158,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   /** Keep resources, source and the consumed offer in one conditional durable write. */
-  async function keepStagedView(
+  async function commitStagedView(
     id: string,
     repaired?: Pick<ViewEdit, "bytes" | "baseRevision" | "baseAuthoring">,
   ): Promise<ResourceCommitResult> {
@@ -2236,7 +2236,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     attachCharacterReference,
     attachStudioReference,
     detachReference,
-    keepStagedView,
+    commitStagedView,
     commitPictureEdit,
     commitRoomEdit,
     commitViewEdit,

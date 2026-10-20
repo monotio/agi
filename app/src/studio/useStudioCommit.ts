@@ -2,7 +2,7 @@
  * A Studio's commit: commits one edit — PICTURE editor's PIC bytes and the
  * annotated source that compiles to them, VIEW editor's VIEW bytes —
  * through the engine's resource transaction (useAuthoringController's
- * commitPictureEdit, commitViewEdit, keepStagedView), and exposes the state
+ * commitPictureEdit, commitViewEdit, commitStagedView), and exposes the state
  * the commit button needs. The transaction itself is all-or-nothing up to the
  * durable save; see commitResourceEdit for the steps and recovery.
  */
