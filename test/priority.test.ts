@@ -212,14 +212,18 @@ test("engine loads packed 2.230 VIEW headers", () => {
   );
 });
 
-test("frame observation preserves shared sprite orientation selected by bytecode", () => {
+test("nonpacked shared sprites mirror at blitting after loop selections and remain stable on frame observation", () => {
   const engine = game(`
     load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100);
     draw(o0); stop.cycling(o0); fix.loop(o0);
     set.loop(o0, 1); set.loop(o0, 2);
     return;
   `);
-  // Three loop aliases:0→1 mirrors the shared row,1→2 mirrors it back.
+  // docs/fidelity.md F-VIEWS-01: on 2.936, overlay InsertObj calls
+  // MirrorCell; SetLoop/SetCel do not. These three aliases
+  // start at orientation 0 with row [1, 2]. Selecting 1 then 2 without an
+  // intervening blit leaves that row untouched until InsertObj reverses it
+  // once to [2, 1] for loop 2. Frame reads preserve the composed result.
   engine.patchResources([
     {
       kind: "view",
@@ -233,7 +237,7 @@ test("frame observation preserves shared sprite orientation selected by bytecode
   for (let i = 0; i < 2; i++) {
     assert.deepEqual(
       Array.from(engine.getFrame().visual.slice(100 * 160 + 20, 100 * 160 + 22)),
-      [1, 2],
+      [2, 1],
     );
   }
 });
