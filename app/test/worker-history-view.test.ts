@@ -11,6 +11,8 @@ await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => load
  * session byte-identical: the scratch never touches it.
  */
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
+import { releasedSound, assertSoundContinuation } from "../../test/released-sound.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import { createDebugController } from "../src/worker/debugController.ts";
 import { installDebugController } from "../src/worker/debugLoader.ts";
@@ -23,6 +25,7 @@ import {
   HISTORY_FORMAT_VERSION,
   historyBootSemantic,
   historyFingerprint,
+  stampBoot,
   historySyncDigest,
   validateHistoryRecording,
   type HistoryAnchor,
@@ -2036,3 +2039,35 @@ test("released retained originals restore through historyViewRestore and still r
   });
   assert.equal(h.ctx.run.engine!.vars[40], 99);
 });
+
+for (const sound of [false, true]) {
+  test(`a retained released ${sound ? "sound" : "non-sound"} checkpoint restores through historyViewRestore`, () => {
+    const tape = JSON.parse(
+      readFileSync(new URL("formats/history-1.2.2-paused-reenter.json", import.meta.url), "utf8"),
+    ) as { batches: HistoryBatch[] };
+    const [segment] = collectSegments(
+      tape.batches.map((batch) => ({ type: "historyBatch", epoch: 0, batch }) as WorkerControl),
+    );
+    // Retained boots wrap the captured checkpoint. Keep the real released image
+    // and replay, rather than recapturing them with the current Engine.
+    const boot = sound
+      ? releasedSound.captures[0]!.history.segments[0]!.boot
+      : stampBoot({ ...segment!.boot, ...segment!.anchors.at(-1)! });
+    assert.equal(boot.replay!.version, undefined);
+    assert.equal(boot.replay!.sound !== null, sound);
+    const before = structuredClone(boot);
+    const h = viewHarness(viewGame());
+    h.send({ type: "historyViewRestore", id: 1, boot, from: null });
+    const restored = h.control.find((m) => m.type === "historyViewRestored" && m.id === 1);
+    assert.deepEqual(restored, {
+      type: "historyViewRestored",
+      id: 1,
+      ok: true,
+      resourceSet: boot.resourceSet,
+    });
+    assert.equal(h.ctx.run.cycle.paused, true);
+    if (sound) assertSoundContinuation(h.ctx.run.engine!, "speaker-review");
+    else assert.deepEqual([h.ctx.run.engine!.vars[40], h.ctx.run.engine!.vars[41]], [2, 16]);
+    assert.deepEqual(boot, before, "restoring keeps the released record unchanged");
+  });
+}

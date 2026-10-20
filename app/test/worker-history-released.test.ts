@@ -91,3 +91,41 @@ test("every released anchor in history-1.2.2-paused-reenter.json and project-v1.
   }
   assert.deepEqual(zipBytes, zipBefore);
 });
+
+test("released events after an anchor reach later sync marks without replacing the event stream", () => {
+  const tape = JSON.parse(
+    readFileSync(new URL("formats/history-1.2.2-paused-reenter.json", import.meta.url), "utf8"),
+  ) as { batches: HistoryBatch[]; final: { v40: number; v41: number; digest: string } };
+  const [segment] = collectSegments(
+    tape.batches.map((batch) => ({ type: "historyBatch", epoch: 0, batch }) as WorkerControl),
+  );
+  const before = structuredClone(segment!);
+  const anchor = segment!.anchors[0]!;
+  assert.deepEqual(
+    segment!.events.map((event) => event.cause.kind),
+    ["reenter", "pause", "pause"],
+  );
+  assert.ok(segment!.events.every((event) => event.tick > anchor.tick));
+  assert.ok(segment!.sync.some((mark) => mark.tick > anchor.tick && mark.seq > anchor.seq));
+  const replayed = replayHistorySegment(segment!, { anchor: 0 });
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null);
+  assert.equal(replayed.incompatible, null);
+  assert.equal(replayed.applied, 3, "the real re-entry and pause events were consumed");
+  assert.equal(replayed.tick, 52);
+  assert.equal(historySyncDigest(replayed.ctx.run.engine!), tape.final.digest);
+  assert.deepEqual(segment, before);
+
+  // A later released combined-digest mark is unverified, but must still be
+  // reachable. Move it before the last real event to prove the check runs.
+  const unreachable = structuredClone(segment!);
+  unreachable.sync.find((mark) => mark.seq > anchor.seq)!.tick = 27;
+  const rejected = replayHistorySegment(unreachable, { anchor: 0 });
+  assert.equal(rejected.error, null);
+  assert.equal(
+    rejected.diverged,
+    null,
+    "released combined digests cannot claim verified divergence",
+  );
+  assert.match(rejected.incompatible?.detail ?? "", /sync mark unreachable/);
+});

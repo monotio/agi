@@ -7441,6 +7441,69 @@ Those are bounded recovery policies, not original valid-resource behavior.
 The PSG row path does not apply 2.001 device-2 attenuation conversion. Those separate paths are outside this
 speaker correction. No new MAME or real-hardware speaker measurement was made.
 
+**Released recording migration.** The v1.2.4 engine split the entire payload,
+including the period byte, at every zero. Its active booter playback always
+carried countdown 1, advanced one old row per heartbeat and completed on the
+last row. Replay state now writes version 2; an omitted version identifies
+released version 1. At the recording restore boundary, the resource translates
+the old cursor to its consumed-byte boundary, then selects the first corrected
+row whose start is at or after that boundary. A partly consumed corrected row
+is skipped in full, including any remaining writes. The next whole row runs on
+the next heartbeat (countdown 0), then follows the resource's corrected period.
+An exhausted stream, or period-zero speaker stream, cleans up and sets the done
+flag on that next heartbeat. PSG uses its own zero-separated rows after the
+period byte; it receives the same byte-boundary translation. This is a host
+migration policy for old recordings, not evidence of original interpreter behavior.
+
+For period 1 followed by five `81 00 00` groups, released cursor 7 maps to
+corrected speaker cursor 4: the next heartbeat writes divisor 12, and the
+following heartbeat completes. Impossible released active cursors, countdowns
+and channel state are rejected before conversion; current playback bounds stay
+unchanged. Tape replay, recorded tests, History boot/anchor restores and
+retained earlier sessions share this migration. History viewing and rewind use
+[historyDrive.ts](../app/src/worker/historyDrive.ts); Undo rewind and earlier-session
+restores take `historyViewRestore` → `adoptResumePoint` in
+[resumePoint.ts](../app/src/worker/resumePoint.ts). Both authenticate through
+`fingerprintMatchesRecorded` in
+[releasedHostImage.ts](../app/src/worker/releasedHostImage.ts): check the stored
+fingerprint first, then independently derive the expected fingerprint from
+`migrateRecordedReplayState` and compare the recaptured engine. Even a released
+checkpoint without sound needs this step because every new replay capture carries
+version 2.
+
+Other comparison boundaries: the readers and PAL fallback in
+[src/agent/history.ts](../src/agent/history.ts) authenticate stored bytes against
+stored fingerprints without recapturing or migrating. The later History sync
+checks compare observed game behavior, not replay-state representations, and stay
+enabled. Rewind snapshots in [replay.ts](../app/src/worker/replay.ts) and launches
+in [roomLaunch.ts](../app/src/worker/roomLaunch.ts) capture their current engine in
+the same session; those checkpoints cannot contain released replay states.
+Recorded tests in [gameTestsRunner.ts](../src/agent/gameTestsRunner.ts) run through
+[Simulation](../src/agent/playtest.ts), which calls `Engine.restoreReplayState`
+without comparing a recapture against a stored fingerprint. New History checkpoints
+are stamped from current captures in [history.ts](../app/src/worker/history.ts).
+
+The original image and replay bytes remain unchanged in
+[sound-1.2.4.json.gz](../test/formats/sound-1.2.4.json.gz), gzip-compressed without
+changing its JSON content, captured by tag v1.2.4
+(`01fcce5d55ccea285a1e02d33a8b698cb220f754`) using synthetic resources. Tests
+cover speaker and PSG, zero tone continuations, period zero/nonzero, partial
+rows, an unterminated tail and near-end cursors, including the completion flag
+and game logic after resume. The sound History wrappers were assembled using the
+released stamper around real engine captures; they contain no recorded events or
+later sync marks. A separate worker test retains all real post-anchor re-entry
+and pause events from the released non-sound
+[1.2.2 history](../app/test/formats/history-1.2.2-paused-reenter.json), checks its
+final state and proves later sync-mark reachability is checked.
+
+Checkpoint compatibility does not guarantee that a whole released booter-sound
+timeline verifies: the earlier sound-timing correction changes future completion
+times, so a later split-digest mark may report “diverged”. That would be a timing
+compatibility difference from the earlier correction, not this migration. These
+sound captures have no such later History marks and cannot establish that result;
+the migration does not remove or weaken sync checks. Released combined-digest
+marks remain unverified under the existing History compatibility policy.
+
 ### Original games through MAME audio
 
 **Evidence class:** original interpreter execution on MAME 0.289 reconstructed

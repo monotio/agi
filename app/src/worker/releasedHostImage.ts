@@ -1,8 +1,10 @@
 /**
  * A recorded host image's compatibility checks: which header version it
- * carries without decoding the whole image, and the semantic fingerprint
- * retry that re-stamps a current image with the released version-1 byte.
+ * carries without decoding the whole image, and authentication of a restored
+ * checkpoint against its stored fingerprint and released replay semantics.
  */
+import { migrateRecordedReplayState } from "../../../src/runtime/recordingState.ts";
+import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { asReleasedHostImage, hostImageVersion } from "../../../src/runtime/persistence.ts";
 import {
   historyFingerprint,
@@ -27,7 +29,7 @@ export function recordedHostImageVersion(image: string): number | undefined {
  * `asReleasedHostImage`) — that retry only applies when the image's
  * continuation carries no v2-only fields.
  */
-export function fingerprintMatchesReleased(
+function fingerprintMatchesReleased(
   semantic: HistorySemanticState,
   expected: HistoryFingerprint,
 ): boolean {
@@ -38,4 +40,24 @@ export function fingerprintMatchesReleased(
   return (
     historyFingerprint({ ...semantic, image: bytesToBase64(releasedImage) }).hash === expected.hash
   );
+}
+
+/**
+ * Authenticate the stored checkpoint first, then compare the restored state.
+ * A released replay's migrated expectation comes only from recorded state and
+ * resource bytes, never from the recapture being checked. Stored bytes stay
+ * unchanged, including the released host-image header and replay version.
+ */
+export function fingerprintMatchesRecorded(
+  restored: HistorySemanticState,
+  recorded: HistorySemanticState,
+  expected: HistoryFingerprint,
+  profile: AgiProfile,
+  getSound: (num: number) => Uint8Array | null,
+): boolean {
+  if (historyFingerprint(recorded).hash !== expected.hash) return false;
+  if (fingerprintMatchesReleased(restored, expected)) return true;
+  if (recorded.replay === undefined) return false;
+  const replay = migrateRecordedReplayState(recorded.replay, profile, getSound);
+  return fingerprintMatchesReleased(restored, historyFingerprint({ ...recorded, replay }));
 }

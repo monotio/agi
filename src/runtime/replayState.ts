@@ -133,7 +133,12 @@ export function validateJoystickState(value: unknown): JoystickReplayState {
   };
 }
 
+/** Version 1 (released without a stamp) used zero-separated booter row cursors. */
+export const REPLAY_STATE_VERSION = 2;
+
 export interface EngineReplayState {
+  /** Omission is the released version-1 recording contract. */
+  version?: 1 | typeof REPLAY_STATE_VERSION;
   joystick?: JoystickReplayState;
   amigaRegion?: "ntsc" | "pal";
   /** The PC display the recorded session ran on (src/runtime/display.ts); absent is EGA. */
@@ -517,6 +522,7 @@ export function validateEngineReplayState(
     "continuation",
   ];
   const optional = [
+    "version",
     "amigaRegion",
     "pcDisplay",
     "monitorType",
@@ -526,6 +532,8 @@ export function validateEngineReplayState(
     "joystick",
   ].filter((key) => value !== null && typeof value === "object" && Object.hasOwn(value, key));
   const s = record(value, [...fields, ...optional]);
+  if (optional.includes("version") && s["version"] !== 1 && s["version"] !== REPLAY_STATE_VERSION)
+    throw new Error("Replay state version is not supported.");
   const hasJoystick = optional.includes("joystick");
   if (s["priorityTableRebuilt"] !== undefined && s["priorityTableRebuilt"] !== true)
     throw new Error("Replay priority table marker must be true.");
@@ -566,6 +574,9 @@ export function validateEngineReplayState(
   if (joystick?.calibration != null && continuation?.modals[joystick.calibration]?.kind !== "print")
     throw new Error("Replay joystick calibration is missing its window.");
   return {
+    ...(optional.includes("version")
+      ? { version: s["version"] as 1 | typeof REPLAY_STATE_VERSION }
+      : {}),
     ...(s["amigaRegion"] !== undefined ? { amigaRegion: s["amigaRegion"] as "ntsc" | "pal" } : {}),
     ...(s["pcDisplay"] === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
     ...(s["monitorType"] !== undefined ? { monitorType: number(s["monitorType"], 0, 4) } : {}),
