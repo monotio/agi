@@ -2552,12 +2552,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 0,
                 "resourceSet": "3191-7b190263",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "ea3bccb703a091cb"
+                  "hash": "64aff1bf3d07259d"
                 }
               }
             ],
@@ -5118,12 +5123,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 0,
                 "resourceSet": "3191-3e1320e5",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "9d08aab9d784a244"
+                  "hash": "4a483abdd0fd02d2"
                 }
               }
             ],
@@ -7684,12 +7694,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 0,
                 "resourceSet": "3191-3e1320e5",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "dbaf314edc302c9a"
+                  "hash": "3f8ae2880f0ae7fc"
                 }
               }
             ],
@@ -10250,12 +10265,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 0,
                 "resourceSet": "3191-3e1320e5",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "a713e262f6a4acfb"
+                  "hash": "07dfe9ee412f9a71"
                 }
               }
             ],
@@ -12816,12 +12836,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 0,
                 "resourceSet": "3191-d9049ec6",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "70e11343e733931b"
+                  "hash": "6c2a3457b79ead3d"
                 }
               }
             ],
@@ -15382,12 +15407,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 1,
                 "resourceSet": "3191-7b190263",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "448fafbf57037473"
+                  "hash": "c0648e218ebfaafd"
                 }
               }
             ],
@@ -17948,12 +17978,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 1,
                 "resourceSet": "3191-3e1320e5",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "b639bfe5f610970e"
+                  "hash": "39af514a48b0d648"
                 }
               }
             ],
@@ -20514,12 +20549,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 1,
                 "resourceSet": "3191-3e1320e5",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "31f6341996bdb9c7"
+                  "hash": "a602d677c4b5b015"
                 }
               }
             ],
@@ -23080,12 +23120,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 1,
                 "resourceSet": "3191-d9049ec6",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "8266e6c5b68338d3"
+                  "hash": "329e6895e1a1aca5"
                 }
               }
             ],
@@ -25646,12 +25691,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 0,
                 "resourceSet": "3182-2e903799",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "6b4c86d22fdde567"
+                  "hash": "22bc6266adead4e9"
                 }
               }
             ],
@@ -28212,12 +28262,17 @@
                 "inputLines": [],
                 "requestSerial": 0,
                 "rng": 7,
+                "clock": {
+                  "remainder": 0,
+                  "increments": 0,
+                  "paused": false
+                },
                 "soundDevice": 0,
                 "resourceSet": "3182-2e903799",
                 "patchGeneration": 0,
                 "fingerprint": {
                   "v": 1,
-                  "hash": "e74b8e6b14263602"
+                  "hash": "8f684411d82212f8"
                 }
               }
             ],
