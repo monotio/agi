@@ -1,3 +1,8 @@
+import {
+  AUTHORING_CONVENTIONS_VERSION,
+  projectConventions,
+  isLegacyAuthoredProject,
+} from "../../../src/authoring/projectConventions.ts";
 /** One editable model and immutable History for an opened project's lifetime. */
 import { migrateAgentChats, readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
@@ -13,10 +18,7 @@ import {
   type ProjectHistoryAction,
 } from "../../../src/authoring/projectHistory.ts";
 import { readProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
-import {
-  isRecognizedOriginal,
-  migrateScriptSize,
-} from "../../../src/authoring/scriptSizeMigration.ts";
+import { migrateScriptSize } from "../../../src/authoring/scriptSizeMigration.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
 import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
@@ -38,11 +40,7 @@ import {
 import { sha256Hex } from "../../../src/crypto.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { requireProjectId, type GameIdentity } from "../../../src/gameIdentity.ts";
-import {
-  inspectEditableProject,
-  updateAcceptedSourceClaims,
-  VIEW_MIGRATION_LABEL,
-} from "./projectWorkspaceSource.ts";
+import { inspectEditableProject, updateAcceptedSourceClaims } from "./projectWorkspaceSource.ts";
 import type {
   authoringFingerprint,
   commitProject,
@@ -236,25 +234,13 @@ function createSession(
       : data.projectHistory === undefined
         ? { ...inspection.documents, ...readProjectWorkspace(data.workspace) }
         : readProjectWorkspace(data.workspace);
-  // A pre-1.2.5 authored game predates the authentic 50-pair script buffer:
-  // logic 0 gains the template's script.size(200) once, as a visible History
-  // commit through the ordinary edit path below, admitted to the running
-  // game like any logic edit. Re-imported archives and remixes with the
-  // template's boot shape migrate too; a recognized original release keeps
-  // its released image. Once is by History, not just by the line: a project
-  // whose History already holds the migration commit — an Undo, a restore
-  // or a deleted line can leave LOGIC 0 without script.size again — opens
-  // untouched rather than gaining a second entry.
+  const conventions = projectConventions(data);
+  const updateDue = (conventions.version ?? 0) < 1;
   const scriptSizeMigration =
-    isRecognizedOriginal(data.files, data.library?.source) ||
-    history.capture().commits.some((commit) => commit.label === SCRIPT_SIZE_MIGRATION_LABEL)
-      ? null
-      : migrateScriptSize(openedDocuments);
-  const viewRebuilds = history
-    .capture()
-    .commits.some((commit) => commit.label === VIEW_MIGRATION_LABEL)
-    ? {}
-    : inspection.viewRebuilds;
+    updateDue && isLegacyAuthoredProject(data)
+      ? migrateScriptSize(openedDocuments, data.files)
+      : null;
+  const viewRebuilds = updateDue ? inspection.viewRebuilds : {};
   // Start with the stored native VIEWs so Undo restores their exact bytes.
   // The author's source returns through the ordinary commit below.
   if (Object.keys(viewRebuilds).length)
@@ -268,6 +254,7 @@ function createSession(
   for (const key of Object.keys(inspection.rejectedSources))
     if (/^view:\d+$/.test(key) && inspection.documents[key] instanceof Uint8Array)
       openedDocuments = { ...openedDocuments, [key]: inspection.documents[key]! };
+
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
@@ -292,7 +279,7 @@ function createSession(
   // A native-byte baseline keeps existing History immutable and makes Undo exact.
   if (Object.keys(viewRebuilds).length && history.capture().cursor !== null)
     history.record(documents, {
-      label: "VIEWs before the 1.2.5 update",
+      label: "Before update",
       origin: "view",
       author: "creator",
       time: openedAt,
@@ -622,6 +609,7 @@ function createSession(
     );
     const next = {
       ...data,
+      authoringConventions: { ...conventions, version: AUTHORING_CONVENTIONS_VERSION },
       ...(authoringState === undefined ? {} : { authoringState }),
       files: Object.fromEntries(image.files()),
       library: projectCommitLibrary(data.library, {
@@ -1010,6 +998,7 @@ function createSession(
     return outcome;
   }
   const session = {
+    legacyRoomMemory: isLegacyAuthoredProject(data),
     model,
     history,
     ready,
@@ -1491,44 +1480,30 @@ function createSession(
       if (owners.get(data.projectId) === session) owners.delete(data.projectId);
     },
   };
-  // The script.size migration is an ordinary logic edit: the admission any
-  // Update takes carries the new logic 0 to the running game at once, and the
-  // same transactional save stores it with its History commit. A refused or
-  // failed write leaves the stored project as it was, so the next open tries
-  // again. A journal rebuild (workingDocumentId) replays its own recorded
-  // operations, the migration among them, instead.
-  if (scriptSizeMigration !== null && input.workingDocumentId === undefined)
+  // Both repairs share one admission and durable write. Refused writes leave
+  // the old bytes and conventions intact, so reopening retries the whole step.
+  // Journal recovery replays its recorded proposal instead of creating another.
+  const updateChanges = [
+    ...(scriptSizeMigration === null
+      ? []
+      : [{ key: "logic:0", content: scriptSizeMigration["logic:0"]! }]),
+    ...Object.entries(viewRebuilds).map(([key, content]) => ({ key, content })),
+  ];
+  if (updateChanges.length && input.workingDocumentId === undefined)
     void session
       .submit({
-        proposal: model.propose(model.capture(), SCRIPT_SIZE_MIGRATION_LABEL, [
-          { key: "logic:0", content: scriptSizeMigration["logic:0"]! },
-        ]),
-        label: SCRIPT_SIZE_MIGRATION_LABEL,
+        proposal: model.propose(model.capture(), PROJECT_UPDATE_LABEL, updateChanges),
+        label: PROJECT_UPDATE_LABEL,
         origin: "logic",
         author: "creator",
       })
       .catch(() => {
-        /* The save status reports a failed write; the stored project is unchanged. */
-      });
-  if (Object.keys(viewRebuilds).length && input.workingDocumentId === undefined)
-    void session
-      .submit({
-        proposal: model.propose(
-          model.capture(),
-          VIEW_MIGRATION_LABEL,
-          Object.entries(viewRebuilds).map(([key, content]) => ({ key, content })),
-        ),
-        label: VIEW_MIGRATION_LABEL,
-        origin: "view",
-        author: "creator",
-      })
-      .catch(() => {
-        /* The ordinary save status reports failures; reopening retries stored old bytes. */
+        /* Save status reports failures; reopening retries the stored old bytes. */
       });
   return session;
 }
 /** The History entry an older authored game receives once (CHANGELOG 1.2.5). */
-export const SCRIPT_SIZE_MIGRATION_LABEL = "Room memory raised for this version";
+export const PROJECT_UPDATE_LABEL = "Updated for 1.2.5";
 export type ProjectSession = ReturnType<typeof openOwnedProjectSession>;
 
 /** Re-run the same preparation and History path before exposing any recovered project. */

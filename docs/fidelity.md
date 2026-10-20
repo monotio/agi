@@ -874,67 +874,62 @@ attribution and replay silence).
 
 ### Authored script buffer on live edits
 
-This is a host addition for authored projects, not interpreter behavior. The
-original sets the script buffer only when the game executes `script.size`
-([F-timing-02](#original-script-capacity-and-version-handlers)); the engine keeps that rule for every game. Authoring
-adds cases the original never meets: new LOGIC 0 code installed into a
-running game whose boot block already ran, a checkpoint taken before an
-edit, and a 1.2.4 project whose LOGIC 0 keeps the template's boot shape but
-no `script.size` — the 1.2.5 migration adds it only when a project session
-opens, while a Play-mode run and a History view of a pre-migration commit
-never open one.
+This is a host addition for authored projects. The original sets the script
+buffer when the game executes `script.size`
+([F-timing-02](#original-script-capacity-and-version-handlers)). Originals keep
+the authentic 50-pair default; legacy authored projects preserve their released
+200-pair starting allocation through the engine option `legacyRoomMemory`.
+Cold boot, restart and a save with no recorded capacity start at 200. An
+executed `script.size`, including a smaller value in a later room, retains its
+native meaning. A recorded capacity stays authoritative on restore.
 
-With the engine option `adoptDeclaredScriptSize`, the engine derives an
-authored floor from the installed LOGIC 0 (`authoredScriptFloor`): the
-largest `script.size` operand it declares or — when it declares none but
-keeps the template boot shape, a `set(f200)` inside an `!isset(f200)` guard —
-the 200 pairs the migration would add. Host operations raise the capacity
-word to that floor, never lower it, and leave the recorded pairs untouched
-(the opcode's reset does not run):
+The optional project field `authoringConventions` travels in stored bodies,
+library indexes, copies, PROJECT.JSON and GAME.JSON. Its integer `version` is
+1 for the conventions examined by 1.2.5; 0 identifies an unexamined legacy
+project. A stored game without conventions is legacy unless it is a recognized
+original release. PROJECT.JSON and GAME.JSON imports without conventions also
+count as legacy. New external imports and new projects record version 1 without
+`legacyRoomMemory`; changing their code never turns them into legacy projects.
+Recognized originals keep their native allocation.
 
-- boot and restart, where a LOGIC 0 with its own `script.size` contributes
-  nothing because its boot block is about to run it;
-- a committed preview update or room re-entry that changes LOGIC 0;
-- a host resume (`restoreImage`: autosave, checkpoint, history and host save
-  slots).
+Only exact released LOGIC 0 blocks from versions 1.0 through 1.2.4 are upgraded:
+the once-only boot gains `script.size(200)` and the unknown-word fallback gains
+zero-based word operands. Resolved syntax compares numeric and named operands
+and inline and numbered messages equally. Comments cannot establish a guard;
+other writes to its flag prevent the automatic resize. Customized blocks stay
+editable and unchanged. Valid mirrored VIEW source with older builder bytes
+joins the same **Updated for 1.2.5** History entry and atomic conventions stamp.
+The stored native VIEW bytes seed the pre-update state, so Undo restores them
+exactly. Existing History keeps its immutable commits and gains a **Before
+update** baseline only when needed to preserve those bytes.
 
-The page sets the option for library projects that are not recognized
-original releases (an interpreter binary beside the data, a catalog
-WORDS.TOK and OBJECT pair, or a catalog library record), and every worker
-replacement path carries it with the run. Original releases, installed
-folders, fixtures, walkthrough tapes and the Node test harness run without
-it, so their behavior and recorded fingerprints are unchanged.
+No metadata-only examination write is scheduled. Copies and exports carry the
+stored conventions, or pending version 0 for an unstamped legacy project; the
+session's next commit stamps version 1. Undo, pruning and clearing History retain
+that provenance, so automatic upgrades never recur. A refused write leaves both
+the old resources and conventions intact for another open to retry.
 
-The tape records the option too: `HistoryBoot` gained the optional
-`adoptDeclaredScriptSize` field at the same format version, entering the
-semantic fingerprint only when present, so every recorded fingerprint
-still holds. A segment opened under a released format (before version 3)
-never carries it, but the released build ran every game at the old
-200-pair default — when its boot carries project documents
-(`boot.project`, an authored project) replay adopts that floor for it.
-Adoption is a pure function of the installed LOGIC 0, so a boot, restart
-or committed-update adoption replays at the same event; a seek that
-resumes through `restoreImage` adopts LOGIC 0's declared maximum
-(`includeDeclared`), an adoption the boot path never performs because the
-boot block's own `script.size` runs there. The resulting capacity is
-ordinary save state (`replayCapacity`).
+Customized one-based word feedback shows a sentence above LOGIC 0 reminding the
+author to start counting words at 0. The exact released fallback is repaired
+automatically; corrected or unrelated code needs no hint.
 
-This makes the 1.2.5 script buffer migration safe in both directions: an
-older authored game gains `script.size(200)` as one History entry admitted
-to the running game — skipped when its History already holds that entry,
-so Undo, a restore or a deleted line never adds a second; a Play-mode run
-or a History view of a commit before that entry already runs at 200
-(segments recorded in 1.2.5 carry the option on their boot, and a
-pre-version-3 segment carries `boot.project`); and its 1.2.4 checkpoints
-(capacity 200 from the old default) and those taken before the migration
-(capacity 50, boot block done) resume at 200.
+The separate `adoptDeclaredScriptSize` host option raises capacity to LOGIC 0's
+largest declaration on live admission and host resume, without clearing replay
+or lowering a larger allocation. Live legacy edits also preserve at least 200,
+so Undo cannot shrink a running session. Every worker replacement carries both
+options. New History boots record optional `legacyRoomMemory` and
+`adoptDeclaredScriptSize` facts, entering the fingerprint only when present.
+Pre-version-3 segments with authored project documents explicitly replay with
+`legacyRoomMemory`, independently of the current project's stamp or boot flag.
 
-**Tests:** [script-size-migration.test.ts](../test/script-size-migration.test.ts)
-(boot, restart, live commit and resume, with and without the option),
-[worker-script-size-migration.test.ts](../app/test/worker-script-size-migration.test.ts)
-(Play-mode boot, pre-migration history view, checkpoint resume),
-[script-size-migration-session.test.ts](../app/test/script-size-migration-session.test.ts)
-(session migration, refused write, second tab, close before commit, scope).
+**Tests:** [released-project-upgrades.test.ts](../test/released-project-upgrades.test.ts),
+[legacy-room-memory.test.ts](../test/legacy-room-memory.test.ts),
+[project-conventions.test.ts](../test/project-conventions.test.ts),
+[word-feedback-hint.test.ts](../test/word-feedback-hint.test.ts),
+[view-migration-session.test.ts](../app/test/view-migration-session.test.ts),
+[script-size-migration.test.ts](../test/script-size-migration.test.ts),
+[worker-script-size-migration.test.ts](../app/test/worker-script-size-migration.test.ts),
+[script-size-migration-session.test.ts](../app/test/script-size-migration-session.test.ts).
 
 ## Appendix A: PC evidence
 

@@ -1058,6 +1058,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         original?.projectId ?? game.progressTarget?.identity.project ?? game.projectId ?? undefined;
       const data: Omit<CachedGameData, "projectId" | "authoredAt"> = {
         title: `${original?.title ?? game.title} Remix`,
+        authoringConventions: original?.authoringConventions,
         library: {
           ...original?.library,
           version: 1,

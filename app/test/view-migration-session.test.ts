@@ -34,8 +34,8 @@ const fixture = JSON.parse(
 ) as {
   cases: { profileId: ProfileId; facing: number; input: BuildViewInput; bytes: number[] }[];
 };
-const label = "VIEWs updated for 1.2.5";
-const baselineLabel = "VIEWs before the 1.2.5 update";
+const label = "Updated for 1.2.5";
+const baselineLabel = "Before update";
 
 test("opening released VIEWs keeps genesis and prior History, rebuilds once, and Undo restores exact old bytes", async (t) => {
   for (const { profileId, facing, input, bytes } of fixture.cases) {
@@ -231,7 +231,7 @@ test("opening released VIEWs keeps genesis and prior History, rebuilds once, and
   }
 });
 
-test("a VIEW rebuild skipped by its History label sets mismatching source aside", async () => {
+test("a VIEW rebuild skipped by its conventions version sets mismatching source aside", async () => {
   const { profileId, input, bytes } = fixture.cases[0]!;
   const source = JSON.stringify(input);
   const container = createContainer();
@@ -248,6 +248,7 @@ test("a VIEW rebuild skipped by its History label sets mismatching source aside"
   const history = new ProjectHistory(sha256Hex);
   history.record(documents, { label, origin: "view", author: "creator", time: 1 });
   const data = {
+    authoringConventions: { version: 1 },
     projectId: testProjectId("view-skipped-rebuild"),
     title: "Skipped VIEW",
     authoredAt: "2026-01-01T00:00:00.000Z",

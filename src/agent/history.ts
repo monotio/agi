@@ -324,6 +324,7 @@ export interface HistoryBoot {
    * live edits"); absent ran without it.
    */
   adoptDeclaredScriptSize?: true;
+  legacyRoomMemory?: true;
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -522,6 +523,7 @@ export interface HistorySemanticState {
   amigaRegion?: "ntsc" | "pal";
   pcDisplay?: "cga-rgb";
   adoptDeclaredScriptSize?: true;
+  legacyRoomMemory?: true;
   documentId?: string;
   authorRooms?: boolean;
   dictionary?: [string, number][];
@@ -586,6 +588,7 @@ export function historyBootSemantic(
   if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
   if (boot.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
   if (boot.adoptDeclaredScriptSize === true) out.adoptDeclaredScriptSize = true;
+  if (boot.legacyRoomMemory === true) out.legacyRoomMemory = true;
   if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
   if (boot.replay !== undefined) out.replay = boot.replay;
@@ -1131,6 +1134,8 @@ export function validateHistoryBoot(
     fail("boot region must be ntsc or pal.");
   if (value["pcDisplay"] !== undefined && value["pcDisplay"] !== "cga-rgb")
     fail("boot display must be cga-rgb.");
+  if (value["legacyRoomMemory"] !== undefined && value["legacyRoomMemory"] !== true)
+    fail("boot legacyRoomMemory must be true.");
   if (value["adoptDeclaredScriptSize"] !== undefined && value["adoptDeclaredScriptSize"] !== true)
     fail("boot adoptDeclaredScriptSize must be true.");
   const files = value["files"];
@@ -1149,6 +1154,7 @@ export function validateHistoryBoot(
       ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
       : {}),
     ...(value["pcDisplay"] === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
+    ...(value["legacyRoomMemory"] === true ? { legacyRoomMemory: true as const } : {}),
     ...(value["adoptDeclaredScriptSize"] === true
       ? { adoptDeclaredScriptSize: true as const }
       : {}),

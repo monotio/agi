@@ -1,3 +1,8 @@
+import {
+  AUTHORING_CONVENTIONS_VERSION,
+  projectConventions,
+  isRecognizedOriginal,
+} from "../../../src/authoring/projectConventions.ts";
 import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import {
   detectKnownGame,
@@ -56,6 +61,16 @@ export async function addLibraryGame(
   const revision = await gameRevision(game.files);
   // Room authoring belongs to games created in the app. A public GAME.JSON can
   // claim the flag, so it counts only when the authoring context travels with it.
+  const legacyImport =
+    !isRecognizedOriginal(game.files, source) &&
+    (game.project !== undefined ||
+      (game.metadata !== undefined && game.authoringConventions === undefined));
+  const conventions =
+    game.project?.authoringConventions ??
+    game.authoringConventions ??
+    (legacyImport
+      ? { version: 0, legacyRoomMemory: true as const }
+      : { version: AUTHORING_CONVENTIONS_VERSION });
   const roomGeneration =
     source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
   // A remix names its parent in GAME.JSON, and stays its own game wherever it
@@ -142,6 +157,7 @@ export async function addLibraryGame(
   const effectiveTitle = game.title ?? known?.title ?? title;
   const data = {
     title: effectiveTitle,
+    authoringConventions: conventions,
     library,
     provider: game.project?.provider,
     model: game.project?.model,
@@ -241,6 +257,7 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
   } = original;
   const data = {
     ...rest,
+    authoringConventions: projectConventions(original),
     // The copy's bytes are identical, so every still-current staged
     // candidate verifies and rebinds; stale ones keep their refusal.
     references: rebindStagedReferences(

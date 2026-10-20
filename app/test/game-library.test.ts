@@ -224,7 +224,9 @@ test("malformed public metadata reports a useful import error", () => {
 test("ZIP and folder imports deduplicate the same resources and normalize room generation", async (t) => {
   installLocalStorage(t);
   const files = game();
-  const zipGame = await readGameZip(buildPublicGameZip({ title: "ZIP title", files }));
+  const zipGame = await readGameZip(
+    buildPublicGameZip({ title: "ZIP title", files, imported: true }),
+  );
   const folderGame = readGameFiles(
     new Map(
       Object.entries(zipGame.files).map(([name, bytes]) => [`Folder/${name.toLowerCase()}`, bytes]),
@@ -1154,4 +1156,34 @@ test("a second tab claiming the id after import preflight keeps its font and get
   assert.equal((await loadAuthoredGame(second))?.files["AGIFONT"], undefined);
   await clearCachedGame(first);
   await clearCachedGame(second);
+});
+
+test("private imports without conventions are legacy; identical raw reimports retain the stored contract", async (t) => {
+  installLocalStorage(t);
+  const files = game("set(f199); return;");
+  const id = await addLibraryGame(
+    { files, words: [], project: {} },
+    "Legacy project",
+    "zip",
+    opening,
+  );
+  const data = (await loadAuthoredGame(id))!;
+  assert.deepEqual(data.authoringConventions, { version: 0, legacyRoomMemory: true });
+  const raw = await addLibraryGame({ files, words: [] }, "External game", "zip", opening);
+  assert.equal(raw, id);
+  assert.deepEqual((await loadAuthoredGame(raw))!.authoringConventions, {
+    version: 0,
+    legacyRoomMemory: true,
+  });
+});
+
+test("a new external import records current conventions before gaining assistant context", async (t) => {
+  installLocalStorage(t);
+  const id = await addLibraryGame(
+    { files: game("set(f198); return;"), words: [] },
+    "New import",
+    "zip",
+    opening,
+  );
+  assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, { version: 1 });
 });

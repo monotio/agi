@@ -1,0 +1,102 @@
+/** Resolved LOGIC 0 contract released in 1.0–1.2.4; retained independently of new templates. */
+export const RELEASED_LOGIC0 = `#define C_MENU 200
+#define C_SAVE 201
+#define C_RESTORE 202
+#define C_RESTART 203
+#define C_QUIT 204
+#define C_SLOW 205
+#define C_NORMAL 206
+#define C_FAST 207
+#define C_FASTEST 208
+#define C_SOUND_ON 209
+#define C_SOUND_OFF 210
+#define C_HELP 211
+#define C_ABOUT 212
+#define C_INVENTORY 213
+#message 1 "File"
+#message 2 "Save Game      F5"
+#message 3 "Restore Game   F7"
+#message 4 "Restart Game   F9"
+#message 5 "Quit          Alt+Z"
+#message 6 "Speed"
+#message 7 "Slow"
+#message 8 "Normal"
+#message 9 "Fast"
+#message 10 "Fastest"
+#message 11 "Sound"
+#message 12 "On"
+#message 13 "Off"
+#message 14 "Help"
+#message 15 "Help           F1"
+#message 16 "About"
+if (!isset(f200)) {
+  set(f200);
+  configure.screen(1, 22, 0);
+  status.line.on();
+  set(sound_on);
+  assignn(cycle_speed, 2);
+  set.menu(m1);
+  set.menu.item(m2, C_SAVE);
+  set.menu.item(m3, C_RESTORE);
+  set.menu.item(m4, C_RESTART);
+  set.menu.item(m5, C_QUIT);
+  set.menu(m6);
+  set.menu.item(m7, C_SLOW);
+  set.menu.item(m8, C_NORMAL);
+  set.menu.item(m9, C_FAST);
+  set.menu.item(m10, C_FASTEST);
+  set.menu(m11);
+  set.menu.item(m12, C_SOUND_ON);
+  set.menu.item(m13, C_SOUND_OFF);
+  set.menu(m14);
+  set.menu.item(m15, C_HELP);
+  set.menu.item(m16, C_ABOUT);
+  submit.menu();
+  set(menus_on);
+  set.key(27, 0, C_MENU);
+  set.key(0, 59, C_HELP);
+  set.key(0, 63, C_SAVE);
+  set.key(0, 65, C_RESTORE);
+  set.key(0, 67, C_RESTART);
+  set.key(0, 44, C_QUIT);
+  set.key(9, 0, C_INVENTORY);
+  assignn(current_room, 1);
+  new.room.v(current_room);
+}
+call.v(current_room);
+if (isset(f202)) { call(255); }
+if (!isset(f202)) {
+  if (controller(C_MENU)) { menu.input(); }
+  if (controller(C_SAVE)) { save.game(); }
+  if (controller(C_RESTORE)) { restore.game(); }
+  if (controller(C_RESTART)) { restart.game(); }
+  if (controller(C_QUIT)) { quit(0); }
+  if (controller(C_SLOW)) { assignn(cycle_speed, 4); }
+  if (controller(C_NORMAL)) { assignn(cycle_speed, 2); }
+  if (controller(C_FAST)) { assignn(cycle_speed, 1); }
+  if (controller(C_FASTEST)) { assignn(cycle_speed, 0); }
+  if (controller(C_SOUND_ON)) { set(sound_on); }
+  if (controller(C_SOUND_OFF)) { reset(sound_on); }
+  if (controller(C_HELP)) { print("Type a command and press ENTER. Arrow keys walk. ESC opens the menu."); }
+  if (controller(C_ABOUT)) { print("An adventure written with AGI IS HERE."); }
+  if (controller(C_INVENTORY)) { status(); }
+}
+if (isset(input_received) && !isset(input_handled) && !isset(f202)) {
+  if (greatern(parser_status, 0)) {
+    if (equaln(parser_status, 1)) { word.to.string(s11, 1); }
+    if (equaln(parser_status, 2)) { word.to.string(s11, 2); }
+    if (equaln(parser_status, 3)) { word.to.string(s11, 3); }
+    if (equaln(parser_status, 4)) { word.to.string(s11, 4); }
+    if (equaln(parser_status, 5)) { word.to.string(s11, 5); }
+    if (equaln(parser_status, 6)) { word.to.string(s11, 6); }
+    if (equaln(parser_status, 7)) { word.to.string(s11, 7); }
+    if (equaln(parser_status, 8)) { word.to.string(s11, 8); }
+    if (equaln(parser_status, 9)) { word.to.string(s11, 9); }
+    if (equaln(parser_status, 10)) { word.to.string(s11, 10); }
+    if (equaln(parser_status, 11)) { word.to.string(s11, 11); }
+    print("I don't know the word \\"%s11\\".");
+  } else {
+    print("I don't understand that.");
+  }
+}
+`;

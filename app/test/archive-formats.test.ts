@@ -60,7 +60,7 @@ function member(zip: Uint8Array, name: string): string {
   assert.fail(`${name} is not in the archive`);
 }
 
-test("a 1.0 Game download reads back as the game it was", async () => {
+test("a 1.0 Game download preserves every released field while re-export adds optional conventions", async () => {
   const zip = fixture("game-v1.zip");
   const game = await readGameZip(zip);
   assert.equal(game.title, "Adventure Department");
@@ -80,7 +80,7 @@ test("a 1.0 Game download reads back as the game it was", async () => {
     "VOL.0",
     "WORDS.TOK",
   ]);
-  // The writer still produces the same GAME.JSON for the same game.
+  // New exports add conventions while retaining every released field.
   const again = buildPublicGameZip({
     files: game.files,
     title: game.title!,
@@ -93,7 +93,9 @@ test("a 1.0 Game download reads back as the game it was", async () => {
       validation: { status: "unverified", message: "" },
     },
   });
-  assert.equal(member(again, "GAME.JSON"), member(zip, "GAME.JSON"));
+  const { authoringConventions, ...metadata } = JSON.parse(member(again, "GAME.JSON"));
+  assert.deepEqual(authoringConventions, { version: 1 });
+  assert.deepEqual(metadata, JSON.parse(member(zip, "GAME.JSON")));
 });
 
 test("the released 1.1.0 tutorial's Game download reads back as the game it was", async () => {

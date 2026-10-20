@@ -1,6 +1,15 @@
+import { readFileSync } from "node:fs";
+import type { BuildViewInput } from "../../src/view/view.ts";
+import { decodeSave } from "../../src/runtime/persistence.ts";
+import { customizedLegacyBoot, releasedTemplates } from "../../test/released-template-fixtures.ts";
+import { Engine, HostWait } from "../../src/runtime/engine.ts";
+import { isLegacyAuthoredProject } from "../../src/authoring/projectConventions.ts";
+import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchive.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { addLibraryGame, copyLibraryGame } from "../src/library/gameLibrary.ts";
 /**
  * The one-time script.size migration an older authored game receives when it
- * opens (CHANGELOG 1.2.5, "Room memory raised for this version"), driven
+ * opens (CHANGELOG 1.2.5, "Updated for 1.2.5"), driven
  * through the real project session and browser storage: the running game
  * takes the new LOGIC 0 through ordinary admission, and the save, second-tab
  * and close-before-commit failure paths leave exactly one migration commit.
@@ -12,7 +21,6 @@ import {
   writeProjectWorkspace,
   readProjectWorkspace,
 } from "../../src/authoring/projectWorkspace.ts";
-import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../../src/authoring/baseTemplate.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { decodeLogicInsns } from "../../src/logic/disassembler.ts";
 import {
@@ -26,7 +34,7 @@ import { normalizeLibraryMetadata, type LibraryMetadata } from "../src/project/g
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import {
   openOwnedProjectSession,
-  SCRIPT_SIZE_MIGRATION_LABEL,
+  PROJECT_UPDATE_LABEL,
 } from "../src/project/projectSessionCore.ts";
 import type { PreviewUpdateOutcome } from "../src/worker/workerProtocol.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -66,7 +74,7 @@ function runFrames() {
   frames.clear();
 }
 
-const PRE_125_LOGIC0 = BASE_TEMPLATE_LOGIC0_SOURCE.replace("  script.size(200);\n", "");
+const PRE_125_LOGIC0 = releasedTemplates.at(-1)!.source;
 const storage = { commit: commitProject, fingerprint: authoringFingerprint };
 
 /** A project stored by 1.2.4: template logic 0 without script.size. */
@@ -74,11 +82,19 @@ async function storedProject(
   name: string,
   extra: {
     files?: Record<string, Uint8Array>;
+    logic0?: string;
+    documents?: Record<string, string>;
     data?: Partial<CachedGameData>;
     source?: LibraryMetadata["source"];
   } = {},
 ) {
-  const documents = { "logic:0": PRE_125_LOGIC0, "logic:1": "return;" };
+  const documents = {
+    "logic:0": extra.logic0 ?? PRE_125_LOGIC0,
+    "logic:1": "accept.input(); return;",
+    words: JSON.stringify([["known", 1]]),
+    inventory: "[]",
+    ...extra.documents,
+  };
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents,
@@ -154,7 +170,7 @@ async function settle(session: Awaited<ReturnType<typeof open>>) {
 }
 function migrationCommits(data: CachedGameData) {
   return (data.projectHistory?.commits ?? []).filter(
-    (commit) => commit.label === SCRIPT_SIZE_MIGRATION_LABEL,
+    (commit) => commit.label === PROJECT_UPDATE_LABEL,
   ).length;
 }
 function storedLogic0(data: CachedGameData) {
@@ -171,7 +187,7 @@ test("an older authored game's running session takes script.size(200) once, as o
   const stored = (await loadAuthoredGame(projectId))!;
   assert.match(storedLogic0(stored), /set\(f200\);\n {2}script\.size\(200\);/);
   assert.equal(migrationCommits(stored), 1);
-  assert.equal(stored.projectHistory!.commits.at(-1)!.label, SCRIPT_SIZE_MIGRATION_LABEL);
+  assert.equal(stored.projectHistory!.commits.at(-1)!.label, PROJECT_UPDATE_LABEL);
   const again: Admitted = [];
   const reopened = await open(projectId, again);
   await settle(reopened);
@@ -195,6 +211,7 @@ test("a refused migration write leaves the stored game as it was and the next op
   assert.equal(after.generation, before.generation, "the stored generation did not move");
   assert.equal(storedLogic0(after), PRE_125_LOGIC0, "the stored LOGIC 0 is unchanged");
   assert.equal(migrationCommits(after), 0);
+  assert.equal(after.authoringConventions, undefined, "a refused write cannot stamp the old body");
   const admitted: Admitted = [];
   const retry = await open(projectId, admitted);
   await settle(retry);
@@ -247,6 +264,11 @@ test("closing before the migration write commits, then reopening, migrates once"
   assert.notEqual(session.saveStatus().state, "saved", "the write had not committed");
   session.dispose();
   assert.equal(migrationCommits((await loadAuthoredGame(projectId))!), 0);
+  assert.equal(
+    (await loadAuthoredGame(projectId))!.authoringConventions,
+    undefined,
+    "closing before commit leaves provenance unchanged",
+  );
   const admitted: Admitted = [];
   const reopened = await open(projectId, admitted);
   await settle(reopened);
@@ -340,7 +362,7 @@ test("a re-imported project archive or remix with the template boot shape migrat
   for (const source of ["zip", "remix"] as const) {
     const projectId = await storedProject(`script-size-${source}`, {
       source,
-      data: { imported: true },
+      data: { imported: true, authoringConventions: { version: 0, legacyRoomMemory: true } },
     });
     const before = (await loadAuthoredGame(projectId))!;
     assert.equal(before.library?.source, source);
@@ -370,4 +392,352 @@ test("an imported original release is never migrated, even with the template boo
   const after = (await loadAuthoredGame(projectId))!;
   assert.equal(after.generation, before.generation);
   assert.equal(storedLogic0(after), PRE_125_LOGIC0);
+});
+
+function feedback(files: CachedGameData["files"]): void {
+  for (const position of [1, 2, 4, 7, 10]) {
+    const lines: string[] = [];
+    const engine = new Engine(
+      openContainer(new Map(Object.entries(files))),
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        waitKey() {
+          throw new HostWait();
+        },
+        takeKeys: () => [],
+        takeInputLine: () => lines.shift() ?? null,
+      },
+      new Map([["known", 1]]),
+      { legacyRoomMemory: true },
+    );
+    for (let n = 0; n < 4; n++) engine.tick();
+    const words = Array.from({ length: position }, () => "known");
+    words[position - 1] = "flibberty";
+    lines.push(words.join(" "));
+    for (let n = 0; n < 3; n++) engine.tick();
+    const screen = Array.from({ length: 25 }, (_, row) => engine.textRow(row)).join("\n");
+    assert.ok(screen.includes('"flibberty"'), `unknown word at position ${position}: ${screen}`);
+  }
+}
+test("ordinary session fixes the released fallback, including several word positions and both export reimports", async () => {
+  const id = await storedProject("word-feedback");
+  const session = await open(id, []);
+  await settle(session);
+  session.dispose();
+  const data = (await loadAuthoredGame(id))!;
+  assert.equal(migrationCommits(data), 1);
+  assert.deepEqual(data.authoringConventions, { version: 1, legacyRoomMemory: true });
+  feedback(data.files);
+  for (const bytes of [buildPublicGameZip(data), await buildProjectZip(data)]) {
+    const opened = await readGameZip(bytes);
+    feedback(opened.files);
+    const imported = await addLibraryGame(opened, "Reimported", "zip", {
+      preview: "data:image/png;base64,iVBORw0KGgo=",
+      status: "ready",
+      message: "Ready",
+      profile: "2.936",
+    });
+    const stored = (await loadAuthoredGame(imported))!;
+    assert.equal(isLegacyAuthoredProject(stored), true);
+    feedback(stored.files);
+  }
+});
+test("custom source has no write on open; the next commit and every copy/export carry the pending conventions until a session commit", async () => {
+  const source = "set(f199); return;";
+  const id = await storedProject("no-write-on-open", { logic0: source });
+  const before = (await loadAuthoredGame(id))!;
+  let writes = 0;
+  const session = await open(id, [], {
+    write: async (...args) => {
+      writes++;
+      return (await commitProject(...args)).receipt;
+    },
+  });
+  await session.ready;
+  assert.equal(writes, 0);
+  assert.equal((await loadAuthoredGame(id))!.generation, before.generation);
+  const copy = await copyLibraryGame(id);
+  assert.deepEqual((await loadAuthoredGame(copy))!.authoringConventions, {
+    version: 0,
+    legacyRoomMemory: true,
+  });
+  const exported = await readGameZip(buildPublicGameZip(before));
+  assert.deepEqual(exported.authoringConventions, { version: 0, legacyRoomMemory: true });
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Edit", [
+      { key: "logic:0", content: source + "\n// Change" },
+    ]),
+    label: "Edit",
+    origin: "logic",
+    author: "creator",
+  });
+  await settle(session);
+  session.dispose();
+  assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, {
+    version: 1,
+    legacyRoomMemory: true,
+  });
+});
+test("a pruned or cleared History never reapplies an undone upgrade", async () => {
+  const id = await storedProject("upgrade-pruned");
+  const session = await open(id, []);
+  await settle(session);
+  await session.undo();
+  await settle(session);
+  session.dispose();
+  const data = (await loadAuthoredGame(id))!;
+  assert.deepEqual(data.authoringConventions, { version: 1, legacyRoomMemory: true });
+  // A copy can omit its edit History; provenance still owns the once-only rule.
+  const { projectId: _project, authoredAt: _authored, generation: _generation, ...rest } = data;
+  const pruned = await storedProject("upgrade-pruned-copy", {
+    data: { ...rest, projectHistory: undefined },
+  });
+  const admitted: Admitted = [];
+  const reopened = await open(pruned, admitted);
+  await settle(reopened);
+  reopened.dispose();
+  assert.deepEqual(admitted, []);
+  assert.equal(storedLogic0((await loadAuthoredGame(pruned))!), PRE_125_LOGIC0);
+});
+
+test("customized f199 keeps busy rooms playable through session admission and both export/reimports", async () => {
+  const source = customizedLegacyBoot;
+  const id = await storedProject("f199-round-trip", {
+    logic0: source,
+    documents: {
+      "logic:1": `if (isset(f5)) { load.pic(1); draw.pic(1); load.view(1); ${"add.to.pic(1,0,0,0,0,9,0);".repeat(12)} } return;`,
+      "logic:5": "script.size(120); return;",
+      "picture:1": "vis 1\nfill 0,0\nend",
+      "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+    },
+  });
+  const admitted: Admitted = [];
+  const session = await open(id, admitted);
+  await settle(session);
+  session.dispose();
+  const data = (await loadAuthoredGame(id))!;
+  assert.deepEqual(admitted, [[]], "only the released fallback changes; f199 boot is preserved");
+  assert.ok(storedLogic0(data).includes("set(f199);"));
+  for (const bytes of [buildPublicGameZip(data), await buildProjectZip(data)]) {
+    const opened = await readGameZip(bytes);
+    const imported = await addLibraryGame(opened, "Custom game", "zip", {
+      preview: "data:image/png;base64,iVBORw0KGgo=",
+      status: "ready",
+      message: "Ready",
+      profile: "2.936",
+    });
+    const kept = (await loadAuthoredGame(imported))!;
+    const engine = new Engine(
+      openContainer(new Map(Object.entries(kept.files))),
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+      },
+      new Map(),
+      { legacyRoomMemory: isLegacyAuthoredProject(kept), adoptDeclaredScriptSize: true },
+    );
+    assert.doesNotThrow(() => {
+      for (let n = 0; n < 4; n++) engine.tick();
+    });
+    assert.equal(engine.surface.visual[100], 1);
+    const edited = compileProjectDocuments({
+      files: kept.files,
+      documents: {
+        ...readProjectWorkspace(data.workspace!),
+        "logic:0": storedLogic0(data) + "\nassignn(v42,1);",
+      },
+      profileId: "2.936",
+    });
+    const outcome = engine.commitPreviewUpdate(
+      engine.preparePreviewUpdate({ files: edited.files() }),
+    );
+    assert.equal(outcome.status, "committed", JSON.stringify(outcome));
+    assert.doesNotThrow(() => engine.tick());
+  }
+});
+
+for (const [name, prefix] of [
+  ["Astra commented guard", "// Historical boot: if (!isset(f200)) {\nset(f200);"],
+  ["Astra earlier unrelated setter", "set(f200);\n" + PRE_125_LOGIC0],
+  ["setter outside guard", "if (!isset(f200)) { assignn(v42,1); } set(f200);"],
+] as const)
+  test(`${name} survives ordinary session open, four ticks and save/restore`, async () => {
+    const source = `assignn(v0,1);\n${prefix}\nif (!isset(f220)) { set(f220); assignn(v43,1); load.pic(v43); draw.pic(v43); }`;
+    const id = await storedProject(`session-${name.replaceAll(" ", "-")}`, {
+      logic0: source,
+      documents: { "picture:1": "vis 1\nfill 0,0\nend" },
+    });
+    const session = await open(id, []);
+    await settle(session);
+    session.dispose();
+    const data = (await loadAuthoredGame(id))!;
+    assert.ok(!storedLogic0(data).includes("script.size(200)"));
+    const host = {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    };
+    const engine = new Engine(openContainer(new Map(Object.entries(data.files))), host, new Map(), {
+      legacyRoomMemory: true,
+    });
+    for (let n = 0; n < 4; n++) {
+      engine.tick();
+      const saved = decodeSave(engine.serialize(), engine.profile);
+      assert.equal(saved.replayActive, 2);
+      // Native replay kinds 2 and 4 load and draw PICTURE 1.
+      assert.deepEqual(saved.replay.slice(0, saved.replayActive), [
+        { kind: 2, value: 1 },
+        { kind: 4, value: 1 },
+      ]);
+    }
+    const restored = new Engine(
+      openContainer(new Map(Object.entries(data.files))),
+      host,
+      new Map(),
+      { legacyRoomMemory: true },
+    );
+    restored.restoreImage(engine.serialize());
+    assert.equal(restored.surface.visual[0], 1);
+  });
+
+test("copy and Project reimport of an untouched released template still receive the update", async () => {
+  const id = await storedProject("untouched-template");
+  const ids = [await copyLibraryGame(id)];
+  const copy = (await loadAuthoredGame(ids[0]!))!;
+  for (const bytes of [await buildProjectZip(copy)]) {
+    ids.push(
+      await addLibraryGame(await readGameZip(bytes), "Untouched copy", "zip", {
+        preview: "data:image/png;base64,iVBORw0KGgo=",
+        status: "ready",
+        message: "Ready",
+        profile: "2.936",
+      }),
+    );
+  }
+  for (const copied of ids) {
+    assert.deepEqual((await loadAuthoredGame(copied))!.authoringConventions, {
+      version: 0,
+      legacyRoomMemory: true,
+    });
+    const session = await open(copied, []);
+    await settle(session);
+    session.dispose();
+    const after = (await loadAuthoredGame(copied))!;
+    assert.equal(migrationCommits(after), 1);
+    feedback(after.files);
+  }
+});
+
+const oldView = (
+  JSON.parse(
+    readFileSync(new URL("./fixtures/view-builder-1.2.4.json", import.meta.url), "utf8"),
+  ) as {
+    cases: { profileId: string; input: BuildViewInput; bytes: number[] }[];
+  }
+).cases.find((c) => c.profileId === "2.936")!;
+async function storedCombined(name: string) {
+  const id = await storedProject(name, { documents: { "view:1": JSON.stringify(oldView.input) } });
+  const before = (await loadAuthoredGame(id))!;
+  const container = openContainer(new Map(Object.entries(before.files)));
+  container.putResource("view", 1, Uint8Array.from(oldView.bytes));
+  const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+  await saveAuthoredGame(id, { ...before, files: Object.fromEntries(container.files) });
+  return id;
+}
+function viewBytes(data: CachedGameData) {
+  return [...openContainer(new Map(Object.entries(data.files))).getResource("view", 1)!];
+}
+function assertCombined(data: CachedGameData) {
+  assert.equal(migrationCommits(data), 1);
+  assert.deepEqual(
+    data.projectHistory!.commits.map((c) => c.label),
+    ["Opened", "Updated for 1.2.5"],
+  );
+  assert.match(storedLogic0(data), /script\.size\(200\);/);
+  assert.notDeepEqual(viewBytes(data), oldView.bytes);
+  assert.deepEqual(data.authoringConventions, { version: 1, legacyRoomMemory: true });
+}
+
+test("one update on open rebuilds VIEWs and LOGIC together; Undo restores exact old native bytes", async () => {
+  const id = await storedCombined("combined-update");
+  const before = (await loadAuthoredGame(id))!;
+  const session = await open(id, []);
+  await settle(session);
+  assertCombined((await loadAuthoredGame(id))!);
+  await session.undo();
+  await settle(session);
+  session.dispose();
+  const undone = (await loadAuthoredGame(id))!;
+  assert.deepEqual(undone.files, before.files);
+  const reopened = await open(id, []);
+  await settle(reopened);
+  reopened.dispose();
+  assert.deepEqual((await loadAuthoredGame(id))!.files, before.files);
+});
+
+test("a refused VIEW and LOGIC update writes neither resource nor stamp and retries both on reopen", async () => {
+  const id = await storedCombined("combined-refused");
+  const before = (await loadAuthoredGame(id))!;
+  const session = await open(id, [], {
+    write: async () => {
+      throw new Error("Storage is full");
+    },
+  });
+  await session.flush().catch(() => {});
+  await assert.rejects(session.flush(), /Could not save/);
+  session.dispose();
+  const refused = (await loadAuthoredGame(id))!;
+  assert.deepEqual(refused.files, before.files);
+  assert.equal(refused.authoringConventions, undefined);
+  assert.equal(migrationCommits(refused), 0);
+  const retry = await open(id, []);
+  await settle(retry);
+  retry.dispose();
+  assertCombined((await loadAuthoredGame(id))!);
+});
+
+test("two tabs store one combined VIEW and LOGIC update", async () => {
+  const id = await storedCombined("combined-tabs");
+  const modulePath = "../src/project/projectSessionCore.ts?combined-second-tab";
+  const { openOwnedProjectSession: secondOpen } = (await import(modulePath)) as {
+    openOwnedProjectSession: typeof openOwnedProjectSession;
+  };
+  const [first, second] = await Promise.all([open(id, []), open(id, [], { open: secondOpen })]);
+  await Promise.all([settle(first), settle(second)]);
+  first.dispose();
+  second.dispose();
+  runFrames();
+  assertCombined((await loadAuthoredGame(id))!);
+});
+
+test("closing before the combined VIEW and LOGIC write commits leaves old bytes and retries both", async () => {
+  const id = await storedCombined("combined-close");
+  const before = (await loadAuthoredGame(id))!;
+  let started!: () => void;
+  const writing = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const session = await open(id, [], {
+    write: () => {
+      started();
+      return new Promise(() => {});
+    },
+  });
+  await writing;
+  assert.notEqual(session.saveStatus().state, "saved");
+  session.dispose();
+  const closed = (await loadAuthoredGame(id))!;
+  assert.deepEqual(closed.files, before.files);
+  assert.equal(closed.authoringConventions, undefined);
+  const reopened = await open(id, []);
+  await settle(reopened);
+  reopened.dispose();
+  assertCombined((await loadAuthoredGame(id))!);
 });

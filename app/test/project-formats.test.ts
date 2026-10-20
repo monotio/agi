@@ -39,7 +39,7 @@ test("manual project backups contain source without invented assistant context",
   assert.equal((await readGameZip(buildPublicGameZip(data))).project, undefined);
 });
 
-test("v1 assistant history is preserved in a subsequent backup", async () => {
+test("v1 assistant history is preserved when a subsequent backup adds optional conventions", async () => {
   const fixture = new Uint8Array(
     readFileSync(new URL("./formats/project-v1.zip", import.meta.url)),
   );
@@ -52,7 +52,7 @@ test("v1 assistant history is preserved in a subsequent backup", async () => {
     words: original.words,
   };
   const migrated = await readGameZip(await buildProjectZip(data));
-  assert.deepEqual(migrated.project, original.project);
+  assert.deepEqual(migrated.project, { ...original.project, authoringConventions: { version: 1 } });
 });
 
 test("recovery travels separately from kept source and never enters a public Game", async () => {
@@ -78,7 +78,7 @@ test("recovery travels separately from kept source and never enters a public Gam
 
 test("v1 rejects unknown project, recovery and assistant schemas before dropping their fields", () => {
   const plain = { format: "monotio.agi.project", version: 1, authoringState: {} };
-  assert.deepEqual(decode(plain), { authoringState: {} });
+  assert.deepEqual(decode(plain), { authoringState: {}, authoringConventions: undefined });
   assert.throws(() => decode({ ...plain, version: 999 }), /version/);
   assert.throws(() => decode({ ...plain, futureContent: {} }), /field/);
   assert.throws(
