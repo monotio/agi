@@ -10,9 +10,9 @@ import {
 
 /**
  * Original proportions shows the 320×200 frame the way a monitor of the day
- * did: the same width, three quarters as tall instead of five eighths. It
- * is display only — the frame, and the mapping from a click to a frame
- * pixel, are unchanged.
+ * did: the same width, and as tall as that monitor's pixels made it — the
+ * 4:3 tested here, wider still on a PAL Amiga. It is display only — the
+ * frame, and the mapping from a click to a frame pixel, are unchanged.
  */
 async function screenRatio(page: Page): Promise<number> {
   const box = await surfaceBox(page);
