@@ -609,9 +609,9 @@ for (const [name, prefix] of [
 
 test("copy and Project reimport of an untouched released template still receive the update", async () => {
   const id = await storedProject("untouched-template");
-  const before = (await loadAuthoredGame(id))!;
   const ids = [await copyLibraryGame(id)];
-  for (const bytes of [await buildProjectZip(before)]) {
+  const copy = (await loadAuthoredGame(ids[0]!))!;
+  for (const bytes of [await buildProjectZip(copy)]) {
     ids.push(
       await addLibraryGame(await readGameZip(bytes), "Untouched copy", "zip", {
         preview: "data:image/png;base64,iVBORw0KGgo=",

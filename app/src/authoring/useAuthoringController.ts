@@ -1,4 +1,3 @@
-import { AUTHORING_CONVENTIONS_VERSION } from "../../../src/authoring/projectConventions.ts";
 import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
 import { PROFILES, detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
@@ -1059,9 +1058,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         original?.projectId ?? game.progressTarget?.identity.project ?? game.projectId ?? undefined;
       const data: Omit<CachedGameData, "projectId" | "authoredAt"> = {
         title: `${original?.title ?? game.title} Remix`,
-        authoringConventions: original
-          ? original.authoringConventions
-          : { version: AUTHORING_CONVENTIONS_VERSION },
+        authoringConventions: original?.authoringConventions,
         library: {
           ...original?.library,
           version: 1,

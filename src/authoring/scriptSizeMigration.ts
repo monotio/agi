@@ -9,10 +9,7 @@ import { decodeLogicInsns } from "../logic/disassembler.ts";
 import { openContainer } from "../container/container.ts";
 import { RELEASED_LOGIC0 } from "./releasedTemplateContract.ts";
 
-export { isRecognizedOriginal } from "./projectConventions.ts";
-
 type Syntax = ReturnType<typeof parseLogicSyntax>;
-type AnalyzedSyntax = Syntax;
 function operand(ref: Ref, syntax: Syntax): unknown {
   if (ref.kind === "str") return ref.text;
   if (ref.kind === "m") return syntax.explicitMessages.get(ref.index);
@@ -65,7 +62,7 @@ const releasedFeedback = reference.program.at(-1)!;
 function safeSyntax(
   source: string,
   documents: Readonly<Record<string, ProjectContent>>,
-): AnalyzedSyntax | null {
+): Syntax | null {
   try {
     const raw = documents["bindings"];
     const bindings = readBindingsDocument(typeof raw === "string" ? raw : "{}");
@@ -171,10 +168,7 @@ function uniqueFlagWrite(
   }
   return true;
 }
-function bootMatch(
-  syntax: AnalyzedSyntax,
-  files?: Readonly<Record<string, Uint8Array>>,
-): Stmt | undefined {
+function bootMatch(syntax: Syntax, files?: Readonly<Record<string, Uint8Array>>): Stmt | undefined {
   const matches = syntax.program.filter((s) => same(s, syntax, releasedBoot, reference));
   return matches.length === 1 && uniqueFlagWrite(syntax, 200, files) ? matches[0] : undefined;
 }

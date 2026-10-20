@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
-import { sha256Hex } from "../../src/crypto.ts";
 import { buildView } from "../../src/view/view.ts";
 import { createAuthoringState } from "../../src/authoring/authoringState.ts";
 import { buildObjectFile } from "../../src/authoring/inventory.ts";
@@ -207,7 +205,7 @@ describe("inspectEditableProject", () => {
     );
   });
 
-  test("stale non-mirror VIEW sources stay set aside, including after the update label", () => {
+  test("stale non-mirror VIEW sources stay set aside, including after its conventions update", () => {
     const input = { loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] };
     const source = JSON.stringify(input);
     const native = buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [2] }] }] });
@@ -219,19 +217,7 @@ describe("inspectEditableProject", () => {
         data.files = Object.fromEntries(container.files);
         if (envelope === "workspace") data.workspace = writeProjectWorkspace({ "view:1": source });
         else data.authoringState = { sources: { views: [[1, input]] } };
-        if (migrated) {
-          const history = new ProjectHistory(sha256Hex);
-          history.record(
-            { "view:1": native },
-            {
-              label: "VIEWs updated for 1.2.5",
-              origin: "view",
-              author: "creator",
-              time: 1,
-            },
-          );
-          data.projectHistory = history.capturePortable();
-        }
+        if (migrated) data.authoringConventions = { version: 1 };
         const inspection = inspectEditableProject(data);
         assert.deepEqual(inspection.viewRebuilds, {});
         assert.equal(inspection.rejectedSources["view:1"], source);
