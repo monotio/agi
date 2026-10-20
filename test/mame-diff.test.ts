@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolve } from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { compareFrames, normalizeFrame } from "../scripts/mame-diff-metrics.ts";
 import {
   outputInsideRepo,
@@ -68,6 +71,22 @@ test("the output guard requires gitignore on every repository child, whatever it
   // An ordinary unignored child is refused.
   assert.equal(outputInsideRepo(resolve("scripts/mame-diff-out"), root), true);
   assert.throws(() => requireIgnoredOutput(resolve("scripts/mame-diff-out")), /gitignored/);
+});
+
+test("the output guard follows the script's repository root, not the current directory", () => {
+  // The script may run from anywhere (a capture directory, another checkout):
+  // containment and git check-ignore still refer to its own repository.
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const home = process.cwd();
+  process.chdir(mkdtempSync(join(tmpdir(), "mame-diff-cwd-")));
+  try {
+    assert.equal(outputInsideRepo(join(root, ".local/mame-diff/test-run")), true);
+    assert.doesNotThrow(() => requireIgnoredOutput(join(root, ".local/mame-diff/test-run")));
+    assert.throws(() => requireIgnoredOutput(join(root, "scripts/mame-diff-out")), /gitignored/);
+    assert.equal(outputInsideRepo(join(root, "..", "mame-diff-outside")), false);
+  } finally {
+    process.chdir(home);
+  }
 });
 
 test("scene scripts accept direction keys and a Node RNG seed, and reject malformed ones", () => {

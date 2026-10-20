@@ -27,6 +27,9 @@ import { compositeFrame } from "../app/src/render/composite.ts";
 import { decodePng, encodePngRgb } from "./png.ts";
 import { compareFrames, normalizeFrame, type Rectangle } from "./mame-diff-metrics.ts";
 
+/** The repository this script belongs to, independent of the caller's cwd. */
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
+
 interface Wait {
   room?: number;
   modal?: string | null;
@@ -95,7 +98,7 @@ function lua(value: unknown): string {
  * inside — never by a name prefix. An absolute `relative` result (another
  * Windows drive) or a `..` component means outside.
  */
-export function outputInsideRepo(output: string, root = resolve(".")): boolean {
+export function outputInsideRepo(output: string, root = REPO_ROOT): boolean {
   const within = relative(root, output);
   return !isAbsolute(within) && within !== ".." && !within.startsWith(`..${sep}`);
 }
@@ -104,7 +107,7 @@ export function outputInsideRepo(output: string, root = resolve(".")): boolean {
 export function requireIgnoredOutput(output: string): void {
   if (
     outputInsideRepo(output) &&
-    spawnSync("git", ["check-ignore", "--quiet", output]).status !== 0
+    spawnSync("git", ["check-ignore", "--quiet", output], { cwd: REPO_ROOT }).status !== 0
   )
     throw new Error(
       "Output inside the repository must be gitignored (for example .local/mame-diff). ",
