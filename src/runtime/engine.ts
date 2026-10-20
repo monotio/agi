@@ -9518,7 +9518,8 @@ export class Engine {
     // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,
     // which also gates status.line.on/off until configure.screen sets a
     // nonzero picture top (docs/fidelity.md "Amiga screen, font and pointer").
-    if (this.profile.presentation === "amiga") this.displayBaseRow = 0;
+    // Other builds boot at row 1 and keep a configured top across a restart.
+    if (printWindowLayout(this.profile).displayBase === 0) this.displayBaseRow = 0;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[20] = isAmiga ? 5 : isIIgs ? 7 : 0;
     if (id === "2.001") {
