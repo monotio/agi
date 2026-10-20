@@ -14,7 +14,7 @@ import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
  * refused claim — stale text, malformed structure, a byte payload that does
  * not match, source for an absent resource — is set aside in
  * rejectedSources as inactive compatibility data with a diagnostic. Opening
- * always permits editing the verified document inventory. Valid VIEW source
+ * always permits editing the verified document inventory. Valid mirrored VIEW source
  * with older builder bytes is kept in viewRebuilds for a visible session commit.
  * Valid string and byte claims
  * keep their exact content; malformed values are kept as a diagnostic
@@ -70,6 +70,8 @@ export interface EditableProjectInspection {
   /** Compatibility flag: opening reports diagnostics and always permits editing. */
   readonly requiresSourceReview: boolean;
 }
+
+export const VIEW_MIGRATION_LABEL = "VIEWs updated for 1.2.5";
 
 const METADATA_KEYS: Record<string, true> = { world: true, tests: true, references: true };
 
@@ -437,11 +439,22 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     bindings,
   });
   const viewRebuilds: Record<string, string> = {};
+  const viewsUpdated = data.projectHistory?.commits.some(
+    (commit) => commit.label === VIEW_MIGRATION_LABEL,
+  );
   for (const [key, source] of Object.entries(claims)) {
-    if (!/^view:\d+$/.test(key) || !(read.documents[key] instanceof Uint8Array)) continue;
+    if (viewsUpdated || !/^view:\d+$/.test(key) || !(read.documents[key] instanceof Uint8Array))
+      continue;
     try {
-      buildView(JSON.parse(source) as BuildViewInput, PROFILES[profileId]);
-      viewRebuilds[key] = source;
+      const input = JSON.parse(source) as BuildViewInput;
+      buildView(input, PROFILES[profileId]);
+      if (
+        input.loops.some(
+          (loop) =>
+            typeof loop.mirrorLoop === "number" || loop.cels?.some((cel) => cel.mirror === true),
+        )
+      )
+        viewRebuilds[key] = source;
     } catch {
       // Unusable source still receives the reader's diagnostic below.
     }

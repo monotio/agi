@@ -37,7 +37,7 @@ const fixture = JSON.parse(
 const label = "VIEWs updated for 1.2.5";
 const baselineLabel = "VIEWs before the 1.2.5 update";
 
-test("opening released VIEWs appends a baseline and one rebuild, keeps prior History, and Undo restores exact old bytes", async (t) => {
+test("opening released VIEWs keeps genesis and prior History, rebuilds once, and Undo restores exact old bytes", async (t) => {
   for (const { profileId, facing, input, bytes } of fixture.cases) {
     for (const envelope of ["workspace", "legacy"] as const) {
       for (const hasHistory of [false, true]) {
@@ -92,6 +92,21 @@ test("opening released VIEWs appends a baseline and one rebuild, keeps prior His
               data: {
                 ...(hasHistory ? { projectHistory: priorHistory.capturePortable() } : {}),
                 title: "Released VIEW",
+                chats: {
+                  format: "monotio.agi.chats",
+                  version: 1,
+                  active: "genesis-chat",
+                  chats: [
+                    {
+                      id: "genesis-chat",
+                      title: "Created Released VIEW",
+                      provider: "stub",
+                      model: "stub",
+                      transcript: [],
+                      messages: [{ id: "genesis-message", role: "assistant", text: "Created." }],
+                    },
+                  ],
+                },
                 files: Object.fromEntries(container.files),
                 words: [],
                 library: normalizeLibraryMetadata(
@@ -136,11 +151,17 @@ test("opening released VIEWs appends a baseline and one rebuild, keeps prior His
             const session = await open();
             await session.flush();
             const stored = (await loadAuthoredGameWithHistoryLifetime(projectId))!.data;
-            const expectedLabels = [...(hasHistory ? ["Created VIEW"] : []), baselineLabel, label];
+            const expectedLabels = hasHistory
+              ? ["Created VIEW", baselineLabel, label]
+              : ["AI: Created Released VIEW", label];
             assert.deepEqual(
               stored.projectHistory!.commits.map((c) => c.label),
               expectedLabels,
             );
+            if (!hasHistory) {
+              assert.equal(stored.projectHistory!.commits[0]!.chatId, "genesis-chat");
+              assert.equal(stored.projectHistory!.commits[0]!.messageId, "genesis-message");
+            }
             if (hasHistory) {
               const original = priorHistory.capturePortable();
               assert.deepEqual(
@@ -208,4 +229,59 @@ test("opening released VIEWs appends a baseline and one rebuild, keeps prior His
       }
     }
   }
+});
+
+test("a VIEW rebuild skipped by its History label sets mismatching source aside", async () => {
+  const { profileId, input, bytes } = fixture.cases[0]!;
+  const source = JSON.stringify(input);
+  const container = createContainer();
+  container.putResource("view", 1, Uint8Array.from(bytes));
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("return;", { dictionary: new Map(), profile: PROFILES[profileId] }).payload,
+  );
+  const documents = readProjectDocuments({
+    files: Object.fromEntries(container.files),
+    profileId,
+  }).documents;
+  const history = new ProjectHistory(sha256Hex);
+  history.record(documents, { label, origin: "view", author: "creator", time: 1 });
+  const data = {
+    projectId: testProjectId("view-skipped-rebuild"),
+    title: "Skipped VIEW",
+    authoredAt: "2026-01-01T00:00:00.000Z",
+    words: [],
+    files: Object.fromEntries(container.files),
+    library: normalizeLibraryMetadata(
+      { version: 1, profile: profileId },
+      {
+        source: "authored",
+        revision: computeResourceRevision(Object.fromEntries(container.files)),
+      },
+    ),
+    workspace: writeProjectWorkspace({ ...documents, "view:1": source }),
+    projectHistory: history.capturePortable(),
+  };
+  const inspection = inspectEditableProject(data);
+  assert.equal(inspection.rejectedSources["view:1"], source);
+  assert.ok(inspection.diagnostics.some(({ key }) => key === "view:1"));
+  assert.deepEqual(inspection.viewRebuilds, {});
+  const session = openOwnedProjectSession(
+    {
+      data,
+      lifetime: "skipped-rebuild",
+      admission: {
+        runToken: "skipped-rebuild",
+        admit: async () => {
+          throw new Error("No rebuild expected");
+        },
+      },
+    },
+    { commit: commitProject, fingerprint: authoringFingerprint },
+  );
+  await session.flush();
+  assert.deepEqual(session.model.capture().read("view:1")!.content, Uint8Array.from(bytes));
+  assert.deepEqual(session.history.capturePortable(), data.projectHistory);
+  session.dispose();
 });

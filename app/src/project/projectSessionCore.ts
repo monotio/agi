@@ -38,7 +38,11 @@ import {
 import { sha256Hex } from "../../../src/crypto.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { requireProjectId, type GameIdentity } from "../../../src/gameIdentity.ts";
-import { inspectEditableProject, updateAcceptedSourceClaims } from "./projectWorkspaceSource.ts";
+import {
+  inspectEditableProject,
+  updateAcceptedSourceClaims,
+  VIEW_MIGRATION_LABEL,
+} from "./projectWorkspaceSource.ts";
 import type {
   authoringFingerprint,
   commitProject,
@@ -260,6 +264,10 @@ function createSession(
         Object.keys(viewRebuilds).map((key) => [key, inspection.documents[key]!]),
       ),
     };
+  // Refused VIEW sources stay inactive even when a workspace carries them.
+  for (const key of Object.keys(inspection.rejectedSources))
+    if (/^view:\d+$/.test(key) && inspection.documents[key] instanceof Uint8Array)
+      openedDocuments = { ...openedDocuments, [key]: inspection.documents[key]! };
   const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
@@ -282,7 +290,7 @@ function createSession(
       data.workspace,
     );
   // A native-byte baseline keeps existing History immutable and makes Undo exact.
-  if (Object.keys(viewRebuilds).length)
+  if (Object.keys(viewRebuilds).length && history.capture().cursor !== null)
     history.record(documents, {
       label: "VIEWs before the 1.2.5 update",
       origin: "view",
@@ -1527,7 +1535,6 @@ function createSession(
       });
   return session;
 }
-const VIEW_MIGRATION_LABEL = "VIEWs updated for 1.2.5";
 /** The History entry an older authored game receives once (CHANGELOG 1.2.5). */
 export const SCRIPT_SIZE_MIGRATION_LABEL = "Room memory raised for this version";
 export type ProjectSession = ReturnType<typeof openOwnedProjectSession>;
