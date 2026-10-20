@@ -116,6 +116,14 @@ async function framePoint(page: Page, x: number, y: number): Promise<{ x: number
 const modal = async (page: Page) => (await textHook(page)).modal;
 const row = async (page: Page, r: number) => (await textHook(page)).rows[r] ?? "";
 
+/** The workspace's own mount: its game bar lands once Create is on stage. */
+async function createMounted(page: Page): Promise<void> {
+  await enterCreateMode(page);
+  await expect(page.getByTestId("workspace-game-bar")).toBeVisible({
+    timeout: FIRST_LOAD_BUDGET_MS,
+  });
+}
+
 /** Keep an editor tab open so the retained workspace stays mounted through Play. */
 async function retainPictureEditor(page: Page): Promise<void> {
   const show = page.getByTestId("workspace-show-game");
@@ -136,7 +144,7 @@ test("in Create a right-click on the game offers only the room's actions @webkit
   page,
 }) => {
   await bootMenuGame(page, "right-owner-create");
-  await enterCreateMode(page);
+  await createMounted(page);
   const at = await framePoint(page, 160, 100);
   await page.mouse.click(at.x, at.y, { button: "right" });
   const menu = page.getByTestId("game-room-menu");
@@ -159,7 +167,7 @@ test("with an editor tab retained Play's right-drag picks a native menu item @we
   page,
 }) => {
   await bootMenuGame(page, "right-owner-play");
-  await enterCreateMode(page);
+  await createMounted(page);
   await retainPictureEditor(page);
   await playFromCreate(page);
   await waitForCycles(page, 2);
@@ -181,7 +189,7 @@ test("with the strip withdrawn Play's right double-click still reaches the game 
   page,
 }) => {
   await bootMenuGame(page, "right-owner-fallback");
-  await enterCreateMode(page);
+  await createMounted(page);
   await retainPictureEditor(page);
   await playFromCreate(page);
   // The game withdraws its menu: Intuition's strip can no longer open, so
