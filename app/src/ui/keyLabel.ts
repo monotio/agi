@@ -1,6 +1,6 @@
 /**
  * Shortcut labels in the viewer's own keyboard words. The Studio key
- * handlers take ⌘ and Ctrl alike (studioKeys.ts, spriteKeys.ts); what a
+ * handlers take ⌘ and Ctrl alike (studioKeys.ts, viewKeys.ts); what a
  * label names follows the platform: ⌘ ⇧ ⌥ on a Mac, iPhone or iPad, Ctrl
  * Shift Alt everywhere else.
  */

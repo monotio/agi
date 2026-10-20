@@ -23,7 +23,7 @@ test("editor explainers and walk labels use the shared vocabulary", () => {
   );
   assert.equal(STUDIO_TERMS.depth.says, "What stands in front. Lower on the screen is nearer.");
   assert.equal(STUDIO_TERMS.ghost.name, "Stand-in");
-  assert.equal(STUDIO_TERMS.backdrop.name, "Background");
+  assert.equal(STUDIO_TERMS.background.name, "Background");
   assert.equal(STUDIO_TERMS.onion.name, "Onion skin");
   assert.equal(
     STUDIO_TERMS.transparent.says,

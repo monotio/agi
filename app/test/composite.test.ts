@@ -609,7 +609,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       | "overlayGreenLine0to10"
       | "priScreenTop1"
       | "addToPicBlue00"
-      | "spriteBlue20";
+      | "viewBlue20";
     const expectedPixelFor = (
       mode: RowsMode,
       x: number,
@@ -633,7 +633,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           return y < 8 ? [0, 0, 0] : redPriRgb;
         case "addToPicBlue00":
           return y === 8 && (x === 0 || x === 1) ? blueRgb : [0, 0, 0];
-        case "spriteBlue20":
+        case "viewBlue20":
           return y === 8 && (x === 0 || x === 1 || x === 4 || x === 5) ? blueRgb : [0, 0, 0];
       }
     };
@@ -947,7 +947,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "further sprite draw and erase after checkpoint restore over add.to.pic and fill",
+        name: "further view draw and erase after checkpoint restore over add.to.pic and fill",
         act: () => {
           const fromAutosave = cloneViaAutosave(engine);
           const fromRecording = cloneViaRecording(engine);
@@ -957,19 +957,19 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           }
           const drawnRef = composeEngine(engine);
           const glyphRef = glyphRefFor(engine.displayBase);
-          assertRows0to10(drawnRef, "spriteBlue20", glyphRef, "sprite drawn uninterrupted");
+          assertRows0to10(drawnRef, "viewBlue20", glyphRef, "view drawn uninterrupted");
           assertRows0to10(
             composeEngine(fromAutosave),
-            "spriteBlue20",
+            "viewBlue20",
             glyphRef,
-            "sprite drawn after autosave restore",
+            "view drawn after autosave restore",
             drawnRef,
           );
           assertRows0to10(
             composeEngine(fromRecording),
-            "spriteBlue20",
+            "viewBlue20",
             glyphRef,
-            "sprite drawn after recording restore",
+            "view drawn after recording restore",
             drawnRef,
           );
           for (const eng of [engine, fromAutosave, fromRecording]) {
@@ -981,14 +981,14 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
             composeEngine(fromAutosave),
             "addToPicBlue00",
             glyphRef,
-            "sprite erased after autosave restore",
+            "view erased after autosave restore",
             erasedRef,
           );
           assertRows0to10(
             composeEngine(fromRecording),
             "addToPicBlue00",
             glyphRef,
-            "sprite erased after recording restore",
+            "view erased after recording restore",
             erasedRef,
           );
         },

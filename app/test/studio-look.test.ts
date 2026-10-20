@@ -14,8 +14,8 @@ import { pictureComparisonPng } from "../../src/agent/pictureFeedback.ts";
 import { EGA_TABLE, colourTableForProfile } from "../../src/runtime/colourTables.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 import { snapImageToEga } from "../../src/creative/imageStyle.ts";
-import { nearestEgaIndex, quantizeToEga } from "../../src/view/spritesheet.ts";
-import { swatchInk } from "../src/studio/sprite/spriteView.ts";
+import { nearestEgaIndex, quantizeToEga } from "../../src/view/sheet.ts";
+import { swatchInk } from "../src/studio/view/viewStudioView.ts";
 import { applyPaletteVars, paletteCss, paletteVars } from "../src/render/useGamePalette.ts";
 import type { Frame } from "../src/engine/useEngine.ts";
 
@@ -66,7 +66,7 @@ test("the depth view blends each band's colour from the game's palette", async (
   assert.deepEqual([...out.subarray(0, 4)], [0xdd, 0x00, 0xff, 255]);
 });
 
-test("a sprite cel previews in the game's colours", async () => {
+test("a view cel previews in the game's colours", async () => {
   const amiga = await loadAppearance("amiga-2.202");
   const cel = { pixels: new Uint8Array([13, 2]), transparent: 2 };
   const out = new Uint8ClampedArray(8);

@@ -36,7 +36,7 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.imageHeroPreview?.(frame, ctx.run.cycle.cycleCount);
     const modal = ctx.run.engine.modalKind;
     const textCells = frame.text;
-    // Armed inspector channels join the sameness check so a sprite's sub-pixel
+    // Armed inspector channels join the sameness check so a view's sub-pixel
     // or slot change still ships its fresh ownership/objects payload.
     const ownership = ctx.run.debug.channels.ownership ? ctx.run.engine.getOwnership() : null;
     const objects = ctx.run.debug.channels.objects ? ctx.run.engine.readObjects() : null;

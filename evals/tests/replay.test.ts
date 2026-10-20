@@ -20,7 +20,7 @@ import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScop
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import type { LensUnlocks, StudioLens } from "../../src/studio/lensRules.ts";
-import { openSprite } from "../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../src/view/viewDocument.ts";
 import {
   anthropicToolContent,
   openAiToolContent,
@@ -106,7 +106,7 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
     selection: createSelectionEdit({
       scope: viewAssistScope({
         num: studio.num,
-        document: openSprite(payload, session.profile),
+        document: openViewDocument(payload, session.profile),
         targetCels: studio.targetCels ?? [],
       }),
       draft: () => ({ kind: "view", payload }),

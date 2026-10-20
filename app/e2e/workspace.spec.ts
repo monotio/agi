@@ -320,11 +320,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     .toContain("A red flower grows.");
   await page.keyboard.press("Enter");
   await page.getByTestId("part-view:0").click();
-  const sprite = page.getByTestId("sprite-studio");
-  await expect(sprite).toBeVisible();
-  await sprite.locator('[data-loop="2"][data-cel="0"]').click();
-  await sprite.getByTestId("sprite-palette").locator('[data-colour="4"]').click();
-  const cel = (await sprite.getByTestId("sprite-canvas").boundingBox())!;
+  const view = page.getByTestId("view-studio");
+  await expect(view).toBeVisible();
+  await view.locator('[data-loop="2"][data-cel="0"]').click();
+  await view.getByTestId("view-palette").locator('[data-colour="4"]').click();
+  const cel = (await view.getByTestId("view-canvas").boundingBox())!;
   const hero = await page.evaluate(async () => {
     const api = (
       window as unknown as {
@@ -442,7 +442,7 @@ for (const size of [{ width: 1440, height: 900 }]) {
     await expect(page.getByTestId("workspace-problems")).toBeHidden();
     await page.getByTestId("workspace-show-game").click();
     await page.getByTestId("part-view:0").click();
-    await expect(page.getByTestId("sprite-studio")).toBeVisible();
+    await expect(page.getByTestId("view-studio")).toBeVisible();
     const editorBox = (await page.getByTestId("workspace-editor").boundingBox())!;
     expect(editorBox.y + editorBox.height).toBeGreaterThanOrEqual(size.height - 1);
     await shot("view");
@@ -712,14 +712,14 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     .toContain("Keyboard flower.");
   await page.keyboard.press("Enter");
   await keyboardOpen(page, "VIEW 0");
-  const sprite = page.getByTestId("sprite-studio");
-  await expect(sprite).toBeVisible();
-  await tabTo(page, sprite.locator('[data-loop][data-cel][tabindex="0"]'));
+  const view = page.getByTestId("view-studio");
+  await expect(view).toBeVisible();
+  await tabTo(page, view.locator('[data-loop][data-cel][tabindex="0"]'));
   const currentLoop = Number(
     await page.evaluate(() => document.activeElement?.getAttribute("data-loop")),
   );
   for (let i = currentLoop; i < 2; i++) await page.keyboard.press("ArrowDown");
-  await tabTo(page, sprite.locator('[data-testid="sprite-palette"] [tabindex="0"]'));
+  await tabTo(page, view.locator('[data-testid="view-palette"] [tabindex="0"]'));
   for (
     let i = 0;
     i < 16 &&
@@ -757,7 +757,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     pixel,
   );
   expect(beforePixel).not.toBe(4);
-  await tabTo(page, sprite.getByTestId("sprite-stage"));
+  await tabTo(page, view.getByTestId("view-stage"));
   await page.keyboard.press("b");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
@@ -1029,10 +1029,10 @@ for (const size of [{ width: 1440, height: 900 }]) {
     await page.keyboard.press("Escape");
     await shot("picture");
     await page.getByTestId("part-view:0").click();
-    const panel = (await page.locator(".sprite-studio__panel").boundingBox())!;
+    const panel = (await page.locator(".view-studio__panel").boundingBox())!;
     expect(panel.width).toBeGreaterThanOrEqual(290);
     const optionsFit = await page
-      .locator(".sprite-options")
+      .locator(".view-options")
       .evaluate((element) => element.scrollWidth <= element.clientWidth);
     expect(optionsFit).toBe(true);
     const edit = (await page.getByTestId("workspace-editor").boundingBox())!;
@@ -1077,7 +1077,7 @@ test("parts show keyboard focus and align the VIEW thumbnail with other rows", a
   await starter(page);
   const part = page.getByTestId("part-view:0");
   await part.click();
-  await expect(page.getByTestId("sprite-studio")).toBeVisible();
+  await expect(page.getByTestId("view-studio")).toBeVisible();
   await part.click();
   await expect(part).toBeFocused();
   await expect.soft(page.getByTestId("parts-list")).toHaveCSS("outline-style", "none");

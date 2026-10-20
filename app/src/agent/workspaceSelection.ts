@@ -5,7 +5,7 @@ import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileEditDocument } from "../../../src/studio/editValidation.ts";
 import { disassemblePicture } from "../../../src/picture/source.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { openSprite } from "../../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../../src/view/viewDocument.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { AgentRuntimeDeps } from "../../../src/agent/tools.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
@@ -100,7 +100,7 @@ export function workspaceSelection(
     return createSelectionEdit({
       scope: viewAssistScope({
         num,
-        document: openSprite(payload, profile),
+        document: openViewDocument(payload, profile),
         targetCels: [{ loop: Number(view[2]), cel: Number(view[3]) }],
       }),
       draft: () => ({ kind: "view", payload }),

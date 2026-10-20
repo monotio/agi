@@ -34,10 +34,10 @@ import { decodeCreativeImage } from "../../references/creativeImageDecode.ts";
 import type { createImageGenerationMount } from "./imageGenerationMount.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useShellBridge } from "../../shell/shellBridge.ts";
-import { openSprite } from "../../../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../../../src/view/viewDocument.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import { buildView } from "../../../../src/view/view.ts";
-import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
+import { nearestEgaIndex } from "../../../../src/view/sheet.ts";
 import { paletteCss, useGamePalette, useGamePaletteLook } from "../../render/useGamePalette.ts";
 import { presentTrace, previewTrace } from "./tracePresentation.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
@@ -152,12 +152,12 @@ watch(
   () => {
     const content = props.session.workingSnapshot().read(props.target)?.content;
     if (!isPicture.value && content !== undefined) {
-      const sprite = openSprite(
+      const view = openViewDocument(
         typeof content === "string" ? buildView(JSON.parse(content), props.profile) : content,
         props.profile,
       );
-      mirrors.value = sprite.loops.map((loop) => loop.alias);
-      loopHeights.value = sprite.loops.map((loop) => loop.cels[0]?.height ?? 24);
+      mirrors.value = view.loops.map((loop) => loop.alias);
+      loopHeights.value = view.loops.map((loop) => loop.cels[0]?.height ?? 24);
     }
   },
   { immediate: true },

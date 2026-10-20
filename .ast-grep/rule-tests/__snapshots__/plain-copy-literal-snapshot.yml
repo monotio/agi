@@ -48,9 +48,9 @@ snapshots:
       style: primary
       start: 14
       end: 42
-  const hint = "The backdrop is never saved.";:
+  const hint = "The background is never saved.";:
     labels:
-    - source: The backdrop is never saved.
+    - source: The background is never saved.
       style: primary
       start: 14
       end: 42

@@ -1,6 +1,6 @@
 /**
  * The scope contract of a Studio assist request: what an AI
- * proposal made from a Room Studio or Sprite Studio selection may change.
+ * proposal made from a Room Studio or VIEW editor selection may change.
  * The UI builds it from the selection and the lens; `checkCandidate` holds a
  * candidate to it on DECODED pixels, whatever the proposal's operations or
  * the model's words claim. Pure and deterministic.
@@ -71,9 +71,9 @@ import {
 } from "./pictureDocument.ts";
 import { itemAt, type PicturePlane } from "./pictureQuery.ts";
 import { sideEffects, type SideEffectReport } from "./sideEffects.ts";
-import type { SpriteDocument } from "../view/spriteDocument.ts";
-import type { CelRef } from "./sprite/spriteOperations.ts";
-import { validateSpriteEdit } from "./sprite/spriteValidation.ts";
+import type { ViewDocument } from "../view/viewDocument.ts";
+import type { CelRef } from "./view/viewOperations.ts";
+import { validateViewEdit } from "./view/viewValidation.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 const PLANES: readonly PicturePlane[] = ["visual", "priority"];
@@ -211,10 +211,10 @@ export function pictureAssistScope(input: {
   };
 }
 
-/** The scope the UI sends for a Sprite Studio selection of cels. */
+/** The scope the UI sends for a VIEW editor selection of cels. */
 export function viewAssistScope(input: {
   readonly num: number;
-  readonly document: SpriteDocument;
+  readonly document: ViewDocument;
   readonly targetCels: readonly CelRef[];
   readonly protectedLoops?: readonly number[];
   readonly maxBytes?: number;
@@ -627,11 +627,7 @@ function checkPicture(
   return { ok: violations.length === 0, violations, ...(report ? { sideEffects: report } : {}) };
 }
 
-function checkView(
-  before: SpriteDocument,
-  after: SpriteDocument,
-  scope: ViewAssistScope,
-): AssistCheck {
+function checkView(before: ViewDocument, after: ViewDocument, scope: ViewAssistScope): AssistCheck {
   const violations: AssistViolation[] = [];
   const revision = draftRevision({ kind: "view", payload: before.payload });
   if (revision !== scope.baseRevision) violations.push(staleBase(scope, revision));
@@ -644,7 +640,7 @@ function checkView(
   const protectedLoops = new Set(scope.protectedLoops ?? []);
   const targets = new Set(scope.targetCels.map(({ loop, cel }) => `${loop}:${cel}`));
   const targetLoops = new Set(scope.targetCels.map(({ loop }) => loop));
-  const validation = validateSpriteEdit(before, after, { protectedLoops: [...protectedLoops] });
+  const validation = validateViewEdit(before, after, { protectedLoops: [...protectedLoops] });
   // Splitting a targeted loop from its mirror partner re-links the partner
   // too; its display stays, so its link and orientation bits may follow.
   const owner = (loop: number) => before.loops[loop]?.alias ?? loop;
@@ -716,7 +712,7 @@ function checkView(
 /**
  * Hold a candidate to its scope: `before` is the draft the candidate was made
  * from, `after` the candidate, both decoded. Runs `validateEdit` for a
- * picture and `validateSpriteEdit` for a view, plus the scope's revision and
+ * picture and `validateViewEdit` for a view, plus the scope's revision and
  * target rules.
  */
 export function checkCandidate(
@@ -725,18 +721,18 @@ export function checkCandidate(
   scope: PictureAssistScope,
 ): AssistCheck;
 export function checkCandidate(
-  before: SpriteDocument,
-  after: SpriteDocument,
+  before: ViewDocument,
+  after: ViewDocument,
   scope: ViewAssistScope,
 ): AssistCheck;
 export function checkCandidate(
-  before: CompiledDocument | SpriteDocument,
-  after: CompiledDocument | SpriteDocument,
+  before: CompiledDocument | ViewDocument,
+  after: CompiledDocument | ViewDocument,
   scope: AssistScope,
 ): AssistCheck {
   return scope.kind === "picture"
     ? checkPicture(before as CompiledDocument, after as CompiledDocument, scope)
-    : checkView(before as SpriteDocument, after as SpriteDocument, scope);
+    : checkView(before as ViewDocument, after as ViewDocument, scope);
 }
 
 /** The violations in plain words, for a refusal the model and the creator read. */

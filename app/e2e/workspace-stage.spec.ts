@@ -179,7 +179,7 @@ test("phone VIEW editing keeps a usable drawing canvas @phone", async ({ page })
   await start(page);
   for (const view of [8, 9]) {
     await open(page, `part-view:${view}`);
-    const canvas = page.getByTestId("sprite-stage").filter({ visible: true });
+    const canvas = page.getByTestId("view-stage").filter({ visible: true });
     await expect(canvas).toBeVisible();
     expect((await canvas.boundingBox())!.width).toBeGreaterThan(200);
   }
@@ -230,7 +230,7 @@ for (const dynamic of [false, true]) {
       if (result.status !== "committed") throw new Error(result.status);
     }, dynamic);
     await open(page, "part-view:0");
-    await expect(page.getByTestId("sprite-studio")).toBeVisible();
+    await expect(page.getByTestId("view-studio")).toBeVisible();
     await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
     await expect(page.locator(".play-area:visible")).toBeVisible();
     await expect.poll(async () => (await textHook(page)).paused).toBe(false);
@@ -239,7 +239,7 @@ for (const dynamic of [false, true]) {
 }
 
 // An unused VIEW checks the running room for a short while after it opens, then stops reading,
-// so a sprite left open does not keep the game and Create busy.
+// so a view left open does not keep the game and Create busy.
 test("an unused VIEW stops checking the running room after a few heartbeats", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
@@ -380,7 +380,7 @@ test("Play enters a VIEW's room and unused VIEW can become a room", async ({ pag
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-view:8");
-  await expect(page.getByTestId("sprite-studio")).toBeVisible();
+  await expect(page.getByTestId("view-studio")).toBeVisible();
   await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   await open(page, "part-view:9");
@@ -543,7 +543,7 @@ for (const size of [
     await page.getByRole("button", { name: "Back to Home", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await open(page, "part-view:8");
-    await expect(page.getByTestId("sprite-studio").filter({ visible: true })).toBeVisible();
+    await expect(page.getByTestId("view-studio").filter({ visible: true })).toBeVisible();
     await playRoom(page);
     await expect.poll(async () => (await textHook(page)).room).toBe(8);
     await shot(page, "view");

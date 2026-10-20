@@ -62,7 +62,7 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
     name: "draw_picture_items",
     description: toolDescription(
       "draw_picture_items",
-      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing. Name shapes so the creator can find and edit them in Room Studio.",
+      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing. Name shapes so the creator can find and edit them in the PICTURE editor.",
     ),
     parameters: parameterDescriptions("draw_picture_items", {
       type: "object",

@@ -1,7 +1,7 @@
 import { scheduler as testScheduler } from "node:timers/promises";
 /**
  * Cross-editor coherence, end to end over fake ports: a stored project keeps
- * both its native files and its workspace envelope; an ordinary Room/Sprite
+ * both its native files and its workspace envelope; an ordinary Room/View
  * Studio Keep through the real authoring controller, worker link and Engine
  * must leave the envelope agreeing with the files it describes — the next
  * editable open re-verifies every claim, so a stale claim would refuse the
@@ -48,8 +48,8 @@ import { compilePictureSource } from "../../src/picture/source.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { viewSpec } from "../../src/view/celEdit.ts";
-import { openSprite } from "../../src/view/spriteDocument.ts";
-import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
+import { openViewDocument } from "../../src/view/viewDocument.ts";
+import { applyViewEdit } from "../../src/studio/view/viewOperations.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 
 installIndexedDbFixture();
@@ -357,7 +357,7 @@ test("a source-only picture Keep projects the new text without inventing a nativ
 test("a view Keep updates its own workspace claim, preserves metadata and lets Logic build", async (t) => {
   const { projectId, revision, files, r } = await projectRig(t, "ws-view-keep", "starter");
 
-  // Owner metadata a Sprite Keep must carry through untouched.
+  // Owner metadata a View Keep must carry through untouched.
   const seeded = (await loadAuthoredGame(projectId))!;
   seeded.workspace = writeProjectWorkspace({
     ...readProjectWorkspace(seeded.workspace),
@@ -367,7 +367,7 @@ test("a view Keep updates its own workspace claim, preserves metadata and lets L
   assert.equal(await saveAuthoredGame(projectId, seeded), true);
 
   const original = storedResource(files, "view", 0)!;
-  const after = applySpriteEdit(openSprite(original, DEFAULT_V2_PROFILE), {
+  const after = applyViewEdit(openViewDocument(original, DEFAULT_V2_PROFILE), {
     type: "setPixels",
     loop: 0,
     cel: 0,

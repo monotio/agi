@@ -105,7 +105,7 @@ export const STUDIO_TERMS = {
     name: VOCABULARY.feet.label,
     says: VOCABULARY.feet.help,
     technical: VOCABULARY.feet.technical,
-    help: topic("sprites-feet"),
+    help: topic("view-feet"),
   },
   "floor-estimate": {
     name: "Floor (estimate)",
@@ -157,52 +157,52 @@ export const STUDIO_TERMS = {
     name: VOCABULARY.loop.label,
     says: VOCABULARY.loop.help,
     technical: VOCABULARY.loop.technical,
-    help: topic("sprites-loops"),
+    help: topic("view-loops"),
   },
   mirror: {
     name: VOCABULARY.mirrorLoop.label,
     says: VOCABULARY.mirrorLoop.help,
     technical: VOCABULARY.mirrorLoop.technical,
-    help: topic("sprites-mirror"),
+    help: topic("view-mirror"),
   },
   transparent: {
     name: VOCABULARY.transparentColour.label,
     says: VOCABULARY.transparentColour.help,
     technical: VOCABULARY.transparentColour.technical,
-    help: topic("sprites-transparent"),
+    help: topic("view-transparent"),
   },
-  backdrop: {
+  background: {
     name: VOCABULARY.background.label,
     says: VOCABULARY.background.help,
     technical: VOCABULARY.background.technical,
-    help: topic("sprites-transparent"),
+    help: topic("view-transparent"),
   },
   onion: {
     name: VOCABULARY.onionSkin.label,
     says: VOCABULARY.onionSkin.help,
     technical: VOCABULARY.onionSkin.technical,
-    help: topic("sprites-loops"),
+    help: topic("view-loops"),
   },
   "mirror-bit": {
     name: VOCABULARY.mirrorLoop.label,
     says: VOCABULARY.mirrorLoop.help,
     technical: VOCABULARY.mirrorLoop.technical,
-    help: topic("sprites-mirror"),
+    help: topic("view-mirror"),
   },
   "shared-view": {
     name: "Shared character",
     says: "Editing this VIEW changes it in every room that uses it.",
-    help: topic("sprites-loops"),
+    help: topic("view-loops"),
   },
   "recolour-scope": {
     name: "Recolour",
     says: "Swaps one colour for another in this cel, this loop or the whole character.",
-    help: topic("sprites-tools"),
+    help: topic("view-tools"),
   },
   shift: {
     name: "Shift",
     says: "Pixels wrap around the edges; shifting up or down moves the feet.",
-    help: topic("sprites-tools"),
+    help: topic("view-tools"),
   },
 } as const satisfies Record<string, Explainer>;
 

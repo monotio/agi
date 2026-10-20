@@ -26,7 +26,7 @@ import {
 } from "../src/studio/assistScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { openSprite } from "../src/view/spriteDocument.ts";
+import { openViewDocument } from "../src/view/viewDocument.ts";
 import { parseView } from "../src/view/view.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 import {
@@ -75,7 +75,7 @@ const loop1 = [
 ];
 
 function robotAssist() {
-  const document = openSprite(ROBOT_VIEW, DEFAULT_V2_PROFILE);
+  const document = openViewDocument(ROBOT_VIEW, DEFAULT_V2_PROFILE);
   return createSelectionEdit({
     scope: viewAssistScope({ num: 2, document, targetCels: loop1 }),
     draft: () => ({ kind: "view", payload: ROBOT_VIEW }),
@@ -563,7 +563,7 @@ test("a label or kind change is a candidate though it draws the same pixels", as
   assert.equal(assist.candidate?.candidateId, "c1");
 });
 
-test("a sprite edit that changes no pixel is refused; a mirror split or transparent key is not", async () => {
+test("a view edit that changes no pixel is refused; a mirror split or transparent key is not", async () => {
   const state = session();
   const assist = robotAssist();
   // No pixel of loop 1 is colour 5: the kernel returns the same payload.
@@ -674,10 +674,10 @@ test("selected source includes ordinary long items and offers character paging",
   assert.equal(result.details?.["nextSourceOffset"], null);
 });
 
-test("sprite pixel edits permit a complete largest cel", () => {
+test("view pixel edits permit a complete largest cel", () => {
   const propose = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
-  const sprite = propose.parameters.properties["spriteOps"] as {
+  const view = propose.parameters.properties["spriteOps"] as {
     items: { properties: { changes: { maxItems: number } } };
   };
-  assert.equal(sprite.items.properties.changes.maxItems, 65025);
+  assert.equal(view.items.properties.changes.maxItems, 65025);
 });

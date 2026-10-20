@@ -2,7 +2,7 @@
 /**
  * The one settings sheet: sound and display, AI, this game's downloads and
  * Start over, and the advanced diagnostics. A modal sheet anchored to the
- * right edge, with no backdrop — the game stays visible. Tab and Shift+Tab
+ * right edge, with no background — the game stays visible. Tab and Shift+Tab
  * cycle inside it and never reach the page behind; Escape closes it from
  * anywhere and returns focus to the Settings button; a click outside closes
  * it too, leaving focus with what was clicked. Toggles keep it open; actions

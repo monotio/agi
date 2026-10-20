@@ -107,10 +107,10 @@
   --agi-14: #ffff55;
   --agi-15: #ffffff;
 
-  /* Sprite Studio's light checker behind transparent pixels: two greys that
-     are none of the 16 colours, so a backdrop square never reads as a pixel. */
-  --backdrop-light: #e8e8e8;
-  --backdrop-light-alt: #c9c9c9;
+  /* VIEW editor's light checker behind transparent pixels: two greys that
+     are none of the 16 colours, so a background square never reads as a pixel. */
+  --background-light: #e8e8e8;
+  --background-light-alt: #c9c9c9;
 
   /* Type. Sans for UI, mono for numbers, coordinates, code and the wordmark. */
   --font-sans: "AGI Geist", "AGI Sans Fallback", sans-serif;

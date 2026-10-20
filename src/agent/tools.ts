@@ -39,7 +39,7 @@ import {
   resolveSourceEdit,
   sourceContextRevision,
 } from "./authoringTools.ts";
-import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import { CEL_TOOLS, executeCelTool } from "./celTools.ts";
 import {
   executeSelectionEditTool,
   SELECTION_TOOL_NAMES,
@@ -128,7 +128,7 @@ export { buildSound, midiToAgiDivisor, parseNoteToMidi } from "./soundBuilder.ts
 /** Shared JSON Schemas: OpenAI uses strict mode; Anthropic uses non-strict transport. */
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...AUTHORING_TOOLS,
-  ...SPRITE_TOOLS,
+  ...CEL_TOOLS,
   ...SOUND_TOOLS,
   ...PICTURE_TOOLS,
   ...ROOM_TOOLS,
@@ -471,7 +471,7 @@ function executeValidatedAgentTool(
     result =
       executeSourceEdit(session, name, args) ??
       executeAuthoringTool(session, name, args) ??
-      executeSpriteTool(session, name, args) ??
+      executeCelTool(session, name, args) ??
       executeSoundTool(session, name, args) ??
       executePictureTool(session, name, args) ??
       executeRoomTool(session, name, args) ??
@@ -1150,7 +1150,7 @@ function executeLegacyTool(
         const warnings = viewSourceWarnings(spec);
         return {
           success: true,
-          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
+          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the view preview.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
           images: [{ png, caption }],
           details: {
             view: num,

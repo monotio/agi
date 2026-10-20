@@ -79,7 +79,7 @@ const HELP: Record<string, string> = {
   "reverse.loop":
     "Plays backward to cel zero, stops cycling and sets the completion flag; installs an initial one-callback delay.",
   position:
-    "Places the left edge and bottom baseline at literal x,y; increasing sprite height extends upward.",
+    "Places the left edge and bottom baseline at literal x,y; increasing screen object height extends upward.",
   "position.v": "Places left edge and bottom baseline using x,y variable values.",
   "set.loop":
     "Selects a literal view loop and keeps the current cel when the loop has it; automatic direction selection may subsequently change the loop.",

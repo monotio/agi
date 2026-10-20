@@ -6,7 +6,7 @@ import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { PROFILES, type ProfileId } from "../../../../src/runtime/profile.ts";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
-import { openSprite } from "../../../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../../../src/view/viewDocument.ts";
 import { openContainer } from "../../../../src/container/container.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
@@ -243,8 +243,11 @@ function place(target: "hero" | "box" | "arrival"): void {
   placing.value = true;
   let cel;
   try {
-    const sprite = openSprite(props.views[`view:${view.value}`]!, PROFILES[props.profileId]);
-    cel = (sprite.loops[2] ?? sprite.loops[0])?.cels[0];
+    const document = openViewDocument(
+      props.views[`view:${view.value}`]!,
+      PROFILES[props.profileId],
+    );
+    cel = (document.loops[2] ?? document.loops[0])?.cels[0];
   } catch {
     /* A position marker works before the first VIEW is drawn. */
   }

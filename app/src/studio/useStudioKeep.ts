@@ -2,7 +2,7 @@
  * A Studio's Keep: the draft goes through the resource transaction
  * (useStudioCommit) against the revision it was opened or last kept on —
  * Room Studio's compiled bytes and annotated source (bytes equal to the kept
- * ones save only the text), Sprite Studio's VIEW bytes. A kept draft rebases
+ * ones save only the text), VIEW editor's VIEW bytes. A kept draft rebases
  * on the new revision.
  * Each refusal maps to the one next step it allows: a stale game reopens
  * Studio from the running game, a failed install reloads the game from

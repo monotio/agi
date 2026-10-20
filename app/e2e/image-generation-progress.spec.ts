@@ -106,7 +106,7 @@ test(
     }
   },
 );
-test("VIEW generation uses sprite style and Use image opens the cel sheet @webkit-desktop", async ({
+test("VIEW generation uses view style and Use image opens the cel sheet @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -114,7 +114,7 @@ test("VIEW generation uses sprite style and Use image opens the cel sheet @webki
   await page.route("**/api/test-images/v1/images/generations", async (route) => {
     requests++;
     const request = route.request().postDataJSON();
-    expect(request.prompt).toContain("small side-view sprite");
+    expect(request.prompt).toContain("small side-view view");
     expect(request.prompt).toContain("A fox");
     expect(request.background).toBe("transparent");
     await route.fulfill({ json: { data: [{ b64_json: png }] } });

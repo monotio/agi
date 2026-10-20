@@ -5,7 +5,7 @@
  * probe's VIEWs, come from the same booted-resource snapshot the world map
  * scans and renders its thumbnails from. The text is the live session's, or,
  * for a game played without one (a catalog game such as the tutorial, or its
- * remix), the stored project's authoring sources. Sprite Studio: one VIEW's
+ * remix), the stored project's authoring sources. VIEW editor: one VIEW's
  * bytes from the same snapshot, the rooms whose logic names it
  * (viewUsage.ts) and the pictures they draw. Room Studio's Walk view also
  * reads the room's LOGIC: its annotated text under the same trust rule
@@ -31,7 +31,7 @@ import { detectProfile, type AgiProfile } from "../../../src/runtime/profile.ts"
 import type { ScannedResources } from "./useRoomMap.ts";
 import { scanContainerExits, type StaticRoomScan } from "../../../src/agent/roomMap.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
-import { openSprite, type SpriteCel } from "../../../src/view/spriteDocument.ts";
+import { openViewDocument, type ViewDocumentCel } from "../../../src/view/viewDocument.ts";
 import {
   scanViewUsage,
   viewUsage,
@@ -238,7 +238,7 @@ interface ViewSummary {
   readonly view: number;
   readonly description?: string | undefined;
   /** Loop 0, cel 0 as displayed; undefined when the view does not decode. */
-  readonly thumb?: SpriteCel | undefined;
+  readonly thumb?: ViewDocumentCel | undefined;
   readonly usage: ViewUsage;
 }
 
@@ -271,7 +271,7 @@ function viewScan(resources: Pick<ScannedResources, "files" | "profile">): ViewS
   const views = [...payloads].map(([view, payload]): ViewSummary => {
     const usage = viewUsage(index, view);
     try {
-      const document = openSprite(payload, profile);
+      const document = openViewDocument(payload, profile);
       return { view, description: document.description, thumb: document.loops[0]?.cels[0], usage };
     } catch {
       return { view, usage };
@@ -282,35 +282,35 @@ function viewScan(resources: Pick<ScannedResources, "files" | "profile">): ViewS
   return scan;
 }
 
-/** What Sprite Studio opens on: one VIEW's stored bytes, where it is used, and rooms to stand it in. */
-export interface StudioSpriteSource {
+/** What VIEW editor opens on: one VIEW's stored bytes, where it is used, and rooms to stand it in. */
+export interface StudioViewSource {
   readonly bytes: Uint8Array;
   readonly profile: AgiProfile;
   readonly files: ReadonlyMap<string, Uint8Array>;
   readonly usage: ViewUsage;
-  readonly rooms: readonly SpriteRoom[];
+  readonly rooms: readonly ViewRoom[];
 }
 
-/** A room the in-room preview can stand a sprite in: its number and the picture it draws. */
-export interface SpriteRoom {
+/** A room the in-room preview can stand a view in: its number and the picture it draws. */
+export interface ViewRoom {
   readonly room: number;
   readonly picture: number;
   readonly title?: string | undefined;
 }
 
 /**
- * One VIEW's Sprite Studio input; null when the booted game has no such
+ * One VIEW's VIEW editor input; null when the booted game has no such
  * view. The rooms offered for the in-room preview are the rooms that use
  * the view and provably draw a picture (roomPictureUse), `first` (the room
  * the game stands in) leading when it is one of them. `staged` stands in for
  * the stored bytes (a character-sheet candidate not in the game yet).
  */
-export function studioSpriteSource(
+export function studioViewSource(
   resources: Pick<ScannedResources, "files" | "profile">,
   view: number,
   first?: number,
   staged?: Uint8Array,
-): StudioSpriteSource | null {
+): StudioViewSource | null {
   const files = new Map(Object.entries(resources.files));
   const profile = resources.profile ?? detectProfile(files);
   let bytes = staged;
@@ -322,7 +322,7 @@ export function studioSpriteSource(
   if (!bytes) return null;
   const scan = viewScan(resources);
   const usage = viewUsage(scan.index, view);
-  const rooms = usage.rooms.flatMap((room): SpriteRoom[] => {
+  const rooms = usage.rooms.flatMap((room): ViewRoom[] => {
     const use = roomPictureUse(room, scan);
     const picture = use.pictures.find((entry) => entry.exists)?.picture;
     return picture === undefined ? [] : [{ room, picture }];

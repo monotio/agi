@@ -34,7 +34,7 @@ export interface LessonOutcome {
 
 const KIND: Record<LessonSession["lesson"]["open"]["studio"], LessonKeep["kind"]> = {
   room: "picture",
-  sprite: "view",
+  view: "view",
 };
 
 /** The challenge's verdict on a Keep, or null when the Keep is not the lesson's resource. */

@@ -37,13 +37,9 @@ import type { PicturePlane } from "../studio/pictureQuery.ts";
 import { probeActor } from "../studio/probe.ts";
 import { sideEffectData, sideEffectLine } from "../studio/sideEffects.ts";
 import type { SceneShape } from "../studio/shapes.ts";
-import { RESIZE_ANCHORS, type ResizeAnchor } from "../studio/sprite/spriteCels.ts";
-import { openSprite, type SpriteDocument } from "../view/spriteDocument.ts";
-import {
-  applySpriteEdit,
-  type CelRef,
-  type SpriteEdit,
-} from "../studio/sprite/spriteOperations.ts";
+import { RESIZE_ANCHORS, type ResizeAnchor } from "../studio/view/viewCels.ts";
+import { openViewDocument, type ViewDocument } from "../view/viewDocument.ts";
+import { applyViewEdit, type CelRef, type ViewEdit } from "../studio/view/viewOperations.ts";
 import { walkableMask } from "../runtime/walkable.ts";
 import { PictureSourceSyntaxError } from "../picture/source.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
@@ -57,7 +53,7 @@ import {
   pictureAssistPreviewPng,
   pictureCropPng,
   pictureOverviewPng,
-  spriteSheetPng,
+  viewSheetPng,
   type CelPair,
 } from "./selectionPreview.ts";
 import type { AgentSessionState, AgentToolImage, AgentToolResult } from "./agentState.ts";
@@ -71,7 +67,7 @@ const DEFAULT_HORIZON = 36;
 const SOURCE_CHAR_BUDGET = 65536;
 /** Hex rows read_edit_context shows at most, in pixels, as read_view. */
 const MAX_ROW_PIXELS = 65536;
-/** Rows a sprite candidate sheet shows at most. */
+/** Rows a view candidate sheet shows at most. */
 const MAX_SHEET_ROWS = 8;
 
 /** A ghost actor placed in PICTURE editor: one cel standing at one place. */
@@ -133,7 +129,7 @@ type SelectionCandidate =
     })
   | (CandidateBase & {
       readonly kind: "view";
-      readonly ops: readonly SpriteEdit[];
+      readonly ops: readonly ViewEdit[];
       readonly draft: { readonly kind: "view"; readonly payload: Uint8Array };
     });
 
@@ -268,7 +264,7 @@ const PICTURE_OP = {
   ],
 } as const;
 
-const SPRITE_OP_TYPES = [
+const VIEW_OP_TYPES = [
   "setPixels",
   "fillCel",
   "recolor",
@@ -282,11 +278,11 @@ const SPRITE_OP_TYPES = [
   "unlinkMirror",
 ] as const;
 
-const SPRITE_OP = {
+const VIEW_OP = {
   type: "object",
   additionalProperties: false,
   properties: {
-    type: { type: "string", enum: SPRITE_OP_TYPES },
+    type: { type: "string", enum: VIEW_OP_TYPES },
     loop: nullable(int(0, 254)),
     cel: nullable(int(0, 254)),
     propagate: nullable({ type: "boolean" }),
@@ -374,7 +370,7 @@ export const SELECTION_TOOLS: readonly ToolDefinition[] = [
         baseRevision: { type: "string", minLength: 1, maxLength: 64 },
         summary: { type: "string", minLength: 1, maxLength: 240 },
         pictureOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: PICTURE_OP },
-        spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: SPRITE_OP },
+        spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: VIEW_OP },
       },
       required: ["baseRevision", "summary", "pictureOps", "spriteOps"],
     }),
@@ -532,7 +528,7 @@ function pictureOp(raw: Raw, label: string): EditOperation {
   }
 }
 
-function spriteOp(raw: Raw, label: string): SpriteEdit {
+function viewOp(raw: Raw, label: string): ViewEdit {
   const get = <T>(field: string) => need<T>(raw, field, label);
   const ref = () => ({ loop: get<number>("loop"), cel: get<number>("cel") });
   const propagate = raw["propagate"] === true ? { propagate: true } : {};
@@ -601,7 +597,7 @@ function spriteOp(raw: Raw, label: string): SpriteEdit {
     case "unlinkMirror":
       return { type: "unlinkMirror", loop: get("loop") };
     default:
-      throw new OpError(`${label}: unknown sprite operation '${String(raw["type"])}'`);
+      throw new OpError(`${label}: unknown view operation '${String(raw["type"])}'`);
   }
 }
 
@@ -684,10 +680,10 @@ function openPicture(
   }
 }
 
-function openView(session: AgentSessionState, draft: AssistDraft): SpriteDocument {
+function openView(session: AgentSessionState, draft: AssistDraft): ViewDocument {
   if (draft.kind !== "view") throw new OpError("the editor draft is not a view");
   try {
-    return openSprite(draft.payload, session.profile);
+    return openViewDocument(draft.payload, session.profile);
   } catch (error) {
     throw new OpError(`the draft view does not decode: ${String(error)}`);
   }
@@ -955,7 +951,7 @@ function readPictureContext(
   };
 }
 
-function celRows(document: SpriteDocument, targets: readonly CelRef[]) {
+function celRows(document: ViewDocument, targets: readonly CelRef[]) {
   let pixels = 0;
   const out: {
     loop: number;
@@ -1054,7 +1050,7 @@ function readViewContext(
       ? {
           images: [
             {
-              png: spriteSheetPng(
+              png: viewSheetPng(
                 scope.targetCels
                   .slice(0, MAX_SHEET_ROWS)
                   .map(({ loop, cel }) => ({ after: document.loops[loop]?.cels[cel] })),
@@ -1239,11 +1235,11 @@ function proposeView(
   summary: string,
 ): AgentToolResult {
   const before = openView(session, draft);
-  const ops = rawOps.map((raw, index) => spriteOp(raw, `spriteOps[${index}]`));
+  const ops = rawOps.map((raw, index) => viewOp(raw, `spriteOps[${index}]`));
   let document = before;
   const isolated = new Set<number>();
   for (const [index, op] of ops.entries()) {
-    const result = applySpriteEdit(document, op);
+    const result = applyViewEdit(document, op);
     if ("error" in result)
       return refusal(
         assist,
@@ -1287,7 +1283,7 @@ function proposeView(
     return noChange(assist, "every cel unchanged", "the selected cels");
   const check = checkCandidate(before, document, scope);
   if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
-  const previewPng = spriteSheetPng(
+  const previewPng = viewSheetPng(
     pairs.length ? pairs : [{ before: undefined, after: undefined }],
     true,
     colourTableForProfile(session.profile),
@@ -1395,10 +1391,11 @@ export function executeSelectionEditTool(
       };
     assist.proposals++;
     const pictureOps = args["pictureOps"] as Raw[] | null;
-    const spriteOps = args["spriteOps"] as Raw[] | null;
+    // spriteOps is the edit_selection schema field.
+    const viewOps = args["spriteOps"] as Raw[] | null;
     const summary = String(args["summary"]).trim();
-    const ops = scope.kind === "picture" ? pictureOps : spriteOps;
-    const other = scope.kind === "picture" ? spriteOps : pictureOps;
+    const ops = scope.kind === "picture" ? pictureOps : viewOps;
+    const other = scope.kind === "picture" ? viewOps : pictureOps;
     if (!ops || other)
       return refusal(
         assist,

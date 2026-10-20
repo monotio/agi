@@ -146,12 +146,12 @@ increment(v200);
 return;
 `;
 
-test("a room retaining its inherited backdrop requires restart for a picture edit", () => {
+test("a room retaining its inherited background requires restart for a picture edit", () => {
   const engine = makeEngine(ROOM_TRANSITION, "return;");
   engine.vars[60] = 1;
   engine.tick();
   assert.equal(engine.vars[0], 1);
-  assert.equal(engine.getFrame().visual[0], 1, "new.room retained the previous backdrop");
+  assert.equal(engine.getFrame().visual[0], 1, "new.room retained the previous background");
   const before = new Map([...engine.containerFiles].map(([key, bytes]) => [key, bytes.slice()]));
   const result = engine.applyPreviewUpdate({
     files: candidate(engine, (game) => game.putResource("picture", 1, solidPicture(3))),
@@ -161,7 +161,7 @@ test("a room retaining its inherited backdrop requires restart for a picture edi
   assert.equal(engine.getFrame().visual[0], 1);
 });
 
-test("an overlay on an inherited backdrop must preserve the backdrop when its edit refuses", () => {
+test("an overlay on an inherited background must preserve the background when its edit refuses", () => {
   const engine = makeEngine(
     ROOM_TRANSITION,
     `
@@ -173,7 +173,7 @@ return;
   engine.vars[60] = 1;
   engine.tick();
   assert.equal(engine.vars[0], 1);
-  assert.equal(engine.getFrame().visual[0], 1, "overlay flood preserves the filled backdrop");
+  assert.equal(engine.getFrame().visual[0], 1, "overlay flood preserves the filled background");
   const before = engine.getFrame().visual.slice();
   const files = candidate(engine, (game) =>
     game.putResource("picture", 3, new Uint8Array([0xf0, 3, 0xf6, 10, 10, 20, 10, 0xff])),

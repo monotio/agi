@@ -334,7 +334,7 @@ test("a game that blocks the script buffer still autosaves once a picture has dr
   fresh.restoreImage(image);
   fresh.tick();
   assert.equal(fresh.vars[0], 1);
-  assert.equal(fresh.screenObjects[0]!.active, true, "the room's sprite is back on screen");
+  assert.equal(fresh.screenObjects[0]!.active, true, "the room's view is back on screen");
   // The game's own sequence is empty, so the host image carried the engine's
   // shadow record: the restore reloaded and redrew the picture instead of
   // leaving the reset surface.
@@ -682,7 +682,7 @@ test("host autosaves require the current continuation framing", () => {
   );
 });
 
-test("host resume preserves captions and their ordering against stopped sprites", () => {
+test("host resume preserves captions and their ordering against stopped views", () => {
   const container = buildGame();
   container.putResource(
     "logic",
@@ -713,8 +713,8 @@ test("host resume preserves captions and their ordering against stopped sprites"
   const engine = new Engine(container, new RecordingHost(), DICT);
   engine.tick();
   const cell = (e: Engine, col: number) => e.textCells[(12 * 40 + col) * 2];
-  assert.equal(cell(engine, 5), 0, "older text is hidden under the first sprite");
-  assert.equal(cell(engine, 10), 88, "newer text is visible over the second sprite");
+  assert.equal(cell(engine, 5), 0, "older text is hidden under the first view");
+  assert.equal(cell(engine, 10), 88, "newer text is visible over the second view");
   const fresh = new Engine(container, new RecordingHost(), DICT);
   fresh.restoreImage(engine.autosaveImage()!);
   assert.equal(fresh.textRow(6).slice(2, 25), "A caption written once.");

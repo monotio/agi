@@ -27,5 +27,5 @@ export const CGA_RGB_APPEARANCE: Appearance = {
   palette: CGA_TEXT.map((index) => CGA_RGB[index as 0 | 1 | 2 | 3]),
   picturePairs: cgaPairs(CGA_PICTURE_EVEN),
   alternatePicturePairs: cgaPairs(CGA_PICTURE_ODD),
-  spritePairs: cgaPairs([0, 0, 12, 1, 10, 2, 9, 13, 0, 3, 5, 7, 14, 14, 15, 15]),
+  viewPairs: cgaPairs([0, 0, 12, 1, 10, 2, 9, 13, 0, 3, 5, 7, 14, 14, 15, 15]),
 };

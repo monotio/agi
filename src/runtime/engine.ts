@@ -1360,7 +1360,7 @@ export class Engine {
    * it implies. Nothing here mutates live state — the canonical files are
    * copied, opened detached, diffed resource by resource, semantically
    * parsed the way their next live use would parse them, and the picture
-   * backdrop is rebuilt on a detached PictureSurface when a changed PIC
+   * background is rebuilt on a detached PictureSurface when a changed PIC
    * participates in the current composition.
    *
    * The returned plan is an opaque handle bound to this engine and to the
@@ -1866,7 +1866,7 @@ export class Engine {
    * The transaction's only writes: the staged container becomes installed,
    * decoded caches for already-loaded resources are replaced in place,
    * the staged WORDS dictionary and append-only OBJECT locations land, and
-   * the detached backdrop (when rebuilt) is copied onto the live surface.
+   * the detached background (when rebuilt) is copied onto the live surface.
    * Everything that could throw already ran during staging; this body only
    * assigns and copies.
    */
@@ -2918,7 +2918,7 @@ export class Engine {
   }
 
   /** The text row for a text-surface read-back (debug/test helper). */
-  /** The written row, trace overlay included, before sprites hide anything. */
+  /** The written row, trace overlay included, before screen objects hide anything. */
   textRow(row: number): string {
     if (!this.traceOverlayVisible) return this.text.rowText(row);
     this.mergeTraceText(this.text.cells);
@@ -5728,7 +5728,7 @@ export class Engine {
    * Text and graphics share one screen in the interpreters. Erasing or
    * redrawing a cel restores the pixels saved when it was drawn, so text
    * written over the cel since then is gone; text older than the draw was
-   * saved with the background and stays (hideTextUnderSprites hides it
+   * saved with the background and stays (hideTextUnderScreenObjects hides it
    * meanwhile). Text lives in its own cell layer here: drop the cells under
    * the cel's rectangle written after its last draw, then stamp the draw. A
    * Mother Goose demonstration relies on this when it redraws its speech
@@ -5769,9 +5769,9 @@ export class Engine {
    * visible. This shapes the cells a host presents; the cells themselves are
    * untouched.
    */
-  private hideTextUnderSprites(
+  private hideTextUnderScreenObjects(
     ownership: Uint16Array | null,
-    sprites: readonly ScreenObject[],
+    screenObjects: readonly ScreenObject[],
     windowOverlay?: Uint8Array,
   ): Uint8Array {
     const cells = this.text.cells;
@@ -5781,7 +5781,7 @@ export class Engine {
     for (let pixel = 0; pixel < ownership.length; pixel++) {
       const owner = ownership[pixel]!;
       if (owner === 0) continue;
-      const drawSeq = sprites[owner - 1]!.drawSeq;
+      const drawSeq = screenObjects[owner - 1]!.drawSeq;
       const index = this.textCellUnder(pixel);
       if (index >= 0 && this.text.written[index]! <= drawSeq && (out ?? cells)[index * 2] !== 0) {
         out ??= cells.slice();
@@ -6906,7 +6906,7 @@ export class Engine {
     }
     const ownership = !this.textMode ? this.scratchOwnership : null;
     const text = this.mergeTraceText(
-      this.hideTextUnderSprites(
+      this.hideTextUnderScreenObjects(
         ownership,
         this.objects,
         hasOverlay ? this.cachedWindowOverlay : undefined,
@@ -7047,7 +7047,7 @@ export class Engine {
   /**
    * The picture surface alone — drawn picture plus baked add.to.pic views,
    * no screen objects. Debug hosts that explode the frame into priority
-   * layers sample this for the wall bands so sprite pixels leave no holes.
+   * layers sample this for the wall bands so screen object pixels leave no holes.
    */
   getPictureSurface(): { visual: Uint8Array; priority: Uint8Array } {
     this.ensurePresentationCurrent();
@@ -7075,7 +7075,7 @@ export class Engine {
     this.roomTransitionListener = listener;
   }
 
-  /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
+  /** f1 is engine state, updated when screen objects draw rather than when a host asks for pixels. */
   private updateEgoVisibility(): void {
     if (this.objects[0]!.active) {
       this.ensurePresentationCurrent();
@@ -8222,7 +8222,7 @@ export class Engine {
         // draw clears the pending end.of.loop/reverse.loop delay bit
         // (docs/fidelity.md flag table: "draw clears").
         o.cycleDelay = false;
-        // The cel now covers whatever text lies under it (hideTextUnderSprites);
+        // The cel now covers whatever text lies under it (hideTextUnderScreenObjects);
         // text written from here on lies on top of it.
         this.stampDraw(o);
         this.presentationDirty = true;

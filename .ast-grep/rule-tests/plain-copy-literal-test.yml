@@ -22,5 +22,5 @@ invalid:
   - 'const note = "Game text uses its own font, rather than the built-in one.";'
   - 'const hint = "Use Remix instead of Play.";'
   - 'const hint = "Play here needs a live game, not a replay.";'
-  - 'const hint = "The backdrop is never saved.";'
+  - 'const hint = "The background is never saved.";'
   - "const hint = `Room ${room} is already built — change it in Remix.`;"

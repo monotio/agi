@@ -17,7 +17,7 @@ import { expect, test } from "./test.ts";
  * selection's actions dock in a bar above the canvas, folding into More
  * rather than running out of it, and the tool's help sits in the status bar; `?` lists every key and Esc puts the list away; the
  * workspace's one Focus hides the game so the picture grows, while Tab and
- * Shift+Tab only move focus; and Sprite Studio's drawing backdrop is view
+ * Shift+Tab only move focus; and VIEW editor's drawing background is view
  * only, never the view's bytes.
  */
 
@@ -38,7 +38,7 @@ async function openRoomStudio(page: Page, room: number): Promise<Locator> {
 
 async function openApprentice(page: Page): Promise<Locator> {
   await openWorkspaceView(page, 0);
-  const studio = page.getByTestId("sprite-studio");
+  const studio = page.getByTestId("view-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -136,16 +136,16 @@ for (const [width, height] of [
     await closeWorkspaceEditor(page);
     await expect(studio).toBeHidden();
 
-    // Sprite Studio, the pencil: the cel is clear too.
-    const sprite = await openApprentice(page);
-    const spriteStage = sprite.getByTestId("sprite-stage");
-    await spriteStage.focus();
+    // VIEW editor, the pencil: the cel is clear too.
+    const view = await openApprentice(page);
+    const viewStage = view.getByTestId("view-stage");
+    await viewStage.focus();
     await page.keyboard.press("b");
     expect(
       await coveredPoints(
-        sprite.locator(".sprite-studio__canvas canvas"),
-        spriteStage,
-        ".sprite-studio__canvas",
+        view.locator(".view-studio__canvas canvas"),
+        viewStage,
+        ".view-studio__canvas",
       ),
     ).toEqual([]);
   });
@@ -218,54 +218,54 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   await expect(button).toBeFocused();
   await expect(studio).toBeVisible();
 
-  // Sprite Studio has its own.
+  // VIEW editor has its own.
   await closeWorkspaceEditor(page);
-  const sprite = await openApprentice(page);
-  await sprite.getByTestId("sprite-stage").focus();
+  const view = await openApprentice(page);
+  await view.getByTestId("view-stage").focus();
   await page.keyboard.press("?");
-  const spriteSheet = page.getByRole("dialog", { name: "VIEW editor keys" });
-  await expect(spriteSheet).toContainText("Previous or next loop");
+  const viewSheet = page.getByRole("dialog", { name: "VIEW editor keys" });
+  await expect(viewSheet).toContainText("Previous or next loop");
   await page.keyboard.press("Escape");
-  await expect(spriteSheet).toBeHidden();
-  await expect(sprite).toBeVisible();
+  await expect(viewSheet).toBeHidden();
+  await expect(view).toBeVisible();
 });
 
-test("the drawing backdrop is view only: it never changes the view's bytes, and is remembered", async ({
+test("the drawing background is view only: it never changes the view's bytes, and is remembered", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await playTutorial(page);
-  let sprite = await openApprentice(page);
-  const bytes = () => page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]);
+  let view = await openApprentice(page);
+  const bytes = () => page.evaluate(() => [...window.__AGI_VIEW__!.bytes()]);
   const original = await bytes();
   await page.getByTestId("workspace-focus").click();
-  const backdrop = sprite.getByTestId("sprite-backdrop");
+  const background = view.getByTestId("view-background");
   /** The canvas colour at the cel's top-left pixel, transparent in the apprentice's first cel. */
   const corner = () =>
-    sprite
-      .locator(".sprite-studio__canvas canvas")
+    view
+      .locator(".view-studio__canvas canvas")
       .evaluate((canvas: HTMLCanvasElement) => [
         ...canvas.getContext("2d")!.getImageData(2, 2, 1, 1).data.slice(0, 3),
       ]);
-  await expect(sprite.getByTestId("sprite-transparent")).toContainText("Transparent colour");
+  await expect(view.getByTestId("view-transparent")).toContainText("Transparent colour");
 
   const seen: string[] = [];
   for (const choice of ["checker-light", "colour-14", "colour-1", "checker-dark"]) {
-    await backdrop.selectOption(choice);
+    await background.selectOption(choice);
     seen.push((await corner()).join(","));
     await workspaceUpdated(page);
     expect(await bytes()).toEqual(original);
   }
-  // Each backdrop shows behind the transparent pixel: yellow (14) is 255,255,85.
+  // Each background shows behind the transparent pixel: yellow (14) is 255,255,85.
   expect(seen[1]).toBe("255,255,85");
   expect(new Set(seen).size).toBe(4);
 
-  // Remembered for this viewer: the next Sprite Studio opens on the same backdrop.
-  await backdrop.selectOption("checker-light");
+  // Remembered for this viewer: the next VIEW editor opens on the same background.
+  await background.selectOption("checker-light");
   await closeWorkspaceEditor(page);
-  await expect(sprite).toBeHidden();
-  sprite = await openApprentice(page);
+  await expect(view).toBeHidden();
+  view = await openApprentice(page);
   await page.getByTestId("workspace-focus").click();
-  await expect(sprite.getByTestId("sprite-backdrop")).toHaveValue("checker-light");
+  await expect(view.getByTestId("view-background")).toHaveValue("checker-light");
   expect(await bytes()).toEqual(original);
 });

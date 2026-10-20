@@ -12,7 +12,7 @@ import { expect, test } from "./test.ts";
 
 /**
  * Every ⓘ in the Studios explains itself: in each lens of Room Studio and in
- * Sprite Studio, every visible `[data-term]` opens its registry sentence
+ * VIEW editor, every visible `[data-term]` opens its registry sentence
  * (studioTerms.ts), Esc closes it before the Studio's own Esc chain runs and
  * hands focus back to it, and Learn more opens Help at its topic. The chrome
  * itself speaks the new words: with two items selected, no visible Room
@@ -152,12 +152,12 @@ test("Room Studio's chrome says depth, walk lines and steps", async ({ page }) =
   }
 });
 
-test("Sprite Studio: every explainer says its sentence and gives Esc back", async ({ page }) => {
+test("VIEW editor: every explainer says its sentence and gives Esc back", async ({ page }) => {
   await playTutorial(page);
   await openWorkspaceView(page, 0);
-  const studio = page.getByTestId("sprite-studio");
+  const studio = page.getByTestId("view-studio");
   await expect(studio).toBeVisible();
-  await studio.getByTestId("sprite-stage").focus();
+  await studio.getByTestId("view-stage").focus();
   await page.keyboard.press("e");
   const eraser = studio.locator('button[data-tool="eraser"]');
   await expect(eraser).toHaveAttribute("aria-pressed", "true");

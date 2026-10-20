@@ -280,7 +280,7 @@ export interface AuthoringController {
   /**
    * Commit a staged VIEW to the running game and the project record. Refuses
    * when the game's identity moved since the reference was attached.
-   * `repaired` keeps Sprite Studio's repair of the candidate instead.
+   * `repaired` keeps VIEW editor's repair of the candidate instead.
    */
   keepStagedView(
     id: string,
@@ -297,7 +297,7 @@ export interface AuthoringController {
    * (door rules and the bindings they reserved) in one transaction.
    */
   commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult>;
-  /** Commit Sprite Studio's VIEW edit the same way. */
+  /** Commit VIEW editor's VIEW edit the same way. */
   commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult>;
   /**
    * Ask the game's session about a Studio selection. Resolves with the
@@ -2170,7 +2170,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (result.status === "committed")
       logAgent(
         "log",
-        `Room Studio kept picture ${edit.pictureNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
+        `Saved picture ${edit.pictureNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
       );
     return result;
   }
@@ -2180,7 +2180,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (result.status === "committed")
       logAgent(
         "log",
-        `Room Studio kept room ${edit.room}${edit.picture ? ` and picture ${edit.picture.pictureNumber}` : ""}${edit.reason ? `: ${edit.reason}` : ""}.`,
+        `Saved room ${edit.room}${edit.picture ? ` and picture ${edit.picture.pictureNumber}` : ""}${edit.reason ? `: ${edit.reason}` : ""}.`,
       );
     return result;
   }
@@ -2188,10 +2188,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   async function commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult> {
     const result = await commitResourceEdit(viewEdit(edit));
     if (result.status === "committed")
-      logAgent(
-        "log",
-        `Sprite Studio kept view ${edit.viewNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
-      );
+      logAgent("log", `Saved view ${edit.viewNumber}${edit.reason ? `: ${edit.reason}` : ""}.`);
     return result;
   }
 

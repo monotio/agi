@@ -1,5 +1,5 @@
 /**
- * The Logic Studio project assistant: a request-scoped runtime over the shared
+ * The LOGIC editor assistant: a request-scoped runtime over the shared
  * ProjectDraft workspace. A session binds one project workspace (through a live
  * accessor, so a reopened workspace is detected as a replacement), connects with
  * an owned LlmConfig, and drives one request at a time through the narrow
@@ -212,7 +212,7 @@ export interface ProjectAssist {
 }
 
 /** The small task prompt every project-assist conversation is created with. */
-const PROJECT_ASSIST_SYSTEM_PROMPT = `You are the Logic Studio project assistant for one captured AGI project draft.
+const PROJECT_ASSIST_SYSTEM_PROMPT = `You are the LOGIC editor assistant for one captured AGI project draft.
 
 Tools: read_project_context lists every captured document, its kind, the profile and diagnostics. read_document pages one document's exact authored text (or a hash/byte window for binary documents). propose_changes validates your COMPLETE coordinated change set — whole-document text or explicit deletion — through the real compiler and reference checks, then issues it for human review. withdraw_changes discards your own candidate.
 

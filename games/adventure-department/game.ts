@@ -737,7 +737,7 @@ export function buildTutorial(): TutorialGame {
     "1": { title: "Picture Gallery", description: "Repair a vector mural.", exits: { east: 2 } },
     "2": {
       title: "Sprite Lab",
-      description: "Wake a sprite with conditional logic.",
+      description: "Wake the robot with a condition.",
       exits: { west: 1, east: 3 },
     },
     "3": {
@@ -753,7 +753,7 @@ export function buildTutorial(): TutorialGame {
   };
   authoring.world.quests = {
     repairs: {
-      description: "Repair the picture, sprite, and priority exhibits.",
+      description: "Repair the picture, view, and priority exhibits.",
       requires: [],
       completedFlag: "tutorial_complete",
     },
@@ -765,7 +765,7 @@ export function buildTutorial(): TutorialGame {
     title: "Adventure Department",
     roomGeneration: false,
     metadata: {
-      description: "Learn pictures, views and depth in a three-room tutorial.",
+      description: "Learn pictures, views and priority in a three-room museum.",
       author: "Monotio",
       license: "MIT",
     },

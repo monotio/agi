@@ -138,7 +138,7 @@ export function roomBakesView(index: ViewUsageIndex, room: number, view: number)
   );
 }
 
-/** One line naming what uses the view: Sprite Studio's usage chip and the Resources tab. */
+/** One line naming what uses the view: VIEW editor's usage chip and the Resources tab. */
 export function usageText(usage: ViewUsage): string {
   const rooms = usage.rooms;
   if (rooms.length > 0) return `Used by room${rooms.length === 1 ? "" : "s"} ${rooms.join(", ")}`;

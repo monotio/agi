@@ -438,7 +438,7 @@ const editing = useStudioEditing({
 /** A lock refusal's step: the lock opens for this session and the notice says so. */
 function unlockNow(patch: Partial<LensUnlocks>): void {
   unlocks.value = { ...unlocks.value, ...patch };
-  editing.say({ tone: "ok", text: "Unlocked until you close Studio. Try it again." });
+  editing.say({ tone: "ok", text: "Unlocked until you close the editor. Try it again." });
   keepFocus();
 }
 /** The selected items the creator may edit now, when there are several. */

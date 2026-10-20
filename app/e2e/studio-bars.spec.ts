@@ -12,7 +12,7 @@ import { expect, test } from "./test.ts";
 /**
  * At 1024 wide, each part of Studio's top bars and options bars keeps to
  * its own place: no child's visible content runs under another's, in Room
- * Studio (a selection and the Priority lens) and in Sprite Studio (a painting
+ * Studio (a selection and the Priority lens) and in VIEW editor (a painting
  * tool, whose colour names itself).
  */
 test.use({ viewport: { width: 1024, height: 600 } });
@@ -93,11 +93,11 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   await closeWorkspaceEditor(page);
 
   await openWorkspaceView(page, 0, false);
-  const sprite = page.getByTestId("sprite-studio");
-  await sprite.getByTestId("sprite-stage").focus();
+  const view = page.getByTestId("view-studio");
+  await view.getByTestId("view-stage").focus();
   await page.keyboard.press("b");
-  await look("sprite top", page.locator(".workspace-editor__header"));
-  await look("sprite options", sprite.getByTestId("sprite-options-bar"));
+  await look("view top", page.locator(".workspace-editor__header"));
+  await look("view options", view.getByTestId("view-options-bar"));
   expect(seen).toEqual([]);
 });
 
@@ -141,9 +141,9 @@ test("at 1024×600 every rail tool is on screen or behind a chevron", async ({ p
   await closeWorkspaceEditor(page);
 
   await openWorkspaceView(page, 0, false);
-  const sprite = page.getByTestId("sprite-studio");
-  const spriteRail = sprite.getByRole("toolbar", { name: "Tools" });
-  for (const tool of await spriteRail.locator("[data-tool]").all()) {
+  const view = page.getByTestId("view-studio");
+  const viewRail = view.getByRole("toolbar", { name: "Tools" });
+  for (const tool of await viewRail.locator("[data-tool]").all()) {
     await tool.scrollIntoViewIfNeeded();
     expect(
       await tool.evaluate((element) => {

@@ -99,7 +99,7 @@ function retiredPattern(retired: string): RegExp {
   return new RegExp(
     retired === "Keep"
       ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
-      : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
+      : `\\b${retired}${["view", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
     retired === "Keep" ? "" : "i",
   );
 }

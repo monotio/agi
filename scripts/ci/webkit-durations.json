@@ -64,7 +64,7 @@
   "sound-agent-export.spec.ts": 19.3,
   "sound-audition.spec.ts": 5.7,
   "sound-roll.spec.ts": 17.7,
-  "sprite-studio.spec.ts": 52.4,
+  "view-studio.spec.ts": 52.4,
   "start-over-undo.spec.ts": 87.1,
   "state-reveal.spec.ts": 85.7,
   "studio-access.spec.ts": 16.4,

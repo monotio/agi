@@ -13,7 +13,7 @@ import { expect, test } from "./test.ts";
  * window, and 900×480, the smallest window the Studios are laid out for.
  * Room Studio's top bar never draws the draft controls over the lens switch,
  * and a tool rail shorter than its tools says so with a "more tools" button
- * that scrolls the rest into view. Sprite Studio's options bar folds its view
+ * that scrolls the rest into view. VIEW editor's options bar folds its view
  * options into a More menu instead of drawing the tool's options under them.
  */
 
@@ -133,7 +133,7 @@ for (const viewport of [
   });
 }
 
-test("Sprite Studio at 1024×600: the options bar folds its view options into More", async ({
+test("VIEW editor at 1024×600: the options bar folds its view options into More", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 600 });
@@ -141,29 +141,29 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   await openWorkspaceView(page, 0);
   await page.getByTestId("workspace-layout").click();
   await expect(page.getByTestId("workspace-layout")).toHaveAttribute("aria-pressed", "true");
-  const studio = page.getByTestId("sprite-studio");
+  const studio = page.getByTestId("view-studio");
   await expect(studio).toBeVisible();
-  const bar = studio.getByTestId("sprite-options-bar");
-  const options = studio.getByTestId("sprite-tool-options");
+  const bar = studio.getByTestId("view-options-bar");
+  const options = studio.getByTestId("view-tool-options");
   await expect(options).toContainText("light cyan");
   const barBox = (await bar.boundingBox())!;
   const parts: [string, Locator][] = [];
   for (const [n, child] of (await options.locator(":scope > *").all()).entries())
     parts.push([`tool option ${n}: ${(await child.textContent())?.trim()}`, child]);
-  for (const [n, child] of (await bar.locator(".sprite-view-bar > *").all()).entries())
+  for (const [n, child] of (await bar.locator(".view-view-bar > *").all()).entries())
     parts.push([`view option ${n}: ${(await child.textContent())?.trim()}`, child]);
   const shown = await boxes(parts);
-  expectApart(shown, "Sprite options at 1024×600");
+  expectApart(shown, "View options at 1024×600");
   for (const [name, box] of shown) expect(inside(box, barBox), name).toBe(true);
   for (const [name, locator] of parts)
     if (await locator.isVisible()) expect(await onTop(locator), `${name} is on top`).toBe(true);
-  await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600.png") });
+  await page.screenshot({ path: test.info().outputPath("view-studio-1024x600.png") });
 
-  // The options bar measures its available width: at this size the backdrop
+  // The options bar measures its available width: at this size the background
   // joins the grid, baseline and All cels in More. Onion stays in the bar.
-  await expect(studio.getByTestId("sprite-backdrop")).toBeHidden();
-  await expect(studio.getByTestId("sprite-onion")).toBeVisible();
-  await expect(studio.getByTestId("sprite-grid")).toBeHidden();
+  await expect(studio.getByTestId("view-background")).toBeHidden();
+  await expect(studio.getByTestId("view-onion")).toBeVisible();
+  await expect(studio.getByTestId("view-grid")).toBeHidden();
   const more = studio.getByTestId("actor-view-more");
   await expect(more).toBeVisible();
   await more.click();
@@ -183,15 +183,15 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   await expect(
     menu.getByRole("menuitemradio", { name: "Light checker", exact: true }),
   ).toHaveAttribute("aria-checked", "true");
-  await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600-more.png") });
+  await page.screenshot({ path: test.info().outputPath("view-studio-1024x600-more.png") });
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
 
   // Focus gives the editor room for every option in the bar, and no More.
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByTestId("workspace-focus").click();
-  await expect(studio.getByTestId("sprite-backdrop")).toBeVisible();
-  await expect(studio.getByTestId("sprite-backdrop")).toHaveValue("checker-light");
-  await expect(studio.getByTestId("sprite-grid")).toHaveAttribute("aria-pressed", gridNow);
+  await expect(studio.getByTestId("view-background")).toBeVisible();
+  await expect(studio.getByTestId("view-background")).toHaveValue("checker-light");
+  await expect(studio.getByTestId("view-grid")).toHaveAttribute("aria-pressed", gridNow);
   await expect(more).toBeHidden();
 });

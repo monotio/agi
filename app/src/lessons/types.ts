@@ -11,9 +11,9 @@ import type { AgiProfile } from "../../../src/runtime/profile.ts";
 export type LessonTarget =
   | { readonly studio: "room"; readonly picture: number }
   | {
-      readonly studio: "sprite";
+      readonly studio: "view";
       readonly view: number;
-      /** The loop and cel Sprite Studio selects as it opens; 0 when absent. */
+      /** The loop and cel VIEW editor selects as it opens; 0 when absent. */
       readonly loop?: number;
       readonly cel?: number;
     };

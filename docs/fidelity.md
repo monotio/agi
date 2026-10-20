@@ -109,7 +109,7 @@ below.
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Logic and opcodes             | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                                                                     | [binary-decoded](#amiga-interpreter-profiles)                                                                                   | [binary-decoded](#dispatch-bounds-fact)                                                                                                                            |
 | Pictures and priority         | [binary-decoded](#original-picture-drawing-and-fill)                                                                                                                                                          | [binary-decoded](#original-picture-drawing-and-fill)                                                                            | [binary-decoded](#original-amiga-and-iigs-pattern-brushes)                                                                                                         |
-| Sprites and cels              | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                                                                   | [binary-decoded](#original-cel-handling-and-priority-table)                                                                     | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                        |
+| Screen objects and cels       | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                                                                   | [binary-decoded](#original-cel-handling-and-priority-table)                                                                     | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                        |
 | Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font [recreates the Tandy 1000 SX BIOS design pixel for pixel](#text-beyond-ascii); IBM-BIOS machines draw a different design, not yet recreated | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
 | Palette and display adapters  | [binary-decoded](#pc-fonts-and-display-adapters) (the DOS overlays' dispatch verified; the 2.001 booter's adapter census is open; not every adapter offered)                                                  | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
 | Screen geometry               | [binary-decoded](#original-window-and-status-line-text)                                                                                                                                                       | binary-decoded, [MAME cross-checked](#amiga-screen-font-and-pointer)                                                            | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
@@ -354,7 +354,7 @@ The mode ends there or at the next direction event.
 
 ### Pictures, priority and control lines
 
-Pictures, sprites and text share a single bitmap on the original machines, and
+Pictures, screen objects and text share a single bitmap on the original machines, and
 games rely on the consequences:
 
 - A cel added with `add.to.pic` over a control line changes the pixels' colour
@@ -363,7 +363,7 @@ games rely on the consequences:
   value around the lower part of the cel: its baseline row, its sides up to the
   height of its priority band, and a top row. With margin 0 the box is a wall;
   Police Quest and Space Quest place obstacles this way.
-- Sprites drawn or erased over text repaint it: text written under a later
+- Screen objects drawn or erased over text repaint it: text written under a later
   graphic is gone, and `show.pic` clears the picture area's text.
 - An open message window does not pause object updates, so an animated object
   that overlaps the window paints over it.
@@ -1911,7 +1911,7 @@ the kept indices are out of range.
 Static disassembly of the descrambled KQ3 2.936 image. The collision routine at
 0x4719 compares the mover's and the other actor's word at record offset 0x18
 with their baselines at 0x05. That word has four writers: `position` and
-`position.v` (0x7c1c, 0x7c5a), `draw` (0x0a5a) and the sprite-list commit at
+`position.v` (0x7c1c, 0x7c5a), `draw` (0x0a5a) and the screen object-list commit at
 0x048c..0x04d8. For each listed actor whose step countdown equals its step
 time, the commit sets state bit 0x4000 when x and y equal the saved pair, and
 otherwise copies x and y into 0x16/0x18 and clears the bit. Fact: the movement
@@ -2145,8 +2145,8 @@ differs from it only in relocated data operands.
 
 ### Text under later graphics
 
-Text and graphics share one bitmap: a cel drawn by add.to.pic, a sprite drawn or erased, and every
-updating sprite's per-cycle redraw repaint the text under them. show.pic clears the picture band's
+Text and graphics share one bitmap: a cel drawn by add.to.pic, a screen object drawn or erased, and every
+updating screen object's per-cycle redraw repaint the text under them. show.pic clears the picture band's
 text. The engine stamps text cells with their write and drops the stamped cells a later drawing
 covers.
 
@@ -4521,7 +4521,7 @@ Divergences: text in the picture band goes at `show.pic` instead of dissolving a
 keeps text in its own cell layer); where the original leaves rows 0..1 alone, the engine shows
 the new rows at once (under the title bar while the status line is on); the length is fixed per
 build, while the original varies with interrupt load (room 2 above, +4%); and the start frame is
-the engine's composition before `draw.pic`, so sprites that the pass erased before it are gone
+the engine's composition before `draw.pic`, so screen objects that the pass erased before it are gone
 from the start frame. Inference: the original's screen still shows them until their cells are
 reached.
 
@@ -4577,7 +4577,7 @@ addresses come from the earlier pass and were not re-verified.
   loop 1 now give the same first nonpacked blit when no blit intervenes. Native repeated blits
   outside the orientation mask still toggle, as the recorded native contract requires.
 
-  **Authoring translation.** The builder and Sprite Studio carry the same packed-header and
+  **Authoring translation.** The builder and Screen object Studio carry the same packed-header and
   mirror-mask capabilities as the reader. An authored mirror becomes independent reversed
   cels when either loop index lies outside the stable native range, the profile has no
   mirroring, or adding another mutable alias would change the requested facing. Mirror chains
@@ -5280,7 +5280,7 @@ cell row the engine's text surface carries them on. Engine:
 Amiga look draws the label there, over the cells.
 
 **Pointer (fact).** `h130+0x404..0x4b2` reads `data/pointer` (`h131+0x105`):
-72 bytes of sprite data (a 16-row, 16-wide two-plane hardware sprite with
+72 bytes of hardware sprite data (a 16-row, 16-wide two-plane hardware sprite with
 its control words), then two signed bytes of hot-spot offset and three words
 of colour, and `h130+0x4d6..0x534` reads `data/busy` the same way, falling
 back to the pointer data. `h130+0x560` calls SetPointer(window, data, 16, 16,
@@ -7769,7 +7769,7 @@ PQ1 2.903 `CGA_GRAF.OVL` SHA-256
 returns a two-row picture pattern from `AGIDATA.OVL + 0x1d0a`, while
 `0x0037..0x00da` maps cel colours through the separate table at `0x1d4a`.
 Thus a post-process with one four-colour palette cannot reproduce it.
-The compositor accepts sprite ownership and an explicit cel-pixel mask
+The compositor accepts screen object ownership and an explicit cel-pixel mask
 for previews and persistent stamps to select the cel mapping, uses
 alternating picture rows and retains both horizontal hardware pixels.
 

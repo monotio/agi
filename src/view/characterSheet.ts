@@ -4,7 +4,7 @@
  * single pose row on a flat key colour or real alpha — and the harness owns
  * the sheet manifest: poses per row, facings, target cel size and the ground
  * line. None of that is inferred from the pixels; the upload dialog states
- * the constraints from src/view/spritesheet.ts's header.
+ * the constraints from src/view/sheet.ts's header.
  *
  * Loop order is the engine's four-direction table (see selectLoop in
  * src/runtime/engine.ts): loop 0 right, loop 1 left, loop 2 down, loop 3 up.
@@ -22,7 +22,7 @@ import {
   type EgaSheet,
   type SheetFrame,
   type SheetLoopLayout,
-} from "./spritesheet.ts";
+} from "./sheet.ts";
 import { buildView, type BuildViewInput, type ViewCapabilities } from "./view.ts";
 
 export type SheetFacing = "right" | "left" | "down" | "up";

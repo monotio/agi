@@ -59,7 +59,7 @@ test("world inspection reads compiled resources and inventory after reopening a 
   assert.deepEqual(filtered.details?.["inventory"], result.details?.["inventory"]);
 });
 
-test("read_view shows compiled sprites without sending pixel arrays in model text", () => {
+test("read_view shows compiled views without sending pixel arrays in model text", () => {
   const state = createAgentSessionState();
   state.container.putResource(
     "view",

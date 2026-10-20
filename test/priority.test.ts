@@ -212,7 +212,7 @@ test("engine loads packed 2.230 VIEW headers", () => {
   );
 });
 
-test("nonpacked shared sprites mirror at blitting after loop selections and remain stable on frame observation", () => {
+test("nonpacked shared views mirror at blitting after loop selections and remain stable on frame observation", () => {
   const engine = game(`
     load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100);
     draw(o0); stop.cycling(o0); fix.loop(o0);

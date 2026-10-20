@@ -2,7 +2,7 @@
  * The Amiga interpreter's mouse pointer as a CSS cursor over the game
  * screen (docs/fidelity.md "Amiga screen, font and pointer"): every Amiga
  * build loads a 16×16 three-colour hardware sprite from its `data/pointer`
- * file and shows it with SetPointer at hot spot (1, 0), in sprite colours
+ * file and shows it with SetPointer at hot spot (1, 0), in view colours
  * 17..19 of $d22, $000 and $fca. The arrow below is this project's own
  * drawing in those colours and metrics; the pointer position is the host's
  * mouse, so it is browser chrome rather than part of the composed frame.
@@ -34,7 +34,7 @@ const COLOURS: Record<string, [number, number, number]> = {
   w: [0xff, 0xcc, 0xaa],
 };
 
-/** The sprite's hot spot: SetPointer offset (-1, 0) puts it one pixel into the image. */
+/** The view's hot spot: SetPointer offset (-1, 0) puts it one pixel into the image. */
 const AMIGA_POINTER_HOTSPOT = { x: 1, y: 0 };
 const AMIGA_POINTER_SIZE = 16;
 /** Browsers cap cursor images at 128 px. */
@@ -49,7 +49,7 @@ export interface PointerSize {
 
 /**
  * The cursor image for a screen whose pixels are `sx` wide and `sy` high
- * per frame pixel: the whole sprite scaled by each factor and rounded to
+ * per frame pixel: the whole view scaled by each factor and rounded to
  * whole pixels, the hot spot scaled the same way, each side capped at
  * 128 px.
  */

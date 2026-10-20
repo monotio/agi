@@ -18,8 +18,8 @@ import {
   serializePictureDocument,
   type PictureDocument,
 } from "../src/studio/pictureDocument.ts";
-import { openSprite } from "../src/view/spriteDocument.ts";
-import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
+import { openViewDocument } from "../src/view/viewDocument.ts";
+import { applyViewEdit, type ViewEdit } from "../src/studio/view/viewOperations.ts";
 
 const profile = DEFAULT_V2_PROFILE;
 const tutorial = openContainer(new Map(Object.entries(buildTutorial().files)));
@@ -45,12 +45,12 @@ function pictureEdit(num: number, ...ops: EditOperation[]): LessonVerifyInput {
   };
 }
 
-/** The shipped view `num` as Sprite Studio opens it, and the result of `ops`. */
-function viewEdit(num: number, ...ops: SpriteEdit[]): LessonVerifyInput {
+/** The shipped view `num` as VIEW editor opens it, and the result of `ops`. */
+function viewEdit(num: number, ...ops: ViewEdit[]): LessonVerifyInput {
   const before = tutorial.getResource("view", num)!;
-  let document = openSprite(before, profile);
+  let document = openViewDocument(before, profile);
   for (const op of ops) {
-    const result = applySpriteEdit(document, op);
+    const result = applyViewEdit(document, op);
     if ("error" in result) assert.fail(result.error);
     document = result.document;
   }
@@ -81,7 +81,7 @@ describe("Adventure Department lessons", () => {
       TUTORIAL_LESSONS.lessons.map(({ id, open }) => [id, open]),
       [
         ["ad-gallery-recipe", { studio: "room", picture: 4 }],
-        ["ad-lab-mirror", { studio: "sprite", view: 2, loop: 1, cel: 0 }],
+        ["ad-lab-mirror", { studio: "view", view: 2, loop: 1, cel: 0 }],
         ["ad-archive-depth", { studio: "room", picture: 3 }],
       ],
     );
@@ -212,7 +212,7 @@ describe("Adventure Department lessons", () => {
     });
 
     it("passes one pencil pixel in loop 1's first cel", () => {
-      const cel = openSprite(tutorial.getResource("view", 2)!, profile).loops[1]!.cels[0]!;
+      const cel = openViewDocument(tutorial.getResource("view", 2)!, profile).loops[1]!.cels[0]!;
       const x = cel.width >> 1;
       const y = cel.height >> 1;
       const colour = [4, 2].find((value) => value !== cel.pixels[y * cel.width + x])!;

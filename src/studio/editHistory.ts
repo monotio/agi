@@ -1,6 +1,6 @@
 /**
  * Studio undo/redo over string snapshots: picture source text in the Room
- * Studio, encoded VIEW payloads in the Sprite Studio (spriteHistory.ts). Pure:
+ * Studio, encoded VIEW payloads in the VIEW editor (viewHistory.ts). Pure:
  * every function returns a new history. A `begin`/`commit` gesture (a whole
  * drag) becomes one step; undo and redo refuse, rather than overwrite, a
  * document whose snapshot is no longer the one the history expects.
@@ -28,7 +28,7 @@ export interface EditHistory {
    * shared undo order can drop exactly their places (useUndoOrder `dropped`).
    */
   readonly dropped: number;
-  /** What the snapshots are, as refusals name it ("picture", "sprite"). */
+  /** What the snapshots are, as refusals name it ("picture", "view"). */
   readonly subject: string;
 }
 

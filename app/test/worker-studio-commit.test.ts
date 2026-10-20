@@ -1,6 +1,6 @@
 import { scheduler as testScheduler } from "node:timers/promises";
 /**
- * Room Studio's and Sprite Studio's Keep, end to end over fake ports: the real authoring
+ * Room Studio's and VIEW editor's Keep, end to end over fake ports: the real authoring
  * controller commits through the real worker link into the real worker
  * dispatch and Engine, against the IndexedDB fixture. Each case checks one
  * leg of the transaction — the install ack, the refusals that must leave
@@ -53,7 +53,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { openSprite } from "../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../src/view/viewDocument.ts";
 import { applyEdit } from "../../src/studio/editOperations.ts";
 import {
   parsePictureDocument,
@@ -63,7 +63,7 @@ import { placeEgo } from "../../src/runtime/playHere.ts";
 import { parseLogicDocument } from "../../src/studio/rules/logicDocument.ts";
 import { followPictureEdit } from "../../src/studio/rules/ruleBinding.ts";
 import { applyRuleEdit } from "../../src/studio/rules/ruleEdit.ts";
-import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
+import { applyViewEdit } from "../../src/studio/view/viewOperations.ts";
 import { viewSpec } from "../../src/view/celEdit.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { bytesToBase64 } from "../src/project/bytes.ts";
@@ -441,7 +441,10 @@ test("a stale base or an unusable source is refused before storage or the worker
 
   // The composable words a stale refusal for the Studio.
   const failure = studioCommitFailure(new ResourceCommitError("stale", "moved"));
-  assert.equal(failure.message, "The game changed since you opened Studio. Reopen to continue.");
+  assert.equal(
+    failure.message,
+    "The game changed since you opened the editor. Reopen to continue.",
+  );
 });
 
 test("a Studio Keep refused as removed shows the transaction's words, not the generic stale text", () => {
@@ -453,7 +456,7 @@ test("a Studio Keep refused as removed shows the transaction's words, not the ge
   // Any other stale refusal keeps the Studio's own words, whatever its text says.
   assert.equal(
     studioCommitFailure(new ResourceCommitError("stale", removed, { behindStorage: true })).message,
-    "The game changed since you opened Studio. Reopen to continue.",
+    "The game changed since you opened the editor. Reopen to continue.",
   );
 });
 
@@ -785,7 +788,7 @@ test("a Keep behind a project kept elsewhere reopens by reloading from storage",
   const behindStorage = keeper(r, RED_RENAMED, revision);
   assert.equal(await behindStorage.keep(), false);
   assert.deepEqual(behindStorage.banner.value, {
-    message: "The game changed since you opened Studio. Reopen to continue.",
+    message: "The game changed since you opened the editor. Reopen to continue.",
     recovery: "reopen",
     fromStorage: true,
   });
@@ -856,7 +859,7 @@ test("a Keep that loses the race to another tab's Keep says reopen from storage,
   assert.equal(await raced, true);
   // Retry would only refuse again: the one way on is the reload from storage.
   assert.deepEqual(loser.banner.value, {
-    message: "The game changed since you opened Studio. Reopen to continue.",
+    message: "The game changed since you opened the editor. Reopen to continue.",
     recovery: "reopen",
     fromStorage: true,
   });
@@ -972,17 +975,17 @@ function collectSegment(control: WorkerControl[]): HistorySegment {
   return segment;
 }
 
-// ---- Sprite Studio: the VIEW edit ----------------------------------------
+// ---- VIEW editor: the VIEW edit ----------------------------------------
 
 /** A 2x2 VIEW: loop 0 one cel, loop 1 its mirror. */
-function spriteView(pixels: readonly number[]): Uint8Array {
+function viewView(pixels: readonly number[]): Uint8Array {
   const cel = { width: 2, height: 2, transparentColor: 13, pixels };
   return buildView({ loops: [{ cels: [cel] }, { mirrorLoop: 0 }] }, DEFAULT_V2_PROFILE);
 }
-const VIEW_BEFORE = spriteView([1, 2, 13, 3]);
+const VIEW_BEFORE = viewView([1, 2, 13, 3]);
 
 /** Room 1 animates object 1 in VIEW 3; with `bake`, it also adds VIEW 3 to the picture. */
-function spriteFiles(bake: boolean): Record<string, Uint8Array> {
+function viewFiles(bake: boolean): Record<string, Uint8Array> {
   return Object.fromEntries(
     gameContainer(
       [
@@ -1009,12 +1012,12 @@ test("a kept view installs live and keeps its spec; only a room that bakes it re
   for (const bake of [false, true]) {
     const { projectId, revision, r } = await authoredRig(
       t,
-      `sprite-keep-${bake}`,
+      `view-keep-${bake}`,
       false,
       1,
-      spriteFiles(bake),
+      viewFiles(bake),
     );
-    const after = applySpriteEdit(openSprite(VIEW_BEFORE, DEFAULT_V2_PROFILE), {
+    const after = applyViewEdit(openViewDocument(VIEW_BEFORE, DEFAULT_V2_PROFILE), {
       type: "setPixels",
       loop: 1,
       cel: 0,
@@ -1052,16 +1055,16 @@ test("a kept view installs live and keeps its spec; only a room that bakes it re
 test("a view edit is refused as stale or invalid before storage or the worker", async (t) => {
   const { projectId, revision, r } = await authoredRig(
     t,
-    "sprite-refusals",
+    "view-refusals",
     false,
     1,
-    spriteFiles(false),
+    viewFiles(false),
   );
   const generation = (await loadAuthoredGame(projectId))!.generation;
   await assert.rejects(
     r.controller.commitViewEdit({
       viewNumber: 3,
-      bytes: spriteView([4, 4, 4, 4]),
+      bytes: viewView([4, 4, 4, 4]),
       baseRevision: testRevision("before"),
     }),
     (e) => e instanceof ResourceCommitError && e.code === "stale",
@@ -1078,15 +1081,15 @@ test("a view edit is refused as stale or invalid before storage or the worker", 
   assert.equal(patches(r).length, 0);
 });
 
-test("a staged candidate repaired in Sprite Studio keeps the repaired bytes and spends the offer", async (t) => {
+test("a staged candidate repaired in VIEW editor keeps the repaired bytes and spends the offer", async (t) => {
   const { projectId, revision, r } = await authoredRig(
     t,
-    "sprite-staged",
+    "view-staged",
     false,
     1,
-    spriteFiles(false),
+    viewFiles(false),
   );
-  const candidate = spriteView([5, 5, 13, 5]);
+  const candidate = viewView([5, 5, 13, 5]);
   const stored = (await loadAuthoredGame(projectId))!;
   await saveAuthoredGame(projectId, {
     ...stored,
@@ -1110,7 +1113,7 @@ test("a staged candidate repaired in Sprite Studio keeps the repaired bytes and 
     ],
   });
   r.game().historyLifetime = await readHistoryLifetime(projectId);
-  const repaired = spriteView([5, 6, 13, 5]);
+  const repaired = viewView([5, 6, 13, 5]);
   const result = await r.controller.keepStagedView("ref-staged", {
     bytes: repaired,
     baseRevision: revision,

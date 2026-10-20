@@ -247,7 +247,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [VOCABULARY.saved.help, VOCABULARY.history.help, VOCABULARY.nameVersion.help],
       },
       {
-        id: "sprites-loops",
+        id: "view-loops",
         title: VOCABULARY.view.label,
         body: [
           VOCABULARY.view.help,
@@ -257,7 +257,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "sprites-tools",
+        id: "view-tools",
         title: "Drawing cels",
         body: [
           "Draw with the Pencil (B), Eraser (E), Fill (G), Line (L) and Rectangle (R) in any colour of the fixed palette. Select (M) moves, copies (Alt), flips (H) or deletes a region; the pipette (I) picks a colour. Recolour (C) swaps one colour for another in a cel, a loop or the whole view. On the focused canvas the arrow keys move a cursor and Space or Enter clicks where it stands.",
@@ -265,17 +265,17 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "sprites-transparent",
+        id: "view-transparent",
         title: VOCABULARY.transparentColour.label,
         body: [VOCABULARY.transparentColour.help, VOCABULARY.background.help],
       },
       {
-        id: "sprites-mirror",
+        id: "view-mirror",
         title: VOCABULARY.mirrorLoop.label,
         body: [VOCABULARY.mirrorLoop.help, VOCABULARY.mirrorLoop.technical],
       },
       {
-        id: "sprites-feet",
+        id: "view-feet",
         title: VOCABULARY.feet.label,
         body: [
           VOCABULARY.feet.help,
@@ -283,7 +283,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "sprites-ask",
+        id: "views-ask",
         title: VOCABULARY.agent.label,
         body: [
           VOCABULARY.agent.help,

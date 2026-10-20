@@ -1,7 +1,7 @@
 import { AUTHORING_CONVENTIONS_VERSION } from "../../../src/authoring/projectConventions.ts";
 /**
  * The durable resource transaction behind every Keep — a staged reference
- * view, a Room Studio picture, a Sprite Studio view: the edited bytes, the source that describes
+ * view, a Room Studio picture, a VIEW editor view: the edited bytes, the source that describes
  * them, the stored project and the live worker move together or not at all.
  * The authoring controller owns the session and wires this in; the edit
  * descriptors below say what each Keep writes.
@@ -86,11 +86,11 @@ export interface PictureEdit extends DraftBase {
   reason?: string | undefined;
 }
 
-/** Sprite Studio's Keep request: new VIEW bytes, decoded and re-encoded by the sprite kernel. */
+/** VIEW editor's Keep request: new VIEW bytes, decoded and re-encoded by the view kernel. */
 export interface ViewEdit extends DraftBase {
   viewNumber: number;
   bytes: Uint8Array;
-  /** The booted resource revision Sprite Studio opened on. */
+  /** The booted resource revision VIEW editor opened on. */
   baseRevision: ResourceRevision;
   /** A short description for the agent log. */
   reason?: string | undefined;
@@ -659,7 +659,7 @@ export function createResourceCommit(
 
 /**
  * Keep a staged reference VIEW: its bytes, its build input and the spent
- * offer. `repaired` is the candidate as Sprite Studio left it: those bytes
+ * offer. `repaired` is the candidate as VIEW editor left it: those bytes
  * are kept instead, with the spec read back from them.
  */
 export function stagedViewEdit(
@@ -823,7 +823,7 @@ export function roomEdit(edit: RoomEdit): ResourceEdit {
         if (held && (held.kind !== binding.kind || held.num !== binding.num))
           throw new ResourceCommitError(
             "invalid",
-            `The name '${name}' now means ${held.kind} ${held.num}; reopen Studio and edit the door again.`,
+            `The name '${name}' now means ${held.kind} ${held.num}; reopen the PICTURE editor and edit the door again.`,
           );
         bindings[name] = binding;
       }
@@ -849,7 +849,7 @@ export function roomEdit(edit: RoomEdit): ResourceEdit {
 }
 
 /**
- * Keep a Sprite Studio view: the edited VIEW bytes, with `sources.views`
+ * Keep a VIEW editor view: the edited VIEW bytes, with `sources.views`
  * following them as the spec read back from the bytes. Animated objects pick
  * the new cels up from the install itself (Engine.patchResources re-parses a
  * loaded view in place and re-clamps its objects' loop and cel); the live

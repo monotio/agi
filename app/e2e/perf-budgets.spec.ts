@@ -256,12 +256,12 @@ test(
   },
 );
 
-test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ page }) => {
+test("pencil strokes in VIEW editor keep frames responsive", PERF, async ({ page }) => {
   await playTutorial(page);
   const studio = await openWorkspaceView(page, 0, false);
-  await studio.locator('.sprite-workspace-palette [data-colour="4"]').click();
+  await studio.locator('.view-workspace-palette [data-colour="4"]').click();
   await studio.locator('[data-loop="0"][data-cel="0"]').click();
-  const canvas = studio.getByTestId("sprite-canvas");
+  const canvas = studio.getByTestId("view-canvas");
   const width = Number(await canvas.getAttribute("data-width"));
   const height = Number(await canvas.getAttribute("data-height"));
   const commits = await historyCommits(page);
@@ -295,7 +295,7 @@ test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ pa
     await dragPerFrame(page, cell(...from), cell(...to), 20);
   }
   const sample = await endWindow(page);
-  report("sprite-pencil", sample);
+  report("view-pencil", sample);
   // Each stroke is one undo step.
   await workspaceSaved(page);
   expect(await historyCommits(page)).toBe(commits);

@@ -190,7 +190,7 @@
   z-index: auto;
 }
 .workspace-editor__surface > .studio,
-.workspace-editor__surface > .sprite-studio {
+.workspace-editor__surface > .view-studio {
   flex: 1;
   height: 0;
   width: 100%;
@@ -293,7 +293,7 @@
   flex: none;
 }
 #workspace-status-left .studio__status,
-#workspace-status-left .sprite-studio__status {
+#workspace-status-left .view-studio__status {
   grid-row: auto;
   position: static;
   border-top: 0;

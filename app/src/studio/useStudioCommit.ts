@@ -1,6 +1,6 @@
 /**
  * A Studio's Keep: commits one edit — Room Studio's PIC bytes and the
- * annotated source that compiles to them, Sprite Studio's VIEW bytes —
+ * annotated source that compiles to them, VIEW editor's VIEW bytes —
  * through the engine's resource transaction (useAuthoringController's
  * commitPictureEdit, commitViewEdit, keepStagedView), and exposes the state
  * the Keep button needs. The transaction itself is all-or-nothing up to the
@@ -37,7 +37,7 @@ export function studioCommitFailure(error: unknown): StudioCommitFailure {
       // A removed project cannot be reopened: the transaction's own words say so.
       message: error.removed
         ? error.message
-        : "The game changed since you opened Studio. Reopen to continue.",
+        : "The game changed since you opened the editor. Reopen to continue.",
       behindStorage: error.behindStorage,
     };
   return { code: error.code, message: error.message, projectId: error.projectId };

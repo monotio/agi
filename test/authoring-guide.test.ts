@@ -33,7 +33,7 @@ test("the guide states the interpreter behaviors the engine follows", () => {
   assert.match(text, /show\.pic repaints the whole picture band/);
   assert.match(text, /every updating actor's per-cycle redraw/);
   assert.match(text, /returns when the actor moves on or is erased/);
-  const actors = AUTHORING_GUIDE["sprites-and-animation"]!.body;
+  const actors = AUTHORING_GUIDE["view-loops-and-cels"]!.body;
   assert.match(actors, /set\.view keeps the object's current loop/);
   assert.match(actors, /call set\.cel\(o, 0\) explicitly/);
   const walking = AUTHORING_GUIDE["walking-barriers-and-water"]!.body;

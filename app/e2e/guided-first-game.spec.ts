@@ -227,14 +227,14 @@ test.describe("the first guided game", () => {
     await workspaceUpdated(page);
     await closeWorkspaceEditor(page);
 
-    const sprite = await openWorkspaceView(page, 0);
-    await sprite.locator('[data-loop="0"][data-cel="0"]').click();
-    await sprite.getByTestId("sprite-stage").focus();
+    const view = await openWorkspaceView(page, 0);
+    await view.locator('[data-loop="0"][data-cel="0"]').click();
+    await view.getByTestId("view-stage").focus();
     await page.keyboard.press("c");
-    const recolor = sprite.getByTestId("sprite-recolor");
+    const recolor = view.getByTestId("view-recolor");
     await page.keyboard.press("Space");
     await recolor.getByRole("radio", { name: "To colour 2, green" }).click();
-    await recolor.getByTestId("sprite-recolor-apply").click();
+    await recolor.getByTestId("view-recolor-apply").click();
     await workspaceUpdated(page);
     await closeWorkspaceEditor(page);
 

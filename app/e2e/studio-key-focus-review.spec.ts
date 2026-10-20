@@ -27,9 +27,9 @@ async function openRoomStudio(page: Page): Promise<Locator> {
   return studio;
 }
 
-async function openSpriteStudio(page: Page): Promise<Locator> {
+async function openViewStudio(page: Page): Promise<Locator> {
   await openWorkspaceView(page, 0);
-  const studio = page.getByTestId("sprite-studio");
+  const studio = page.getByTestId("view-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -50,13 +50,13 @@ async function sheetRoundTrip(
   await expect(studio, "Esc closes the sheet, never the Studio").toBeVisible();
 }
 
-for (const studio of ["room", "sprite"] as const) {
+for (const studio of ["room", "view"] as const) {
   const name = studio === "room" ? "PICTURE" : "VIEW editor";
-  const open = studio === "room" ? openRoomStudio : openSpriteStudio;
+  const open = studio === "room" ? openRoomStudio : openViewStudio;
   const stage = (root: Locator) =>
     studio === "room"
       ? root.getByRole("group", { name: /^Canvas/ })
-      : root.getByTestId("sprite-stage");
+      : root.getByTestId("view-stage");
 
   test(`${name}: ? on the stage opens the key sheet and Esc returns focus to the stage @webkit-desktop`, async ({
     page,

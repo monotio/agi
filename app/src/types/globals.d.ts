@@ -29,8 +29,8 @@ declare global {
      * and the room's logic draft (annotated source) when the Walk view edits it.
      */
     __AGI_STUDIO__?: { bytes(): Uint8Array; source(): string; logic?: () => string };
-    /** The open Sprite Studio draft: its encoded VIEW bytes. */
-    __AGI_SPRITE__?: { bytes(): Uint8Array };
+    /** The open VIEW editor draft: its encoded VIEW bytes. */
+    __AGI_VIEW__?: { bytes(): Uint8Array };
     /** Vite test mode: how long a timed notice stays up; unset keeps it until closed. */
     __AGI_NOTICE_MS__?: number;
   }

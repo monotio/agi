@@ -230,22 +230,22 @@ test("VIEW autosave preserves workspace claims for the next LOGIC edit", async (
     return route.abort();
   });
   await page.goto("/");
-  const projectId = await createLocal(page, "Sprite coherence", "starter");
+  const projectId = await createLocal(page, "View coherence", "starter");
 
-  // Sprite Studio repaints a pixel of the ego's VIEW 0 and keeps it.
+  // VIEW editor repaints a pixel of the ego's VIEW 0 and keeps it.
   await openWorkspaceView(page, 0);
-  const studio = page.getByTestId("sprite-studio");
+  const studio = page.getByTestId("view-studio");
   await expect(studio).toBeVisible();
   await studio.locator('[data-colour="4"]').click();
   await studio.locator('[data-loop="0"][data-cel="0"]').click();
-  await studio.getByTestId("sprite-stage").focus();
+  await studio.getByTestId("view-stage").focus();
   await page.keyboard.press("b");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
   await workspaceUpdated(page);
-  await reviewShot(page, "resource-workspace-sprite-draft");
+  await reviewShot(page, "resource-workspace-view-draft");
   await workspaceUpdated(page);
-  await reviewShot(page, "resource-workspace-sprite-kept");
+  await reviewShot(page, "resource-workspace-view-kept");
   await closeWorkspaceEditor(page);
 
   const stored = await storedClaim(page, projectId, "view", 0);
@@ -261,10 +261,10 @@ test("VIEW autosave preserves workspace claims for the next LOGIC edit", async (
   expect(stored.rejected).toEqual([]);
 
   await openWorkspaceLogic(page);
-  await appendComment(page, "// kept after the sprite edit");
+  await appendComment(page, "// kept after the view edit");
   await workspaceUpdated(page);
   const again = await storedClaim(page, projectId, "view", 0);
-  expect(again.logicOne).toContain("// kept after the sprite edit");
+  expect(again.logicOne).toContain("// kept after the view edit");
   expect(again.claim).toEqual(stored.claim);
   await closeWorkspaceEditor(page);
 

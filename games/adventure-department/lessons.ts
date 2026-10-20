@@ -22,8 +22,8 @@ import {
   type CompiledDocument,
 } from "../../src/studio/editValidation.ts";
 import { itemMask } from "../../src/studio/pictureQuery.ts";
-import { openSprite, type SpriteDocument } from "../../src/view/spriteDocument.ts";
-import { validateSpriteEdit } from "../../src/studio/sprite/spriteValidation.ts";
+import { openViewDocument, type ViewDocument } from "../../src/view/viewDocument.ts";
+import { validateViewEdit } from "../../src/studio/view/viewValidation.ts";
 import { TUTORIAL_PICTURES } from "./sceneArt.ts";
 
 type Verdict = { readonly ok: boolean; readonly hint?: string };
@@ -163,15 +163,15 @@ export function verifyMuralObject(input: LessonVerifyInput): Verdict {
 export function verifyMirrorEdit(input: LessonVerifyInput): Verdict {
   if (input.kind !== "view" || input.num !== ROBOT_VIEW)
     return fail("This challenge is for the waving robot, VIEW 2. Open it from the lesson.");
-  let before: SpriteDocument;
-  let after: SpriteDocument;
+  let before: ViewDocument;
+  let after: ViewDocument;
   try {
-    before = openSprite(input.before, input.profile);
-    after = openSprite(input.after, input.profile);
+    before = openViewDocument(input.before, input.profile);
+    after = openViewDocument(input.after, input.profile);
   } catch {
     return fail("The VIEW data is invalid. Undo your last change to restore it.");
   }
-  const check = validateSpriteEdit(before, after, { protectedLoops: [0], targetLoops: [1] });
+  const check = validateViewEdit(before, after, { protectedLoops: [0], targetLoops: [1] });
   if (check.changedCels.length === 0 && check.metadata.length === 0)
     return fail("To begin, pick a cel in loop 1, where he faces left, and repaint his eye.");
   if (check.violations.some((v) => v.constraint === "protected-loop"))
@@ -300,7 +300,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
         "Turn on Onion skin to see one cel over the next.",
         "Click a cel in the Loop 1 row first. Edit it: loop 1 becomes its own copy, and loop 0 stays as it was.",
       ],
-      open: { studio: "sprite", view: ROBOT_VIEW, loop: 1, cel: 0 },
+      open: { studio: "view", view: ROBOT_VIEW, loop: 1, cel: 0 },
       challenge: {
         prompt: "Give the left-facing robot a different eye colour. Loop 0 stays as it is.",
         verify: verifyMirrorEdit,

@@ -1,7 +1,7 @@
 /**
  * Canvas sizing for a Studio: the largest integer zoom at which every pane
  * fits the stage (or the user's own zoom), and the device pixel ratio for a
- * crisp backing store. Room Studio's panes are the 160×168 picture; Sprite
+ * crisp backing store. Room Studio's panes are the 160×168 picture; View
  * Studio's one pane is the edited cel, with room kept for its baseline. The
  * transform itself is src/studio/viewport.ts.
  */
@@ -53,7 +53,7 @@ export function contentFitZoom(
 export function useStudioViewport(
   stage: MaybeRefOrGetter<HTMLElement | null | undefined>,
   panes: MaybeRefOrGetter<number>,
-  /** One pane of other content than the picture (Sprite Studio's cel), and its largest zoom. */
+  /** One pane of other content than the picture (VIEW editor's cel), and its largest zoom. */
   content?: { readonly size: MaybeRefOrGetter<PaneContent>; readonly max: number },
   /** Embedded pictures also fit narrow editor panels at fractional zoom. */
   fluidPicture?: MaybeRefOrGetter<boolean>,

@@ -41,14 +41,14 @@
 
 import type { AgiProfile } from "../runtime/profile.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
-import { mirrorPixels } from "./spriteDocument.ts";
+import { mirrorPixels } from "./viewDocument.ts";
 import {
   nearestEgaIndex,
   quantizeToEga,
   sheetViewInput,
   type SheetFrame,
   type SheetLoopLayout,
-} from "./spritesheet.ts";
+} from "./sheet.ts";
 import { buildView, parseView, type BuildViewInput } from "./view.ts";
 
 /** The only algorithm this module implements; anything else is refused. */

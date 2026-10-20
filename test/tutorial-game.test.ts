@@ -249,7 +249,7 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.equal(game.title, "Adventure Department");
   assert.equal(game.roomGeneration, false);
   assert.deepEqual(game.metadata, {
-    description: "Learn pictures, views and depth in a three-room tutorial.",
+    description: "Learn pictures, views and priority in a three-room museum.",
     author: "Monotio",
     license: "MIT",
   });
@@ -271,7 +271,7 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.ok(catalogGame.project?.authoringState?.["sources"]);
 });
 
-/** Overlay pictures render over the room whose logic draws them; every other picture is a room backdrop. */
+/** Overlay pictures render over the room whose logic draws them; every other picture is a room background. */
 const OVERLAY_HOSTS: Readonly<Record<number, number>> = { 4: 1 };
 
 test("every tutorial picture fill seed lands on a white interior", () => {
@@ -281,7 +281,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
     const host = OVERLAY_HOSTS[num];
     assert.ok(
       host !== undefined || Object.hasOwn(TUTORIAL_LOGIC_SOURCES, num),
-      `picture ${num} is neither a room backdrop nor a declared overlay`,
+      `picture ${num} is neither a room background nor a declared overlay`,
     );
     const surface = createPictureSurface();
     if (host !== undefined) {
@@ -366,7 +366,7 @@ test("the tutorial pictures are named Studio items without moving a byte", () =>
   );
 });
 
-test("the complete tutorial teaches movement, pictures, sprites, logic, and priorities", () => {
+test("the complete tutorial teaches movement, pictures, views, logic, and priorities", () => {
   const game = buildTutorial();
   const host = new TutorialHost();
   const engine = new Engine(
@@ -637,7 +637,7 @@ test("walking speed commands use one-pixel cadence and persist between rooms", (
   );
 });
 
-test("movement and sprite animation use readable pacing and ego rests on an idle cel", () => {
+test("movement and view animation use readable pacing and ego rests on an idle cel", () => {
   const { engine, host } = startTutorial();
   let ego = engine.readObjects()[0]!;
   assert.equal(engine.vars[10], 1, "logic cycles run every 50ms");

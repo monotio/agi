@@ -186,7 +186,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
 test("a picture-layer pick samples the picture surface, not the composite", () => {
   const frame = frameFixture();
   frame.objects = [objectFixture()];
-  // The composed pixel is a sprite (color 4, priority 11, owner 2) covering
+  // The composed pixel is a view (color 4, priority 11, owner 2) covering
   // picture color 2 at priority 6 — the exploded geometry exposed it.
   const picVisual = new Uint8Array(160 * 168).fill(15);
   const picPriority = new Uint8Array(160 * 168).fill(9);
@@ -200,13 +200,13 @@ test("a picture-layer pick samples the picture surface, not the composite", () =
   assert.deepEqual(latch.inspection, { color: 2, priority: 6, owner: null });
   assert.equal(latch.object, null);
 
-  // The sprite band pick on the same pixel reads the composed frame.
-  const sprite = latchPickAt(frame, { ...PICK, layerKind: "sprite", layerBand: 11 })!;
-  assert.deepEqual(sprite.inspection, { color: 4, priority: 11, owner: 2 });
-  assert.equal(sprite.object?.num, 2);
+  // The view band pick on the same pixel reads the composed frame.
+  const view = latchPickAt(frame, { ...PICK, layerKind: "actor", layerBand: 11 })!;
+  assert.deepEqual(view.inspection, { color: 4, priority: 11, owner: 2 });
+  assert.equal(view.object?.num, 2);
 
   // The crop shows the picked layer's pixels: picture green 2, not the
-  // composed sprite red 4.
+  // composed view red 4.
   const crop = cropFrameRgba(frame, 40, 50, 4, pickVisualSource(frame, "picture")!);
   const o = (4 * 9 + 4) * 4;
   assert.deepEqual([...crop.data.slice(o, o + 4)], [0, 0xaa, 0, 255]);

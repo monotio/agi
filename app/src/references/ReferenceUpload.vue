@@ -17,7 +17,7 @@ import { useOptionalPresentation } from "../play/usePresentation.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShell } from "../shell/useShell.ts";
-import { useSpriteStudio } from "../world/useSpriteStudio.ts";
+import { useViewStudio } from "../world/useViewStudio.ts";
 
 /**
  * Reference-art upload: attach a picture the player supplies — a room plate
@@ -29,7 +29,7 @@ import { useSpriteStudio } from "../world/useSpriteStudio.ts";
 const engine = useEngineApi();
 const { llmConfig } = useAiSettings();
 const shell = useShell();
-const sprites = useSpriteStudio();
+const views = useViewStudio();
 
 const FACING_LABELS: Record<SheetFacing, string> = {
   right: "Facing right",
@@ -160,7 +160,7 @@ async function onOpenInStudio(): Promise<void> {
   shell.setMode("create");
   if (shell.mode.value !== "create") return;
   try {
-    await sprites.openStaged(reference);
+    await views.openStaged(reference);
     referenceUpload.open = false;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
@@ -183,7 +183,7 @@ async function onSendToAgent(): Promise<void> {
     const note =
       brief.value.trim() ||
       (attached.value?.kind === "character"
-        ? "Use the attached character sheet for the player sprite."
+        ? "Use the attached sheet for the hero's VIEW."
         : "Use the attached reference for this room.");
     await engine.submitPowerUp(note, [id]);
     referenceUpload.open = false;
@@ -432,7 +432,7 @@ function onReopenStaged(reference: StoredReference): void {
         <footer class="reference-upload-foot">
           <UiButton
             icon="pencil"
-            data-testid="reference-open-sprite"
+            data-testid="reference-open-view"
             :disabled="busy || sending"
             @click="onOpenInStudio"
           >
@@ -467,7 +467,7 @@ function onReopenStaged(reference: StoredReference): void {
 </template>
 
 <style scoped>
-/* The dialog chrome (backdrop, border, shadow, font) comes from UiDialog;
+/* The dialog chrome (background, border, shadow, font) comes from UiDialog;
    only the panel's geometry is kept. */
 .reference-upload {
   width: min(520px, calc(100vw - 32px));

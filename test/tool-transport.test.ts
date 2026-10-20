@@ -89,7 +89,7 @@ test("debug logs summarize image bytes without expanding them into JSON properti
   });
 });
 
-test("maximum sprite and sound read pages stay within the transport bound", () => {
+test("maximum view and sound read pages stay within the transport bound", () => {
   const session = createAgentSessionState();
   session.container.putResource(
     "view",

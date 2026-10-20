@@ -31,8 +31,8 @@ export function useStudioLauncher() {
         ? (await import("../world/useRoomStudio.ts"))
             .useRoomStudio(engine)
             .requestPicture(target.picture, lesson)
-        : (await import("../world/useSpriteStudio.ts"))
-            .useSpriteStudio(engine, editor)
+        : (await import("../world/useViewStudio.ts"))
+            .useViewStudio(engine, editor)
             .request(target.view, lesson);
     if (!request) return false;
     editor.studioRequests.value = {

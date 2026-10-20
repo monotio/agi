@@ -1118,7 +1118,7 @@ test("show.obj routes through the profile window frame selector with zero legacy
   }
 });
 
-test("window border pixels compare per-pixel overlay write ages against sprite draw stamps in both orders", () => {
+test("window border pixels compare per-pixel overlay write ages against view draw stamps in both orders", () => {
   // Hand-computed for PC 2.936 (displayBase = 1):
   // print("Hi") stamps top red border bar at screen y = 84, x = 144..175 (color 5).
   // Picture pixel (x = 72, y = 76) maps to screen y = 1*8 + 76 = 84, x = 144..145
@@ -1126,7 +1126,7 @@ test("window border pixels compare per-pixel overlay write ages against sprite d
   // are uncovered by a 1x1 cel at (72, 76).
   const onePixelView = new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0, 0x11, 0]);
 
-  // Order 1: sprite drawn first, then persistent print("Hi") opens on top.
+  // Order 1: view drawn first, then persistent print("Hi") opens on top.
   const c1 = gameWith(`
     if (!isset(f200)) {
       set(f200);
@@ -1147,12 +1147,12 @@ test("window border pixels compare per-pixel overlay write ages against sprite d
   assert.equal(
     ov1Before[84 * 320 + 144],
     5,
-    "draw then print: newer border pixel x=144 stays visible over older sprite",
+    "draw then print: newer border pixel x=144 stays visible over older view",
   );
   assert.equal(
     ov1Before[84 * 320 + 145],
     5,
-    "draw then print: newer border pixel x=145 stays visible over older sprite",
+    "draw then print: newer border pixel x=145 stays visible over older view",
   );
   e1.tick(); // erase(o0) restores pre-window background over (72, 76) -> x=144..145, y=84
   const ov1After = e1.getPresentation().windowOverlay;
@@ -1160,7 +1160,7 @@ test("window border pixels compare per-pixel overlay write ages against sprite d
   assert.equal(ov1After[84 * 320 + 145], 0, "draw then print then erase: x=145 erased");
   assert.equal(ov1After[84 * 320 + 146], 5, "draw then print then erase: x=146 untouched");
 
-  // Order 2: persistent print("Hi") opens first, then sprite draws on top.
+  // Order 2: persistent print("Hi") opens first, then view draws on top.
   const c2 = gameWith(`
     if (!isset(f200)) {
       set(f200);
@@ -1181,12 +1181,12 @@ test("window border pixels compare per-pixel overlay write ages against sprite d
   assert.equal(
     ov2Before[84 * 320 + 144],
     0,
-    "print then draw: newer sprite hides covered border pixel x=144",
+    "print then draw: newer view hides covered border pixel x=144",
   );
   assert.equal(
     ov2Before[84 * 320 + 145],
     0,
-    "print then draw: newer sprite hides covered border pixel x=145",
+    "print then draw: newer view hides covered border pixel x=145",
   );
   assert.equal(
     ov2Before[84 * 320 + 146],
@@ -1200,8 +1200,8 @@ test("window border pixels compare per-pixel overlay write ages against sprite d
 });
 
 test("checkpoints preserve erased window border pixels across parked have.key restores and accept legacy window records", () => {
-  // Review case: draw sprite at (72, 76), open persistent print("Hi"), erase
-  // sprite (clearing top border bar at y=84, x=144..145), then park on have.key.
+  // Review case: draw view at (72, 76), open persistent print("Hi"), erase
+  // view (clearing top border bar at y=84, x=144..145), then park on have.key.
   class SuspendingKeyHost extends Host {
     waitKey(): number {
       throw new HostWait();

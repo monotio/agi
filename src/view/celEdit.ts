@@ -186,7 +186,7 @@ export function patchedView(
  * The editable spec of a stored VIEW payload: a spec `buildView` turns back
  * into a VIEW every loop of which displays exactly what the payload's loop
  * displays. What a Keep records in `sources.views` for bytes edited outside a
- * spec (Sprite Studio) and what `patchedView` records.
+ * spec (VIEW editor) and what `patchedView` records.
  *
  * A builder spec cannot hold orientation nibbles: an owner's cels are stored
  * as it displays them, and a `mirrorLoop` member shows them flipped. So each block's

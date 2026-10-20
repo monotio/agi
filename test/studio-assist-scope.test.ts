@@ -17,8 +17,8 @@ import {
   type CompiledDocument,
 } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { openSprite, type SpriteDocument } from "../src/view/spriteDocument.ts";
-import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
+import { openViewDocument, type ViewDocument } from "../src/view/viewDocument.ts";
+import { applyViewEdit, type ViewEdit } from "../src/studio/view/viewOperations.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 import { NO_UNLOCKS } from "../src/studio/lensRules.ts";
 import {
@@ -880,12 +880,12 @@ test("a duplicate as manual Duplicate makes it passes, a colour set before the i
   });
 });
 
-function sprite(): SpriteDocument {
-  return openSprite(ROBOT_VIEW, profile);
+function view(): ViewDocument {
+  return openViewDocument(ROBOT_VIEW, profile);
 }
 
-function spriteEdit(before: SpriteDocument, op: SpriteEdit): SpriteDocument {
-  const result = applySpriteEdit(before, op);
+function viewEdit(before: ViewDocument, op: ViewEdit): ViewDocument {
+  const result = applyViewEdit(before, op);
   assert.ok(!("error" in result), "error" in result ? result.error : "");
   return result.document;
 }
@@ -896,17 +896,17 @@ const loop1 = [
 ];
 
 test("blue eyes on the mirrored loop split it off and pass", () => {
-  const before = sprite();
+  const before = view();
   assert.equal(before.loops[1]!.alias, 0);
-  const after = spriteEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
+  const after = viewEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
   assert.equal(after.loops[1]!.alias, null, "copy-on-write isolated loop 1");
   const scope = viewAssistScope({ num: 2, document: before, targetCels: loop1 });
   assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
 });
 
 test("a recolor that propagates to the unselected mirror is refused per cel", () => {
-  const before = sprite();
-  const after = spriteEdit(before, {
+  const before = view();
+  const after = viewEdit(before, {
     type: "recolor",
     scope: loop1,
     from: 12,
@@ -932,8 +932,8 @@ test("a recolor that propagates to the unselected mirror is refused per cel", ()
 });
 
 test("a protected loop refuses even a selected cel", () => {
-  const before = sprite();
-  const after = spriteEdit(before, {
+  const before = view();
+  const after = viewEdit(before, {
     type: "setPixels",
     loop: 0,
     cel: 0,
@@ -954,9 +954,9 @@ test("a protected loop refuses even a selected cel", () => {
 });
 
 test("a view scope refuses a stale base and an oversized payload", () => {
-  const before = sprite();
-  const after = spriteEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
-  const other = spriteEdit(before, { type: "recolor", scope: "view", from: 7, to: 8 });
+  const before = view();
+  const after = viewEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
+  const other = viewEdit(before, { type: "recolor", scope: "view", from: 7, to: 8 });
   const scope = viewAssistScope({ num: 2, document: other, targetCels: loop1, maxBytes: 10 });
   assert.deepEqual(
     checkCandidate(before, after, scope).violations.map((v) => v.constraint),
@@ -968,12 +968,12 @@ test("an edit of the owner loop passes with its mirror protected, whose pixels s
   // Loop 0 selected, loop 1 (its mirror) protected: copy-on-write splits the
   // pair, so loop 1 gets its own data block (alias, mirror bits) but shows
   // the same pixels.
-  const before = sprite();
+  const before = view();
   const loop0 = [
     { loop: 0, cel: 0 },
     { loop: 0, cel: 1 },
   ];
-  const after = spriteEdit(before, { type: "recolor", scope: loop0, from: 12, to: 9 });
+  const after = viewEdit(before, { type: "recolor", scope: loop0, from: 12, to: 9 });
   assert.equal(after.loops[1]!.alias, null, "the pair is split");
   const scope = viewAssistScope({
     num: 2,
@@ -985,13 +985,13 @@ test("an edit of the owner loop passes with its mirror protected, whose pixels s
 });
 
 test("a change that reaches the protected mirror's pixels is still refused", () => {
-  const before = sprite();
+  const before = view();
   const loop0 = [
     { loop: 0, cel: 0 },
     { loop: 0, cel: 1 },
   ];
   // Propagating keeps the pair linked: loop 1's one red eye pixel per cel turns blue too.
-  const after = spriteEdit(before, {
+  const after = viewEdit(before, {
     type: "recolor",
     scope: loop0,
     from: 12,
@@ -1028,10 +1028,10 @@ const LOOP_1_ALONE = [mirrorable(HEAD_1), mirrorable(HEAD_0)];
 
 /** The robot with its loops rebuilt: `loops` as given, the description kept. */
 const robot = (...loops: BuildLoopInput[]) =>
-  openSprite(buildView({ description: "Test robot", loops }), profile);
+  openViewDocument(buildView({ description: "Test robot", loops }), profile);
 
 test("a view selection naming cels the view lacks is refused in words", () => {
-  const before = sprite();
+  const before = view();
   const scope = viewAssistScope({
     num: 2,
     document: before,
@@ -1090,7 +1090,7 @@ const loop0 = [
   { loop: 0, cel: 0 },
   { loop: 0, cel: 1 },
 ];
-const guardMirror = (document: SpriteDocument) =>
+const guardMirror = (document: ViewDocument) =>
   viewAssistScope({ num: 2, document, targetCels: loop0, protectedLoops: [1] });
 
 /** `cel` keying colour 3 as transparent where it used 0: the same display. */
@@ -1102,7 +1102,7 @@ const keyedOn3 = (cel: BuildCelInput): BuildCelInput => ({
 
 test("a selected loop may shed a cel while its protected mirror keeps both", () => {
   // Loop 0 drops its cel 1; loop 1, split off, still shows both cels.
-  const before = sprite();
+  const before = view();
   const after = robot({ cels: [mirrorable(HEAD_0)] }, { cels: LOOP_1_ALONE });
   assert.deepEqual(checkCandidate(before, after, guardMirror(before)), {
     ok: true,
@@ -1111,7 +1111,7 @@ test("a selected loop may shed a cel while its protected mirror keeps both", () 
 });
 
 test("splitting a protected mirror lets its link follow, but not its transparency or pixels", () => {
-  const before = sprite();
+  const before = view();
   const [shown0, shown1] = LOOP_1_ALONE as [BuildCelInput, BuildCelInput];
   const rekeyed = robot({ cels: ROBOT_CELS.map(mirrorable) }, { cels: [shown0, keyedOn3(shown1)] });
   assert.deepEqual(checkCandidate(before, rekeyed, guardMirror(before)).violations, [
@@ -1149,7 +1149,7 @@ test("splitting a protected mirror lets its link follow, but not its transparenc
 
 test("selecting the mirror does not open its owner's metadata", () => {
   // Loop 0's cel 0 keys colour 3 as transparent; loop 1 shows the same block.
-  const before = sprite();
+  const before = view();
   const after = robot({ cels: [keyedOn3(HEAD_0), HEAD_1] }, { mirrorLoop: 0 });
   const scope = viewAssistScope({ num: 2, document: before, targetCels: loop1 });
   assert.deepEqual(checkCandidate(before, after, scope).violations, [
@@ -1163,7 +1163,7 @@ test("selecting the mirror does not open its owner's metadata", () => {
 
 test("the loop count, an unselected loop's cel count and the description stay", () => {
   const before = robot({ cels: ROBOT_CELS }, { mirrorLoop: 0 }, { cels: [TAIL] });
-  const after = openSprite(
+  const after = openViewDocument(
     buildView({
       description: "Other robot",
       loops: [
@@ -1202,8 +1202,8 @@ test("the loop count, an unselected loop's cel count and the description stay", 
 });
 
 test("a view exactly at its byte budget fits; a byte over is refused with the overshoot", () => {
-  const before = sprite();
-  const after = spriteEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
+  const before = view();
+  const after = viewEdit(before, { type: "recolor", scope: loop1, from: 12, to: 9 });
   const size = after.payload.length;
   const scope = (maxBytes: number) =>
     viewAssistScope({ num: 2, document: before, targetCels: loop1, maxBytes });

@@ -12,7 +12,7 @@ function session(version: string) {
   );
 }
 
-test("remixing 2.230 writes packed sprite loops that mirror when selected", () => {
+test("remixing 2.230 writes packed view loops that mirror when selected", () => {
   const state = session("2.230");
   const result = executeAgentTool(state, "write_view", {
     num: 5,

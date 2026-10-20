@@ -146,7 +146,7 @@ test("view-cels-1.2", async ({ page }) => {
     .getByTestId("image-reference")
     .getByRole("button", { name: "Done", exact: true })
     .click();
-  await expect(page.getByTestId("sprite-timeline")).toBeVisible();
+  await expect(page.getByTestId("view-timeline")).toBeVisible();
   await shot(page, "view-editor-1.2");
 });
 

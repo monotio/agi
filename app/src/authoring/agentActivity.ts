@@ -9,7 +9,7 @@ const ACTIVITY: Record<string, string> = {
   read_words: "Reading the vocabulary…",
   list_resources: "Exploring the game’s resources…",
   read_plan: "Checking the world…",
-  write_view: "Drawing sprites…",
+  write_view: "Drawing views…",
   write_picture: "Drawing the room…",
   write_logic: "Building the next room…",
   write_words: "Adding vocabulary…",

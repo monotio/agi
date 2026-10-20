@@ -1,12 +1,12 @@
 import { shallowRef } from "vue";
-import type { SpriteCel } from "../../../src/view/spriteDocument.ts";
+import type { ViewDocumentCel } from "../../../src/view/viewDocument.ts";
 
 export interface GuidedPlacement {
   kind: "hero" | "box";
   x: number;
   y: number;
   box: { x1: number; y1: number; x2: number; y2: number };
-  cel: SpriteCel | undefined;
+  cel: ViewDocumentCel | undefined;
   background: string | undefined;
   label: string;
   done: (value: GuidedPlacement) => void;

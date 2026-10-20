@@ -39,10 +39,10 @@ const HOME_DEFERRED_MODULES = [
 ];
 
 /**
- * Studio code loads when Room Studio or Sprite Studio opens, never on the way
+ * Studio code loads when Room Studio or VIEW editor opens, never on the way
  * to a Play frame: the Studio components and every Studio kernel, the walk-
  * route kernel with its worker among them. Helpers Play shares with the
- * Studios (the walkable mask, view usage, the sprite document) live outside
+ * Studios (the walkable mask, view usage, the view document) live outside
  * the studio folders, as `npm run lint:deps` enforces.
  */
 export const STUDIO_MODULES = [/^app\/src\/studio\//, /^src\/studio\//];
@@ -87,7 +87,7 @@ export const DEBUGGER_MODULES = [
  * The AI authoring stack loads on the first AI action, through the one
  * dynamic import in app/src/agent/authoringLoader.ts: its lazy entry, the
  * agent session and the stub agent, the LLM clients with the provider SDKs,
- * the tool registry and prompts, and the Studio edit and sprite kernels the
+ * the tool registry and prompts, and the Studio edit and view kernels the
  * assist tools drive. A player who never uses AI never downloads it.
  */
 export const AUTHORING_MODULES = [
@@ -95,7 +95,7 @@ export const AUTHORING_MODULES = [
   /^app\/src\/references\/referenceHandles\.ts$/,
   /^src\/agent\/(tools|selectionTools|namingTools|authoringTools|roomTools|pictureTools|referenceTools|prompt|playtest)\.ts$/,
   /^src\/studio\/(editOperations|editValidation|pictureDocument|probe|lensRules|assistScope)\.ts$/,
-  /^src\/studio\/sprite\/(spriteOperations|spriteCels)\.ts$/,
+  /^src\/studio\/view\/(viewOperations|viewCels)\.ts$/,
   /^(?:app\/)?node_modules\/(openai|@anthropic-ai\/sdk)\//,
 ];
 

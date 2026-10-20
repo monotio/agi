@@ -93,7 +93,7 @@ for (const [group, kind] of [
         : kind === "picture"
           ? "room-studio"
           : kind === "view"
-            ? "sprite-studio"
+            ? "view-studio"
             : "workspace-sound";
     await expect(page.getByTestId(editorId).filter({ visible: true })).toBeVisible();
     const binary =

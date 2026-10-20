@@ -217,8 +217,8 @@ const RoomStudio = defineAsyncComponent({
   loadingComponent: EditorLoading,
   delay: 0,
 });
-const SpriteStudio = defineAsyncComponent({
-  loader: () => import("../sprite/SpriteStudio.vue"),
+const ViewStudio = defineAsyncComponent({
+  loader: () => import("../view/ViewStudio.vue"),
   loadingComponent: EditorLoading,
   delay: 0,
 });
@@ -945,13 +945,13 @@ const pictureWalks = computed(() =>
       }),
   ),
 );
-const spriteContexts = computed(() =>
+const viewContexts = computed(() =>
   Object.fromEntries(
     editor.retained.value
       .filter((key) => key.startsWith("view:"))
       .map((key) => [
         key,
-        studioContext.value.sprite(
+        studioContext.value.view(
           Number(key.slice(5)),
           engine.roomMap.currentRoom.value ?? undefined,
         ),
@@ -966,7 +966,7 @@ const selectedRoom = computed(() => {
     return Number.isFinite(room) ? room : undefined;
   }
   const uses = key.startsWith("view:")
-    ? (spriteContexts.value[key]?.usage.rooms ?? [])
+    ? (viewContexts.value[key]?.usage.rooms ?? [])
     : groups.value
         .flatMap((group) => group.entries)
         .filter((row) => row.key === key && row.room !== undefined)
@@ -976,7 +976,7 @@ const selectedRoom = computed(() => {
   if (
     key.startsWith("view:") &&
     current !== null &&
-    (spriteContexts.value[key]?.usage.logics.includes(0) ||
+    (viewContexts.value[key]?.usage.logics.includes(0) ||
       (livePreview.value.state?.vars[0] === current &&
         livePreview.value.objects.some((object) => object.view === Number(key.slice(5)))))
   )
@@ -1107,7 +1107,7 @@ const unusedArt = computed(
 // A VIEW that LOGIC picks at run time counts as used once the running room shows it. An update
 // restarts the room, and a read before the room's first cycle finds no objects yet, so while the
 // note says unused, the next few heartbeats in which the game ran check again. Then the reads stop:
-// a sprite left open does not keep the worker and Create busy for the rest of the session.
+// a view left open does not keep the worker and Create busy for the rest of the session.
 watch(
   () => (unusedArt.value && editor.kind.value === "view" ? engine.currentCycle.value : undefined),
   (cycle) => {
@@ -3027,7 +3027,7 @@ onBeforeUnmount(() => {
         :files="files"
         @edit="edit(key, $event)"
       />
-      <SpriteStudio
+      <ViewStudio
         :location="
           editor.agentTarget.value?.resource === key ? editor.agentTarget.value : undefined
         "
@@ -3037,8 +3037,8 @@ onBeforeUnmount(() => {
         :workspace-focus="editor.focus.value || phoneWidth"
         :active="creating && key === editor.selected.value && imagePanel !== key"
         embedded
-        :usage="spriteContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
-        :rooms="spriteContexts[key]?.rooms ?? []"
+        :usage="viewContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
+        :rooms="viewContexts[key]?.rooms ?? []"
         :speed="livePreview.state?.vars[10] ?? 2"
         :cyclers="previewCyclers"
         :priority-base="livePreview.state?.priorityBase"
@@ -3333,7 +3333,7 @@ onBeforeUnmount(() => {
   </aside>
   <div
     v-if="creating && gameRoomMenu"
-    class="game-room-menu__backdrop"
+    class="game-room-menu__background"
     @click="gameRoomMenu = undefined"
     @contextmenu.prevent="gameRoomMenu = undefined"
   >
@@ -3388,7 +3388,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.game-room-menu__backdrop {
+.game-room-menu__background {
   position: fixed;
   inset: 0;
   z-index: var(--z-popover);

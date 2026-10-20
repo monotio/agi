@@ -175,7 +175,7 @@ export const VOCABULARY = {
   makeCels: {
     id: "makeCels",
     label: "Make cels from an image",
-    help: "Mark frames on a sheet, choose loops and add the cels to a VIEW.",
+    help: "Mark the cels on an image, choose their loops and add them to a VIEW.",
     technical: "Image regions become native VIEW cels.",
   },
   closeEditor: {
@@ -277,13 +277,13 @@ export const VOCABULARY = {
   picture: {
     id: "picture",
     label: "PICTURE",
-    help: "A room's background, drawn step by step with lines and fills.",
+    help: "What a room looks like, drawn step by step with lines and fills.",
     technical: "Vector PICTURE resource, 160×168.",
   },
   view: {
     id: "view",
     label: "VIEW",
-    help: "A character or thing that moves. It has loops for the directions it faces and cels for the frames of each loop.",
+    help: "A set of drawings the game can show and move: the hero, a bird, a stone. Its loops are the directions it faces; each loop's cels show one after another.",
     technical: "VIEW resource.",
   },
   sound: {
@@ -388,7 +388,7 @@ export const VOCABULARY = {
     id: "standIn",
     label: "Stand-in",
     help: "A still figure you place in the room to see what hides it and where it can walk.",
-    technical: "Ghost probe (renders a VIEW cel against depth and walk).",
+    technical: "Probe cel rendered against priority and control.",
   },
   group: {
     id: "group",
@@ -420,7 +420,12 @@ export const VOCABULARY = {
     help: "One direction a VIEW faces, like walking left.",
     technical: "Loop N; ego uses 0 right, 1 left, 2 toward you, 3 away.",
   },
-  cel: { id: "cel", label: "cel", help: "One frame of a loop.", technical: "Cel N." },
+  cel: {
+    id: "cel",
+    label: "cel",
+    help: "One drawing in a loop. A loop shows its cels one after another.",
+    technical: "Cel N.",
+  },
   standingCel: {
     id: "standingCel",
     label: "standing cel",
@@ -466,7 +471,7 @@ export const VOCABULARY = {
   actor: {
     id: "actor",
     label: "actor",
-    help: "A VIEW the room's LOGIC places on screen.",
+    help: "Anything the room's LOGIC puts on screen with a VIEW: the hero, a bird, a door that opens.",
     technical: "Screen object oN.",
   },
   message: {

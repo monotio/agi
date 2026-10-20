@@ -65,7 +65,7 @@ test("every registered lesson has a unique id, 2-4 steps and a target", async ()
     assert.equal(new Set(ids).size, ids.length);
     for (const lesson of set.lessons) {
       assert.ok(lesson.steps.length >= 2 && lesson.steps.length <= 4, lesson.id);
-      assert.ok(lesson.open.studio === "room" || lesson.open.studio === "sprite", lesson.id);
+      assert.ok(lesson.open.studio === "room" || lesson.open.studio === "view", lesson.id);
     }
   }
 });

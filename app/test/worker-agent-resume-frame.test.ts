@@ -62,7 +62,7 @@ function diffBytes(a: Uint8Array, b: Uint8Array, width: number): string[] {
 
 /**
  * The player's rule: a resumed autosave shows the screen the game had when the
- * checkpoint was taken, picture, sprites and text alike. The room here did not
+ * checkpoint was taken, picture, views and text alike. The room here did not
  * exist at boot: the stub agent authored it on the way east, so the resume
  * rebuilds the screen from a container the game grew while it was played.
  */

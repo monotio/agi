@@ -477,7 +477,7 @@ export class Simulation {
     const images = [
       {
         png: frameToPng(frame, "visual", colourTableForProfile(this.engine.profile)),
-        caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and sprites at authentic geometry; game text is transcribed separately.`,
+        caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and views at authentic geometry; game text is transcribed separately.`,
       },
     ];
     if (checkpointSheet)

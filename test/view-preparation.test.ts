@@ -15,7 +15,7 @@ import { parseView } from "../src/view/view.ts";
 
 /**
  * Hand-labelled tiny RGBA grids. EGA indices are hand-computed with the
- * weighted metric 2dR^2+4dG^2+3dB^2 (see test/spritesheet.test.ts):
+ * weighted metric 2dR^2+4dG^2+3dB^2 (see test/sheet.test.ts):
  *   #ffffff -> 15, #ff0000 -> 4, #000000 -> 0, #ff00ff -> 13, #0000ff -> 1.
  */
 

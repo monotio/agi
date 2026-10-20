@@ -1,4 +1,4 @@
-import type { SpriteCel } from "../../../src/view/spriteDocument.ts";
+import type { ViewDocumentCel } from "../../../src/view/viewDocument.ts";
 import { EGA_TABLE } from "../../../src/runtime/colourTables.ts";
 
 /** The authentic 16-color EGA palette, RGB. */
@@ -9,7 +9,7 @@ export const EGA_PALETTE: readonly [number, number, number][] = EGA_TABLE;
  * `tint` blends every opaque pixel toward that colour (onion skins).
  */
 export function celRgba(
-  cel: Pick<SpriteCel, "pixels" | "transparent">,
+  cel: Pick<ViewDocumentCel, "pixels" | "transparent">,
   out: Uint8ClampedArray,
   tint?: { readonly rgb: readonly [number, number, number]; readonly alpha: number },
   palette: readonly (readonly [number, number, number])[] = EGA_PALETTE,

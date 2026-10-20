@@ -122,7 +122,7 @@ export function createPresentation() {
       stage!.setTextLayer(composedText);
       stage!.setPriority(frame.priority, frame.picRow);
       // Exploded band layers sample the picture surface, not the composed
-      // frame — otherwise a sprite would punch a hole in its own wall. They
+      // frame — otherwise a view would punch a hole in its own wall. They
       // keep the game's colours during an IIgs shake; the debug view needs no
       // flash.
       const picVisual = frame.picVisual ?? frame.visual;
@@ -142,7 +142,7 @@ export function createPresentation() {
       );
       stage!.setPictureData(composedPic, picPriority);
       // An absent channel means unknown, not "as last frame": clear the mask
-      // so sprite layers and picking never use stale ownership.
+      // so view layers and picking never use stale ownership.
       stage!.setOwnershipData(frame.ownership ?? null);
       // Same contract for the show.obj preview: an absent mask means closed.
       stage!.setPreviewMask(frame.preview ?? null);

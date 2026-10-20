@@ -13,7 +13,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         requests.push(route.request().postDataJSON());
         const calls = [
           [{ id: "picture", name: "read_picture", input: { room: 1 } }],
-          [{ id: "sprite", name: "read_view", input: { num: 0 } }],
+          [{ id: "view", name: "read_view", input: { num: 0 } }],
           [
             { id: "compile", name: "write_logic", input: { room: 2, source: "return;" } },
             {
@@ -71,7 +71,7 @@ for (const provider of ["openai", "anthropic"] as const) {
           room: 1,
           source: "vis 1\nfill 0,0\nend",
         });
-        const sprite = tools.executeAgentTool(state, "write_view", {
+        const view = tools.executeAgentTool(state, "write_view", {
           num: 0,
           source: "view\ncel a 3 2 0\n4.1\n2.3\nendcel\nloop 0 a\nloop 1 mirror 0\nendview",
         });
@@ -80,7 +80,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         conversation.setAvailableTools();
         conversation.appendToolResults([{ toolCallId: "picture", result }]);
         await conversation.complete();
-        conversation.appendToolResults([{ toolCallId: "sprite", result: sprite }]);
+        conversation.appendToolResults([{ toolCallId: "view", result: view }]);
         await conversation.complete();
         const recovery = tools.executeAgentTool(state, "write_logic", {
           room: 2,
@@ -149,18 +149,18 @@ for (const provider of ["openai", "anthropic"] as const) {
     expect(JSON.parse(blocks[0]!.text!).images).toBeUndefined();
     expect(blocks).toHaveLength(3);
     expect(blocks[2]!.type).toBe(provider === "openai" ? "input_image" : "image");
-    const spriteRequest = requests[2]! as typeof request;
-    const spriteBlocks =
+    const viewRequest = requests[2]! as typeof request;
+    const viewBlocks =
       provider === "openai"
-        ? spriteRequest.input!.filter((item) => item.type === "function_call_output").at(-1)!.output
-        : spriteRequest
+        ? viewRequest.input!.filter((item) => item.type === "function_call_output").at(-1)!.output
+        : viewRequest
             .messages!.filter((item) => item.role === "user" && Array.isArray(item.content))
             .at(-1)!.content[0]!.content;
-    expect(spriteBlocks[0]!.text!.length).toBeLessThan(1600);
-    expect(JSON.parse(spriteBlocks[0]!.text!).images).toBeUndefined();
-    expect(spriteBlocks).toHaveLength(3);
-    expect(spriteBlocks[1]!.text).toContain("L0 C0, L1 C0");
-    expect(spriteBlocks[2]!.type).toBe(provider === "openai" ? "input_image" : "image");
+    expect(viewBlocks[0]!.text!.length).toBeLessThan(1600);
+    expect(JSON.parse(viewBlocks[0]!.text!).images).toBeUndefined();
+    expect(viewBlocks).toHaveLength(3);
+    expect(viewBlocks[1]!.text).toContain("L0 C0, L1 C0");
+    expect(viewBlocks[2]!.type).toBe(provider === "openai" ? "input_image" : "image");
     await page.screenshot({ path: test.info().outputPath(`${provider}-tool-transport.png`) });
   });
 }

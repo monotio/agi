@@ -76,8 +76,8 @@ if (equaln(v41, 0)) {
 - Direction keys toggle: pressing the direction the hero already walks stops it. Automated drivers and cutscene scripts must make one decision per cycle and press a new direction when changing course. Border contact variables ego_edge (hero's edge), edge_object (the other object) and edge_object_edge (its edge) are set for exactly one cycle and cleared at the start of the next movement pass; read them in the same cycle they occur.
 - One decision per cycle also applies to keys the logic reads through controller(): a key sets its controller for the cycle it arrives in.`,
   },
-  "sprites-and-animation": {
-    title: "actors, loops and cels",
+  "view-loops-and-cels": {
+    title: "VIEWs, loops and cels",
     summary:
       "Selection rules for views, loops and cels, what draw and erase do, and how the classics dressed a room.",
     body: `${VOCABULARY.view.help} ${VOCABULARY.actor.help}

@@ -7,7 +7,7 @@ import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { createPictureSurface } from "../../src/types.ts";
-import { openSprite } from "../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../src/view/viewDocument.ts";
 import {
   closeWorkspaceEditor,
   enterCreateMode,
@@ -38,8 +38,8 @@ const planes = (bytes: Uint8Array) => {
 };
 const studioBytes = async (page: Page): Promise<Uint8Array> =>
   Uint8Array.from(await page.evaluate(() => [...window.__AGI_STUDIO__!.bytes()]));
-const spriteBytes = async (page: Page): Promise<Uint8Array> =>
-  Uint8Array.from(await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]));
+const viewBytes = async (page: Page): Promise<Uint8Array> =>
+  Uint8Array.from(await page.evaluate(() => [...window.__AGI_VIEW__!.bytes()]));
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: test.info().outputPath(`${name}.png`) });
 
@@ -125,27 +125,27 @@ test("the VIEW lesson opens its resource and repainting a mirror preserves its s
 }) => {
   await playTutorial(page);
   await openLesson(page, MIRROR);
-  const studio = page.getByTestId("sprite-studio");
+  const studio = page.getByTestId("view-studio");
   await expect(studio).toBeVisible();
-  expect(await spriteBytes(page)).toEqual(VIEW_2);
+  expect(await viewBytes(page)).toEqual(VIEW_2);
   await expect(page.getByTestId("project-tab-view:2")).toHaveAttribute("aria-selected", "true");
-  await expect(studio.getByTestId("sprite-loop-1-mirror")).toBeVisible();
-  await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveText(/mirrors 0/);
+  await expect(studio.getByTestId("view-loop-1-mirror")).toBeVisible();
+  await expect(studio.getByTestId("view-loop-1-mirror")).toHaveText(/mirrors 0/);
   await studio.locator('[data-loop="1"][data-cel="0"]').click();
   // One pencil pixel at the keyboard cursor (the cel's centre) of that cel.
-  const original = openSprite(VIEW_2, DEFAULT_V2_PROFILE);
+  const original = openViewDocument(VIEW_2, DEFAULT_V2_PROFILE);
   const cel = original.loops[1]!.cels[0]!;
   const centre = cel.pixels[(cel.height >> 1) * cel.width + (cel.width >> 1)];
   const colour = [4, 2].find((value) => value !== centre && value !== cel.transparent)!;
   await studio.locator(`[data-colour="${colour}"]`).click();
-  await studio.getByTestId("sprite-stage").focus();
+  await studio.getByTestId("view-stage").focus();
   await page.keyboard.press("b");
-  // As in sprite-studio.spec.ts: the first Space puts the pen down at the
+  // As in view-studio.spec.ts: the first Space puts the pen down at the
   // keyboard cursor (painting that cell), the second lifts it and the stroke commits.
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
   await workspaceSaved(page);
-  const edited = openSprite(await spriteBytes(page), DEFAULT_V2_PROFILE);
+  const edited = openViewDocument(await viewBytes(page), DEFAULT_V2_PROFILE);
   await expect(studio.getByTestId("lesson-card-verdict")).toBeVisible();
   await expect(studio.getByTestId("lesson-card-verdict")).toContainText("Challenge complete");
   expect(edited.loops[1]!.alias).toBeNull();

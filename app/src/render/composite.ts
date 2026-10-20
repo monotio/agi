@@ -84,7 +84,7 @@ export interface CompositeInput {
   visual: Uint8Array;
   /** 160x168 priority nibbles; required by the debug view modes. */
   priority?: Uint8Array | undefined;
-  /** Visible sprite ownership, needed by CGA's distinct picture and cel mappings. */
+  /** Visible view ownership, needed by CGA's distinct picture and cel mappings. */
   ownership?: Uint16Array | undefined;
   /** Visible cel pixels without a live owner: add.to.pic stamps and show.obj previews. */
   celPixels?: Uint8Array | undefined;
@@ -312,7 +312,7 @@ export function compositeFrame(
         (input.celPixels?.[i] || input.ownership?.[i]) &&
         mode !== "priority" &&
         !(mode === "split" && px > splitX)
-          ? look.spritePairs
+          ? look.viewPairs
           : y & 1
             ? (look.alternatePicturePairs ?? look.picturePairs)
             : look.picturePairs

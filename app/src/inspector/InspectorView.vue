@@ -86,8 +86,8 @@ function layerLabel(point: PickPoint): string {
       return "control lines";
     case "picture":
       return `picture band ${b}`;
-    case "sprite":
-      return `sprite band ${b}`;
+    case "actor":
+      return `actor band ${b}`;
     case "preview":
       return "modal preview";
     case "text":

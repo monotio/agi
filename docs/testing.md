@@ -378,7 +378,7 @@ To reproduce a load race in local Chromium, set `AGI_E2E_CPU_RATE` (for example 
 to slow the page's own work, or `AGI_E2E_LATENCY_MS` (for example `70`) to delay every
 request as a busy dev server does. The first open of a lazily loaded editor fetches
 its modules one by one, so latency slows it and CPU throttling barely does: 70 ms
-makes Room Studio's first open take longer than the 5 s expect default.
+makes the PICTURE editor's first open take longer than the 5 s expect default.
 The diagnostic workflow has no schedule. It retains browser reports and updates
 a diagnostic flake issue when a test has both passing and failing attempts.
 Consistent failures remain failures. Only that report job has `issues: write`.

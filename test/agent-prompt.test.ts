@@ -194,7 +194,7 @@ describe("agent system prompt", () => {
     for (const contract of [
       "player manipulates, picks up or sees animate",
       "VIEW-backed actor",
-      "architecture, terrain, backdrops and broad static fills",
+      "architecture, terrain, backgrounds and broad static fills",
       "commit state when the action commits",
       "room re-entry",
       "static baked detail",
@@ -207,8 +207,8 @@ describe("agent system prompt", () => {
       );
     }
     assert.ok(
-      !AGI_SYSTEM_PROMPT.includes("maximum number of sprite colours"),
-      "sprite economy must not impose an arbitrary hard colour maximum",
+      !AGI_SYSTEM_PROMPT.includes("maximum number of view colours"),
+      "view economy must not impose an arbitrary hard colour maximum",
     );
     assert.ok(
       !AGI_SYSTEM_PROMPT.includes("set a lasting state flag when it completes"),
