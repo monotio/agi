@@ -144,7 +144,7 @@ async function openOlderGame(name: string, adoptDeclaredScriptSize: boolean, kee
     capacity(engine),
     adoptDeclaredScriptSize ? 200 : 50,
     adoptDeclaredScriptSize
-      ? "the authored boot floor already gives the template boot shape 200 pairs"
+      ? "legacy provenance preserves the released 200-pair buffer"
       : "the older game booted on the authentic 50-pair buffer",
   );
   const ack = worker.messages.find((m) => m.type === "booted");
@@ -218,7 +218,7 @@ test("a Play-mode boot of an unmigrated authored game already runs the busy room
   worker.tick();
   const engine = worker.ctx.run.engine!;
   assert.equal(engine.vars[0], 1, "the game reached its first room");
-  assert.equal(capacity(engine), 200, "Play boots the template boot shape at 200 pairs");
+  assert.equal(capacity(engine), 200, "Play boots a legacy project at 200 pairs");
   engine.flags[220] = 1;
   worker.tick();
   assert.equal(engine.flags[220], 0, "the busy room ran");

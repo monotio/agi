@@ -7,7 +7,7 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 import { addLibraryGame, copyLibraryGame } from "../src/library/gameLibrary.ts";
 /**
  * The one-time script.size migration an older authored game receives when it
- * opens (CHANGELOG 1.2.5, "Room memory raised for this version"), driven
+ * opens (CHANGELOG 1.2.5, "Updated for 1.2.5"), driven
  * through the real project session and browser storage: the running game
  * takes the new LOGIC 0 through ordinary admission, and the save, second-tab
  * and close-before-commit failure paths leave exactly one migration commit.

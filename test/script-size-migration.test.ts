@@ -60,14 +60,14 @@ test("a 1.2.4-shaped project gains exactly one History commit and no more on reo
   assert.ok(migrated !== null);
   assert.match(migrated["logic:0"] as string, /set\(f200\);\n {2}script\.size\(200\);/);
   history.record(migrated, {
-    label: "Room memory raised for this version",
+    label: "Updated for 1.2.5",
     origin: "logic",
     author: "creator",
     time: 2,
   });
   const commits = history.capture().commits;
   assert.equal(commits.length, 2);
-  assert.equal(commits[1]!.label, "Room memory raised for this version");
+  assert.equal(commits[1]!.label, "Updated for 1.2.5");
   assert.deepEqual(commits[1]!.changed, ["logic:0"]);
   // A reload reads the migrated source: nothing left to add.
   assert.equal(migrateScriptSize(migrated), null);
@@ -136,7 +136,7 @@ const MIGRATED_LOGIC0 = migrateScriptSize({ "logic:0": PRE_125_LOGIC0 })!["logic
 const capacity = (engine: Engine) => decodeSave(engine.serialize(), engine.profile).replayCapacity;
 /**
  * A 1.2.4-shaped authored game whose boot block already ran. The host option
- * gives the template boot shape the migrated buffer from boot on; a run
+ * preserves the legacy project's buffer from boot on; a run
  * without it keeps the authentic 50 pairs, like a released build's session.
  */
 function bootedBeforeMigration(adoptDeclaredScriptSize: boolean) {
@@ -151,7 +151,7 @@ function bootedBeforeMigration(adoptDeclaredScriptSize: boolean) {
     capacity(engine),
     adoptDeclaredScriptSize ? 200 : 50,
     adoptDeclaredScriptSize
-      ? "the host option already gives the template boot shape the migrated buffer"
+      ? "legacy provenance preserves the released buffer from boot"
       : "the 1.2.4 game booted on the authentic 50-pair buffer",
   );
   return engine;
