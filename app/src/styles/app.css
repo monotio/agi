@@ -5,7 +5,7 @@
  * Component-owned rules live in each component's scoped style block.
  */
 .app-container {
-  /* The game screen's width over height: square pixels, or the 4:3 monitor. */
+  /* The game screen's width over height: square pixels, or the monitor's own. */
   --game-ratio: 1.6;
   --game-aspect: 8 / 5;
   --shell-width: min(960px, calc(100vw - 32px));

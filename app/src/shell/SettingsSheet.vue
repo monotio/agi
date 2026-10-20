@@ -246,7 +246,7 @@ defineExpose({ toggle, close, open });
           :model-value="originalAspect"
           @update:model-value="emit('update:originalAspect', $event)"
         >
-          Original 4:3<small>Pixels shaped as on the original monitor</small>
+          Original proportions<small>Pixels shaped as on the original monitor</small>
         </UiSwitch>
         <UiSwitch
           class="settings-row"

@@ -76,7 +76,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "screen",
         title: "The screen",
         body: [
-          "AGI games draw 320 × 200 pixels. Original 4:3 in Settings gives each pixel the shape the original monitor showed. Turn it off for square pixels. The game itself stays the same.",
+          "AGI games draw 320 × 200 pixels. Original proportions in Settings gives each pixel the shape the original monitor showed. Turn it off for square pixels. The game itself stays the same.",
           "PC and Amiga text use this project's own 8 × 8 recreations of the original typefaces. They draw English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank. IIgs text uses the game's AGIFONT when your copy has one, otherwise the project's own font, which draws accented letters and Mac Roman symbols.",
         ],
       },
