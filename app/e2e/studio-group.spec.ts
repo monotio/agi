@@ -17,7 +17,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Several Room Studio items as one, end to end on the real app: a stored
+ * Several PICTURE editor items as one, end to end on the real app: a stored
  * project whose PIC 5 has no source, as an imported game's pictures have
  * none, so Studio splits it into inferred elements. The bush is two of them:
  * its outline (el-1) and, seeded after the trunk, its fill (el-1-2). Every
@@ -115,7 +115,7 @@ async function bootGame(page: Page): Promise<void> {
 async function openStudio(page: Page): Promise<Locator> {
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -221,11 +221,11 @@ test("from the keyboard alone: step to an item, grow the run with Shift+Alt+arro
   await canvas.focus();
   await page.keyboard.press("Alt+ArrowDown");
   await expect(studio.locator('[data-role="announce"]')).toHaveText(
-    "Green line · 7 points, art, 2 steps",
+    "Green line · 7 points, visual, 2 steps",
   );
   await page.keyboard.press("Shift+Alt+ArrowDown");
   await page.keyboard.press("Shift+Alt+ArrowDown");
-  await expect(studio.locator('[data-role="announce"]')).toHaveText("3 items, art, 6 steps");
+  await expect(studio.locator('[data-role="announce"]')).toHaveText("3 items, visual, 6 steps");
   expect(await selectedRows(studio)).toEqual(["el-1", "el-2", "el-1-2"]);
   // Shift+Alt+Up takes the last one away again, and Down brings it back.
   await page.keyboard.press("Shift+Alt+ArrowUp");

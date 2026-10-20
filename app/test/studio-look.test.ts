@@ -14,8 +14,8 @@ import { pictureComparisonPng } from "../../src/agent/pictureFeedback.ts";
 import { EGA_TABLE, colourTableForProfile } from "../../src/runtime/colourTables.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 import { snapImageToEga } from "../../src/creative/imageStyle.ts";
-import { nearestEgaIndex, quantizeToEga } from "../../src/view/spritesheet.ts";
-import { swatchInk } from "../src/studio/sprite/spriteView.ts";
+import { nearestEgaIndex, quantizeToEga } from "../../src/view/sheet.ts";
+import { swatchInk } from "../src/studio/view/viewStudioView.ts";
 import { applyPaletteVars, paletteCss, paletteVars } from "../src/render/useGamePalette.ts";
 import type { Frame } from "../src/engine/useEngine.ts";
 
@@ -29,7 +29,7 @@ const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 function pane(colour: number, palette?: Parameters<typeof paintLayer>[4]): number[] {
   const out = new Uint8ClampedArray(CELLS * 4);
   paintLayer(
-    "art",
+    "visual",
     new Uint8Array(CELLS).fill(colour),
     new Uint8Array(CELLS).fill(4),
     out,
@@ -52,12 +52,12 @@ test("a picture pane paints an Apple IIgs game with its own table", async () => 
   assert.deepEqual(pane(12), [0xff, 0x55, 0x55, 255]);
 });
 
-test("the depth view blends each band's colour from the game's palette", async () => {
+test("the priority view blends each band's colour from the game's palette", async () => {
   const amiga = await loadAppearance("amiga-2.202");
   const out = new Uint8ClampedArray(CELLS * 4);
-  // Depth band 13 only: no art, the band's own colour.
+  // Priority band 13 only: no art, the band's own colour.
   paintLayer(
-    "depth-only",
+    "priority-only",
     new Uint8Array(CELLS).fill(0),
     new Uint8Array(CELLS).fill(13),
     out,
@@ -66,7 +66,7 @@ test("the depth view blends each band's colour from the game's palette", async (
   assert.deepEqual([...out.subarray(0, 4)], [0xdd, 0x00, 0xff, 255]);
 });
 
-test("a sprite cel previews in the game's colours", async () => {
+test("a view cel previews in the game's colours", async () => {
   const amiga = await loadAppearance("amiga-2.202");
   const cel = { pixels: new Uint8Array([13, 2]), transparent: 2 };
   const out = new Uint8ClampedArray(8);

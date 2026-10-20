@@ -43,11 +43,11 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(nav).toBeVisible();
   await expect(exit).toHaveAccessibleName("Back to library");
 
-  // The map is a top-bar button and read-only assistance the stage's Ask
+  // The map is a top-bar button and read-only assistance the stage's Agent
   // button; Help owns the guide, movement/input help and the walkthrough, with
   // no Look back or record toggle.
   await expect(nav.getByTestId("btn-world-map")).toBeVisible();
-  await expect(page.getByTestId("menu-assistant")).toBeVisible();
+  await expect(page.getByTestId("menu-agent")).toBeVisible();
   await help.click();
   const helpItems = page.getByTestId("help-menu-menu");
   await expect(helpItems.getByTestId("btn-game-controls")).toBeVisible();

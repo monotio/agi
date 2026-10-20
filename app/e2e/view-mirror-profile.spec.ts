@@ -72,7 +72,7 @@ test("Studio keeps early-profile imported art and plays its newly added mirror a
   await expect.poll(async () => (await textHook(page)).profile).toBe(profile.id);
   let studio = await openWorkspaceView(page, 0);
   const documentPixels = async (loop: number) => {
-    const payload = Uint8Array.from(await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]));
+    const payload = Uint8Array.from(await page.evaluate(() => [...window.__AGI_VIEW__!.bytes()]));
     return [...parseView(payload, profile).loops[loop]!.cels[0]!.pixels];
   };
   const thumbPixels = (loop: number) =>
@@ -81,11 +81,11 @@ test("Studio keeps early-profile imported art and plays its newly added mirror a
       .evaluate((canvas) => [
         ...(canvas as HTMLCanvasElement).getContext("2d")!.getImageData(0, 0, 3, 1).data,
       ]);
-  const bytes = () => page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]);
+  const bytes = () => page.evaluate(() => [...window.__AGI_VIEW__!.bytes()]);
   await expect.poll(() => thumbPixels(1)).toEqual([0, 0, 170, 255, 0, 170, 0, 255, 0, 0, 0, 0]);
   await expect.poll(() => documentPixels(1)).toEqual([1, 2, 0]);
   expect(await bytes()).toEqual([...original]);
-  await studio.getByTestId("sprite-loop-0-menu").click();
+  await studio.getByTestId("view-loop-0-menu").click();
   await page.getByRole("menuitem", { name: "Add mirror of this loop", exact: true }).click();
   await expect.poll(() => documentPixels(2)).toEqual([0, 2, 1]);
   await expect.poll(() => thumbPixels(2)).toEqual([0, 0, 0, 0, 0, 170, 0, 255, 0, 0, 170, 255]);

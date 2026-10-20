@@ -349,7 +349,7 @@ test("A game that quits returns Home with its ending noted and no autosave taken
  * window, which stays up while the game runs on — is not a data risk: the
  * last save point stays and the sealed timeline holds the rest. Exit leaves.
  */
-test("Exit leaves quietly when the current moment cannot be checkpointed", async () => {
+test("Exit leaves quietly when the current moment cannot be progress entryed", async () => {
   const { calls, state, lifecycle } = quitHarness({ status: "not_checkpointable" });
   await lifecycle.ejectGame();
   assert.deepEqual(calls, ["flush", "historyEnd", "terminate"], "the timeline is still sealed");
@@ -458,7 +458,7 @@ function bootHarness(overrides: Partial<GameLifecycleOptions> = {}) {
 const STUB_CONFIG = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
 
 for (const path of ["installed", "cached"] as const) {
-  test(`${path} boot shows a checkpoint refusal after its carrier settles`, async (t) => {
+  test(`${path} boot shows a progress entry refusal after its carrier settles`, async (t) => {
     const id = testProjectId(`refused-carrier-${path}`);
     await saveBody(id, 11);
     t.after(() => clearCachedGame(id));
@@ -475,7 +475,10 @@ for (const path of ["installed", "cached"] as const) {
       isCurrent: () => current,
       admit: async () => {
         current = false;
-        return { status: "aborted", message: "The checkpoint could not be restored: truncated" };
+        return {
+          status: "aborted",
+          message: "The progress entry could not be restored: truncated",
+        };
       },
     };
     const { lifecycle, state, workers } = bootHarness({ devFixtures: true });
@@ -487,7 +490,7 @@ for (const path of ["installed", "cached"] as const) {
         resumeCarrier: carrier,
       });
     assert.equal(state.phase, "error");
-    assert.match(state.error, /checkpoint could not be restored: truncated/);
+    assert.match(state.error, /progress entry could not be restored: truncated/);
     assert.equal(workers.length, 0);
   });
 }
@@ -871,7 +874,7 @@ for (const path of ["installed", "fresh", "authored", "authored lazy", "cached"]
       });
       await waiting;
       if (path === "fresh")
-        assert.equal(commits, 0, "fallible ownership precedes checkpoint deletion");
+        assert.equal(commits, 0, "fallible ownership precedes progress entry deletion");
       if (action === "supersede" || action === "superseded rejection")
         await lifecycle.bootAuthoredGame("", STUB_CONFIG, { projectId: nextId, useCached: true });
       else if (action === "shutdown") lifecycle.shutdownEngine();

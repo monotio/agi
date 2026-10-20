@@ -48,7 +48,7 @@ test("one Agent keeps the draft across Play, Create, resource selection and clos
   await expect(panel).toBeVisible();
   await expect(composer).toHaveValue("Keep this question while I inspect the game");
   await page.getByRole("radio", { name: "Play", exact: true }).click();
-  await expect(page.getByTestId("menu-assistant")).toHaveAttribute(
+  await expect(page.getByTestId("menu-agent")).toHaveAttribute(
     "title",
     "Ask questions or get hints about this game.",
   );
@@ -187,7 +187,7 @@ test("captured view opens a cel in the already-mounted native editor @webkit-des
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-view:0").click();
-  const studio = page.getByTestId("sprite-studio").filter({ visible: true });
+  const studio = page.getByTestId("view-studio").filter({ visible: true });
   await expect(studio).toBeVisible();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   let requests = 0;

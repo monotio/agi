@@ -19,7 +19,7 @@ const ordinary = JSON.stringify({
   details: { snapshot },
 });
 
-test("migrated stub tool envelopes in assistant message text exclude binary payloads", () => {
+test("migrated stub tool envelopes in agent message text exclude binary payloads", () => {
   const migrated = migrateAgentChats({
     provider: "stub",
     model: "old",

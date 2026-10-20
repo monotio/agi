@@ -60,7 +60,7 @@ function rig() {
   };
 }
 
-test("settings wait for a requested controller and its pending Assistant attachment", async () => {
+test("settings wait for a requested controller and its pending Agent attachment", async () => {
   const state = rig();
   let commits = 0;
   const applying = state.update(config, () => commits++);

@@ -3,7 +3,7 @@ import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import { createAuthoringState } from "../../../../src/agent/authoringState.ts";
-import { studioRoomSource, studioSpriteSource } from "../../world/studioSource.ts";
+import { studioRoomSource, studioViewSource } from "../../world/studioSource.ts";
 
 export function workspaceStudioContext(
   files: ReadonlyMap<string, Uint8Array>,
@@ -33,6 +33,6 @@ export function workspaceStudioContext(
       }
       return context;
     },
-    sprite: (view: number, first?: number) => studioSpriteSource(resources, view, first),
+    view: (view: number, first?: number) => studioViewSource(resources, view, first),
   };
 }

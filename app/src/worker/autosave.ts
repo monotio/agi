@@ -55,7 +55,7 @@ export function createAutosave(ctx: WorkerContext) {
       ctx.run.autosave.checkpointDue = false;
       ctx.ports.presentation({
         type: "log",
-        text: `Autosave snapshot failed: ${String(error)}`,
+        text: `Autosave capture failed: ${String(error)}`,
       });
       return false;
     }

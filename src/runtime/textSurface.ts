@@ -111,7 +111,7 @@ export function attr(fg: number, bg: number): number {
 }
 
 export interface SavedRect {
-  /** The saved cells' write stamps, restored with them so their age under sprites survives a window. */
+  /** The saved cells' write stamps, restored with them so their age under screen objects survives a window. */
   written: Uint32Array;
   top: number;
   left: number;
@@ -488,7 +488,7 @@ export class TextSurface {
     const w = saved.right - saved.left + 1;
     // The canonical empty rect: an off-screen window covered nothing.
     if (w <= 0 || saved.bottom < saved.top) return;
-    // The restored text keeps its age: what a sprite hid before the window
+    // The restored text keeps its age: what a screen object hid before the window
     // stays hidden after it, and what lay on top stays on top.
     for (let y = 0; y <= saved.bottom - saved.top; y++) {
       const dst = ((saved.top + y) * TEXT_COLS + saved.left) * 2;

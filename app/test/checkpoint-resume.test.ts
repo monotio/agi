@@ -430,7 +430,7 @@ function controllerContext(
   };
 }
 
-test("an unavailable installed destination keeps the checkpoint and both pointers byte-exact", async () => {
+test("an unavailable installed destination keeps the progress entry and both pointers byte-exact", async () => {
   values.clear();
   db.clear();
   const rig = await starterRig();
@@ -457,14 +457,14 @@ test("an unavailable installed destination keeps the checkpoint and both pointer
   assert.equal(
     values.get(autosaveKey(target.locator)),
     raw,
-    "the checkpoint's raw string survives a resume that found nothing",
+    "the progress entry's raw string survives a resume that found nothing",
   );
   assert.equal(values.get(RESUME_POINTER_KEY), target.locator, "the physical pointer stays");
   assert.equal(values.get(LEGACY_LAST_GAME_KEY), "unavailable-folder");
   assert.equal(values.get("monotio_agi.autosave.historical-source"), otherRaw);
 });
 
-test("a retired saved epoch keeps the old incarnation's checkpoint and pointer exact", async () => {
+test("a retired saved epoch keeps the old incarnation's progress entry and pointer exact", async () => {
   values.clear();
   db.clear();
   const rig = await starterRig();
@@ -515,7 +515,7 @@ test("a retired saved epoch keeps the old incarnation's checkpoint and pointer e
   assert.equal(
     values.get(autosaveKey(target.locator)),
     raw,
-    "the removed incarnation's checkpoint stays stored, byte-exact",
+    "the removed incarnation's progress entry stays stored, byte-exact",
   );
   assert.equal(
     values.get(RESUME_POINTER_KEY),
@@ -564,7 +564,7 @@ test("a real resume stays pending until the worker's own restored:true, then rep
   assert.ok(restoredIdx >= 0, "the real Engine answered the restore image");
   const restored = port.out[restoredIdx]! as { type: "restored"; ok: boolean; room: number };
   assert.equal(restored.ok, true, "the interpreter accepted its own image");
-  assert.equal(restored.room, room, "the engine reports the checkpoint's room");
+  assert.equal(restored.room, room, "the engine reports the progress entry's room");
 
   port.deliver(restoredIdx + 1);
   assert.equal(await pending, true, "the matching restored:true settles the resume");
@@ -577,7 +577,7 @@ test("a real resume stays pending until the worker's own restored:true, then rep
   assert.equal(
     values.get(autosaveKey(target.locator)),
     raw,
-    "the checkpoint is untouched until a real autosave",
+    "the progress entry is untouched until a real autosave",
   );
 
   // A later autosave is separate evidence: the interpreter's own next
@@ -591,7 +591,7 @@ test("a real resume stays pending until the worker's own restored:true, then rep
   assert.equal(await h.controller.getAutosaveWrite(), true);
   const stored = parseAutosaveRecord(values.get(autosaveKey(target.locator))!);
   assert.ok(stored !== null);
-  assert.notEqual(stored.image, record.image, "the durable checkpoint is the new snapshot");
+  assert.notEqual(stored.image, record.image, "the durable progress entry is the new snapshot");
   ctx.fns.stopTimers();
 });
 
@@ -637,7 +637,7 @@ test("a real restored:false retires the worker before queued traffic and preserv
   assert.equal(
     values.get(autosaveKey(target.locator)),
     raw,
-    "the failed recovery keeps the destination checkpoint byte-exact",
+    "the failed recovery keeps the destination progress entry byte-exact",
   );
   assert.equal(values.get(RESUME_POINTER_KEY), target.locator, "the pointer never moved");
 
@@ -664,7 +664,7 @@ test("a real restored:false retires the worker before queued traffic and preserv
   assert.equal(
     values.get(autosaveKey(target.locator)),
     raw,
-    "the fresh boot of the same destination still sees the old checkpoint",
+    "the fresh boot of the same destination still sees the old progress entry",
   );
 });
 
@@ -793,11 +793,11 @@ test("a saved project's resume arms on the live epoch and reports the engine's r
   assert.equal(
     values.get(autosaveKey(target.locator)),
     raw,
-    "the resumed checkpoint stays until the next real autosave",
+    "the resumed progress entry stays until the next real autosave",
   );
 });
 
-test("an earlier checkpoint opens into its selected destination and preserves source and old destination bytes", async (t) => {
+test("an earlier progress entry opens into its selected destination and preserves source and old destination bytes", async (t) => {
   values.clear();
   db.clear();
   const h = await composed(t);
@@ -858,7 +858,7 @@ test("an earlier checkpoint opens into its selected destination and preserves so
   const outcome = h.controller.resumeEarlierCheckpoint(prepared, STUB);
   await until(
     () => h.workers.length === 1 && h.workers[0]!.out.some((m) => m.type === "restored"),
-    "the earlier checkpoint's restore acknowledgement",
+    "the earlier progress entry's restore acknowledgement",
   );
   const port = h.workers[0]!;
   const boot = port.posted.find((m) => m.type === "boot");
@@ -897,17 +897,17 @@ test("an earlier checkpoint opens into its selected destination and preserves so
   port.deliver();
   assert.equal(await h.controller.getAutosaveWrite(), true);
   const stored = parseAutosaveRecord(values.get(autosaveKey(target.locator))!);
-  assert.ok(stored !== null, "the real autosave wrote a checkpoint under the destination");
+  assert.ok(stored !== null, "the real autosave wrote a progress entry under the destination");
   assert.notEqual(
     values.get(autosaveKey(target.locator)),
     oldRaw,
-    "only the live autosave replaced the old checkpoint",
+    "only the live autosave replaced the old progress entry",
   );
   assert.equal(stored.game.identity.project, destId);
   ctx.fns.stopTimers();
 });
 
-test("the earlier-checkpoint service refuses a busy slot and a moved destination before any worker", async (t) => {
+test("the earlier-progress entry service refuses a busy slot and a moved destination before any worker", async (t) => {
   values.clear();
   db.clear();
   const h = await composed(t);
@@ -926,7 +926,7 @@ test("the earlier-checkpoint service refuses a busy slot and a moved destination
   const epoch = await readHistoryLifetime(destId);
   const target = projectProgressTarget(destId, rig.revision, epoch!);
   assert.ok(target);
-  const destRaw = '{ "kept": "destination checkpoint" }\n';
+  const destRaw = '{ "kept": "destination progress entry" }\n';
   values.set(autosaveKey(target.locator), destRaw);
 
   const source = "busy-source";
@@ -1349,7 +1349,7 @@ async function savedCheckpoint(h: Awaited<ReturnType<typeof composed>>, name: st
   const id = requireProjectId(name);
   assert.equal(
     await saveAuthoredGame(id, {
-      title: "Saved checkpoint",
+      title: "Saved progress entry",
       files: h.rig.files,
       words: [...h.rig.words.entries()],
     }),

@@ -294,7 +294,7 @@ export async function addWorkspaceAction(
   }
   const testId = (
     {
-      "Place hero": "room-action-place-hero",
+      "Place hero": "room-action-place-ego",
       "Answer a sentence": "room-action-response",
       Door: "room-action-door",
       "Play a sound when…": "room-action-play-sound",

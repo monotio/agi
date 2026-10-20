@@ -5,7 +5,7 @@ import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, textHook } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
 
-test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted options", async ({
+test("Anthropic agent recovers from invalid runtime arguments and accepts omitted options", async ({
   page,
 }) => {
   const game = createContainer();
@@ -66,7 +66,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   });
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await configureAi(page, { provider: "anthropic", key: "test-placeholder" });
   await expect(page.getByTestId("agent-message")).toBeEnabled();

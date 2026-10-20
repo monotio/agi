@@ -5,7 +5,7 @@ import { renderPicture } from "../../src/picture/renderer.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { createPictureSurface } from "../../src/types.ts";
-import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAssistFixtures.ts";
+import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAgentFixtures.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
 import { testProjectId } from "../test/identity.ts";
 import {
@@ -22,7 +22,7 @@ import { expect, reviewShot, test } from "./test.ts";
  * Side effects on the real app: an island outline drawn BEFORE the grass
  * fill that pours around it. Moving the island re-pours the grass; the move
  * lands as one undo step and the status line names the grass, for the
- * creator's own drag and for an Ask proposal (the stub's "move" scenario),
+ * creator's own drag and for agent changes (the stub's "move" scenario),
  * whose Before/After view outlines the grass's changed cells in their own
  * colour. Every expected plane is decoded here from bytes read out of the
  * page and compared with a hand-shifted source.
@@ -77,7 +77,7 @@ async function bootIslandGame(page: Page): Promise<void> {
 
 async function openStudio(page: Page): Promise<Locator> {
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }

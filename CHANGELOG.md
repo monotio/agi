@@ -29,7 +29,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   buffer instead of 200. The base template now calls `script.size(200)` in
   its first cycle.
 - Games made with an older version keep their room memory even with customized
-  boot code. Opening an older project repairs its mirrored sprites, room memory
+  boot code. Opening an older project repairs its mirrored views, room memory
   and unknown-word replies together in one undoable History entry, “Updated for
   1.2.5”. Customized word feedback shows a reminder to count words from 0.
   Copies and downloads keep pending updates until the project opens in Create.
@@ -179,7 +179,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
-- Ask inspects native resources without preparing or validating an edit candidate.
+- Agent inspects native resources without preparing or validating an edit candidate.
 - An unreadable unused resource or dictionary does not stop other inspection tools.
 - Each request captures its current interpreter profile, runtime and attached references.
 - Switching to Create waits for the conversation transfer and preserves unfinished drafts.
@@ -217,7 +217,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - LOGIC code intelligence, Problems, guided actions and a step debugger.
 - Game state names and Rename across the game, with inline printed text.
 - Answer a sentence and Teach beside missed sentences, with a game message preview.
-- PICTURE image tracing and Add depth; VIEW cels from an image.
+- PICTURE image tracing and Add priority; VIEW cels from an image.
 - WORDS meanings, sentence testing and missed-command collection.
 - SOUND grid, tracker, presets, MIDI and VGM import, and MIDI export.
 - Agent Review and Auto-approve across resource types, task chats and optional

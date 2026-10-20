@@ -696,7 +696,7 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".screen")).toBeVisible();
 });
 
-test("a corrupt autosave refuses recovery and preserves the stored checkpoint @webkit-desktop", async ({
+test("a corrupt autosave refuses recovery and preserves the stored progress entry @webkit-desktop", async ({
   page,
 }) => {
   await page.goto("/");
@@ -720,7 +720,7 @@ test("a corrupt autosave refuses recovery and preserves the stored checkpoint @w
   // KQ1 again before it reads the checkpoint: the same budget as the resume after a reload above.
   const error = page.getByTestId("error-panel");
   await expect(error).toBeVisible({ timeout: 20_000 });
-  await expect(error).toContainText("The checkpoint could not be restored");
+  await expect(error).toContainText("The progress entry could not be restored");
   await expect(page.locator(".screen")).toBeHidden();
   expect(await page.evaluate((key) => localStorage.getItem(key), autosaveKey)).toBe(damaged);
 });
@@ -767,7 +767,7 @@ test("game frame follows boot and exit while New game preserves its draft", asyn
   await expect(page.locator(".screen")).toBeHidden();
 });
 
-/** The first submitted Ask gets real fixture context without changing the game. */
+/** The first submitted agent request gets real fixture context without changing the game. */
 test("KQ1 orientation accompanies the first question, Escape resumes", async ({ page }) => {
   await page.goto("/");
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
@@ -811,7 +811,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 

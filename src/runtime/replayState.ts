@@ -5,7 +5,7 @@ import type { WindowFrameGeometry, WindowOverlay, GadgetFill } from "./textSurfa
 /**
  * A modal's covered cells, serialized. `cells` are the row-major [char, attr]
  * pairs of the inclusive rect; `written` its per-cell write stamps — together
- * they restore both the text and its age under sprites. `window` optionally
+ * they restore both the text and its age under screen objects. `window` optionally
  * carries the active window's sub-cell pixel frame metadata so a resumed
  * continuation re-stamps its authentic border.
  */

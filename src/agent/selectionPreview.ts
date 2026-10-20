@@ -9,7 +9,7 @@
 import { encodePngRgb } from "../picture/png.ts";
 import { EGA_TABLE, type ColourTable } from "../runtime/colourTables.ts";
 import type { CellBox } from "../studio/editValidation.ts";
-import type { SpriteCel } from "../view/spriteDocument.ts";
+import type { ViewDocumentCel } from "../view/viewDocument.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 import { pictureComparisonPng } from "./pictureFeedback.ts";
 
@@ -17,9 +17,9 @@ type Rgb = readonly [number, number, number];
 
 /** A changed cell or pixel in a diff panel. */
 const CHANGED: Rgb = [255, 85, 255];
-/** Transparent sprite pixels and gutters. */
-const BACKDROP: Rgb = [38, 43, 50];
-/** Gutter between sprite tiles, in image pixels. */
+/** Transparent view pixels and gutters. */
+const BACKGROUND: Rgb = [38, 43, 50];
+/** Gutter between view tiles, in image pixels. */
 const TILE_GAP = 4;
 
 /** An unchanged cell in a diff panel: its colour at a quarter, over grey. */
@@ -42,7 +42,7 @@ interface Planes {
  * 320x168 (every logical pixel two image pixels wide). The diff panel shows
  * changed cells in magenta over the dimmed result.
  */
-export function pictureAssistPreviewPng(
+export function pictureAgentPreviewPng(
   before: Planes,
   after: Planes,
   palette: ColourTable = EGA_TABLE,
@@ -73,7 +73,7 @@ export function pictureAssistPreviewPng(
   return encodePngRgb(width, height, rgb);
 }
 
-export const PICTURE_ASSIST_PREVIEW_CAPTION =
+export const PICTURE_AGENT_PREVIEW_CAPTION =
   "Candidate, 960x336: top row the visual plane, bottom row the priority plane; columns before | after | diff (changed cells magenta over the dimmed result). Each logical pixel is two image pixels wide.";
 
 /** How much a crop of `box` is enlarged: the largest of 1..4 that keeps each panel within 320x168. */
@@ -127,12 +127,12 @@ export function pictureOverviewPng(
 
 /** One sheet row: a cel before and after (either may be absent: added or removed). */
 export interface CelPair {
-  readonly before?: SpriteCel | undefined;
-  readonly after?: SpriteCel | undefined;
+  readonly before?: ViewDocumentCel | undefined;
+  readonly after?: ViewDocumentCel | undefined;
 }
 
 /** Tile geometry for `pairs`: the widest and tallest cel, enlarged 1..4 times to about 96 rows. */
-function spriteTileSize(pairs: readonly CelPair[]): {
+function viewTileSize(pairs: readonly CelPair[]): {
   scale: number;
   width: number;
   height: number;
@@ -144,29 +144,29 @@ function spriteTileSize(pairs: readonly CelPair[]): {
   return { scale, width: w * 2 * scale, height: h * scale };
 }
 
-function pixelOf(cel: SpriteCel | undefined, x: number, y: number): number | null {
+function pixelOf(cel: ViewDocumentCel | undefined, x: number, y: number): number | null {
   if (!cel || x >= cel.width || y >= cel.height) return null;
   const value = cel.pixels[y * cel.width + x]!;
   return value === cel.transparent ? null : value;
 }
 
 /**
- * Sprite cels as a sheet, one row per pair. With `compare`, three tiles per
+ * View cels as a sheet, one row per pair. With `compare`, three tiles per
  * row: before | after | diff (changed pixels magenta over the dimmed after);
- * otherwise one tile of `after`. Tiles are `spriteTileSize` with a
+ * otherwise one tile of `after`. Tiles are `viewTileSize` with a
  * TILE_GAP-pixel gutter; transparency is dark grey.
  */
-export function spriteSheetPng(
+export function viewSheetPng(
   pairs: readonly CelPair[],
   compare: boolean,
   palette: ColourTable = EGA_TABLE,
 ): Uint8Array {
-  const tile = spriteTileSize(pairs);
+  const tile = viewTileSize(pairs);
   const columns = compare ? 3 : 1;
   const width = columns * tile.width + (columns - 1) * TILE_GAP;
   const height = Math.max(1, pairs.length) * tile.height + Math.max(0, pairs.length - 1) * TILE_GAP;
   const rgb = new Uint8Array(width * height * 3);
-  for (let i = 0; i < width * height; i++) rgb.set(BACKDROP, i * 3);
+  for (let i = 0; i < width * height; i++) rgb.set(BACKGROUND, i * 3);
   const cellsW = tile.width / (2 * tile.scale);
   const cellsH = tile.height / tile.scale;
   pairs.forEach((pair, row) => {

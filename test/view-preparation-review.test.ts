@@ -46,8 +46,8 @@ test("anchor padding stays transparent even when all source alpha values are adm
   // A half-source-pixel left padding maps to the first output pixel. It is
   // outside the source, so alpha threshold zero cannot turn it into black art.
   const prepared = prepare(0);
-  assert.deepEqual([...prepared.frames[0]!.mask], [0, 1]);
-  assert.equal(prepared.frames[0]!.pixels[1], 4);
+  assert.deepEqual([...prepared.cels[0]!.mask], [0, 1]);
+  assert.equal(prepared.cels[0]!.pixels[1], 4);
   const cel = parseView(prepared.payload, PROFILES["2.936"]).loops[0]!.cels[0]!;
   assert.deepEqual([...cel.pixels], [cel.transparentColor, 4]);
 });

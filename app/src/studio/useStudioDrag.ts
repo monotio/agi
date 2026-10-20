@@ -1,5 +1,5 @@
 /**
- * Direct manipulation on the Room Studio canvas, following vector editors
+ * Direct manipulation on the PICTURE editor canvas, following vector editors
  * (Figma, Inkscape, tldraw): selecting and moving are separate gestures.
  *
  * - A press on the selection (any of its pixels, on every plane) drags it:

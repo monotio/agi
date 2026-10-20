@@ -1,4 +1,4 @@
-/** Bounded visual feedback from the compiled sprite resource. */
+/** Bounded visual feedback from the compiled view resource. */
 import { parseView } from "../view/view.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { encodePngRgb } from "../picture/png.ts";

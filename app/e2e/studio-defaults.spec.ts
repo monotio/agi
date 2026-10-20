@@ -3,8 +3,8 @@ import { enterCreateMode, isolateStorage, openWorkspacePicture, textHook } from 
 import { expect, reviewShot, test } from "./test.ts";
 
 /**
- * Room Studio opens at its essentials: with two items selected the inspector
- * shows exactly their name, one line ("Visual · 6 steps"), three actions, Ask
+ * PICTURE editor opens at its essentials: with two items selected the inspector
+ * shows exactly their name, one line ("Visual · 6 steps"), three actions, Agent
  * and a closed Details, with the movement hint at its foot, at 1440×900 and
  * at 1024×600, where nothing in the side panels or the page scrolls
  * sideways or runs out of its column. The lock is a chip by the lens tabs.
@@ -18,7 +18,7 @@ async function openRoomOne(page: Page): Promise<Locator> {
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }

@@ -22,6 +22,6 @@ export function validateRoomInventory(
     )
   )
     throw new Error(
-      "Keep existing inventory entries in order with their original startingRoom; append new items.",
+      "Keep existing inventory entries in order with their original startingRoom; append new objects.",
     );
 }

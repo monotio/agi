@@ -212,7 +212,7 @@ test("engine loads packed 2.230 VIEW headers", () => {
   );
 });
 
-test("nonpacked shared sprites mirror at blitting after loop selections and remain stable on frame observation", () => {
+test("nonpacked shared views mirror at blitting after loop selections and remain stable on frame observation", () => {
   const engine = game(`
     load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100);
     draw(o0); stop.cycling(o0); fix.loop(o0);
@@ -338,7 +338,7 @@ test("v3 extension dispatch consumes its profile operands and saves the menu gat
   assert.equal(early.vars[62], 17);
 });
 
-// The pure band function the engine and the Room Studio's band guides share,
+// The pure band function the engine and the PICTURE editor's band guides share,
 // hand-computed from 5 + floor((y - base) * 10 / (168 - base)).
 test("priorityForY maps the default base 48 to bands 4..14", () => {
   assert.equal(priorityForY(47), 4); // above the base

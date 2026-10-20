@@ -728,7 +728,7 @@ async function onRecordSave(): Promise<void> {
       Shortcuts appear here when the game registers them.
     </p>
     <template v-else>
-      <p class="controls-hint">Some shortcuts work only in certain scenes.</p>
+      <p class="controls-hint">Some shortcuts work only in certain rooms.</p>
       <p v-if="shortcutsBlocked" class="controls-hint">Return to the game to use shortcuts.</p>
       <div class="shortcut-list">
         <button
@@ -807,7 +807,7 @@ async function onRecordSave(): Promise<void> {
 </template>
 
 <style scoped>
-/* The Home nav: the wordmark left, quiet ghost actions right, full width. */
+/* The Home nav: the wordmark left, quiet standIn actions right, full width. */
 .header {
   display: flex;
   align-items: center;
@@ -838,7 +838,7 @@ async function onRecordSave(): Promise<void> {
 a.publisher:hover > span {
   color: var(--ink-2);
 }
-/* GitHub is a link, drawn as the ghost small button beside it. */
+/* GitHub is a link, drawn as the standIn small button beside it. */
 .repo-link {
   display: inline-flex;
   align-items: center;

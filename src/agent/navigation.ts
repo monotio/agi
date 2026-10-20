@@ -172,7 +172,7 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
   const control = engine.surface.priority.slice();
   const step = Math.max(1, ego.stepSize);
   const bypassControl = ego.fixedPriority && ego.priority === 15;
-  // The engine's placement rules, shared with Room Studio: barriers over the
+  // The engine's placement rules, shared with PICTURE editor: barriers over the
   // planning width, water classified on the current cel.
   const walkable = {
     priority: control,
@@ -349,8 +349,8 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
       "The movement allowance includes the approach and any terminal clipped exit updates; it bounds search labels and smoothing; cheaper longer arrivals cannot discard a shorter feasible route. Search retains at most 262144 labels and reports work exhaustion instead of proving no route when capped.",
       "Each full cardinal or diagonal step costs one movement update plus clearanceWeight * max(0, desiredClearance - clearance)^2 and optional turnCost. Search has an admissible Chebyshev/step lower bound; smoothing cannot increase this cost.",
       options?.exitDirection === undefined
-        ? "Static live controls and stationary object baselines; animation, moving objects, automatic priority-table changes, script triggers and border clipping are not predicted. Replan after state changes."
-        : "Cardinal terminal crossing checks each full proposal and clipped endpoint with the current cel; future animation, moving objects and script transitions remain unpredicted. Revalidate after state changes.",
+        ? "Static live controls and stationary object baselines; animation, moving objects, automatic priority-table changes, LOGIC triggers and border clipping are not predicted. Replan after state changes."
+        : "Cardinal terminal crossing checks each full proposal and clipped endpoint with the current cel; future animation, moving objects and LOGIC transitions remain unpredicted. Revalidate after state changes.",
       "A candidate path is not proof. Execute normal inputs and assert the milestone.",
     ],
   };
@@ -492,7 +492,7 @@ export function renderNavigationSnapshot(
   const json = JSON.stringify(
     {
       legend:
-        "Left: composed scene. Right: red=solid, white=conditional block, magenta=trigger, cyan=water, orange=objects, blue=ego baseline, green=target, yellow=candidate path; grid every 10 pixels.",
+        "Left: composed frame. Right: red=solid, white=control 1, magenta=trigger, cyan=water, orange=objects, blue=ego baseline, green=target, yellow=candidate path; grid every 10 pixels.",
       plan,
       state: describePosition(run),
     },

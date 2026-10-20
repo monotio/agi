@@ -68,7 +68,7 @@ function setup(lens: StudioLens, ids: string[]) {
   return { ...result, stop: () => scope.stop() };
 }
 describe("palette context", () => {
-  for (const lens of ["art", "depth"] as const) {
+  for (const lens of ["visual", "priority"] as const) {
     for (const selected of [false, true]) {
       it(`${lens}, selection ${selected}: each tool exposes its usable values`, () => {
         for (const tool of ["line", "rect", "polygon", "fill", "brush"] as const)
@@ -84,10 +84,10 @@ describe("palette context", () => {
   }
 });
 for (const [lens, ids, patch] of [
-  ["art", ["a", "b"], { visual: 4 }],
-  ["depth", ["b"], { priority: 10 }],
+  ["visual", ["a", "b"], { visual: 4 }],
+  ["priority", ["b"], { priority: 10 }],
   // The Priority lens recolours a control line too: the wall becomes water.
-  ["depth", ["w"], { priority: 3 }],
+  ["priority", ["w"], { priority: 3 }],
 ] as const) {
   it(`${lens}: recolours the selection in one reversible step and leaves drawing values alone`, () => {
     const s = setup(lens, [...ids]);
@@ -97,8 +97,8 @@ for (const [lens, ids, patch] of [
       s.palette.choose(patch);
       assert.notEqual(s.draft.source.value, before);
       assert.equal(s.draft.history.value.past.length, 1);
-      const at = lens === "art" ? "visual" : "priority";
-      const expected = lens === "art" ? 4 : patch.priority;
+      const at = lens === "visual" ? "visual" : "priority";
+      const expected = lens === "visual" ? 4 : patch.priority;
       for (const [id, x, y] of [
         ["a", 10, 20],
         ["b", 40, 90],
@@ -115,7 +115,7 @@ for (const [lens, ids, patch] of [
   });
 }
 it("recolours a combined group as one step", () => {
-  const s = setup("art", ["a", "b"]);
+  const s = setup("visual", ["a", "b"]);
   try {
     assert.equal(s.editing.combine("Pair"), true);
     const before = s.draft.source.value;
@@ -132,13 +132,13 @@ it("recolours a combined group as one step", () => {
 });
 for (const [lens, ids, patch, message] of [
   [
-    "art",
+    "visual",
     ["a", "w"],
     { visual: 4 },
     "Wall has no visual colour. Select a shape with visual colour to recolour it.",
   ],
   [
-    "depth",
+    "priority",
     ["a"],
     { priority: 10 },
     "Art has no priority. Give it a Priority pen in the Inspector, or select a shape with one.",
@@ -158,7 +158,7 @@ for (const [lens, ids, patch, message] of [
   });
 }
 it("a drawing tool changes future drawing, while an idle tool leaves it alone", () => {
-  const s = setup("art", []);
+  const s = setup("visual", []);
   try {
     s.palette.choose({ visual: 4 });
     assert.equal(s.current.value.visual, 0);
@@ -172,7 +172,7 @@ it("a drawing tool changes future drawing, while an idle tool leaves it alone", 
 });
 
 it("the current selection colour creates no extra History step", () => {
-  const s = setup("art", ["a"]);
+  const s = setup("visual", ["a"]);
   try {
     s.palette.choose({ visual: 2 });
     assert.equal(s.draft.history.value.past.length, 0);
@@ -181,7 +181,7 @@ it("the current selection colour creates no extra History step", () => {
   }
 });
 it("loose drawing commands ask for a shape instead of silently ignoring a colour", () => {
-  const s = setup("art", ["loose"]);
+  const s = setup("visual", ["loose"]);
   try {
     s.palette.choose({ visual: 4 });
     assert.equal(s.draft.history.value.past.length, 0);

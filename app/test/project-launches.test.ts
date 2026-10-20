@@ -105,7 +105,7 @@ test("a Launch edit keeps, reopens, and undoes through the project transaction p
   assert.ok(readWorld(ws)["launches"], "redo replays the launch edit");
 
   const candidate = ws.buildSelected(["world"]);
-  const kept = await ws.keepCandidate(candidate);
+  const kept = await ws.commitCandidate(candidate);
   assert.equal(kept.saved.revision, base.revision, "a launch edit moves no playable bytes");
   assert.notEqual(kept.saved.authoring, base.authoring);
 
@@ -137,7 +137,7 @@ test("a Launch edit keeps, reopens, and undoes through the project transaction p
     4242,
   );
   reopened.draft.redo(second.id);
-  await reopened.keepCandidate(reopened.buildSelected(["world"]));
+  await reopened.commitCandidate(reopened.buildSelected(["world"]));
   const final = JSON.parse(
     String(readProjectWorkspace((await storedBody(projectId)).workspace)["world"]),
   ) as {
@@ -165,7 +165,7 @@ test("a rejected write leaves the previous Launches in storage untouched", async
     return realSet(key, value);
   };
   try {
-    await assert.rejects(ws.keepCandidate(candidate), /quota/);
+    await assert.rejects(ws.commitCandidate(candidate), /quota/);
   } finally {
     records.set = realSet;
   }
@@ -189,9 +189,9 @@ test("a second page cannot silently overwrite another page's Launch edits", asyn
       unknown
     >,
   );
-  await first.keepCandidate(first.buildSelected(["world"]));
+  await first.commitCandidate(first.buildSelected(["world"]));
 
-  // Opened before the first page's Keep landed: its write must refuse rather
+  // Opened before the first page's commit landed: its write must refuse rather
   // than silently drop the other page's launch.
   applyWorld(
     second,
@@ -200,7 +200,7 @@ test("a second page cannot silently overwrite another page's Launch edits", asyn
     }) as Record<string, unknown>,
   );
   await assert.rejects(
-    second.keepCandidate(second.buildSelected(["world"])),
+    second.commitCandidate(second.buildSelected(["world"])),
     /modified|removed|replaced/i,
   );
 
@@ -212,7 +212,7 @@ test("a second page cannot silently overwrite another page's Launch edits", asyn
       name: "Forest entry",
     }) as Record<string, unknown>,
   );
-  await third.keepCandidate(third.buildSelected(["world"]));
+  await third.commitCandidate(third.buildSelected(["world"]));
 
   const stored = JSON.parse(
     String(readProjectWorkspace((await storedBody(projectId)).workspace)["world"]),
@@ -236,7 +236,7 @@ test("Launches survive a project archive round trip and never reach the playable
       "launch-1",
     ) as Record<string, unknown>,
   );
-  await ws.keepCandidate(ws.buildSelected(["world"]));
+  await ws.commitCandidate(ws.buildSelected(["world"]));
 
   const stored = await storedBody(projectId);
   const filesBefore = new Map(
@@ -274,7 +274,7 @@ test("Launches survive a project archive round trip and never reach the playable
       name: "Forest entry",
     }) as Record<string, unknown>,
   );
-  await reopened.keepCandidate(reopened.buildSelected(["world"]));
+  await reopened.commitCandidate(reopened.buildSelected(["world"]));
   const after = await storedBody(projectId);
   assert.deepEqual(buildPublicGameZip(after), playableBefore);
   assert.equal(after.library?.profile, stored.library?.profile, "profile id unchanged");

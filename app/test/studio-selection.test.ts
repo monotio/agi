@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it, test } from "node:test";
 import { computed, ref } from "vue";
-import type { SceneRow } from "../src/studio/useStudioDocument.ts";
+import type { ItemRow } from "../src/studio/useStudioDocument.ts";
 import { describeRow, useStudioSelection } from "../src/studio/useStudioSelection.ts";
 
-const row = (id: string, label: string, kind: SceneRow["kind"], commands: number): SceneRow => ({
+const row = (id: string, label: string, kind: ItemRow["kind"], commands: number): ItemRow => ({
   id,
   label,
   display: label,
@@ -95,7 +95,7 @@ test("selection is announced as label, kind and step count", () => {
   const { selection } = setup();
   assert.equal(selection.announcement.value, "");
   selection.selectedId.value = "bench";
-  assert.equal(selection.announcement.value, "Bench, depth, 4 steps");
+  assert.equal(selection.announcement.value, "Bench, priority, 4 steps");
   selection.selectedId.value = "exit";
   assert.equal(selection.announcement.value, "Exit, walk, 1 step");
   assert.equal(
@@ -112,7 +112,7 @@ describe("several items", () => {
   ];
   // "(group)bench" stands for bench and exit.
   const membersOf = (id: string) => (id === "(group)bench" ? ["bench", "exit"] : undefined);
-  const group: SceneRow = { ...row("(group)bench", "Mixed · 2", "mixed", 0), entries: [4, 5] };
+  const group: ItemRow = { ...row("(group)bench", "Mixed · 2", "mixed", 0), entries: [4, 5] };
   function several() {
     return useStudioSelection({
       rows,

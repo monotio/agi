@@ -14,8 +14,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * The Create workspace: the World panel docked beside the live game, Room
- * Studio's seam in the centre, and the docks' folds and keys. The fixture
+ * The Create workspace: the World panel docked beside the live game, PICTURE editor's seam in the centre, and the docks' folds and keys. The fixture
  * never lets a room number stand in for its picture: rooms 1 and 2 share
  * PIC 5, room 3 picks its picture at runtime, room 4 draws PIC 7, and the
  * plan names an unbuilt room 6. Room 2's logic names rooms 3 and 4, which

@@ -1,11 +1,11 @@
 /** Capture editor selection context against the same project snapshot as the task. */
 import { createSelectionEdit, type SelectionFocus } from "../../../src/agent/selectionTools.ts";
-import { pictureAssistScope, viewAssistScope } from "../../../src/studio/assistScope.ts";
+import { pictureAgentScope, viewAgentScope } from "../../../src/studio/agentScope.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileEditDocument } from "../../../src/studio/editValidation.ts";
 import { disassemblePicture } from "../../../src/picture/source.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { openSprite } from "../../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../../src/view/viewDocument.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { AgentRuntimeDeps } from "../../../src/agent/tools.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
@@ -13,7 +13,7 @@ import type { AgiProfile } from "../../../src/runtime/profile.ts";
 export async function selectionScene(
   engine: AgentRuntimeDeps["engine"],
   room: number,
-): Promise<Pick<SelectionFocus, "horizon" | "ghost">> {
+): Promise<Pick<SelectionFocus, "horizon" | "standIn">> {
   if (!engine) return {};
   const [stateResult, objectsResult] = await Promise.allSettled([engine.state(), engine.objects()]);
   const state =
@@ -36,7 +36,7 @@ export async function selectionScene(
     return { horizon };
   return {
     horizon,
-    ghost: {
+    standIn: {
       view: Number(actor["view"]),
       loop: Number(actor["loop"]),
       cel: Number(actor["cel"]),
@@ -51,10 +51,10 @@ export function workspaceSelection(
   context: string,
   documents: Readonly<Record<string, ProjectContent>>,
   profile: AgiProfile,
-  scene: Pick<SelectionFocus, "horizon" | "ghost"> = {},
+  scene: Pick<SelectionFocus, "horizon" | "standIn"> = {},
 ) {
   const picture =
-    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (art|depth)\./.exec(
+    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (visual|priority)\./.exec(
       context,
     );
   const view = /Selection: VIEW (\d+)[^\n]*\nSelected VIEW \d+, loop (\d+), cel (\d+)\./.exec(
@@ -73,9 +73,9 @@ export function workspaceSelection(
       priority: parsed["priority"] === true,
     };
     const compiled = compileEditDocument(parsePictureDocument(source).document, profile);
-    const lens = picture[3] as "art" | "depth";
+    const lens = picture[3] as "visual" | "priority";
     return createSelectionEdit({
-      scope: pictureAssistScope({
+      scope: pictureAgentScope({
         num,
         compiled,
         targetIds: picture[2]!.split(", "),
@@ -98,9 +98,9 @@ export function workspaceSelection(
         ? buildView(JSON.parse(content) as BuildViewInput, profile)
         : content;
     return createSelectionEdit({
-      scope: viewAssistScope({
+      scope: viewAgentScope({
         num,
-        document: openSprite(payload, profile),
+        document: openViewDocument(payload, profile),
         targetCels: [{ loop: Number(view[2]), cel: Number(view[3]) }],
       }),
       draft: () => ({ kind: "view", payload }),

@@ -153,7 +153,7 @@ export function searchAnchors(
   if (distance(start) > limit)
     return { status: "movement_budget_exhausted", chain: [], reached: start, cells: 0 };
   // Being inside the requested region is already success; centering never moves
-  // an actor whose goal has already been satisfied.
+  // a screen object whose goal has already been satisfied.
   if (distance(start) === 0 && (acceptsTarget?.(start) ?? true) && terminalSteps(start) <= limit)
     return { status: "found", chain: [start], reached: start, cells: 0 };
   let spent = 0;

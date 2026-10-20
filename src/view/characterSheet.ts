@@ -4,13 +4,13 @@
  * single pose row on a flat key colour or real alpha — and the harness owns
  * the sheet manifest: poses per row, facings, target cel size and the ground
  * line. None of that is inferred from the pixels; the upload dialog states
- * the constraints from src/view/spritesheet.ts's header.
+ * the constraints from src/view/sheet.ts's header.
  *
  * Loop order is the engine's four-direction table (see selectLoop in
  * src/runtime/engine.ts): loop 0 right, loop 1 left, loop 2 down, loop 3 up.
  * A missing facing is filled so the table stays aligned: the opposite
  * facing's cels mirrored when the design is declared symmetric, the same
- * frames unmirrored otherwise — either way the substitution is a named
+ * cels unmirrored otherwise — either way the substitution is a named
  * diagnostic, never a silent choice.
  *
  * Zero dependencies; runs in browser, worker and Node.
@@ -20,9 +20,9 @@ import {
   quantizeToEga,
   sheetViewInput,
   type EgaSheet,
-  type SheetFrame,
+  type SheetCel,
   type SheetLoopLayout,
-} from "./spritesheet.ts";
+} from "./sheet.ts";
 import { buildView, type BuildViewInput, type ViewCapabilities } from "./view.ts";
 
 export type SheetFacing = "right" | "left" | "down" | "up";
@@ -79,16 +79,16 @@ export interface ConvertedCharacter {
   readonly substitutions: readonly string[];
 }
 
-/** One frame's opaque-pixel bounding box, in source cell coordinates. */
-interface FrameBox {
+/** One cel's opaque-pixel bounding box, in source cell coordinates. */
+interface CelBox {
   left: number;
   right: number;
   top: number;
   bottom: number;
 }
 
-function frameBox(sheet: EgaSheet, col: number, cellWidth: number, cellHeight: number): FrameBox {
-  const box: FrameBox = { left: cellWidth, right: -1, top: cellHeight, bottom: -1 };
+function celBox(sheet: EgaSheet, col: number, cellWidth: number, cellHeight: number): CelBox {
+  const box: CelBox = { left: cellWidth, right: -1, top: cellHeight, bottom: -1 };
   const originX = col * cellWidth;
   for (let y = 0; y < cellHeight; y++) {
     for (let x = 0; x < cellWidth; x++) {
@@ -110,9 +110,9 @@ function frameBox(sheet: EgaSheet, col: number, cellWidth: number, cellHeight: n
  */
 function poseDiagnostics(sheet: EgaSheet, facing: SheetFacing, poses: number): string[] {
   const cellWidth = sheet.width / poses;
-  const boxes: FrameBox[] = [];
+  const boxes: CelBox[] = [];
   for (let col = 0; col < poses; col++) {
-    const box = frameBox(sheet, col, cellWidth, sheet.height);
+    const box = celBox(sheet, col, cellWidth, sheet.height);
     if (box.right >= 0) boxes.push(box);
   }
   if (boxes.length < 2) return [];
@@ -167,8 +167,8 @@ export function convertCharacterSheet(
 
   const warnings: string[] = [];
   const substitutions: string[] = [];
-  const frames: SheetFrame[] = [];
-  const facingFrames = new Map<SheetFacing, number[]>();
+  const cels: SheetCel[] = [];
+  const facingCels = new Map<SheetFacing, number[]>();
   let preferTransparent: number | undefined;
   for (const facing of FACING_LOOP_ORDER) {
     const bitmap = images[facing];
@@ -191,27 +191,27 @@ export function convertCharacterSheet(
     warnings.push(...poseDiagnostics(sheet, facing, poses));
     const cut = cutGrid(sheet, poses, 1, { targetHeight: spec.celHeight ?? 32 });
     const indexes: number[] = [];
-    for (const frame of cut) {
-      indexes.push(frames.length);
-      frames.push(frame);
+    for (const cel of cut) {
+      indexes.push(cels.length);
+      cels.push(cel);
     }
-    facingFrames.set(facing, indexes);
+    facingCels.set(facing, indexes);
   }
 
   // Keep the four-loop direction table aligned. A missing facing borrows its
   // opposite — mirrored only when the design is declared symmetric — and
   // falls back to any supplied row so the loop count stays four.
-  const fallback = facingFrames.get(supplied[0]!)!;
+  const fallback = facingCels.get(supplied[0]!)!;
   const loops: SheetLoopLayout[] = [];
   const loopReport: {
     facing: SheetFacing;
     cels: { width: number; height: number }[];
   }[] = [];
   for (const facing of FACING_LOOP_ORDER) {
-    let indexes = facingFrames.get(facing);
+    let indexes = facingCels.get(facing);
     if (indexes === undefined) {
       const opposite = OPPOSITE[facing];
-      const oppositeIndexes = facingFrames.get(opposite);
+      const oppositeIndexes = facingCels.get(opposite);
       if (
         oppositeIndexes !== undefined &&
         spec.symmetric === true &&
@@ -221,8 +221,8 @@ export function convertCharacterSheet(
         loopReport.push({
           facing,
           cels: oppositeIndexes.map((i) => ({
-            width: frames[i]!.width,
-            height: frames[i]!.height,
+            width: cels[i]!.width,
+            height: cels[i]!.height,
           })),
         });
         substitutions.push(
@@ -237,14 +237,14 @@ export function convertCharacterSheet(
       );
       indexes = donor;
     }
-    loops.push({ frames: indexes });
+    loops.push({ cels: indexes });
     loopReport.push({
       facing,
-      cels: indexes.map((i) => ({ width: frames[i]!.width, height: frames[i]!.height })),
+      cels: indexes.map((i) => ({ width: cels[i]!.width, height: cels[i]!.height })),
     });
   }
 
-  const input = sheetViewInput(frames, {
+  const input = sheetViewInput(cels, {
     loops,
     description: "Uploaded reference character",
     ...(preferTransparent !== undefined ? { preferTransparent } : {}),

@@ -4,7 +4,7 @@ import {
   DraftBusyError,
   ProjectDraft,
   type DraftHistoryLease,
-  type DraftKeepAdmission,
+  type DraftCommitAdmission,
 } from "../src/authoring/projectDraft.ts";
 
 function draft() {
@@ -76,7 +76,7 @@ test("transactions refuse under a lease without consuming proposal or flipping f
   assert.equal(d.capture().read("logic:1")?.content, "return;");
 });
 
-test("ordinary redo and acknowledgeKept refuse under a lease", () => {
+test("ordinary redo and acknowledgeSaved refuse under a lease", () => {
   const d = draft();
   const proposal = d.propose(d.capture(), "guided", [{ key: "logic:1", content: "a" }]);
   const applied = d.apply(proposal);
@@ -88,13 +88,13 @@ test("ordinary redo and acknowledgeKept refuse under a lease", () => {
     (e) => (busy(e, "native-history"), true),
   );
   assert.throws(
-    () => d.acknowledgeKept(selection),
+    () => d.acknowledgeSaved(selection),
     (e) => (busy(e, "native-history"), true),
   );
   // The undo restored the kept baseline: nothing is dirty, and nothing moved.
   assert.deepEqual(d.dirtyKeys(), []);
   d.releaseHistoryMutation(lease);
-  assert.equal(d.acknowledgeKept(selection), true);
+  assert.equal(d.acknowledgeSaved(selection), true);
   d.redo(applied.id);
   assert.equal(d.capture().read("logic:1")?.content, "a");
 });
@@ -210,19 +210,19 @@ test("a net-zero group still restores its origin under a lease", () => {
   assert.equal(d.capture().read("logic:1")?.content, "gone;");
 });
 
-test("a pending Keep admission blocks history acquisition while typing stays free", () => {
+test("a pending commit admission blocks history acquisition while typing stays free", () => {
   const d = draft();
   d.edit("logic:1", "a", 1);
   const selection = d.select(["logic:1"]);
-  const admission = d.admitKeep(selection);
+  const admission = d.admitCommit(selection);
   assert.throws(
     () => d.acquireHistoryMutation(revisionOf(d)),
-    (e) => (busy(e, "keep-pending"), true),
+    (e) => (busy(e, "commit-pending"), true),
   );
   // The reservation is not an exclusive lock: ordinary typing still lands.
   d.edit("logic:1", "b", 2);
   assert.deepEqual(d.dirtyKeys(), ["logic:1"]);
-  d.finishKeepAdmission(admission);
+  d.finishCommitAdmission(admission);
   const lease = d.acquireHistoryMutation(revisionOf(d));
   d.releaseHistoryMutation(lease);
 });
@@ -230,49 +230,49 @@ test("a pending Keep admission blocks history acquisition while typing stays fre
 test("admissions queue: every unresolved one must settle before history runs", () => {
   const d = draft();
   d.edit("logic:1", "a", 1);
-  const first = d.admitKeep(d.select(["logic:1"]));
+  const first = d.admitCommit(d.select(["logic:1"]));
   d.edit("logic:1", "b", 2);
-  const second = d.admitKeep(d.select(["logic:1"]));
-  d.finishKeepAdmission(first);
+  const second = d.admitCommit(d.select(["logic:1"]));
+  d.finishCommitAdmission(first);
   assert.throws(
     () => d.acquireHistoryMutation(revisionOf(d)),
-    (e) => (busy(e, "keep-pending"), true),
+    (e) => (busy(e, "commit-pending"), true),
   );
-  d.finishKeepAdmission(second);
-  d.finishKeepAdmission(second); // idempotent
+  d.finishCommitAdmission(second);
+  d.finishCommitAdmission(second); // idempotent
   d.releaseHistoryMutation(d.acquireHistoryMutation(revisionOf(d)));
 });
 
-test("admitKeep validates the exact issuer selection and refuses during a lease", () => {
+test("admitCommit validates the exact issuer selection and refuses during a lease", () => {
   const d = draft();
   const other = draft();
-  assert.throws(() => d.admitKeep(other.select(["logic:1"])), /belongs to another workspace/);
+  assert.throws(() => d.admitCommit(other.select(["logic:1"])), /belongs to another workspace/);
   const stale = d.select(["logic:1"]);
   d.edit("logic:1", "a", 1);
-  assert.throws(() => d.admitKeep(stale), /Stale selection/);
+  assert.throws(() => d.admitCommit(stale), /Stale selection/);
   const fresh = d.select(["logic:1"]);
   const lease = d.acquireHistoryMutation(revisionOf(d));
   assert.throws(
-    () => d.admitKeep(fresh),
+    () => d.admitCommit(fresh),
     (e) => (busy(e, "native-history"), true),
   );
   d.releaseHistoryMutation(lease);
-  const admission = d.admitKeep(fresh);
-  assert.throws(() => d.admitKeep({ ...fresh }), /belongs to another workspace/);
-  d.finishKeepAdmission(admission);
-  assert.throws(() => d.acknowledgeAdmittedKeep(admission), /already settled/);
+  const admission = d.admitCommit(fresh);
+  assert.throws(() => d.admitCommit({ ...fresh }), /belongs to another workspace/);
+  d.finishCommitAdmission(admission);
+  assert.throws(() => d.acknowledgeAdmittedCommit(admission), /already settled/);
 });
 
 test("the admitted acknowledgement applies only its reserved selection", () => {
   const d = draft();
   d.edit("logic:1", "a", 1);
-  const admission = d.admitKeep(d.select(["logic:1"]));
+  const admission = d.admitCommit(d.select(["logic:1"]));
   // Newer typing does not invalidate the admitted selection's baseline work.
   d.edit("words", "x", 0);
-  assert.equal(d.acknowledgeAdmittedKeep(admission), true);
-  d.finishKeepAdmission(admission);
+  assert.equal(d.acknowledgeAdmittedCommit(admission), true);
+  d.finishCommitAdmission(admission);
   assert.deepEqual(d.dirtyKeys(), ["words"]);
-  const forged = Object.freeze({ kind: "keep-admission" }) as DraftKeepAdmission;
-  assert.throws(() => d.acknowledgeAdmittedKeep(forged), /belongs to another workspace/);
-  assert.throws(() => d.finishKeepAdmission(forged), /belongs to another workspace/);
+  const forged = Object.freeze({ kind: "commit-admission" }) as DraftCommitAdmission;
+  assert.throws(() => d.acknowledgeAdmittedCommit(forged), /belongs to another workspace/);
+  assert.throws(() => d.finishCommitAdmission(forged), /belongs to another workspace/);
 });

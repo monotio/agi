@@ -5,7 +5,7 @@ import { renderPicture } from "../../src/picture/renderer.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { createPictureSurface } from "../../src/types.ts";
-import { openSprite } from "../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../src/view/viewDocument.ts";
 import {
   closeWorkspaceEditor,
   isolateStorage,
@@ -130,7 +130,7 @@ test("Update game saves exact VIEW recolour bytes and retains an unrelated LOGIC
   await page.reload();
   await openStoredWorkspace(page, "Recoloured ego");
   const originalBytes = openContainer(await storedFiles(page, projectId)).getResource("view", 0)!;
-  const original = openSprite(originalBytes, DEFAULT_V2_PROFILE);
+  const original = openViewDocument(originalBytes, DEFAULT_V2_PROFILE);
   // The starter ego walks right in loop 0; loop 1 mirrors it.
   expect(original.loops[1]!.alias).toBe(0);
   const originalLoop1 = original.loops[1]!.cels.map((cel) => [...cel.pixels]);
@@ -138,44 +138,42 @@ test("Update game saves exact VIEW recolour bytes and retains an unrelated LOGIC
   const source = await workspaceDocument(page, "logic:1");
   const editedSource = source + "\n// an unfinished note";
   await replaceWorkspaceDocument(page, "logic:1", editedSource);
-  const sprite = await openWorkspaceView(page, 0);
-  await reviewShot(page, "project-resource-sprite-open");
+  const view = await openWorkspaceView(page, 0);
+  await reviewShot(page, "project-resource-view-open");
 
   // Recolour the loop: the colour under the standing cel's centre (light red) to
   // the next swatch, scoped to this loop.
-  await sprite.locator('[data-loop="0"][data-cel="0"]').click();
-  await sprite.getByTestId("sprite-stage").focus();
+  await view.locator('[data-loop="0"][data-cel="0"]').click();
+  await view.getByTestId("view-stage").focus();
   await page.keyboard.press("c");
-  const recolor = sprite.getByTestId("sprite-recolor");
+  const recolor = view.getByTestId("view-recolor");
   await expect(recolor).toBeVisible();
   await page.keyboard.press("Space");
   await expect(
-    recolor.getByTestId("sprite-recolor-from").getByRole("radio", { checked: true }),
+    recolor.getByTestId("view-recolor-from").getByRole("radio", { checked: true }),
   ).toHaveAttribute("data-colour", "12");
   // To green by swatch name — the keyboard arrow order is not under test here.
   const toColour = 2;
   await recolor.getByRole("radio", { name: "To colour 2, green" }).click();
-  const count = await recolor.getByTestId("sprite-recolor-count").textContent();
+  const count = await recolor.getByTestId("view-recolor-count").textContent();
   const changed = Number(
     /(\d+) pixels? in \d+ cels? will change to colour 2/.exec(count ?? "")?.[1] ?? 0,
   );
   expect(changed).toBeGreaterThan(0);
-  await recolor.getByTestId("sprite-recolor-apply").click();
+  await recolor.getByTestId("view-recolor-apply").click();
   await workspaceSaved(page);
-  const recoloured = Uint8Array.from(
-    await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]),
-  );
+  const recoloured = Uint8Array.from(await page.evaluate(() => [...window.__AGI_VIEW__!.bytes()]));
 
   await workspaceUpdated(page);
   await closeWorkspaceEditor(page);
-  await expect(sprite).toBeHidden();
+  await expect(view).toBeHidden();
   expect(await workspaceDocument(page, "logic:1")).toBe(editedSource);
   expect(await storedDocument(page, projectId, "logic:1")).toBe(editedSource);
   expect(await storedDocument(page, projectId, "view:0")).toBeNull();
 
   // Storage holds the exact reviewed bytes; the mirror still shows the old pixels.
   const storedBytes = openContainer(await storedFiles(page, projectId)).getResource("view", 0)!;
-  const stored = openSprite(storedBytes, DEFAULT_V2_PROFILE);
+  const stored = openViewDocument(storedBytes, DEFAULT_V2_PROFILE);
   expect(storedBytes).toEqual(recoloured);
   // The mirror keeps showing its old pixels (it now owns a copy of them);
   // every other loop is byte-identical in display terms.
@@ -190,13 +188,13 @@ test("Update game saves exact VIEW recolour bytes and retains an unrelated LOGIC
       expect(pixel).toBe(before.pixels[i] === 12 ? toColour : before.pixels[i]);
     });
   });
-  await reviewShot(page, "project-resource-sprite-kept");
+  await reviewShot(page, "project-resource-view-kept");
 
   await savePlayProgress(page);
   await page.getByTestId("btn-exit").click();
   await openStoredWorkspace(page, "Recoloured ego");
   await openWorkspaceView(page, 0);
-  expect(await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()])).toEqual([...recoloured]);
+  expect(await page.evaluate(() => [...window.__AGI_VIEW__!.bytes()])).toEqual([...recoloured]);
   expect(await workspaceDocument(page, "logic:1")).toBe(editedSource);
   expect(providerCalls).toBe(0);
 });

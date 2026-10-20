@@ -8,7 +8,7 @@ import {
   traceOptionsChanges,
   makeCelsChanges,
   prepareImageCels,
-  suggestImageFrames,
+  suggestImageCels,
   readImageReferences,
   readProjectImage,
   imageTraceUnderlay,
@@ -70,7 +70,7 @@ test("four suggested frames become four appended cels in one detached operation"
   const existing = buildView({
     loops: [{ cels: [{ width: 1, height: 1, pixels: [2], transparentColor: 15 }] }],
   });
-  const frames = suggestImageFrames(image, 4);
+  const frames = suggestImageCels(image, 4);
   assert.deepEqual(
     frames.map((f) => f.region),
     [0, 2, 4, 6].map((x) => ({ x, y: 0, width: 2, height: 2 })),
@@ -266,12 +266,12 @@ test("released traces without a transform retain contain placement", () => {
 
 test("preparation identifies the current pixels after an in-place image edit", () => {
   const source = { ...image, rgba: image.rgba.slice() };
-  const frames = suggestImageFrames(source, 4);
+  const frames = suggestImageCels(source, 4);
   const first = prepareImageCels(source, frames, PROFILES["2.936"]);
   source.rgba[0] = 170;
   const next = prepareImageCels(source, frames, PROFILES["2.936"]);
-  assert.notDeepEqual(next.frames[0]!.source, first.frames[0]!.source);
-  assert.equal(next.frames[0]!.source.id, sha256Hex(source.rgba));
+  assert.notDeepEqual(next.cels[0]!.source, first.cels[0]!.source);
+  assert.equal(next.cels[0]!.source.id, sha256Hex(source.rgba));
 });
 
 // An imported picture is matched to the colours the game shows, because those
@@ -353,10 +353,10 @@ test("a recipe naming a palette needs its table, and one without a name is EGA",
   const replay = prepareView(raster, { ...recipe, paletteId: "amiga" } as never, profile, {
     amiga: AMIGA_TABLE,
   });
-  assert.equal(replay.frames[0]!.pixels[0], 13);
+  assert.equal(replay.cels[0]!.pixels[0], 13);
   assert.throws(
     () => prepareView(raster, { ...recipe, paletteId: "amiga" } as never, profile),
     /paletteId/,
   );
-  assert.equal(prepareView(raster, recipe as never, profile).frames[0]!.pixels[0], 5);
+  assert.equal(prepareView(raster, recipe as never, profile).cels[0]!.pixels[0], 5);
 });

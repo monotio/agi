@@ -111,11 +111,11 @@ export interface PowerUpUiState {
 
 /**
  * The refusal a stale authoring turn ends with — plain text for the
- * assistant panel, matching the wording a Keep's `behindStorage` refusal
+ * agent panel, matching the wording a commit's `behindStorage` refusal
  * points at: only reloading the game from storage continues.
  */
 const STALE_TURN_MESSAGE =
-  "The game was changed elsewhere while the assistant worked, so nothing was applied. Reload the game, then ask again.";
+  "The game was changed elsewhere while the agent worked, so nothing was applied. Reload the game, then ask again.";
 
 /**
  * The refusal of a conversation or session save whose project moved past
@@ -268,7 +268,7 @@ export interface AuthoringController {
   ): Promise<StoredReference>;
   /**
    * Store a decoded image as reference art for a room or a view, the way a
-   * Studio's Ask attaches it: to that one request, off the chat's next message.
+   * the editor's agent attaches it: to that one request, off the chat's next message.
    */
   attachStudioReference(
     decoded: DecodedImage,
@@ -280,24 +280,24 @@ export interface AuthoringController {
   /**
    * Commit a staged VIEW to the running game and the project record. Refuses
    * when the game's identity moved since the reference was attached.
-   * `repaired` keeps Sprite Studio's repair of the candidate instead.
+   * `repaired` keeps VIEW editor's repair of the candidate instead.
    */
-  keepStagedView(
+  commitStagedView(
     id: string,
     repaired?: Pick<ViewEdit, "bytes" | "baseRevision" | "baseAuthoring">,
   ): Promise<ResourceCommitResult>;
   /**
-   * Commit Room Studio's picture edit — bytes plus the source that compiles
+   * Commit PICTURE editor's picture edit — bytes plus the source that compiles
    * to them — to storage and the running game as one transaction. Throws a
    * ResourceCommitError; "unchanged" when there was nothing to write.
    */
   commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult>;
   /**
-   * Commit Room Studio's combined Keep: the picture and the room's logic
+   * Commit the PICTURE editor's picture and room LOGIC edits
    * (door rules and the bindings they reserved) in one transaction.
    */
   commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult>;
-  /** Commit Sprite Studio's VIEW edit the same way. */
+  /** Commit VIEW editor's VIEW edit the same way. */
   commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult>;
   /**
    * Ask the game's session about a Studio selection. Resolves with the
@@ -372,7 +372,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * Capture the revision a turn builds on and return its commit gate: the
    * booted game must still be this one, and storage must still hold that
    * revision and the authoring content this tab holds (requireSaved) while
-   * the staged result may land. A Keep saved elsewhere, or one whose install
+   * the staged result may land. A commit saved elsewhere, or one whose install
    * never reached the running game, leaves the project ahead of the live
    * state; refusing there discards the turn like a failed one instead of
    * overwriting the saved edit. Installed editions have no project record
@@ -406,7 +406,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * Save `author`'s conversation and authoring state (its sources and
    * bindings describe the bytes) over the record this game runs — an
    * authoring write: storage must still hold this game's revision and the
-   * authoring content this tab holds. A newer save (another tab, a Keep the
+   * authoring content this tab holds. A newer save (another tab, a commit the
    * game never loaded) refuses as stale with STALE_SAVE_MESSAGE; `files` (a
    * history adoption's) ride the same write. False when storage itself
    * refused.
@@ -453,7 +453,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /**
    * Save only the conversation `author` grew (see ConversationUpdate) —
-   * an Ask, an AI settings change. The stored
+   * an agent request, an AI settings change. The stored
    * authoring content is left as it is, so another tab's label, lock or
    * binding survives it; the record must still hold this game's revision.
    */
@@ -696,7 +696,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /**
    * Enter remix mode: pause the interpreter, freeze ego in place, and open
-   * the assistant bubble for the current room.
+   * the agent bubble for the current room.
    */
   async function getConversationAgent(): Promise<ConversationAgent | null> {
     const booted = getBootedGame();
@@ -902,7 +902,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     }
     requireConfigOwner();
 
-    // Opening the Assistant can still be saving its first catalog chat.
+    // Opening the Agent can still be saving its first catalog chat.
     // Settle that owned fork before capturing the game a new session loads.
     const project = options.getProjectSession?.();
     if (project) {
@@ -1036,7 +1036,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const authoringState = author.getAuthoringState();
     const writtenRev = planRevisionOf(author);
     const base: SavedBase = { authoring: true, message: STALE_TURN_MESSAGE };
-    // A write landing since boot (a Keep whose install never arrived,
+    // A write landing since boot (a commit whose install never arrived,
     // another tab) is newer than these files: refuse rather than overwrite
     // it, and let the write below stay conditional on this read.
     const saved = game.installed ? null : await requireSaved(game, base);
@@ -1167,8 +1167,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   /**
-   * Save the conversation a turn that wrote no resources grew (Ask, a Studio
-   * assist request) — never its authoring content. A project that moved past
+   * Save the conversation a turn that wrote no resources grew (an agent request, a selection
+   * agent request) — never its authoring content. A project that moved past
    * the running game refuses as stale (STALE_SAVE_MESSAGE) and keeps its
    * newer save.
    */
@@ -1322,7 +1322,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       }
       if (!booted) throw new Error("No game is running.");
       // The revision this turn builds on: the stored project must still hold
-      // it when the staged result commits — the same gate a Keep applies.
+      // it when the staged result commits — the same gate a commit applies.
       // A write already ahead fails fast, before the turn spends; the same
       // check inside the turn's commit gate catches one landing mid-turn.
       const turnBase = turnBaseGuard(booted, await refreshProjectTask(session));
@@ -1365,7 +1365,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // the durable write runs first: a refused save installs nothing, and
       // the running game follows only once it confirms the saved files.
       const currentFiles = await query("exportFiles");
-      if (!currentFiles) throw new Error("The remixed game snapshot is unavailable.");
+      if (!currentFiles) throw new Error("The remixed game state is unavailable.");
       const container = openContainer(new Map(Object.entries(currentFiles)), {
         profile: session.state.profile,
       });
@@ -2158,7 +2158,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   /** Keep resources, source and the consumed offer in one conditional durable write. */
-  async function keepStagedView(
+  async function commitStagedView(
     id: string,
     repaired?: Pick<ViewEdit, "bytes" | "baseRevision" | "baseAuthoring">,
   ): Promise<ResourceCommitResult> {
@@ -2170,7 +2170,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (result.status === "committed")
       logAgent(
         "log",
-        `Room Studio kept picture ${edit.pictureNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
+        `Saved picture ${edit.pictureNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
       );
     return result;
   }
@@ -2180,7 +2180,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (result.status === "committed")
       logAgent(
         "log",
-        `Room Studio kept room ${edit.room}${edit.picture ? ` and picture ${edit.picture.pictureNumber}` : ""}${edit.reason ? `: ${edit.reason}` : ""}.`,
+        `Saved room ${edit.room}${edit.picture ? ` and picture ${edit.picture.pictureNumber}` : ""}${edit.reason ? `: ${edit.reason}` : ""}.`,
       );
     return result;
   }
@@ -2188,10 +2188,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   async function commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult> {
     const result = await commitResourceEdit(viewEdit(edit));
     if (result.status === "committed")
-      logAgent(
-        "log",
-        `Sprite Studio kept view ${edit.viewNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
-      );
+      logAgent("log", `Saved view ${edit.viewNumber}${edit.reason ? `: ${edit.reason}` : ""}.`);
     return result;
   }
 
@@ -2239,7 +2236,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     attachCharacterReference,
     attachStudioReference,
     detachReference,
-    keepStagedView,
+    commitStagedView,
     commitPictureEdit,
     commitRoomEdit,
     commitViewEdit,

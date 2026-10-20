@@ -124,7 +124,7 @@ test("a replacement waits for the autosave interval on the host clock", (t) => {
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 2);
 });
 
-test("a forced checkpoint refused before the first picture is taken once the room has drawn", (t) => {
+test("a forced progress entry refused before the first picture is taken once the room has drawn", (t) => {
   // Play after Create asks for a checkpoint at once; a game that has not drawn
   // yet still owes it, rather than leaving the edit unsaved until the next interval.
   const { ctx, presentation } = workerHarness(drawnGame());

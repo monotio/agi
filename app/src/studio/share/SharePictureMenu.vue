@@ -12,7 +12,7 @@ import { stillPng, type ShareCaption } from "./shareFrame.ts";
 import { colourTableForProfile } from "../../../../src/runtime/colourTables.ts";
 
 /**
- * Share in Room Studio's top bar, after the room's name: the picture painting itself as a clip
+ * Share in PICTURE editor's top bar, after the room's name: the picture painting itself as a clip
  * (renderClip.ts), or the finished picture as a still (shareFrame.ts), each
  * with its caption card. It shares the draft on the canvas, unkept changes
  * included, and says so. The file is previewed before it is downloaded or,

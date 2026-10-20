@@ -143,7 +143,7 @@ function savedTarget(project: string, revision: ResourceRevision): ProgressTarge
   return target;
 }
 
-test("a live source's checkpoint lists once and prepares for the selected destination", async () => {
+test("a live source's progress entry lists once and prepares for the selected destination", async () => {
   clearStores();
   const rig = await starterRig();
   const source = "earlier-garden";
@@ -208,7 +208,7 @@ test("the selected interpreter falls back to detection when none is chosen", asy
   assert.equal(prepared.profile, "2.936");
 });
 
-test("duplicate checkpoint keys stay separate; the index selects the actual entry", async () => {
+test("duplicate progress entry keys stay separate; the index selects the actual entry", async () => {
   clearStores();
   const rig = await starterRig();
   const source = "attic-copy";
@@ -408,11 +408,11 @@ test("unsupported, misassociated and foreign-keyed raw values refuse without wri
   assert.deepEqual(listEarlierCheckpoints(capt), []);
   await assert.rejects(
     prepareEarlierCheckpoint({ read: capt, entryIndex: 0, target, files, profile }),
-    /not this source's checkpoint/,
+    /not this source's progress entry/,
   );
   await assert.rejects(
     prepareEarlierCheckpoint({ read: capt, entryIndex: 1, target, files, profile }),
-    /not this source's checkpoint/,
+    /not this source's progress entry/,
   );
 });
 
@@ -447,7 +447,7 @@ test("source whitespace and additional fields stay byte-exact", async () => {
   assert.equal(rebound["trailing "], true);
 });
 
-test("unsafe neighbouring capture data neither blocks nor travels with the checkpoint", async () => {
+test("unsafe neighbouring capture data neither blocks nor travels with the progress entry", async () => {
   clearStores();
   const rig = await starterRig();
   const source = "mixed-unsafe";
@@ -489,7 +489,7 @@ test("unsafe neighbouring capture data neither blocks nor travels with the check
   assert.equal(held["self"], held, "the cyclic neighbour is untouched");
 });
 
-test("opaque reads — unsupported, unreadable, absent and orphan — offer no checkpoint", async () => {
+test("opaque reads — unsupported, unreadable, absent and orphan — offer no progress entry", async () => {
   clearStores();
   const rig = await starterRig();
   const target = savedTarget("anywhere", rig.revision);
@@ -510,7 +510,7 @@ test("opaque reads — unsupported, unreadable, absent and orphan — offer no c
   assert.deepEqual(listEarlierCheckpoints(unsupported), []);
   await assert.rejects(
     prepareEarlierCheckpoint({ read: unsupported, entryIndex: 0, target, files, profile }),
-    /no checkpoint/,
+    /no progress entry/,
   );
 
   RECORDS.set("legacy-progress/raw/cap", { format: "other", version: 1 });
@@ -521,7 +521,7 @@ test("opaque reads — unsupported, unreadable, absent and orphan — offer no c
   assert.deepEqual(listEarlierCheckpoints(unreadable), []);
   await assert.rejects(
     prepareEarlierCheckpoint({ read: unreadable, entryIndex: 0, target, files, profile }),
-    /no checkpoint/,
+    /no progress entry/,
   );
 
   const absent = await readEarlierProgress({
@@ -531,7 +531,7 @@ test("opaque reads — unsupported, unreadable, absent and orphan — offer no c
   assert.deepEqual(listEarlierCheckpoints(absent), []);
   await assert.rejects(
     prepareEarlierCheckpoint({ read: absent, entryIndex: 0, target, files, profile }),
-    /no checkpoint/,
+    /no progress entry/,
   );
 
   // An orphan local row holds valid checkpoint data but no source spelling.
@@ -550,11 +550,11 @@ test("opaque reads — unsupported, unreadable, absent and orphan — offer no c
   assert.deepEqual(listEarlierCheckpoints(orphan), []);
   await assert.rejects(
     prepareEarlierCheckpoint({ read: orphan, entryIndex: 0, target, files, profile }),
-    /no checkpoint/,
+    /no progress entry/,
   );
 });
 
-test("a checkpoint whose stored image does not decode fails verification", async () => {
+test("a progress entry whose stored image does not decode fails verification", async () => {
   clearStores();
   const rig = await starterRig();
   const source = "broken-image";

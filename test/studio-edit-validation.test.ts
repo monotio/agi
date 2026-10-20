@@ -128,10 +128,10 @@ describe("validateEdit", () => {
     );
   });
 
-  it("checks each plane against its own mask: an art footprint does not free the depth under it", () => {
+  it("checks each plane against its own mask: an art footprint does not free the priority under it", () => {
     // An art fill after a mixed fill of the same area draws nothing; moved
     // before it, it paints the same art and leaves the mixed fill nothing
-    // to flood, so the floor's depth 9 is gone from the whole room.
+    // to flood, so the floor's priority 9 is gone from the whole room.
     const room = doc(
       '# @item frame "Frame" art',
       "vis 0",
@@ -153,7 +153,7 @@ describe("validateEdit", () => {
     const after = compile(edited(room, { type: "reorderItem", itemId: "patch", toIndex: 1 }));
     const own = (plane: "visual" | "priority"): Uint8Array =>
       unionMask(footprintMask(before, "patch", plane), footprintMask(after, "patch", plane));
-    // The single mask is the union of both planes: the lost depth lies inside it.
+    // The single mask is the union of both planes: the lost priority lies inside it.
     assert.deepEqual(
       validateEdit(before, after, { lockedPlanes: [], allowedMask: around(before, after, "patch") })
         .violations,
@@ -206,7 +206,7 @@ describe("validateEdit", () => {
 });
 
 describe("edit properties on decoded planes", () => {
-  it("moving a depth-only item never changes a visual pixel", () => {
+  it("moving a priority-only item never changes a visual pixel", () => {
     const document = doc(
       "vis 2",
       "rect 10,10 60,60",

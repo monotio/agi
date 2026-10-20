@@ -1,6 +1,5 @@
 /**
- * Studio undo/redo over string snapshots: picture source text in the Room
- * Studio, encoded VIEW payloads in the Sprite Studio (spriteHistory.ts). Pure:
+ * Studio undo/redo over string snapshots: picture source text in the PICTURE editor, encoded VIEW payloads in the VIEW editor (viewHistory.ts). Pure:
  * every function returns a new history. A `begin`/`commit` gesture (a whole
  * drag) becomes one step; undo and redo refuse, rather than overwrite, a
  * document whose snapshot is no longer the one the history expects.
@@ -22,13 +21,13 @@ export interface EditHistory {
   /** An open gesture: its label and the text it started from. */
   readonly gesture?: HistoryStep;
   /** The most steps `past` keeps; older ones are dropped. */
-  readonly depth: number;
+  readonly limit: number;
   /**
-   * How many of the oldest steps `past` has dropped at `depth` so far, so a
+   * How many of the oldest steps `past` has dropped at `limit` so far, so a
    * shared undo order can drop exactly their places (useUndoOrder `dropped`).
    */
   readonly dropped: number;
-  /** What the snapshots are, as refusals name it ("picture", "sprite"). */
+  /** What the snapshots are, as refusals name it ("picture", "view"). */
   readonly subject: string;
 }
 
@@ -36,30 +35,30 @@ export type HistoryResult =
   | { readonly ok: true; readonly history: EditHistory; readonly source: string }
   | { readonly ok: false; readonly reason: string };
 
-export const DEFAULT_HISTORY_DEPTH = 200;
+export const DEFAULT_HISTORY_LIMIT = 200;
 
 export function createHistory(
   source: string,
-  depth = DEFAULT_HISTORY_DEPTH,
+  limit = DEFAULT_HISTORY_LIMIT,
   subject = "picture",
 ): EditHistory {
-  if (!Number.isInteger(depth) || depth < 1) throw new RangeError(`depth must be >= 1`);
-  return { past: [], future: [], current: source, depth, subject, dropped: 0 };
+  if (!Number.isInteger(limit) || limit < 1) throw new RangeError(`limit must be >= 1`);
+  return { past: [], future: [], current: source, limit, subject, dropped: 0 };
 }
 
-/** The history with these stacks and text, no gesture, `past` capped at `depth`. */
+/** The history with these stacks and text, no gesture, `past` capped at `limit`. */
 function settle(
   history: EditHistory,
   past: readonly HistoryStep[],
   future: readonly HistoryStep[],
   current: string,
 ): EditHistory {
-  const over = Math.max(0, past.length - history.depth);
+  const over = Math.max(0, past.length - history.limit);
   return {
     past: past.slice(over),
     future,
     current,
-    depth: history.depth,
+    limit: history.limit,
     subject: history.subject,
     dropped: history.dropped + over,
   };

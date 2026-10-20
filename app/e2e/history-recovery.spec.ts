@@ -58,7 +58,7 @@ test("healthy development backup contains replay history and a complete report",
   await expect(page.getByTestId("export-refusal")).toBeHidden();
 });
 
-test("blocked stores still download current game and checkpoint with explicit recovery history", async ({
+test("blocked stores still download current game and progress entry with explicit recovery history", async ({
   page,
   browser,
 }) => {
@@ -282,7 +282,7 @@ test("a stored timeline this version cannot extend says so once, never blocks Ex
   await exit();
 });
 
-test("unreadable saved slots are reported even when current checkpoint and history are available", async ({
+test("unreadable saved slots are reported even when current progress entry and history are available", async ({
   page,
 }) => {
   await boot(page);

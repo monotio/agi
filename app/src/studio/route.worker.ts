@@ -1,7 +1,7 @@
 import { testRoute } from "../../../src/studio/route.ts";
 import type { RouteWorkerInbound, RouteWorkerOutbound } from "./routeRunner.ts";
 
-/** One Room Studio test walk in a throwaway engine; the caller terminates the worker after it. */
+/** One PICTURE editor test walk in a throwaway engine; the caller terminates the worker after it. */
 self.onmessage = (event: MessageEvent<RouteWorkerInbound>) => {
   const { files, ...walk } = event.data;
   try {

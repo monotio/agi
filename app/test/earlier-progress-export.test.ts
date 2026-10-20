@@ -404,7 +404,7 @@ test("a refused live export retains its records and its unexported local keys", 
 
 test("a live source with no records and no local strings has nothing to export", async () => {
   clearStores();
-  const exported = exportEarlierProgress(await readLive("ghost"));
+  const exported = exportEarlierProgress(await readLive("standIn"));
   assert.equal(exported.status, "unavailable");
   assert.equal(exported.json, undefined);
   assert.equal(exported.localJson, undefined);

@@ -355,7 +355,7 @@ test("import and copy rebind a verified staged reference; a stale one keeps its 
   );
   const imported = (await loadAuthoredGame(importedId))!;
   const [rebound, stillStale] = imported.references!;
-  // The import's fresh project id adopts the verified candidate — Keep can
+  // The import's fresh project id adopts the verified candidate — the commit can
   // proceed — while the stale draft stays refused.
   assert.equal(
     stagedRefusal(rebound!, { project: importedId, revision: imported.library!.revision }),
@@ -1175,7 +1175,7 @@ test("private imports without conventions are legacy; identical raw reimports re
   });
 });
 
-test("a new external import records current conventions before gaining assistant context", async (t) => {
+test("a new external import records current conventions before gaining agent context", async (t) => {
   installLocalStorage(t);
   const id = await addLibraryGame(
     { files: game("set(f198); return;"), words: [] },

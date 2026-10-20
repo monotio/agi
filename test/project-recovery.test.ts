@@ -189,7 +189,7 @@ test("a matching base restores edits and groups without importing old authority"
   assert.deepEqual(restored.select(["view:1"]).keys, ["view:1"]);
   assert.equal(restored.select(["view:1"]).documents()["logic:0"], "return;");
   assert.throws(() => restored.apply(proposal), /workspace/);
-  assert.throws(() => restored.acknowledgeKept(selection), /workspace/);
+  assert.throws(() => restored.acknowledgeSaved(selection), /workspace/);
   assert.throws(() => restored.undo(transaction.id), /transaction|undo/i);
 });
 

@@ -12,7 +12,7 @@ import { expect, test } from "./test.ts";
 /**
  * The shell's design system, checked where a player meets it: one motion
  * recipe that reduced motion turns off, the brand drawn in the engine's own
- * font, standard dialogs, drawn switches, the Ask button clear of the stage,
+ * font, standard dialogs, drawn switches, the Agent button clear of the stage,
  * and a World inspector with one primary action and its evidence folded away.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -29,7 +29,7 @@ async function playTutorial(page: Page): Promise<void> {
 const animation = (locator: ReturnType<Page["locator"]>) =>
   locator.evaluate((element) => getComputedStyle(element).animationName);
 
-test("dialogs, sheets, menus and the Ask drawer share one entrance, and reduced motion stills it", async ({
+test("dialogs, sheets, menus and the Agent drawer share one entrance, and reduced motion stills it", async ({
   page,
 }) => {
   // The rule is the entrance animation itself, so this test opts out of the suite's reduced motion.
@@ -52,8 +52,8 @@ test("dialogs, sheets, menus and the Ask drawer share one entrance, and reduced 
   await expect(menu).toBeVisible();
   expect(await animation(menu)).toBe("ui-menu-in");
   await page.keyboard.press("Escape");
-  // The Ask drawer slides in from its edge.
-  await page.getByTestId("menu-assistant").click();
+  // The Agent drawer slides in from its edge.
+  await page.getByTestId("menu-agent").click();
   const drawer = page.getByTestId("agent-drawer");
   await expect(drawer).toBeVisible();
   await expect(drawer.getByTestId("workspace-agent-panel")).toBeVisible();
@@ -61,7 +61,7 @@ test("dialogs, sheets, menus and the Ask drawer share one entrance, and reduced 
   await drawer.getByTestId("agent-panel-close").click();
 
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(drawer).toBeVisible();
   await expect(drawer.getByTestId("workspace-agent-panel")).toBeVisible();
   expect(await animation(drawer)).toBe("none");
@@ -104,7 +104,7 @@ test("Help, Game controls and the map close with the standard × button", async 
 test("settings draw switches, and Developer activity is off every page", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await expect(page.getByTestId("hero-primary")).toBeVisible();
+  await expect(page.getByTestId("intro-primary")).toBeVisible();
   await expect(page.getByTestId("agent-panel")).toBeHidden();
   await expect(page.getByTestId("developer-activity-summary")).toHaveCount(0);
   await expect(page.getByText("Copy debug bundle")).toBeHidden();
@@ -122,23 +122,23 @@ test("settings draw switches, and Developer activity is off every page", async (
   }
 });
 
-test("Ask docks in the play strip, clear of the stage, and steps away while its drawer is open", async ({
+test("Agent docks in the play strip, clear of the stage, and steps away while its drawer is open", async ({
   page,
 }) => {
   await playTutorial(page);
-  const ask = page.getByTestId("menu-assistant");
+  const agent = page.getByTestId("menu-agent");
   const screen = (await page.locator(".screen").boundingBox())!;
   const strip = (await page.locator(".play-strip").boundingBox())!;
-  const box = (await ask.boundingBox())!;
+  const box = (await agent.boundingBox())!;
   expect(box.y).toBeGreaterThanOrEqual(strip.y);
   expect(box.y + box.height).toBeLessThanOrEqual(strip.y + strip.height);
   expect(box.y).toBeGreaterThanOrEqual(screen.y + screen.height);
-  await ask.click();
+  await agent.click();
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
-  await expect(ask).toBeHidden();
-  await expect(ask).toHaveAttribute("aria-expanded", "true");
+  await expect(agent).toBeHidden();
+  await expect(agent).toHaveAttribute("aria-expanded", "true");
   await page.getByTestId("agent-panel-close").click();
-  await expect(ask).toBeVisible();
+  await expect(agent).toBeVisible();
 });
 
 test("the home hero draws the wordmark in the engine's font with a cyan full stop", async ({
@@ -238,7 +238,7 @@ test("the Inspect tab groups its views as one segmented control with a caption",
     "aria-checked",
     "true",
   );
-  await expect(page.getByTestId("dbg-mode-note")).toContainText("Depth values");
+  await expect(page.getByTestId("dbg-mode-note")).toContainText("Priority values");
   await expect(page.getByTestId("dbg-overlay-toggle")).toHaveRole("switch");
   await expect(page.getByTestId("dbg-inspect-toggle")).toHaveRole("switch");
 });
@@ -246,7 +246,7 @@ test("the Inspect tab groups its views as one segmented control with a caption",
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("Play keeps its key status on one line, Ask in the strip and Keys a compact control", async ({
+  test("Play keeps its key status on one line, Agent in the strip and Keys a compact control", async ({
     page,
   }) => {
     await isolateStorage(page);
@@ -265,9 +265,9 @@ test.describe("phone", () => {
     expect((await help.boundingBox())!.height).toBeLessThan(lineHeight * 1.5);
     const keys = page.getByTestId("touch-controls").getByText("Keys", { exact: true });
     expect((await keys.boundingBox())!.width).toBeLessThan(160);
-    // Ask sits in the strip, not over the canvas's bottom text rows.
+    // Agent sits in the strip, not over the canvas's bottom text rows.
     const screen = (await page.locator(".screen").boundingBox())!;
-    const ask = (await page.getByTestId("menu-assistant").boundingBox())!;
-    expect(ask.y).toBeGreaterThanOrEqual(screen.y + screen.height);
+    const agent = (await page.getByTestId("menu-agent").boundingBox())!;
+    expect(agent.y).toBeGreaterThanOrEqual(screen.y + screen.height);
   });
 });

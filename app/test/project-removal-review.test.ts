@@ -33,7 +33,7 @@ async function cueProject(title: string, referenced = false) {
   workspace.draft.edit("sound:42", changes[0]!.content, base.version("sound:42"));
   if (referenced)
     workspace.draft.edit("logic:1", "sound(42, f90); return;", base.version("logic:1"));
-  await workspace.keepCandidate(
+  await workspace.commitCandidate(
     workspace.buildSelected(referenced ? ["sound:42", "logic:1"] : ["sound:42"]),
   );
   return workspace;
@@ -45,8 +45,8 @@ test("an explicitly reviewed unreferenced SOUND removal keeps and reopens as rem
   workspace.draft.edit("sound:42", null, base.version("sound:42"));
   const candidate = workspace.buildSelected(["sound:42"]);
   assert.deepEqual(candidate.removedResources, ["sound:42"]);
-  await assert.rejects(workspace.keepCandidate(candidate), /review|remov/i);
-  await workspace.keepCandidate(candidate, { reviewedRemovals: ["sound:42"] });
+  await assert.rejects(workspace.commitCandidate(candidate), /review|remov/i);
+  await workspace.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] });
   const data = await loadAuthoredGame(workspace.projectId);
   assert.ok(data);
   assert.equal(openContainer(new Map(Object.entries(data.files))).getResource("sound", 42), null);
@@ -54,20 +54,20 @@ test("an explicitly reviewed unreferenced SOUND removal keeps and reopens as rem
   assert.equal(reopened.draft.capture().read("sound:42"), undefined);
 });
 
-test("a reviewed removal with a surviving real LOGIC reference cannot Keep", async () => {
+test("a reviewed removal with a surviving real LOGIC reference cannot be committed", async () => {
   const workspace = await cueProject("Referenced cue removal", true);
   const generation = workspace.savedIdentity().generation;
   workspace.draft.edit("sound:42", null, workspace.draft.capture().version("sound:42"));
   const candidate = workspace.buildSelected(["sound:42"]);
   assert.ok(candidate.diagnostics.some((entry) => entry.severity === "error"));
-  await assert.rejects(workspace.keepCandidate(candidate, { reviewedRemovals: ["sound:42"] }));
+  await assert.rejects(workspace.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] }));
   const data = await loadAuthoredGame(workspace.projectId);
   assert.ok(data);
   assert.equal(data.generation, generation);
   assert.ok(openContainer(new Map(Object.entries(data.files))).getResource("sound", 42));
 });
 
-test("a complete reviewed LOGIC repair and SOUND removal land in one Keep", async () => {
+test("a complete reviewed LOGIC repair and SOUND removal land in one commit", async () => {
   const workspace = await cueProject("Coordinated cue removal", true);
   const base = workspace.draft.capture();
   workspace.draft.apply(
@@ -78,7 +78,7 @@ test("a complete reviewed LOGIC repair and SOUND removal land in one Keep", asyn
   );
   const candidate = workspace.buildSelected(["sound:42", "logic:1"]);
   assert.equal(candidate.diagnostics.filter((entry) => entry.severity === "error").length, 0);
-  await workspace.keepCandidate(candidate, { reviewedRemovals: ["sound:42"] });
+  await workspace.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] });
   const data = await loadAuthoredGame(workspace.projectId);
   assert.ok(data);
   assert.equal(openContainer(new Map(Object.entries(data.files))).getResource("sound", 42), null);

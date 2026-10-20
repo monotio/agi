@@ -109,7 +109,7 @@ function powerUp(): PowerUpUiState {
 
 /**
  * One tab: the project booted from its stored record and, when `warm`, a
- * session hydrated from it, the assistant closed again.
+ * session hydrated from it, the agent closed again.
  */
 async function openTab(projectId: ProjectId, files: Record<string, Uint8Array>, warm = true) {
   const game: BootedGame = {
@@ -321,7 +321,7 @@ test("a tab that hears another tab's authoring edit is stale for authoring at on
 
 test("a Studio draft keeps against the authoring it opened on, even after a session hydrates newer", async (t) => {
   const { projectId, files, revision } = await storeProject(t, "two-tab-draft");
-  // B opens Room Studio on the sky with no session live: the booted record's text.
+  // B opens PICTURE editor on the sky with no session live: the booted record's text.
   const b = await openTab(projectId, files, false);
   const opened = { revision: b.game.revision, authoring: openDraft(b.game) };
   // A renames the sky; then B's first AI request hydrates a session from storage.
@@ -330,7 +330,7 @@ test("a Studio draft keeps against the authoring it opened on, even after a sess
   await b.controller.openPowerUp(STUB);
   b.controller.closePowerUp();
 
-  // B's draft, made on the old text, locks the sky: Keep must not drop A's label.
+  // B's draft, made on the old text, locks the sky: commit must not drop A's label.
   await assert.rejects(
     b.controller.commitPictureEdit({
       pictureNumber: 1,

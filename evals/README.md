@@ -12,7 +12,7 @@ the tools give it enough feedback to correct mistakes.
 | Reference art     | `npm run eval:references`            | Full images against handles: tokens, cost, read_reference_image calls and match             |
 | Prompt cache      | `npm run eval:cache`                 | Prefix stability of consecutive requests offline; cache reads and writes live               |
 | Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output              |
-| Genesis matrix    | `npm run eval:matrix`                | Cost, content, picture depth and control lines, and brief coverage per run                  |
+| Genesis matrix    | `npm run eval:matrix`                | Cost, content, picture priority and control lines, and brief coverage per run               |
 
 ## Offline verification
 

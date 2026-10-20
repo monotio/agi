@@ -168,9 +168,9 @@ test("the editor frame has no repeated room or bytes rows and Focus is an icon @
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await expect(page.getByTestId("workspace-room-live")).toHaveCount(0);
-  await expect(page.getByTestId("room-studio").locator(".studio__meta-bar")).toHaveCount(0);
+  await expect(page.getByTestId("picture-studio").locator(".studio__meta-bar")).toHaveCount(0);
   await expect(page.getByTestId("studio-size")).toHaveCount(0);
   await expect(page.getByTestId("studio-issues")).toHaveCount(0);
   const focus = page.getByTestId("workspace-focus");
@@ -183,7 +183,7 @@ test("the editor frame has no repeated room or bytes rows and Focus is an icon @
   await expect(status).toContainText("AGI 2.936");
   // The studio's status is the pointer's position on the picture.
   await page
-    .getByTestId("room-studio")
+    .getByTestId("picture-studio")
     .getByRole("group", { name: /^Canvas/ })
     .hover();
   await expect(status.getByTestId("studio-status")).toBeVisible();
@@ -220,7 +220,7 @@ test("the game bar names the running room; Play visits and Back returns @webkit-
   await page.getByRole("menuitem", { name: "Update and keep playing", exact: true }).click();
   await expect(page.getByTestId("workspace-pending")).toBeHidden();
   await page.getByTestId("part-room:2:picture:2").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   expect((await textHook(page)).room).toBe(1);
   await expect(bar.getByTestId("workspace-room")).toHaveText("Meadow · Room 1");
   await expect(bar.getByRole("button", { name: "Back to Meadow", exact: true })).toHaveCount(0);
@@ -251,7 +251,7 @@ for (const [width, height] of [
     await page.getByTestId("part-room:1:logic").click();
     const context = page.getByTestId("workspace-context");
     await expect(context).toBeVisible();
-    await clickContextAction(page, "room-action-place-hero");
+    await clickContextAction(page, "room-action-place-ego");
     const form = context.getByTestId("workspace-guided-form");
     const here = form.getByRole("button", { name: "Start here", exact: true });
     await expect(form).toBeVisible();

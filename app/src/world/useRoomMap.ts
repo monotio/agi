@@ -1161,7 +1161,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     // (the remix bubble, the history transport) is still holding one. A room
     // build in flight keeps its own "mapBuild" hold, so closing the map
     // mid-build cannot resume play into a half-authored room; its progress
-    // moves to the assistant bubble so the work stays visible.
+    // moves to the agent bubble so the work stays visible.
     deps.resumeEngine("map");
     if (walkthroughPauseOwned && state.walkthrough.status === "paused") deps.resumeWalkthrough();
     walkthroughPauseOwned = false;

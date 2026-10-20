@@ -11,7 +11,7 @@ import {
 import type { ProjectId } from "../../src/gameIdentity.ts";
 import {
   openEditableProject,
-  type EditableKeepReview,
+  type EditableCommitReview,
   type EditableProject,
 } from "../src/project/editableProject.ts";
 import * as storage from "../src/project/gameStorage.ts";
@@ -54,7 +54,7 @@ function edit(ws: EditableProject, key: string, content: string | Uint8Array | n
   ws.draft.edit(key, content, ws.draft.capture().version(key));
 }
 
-/** Add a kept SOUND 42 to the project through a real Keep. */
+/** Add a kept SOUND 42 to the project through a real commit. */
 async function keepSound(ws: EditableProject, num = 42) {
   const doc = ws.draft.capture().read(`sound:${num}`);
   if (doc !== undefined) return;
@@ -63,7 +63,7 @@ async function keepSound(ws: EditableProject, num = 42) {
     createSoundDocument().encode(),
     ws.draft.capture().version(`sound:${num}`),
   );
-  await ws.keepCandidate(ws.buildSelected([`sound:${num}`]));
+  await ws.commitCandidate(ws.buildSelected([`sound:${num}`]));
 }
 
 function soundBytes(data: { files: Record<string, Uint8Array> }, num: number) {
@@ -79,24 +79,24 @@ test("the review list must name the candidate's exact removals, then retry admit
   assert.deepEqual(candidate.removedResources, ["sound:42"]);
 
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["sound:9"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["sound:9"] }),
     /names no removal/,
   );
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["sound:42", "sound:42"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["sound:42", "sound:42"] }),
     /twice/,
   );
-  await assert.rejects(ws.keepCandidate(candidate, { reviewedRemovals: [] }), /missing/i);
-  await assert.rejects(ws.keepCandidate(candidate), /requires review|reviewedRemovals/);
+  await assert.rejects(ws.commitCandidate(candidate, { reviewedRemovals: [] }), /missing/i);
+  await assert.rejects(ws.commitCandidate(candidate), /requires review|reviewedRemovals/);
 
   // A refused admission leaves the candidate retriable under the right review.
-  const review: EditableKeepReview = { reviewedRemovals: ["sound:42"] };
-  const kept = await ws.keepCandidate(candidate, review);
+  const review: EditableCommitReview = { reviewedRemovals: ["sound:42"] };
+  const kept = await ws.commitCandidate(candidate, review);
   assert.equal(kept.commitId, candidate.commitId);
   assert.equal(soundBytes(await storedBody(projectId), 42), null);
 
   // Retry resolves the same durable receipt without re-running review.
-  const replay = await ws.keepCandidate(candidate);
+  const replay = await ws.commitCandidate(candidate);
   assert.equal(replay.commitId, candidate.commitId);
 });
 
@@ -107,10 +107,10 @@ test("a review list on a candidate that removes nothing is refused", async () =>
   const candidate = ws.buildSelected(["logic:1"]);
   assert.deepEqual(candidate.removedResources, []);
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["view:1"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["view:1"] }),
     /no removal|removes no resources/i,
   );
-  await ws.keepCandidate(candidate);
+  await ws.commitCandidate(candidate);
 });
 
 test("candidate fields cannot forge or remap the issued identity", async () => {
@@ -121,7 +121,7 @@ test("candidate fields cannot forge or remap the issued identity", async () => {
   const candidate = ws.buildSelected(["sound:42"]);
   const detached = { ...candidate, removedResources: [] as string[] };
   await assert.rejects(
-    ws.keepCandidate(detached, { reviewedRemovals: [] }),
+    ws.commitCandidate(detached, { reviewedRemovals: [] }),
     /another workspace|service/,
   );
 });
@@ -133,17 +133,17 @@ test("a stale selection refuses even with a complete review", async () => {
   edit(ws, "sound:42", null);
   const candidate = ws.buildSelected(["sound:42"]);
   edit(ws, "logic:1", "return;");
-  await assert.rejects(ws.keepCandidate(candidate, { reviewedRemovals: ["sound:42"] }), /stale/i);
+  await assert.rejects(ws.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] }), /stale/i);
 });
 
-test("a pending Keep is idempotent: a second call joins it without a second review", async () => {
+test("a pending commit is idempotent: a second call joins it without a second review", async () => {
   const projectId = await seedProject("rm-pending");
   const ws = await openEditableProject(projectId);
   await keepSound(ws);
   edit(ws, "sound:42", null);
   const candidate = ws.buildSelected(["sound:42"]);
-  const first = ws.keepCandidate(candidate, { reviewedRemovals: ["sound:42"] });
-  const second = ws.keepCandidate(candidate, { reviewedRemovals: ["sound:9"] });
+  const first = ws.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] });
+  const second = ws.commitCandidate(candidate, { reviewedRemovals: ["sound:9"] });
   assert.equal(await first, await second);
   assert.equal(soundBytes(await storedBody(projectId), 42), null);
 });
@@ -153,13 +153,13 @@ test("a surviving LOGIC use refuses with the use named and nothing written", asy
   const ws = await openEditableProject(projectId);
   await keepSound(ws);
   edit(ws, "logic:7", "sound(42, f90); return;");
-  await ws.keepCandidate(ws.buildSelected(["logic:7"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:7"]));
   const before = await storedBody(projectId);
 
   edit(ws, "sound:42", null);
   const candidate = ws.buildSelected(["sound:42"]);
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["sound:42"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] }),
     /sound:42 is still used by logic:7/,
   );
   const after = await storedBody(projectId);
@@ -174,16 +174,16 @@ test("a same-family unresolved operand blocks; an unrelated family does not", as
   await keepSound(ws);
   // Blank logic:1 already reads a picture from v50; that must not gate SOUND.
   edit(ws, "sound:42", null);
-  await ws.keepCandidate(ws.buildSelected(["sound:42"]), {
+  await ws.commitCandidate(ws.buildSelected(["sound:42"]), {
     reviewedRemovals: ["sound:42"],
   });
 
   // The current-room dispatch resolves to boot and authored transitions.
   edit(ws, "logic:9", "return;");
-  await ws.keepCandidate(ws.buildSelected(["logic:9"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:9"]));
   edit(ws, "logic:9", null);
   const logicRemoval = ws.buildSelected(["logic:9"]);
-  await ws.keepCandidate(logicRemoval, { reviewedRemovals: ["logic:9"] });
+  await ws.commitCandidate(logicRemoval, { reviewedRemovals: ["logic:9"] });
   assert.equal(
     openContainer(new Map(Object.entries((await storedBody(projectId)).files))).getResource(
       "logic",
@@ -198,7 +198,7 @@ test("an unselected dirty draft use blocks until the draft is repaired", async (
   const ws = await openEditableProject(projectId);
   await keepSound(ws);
   edit(ws, "logic:9", "return;");
-  await ws.keepCandidate(ws.buildSelected(["logic:9"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:9"]));
 
   // Typing a use into an unselected draft is a potential use the candidate
   // did not compile; review must find it through the open draft.
@@ -206,13 +206,13 @@ test("an unselected dirty draft use blocks until the draft is repaired", async (
   edit(ws, "sound:42", null);
   const blocked = ws.buildSelected(["sound:42"]);
   await assert.rejects(
-    ws.keepCandidate(blocked, { reviewedRemovals: ["sound:42"] }),
+    ws.commitCandidate(blocked, { reviewedRemovals: ["sound:42"] }),
     /still used by draft logic:9/,
   );
 
   edit(ws, "logic:9", "return;");
   const repaired = ws.buildSelected(["sound:42"]);
-  await ws.keepCandidate(repaired, { reviewedRemovals: ["sound:42"] });
+  await ws.commitCandidate(repaired, { reviewedRemovals: ["sound:42"] });
   assert.equal(soundBytes(await storedBody(projectId), 42), null);
 });
 
@@ -222,11 +222,11 @@ test("a computed room jump names its room and LOGIC while native removal preserv
   edit(ws, "logic:0", "call(1);return;");
   edit(ws, "logic:1", '#message 1 "Room"\nget.num(m1,v60);new.room.v(v60);return;');
   edit(ws, "logic:9", "return;");
-  await ws.keepCandidate(ws.buildSelected(["logic:0", "logic:1", "logic:9"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:0", "logic:1", "logic:9"]));
   const before = await storedBody(projectId);
   edit(ws, "logic:9", null);
   await assert.rejects(
-    ws.keepCandidate(ws.buildSelected(["logic:9"]), { reviewedRemovals: ["logic:9"] }),
+    ws.commitCandidate(ws.buildSelected(["logic:9"]), { reviewedRemovals: ["logic:9"] }),
     /Room 9.*computed room jump in LOGIC 1 \(the debug teleport\).*Remove anyway/,
   );
   const after = await storedBody(projectId);
@@ -247,19 +247,19 @@ test("a binding reservation blocks removal until the binding is reassigned", asy
       cue: { kind: "sound", num: 42 },
     }),
   );
-  await ws.keepCandidate(ws.buildSelected(["bindings"]));
+  await ws.commitCandidate(ws.buildSelected(["bindings"]));
 
   edit(ws, "sound:42", null);
   const blocked = ws.buildSelected(["sound:42"]);
   await assert.rejects(
-    ws.keepCandidate(blocked, { reviewedRemovals: ["sound:42"] }),
+    ws.commitCandidate(blocked, { reviewedRemovals: ["sound:42"] }),
     /reserved by binding 'cue'/,
   );
 
   edit(ws, "bindings", originalBindings);
   const repaired = ws.buildSelected(["sound:42"]);
   assert.ok(repaired.keys.includes("bindings"), "the repair selects the bindings edit");
-  await ws.keepCandidate(repaired, { reviewedRemovals: ["sound:42"] });
+  await ws.commitCandidate(repaired, { reviewedRemovals: ["sound:42"] });
   assert.equal(soundBytes(await storedBody(projectId), 42), null);
 });
 
@@ -267,7 +267,7 @@ test("a planned world room blocks removing its LOGIC", async () => {
   const projectId = await seedProject("rm-world");
   const ws = await openEditableProject(projectId);
   edit(ws, "logic:9", "return;");
-  await ws.keepCandidate(ws.buildSelected(["logic:9"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:9"]));
   edit(
     ws,
     "world",
@@ -277,12 +277,12 @@ test("a planned world room blocks removing its LOGIC", async () => {
       quests: {},
     }),
   );
-  await ws.keepCandidate(ws.buildSelected(["world"]));
+  await ws.commitCandidate(ws.buildSelected(["world"]));
 
   edit(ws, "logic:9", null);
   const candidate = ws.buildSelected(["logic:9"]);
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["logic:9"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["logic:9"] }),
     /planned room/,
   );
 });
@@ -303,11 +303,11 @@ test("Tests never block game edits: retained tests allow room deletion", async (
   });
   const ws = await openEditableProject(projectId);
   edit(ws, "logic:9", "return;");
-  await ws.keepCandidate(ws.buildSelected(["logic:9"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:9"]));
 
   edit(ws, "logic:9", null);
   const candidate = ws.buildSelected(["logic:9"]);
-  await ws.keepCandidate(candidate, { reviewedRemovals: ["logic:9"] });
+  await ws.commitCandidate(candidate, { reviewedRemovals: ["logic:9"] });
   assert.equal(ws.draft.capture().read("logic:9"), undefined);
   const retained = JSON.parse(String(ws.draft.capture().read("tests")?.content));
   assert.equal(retained.tests[0].setup.image, setup.image);
@@ -325,12 +325,12 @@ test("reference-art metadata blocks removal of its LOGIC target", async () => {
   });
   const ws = await openEditableProject(projectId);
   edit(ws, "logic:9", "return;");
-  await ws.keepCandidate(ws.buildSelected(["logic:9"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:9"]));
 
   edit(ws, "logic:9", null);
   const candidate = ws.buildSelected(["logic:9"]);
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["logic:9"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["logic:9"] }),
     /targets logic:9/,
   );
 });
@@ -345,7 +345,7 @@ test("unrecognized reference metadata stays a named refusal, not silent loss", a
   edit(ws, "sound:42", null);
   const candidate = ws.buildSelected(["sound:42"]);
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["sound:42"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["sound:42"] }),
     /unrecognized shape|cannot be inventoried/,
   );
 });
@@ -365,13 +365,13 @@ test("music intent blocks SOUND removal; a paired intent+resource removal stays 
   edit(ws, "sound:42", null);
   const blocked = ws.buildSelected(["sound:42"]);
   await assert.rejects(
-    ws.keepCandidate(blocked, { reviewedRemovals: ["sound:42"] }),
+    ws.commitCandidate(blocked, { reviewedRemovals: ["sound:42"] }),
     /music intent/,
   );
 
   edit(ws, "music", null);
   const paired = ws.buildSelected(["sound:42", "music"]);
-  await ws.keepCandidate(paired, { reviewedRemovals: ["sound:42"] });
+  await ws.commitCandidate(paired, { reviewedRemovals: ["sound:42"] });
   const data = await storedBody(projectId);
   assert.equal(soundBytes(data, 42), null);
   const authoring = data.authoringState!["authoring"] as { music?: unknown };
@@ -394,7 +394,7 @@ test("deleting only the music intent document is not a resource removal", async 
   edit(ws, "music", null);
   const candidate = ws.buildSelected(["music"]);
   assert.deepEqual(candidate.removedResources, [], "music is intent, not a native resource");
-  await ws.keepCandidate(candidate);
+  await ws.commitCandidate(candidate);
   const reopened = await openEditableProject(projectId);
   assert.equal(reopened.draft.capture().read("music"), undefined);
 });
@@ -406,7 +406,7 @@ test("LOGIC 0 stays required even when fully reviewed", async () => {
   const candidate = ws.buildSelected(["logic:0"]);
   assert.ok(candidate.removedResources.includes("logic:0"));
   await assert.rejects(
-    ws.keepCandidate(candidate, { reviewedRemovals: ["logic:0"] }),
+    ws.commitCandidate(candidate, { reviewedRemovals: ["logic:0"] }),
     /logic:0.*required|entry point/,
   );
 });
@@ -421,7 +421,7 @@ test("removal preserves every unrelated resource byte-exact", async () => {
   assert.ok(sound43 !== null);
 
   edit(ws, "sound:42", null);
-  await ws.keepCandidate(ws.buildSelected(["sound:42"]), {
+  await ws.commitCandidate(ws.buildSelected(["sound:42"]), {
     reviewedRemovals: ["sound:42"],
   });
   const after = await storedBody(projectId);

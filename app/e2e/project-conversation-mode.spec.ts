@@ -146,7 +146,7 @@ for (const boundary of ["direct", "initial", "conversation"] as const)
       decodeURIComponent(location.hash.slice(location.hash.indexOf("/") + 1)),
     );
     if (boundary === "conversation") {
-      await page.getByTestId("menu-assistant").click();
+      await page.getByTestId("menu-agent").click();
       await requested.promise;
     }
     if (boundary === "conversation")
@@ -259,7 +259,7 @@ for (const boundary of ["request", "session", "fork"] as const)
     await page.goto("/");
     await page.getByTestId("catalog-play-adventure-department").click();
     await waitForRoom(page, 1, { coldBoot: true });
-    await page.getByTestId("menu-assistant").click();
+    await page.getByTestId("menu-agent").click();
     const modes = () =>
       page.evaluate(
         () =>
@@ -334,7 +334,7 @@ test("lazy conversation acquisition reports a stale stored project", async ({ pa
     if (!(await saveAuthoredGame(project, data))) throw new Error("The other tab could not save.");
     return JSON.stringify(await loadAuthoredGame(project));
   }, projectId);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect
     .poll(() =>
       page.evaluate(() => ({

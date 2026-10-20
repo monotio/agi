@@ -498,14 +498,14 @@ test("quick edits in a row all land once the room's restart has run", async () =
 
 // Room 1 keeps the picture room 0 drew, so entering it again would not draw an
 // edit to that picture: the edit asks for a restart and the game keeps its bytes.
-const INHERITED_BACKDROP = {
+const INHERITED_BACKGROUND = {
   "logic:0":
     "if (isset(f5)) { if (equaln(v0,0)) { load.pic(0); draw.pic(0); show.pic(); new.room(1); } } if (equaln(v0,1)) { call(1); } return;",
   "logic:1": "if (isset(f5)) { increment(v90); } return;",
 };
 
 test("a picture edit in a room that kept the previous picture asks for a restart", async () => {
-  const f = await fixture("inherited-backdrop", INHERITED_BACKDROP);
+  const f = await fixture("inherited-background", INHERITED_BACKGROUND);
   try {
     const engine = f.ctx.run.engine!;
     assert.equal(engine.vars[0], 1);
@@ -527,7 +527,7 @@ test("a picture edit in a room that kept the previous picture asks for a restart
 });
 
 test("a picture edit right after a room code edit in that room asks for a restart", async () => {
-  const f = await fixture("inherited-backdrop-quick", INHERITED_BACKDROP);
+  const f = await fixture("inherited-background-quick", INHERITED_BACKGROUND);
   try {
     const logic = await f.edit(
       "logic:1",
@@ -779,7 +779,7 @@ test("an edit to a VIEW a room stamped only once asks for a restart", async () =
   }
 });
 
-test("a stamped VIEW edit after Keep playing dismisses the message and shows the new art", async () => {
+test("a stamped VIEW edit after commit playing dismisses the message and shows the new art", async () => {
   const cel = { width: 2, height: 2, pixels: [7, 7, 7, 7] };
   const source =
     'if (isset(f5)) { load.pic(0); draw.pic(0); load.view(1); add.to.pic(1,0,0,40,100,4,0); discard.view(1); show.pic(); accept.input(); } if (said("look")) { print("Wait"); } return;';

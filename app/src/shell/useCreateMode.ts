@@ -33,17 +33,17 @@ export function useCreateMode(deps: {
     if (inCreate && map) map.followsPlayer.value = true;
   });
 
-  // An assistant turn that opens in Create shows its tab.
+  // An agent turn that opens in Create shows its tab.
   watch(
     () => state.powerUp.open,
     (open) => {
-      if (open && creating.value) workspace.showPanel("assistant");
+      if (open && creating.value) workspace.showPanel("agent");
     },
   );
 
   /**
    * `[` and `]` fold the left and right docks, but only where the key is not
-   * text: typed into the game's input line (or the assistant's composer, a
+   * text: typed into the game's input line (or the agent's composer, a
    * note, a field) a bracket is a character, and reaches the parser in
    * Create just as it does in Play.
    */

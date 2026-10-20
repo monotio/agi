@@ -53,7 +53,7 @@ function modulesOf(url: URL): readonly string[] {
   return [`app${path}`];
 }
 
-test("Play boots a catalog game without the AI authoring stack, and opening Ask loads it", async ({
+test("Play boots a catalog game without the AI authoring stack, and opening Agent loads it", async ({
   page,
   baseURL,
 }) => {
@@ -91,8 +91,8 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   expect(deferred(), "deferred modules requested from Home to a cold Play").toEqual([]);
 
   // No model is connected (the stored default is OpenAI without a key), so
-  // Ask opens on its connect prompt: the stack warms on the intent alone.
-  await page.getByTestId("menu-assistant").click();
+  // Agent opens on its connect prompt: the stack warms on the intent alone.
+  await page.getByTestId("menu-agent").click();
   const bubble = page.getByTestId("workspace-agent-panel");
   await expect(bubble).toContainText("Connect your AI provider in Settings to start a task.");
   await expect(page.getByTestId("agent-message")).toBeEnabled();
@@ -117,12 +117,12 @@ test("the agent drawer focuses its input on each opening and Escape returns to P
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("agent-message")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
   await expect(page.locator("#game-command")).toBeFocused();
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("agent-message")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();
@@ -150,7 +150,7 @@ test("a late first agent drawer preserves a newer control focus @webkit-desktop"
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   try {
-    await page.getByTestId("menu-assistant").click();
+    await page.getByTestId("menu-agent").click();
     await expect.poll(() => waiting).toBe(true);
     const chosen = page.getByTestId("settings-menu");
     await chosen.focus();

@@ -61,7 +61,7 @@ return;
 `;
 
 /**
- * Room 1: blue backdrop plus a red overlay line, ego (o0, view 0 at 20,130),
+ * Room 1: blue background plus a red overlay line, ego (o0, view 0 at 20,130),
  * a second actor (o1, view 1 at 80,130), sound 1 playing with f30 as the
  * completion flag, parser input accepted. v200 counts logic invocations so a
  * re-init would be observable; v60/v70 drive the scripted probes each test
@@ -203,7 +203,7 @@ function booted(): { engine: Engine; host: QuietHost } {
   return { engine, host };
 }
 
-/** Build a complete candidate image by replaying edits on a detached container. */
+/** Build a complete change image by replaying edits on a detached container. */
 function candidateFiles(
   base: ReadonlyMap<string, Uint8Array>,
   edit: (container: GameContainer) => void,
@@ -256,7 +256,7 @@ for (const change of ["preserved", "entry", "payload", "header"] as const) {
     const base = new Map([
       ["GAMEDIR", directory],
       ["GAMEVOL.0", new Uint8Array()],
-      // A compressed two-byte payload with an invalid dictionary stream.
+      // A compressed two-byte payload with an invalid WORDS stream.
       ["GAMEVOL.3", Uint8Array.of(0x12, 0x34, 3, 3, 0, 2, 0, 0, 0)],
     ]);
     const before = openContainer(base);
@@ -337,8 +337,8 @@ test("coordinated LOGIC+WORDS+OBJECT+PIC update commits atomically and preserves
   assert.deepEqual(installed.getResource("picture", 2), PIC_GREEN_PRI);
   assert.notDeepEqual(engine.containerFiles.get("VOL.0"), volBefore);
 
-  // Rebuilt backdrop: the red row-10 line is gone, the green row-30 line and
-  // the row-150 priority line are now the backdrop.
+  // Rebuilt background: the red row-10 line is gone, the green row-30 line and
+  // the row-150 priority line are now the background.
   const frame = engine.getFrame();
   assert.equal(frame.visual[10 * 160 + 10], 1, "old overlay pixel restored to fill");
   assert.equal(frame.visual[30 * 160 + 10], 3, "new overlay line drawn");
@@ -724,7 +724,7 @@ test("prepared plans are engine-bound, single-use, and generation-checked", () =
   assert.match(stale.reason ?? "", /stale/);
 });
 
-test("add.to.pic composition requires restart and leaves the backdrop intact", () => {
+test("add.to.pic composition requires restart and leaves the background intact", () => {
   const { engine } = booted();
   engine.vars[60] = 5;
   engine.tick(); // stamp object pixels into the picture
@@ -736,7 +736,7 @@ test("add.to.pic composition requires restart and leaves the backdrop intact", (
   assert.equal(engine.getFrame().visual[10 * 160 + 10], 2, "old overlay still there");
 });
 
-test("staged candidate bytes stay detached until commit", () => {
+test("staged changes bytes stay detached until commit", () => {
   const { engine } = booted();
   const newLogic1 = assembleLogic(LOGIC_1_CHANGED, { dictionary: DICT }).payload;
   const files = candidateFiles(engine.containerFiles, (c) => {
@@ -763,7 +763,7 @@ test("an unused VIEW or PIC change installs for the next normal use", () => {
     c.putResource("picture", 3, PIC_GREEN_PRI);
   });
   assert.equal(engine.applyPreviewUpdate({ files }).status, "committed");
-  assert.equal(engine.getFrame().visual[10 * 160 + 10], 2, "backdrop untouched");
+  assert.equal(engine.getFrame().visual[10 * 160 + 10], 2, "background untouched");
 
   engine.vars[60] = 9;
   engine.tick(); // load.view(2); set.view(o1, 2)

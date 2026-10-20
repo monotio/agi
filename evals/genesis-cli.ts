@@ -239,7 +239,7 @@ async function runCliGenesis(): Promise<void> {
       num: 0,
       source: [
         "view",
-        'description "Ego sprite"',
+        'description "Ego view"',
         "cel ego 4 4 0",
         ...new Array(4).fill("1111"),
         "endcel",

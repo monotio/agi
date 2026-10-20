@@ -204,8 +204,8 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
 /**
  * The Vite dev server serves code one module at a time, so the first time a page
  * loads a module graph waits for all of it: the game boot (and any fresh page load
- * or deep link), and each lazily imported editor (Create's workspace, Room Studio,
- * Sprite Studio, Monaco). Under a loaded suite that can sit far past the default
+ * or deep link), and each lazily imported editor (Create's workspace, PICTURE editor,
+ * VIEW editor, Monaco). Under a loaded suite that can sit far past the default
  * expect budget, so a wait that covers a first load spends this budget instead.
  */
 export const FIRST_LOAD_BUDGET_MS = 30_000;
@@ -561,8 +561,8 @@ export async function openInspector(page: Page): Promise<void> {
 }
 
 /**
- * Show the running game in Create mode, where the assistant's Ask and Remix
- * surface (the `power-up` entry) lives. Play mode offers the Ask drawer only.
+ * Show the running game in Create mode, where the agent's Ask and Remix
+ * surface (the `power-up` entry) lives. Play mode offers the Agent drawer only.
  */
 /**
  * Show one room's card in Create's World panel as a user does: back to All
@@ -594,7 +594,7 @@ export async function openWorkspacePicture(
     (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
   )
     await page.getByTestId("workspace-focus").click();
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   return studio;
@@ -616,9 +616,9 @@ export async function openWorkspaceView(
     (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
   )
     await page.getByTestId("workspace-focus").click();
-  const studio = page.getByTestId("sprite-studio").filter({ visible: true });
+  const studio = page.getByTestId("view-studio").filter({ visible: true });
   await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
-  await studio.getByTestId("sprite-stage").focus();
+  await studio.getByTestId("view-stage").focus();
   return studio;
 }
 
@@ -811,7 +811,7 @@ export async function enterCreateMode(page: Page): Promise<void> {
   await expect(page).toHaveURL(/#create\//);
 }
 
-/** Open the Create assistant through its registered workspace command. */
+/** Open the Create agent through its registered workspace command. */
 export async function openWorkspaceAgent(page: Page): Promise<void> {
   await enterCreateMode(page);
   const panel = page.getByTestId("workspace-agent-panel");

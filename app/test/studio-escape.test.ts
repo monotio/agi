@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { studioKey, type StudioKeyActions } from "../src/studio/studioKeys.ts";
-import { spriteKey, type SpriteKeyActions } from "../src/studio/sprite/spriteKeys.ts";
+import { viewKey, type ViewKeyActions } from "../src/studio/view/viewKeys.ts";
 
 /**
  * Esc in either Studio only lets go of what is in hand: a menu, a stroke, a
@@ -31,11 +31,11 @@ const escape = (target: unknown = null) =>
   ({ key: "Escape", defaultPrevented: false, repeat: false, target }) as unknown as KeyboardEvent;
 
 const STUDIOS = [
-  ["Room Studio", (event: KeyboardEvent, act: object) => studioKey(event, act as StudioKeyActions)],
   [
-    "Sprite Studio",
-    (event: KeyboardEvent, act: object) => spriteKey(event, act as SpriteKeyActions),
+    "PICTURE editor",
+    (event: KeyboardEvent, act: object) => studioKey(event, act as StudioKeyActions),
   ],
+  ["VIEW editor", (event: KeyboardEvent, act: object) => viewKey(event, act as ViewKeyActions)],
 ] as const;
 
 for (const [name, press] of STUDIOS) {

@@ -390,7 +390,7 @@ export function useEngine(
 
   /**
    * Storage moved past the running game, found by a refused autosave or
-   * another tab's notice: the Assistant says so and offers Reload game, as a
+   * another tab's notice: the Agent says so and offers Reload game, as a
    * refused turn does, and the stage's note says it while it is closed.
    */
   function tellBehindStorage(): void {
@@ -407,7 +407,7 @@ export function useEngine(
    * The running game's project was removed in another tab: nothing more is
    * stored for it (BootedGame.removed) and no reload brings it back. The
    * stage's one note says so with Download game and Back to games, and the
-   * Assistant says the same without a reload offer. The timeline it can
+   * Agent says the same without a reload offer. The timeline it can
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {
@@ -1601,7 +1601,7 @@ export function useEngine(
     previewImageCels(bytes: Uint8Array | null, loops?: readonly number[]): void {
       if (projectSession)
         link.getWorker()?.postMessage({
-          type: "imageHeroPreview",
+          type: "imageEgoPreview",
           runToken: projectSession.runToken,
           bytes,
           ...(loops ? { loops } : {}),
@@ -1755,9 +1755,9 @@ export function useEngine(
     detachReference: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["detachReference"]>
     ) => (await loadAuthoringController()).detachReference(...args),
-    keepStagedView: async (
-      ...args: Parameters<ReturnType<typeof useAuthoringController>["keepStagedView"]>
-    ) => (await loadAuthoringController()).keepStagedView(...args),
+    commitStagedView: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["commitStagedView"]>
+    ) => (await loadAuthoringController()).commitStagedView(...args),
     commitPictureEdit: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["commitPictureEdit"]>
     ) => (await loadAuthoringController()).commitPictureEdit(...args),
@@ -1816,7 +1816,7 @@ export function useEngine(
     playHere,
     visitRoom,
     launchRoom,
-    /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
+    /** The live screen objects (ego first when animated): PICTURE editor's walkable estimate. */
     readObjects: () => link.query("objects"),
     debugEventsSince: async (
       ...args: Parameters<ReturnType<typeof useEngineDebug>["debugEventsSince"]>

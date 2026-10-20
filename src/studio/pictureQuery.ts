@@ -1,5 +1,5 @@
 /**
- * Pure queries over a compiled picture document for the Room Studio: which
+ * Pure queries over a compiled picture document for the PICTURE editor: which
  * item owns a pixel, its highlight mask, the draw-order timeline, a partial
  * render for the scrubber, and why a seed fill stopped short of a cell.
  */
@@ -113,7 +113,7 @@ export function itemMask(
 /**
  * The ids of the items, in draw order, whose final cells on both planes all
  * lie inside `box` (inclusive) and that own at least one: a selection box's
- * catch. A mixed item is caught only with its art, depth and walk lines all
+ * catch. A mixed item is caught only with its art, priority and walk lines all
  * inside, since a move takes every plane along. One pass over the owners.
  */
 export function itemsInside(

@@ -318,7 +318,7 @@ async function savedNotInstalled(r: Awaited<ReturnType<typeof rig>>, pattern: Re
   assert.notEqual(
     checkpoint?.game.identity.revision,
     savedRevision,
-    "no checkpoint names the remix",
+    "no progress entry names the remix",
   );
 }
 

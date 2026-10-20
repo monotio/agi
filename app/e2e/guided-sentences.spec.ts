@@ -51,7 +51,7 @@ test("visual actions keep exact controls and preview their LOGIC", async ({ page
     ),
   );
   expect(position).not.toBeNull();
-  await clickContextAction(page, "room-action-place-hero");
+  await clickContextAction(page, "room-action-place-ego");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await expect(form.getByRole("button", { name: "Start here", exact: true })).toBeVisible();
@@ -178,7 +178,7 @@ test("Place hero starts with the room’s current VIEW", async ({ page }) => {
       origin: "view",
     });
   });
-  await clickContextAction(page, "room-action-place-hero");
+  await clickContextAction(page, "room-action-place-ego");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();
@@ -190,7 +190,7 @@ test("Door starts with its own coordinates and waits for a box and destination",
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
-  await clickContextAction(page, "room-action-place-hero");
+  await clickContextAction(page, "room-action-place-ego");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

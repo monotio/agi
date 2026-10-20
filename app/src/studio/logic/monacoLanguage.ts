@@ -1,7 +1,7 @@
 import { projectLabelContext } from "../../shell/projectLabelContext.ts";
 import { documentLabel, numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 /**
- * Monaco adapter for AGI logic source in Logic Studio. Loads lazily with the
+ * Monaco adapter for AGI logic source in LOGIC editor. Loads lazily with the
  * Studio bundle; nothing here runs on the Play boot path. Language answers come
  * from the shared analysis worker through LogicAnalysisClient: this module only
  * adapts shapes, lifetimes and cancellation. It never parses or compiles

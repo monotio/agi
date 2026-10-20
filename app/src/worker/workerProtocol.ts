@@ -42,7 +42,7 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
  *   soundEnabled / soundDevice
  *   debug / debugWrite / debugTrace / debugEvents / traceAck
  *   previewUpdate / previewUpdateStatus
- *                       same-Engine Play-preview candidate admission
+ *                       same-Engine Play-preview changes admission
  *
  * Messages out:
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,
@@ -355,7 +355,7 @@ export type WorkerInbound =
     }
   | { type: "state"; id: number }
   | {
-      type: "imageHeroPreview";
+      type: "imageEgoPreview";
       runToken: string;
       bytes: Uint8Array | null;
       loops?: readonly number[];

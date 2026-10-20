@@ -201,6 +201,6 @@ export class ProjectModel {
   private checkProposal(proposal: ProjectProposal): void {
     if (!this.proposals.has(proposal))
       throw new Error("Project proposal must be issued by this model.");
-    if (proposal.baseRevision !== this.revision) throw new Error("Project proposal is stale.");
+    if (proposal.baseRevision !== this.revision) throw new Error("Project changes are stale.");
   }
 }

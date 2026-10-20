@@ -1,5 +1,5 @@
 /**
- * Room Studio's room tools (Priority lens): where the player can stand (an estimate), test
+ * PICTURE editor's room tools (Priority lens): where the player can stand (an estimate), test
  * walks the real game runs, and the room's doors.
  *
  * - The tint is `walkableMask` for ego's size on the planes on screen: an
@@ -22,7 +22,7 @@
  * - Doors are the room's exits (walkView.ts): annotated rules are edited
  *   through the logic draft, one kernel rule edit per change; everything
  *   else is read-only. A door box that follows a picture item shows moved
- *   with it before the Keep moves it for real.
+ *   with it before the commit moves it for real.
  */
 
 import { computed, shallowRef, watch } from "vue";
@@ -155,7 +155,7 @@ export interface StudioWalkOptions {
   readonly profile: () => AgiProfile;
   readonly pictureNumber: () => number;
   /** The picture as last kept and as on screen (a drag's preview included). */
-  readonly keptPicture: () => PictureDocument;
+  readonly savedPicture: () => PictureDocument;
   readonly shownPicture: () => PictureDocument;
   /** The draft picture's compiled bytes: what a test walk runs on. */
   readonly pictureBytes: () => Uint8Array;
@@ -167,7 +167,7 @@ export interface StudioWalkOptions {
   readonly itemLabel: (id: string) => string;
   readonly ego: () => EgoShape;
   readonly say: (notice: StudioNotice | null) => void;
-  /** Door edits are blocked: view only, or a Keep that needs a reload. */
+  /** Door edits are blocked: view only, or a commit that needs a reload. */
   readonly frozen: () => boolean;
   /** Door edits wait for an AI proposal's verdict (or its request). */
   readonly paused?: () => boolean;
@@ -242,7 +242,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
       if (!door.box) return door;
       return {
         ...door,
-        box: toShown(door.box, door.item, options.keptPicture(), options.shownPicture()),
+        box: toShown(door.box, door.item, options.savedPicture(), options.shownPicture()),
       };
     }),
   );
@@ -298,7 +298,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (options.paused?.()) return refuse("Approve or reject the AI's change first.");
     if (!logic.editable.value)
       return refuse(
-        "These exits use a different script structure. Edit them as text or tell the agent to change them.",
+        "These exits use LOGIC the door tools don't read. Edit them as text or tell the agent to change them.",
       );
     const outcome = logic.apply(op, label);
     if (!outcome.ok) {
@@ -432,7 +432,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   function moveDoor(id: string, box: RuleBox): boolean {
     const door = storedDoors.value.find((candidate) => candidate.id === id);
     if (!door) return false;
-    const stored = toStored(box, door.item, options.keptPicture(), options.shownPicture());
+    const stored = toStored(box, door.item, options.savedPicture(), options.shownPicture());
     return update(id, { box: stored }, undefined, "Move a door box", "Moved the door box.");
   }
 
@@ -444,7 +444,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   function setFollows(id: string, item: string | null): boolean {
     const door = doors.value.find((candidate) => candidate.id === id);
     if (!door?.box) return refuse("Only a door box can follow the art.");
-    const box = toStored(door.box, item, options.keptPicture(), options.shownPicture());
+    const box = toStored(door.box, item, options.savedPicture(), options.shownPicture());
     return update(
       id,
       { box },
@@ -643,7 +643,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     const container = openContainer(new Map(files), { profile: options.profile() });
     container.putResource("picture", options.pictureNumber(), options.pictureBytes());
     if (logic.editable.value && room.value > 0) {
-      const followed = logic.forKeep(options.keptPicture(), options.shownPicture());
+      const followed = logic.forCommit(options.savedPicture(), options.shownPicture());
       const bytes = followed.ok && "bytes" in followed ? followed.bytes : logic.bytes.value;
       if (bytes) container.putResource("logic", room.value, bytes);
     }
@@ -776,7 +776,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (!canEditDoors.value) {
       refuse(
         !logic.editable.value
-          ? "This room's script isn't in a form the door tools can change: edit its exits as text, or tell the agent to change them."
+          ? "This room's LOGIC isn't in a form the door tools can change: edit its exits as text, or tell the agent to change them."
           : logicBlocked.value !== null
             ? "Fix the room's rule annotations as text first; door editing is off until then."
             : "This room's doors are read-only.",

@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
-import { openSprite } from "../../../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../../../src/view/viewDocument.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
-import SpriteThumb from "../../world/SpriteThumb.vue";
+import ViewThumb from "../../world/ViewThumb.vue";
 const props = defineProps<{ bytes: Uint8Array; profile: AgiProfile }>();
-const sprite = computed(() => {
+const view = computed(() => {
   try {
-    return openSprite(props.bytes, props.profile);
+    return openViewDocument(props.bytes, props.profile);
   } catch {
     return undefined;
   }
 });
 const tick = ref(0);
-const cels = computed(() => sprite.value?.loops[2]?.cels ?? sprite.value?.loops[0]?.cels ?? []);
+const cels = computed(() => view.value?.loops[2]?.cels ?? view.value?.loops[0]?.cels ?? []);
 const cel = computed(() => cels.value[tick.value % cels.value.length]);
 let timer: ReturnType<typeof setInterval> | undefined;
 const root = useTemplateRef("root");
@@ -50,7 +50,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <span ref="root" class="view-thumbnail"
-    ><SpriteThumb v-if="cel" :cel="cel" :width="44" :height="32"
+    ><ViewThumb v-if="cel" :cel="cel" :width="44" :height="32"
   /></span>
 </template>
 <style scoped>

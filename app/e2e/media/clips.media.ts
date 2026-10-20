@@ -92,7 +92,7 @@ test("clip-room-generation", async ({ page }) => {
 test("clip-picture-line", async ({ page }) => {
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   // Focus gives the PICTURE editor the workspace while the game keeps running.
   await page.getByTestId("workspace-focus").click();
@@ -144,7 +144,7 @@ test("clip-create-play", async ({ page }) => {
     await enterCreateMode(page);
     await rest(page, 900);
     await page.getByTestId("part-room:1:picture:1").click();
-    await expect(page.getByTestId("room-studio")).toBeVisible();
+    await expect(page.getByTestId("picture-studio")).toBeVisible();
     await rest(page, 1600);
     await enterPlayMode(page);
     await expect.poll(async () => (await probe(page)).cycle).toBeGreaterThan(before.cycle);

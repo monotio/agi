@@ -115,7 +115,7 @@ export interface StagedPreviewUpdate {
   readonly composition: PictureComposition;
   /** True when a changed PIC participates in the current composition. */
   readonly compositionAffected: boolean;
-  /** Detached rebuilt backdrop when an affected composition is feasible. */
+  /** Detached rebuilt background when an affected composition is feasible. */
   readonly surface: PictureSurface | null;
   /** Why an affected composition cannot commit, when it cannot. */
   readonly compositionBlocked: string | null;

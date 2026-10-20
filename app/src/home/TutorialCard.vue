@@ -48,7 +48,7 @@ const installedCopies = computed(() =>
 );
 const image = computed(() => {
   const src = catalogOpenings.value[entry.id]?.preview ?? entry.preview;
-  return src ? { src, alt: `${entry.title} opening scene`, kind: "opening" as const } : undefined;
+  return src ? { src, alt: `${entry.title} opening room`, kind: "opening" as const } : undefined;
 });
 const busy = computed(() => catalogBusy.value[entry.id] === true || libraryActionBusy.value);
 

@@ -58,7 +58,7 @@ export function createReferenceStub(script: ReferenceStubScript): UnifiedConvers
     async sendUserMessage(text, images) {
       transcript.push({ role: "user", text, images: describeImages(images) });
       if (++messages > SCRIPT_MESSAGES)
-        throw new Error("The reference stub's script has ended; it cannot finish this task.");
+        throw new Error("The reference stub's commands have ended; it cannot finish this task.");
       const lines = [...text.matchAll(MANIFEST_LINE)];
       if (!lines.length) return say("No reference art came with this request.");
       if (script === "reference-never") return say("The change matches the reference art.");

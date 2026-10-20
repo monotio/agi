@@ -1,6 +1,6 @@
 /**
  * The game's whole-page keyboard, routed in one place: the shell's own keys
- * first, then the Ask bubble, page controls, walkthrough and history
+ * first, then the Agent bubble, page controls, walkthrough and history
  * playback, and finally the game's prompts, modals, keys and input line.
  * App.vue listens on window; the play area supplies the input line and the
  * key actions it owns.

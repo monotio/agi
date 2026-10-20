@@ -511,7 +511,7 @@ test("a served folder at another revision does not answer the pointer's revision
   assert.equal(localStorage.getItem(RESUME_POINTER_KEY), stale.locator);
 });
 
-test("an unreadable released lastGame checkpoint stays in its source without offering Resume", async (t) => {
+test("an unreadable released lastGame progress entry stays in its source without offering Resume", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const engine = fakeEngine();
@@ -819,7 +819,7 @@ test("Resume refuses when the saved generation moved during the audio wait", asy
   assert.notEqual(localStorage.getItem(autosaveKey(target.locator)), null);
 });
 
-test("Resume refuses when the checkpoint vanished during the audio wait", async (t) => {
+test("Resume refuses when the progress entry vanished during the audio wait", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const engine = fakeEngine();
@@ -933,7 +933,7 @@ test("the routed resume offer answers null for a retired epoch and keeps bytes a
   assert.equal(localStorage.getItem(RESUME_POINTER_KEY), retired.locator);
 });
 
-test("the routed resume offer answers null when no checkpoint stands under the pointer", async (t) => {
+test("the routed resume offer answers null when no progress entry stands under the pointer", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const engine = fakeEngine();
@@ -1421,7 +1421,7 @@ for (const checkpoint of [false, true]) {
   }
 }
 
-test("a same-epoch checkpoint from an earlier revision refuses opening and keeps its bytes", async (t) => {
+test("a same-epoch progress entry from an earlier revision refuses opening and keeps its bytes", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const engine = fakeEngine();
@@ -1516,7 +1516,7 @@ for (const change of ["save", "remove", "refuse", "read failure"] as const) {
   });
 }
 
-test("an incompatible checkpoint refused during opening offers the latest version with its bytes preserved", async (t) => {
+test("an incompatible progress entry refused during opening offers the latest version with its bytes preserved", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const engine = fakeEngine();
@@ -1528,7 +1528,7 @@ test("an incompatible checkpoint refused during opening offers the latest versio
   localStorage.setItem(autosaveKey(target.locator), raw);
   engine.api.resumeFromRecord = async () => {
     engine.api.state.phase = "error";
-    engine.api.state.error = "The checkpoint uses another interpreter profile.";
+    engine.api.state.error = "The progress entry uses another interpreter profile.";
     return false;
   };
   const lib = library(engine.api);

@@ -6,10 +6,7 @@ import { parameterDescriptions } from "../../src/vocabulary.ts";
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
 import { WORKSPACE_AGENT_TOOLS } from "../src/agent/workspaceAgentTools.ts";
 import { anthropicToolDefinitions } from "../../src/agent/toolTransport.ts";
-import {
-  PROJECT_ASSIST_TOOLS,
-  PROJECT_ASSIST_TOOL_NAMES,
-} from "../src/agent/projectAssistTools.ts";
+import { PROJECT_AGENT_TOOLS, PROJECT_AGENT_TOOL_NAMES } from "../src/agent/projectAgentTools.ts";
 
 const OPENAI_COMPLETED = {
   id: "resp-1",
@@ -89,7 +86,7 @@ test("every offered catalog obeys OpenAI strict and Anthropic non-strict tool ru
     }
     if (types.includes("array")) walk(schema["items"], `${path}[]`, totals, depth + 1);
   }
-  for (const catalog of [AGENT_TOOLS, PROJECT_ASSIST_TOOLS, WORKSPACE_AGENT_TOOLS]) {
+  for (const catalog of [AGENT_TOOLS, PROJECT_AGENT_TOOLS, WORKSPACE_AGENT_TOOLS]) {
     assert.ok(catalog.length <= 128);
     assert.equal(new Set(catalog.map((tool) => tool.name)).size, catalog.length);
     for (const tool of catalog) {
@@ -143,7 +140,7 @@ test("OpenAI sends only the custom catalog and filters allowed_tools against it"
     undefined,
     undefined,
     undefined,
-    PROJECT_ASSIST_TOOLS,
+    PROJECT_AGENT_TOOLS,
   );
   // A default-catalog name plus an invented name must both be filtered out.
   conversation.setAvailableTools(["read_document", "write_view", "not_a_tool"]);
@@ -159,12 +156,12 @@ test("OpenAI sends only the custom catalog and filters allowed_tools against it"
   }[];
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    [...PROJECT_ASSIST_TOOL_NAMES],
+    [...PROJECT_AGENT_TOOL_NAMES],
   );
   assert.ok(tools.every((tool) => tool.type === "function" && tool.strict === true));
   // None of the default gameplay catalog leaked in.
   for (const name of tools.map((tool) => tool.name))
-    assert.ok(PROJECT_ASSIST_TOOL_NAMES.includes(name), name);
+    assert.ok(PROJECT_AGENT_TOOL_NAMES.includes(name), name);
   // The schema reaches the wire: read_document carries its documented fields.
   const readDoc = tools.find((tool) => tool.name === "read_document")!;
   assert.deepEqual(
@@ -195,7 +192,7 @@ test("OpenAI sends only the custom catalog and filters allowed_tools against it"
 test("OpenAI custom catalog survives the caller mutating the source array", async (t) => {
   const requests: Record<string, unknown>[] = [];
   mockSse(t, "openai", requests);
-  const catalog = [...PROJECT_ASSIST_TOOLS];
+  const catalog = [...PROJECT_AGENT_TOOLS];
   const conversation = createOpenAiConversation(
     { provider: "openai", model: "test", apiKey: "placeholder" },
     undefined,
@@ -209,7 +206,7 @@ test("OpenAI custom catalog survives the caller mutating the source array", asyn
   const tools = requests[0]!["tools"] as { name: string }[];
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    [...PROJECT_ASSIST_TOOL_NAMES],
+    [...PROJECT_AGENT_TOOL_NAMES],
   );
 });
 
@@ -241,11 +238,11 @@ test("Anthropic sends only the custom catalog through the existing converter", a
       provider: "anthropic",
       model: "test",
       apiKey: "placeholder",
-      systemPrompt: "You assist one captured AGI project draft. Propose, never apply.",
+      systemPrompt: "You agent one captured AGI project draft. Propose, never apply.",
     },
     undefined,
     undefined,
-    PROJECT_ASSIST_TOOLS,
+    PROJECT_AGENT_TOOLS,
   );
   conversation.setAvailableTools(["read_document"]); // no Anthropic field; dispatcher denies
   await conversation.sendUserMessage("look at the room source");
@@ -253,7 +250,7 @@ test("Anthropic sends only the custom catalog through the existing converter", a
   const tools = requests[0]!["tools"] as { name: string; strict?: boolean }[];
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    [...PROJECT_ASSIST_TOOL_NAMES],
+    [...PROJECT_AGENT_TOOL_NAMES],
   );
   assert.ok(tools.every((tool) => !("strict" in tool)));
   assert.deepEqual(requests[0]!["tools"], requests[1]!["tools"], "the catalog is stable");

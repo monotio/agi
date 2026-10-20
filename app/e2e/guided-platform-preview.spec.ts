@@ -21,7 +21,7 @@ const BOOT_SCRIPT =
 
 // A synthetic Amiga 2.082 game: its palette's colour 13 is orange
 // (255, 119, 0), not the PC table's magenta. The hero cel is one index-13
-// pixel block so the placement ghost exposes its palette choice. Logic 0
+// pixel block so the placement preview exposes its palette choice. Logic 0
 // draws the picture and enters room 1 so the workspace's room actions show.
 async function startAmiga(page: Page, logic0 = BOOT_SCRIPT): Promise<void> {
   await isolateStorage(page);
@@ -93,22 +93,22 @@ async function messageFillTop(preview: Locator): Promise<number> {
   return -1;
 }
 
-test("Amiga ghost and message preview use the game's own look", async ({ page }) => {
+test("Amiga placement preview and message preview use the game's own look", async ({ page }) => {
   const desktop = { width: 1063, height: 815 };
   await page.setViewportSize(desktop);
   await startAmiga(page);
-  await clickContextAction(page, "room-action-place-hero");
+  await clickContextAction(page, "room-action-place-ego");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByRole("button", { name: "Drag to place", exact: true }).click();
   const overlay = page.getByTestId("guided-placement");
   await expect(overlay).toBeVisible();
-  const ghost = overlay.locator("canvas.placement-ghost");
-  await expect(ghost).toBeVisible();
-  // The ghost canvas paints the cel's index-13 pixels in the Amiga table.
+  const placement = overlay.locator("canvas.placement-preview");
+  await expect(placement).toBeVisible();
+  // The preview canvas paints the cel's index-13 pixels in the Amiga table.
   await expect
     .poll(() =>
-      ghost.evaluate((el) =>
+      placement.evaluate((el) =>
         Array.from((el as HTMLCanvasElement).getContext("2d")!.getImageData(1, 0, 1, 1).data),
       ),
     )
@@ -120,7 +120,7 @@ test("Amiga ghost and message preview use the game's own look", async ({ page })
   ] as const) {
     await page.setViewportSize({ width, height });
     await page.screenshot({
-      path: test.info().outputPath(`${width}-amiga-ghost.png`),
+      path: test.info().outputPath(`${width}-amiga-placement.png`),
       animations: "disabled",
     });
   }

@@ -34,7 +34,7 @@ for (const size of [
   { width: 390, height: 844 },
 ]) {
   for (const destination of ["Play", "Create"] as const) {
-    test(`${destination} preserves an older checkpoint and offers the latest version ${size.width}${size.width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+    test(`${destination} preserves an older progress entry and offers the latest version ${size.width}${size.width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       await page.setViewportSize(size);
@@ -249,7 +249,9 @@ test("the project archive moves the autosave to another browser; the game export
   await waitForCycles(page, 4);
   const stopped = await textHook(page);
   await waitForCycles(page, 2);
-  expect((await textHook(page)).egoX, "ego stands still before the checkpoint").toBe(stopped.egoX);
+  expect((await textHook(page)).egoX, "ego stands still before the progress entry").toBe(
+    stopped.egoX,
+  );
   await waitForAutosaveAfter(page, stopped.cycle);
   expect((await storedAutosave(page, TUTORIAL_PROJECT_ID))?.room).toBe(1);
 
@@ -301,7 +303,7 @@ test("the project archive moves the autosave to another browser; the game export
     await expect.poll(async () => (await textHook(other)).room).toBe(1);
     await expect
       .poll(async () => (await textHook(other)).egoX, {
-        message: "the imported checkpoint is restored, not a boot from room 1",
+        message: "the imported progress entry is restored, not a boot from room 1",
       })
       .toBe(stopped.egoX);
     await expect(await gameHint(other, "resume-caption")).toBeVisible();
@@ -316,7 +318,7 @@ test("the project archive moves the autosave to another browser; the game export
  * a reload resumes into the same open window on the identical instruction,
  * and Enter finishes what was interrupted rather than restarting the room.
  */
-test("a reload resumes into the checkpoint's parked window @webkit-desktop", async ({
+test("a reload resumes into the progress entry's parked window @webkit-desktop", async ({
   page,
   browserName,
 }) => {
@@ -550,7 +552,7 @@ test("a reload resumes the parked window in an agent-authored room @webkit-deskt
  * no checkpoint is taken while it is up. That is no reason to hold Exit: the
  * last save point stays, the timeline is sealed, and the player is Home.
  */
-test("Exit leaves a moment it cannot checkpoint and keeps the last save point @phone", async ({
+test("Exit leaves a moment it cannot progress entry and keeps the last save point @phone", async ({
   page,
 }) => {
   const game = createContainer();

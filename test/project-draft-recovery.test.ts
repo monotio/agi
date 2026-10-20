@@ -74,7 +74,7 @@ test("recovery owns bytes and starts a fresh workspace lifetime", () => {
   assert.deepEqual(recovered.capture().read("view:1")?.content, Uint8Array.of(9));
   assert.deepEqual(draft.capture().read("view:1")?.content, Uint8Array.of(9));
   assert.throws(() => recovered.apply(proposal), /workspace/);
-  assert.throws(() => recovered.acknowledgeKept(selection), /workspace/);
+  assert.throws(() => recovered.acknowledgeSaved(selection), /workspace/);
 });
 
 test("recovery rejects invalid structure before touching the kept inputs", () => {

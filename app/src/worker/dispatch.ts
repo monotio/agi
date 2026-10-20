@@ -152,19 +152,19 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     loader.enterCreate!(msg);
     return;
   }
-  if (msg.type === "imageHeroPreview") {
+  if (msg.type === "imageEgoPreview") {
     const lane = ctx.run.projectAdmission;
     if (lane === null || lane.engine !== ctx.run.engine || lane.runToken !== msg.runToken) return;
     const serial = (ctx.imagePreviewSerial ?? 0) + 1;
     ctx.imagePreviewSerial = serial;
-    ctx.imageHeroPreview = undefined;
+    ctx.imageEgoPreview = undefined;
     ctx.imagePreviewEngine = undefined;
     if (msg.bytes === null) {
       ctx.fns.postFrame();
       return;
     }
-    void import("./imageHeroPreview.ts")
-      .then(({ createImageHeroPreview }) => {
+    void import("./imageEgoPreview.ts")
+      .then(({ createImageEgoPreview }) => {
         if (
           ctx.run.projectAdmission !== lane ||
           ctx.run.engine !== lane.engine ||
@@ -172,7 +172,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         )
           return;
         ctx.imagePreviewEngine = lane.engine;
-        ctx.imageHeroPreview = createImageHeroPreview(
+        ctx.imageEgoPreview = createImageEgoPreview(
           lane.engine,
           msg.bytes!,
           ctx.run.cycle.cycleCount,

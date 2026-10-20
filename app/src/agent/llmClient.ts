@@ -348,8 +348,8 @@ export function createAnthropicConversation(
   initialTranscript?: unknown[],
   run?: AgentRun,
   /**
-   * A narrower catalog for a scoped session (e.g. the Logic Studio project
-   * assist). Copied at creation and stable for the conversation's life; the
+   * A narrower catalog for a scoped session (e.g. the LOGIC editor project
+   * agent). Copied at creation and stable for the conversation's life; the
    * default stays the full AGENT_TOOLS for every existing caller.
    */
   catalog?: readonly ToolDefinition[],
@@ -688,8 +688,8 @@ export function createOpenAiConversation(
   initialSessionId?: string,
   run?: AgentRun,
   /**
-   * A narrower catalog for a scoped session (e.g. the Logic Studio project
-   * assist). Copied at creation and stable for the conversation's life;
+   * A narrower catalog for a scoped session (e.g. the LOGIC editor project
+   * agent). Copied at creation and stable for the conversation's life;
    * `setAvailableTools` filters against this list, not the global catalog.
    */
   catalog?: readonly ToolDefinition[],

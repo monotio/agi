@@ -13,7 +13,7 @@ import type { StudioEditing } from "./useStudioEditing.ts";
 /**
  * The selection's actions, docked in the options bar above the canvas while
  * the Select tool has a selection: its name (or "N items"), then
- * Duplicate, for one item its depth (a picker that opens below it; several
+ * Duplicate, for one item its priority (a picker that opens below it; several
  * items take theirs under the inspector's Details), Delete, and
  * Group (for several) or Ungroup (for a group). Each applies to the whole
  * selection as one step. Nothing floats over the picture; short of room
@@ -33,9 +33,9 @@ const {
   label: string;
   /** Two items or more are selected. */
   several?: boolean;
-  /** The one depth (priority) value the selection draws; null for none, undefined for several. */
+  /** The one priority (priority) value the selection draws; null for none, undefined for several. */
   priority: number | null | undefined;
-  /** Why depth is locked now, or null. */
+  /** Why priority is locked now, or null. */
   priorityLocked: string | null;
   edit: StudioEditing;
   /** The one selected item is a group: it can be ungrouped. */
@@ -53,7 +53,7 @@ interface Action {
   readonly run: () => void;
   readonly shortcut?: string;
 }
-/** Duplicate and Delete, then Group (several) or Ungroup (a group): the actions beside Depth. */
+/** Duplicate and Delete, then Group (several) or Ungroup (a group): the actions beside Priority. */
 const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
   before: [
     {

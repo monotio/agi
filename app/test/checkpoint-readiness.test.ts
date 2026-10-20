@@ -50,7 +50,7 @@ for (const scenario of [
   "stale write block",
   "closed page",
 ] as const) {
-  test(`a checkpoint during a ${scenario} document save preserves the player's progress`, async () => {
+  test(`a progress entry during a ${scenario} document save preserves the player's progress`, async () => {
     const starter = createStarterProject("starter");
     const files = Object.fromEntries(starter.files());
     const id = testProjectId(`checkpoint-ready-${scenario.replaceAll(" ", "-")}`);
@@ -237,7 +237,7 @@ for (const scenario of [
         assert.ok(error instanceof Error);
         assert.equal(readAutosave(locator)!.image, saved.image);
       } else if (scenario !== "stale write block") assert.equal(error, null);
-      assert.equal(retries, 0, "document saves never owe a checkpoint retry");
+      assert.equal(retries, 0, "document saves never owe a progress entry retry");
       assert.equal(requests, checkpointRequests + (scenario === "failed write" ? 1 : 0));
     } finally {
       release.resolve();
@@ -255,10 +255,10 @@ for (const [changedResources, refusedCheckpoint] of [
 ] as const) {
   test(
     !refusedCheckpoint
-      ? "a restarted room requests progress even without an earlier refused checkpoint"
+      ? "a restarted room requests progress even without an earlier refused progress entry"
       : changedResources
-        ? "a refused checkpoint waits for the required restart before requesting fresh progress"
-        : "a matching checkpoint stores immediately while a restart is optional",
+        ? "a refused progress entry waits for the required restart before requesting fresh progress"
+        : "a matching progress entry stores immediately while a restart is optional",
     async () => {
       const compiled = compileProjectDocuments({
         files: Object.fromEntries(createContainer().files),
@@ -319,7 +319,11 @@ for (const [changedResources, refusedCheckpoint] of [
           );
         await session.flush();
         assert.ok(session.pendingRestart);
-        assert.equal(captures, 0, "matching bytes can be checkpointed before an optional restart");
+        assert.equal(
+          captures,
+          0,
+          "matching bytes can be progress entryed before an optional restart",
+        );
         if (refusedCheckpoint)
           for (let i = 0; i < 3; i++)
             assert.equal(
@@ -336,7 +340,7 @@ for (const [changedResources, refusedCheckpoint] of [
         assert.equal(
           captures,
           1,
-          "successful activation requests one checkpoint for the restarted room",
+          "successful activation requests one progress entry for the restarted room",
         );
       } finally {
         session.dispose();
@@ -474,7 +478,11 @@ for (const failed of [false, true]) {
       assert.ok(saved, "the owed retry stores progress after the resources commit");
       engine.restoreImage(base64ToBytes(saved.image));
       assert.equal(engine.vars[80], 42);
-      assert.equal(captures, 1, "the committed resource revision requests one fresh checkpoint");
+      assert.equal(
+        captures,
+        1,
+        "the committed resource revision requests one fresh progress entry",
+      );
       assert.equal(await session.prepareCheckpoint(revision), "ready");
     } finally {
       release.resolve();
@@ -571,7 +579,7 @@ for (const ending of ["saved", "failed", "closed", "debounced"] as const) {
         assert.equal(
           captures,
           1,
-          "coalescing away the intervening revision requests one checkpoint",
+          "coalescing away the intervening revision requests one progress entry",
         );
         assert.equal(await session.prepareCheckpoint(original), "ready");
         await session.flush();
@@ -586,7 +594,7 @@ for (const ending of ["saved", "failed", "closed", "debounced"] as const) {
         assert.equal(
           captures,
           0,
-          "Undo cannot consume the owed checkpoint before its write commits",
+          "Undo cannot consume the owed progress entry before its write commits",
         );
         firstRelease.resolve();
         await secondEntered.promise;
@@ -606,7 +614,11 @@ for (const ending of ["saved", "failed", "closed", "debounced"] as const) {
           await session.retry();
         } else if (ending === "closed") {
           assert.ok(error instanceof Error);
-          assert.equal(captures, 0, "closing leaves the earlier revision's checkpoint untouched");
+          assert.equal(
+            captures,
+            0,
+            "closing leaves the earlier revision's progress entry untouched",
+          );
           assert.equal(
             (await loadAuthoredGameWithHistoryLifetime(id))!.data.library!.revision,
             changed,
@@ -617,7 +629,7 @@ for (const ending of ["saved", "failed", "closed", "debounced"] as const) {
         assert.equal(
           captures,
           1,
-          "the final committed revision receives exactly one owed checkpoint",
+          "the final committed revision receives exactly one owed progress entry",
         );
       }
       assert.deepEqual(await Promise.all(readiness), ["ready"]);
@@ -639,7 +651,7 @@ for (const [activation, restartRoom] of [
   ["restartRequired", false],
   ["deferred", false],
 ] as const) {
-  test(`Update resolves ${activation} with one checkpoint at the same revision (restart=${restartRoom})`, async () => {
+  test(`Update resolves ${activation} with one progress entry at the same revision (restart=${restartRoom})`, async () => {
     const starter = createStarterProject("starter");
     const files = Object.fromEntries(starter.files());
     const id = testProjectId(`checkpoint-activation-${activation}-${restartRoom}`);
@@ -758,7 +770,7 @@ for (const [activation, restartRoom] of [
         assert.equal(session.capture().pendingAdmission, activation === "deferred");
         assert.equal(session.pendingRestart !== null, activation === "restartRequired");
       }
-      assert.equal(captures, 0, "no earlier refusal or activation has requested a checkpoint");
+      assert.equal(captures, 0, "no earlier refusal or activation has requested a progress entry");
       const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
       const outcome = await session.update(
         activation === "launch" ? [{ key: "notes", content: "Room launch note" }] : [],
@@ -769,11 +781,11 @@ for (const [activation, restartRoom] of [
       assert.equal(session.model.capture().lastAdmissibleBuild!.identity.revision, revision);
       assert.equal(session.pendingRestart, null);
       assert.equal(session.capture().pendingAdmission, false);
-      assert.equal(captures, 1, "paused Play receives one post-activation checkpoint request");
+      assert.equal(captures, 1, "paused Play receives one post-activation progress entry request");
       assert.deepEqual(await Promise.all(readiness), ["ready"]);
       assert.deepEqual(await Promise.all(stored), [true]);
       const saved = readAutosave(resolveProgressTarget(game)!.locator)!;
-      assert.ok(saved, "paused Play stores the checkpoint without another worker event");
+      assert.ok(saved, "paused Play stores the progress entry without another worker event");
       engine!.restoreImage(base64ToBytes(saved.image));
       assert.equal(engine!.vars[80], 42, "the stored image holds the post-restart state");
       await session.flush();

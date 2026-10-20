@@ -181,14 +181,14 @@ export async function collectProjectArchiveEntries(
   // Any non-empty value is a real claim and must be supported.
   const provider = data.provider === "" ? undefined : data.provider;
   const model = data.model === "" ? undefined : data.model;
-  const hasAssistant =
+  const hasConversation =
     provider !== undefined ||
     model !== undefined ||
     data.sessionId !== undefined ||
     data.transcript !== undefined ||
     data.conversationHistory !== undefined;
   if (
-    hasAssistant &&
+    hasConversation &&
     (typeof provider !== "string" ||
       !["openai", "anthropic", "stub"].includes(provider) ||
       typeof model !== "string")
@@ -199,8 +199,8 @@ export async function collectProjectArchiveEntries(
     (typeof data.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(data.sessionId))
   )
     throw new Error("Invalid project session field.");
-  if (hasAssistant) validateTranscript(data.transcript ?? [], provider!);
-  const assistant = hasAssistant
+  if (hasConversation) validateTranscript(data.transcript ?? [], provider!);
+  const agent = hasConversation
     ? {
         provider: provider!,
         model: model!,
@@ -264,7 +264,7 @@ export async function collectProjectArchiveEntries(
       version: 1,
       ...(data.chats !== undefined ? { chats: await visit(readAgentChats(data.chats)) } : {}),
       ...(images.history !== undefined ? { projectHistory: images.history } : {}),
-      ...(assistant ?? {}),
+      ...(agent ?? {}),
       authoringState: data.authoringState ?? {},
       ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
       ...(images.workspace !== undefined ? { workspace: images.workspace } : {}),

@@ -43,7 +43,7 @@ async function openGame(page: Page, mode: "Play" | "Create") {
     await enterCreateMode(page);
     if ((page.viewportSize()?.width ?? 0) > 900) {
       await page.getByTestId("part-room:1:picture:1").click();
-      await expect(page.getByTestId("room-studio")).toBeVisible();
+      await expect(page.getByTestId("picture-studio")).toBeVisible();
     }
   }
   await expect(page.getByTestId("workspace-agent-panel")).toBeHidden();

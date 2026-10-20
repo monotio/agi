@@ -1,4 +1,4 @@
-/** Canonical editor and agent vocabulary. Platform-free; technical AGI terms stay on hover. */
+/** Canonical editor copy and technical AGI contracts, independent of the platform. */
 export interface VocabularyTerm {
   readonly id: string;
   readonly label: string;
@@ -175,7 +175,7 @@ export const VOCABULARY = {
   makeCels: {
     id: "makeCels",
     label: "Make cels from an image",
-    help: "Mark frames on a sheet, choose loops and add the cels to a VIEW.",
+    help: "Mark the cels on an image, choose their loops and add them to a VIEW.",
     technical: "Image regions become native VIEW cels.",
   },
   closeEditor: {
@@ -190,8 +190,8 @@ export const VOCABULARY = {
     help: "Shows Visual or Priority while you draw.",
     technical: "",
   },
-  drawingDepth: {
-    id: "drawingDepth",
+  drawingPriority: {
+    id: "drawingPriority",
     label: "Priority",
     help: "The priority the drawing tools also paint. None leaves the existing priority as you draw.",
     technical: "PICTURE priority drawing value.",
@@ -277,13 +277,13 @@ export const VOCABULARY = {
   picture: {
     id: "picture",
     label: "PICTURE",
-    help: "A room's background, drawn step by step with lines and fills.",
+    help: "What a room looks like, drawn step by step with lines and fills.",
     technical: "Vector PICTURE resource, 160×168.",
   },
   view: {
     id: "view",
     label: "VIEW",
-    help: "A character or thing that moves. It has loops for the directions it faces and cels for the frames of each loop.",
+    help: "A set of drawings the game can show and move: the hero, a bird, a stone. Its loops are the directions it faces; each loop's cels show one after another.",
     technical: "VIEW resource.",
   },
   sound: {
@@ -323,72 +323,71 @@ export const VOCABULARY = {
     technical: "",
   },
   art: { id: "art", label: "Art", help: "What the player sees.", technical: "Visual plane." },
-  depth: {
-    id: "depth",
+  priority: {
+    id: "priority",
     label: "Priority",
     help: "What stands in front. Lower on the screen is nearer.",
     technical: "AGI calls this priority.",
   },
-  depthBand: {
-    id: "depthBand",
-    label: "distance band",
-    help: "Each row of the screen sits in a distance band. A character's priority comes from the row its feet are on.",
+  priorityBand: {
+    id: "priorityBand",
+    label: "priority band",
+    help: "Each row of the screen sits in a priority band. An actor's priority comes from the row its feet are on.",
     technical: "Priority band from set.pri.base.",
   },
   walk: {
     id: "walk",
     label: "Walk",
-    help: "Walls, gates, triggers and water: what happens where characters walk.",
+    help: "Walls, gates, triggers and water: what happens where actors walk.",
     technical: "AGI calls this control.",
   },
   wall: {
     id: "wall",
     label: "Wall",
-    help: "Characters can't cross a wall.",
+    help: "Actors can't cross a wall.",
     technical: "Control 0.",
   },
   gate: {
     id: "gate",
     label: "Gate",
-    help: "Characters stop here unless the room's LOGIC lets them through.",
+    help: "Actors stop here unless the room's LOGIC lets them through.",
     technical: "Control 1; ignore.blocks lets an actor pass.",
   },
   trigger: {
     id: "trigger",
     label: "Trigger",
     help: "Tells the room's LOGIC when the hero steps here.",
-    technical: "Control 2; sets flag 3 while the hero's feet touch it.",
+    technical: "Control 2; sets flag 3 while ego's feet touch it.",
   },
   water: {
     id: "water",
     label: "Water",
-    help: "Marks water. The room's LOGIC can keep a character on water or on land.",
-    technical:
-      "Control 3; object.on.water / object.on.land; flag 0 while the hero stands fully on water.",
+    help: "Marks water. The room's LOGIC can keep an actor on water or on land.",
+    technical: "Control 3; obj.on.water / obj.on.land; flag 0 while ego stands fully on water.",
   },
   horizon: {
     id: "horizon",
     label: "horizon",
-    help: "The highest row characters can walk on.",
+    help: "The highest row actors can walk on.",
     technical: "set.horizon.",
   },
   baseLine: {
     id: "baseLine",
     label: "base line",
-    help: "The row where an item touches the ground. Characters behind it are drawn behind the item.",
+    help: "The row where an item touches the ground. Actors behind it are drawn behind the item.",
     technical: "",
   },
-  addDepth: {
-    id: "addDepth",
-    label: "Add depth",
-    help: "Characters walk behind it above its base line and in front of it below.",
+  addPriority: {
+    id: "addPriority",
+    label: "Add priority",
+    help: "Actors walk behind it above its base line and in front of it below.",
     technical: "Fills the item's PRIORITY for the band of its base row.",
   },
   standIn: {
     id: "standIn",
     label: "Stand-in",
     help: "A still figure you place in the room to see what hides it and where it can walk.",
-    technical: "Ghost probe (renders a VIEW cel against depth and walk).",
+    technical: "Probe cel rendered against priority and control.",
   },
   group: {
     id: "group",
@@ -420,17 +419,22 @@ export const VOCABULARY = {
     help: "One direction a VIEW faces, like walking left.",
     technical: "Loop N; ego uses 0 right, 1 left, 2 toward you, 3 away.",
   },
-  cel: { id: "cel", label: "cel", help: "One frame of a loop.", technical: "Cel N." },
+  cel: {
+    id: "cel",
+    label: "cel",
+    help: "One drawing in a loop. A loop shows its cels one after another.",
+    technical: "Cel N.",
+  },
   standingCel: {
     id: "standingCel",
     label: "standing cel",
-    help: "Cel 0. Characters rest on it when they stop.",
+    help: "Cel 0. Actors rest on it when they stop.",
     technical: "",
   },
   feet: {
     id: "feet",
     label: "feet",
-    help: "The game places a character by its feet, the bottom row of its cel.",
+    help: "The game places an actor by its feet, the bottom row of its cel.",
     technical: "Baseline.",
   },
   mirrorLoop: {
@@ -442,7 +446,7 @@ export const VOCABULARY = {
   transparentColour: {
     id: "transparentColour",
     label: "transparent colour",
-    help: "Pixels in this colour show the room behind the character.",
+    help: "Pixels in this colour show the room behind the actor.",
     technical: "Transparency index.",
   },
   onionSkin: {
@@ -460,13 +464,13 @@ export const VOCABULARY = {
   hero: {
     id: "hero",
     label: "hero",
-    help: "The character the player controls.",
+    help: "The actor the player controls.",
     technical: "ego, screen object 0 (o0).",
   },
   actor: {
     id: "actor",
     label: "actor",
-    help: "A VIEW the room's LOGIC places on screen.",
+    help: "Anything the room's LOGIC puts on screen with a VIEW: the hero, a bird, a door that opens.",
     technical: "Screen object oN.",
   },
   message: {
@@ -681,16 +685,16 @@ export const VOCABULARY = {
     help: "Shows a flag or variable while the game runs.",
     technical: "",
   },
-  depthDerived: {
-    id: "depthDerived",
-    label: "Depth: from base line",
-    help: "Depth follows the item when you move or reshape it.",
+  priorityDerived: {
+    id: "priorityDerived",
+    label: "Priority: from base line",
+    help: "Priority follows the item when you move or reshape it.",
     technical: "# @depth base=N.",
   },
-  depthPainted: {
-    id: "depthPainted",
-    label: "Depth: painted",
-    help: "Depth was painted by hand.",
+  priorityPainted: {
+    id: "priorityPainted",
+    label: "Priority: painted",
+    help: "Priority was painted by hand.",
     technical: "Ordinary priority commands.",
   },
   gameTests: {
@@ -837,7 +841,12 @@ export const VOCABULARY_ACTIONS = {
     label: "Draw picture items",
     tool: "draw_picture_items",
   },
-  add_depth: { ...VOCABULARY.addDepth, id: "add_depth", label: "Add depth", tool: "add_depth" },
+  add_priority: {
+    ...VOCABULARY.addPriority,
+    id: "add_priority",
+    label: "Add priority",
+    tool: "add_priority",
+  },
   read_view: { ...VOCABULARY.view, id: "read_view", label: "Read view", tool: "read_view" },
   write_view: { ...VOCABULARY.view, id: "write_view", label: "Write view", tool: "write_view" },
   edit_cels: { ...VOCABULARY.view, id: "edit_cels", label: "Edit cels", tool: "edit_cels" },
@@ -976,9 +985,10 @@ export const VOCABULARY_ACTIONS = {
   },
 } as const satisfies Record<string, VocabularyAction>;
 
-/** Start a tool contract with the same plain help the editor displays. */
+/** Tool contracts use the technical register, with plain help for shared terms. */
 export function toolDescription(name: keyof typeof VOCABULARY_ACTIONS, contract: string): string {
-  return `${VOCABULARY_ACTIONS[name].help} ${contract}`;
+  const term: VocabularyTerm = VOCABULARY_ACTIONS[name];
+  return `${term.technical || term.help} ${contract}`;
 }
 
 const PARAMETER_TERMS: Readonly<Record<string, keyof typeof VOCABULARY>> = {
@@ -987,8 +997,8 @@ const PARAMETER_TERMS: Readonly<Record<string, keyof typeof VOCABULARY>> = {
   egoView: "hero",
   itemId: "item",
   baseY: "baseLine",
-  priority: "depth",
-  priorityBase: "depthBand",
+  priority: "priority",
+  priorityBase: "priorityBand",
   plane: "art",
   loop: "loop",
   cel: "cel",
@@ -1019,10 +1029,11 @@ const PARAMETER_TERMS: Readonly<Record<string, keyof typeof VOCABULARY>> = {
   quests: "plan",
 };
 
-/** The plain opening of a parameter's contract, shared with editor terms. */
+/** The technical opening of a parameter's contract, from the shared terms. */
 export function parameterHelp(name: keyof typeof VOCABULARY_ACTIONS, field: string): string {
   const term = PARAMETER_TERMS[field];
-  return term === undefined ? VOCABULARY_ACTIONS[name].help : VOCABULARY[term].help;
+  const entry = term === undefined ? VOCABULARY_ACTIONS[name] : VOCABULARY[term];
+  return entry.technical || entry.help;
 }
 
 /** Attach input contracts while retaining the schema's validation and strict-mode shape. */
@@ -1059,25 +1070,580 @@ export function parameterDescriptions<T extends { readonly properties: Record<st
   };
 }
 
-/** Retired visible wording; identifiers and technical hover retain AGI vocabulary. */
-export const RETIRED_UI_TERMS: Readonly<Record<string, string>> = {
-  Ghost: "Stand-in",
-  Keep: "Saved",
-  "Studio Assist": "Agent",
-  sprite: "actor",
-  Stipple: "Speckled",
-  Backdrop: "Background",
-  occluder: "Depth",
-  "world bible": "plan",
-  "departure asset": "reference image",
-  "actor probe": "Stand-in",
-  "drawing element": "item",
-  "key colour": "transparent colour",
-  "1 blocks until a flag": "Gate",
-  Onion: "Onion skin",
-  Ask: "Agent",
-  Assistant: "Agent",
-  proposal: "changes",
-  candidate: "changes",
-  checkpoint: "Name this version",
+/** One term per concept in each register; patterns select a conflicting sense. */
+export interface GlossaryEntry {
+  readonly concept: string;
+  readonly plain: string;
+  readonly technical: string;
+  readonly code: string;
+  readonly avoid: readonly string[];
+  readonly avoidPattern?: string;
+}
+
+export const GLOSSARY: Readonly<Record<string, GlossaryEntry>> = {
+  logic: {
+    concept: "LOGIC",
+    plain: "LOGIC",
+    technical: "LOGIC N",
+    code: "logic",
+    avoid: ["script", "code", "program", "behaviour"],
+    avoidPattern: "\\bscripts?\\b(?![ .](?:size|buffer)\\b)",
+  },
+  sharedLogic: {
+    concept: "shared LOGIC",
+    plain: "SHARED LOGIC",
+    technical: "shared LOGIC",
+    code: "sharedLogic",
+    avoid: ["library", "global logic"],
+    avoidPattern: "\\bglobal logic\\b",
+  },
+  room: {
+    concept: "room",
+    plain: "Room",
+    technical: "room N",
+    code: "room",
+    avoid: ["scene", "screen", "level", "location", "stage", "map node"],
+    avoidPattern:
+      "\\b(?:current scene|scene \\d|levels?)\\b|\\bscreen \\d|\\bthe screen of room\\b|\\bscreens? (?:of|in) (?:your|the) game\\b",
+  },
+  picture: {
+    concept: "PICTURE",
+    plain: "PICTURE",
+    technical: "PICTURE N",
+    code: "picture",
+    avoid: ["background", "scenery", "backdrop", "mural", "pic"],
+    avoidPattern: "\\b(?:backdrops?|scenery)\\b|\\b(?:background|mural|pic) (?:resource|editor)\\b",
+  },
+  lens: {
+    concept: "lens",
+    plain: "Visual, Priority",
+    technical: "visual plane, priority plane",
+    code: "lens",
+    avoid: ["Art", "depth"],
+    avoidPattern: "\\bdepth\\b|\\bArt lens\\b",
+  },
+  item: {
+    concept: "picture item",
+    plain: "item",
+    technical: "item (annotated source)",
+    code: "item, PictureItem",
+    avoid: ["element", "object", "part", "shape", "scene", "drawing element"],
+    avoidPattern: "\\bdrawing elements?\\b",
+  },
+  step: {
+    concept: "picture step",
+    plain: "step",
+    technical: "picture command",
+    code: "step",
+    avoid: ["instruction", "op"],
+    avoidPattern: "\\bpicture instructions?\\b",
+  },
+  view: {
+    concept: "VIEW",
+    plain: "VIEW",
+    technical: "VIEW N",
+    code: "view, ViewDocument",
+    avoid: ["sprite", "actor", "character", "animation", "art asset", "image"],
+    avoidPattern:
+      "\\bsprites?\\b|\\b(?:actor|character|animation) editor\\b|\\bshared character\\b|\\bcharacter \\d+\\b|\\bart assets?\\b",
+  },
+  loop: {
+    concept: "loop",
+    plain: "loop",
+    technical: "loop N",
+    code: "loop",
+    avoid: ["animation", "direction", "strip", "row", "sequence"],
+    avoidPattern: "\\banimation loop editor\\b",
+  },
+  cel: {
+    concept: "cel",
+    plain: "cel",
+    technical: "cel N",
+    code: "cel",
+    avoid: ["frame", "image", "sprite", "pose"],
+    avoidPattern:
+      "\\bframes?\\b(?=[^\\n]*\\b(?:cels?|loops?|VIEWs?|sheet)\\b)|\\b(?:cels?|loops?|VIEWs?|sheet)\\b[^\\n]*\\bframes?\\b",
+  },
+  mirror: {
+    concept: "mirror loop",
+    plain: "mirror loop",
+    technical: "mirror bit",
+    code: "mirror",
+    avoid: ["flipped loop"],
+  },
+  transparent: {
+    concept: "transparent colour",
+    plain: "transparent colour",
+    technical: "transparency index",
+    code: "transparent",
+    avoid: ["key colour", "alpha", "mask"],
+    avoidPattern: "\\bkey colou?r\\b",
+  },
+  feet: {
+    concept: "feet",
+    plain: "feet",
+    technical: "baseline",
+    code: "feet, baseline",
+    avoid: [],
+  },
+  background: {
+    concept: "cel background",
+    plain: "Background",
+    technical: "background",
+    code: "background, CelBackground, RoomBackground",
+    avoid: ["backdrop", "paper", "canvas colour"],
+    avoidPattern: "\\bbackdrops?\\b|\\bcanvas colou?r\\b",
+  },
+  addToPic: {
+    concept: "added to the picture",
+    plain: "added to the picture",
+    technical: "add.to.pic",
+    code: "addToPic",
+    avoid: ["static sprite", "stamp", "decal", "prop"],
+    avoidPattern: "\\bstatic sprites?\\b|\\bdecals?\\b",
+  },
+  sound: {
+    concept: "SOUND",
+    plain: "SOUND",
+    technical: "SOUND N",
+    code: "sound",
+    avoid: ["audio", "sfx", "track", "song", "clip"],
+    avoidPattern:
+      "\\bsfx\\b|\\baudio (?:resource|editor)\\b|\\b(?:song|clip) (?:resource|editor)\\b",
+  },
+  music: {
+    concept: "music",
+    plain: "music",
+    technical: "music intent document",
+    code: "music",
+    avoid: ["tune", "song", "score"],
+    avoidPattern: "\\b(?:tune|song) document\\b",
+  },
+  voice: {
+    concept: "sound voice",
+    plain: "Voice, Drums",
+    technical: "channel, noise voice",
+    code: "voice",
+    avoid: ["track", "channel"],
+    avoidPattern: "\\b(?:track|channel) (?:volume|notes|number)\\b",
+  },
+  note: {
+    concept: "note",
+    plain: "note",
+    technical: "frequency divisor",
+    code: "note",
+    avoid: ["tone"],
+    avoidPattern: "\\btone document\\b",
+  },
+  pitch: {
+    concept: "pitch",
+    plain: "pitch",
+    technical: "frequency divisor",
+    code: "pitch",
+    avoid: [],
+  },
+  volume: {
+    concept: "volume",
+    plain: "volume",
+    technical: "attenuation",
+    code: "volume",
+    avoid: ["level"],
+    avoidPattern: "\\bvolume level\\b",
+  },
+  objects: {
+    concept: "OBJECT",
+    plain: "OBJECT",
+    technical: "OBJECT file",
+    code: "objects",
+    avoid: ["inventory file", "items table"],
+  },
+  object: {
+    concept: "inventory object",
+    plain: "object",
+    technical: "inventory object iN",
+    code: "object, inventory",
+    avoid: ["item", "inventory item", "prop", "thing"],
+    avoidPattern: "\\binventory items?\\b|\\bitems?\\b[^\\n]*\\b(?:carry|pick up|inventory)\\b",
+  },
+  inventory: {
+    concept: "inventory",
+    plain: "inventory",
+    technical: "inventory, room 255",
+    code: "inventory",
+    avoid: ["bag", "pocket"],
+    avoidPattern: "\\binventory (?:bag|pocket)\\b",
+  },
+  words: {
+    concept: "WORDS",
+    plain: "WORDS",
+    technical: "WORDS.TOK",
+    code: "words",
+    avoid: ["dictionary", "vocabulary", "lexicon", "parser table"],
+    avoidPattern: "\\b(?:dictionary|vocabulary|lexicon)\\b|\\bparser table\\b",
+  },
+  meaning: {
+    concept: "word meaning",
+    plain: "meaning",
+    technical: "word group N, synonym group",
+    code: "wordGroup, group",
+    avoid: ["synonym", "category"],
+    avoidPattern: "\\bAdd synonym group\\b",
+  },
+  screenObject: {
+    concept: "screen object",
+    plain: "actor",
+    technical: "screen object oN",
+    code: "ScreenObject, screenObject",
+    avoid: ["sprite", "view", "character", "entity", "animated object"],
+    avoidPattern:
+      "\\b(?:sprites?|entities|animated objects?)\\b|\\bcharacters?\\b(?=[^\\n]*\\b(?:walk|cross|priority|cel|feet|water|land|drawn|controls|stop)\\b)|\\b(?:cel|feet|water|land|drawn|pixels)\\b[^\\n]*\\bcharacters?\\b",
+  },
+  ego: {
+    concept: "ego",
+    plain: "hero",
+    technical: "ego, o0",
+    code: "ego",
+    avoid: ["player", "protagonist", "avatar", "sprite"],
+    avoidPattern: "\\b(?:protagonist|avatar)\\b",
+  },
+  character: {
+    concept: "story character",
+    plain: "character",
+    technical: "story character",
+    code: "character",
+    avoid: ["sprite"],
+    avoidPattern: "\\bcharacter editor\\b",
+  },
+  priority: {
+    concept: "priority",
+    plain: "Priority",
+    technical: "priority, band, set.pri.base",
+    code: "priority, priorityBand",
+    avoid: ["depth", "distance band", "z-order", "layer", "occluder"],
+    avoidPattern: "\\b(?:depth|occluders?)\\b|\\bdistance band\\b|\\bz-order\\b",
+  },
+  control: {
+    concept: "control",
+    plain: "Walk: Wall, Gate, Trigger, Water",
+    technical: "control 0..3",
+    code: "control, walk",
+    avoid: ["blocks", "barrier", "collision", "obstacle", "conditional block"],
+    avoidPattern: "\\bconditional block\\b",
+  },
+  horizon: {
+    concept: "horizon",
+    plain: "horizon",
+    technical: "set.horizon",
+    code: "horizon",
+    avoid: ["skyline"],
+  },
+  baseLine: {
+    concept: "base line",
+    plain: "base line",
+    technical: "baseline",
+    code: "baseY",
+    avoid: ["floor line"],
+  },
+  frame: {
+    concept: "rendered frame",
+    plain: "frame",
+    technical: "frame",
+    code: "frame, FRAME_WIDTH",
+    avoid: [],
+  },
+  sheet: {
+    concept: "image sheet",
+    plain: "sheet",
+    technical: "sheet, cel region",
+    code: "sheet, SheetCel, cutGrid",
+    avoid: ["sprite sheet", "atlas", "frame", "character sheet"],
+    avoidPattern: "\\b(?:sprite|character) sheet\\b|\\batlas\\b",
+  },
+  script: {
+    concept: "script buffer",
+    plain: "script buffer",
+    technical: "script buffer, script.size",
+    code: "script",
+    avoid: [],
+  },
+  message: {
+    concept: "message",
+    plain: "message",
+    technical: "mN",
+    code: "message",
+    avoid: ["text"],
+    avoidPattern: "\\bmessage text message\\b",
+  },
+  command: {
+    concept: "command",
+    plain: "command",
+    technical: "said()",
+    code: "command",
+    avoid: ["action"],
+    avoidPattern: "\\bparser action\\b",
+  },
+  response: {
+    concept: "response",
+    plain: "response",
+    technical: "response",
+    code: "response",
+    avoid: [],
+  },
+  flag: {
+    concept: "flag",
+    plain: "flag",
+    technical: "fN",
+    code: "flag",
+    avoid: ["bool"],
+    avoidPattern: "\\bbool flag\\b",
+  },
+  variable: {
+    concept: "variable",
+    plain: "variable",
+    technical: "vN",
+    code: "variable",
+    avoid: [],
+  },
+  string: {
+    concept: "string",
+    plain: "string",
+    technical: "sN",
+    code: "string",
+    avoid: [],
+  },
+  controller: {
+    concept: "controller",
+    plain: "controller",
+    technical: "cN",
+    code: "controller",
+    avoid: [],
+  },
+  exit: {
+    concept: "exit",
+    plain: "Exit, door",
+    technical: "new.room transition",
+    code: "exit, door",
+    avoid: ["portal", "link", "warp", "transition"],
+    avoidPattern: "\\b(?:portal|warp)\\b",
+  },
+  parts: {
+    concept: "parts list",
+    plain: "parts",
+    technical: "resource, slot",
+    code: "part, WorkspacePartGroup",
+    avoid: ["asset", "file", "tab"],
+    avoidPattern: "\\basset list\\b",
+  },
+  pictureEditor: {
+    concept: "PICTURE editor",
+    plain: "PICTURE editor",
+    technical: "PICTURE editor",
+    code: "PictureStudio, picture-studio",
+    avoid: ["Room Studio", "Studio", "room editor", "scene editor"],
+    avoidPattern: "\\b(?:Room Studio|Studio|room editor|scene editor)\\b",
+  },
+  viewEditor: {
+    concept: "VIEW editor",
+    plain: "VIEW editor",
+    technical: "VIEW editor",
+    code: "ViewStudio, view-",
+    avoid: ["Sprite Studio", "sprite editor", "cel editor", "animation editor"],
+  },
+  logicEditor: {
+    concept: "LOGIC editor",
+    plain: "LOGIC editor",
+    technical: "LOGIC editor",
+    code: "LogicEditor",
+    avoid: ["Logic Studio", "code editor"],
+    avoidPattern: "\\bLogic Studio\\b",
+  },
+  soundEditor: {
+    concept: "SOUND editor",
+    plain: "SOUND editor",
+    technical: "SOUND editor",
+    code: "SoundPanel",
+    avoid: [],
+  },
+  wordsEditor: {
+    concept: "WORDS editor",
+    plain: "WORDS editor",
+    technical: "WORDS editor",
+    code: "WordsEditor",
+    avoid: [],
+  },
+  objectsEditor: {
+    concept: "OBJECT editor",
+    plain: "OBJECT editor",
+    technical: "OBJECT editor",
+    code: "TableEditor",
+    avoid: [],
+  },
+  items: {
+    concept: "Items panel",
+    plain: "Items",
+    technical: "Items panel",
+    code: "ItemList, itemGroups",
+    avoid: ["Scene list", "layers", "outline"],
+    avoidPattern: "\\bScene list\\b",
+  },
+  standIn: {
+    concept: "Stand-in",
+    plain: "Stand-in",
+    technical: "probe cel",
+    code: "standIn",
+    avoid: ["ghost", "actor probe"],
+    avoidPattern: "\\bghost(?: probe)?\\b|\\bactor probe\\b",
+  },
+  speckled: {
+    concept: "Speckled brush",
+    plain: "Speckled",
+    technical: "splatter",
+    code: "stipple",
+    avoid: ["Stipple", "spray", "dither", "splatter"],
+    avoidPattern: "\\b(?:Stipple|spray|dither|splatter)\\b",
+  },
+  onion: {
+    concept: "Onion skin",
+    plain: "Onion skin",
+    technical: "Onion skin",
+    code: "onion",
+    avoid: ["Onion"],
+    avoidPattern: "\\bOnion\\b(?! skin)",
+  },
+  trace: {
+    concept: "Trace",
+    plain: "Trace",
+    technical: "underlay",
+    code: "trace",
+    avoid: ["departure asset", "overlay"],
+    avoidPattern: "\\bdeparture assets?\\b",
+  },
+  reference: {
+    concept: "Reference image",
+    plain: "Reference image",
+    technical: "reference image",
+    code: "reference",
+    avoid: ["departure asset"],
+  },
+  focus: {
+    concept: "Focus",
+    plain: "Focus",
+    technical: "Focus",
+    code: "focus",
+    avoid: [],
+  },
+  agent: {
+    concept: "agent",
+    plain: "Agent",
+    technical: "agent",
+    code: "agent",
+    avoid: ["assistant", "Ask", "assist", "Studio Assist", "copilot"],
+    avoidPattern: "\\b(?:assistant|assist|copilot|Studio Assist)\\b|^Ask$",
+  },
+  changes: {
+    concept: "agent changes",
+    plain: "changes, Review, Approve, Reject",
+    technical: "proposal, candidate",
+    code: "proposal, candidate",
+    avoid: ["proposal", "candidate", "patch", "diff", "suggestion"],
+    avoidPattern: "\\b(?:proposals?|candidates?)\\b",
+  },
+  history: {
+    concept: "project history",
+    plain: "History, version, Name this version, Restore",
+    technical: "commit",
+    code: "history, commit",
+    avoid: ["checkpoint", "snapshot", "Keep"],
+    avoidPattern: "\\b(?:checkpoint|snapshot)\\b",
+  },
+  checkpoint: {
+    concept: "engine checkpoint",
+    plain: "Earlier",
+    technical: "checkpoint",
+    code: "checkpoint",
+    avoid: [],
+  },
+  saved: {
+    concept: "resource commit",
+    plain: "Saved",
+    technical: "commit",
+    code: "commit, resourceCommit",
+    avoid: ["Keep", "Keeping", "Kept"],
+    avoidPattern:
+      "^(?:Keep(?: (?:it(?: and apply)?|changes|edits|this tab open changes))?|Keeping\u2026|Kept)$",
+  },
+  plan: {
+    concept: "plan",
+    plain: "plan",
+    technical: "plan",
+    code: "plan",
+    avoid: ["world bible"],
+  },
+  gameTests: {
+    concept: "game tests",
+    plain: "game tests",
+    technical: "game tests",
+    code: "gameTests",
+    avoid: ["scenario"],
+    avoidPattern: "\\btest scenarios?\\b",
+  },
+  testWalk: {
+    concept: "Test walk",
+    plain: "Test walk",
+    technical: "Test walk",
+    code: "walk",
+    avoid: [],
+  },
+  playtest: {
+    concept: "Playtest room",
+    plain: "Playtest room",
+    technical: "Playtest room",
+    code: "playtest",
+    avoid: [],
+  },
+  launch: {
+    concept: "launch",
+    plain: "launch",
+    technical: "launch",
+    code: "launch",
+    avoid: [],
+  },
+};
+
+/** Stored and wire spellings, with the format that fixes each one. */
+export const FORMAT_LITERALS: Readonly<Record<string, string>> = {
+  "monotio_agi.pictureViews": "viewer preference for Views overlay opacity (0–100)",
+  depthDrawnPct: "archived genesis report.json metric key",
+  "depth and walk": "stored eval priority-plane diagnostic text",
+  spriteOps: "edit_selection schema field in stored calls and replay cases",
+  pictureOps: "edit_selection schema field in stored calls and replay cases",
+  "@depth": "annotated picture source marker",
+  '"depth"': "annotated picture item kind and edit_selection kind enum",
+  "'depth'": "annotated picture item kind in Vue expressions",
+  "art|depth|walk|mixed": "annotated picture item kind grammar",
+  stipple: "picture source keyword and insertPlot pen field",
+  dictionary: "agent history record field",
+  music: "project note document key",
+  inventory: "project document key",
+  words: "project document key",
+  bindings: "project document key",
+  images: "project document key",
+  frames: "read_room argument and preparation recipe field",
+  frameIds: "preparation recipe loop field",
+  count: "read_room frame argument",
+  stride: "read_room frame argument",
+  sheet: "read_room rendered frame argument",
+  channel: "read_sound argument",
+  channelIndex: "sound tool argument",
+  tracks: "write_music argument",
+  representation: "read_sound and write_music representation field",
+  hero: "launch record position field",
+  "# actor:": "picture source diagnostic declaration",
+  "counter-depth": "tutorial picture item identity",
+  "globe-depth": "tutorial picture item identity",
+  "ad-archive-depth": "stored tutorial lesson badge identity",
+  "Sprite Lab": "tutorial room title in game content and archive assertions",
+  "adventure-department-sprite-lab": "shared tutorial picture filename",
+  "Learn pictures, sprites and priority in a three-room tutorial.":
+    "released tutorial archive metadata",
 };

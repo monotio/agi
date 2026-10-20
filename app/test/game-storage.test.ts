@@ -531,7 +531,7 @@ test("a record this release does not recognise is never overwritten", async (t) 
   );
 });
 
-test("removing a library game clears its conversation, checkpoint, save slots and resume pointer", async (t) => {
+test("removing a library game clears its conversation, progress entry, save slots and resume pointer", async (t) => {
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   t.after(() => {
@@ -932,7 +932,7 @@ test("reference mutators merge concurrent attachments instead of losing one", as
     "both writers' attachments survived",
   );
 
-  // Removal versus Keep's stage-clear: the clear must not resurrect the
+  // Removal versus commit's stage-clear: the clear must not resurrect the
   // removed reference.
   await storage.updateAuthoredReferences(projectId, (current) =>
     current.filter((r) => r.id !== "ref-a"),

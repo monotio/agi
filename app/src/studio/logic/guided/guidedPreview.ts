@@ -85,7 +85,7 @@ export function roomPictureNumber(source: string, bindingsText: string | undefin
 }
 
 /** The literal VIEW in the room's entry block, with authored names expanded. */
-export function roomHeroView(source: string, bindingsText?: string): number | null {
+export function roomEgoView(source: string, bindingsText?: string): number | null {
   try {
     const bindings = readBindings(bindingsText) as Readonly<Record<string, { num: number }>>;
     const room = parseRoomSource(source, bindings);

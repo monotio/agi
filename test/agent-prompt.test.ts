@@ -69,8 +69,8 @@ describe("agent system prompt", () => {
   it("keeps the cross-tool workflow rules the picture eval proved", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Working with the tools"), "workflow section");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Register vocabulary before writing a said() handler"),
-      "vocabulary before said()",
+      AGI_SYSTEM_PROMPT.includes("Register WORDS before writing a said() handler"),
+      "WORDS before said()",
     );
     assert.ok(AGI_SYSTEM_PROMPT.includes("Call finish when the work is done"), "finish invariant");
     assert.ok(
@@ -107,8 +107,8 @@ describe("agent system prompt", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Trigger 2"), "priority 2");
     assert.ok(AGI_SYSTEM_PROMPT.includes("Water 3"), "priority 3");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Default actor depth is 4 at feet rows 0..47"),
-      "priority 4..15 depth bands",
+      AGI_SYSTEM_PROMPT.includes("Default screen object priority is 4 at feet rows 0..47"),
+      "priority 4..15 priority bands",
     );
   });
 
@@ -133,11 +133,11 @@ describe("agent system prompt", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Enclose every region"), "enclose then fill");
     assert.ok(AGI_SYSTEM_PROMPT.includes("far to near"), "far-to-near ordering");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("A Depth fill floods the connected depth-4 region"),
+      AGI_SYSTEM_PROMPT.includes("A Priority fill floods the connected priority-4 region"),
       "priority band recipe warns about flooding",
     );
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Paint depth 4 across open walking floor"),
+      AGI_SYSTEM_PROMPT.includes("Paint priority 4 across open walking floor"),
       "open floor is not sliced into artificial priority bands",
     );
     assert.ok(
@@ -155,7 +155,7 @@ describe("agent system prompt", () => {
       "add.to.pic",
       "draw.pic resets",
       "Control/margin 4",
-      "Actor collisions require animated actors",
+      "Screen object collisions require animated screen objects",
       "wall contact",
       "walking behind",
     ]) {
@@ -169,7 +169,7 @@ describe("agent system prompt", () => {
       "raw EGA priority/control",
       "semantic overlay",
       "numeric probes",
-      "real hero",
+      "real ego",
       "drafting aids",
       "compiled outputs",
       "bounded speedrun",
@@ -193,8 +193,8 @@ describe("agent system prompt", () => {
   it("uses VIEW screen objects for interactive state and PICTUREs for painted scenery", () => {
     for (const contract of [
       "player manipulates, picks up or sees animate",
-      "VIEW-backed actor",
-      "architecture, terrain, backdrops and broad static fills",
+      "VIEW-backed screen object",
+      "architecture, terrain, backgrounds and broad static fills",
       "commit state when the action commits",
       "room re-entry",
       "static baked detail",
@@ -207,8 +207,8 @@ describe("agent system prompt", () => {
       );
     }
     assert.ok(
-      !AGI_SYSTEM_PROMPT.includes("maximum number of sprite colours"),
-      "sprite economy must not impose an arbitrary hard colour maximum",
+      !AGI_SYSTEM_PROMPT.includes("maximum number of view colours"),
+      "view economy must not impose an arbitrary hard colour maximum",
     );
     assert.ok(
       !AGI_SYSTEM_PROMPT.includes("set a lasting state flag when it completes"),
@@ -291,14 +291,14 @@ describe("first-turn prompts", () => {
       game: "kq1",
       profile: "2.917",
       room: 1,
-      sceneBrief:
+      roomBrief:
         'Staged set 42-abcd1234: logic [0-1] (next free 2); dictionary 3 words; bindings none\nRoom 1: logic revision "10-1", picture revision "5-2"\nLive: room 1, ego (80,120); objects o0=view0@(80,120); controls F1=Help',
     });
     assert.ok(prompt.includes("ORIENTATION"), "orientation header");
     assert.ok(prompt.includes("kq1"), "game id");
     assert.ok(prompt.includes("2.917"), "interpreter profile");
-    assert.ok(prompt.includes("next free 2"), "scene brief index");
-    assert.ok(prompt.includes("F1=Help"), "scene brief controls");
+    assert.ok(prompt.includes("next free 2"), "room brief index");
+    assert.ok(prompt.includes("F1=Help"), "room brief controls");
     assert.ok(prompt.includes("read_room"), "points at the deep read");
     assert.ok(!prompt.includes("GENESIS"), "no genesis framing for an installed original");
     assert.ok(!prompt.includes("finish_genesis"), "installed originals do not finish genesis");

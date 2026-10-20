@@ -49,7 +49,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "stuck",
         title: "Stuck?",
         body: [
-          "Look at everything, then look again. Sierra hid a lot in the scenery.",
+          "Look at everything, then look again. Sierra hid a lot in the picture.",
           "Get a hint gives a nudge from the agent and leaves the game as it is. The map shows the rooms you have walked, and games with a recorded walkthrough can play it for you, spoilers included.",
         ],
         action: { kind: "hint", label: "Get a hint" },
@@ -150,7 +150,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "PICTURE editor",
         body: [
           VOCABULARY.picture.help,
-          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide characters. Press 1 or 2 to switch.",
+          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide actors. Press 1 or 2 to switch.",
           VOCABULARY.focus.help,
         ],
       },
@@ -163,13 +163,13 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-depth",
-        title: VOCABULARY.depth.label,
+        id: "studio-priority",
+        title: VOCABULARY.priority.label,
         body: [
-          VOCABULARY.depth.help,
-          VOCABULARY.depth.technical,
-          VOCABULARY.depthBand.help,
-          VOCABULARY.addDepth.help,
+          VOCABULARY.priority.help,
+          VOCABULARY.priority.technical,
+          VOCABULARY.priorityBand.help,
+          VOCABULARY.addPriority.help,
         ],
       },
       {
@@ -206,7 +206,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-ghost",
+        id: "studio-standIn",
         title: VOCABULARY.standIn.label,
         body: [
           VOCABULARY.standIn.help,
@@ -226,7 +226,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-ask",
+        id: "studio-agent",
         title: VOCABULARY.agent.label,
         body: [
           VOCABULARY.agent.help,
@@ -242,12 +242,12 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-keep",
+        id: "studio-commit",
         title: VOCABULARY.saved.label,
         body: [VOCABULARY.saved.help, VOCABULARY.history.help, VOCABULARY.nameVersion.help],
       },
       {
-        id: "sprites-loops",
+        id: "view-loops",
         title: VOCABULARY.view.label,
         body: [
           VOCABULARY.view.help,
@@ -257,7 +257,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "sprites-tools",
+        id: "view-tools",
         title: "Drawing cels",
         body: [
           "Draw with the Pencil (B), Eraser (E), Fill (G), Line (L) and Rectangle (R) in any colour of the fixed palette. Select (M) moves, copies (Alt), flips (H) or deletes a region; the pipette (I) picks a colour. Recolour (C) swaps one colour for another in a cel, a loop or the whole view. On the focused canvas the arrow keys move a cursor and Space or Enter clicks where it stands.",
@@ -265,25 +265,25 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "sprites-transparent",
+        id: "view-transparent",
         title: VOCABULARY.transparentColour.label,
         body: [VOCABULARY.transparentColour.help, VOCABULARY.background.help],
       },
       {
-        id: "sprites-mirror",
+        id: "view-mirror",
         title: VOCABULARY.mirrorLoop.label,
         body: [VOCABULARY.mirrorLoop.help, VOCABULARY.mirrorLoop.technical],
       },
       {
-        id: "sprites-feet",
+        id: "view-feet",
         title: VOCABULARY.feet.label,
         body: [
           VOCABULARY.feet.help,
-          "The Feet guide marks the bottom row of the cel. In room previews the cel against the room’s real Depth.",
+          "The Feet guide marks the bottom row of the cel. In room previews the cel against the room’s real Priority.",
         ],
       },
       {
-        id: "sprites-ask",
+        id: "views-agent",
         title: VOCABULARY.agent.label,
         body: [
           VOCABULARY.agent.help,

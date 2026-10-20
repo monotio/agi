@@ -16,11 +16,11 @@ import { readBindingsDocument } from "../../src/authoring/projectDocuments.ts";
 import { validateToolArguments } from "../../src/agent/schemaValidate.ts";
 import { createSelectionEdit } from "../../src/agent/selectionTools.ts";
 import { referenceUnderFetch, type ReferenceSource } from "../../src/agent/referenceTools.ts";
-import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
+import { pictureAgentScope, viewAgentScope } from "../../src/studio/agentScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import type { LensUnlocks, StudioLens } from "../../src/studio/lensRules.ts";
-import { openSprite } from "../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../src/view/viewDocument.ts";
 import {
   anthropicToolContent,
   openAiToolContent,
@@ -29,7 +29,7 @@ import {
 } from "../../src/agent/toolTransport.ts";
 
 /**
- * A case's `studio` focus: the Studio selection a Studio assist tool call
+ * A case's `studio` focus: the Studio selection a Studio agent tool call
  * runs against. A picture gives its annotated `source`, `targetIds` and
  * `lens` with optional `unlocks` and `horizon` (and `draftSource` when the
  * creator changed the draft during the request); a view gives its `payload`
@@ -44,7 +44,7 @@ interface StudioCase {
   source?: string;
   draftSource?: string;
   targetIds?: string[];
-  lens?: StudioLens;
+  lens?: "art" | "depth";
   unlocks?: LensUnlocks;
   horizon?: number;
   payload?: number[];
@@ -82,20 +82,21 @@ function referenceSource(cases: readonly ReferenceCase[]): ReferenceSource {
 function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDeps {
   if (studio.kind === "picture") {
     const source = studio.source!;
+    const lens: StudioLens = studio.lens === "depth" ? "priority" : "visual";
     const compiled = compileEditDocument(parsePictureDocument(source).document, session.profile);
     const draft = studio.draftSource ?? source;
     return {
       allowedTools: SELECTION_TASK_TOOLS,
       selection: createSelectionEdit({
-        scope: pictureAssistScope({
+        scope: pictureAgentScope({
           num: studio.num,
           compiled,
           targetIds: studio.targetIds ?? [],
-          lens: studio.lens ?? "art",
+          lens,
           ...(studio.unlocks ? { unlocks: studio.unlocks } : {}),
         }),
         draft: () => ({ kind: "picture", source: draft }),
-        lens: studio.lens,
+        lens,
         horizon: studio.horizon,
       }),
     };
@@ -104,9 +105,9 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
   return {
     allowedTools: SELECTION_TASK_TOOLS,
     selection: createSelectionEdit({
-      scope: viewAssistScope({
+      scope: viewAgentScope({
         num: studio.num,
-        document: openSprite(payload, session.profile),
+        document: openViewDocument(payload, session.profile),
         targetCels: studio.targetCels ?? [],
       }),
       draft: () => ({ kind: "view", payload }),
@@ -277,8 +278,13 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
           `Expected ${tool} to fail for ${file}, but it unexpectedly succeeded`,
         );
         if (content.expectedErrorSnippet) {
+          // Stored snippets keep exact geometry while the plane uses its technical term.
+          const expectedError = content.expectedErrorSnippet.replace(
+            /\bdepth and walk\b/g,
+            "priority and walk",
+          );
           assert.ok(
-            res.error?.includes(content.expectedErrorSnippet),
+            res.error?.includes(expectedError),
             `Expected error to contain '${content.expectedErrorSnippet}', got: '${res.error}'`,
           );
         }

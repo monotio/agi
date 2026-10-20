@@ -1,5 +1,5 @@
 /**
- * How input reaches Room Studio's tools (useStudioTools.ts): the canvas's
+ * How input reaches PICTURE editor's tools (useStudioTools.ts): the canvas's
  * pointer (the active tool first, then selection and dragging), Space held
  * to pan, the rail's letters, and the keyboard cursor, which makes every
  * drawing tool and the pipette work without a pointer (WCAG 2.5.7).
@@ -42,7 +42,7 @@ export interface StudioInputOptions {
   readonly fallback: PointerFallback;
   /** The focusable canvas stage. */
   readonly stage: () => HTMLElement | null;
-  /** G: show or hide the actor probe. */
+  /** G: show or hide the Stand-in probe. */
   readonly probe?: () => void;
   /**
    * Where a held Space or Alt can be let go outside the studio: a keyup

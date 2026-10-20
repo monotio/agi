@@ -8,7 +8,7 @@ import {
 } from "./workspaceShared.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
-test("Logic Studio analysis loads on demand and resolves source through a real worker", async ({
+test("LOGIC editor analysis loads on demand and resolves source through a real worker", async ({
   page,
 }) => {
   const requests: string[] = [];

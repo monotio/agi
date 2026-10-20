@@ -466,7 +466,7 @@ export function executeSoundTool(
           tempo: representation === "music" ? (tempo ?? null) : null,
           meter: null,
           timing:
-            "Durations and onsets are compiled 60 Hz ticks. No meter or original imported tempo is inferred. Volume is the base level before profile envelopes and live sound settings.",
+            "Durations and onsets are compiled 60 Hz ticks. No meter or original imported tempo is inferred. Volume is the base gain before profile envelopes and live sound settings.",
           channels,
           totalNotes,
           offset,

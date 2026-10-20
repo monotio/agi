@@ -26,10 +26,10 @@ import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { assertNoImageData } from "./modelText.ts";
 import { createSelectionEdit, SELECTION_TOOLS } from "../src/agent/selectionTools.ts";
-import { draftRevision, pictureAssistScope } from "../src/studio/assistScope.ts";
+import { draftRevision, pictureAgentScope } from "../src/studio/agentScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { AFTER_BRIDGE, BRIDGE_SOURCE } from "./studioAssistFixtures.ts";
+import { AFTER_BRIDGE, BRIDGE_SOURCE } from "./studioAgentFixtures.ts";
 
 const picture = { room: 1, source: "vis 1\nfill 0,0\nend" };
 
@@ -89,7 +89,7 @@ test("debug logs summarize image bytes without expanding them into JSON properti
   });
 });
 
-test("maximum sprite and sound read pages stay within the transport bound", () => {
+test("maximum view and sound read pages stay within the transport bound", () => {
   const session = createAgentSessionState();
   session.container.putResource(
     "view",
@@ -351,7 +351,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { room: 5, backgroundColor: 1, shapes: [] },
       bad: { room: 5, backgroundColor: 16, shapes: [] },
     },
-    add_depth: {
+    add_priority: {
       good: () => {
         const source =
           '# @item tree "Tree" art\nvis 2\npri off\nrect 20,50 30,80\nfill 25,60\n# @end\nend';
@@ -467,14 +467,14 @@ test("every catalog tool produces bounded binary-free transport on real success 
   // fixture in the Priority lens, attached to the shared deps below.
   const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
   const studio = createSelectionEdit({
-    scope: pictureAssistScope({
+    scope: pictureAgentScope({
       num: 1,
       compiled: bridge,
       targetIds: ["bridge"],
-      lens: "depth",
+      lens: "priority",
     }),
     draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
-    lens: "depth",
+    lens: "priority",
   });
   const proposeTool = SELECTION_TOOLS.find((tool) => tool.name === "edit_selection")!;
   const opFields = (
@@ -588,7 +588,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
   };
   const expectedCatalog = [
-    "add_depth",
+    "add_priority",
     "configure_launch",
     "edit_source",
     "finish",
@@ -808,7 +808,7 @@ test("tool results carry explicit evidence origins and a resource-set identity",
   assert.equal(liveOrigin["kind"], "live");
 });
 
-test("fromLiveCheckpoint restores the captured live image into the staged candidate", async () => {
+test("fromLiveCheckpoint restores the captured live image into the staged changes", async () => {
   const session = bootedSession();
   // Boot a live engine to a snapshottable cycle boundary, then capture it —
   // the same image the worker hands the session while the game is paused.

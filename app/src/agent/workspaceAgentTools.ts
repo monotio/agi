@@ -2,7 +2,7 @@
 import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
 import { NAMING_TOOL } from "../../../src/agent/namingTools.ts";
 import { parameterDescriptions, toolDescription } from "../../../src/vocabulary.ts";
-import { PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
+import { PROJECT_AGENT_TOOLS } from "./projectAgentTools.ts";
 
 const NOTES_TOOL: ToolDefinition = {
   name: "write_notes",
@@ -39,7 +39,7 @@ const IMAGE_TOOLS: readonly ToolDefinition[] = [
     name: "make_cels_from_an_image",
     description: toolDescription(
       "make_cels_from_an_image",
-      "Reuse an image attached to this project to append native VIEW cels while retaining existing loops and cels. Read the images document for its encoded SHA-256 handle. Supply target view:N and explicit frame regions, output sizes and loop numbers; frames null suggests separated strips or a four-column grid. The complete art/attachment change joins the coordinated proposal for review and one History commit.",
+      "Reuse an image attached to this project to append native VIEW cels while retaining existing loops and cels. Read the images document for its encoded SHA-256 handle. Supply target view:N and explicit cel regions, output sizes and loop numbers; the frames field set to null suggests separated strips or a four-column grid. The complete art/attachment change joins the coordinated proposal for review and one History commit.",
     ),
     parameters: parameterDescriptions("make_cels_from_an_image", {
       type: "object",
@@ -82,9 +82,9 @@ export const WORKSPACE_AGENT_TOOLS: readonly ToolDefinition[] = [
   ...AGENT_TOOLS.filter(
     (tool) =>
       !(["withdraw_selection"] as readonly string[]).includes(tool.name) &&
-      !PROJECT_ASSIST_TOOLS.some((other) => other.name === tool.name),
+      !PROJECT_AGENT_TOOLS.some((other) => other.name === tool.name),
   ),
-  ...PROJECT_ASSIST_TOOLS.map((tool) =>
+  ...PROJECT_AGENT_TOOLS.map((tool) =>
     tool.name === "propose_changes"
       ? {
           ...tool,

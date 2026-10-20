@@ -3,18 +3,18 @@ import { computed, nextTick, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import UiButton from "../ui/UiButton.vue";
-const { projectId = undefined, hero = false } = defineProps<{
+const { projectId = undefined, intro = false } = defineProps<{
   projectId?: string;
-  hero?: boolean;
+  intro?: boolean;
 }>();
 const { state } = useEngineApi();
-const { latestVersion, latestVersionAtHero, startLatestVersion, dismissLatestVersion } =
+const { latestVersion, latestVersionAtIntro, startLatestVersion, dismissLatestVersion } =
   useGameLibrary();
 const shown = computed(
   () =>
     latestVersion.value?.kind === "project" &&
-    hero === latestVersionAtHero.value &&
-    (hero || latestVersion.value.project === projectId),
+    intro === latestVersionAtIntro.value &&
+    (intro || latestVersion.value.project === projectId),
 );
 const root = useTemplateRef("root");
 watch(

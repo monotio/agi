@@ -89,7 +89,7 @@ for (const [width, height] of [
       await expect.poll(async () => (await textHook(page)).modal).toBeNull();
       await page.keyboard.press("F1");
       await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
-      await page.getByTestId("menu-assistant").focus();
+      await page.getByTestId("menu-agent").focus();
       await page.keyboard.press("Shift+Tab");
       await expect(keys).toBeFocused();
       await expect(keys).toHaveText("Click the game to play");

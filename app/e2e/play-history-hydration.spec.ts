@@ -34,7 +34,7 @@ for (const entry of ["Create", "conversation"] as const) {
     await page.goto(`/?play-history#play/${encodeURIComponent(projectId)}`);
     await waitForRoom(page, 1, { coldBoot: true });
     if (entry === "Create") await page.getByRole("radio", { name: "Create", exact: true }).click();
-    else await page.getByTestId("menu-assistant").click();
+    else await page.getByTestId("menu-agent").click();
     await expect
       .poll(() => page.evaluate(() => Reflect.get(window, "playHistoryAudit").histories))
       .toEqual([retained]);

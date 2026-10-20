@@ -1,5 +1,5 @@
 /**
- * Room Studio's edit commands for the selection: nudge, duplicate, delete,
+ * PICTURE editor's edit commands for the selection: nudge, duplicate, delete,
  * reorder, colour, label/kind/lock, single points (moved or added) and
  * Ungroup for one item; nudge, duplicate, delete, priority and Group for
  * several. Each is one kernel edit (a batch for several items) and one undo
@@ -49,11 +49,11 @@ export function useStudioEditing(options: {
   readonly itemIds?: () => readonly string[];
   /** Select exactly these items: the copies after Duplicate, the group, or its parts after Ungroup. */
   readonly selectItems?: (ids: readonly string[]) => void;
-  /** Editing is blocked (view only, or a Keep that needs a reload). */
+  /** Editing is blocked (view only, or a commit that needs a reload). */
   readonly frozen: () => boolean;
   /** Edits wait (an AI request or its proposal is open); undo and redo still run. */
   readonly paused?: () => boolean;
-  /** The step a lock refusal offers: Unlock for now, or Allow depth. */
+  /** The step a lock refusal offers: Unlock for now, or Allow priority. */
   readonly offer?: (check: StudioCheck) => NoticeAction | undefined;
   /** Doors that follow a picture item: their label and the item's id. */
   readonly doors?: () => readonly { readonly item: string; readonly label: string }[];

@@ -1,8 +1,8 @@
 /**
- * Rules bound to Room Studio picture items (`// @rule … item=<id>`) follow
+ * Rules bound to PICTURE editor picture items (`// @rule … item=<id>`) follow
  * them: after a picture edit, every bound door exit or region box moves by
- * its item's translation, so moving a doorway in Room Studio moves the exit
- * that walks through it in the same Keep.
+ * its item's translation, so moving a doorway in PICTURE editor moves the exit
+ * that walks through it in the same commit.
  *
  * An item's translation is how far the centre of its points' bounding box
  * moved (itemHandles: every vertex and fill seed). A moveItem shifts every
@@ -29,17 +29,17 @@ function partSpan(
   id: string,
 ): { from: number; to: number; label: string } | null {
   let open: { from: number; label: string } | null = null;
-  let depth = 0;
+  let priority = 0;
   for (let line = item.openLine + 1; line < item.closeLine; line++) {
     const part = groupPart(document.lines[line - 1] ?? "");
     if (part === undefined) continue;
     if (open === null) {
       if (part !== "end" && part.id === id) {
         open = { from: line, label: part.label };
-        depth = 1;
+        priority = 1;
       }
-    } else if (part !== "end") depth++;
-    else if (--depth === 0) return { ...open, to: line };
+    } else if (part !== "end") priority++;
+    else if (--priority === 0) return { ...open, to: line };
   }
   return null;
 }
@@ -116,7 +116,7 @@ export type FollowResult =
 /**
  * Move every rule bound to an item of the edited picture by that item's
  * translation, through the same moveRegionBox edit the UI uses, and assemble
- * the result. Refuses — so the whole Keep can be refused — when a bound rule
+ * the result. Refuses — so the whole commit can be refused — when a bound rule
  * is native or its box would leave the picture.
  */
 export function followPictureEdit(
@@ -162,7 +162,7 @@ export function followPictureEdit(
     if (model === "native")
       return {
         ok: false,
-        error: `Rule '${rule.id}' follows '${item}' but is written directly in the room's script; move its box in the script text.`,
+        error: `Rule '${rule.id}' follows '${item}' but is written directly in the room's LOGIC; move its box in the LOGIC text.`,
       };
     const box = ruleBox(model);
     if (box === null) {

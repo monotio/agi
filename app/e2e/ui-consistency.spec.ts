@@ -36,7 +36,7 @@ test("the hero and Save settings share the one filled primary; card actions stay
   await page.addStyleTag({
     content: "*, ::before, ::after { transition-duration: 0s !important }",
   });
-  const hero = page.getByTestId("hero-primary");
+  const hero = page.getByTestId("intro-primary");
   await expect(hero).toBeEnabled();
   const primary = await hero.evaluate(appearance);
   const play = page.getByTestId("catalog-play-adventure-department");
@@ -106,7 +106,7 @@ test("the hero and Save settings share the one filled primary; card actions stay
 test("the hero's two calls to action match and open creation from the keyboard", async ({
   page,
 }) => {
-  const play = page.getByTestId("hero-primary");
+  const play = page.getByTestId("intro-primary");
   const create = page.getByTestId("create-adventure-toggle");
   const control = (element: Element) => {
     const style = getComputedStyle(element);
@@ -138,7 +138,7 @@ test("the hero's two calls to action match and open creation from the keyboard",
 test("library details stay concise and Add game is a secondary action", async ({ page }) => {
   const add = page.getByRole("button", { name: "Add game", exact: true });
   await expect(add).toBeVisible();
-  // The Home nav's Settings is a quiet ghost button now, so the secondary
+  // The Home nav's Settings is a quiet standIn button now, so the secondary
   // variant's tokens are the reference.
   const secondary = await page.evaluate(() => {
     const probe = document.createElement("span");
@@ -230,7 +230,7 @@ test("keyboard focus draws one ring on page buttons and dialog buttons alike", a
   await expect(play).toBeFocused();
   expect(await play.evaluate(ring), "a page button").toEqual(expected);
   const create = page.getByTestId("create-adventure-toggle");
-  await page.getByTestId("hero-primary").focus();
+  await page.getByTestId("intro-primary").focus();
   await page.keyboard.press("Tab");
   await expect(create).toBeFocused();
   expect(await create.evaluate(ring), "a hero button").toEqual(expected);

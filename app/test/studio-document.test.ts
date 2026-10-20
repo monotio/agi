@@ -47,12 +47,12 @@ test("item lens marks follow drawing commands, a control line marking Priority",
     "end",
   );
   const model = buildStudioModel({ bytes: bytesOf(source), authoredSource: source, profile });
-  assert.deepEqual(model.rows[0]?.lenses, ["art", "depth"]);
+  assert.deepEqual(model.rows[0]?.lenses, ["visual", "priority"]);
   const wall = text('# @item w "Wall" walk', "vis off", "pri 0", "line 1,2 3,2", "# @end", "end");
   const walls = buildStudioModel({ bytes: bytesOf(wall), authoredSource: wall, profile });
-  assert.deepEqual(walls.rows[0]?.lenses, ["depth"]);
+  assert.deepEqual(walls.rows[0]?.lenses, ["priority"]);
   const single = buildStudioModel({ bytes: bytesOf(SMALL), authoredSource: SMALL, profile });
-  assert.deepEqual(single.rows[0]?.lenses, ["art"]);
+  assert.deepEqual(single.rows[0]?.lenses, ["visual"]);
 });
 
 test("authored text is used only while it compiles to the exact bytes", () => {
@@ -87,7 +87,7 @@ test("rows: items in draw order, then loose lines as Unassigned, without the clo
   }));
   assert.deepEqual(summary, [
     { id: "a", kind: "art", entries: [0, 1], swatch: 4, value: 4, tag: "art" },
-    { id: "d", kind: "depth", entries: [2, 3, 4], swatch: 10, value: 10, tag: "Depth 10" },
+    { id: "d", kind: "depth", entries: [2, 3, 4], swatch: 10, value: 10, tag: "Priority 10" },
     { id: UNASSIGNED, kind: "loose", entries: [5, 6], swatch: 2, value: 2, tag: "loose" },
   ]);
   // Two unlike items: no groups, and Unassigned stays out of the branches.
@@ -101,7 +101,7 @@ test("rows: items in draw order, then loose lines as Unassigned, without the clo
 });
 
 /**
- * Three brown lines, a black one, two more brown lines and a band-9 depth
+ * Three brown lines, a black one, two more brown lines and a band-9 priority
  * pair, each its own item, with the inferred-element ids `inferNativeItems`
  * assigns. Timeline: 0 vis 6, 1-3 the brown lines, 4 vis 0, 5 ink, 6 vis 6,
  * 7-8 brown, 9 vis off, 10 pri 9, 11-12 steps, 13 end.
@@ -147,7 +147,7 @@ test("branches fold consecutive inferred items of one kind and dominant value in
       ["Brown visual · 3", ["el-1", "el-2", "el-3"]],
       [null, ["el-4"]],
       ["Brown visual · 2", ["el-5", "el-6"]],
-      ["Depth band 9 · 2", ["el-7", "el-8"]],
+      ["Priority band 9 · 2", ["el-7", "el-8"]],
     ],
   );
   const [first] = model.groups;
@@ -157,7 +157,7 @@ test("branches fold consecutive inferred items of one kind and dominant value in
   assert.equal(first!.id, "(group)el-1");
   assert.deepEqual(
     model.groups.map((group) => group.tag),
-    ["art", "art", "Depth 9"],
+    ["art", "art", "Priority 9"],
   );
 });
 
@@ -190,7 +190,7 @@ test("authored items always stand alone: they never join a group, but do break o
       [null, ["el-3"]],
       [null, ["el-4"]],
       ["Brown visual · 2", ["el-5", "el-6"]],
-      ["Depth band 9 · 2", ["el-7", "el-8"]],
+      ["Priority band 9 · 2", ["el-7", "el-8"]],
     ],
   );
 });
@@ -250,7 +250,12 @@ test("a list of more than 60 rows folds into draw-order sections", () => {
   );
   // The section's highlight is both lines.
   const doc = useStudioDocument({ bytes: bytesOf(source), authoredSource: source, profile });
-  assert.deepEqual(maskBox(doc.rowMask("(section)i0", "art")), { x: 0, y: 0, width: 3, height: 6 });
+  assert.deepEqual(maskBox(doc.rowMask("(section)i0", "visual")), {
+    x: 0,
+    y: 0,
+    width: 3,
+    height: 6,
+  });
   // Short lists get none.
   assert.deepEqual(
     buildStudioModel({ bytes: bytesOf(GROUPED), authoredSource: GROUPED, profile }).sections,
@@ -261,14 +266,14 @@ test("a list of more than 60 rows folds into draw-order sections", () => {
 test("group labels name the colour, the priority meaning or a covered run", () => {
   assert.equal(groupLabel("art", 6, 12), "Brown visual · 12");
   assert.equal(groupLabel("mixed", 7, 2), "Light grey mixed · 2");
-  assert.equal(groupLabel("depth", 9, 4), "Depth band 9 · 4");
+  assert.equal(groupLabel("depth", 9, 4), "Priority band 9 · 4");
   assert.equal(groupLabel("walk", 0, 3), "Wall walk · 3");
   assert.equal(groupLabel("art", null, 2), "Covered visual · 2");
 });
 
 test("a group's highlight is the union of its members' masks", () => {
   const doc = useStudioDocument({ bytes: bytesOf(GROUPED), authoredSource: GROUPED, profile });
-  const union = doc.rowMask("(group)el-1", "art");
+  const union = doc.rowMask("(group)el-1", "visual");
   const cells: number[] = [];
   union.forEach((bit, i) => bit === 1 && cells.push(i));
   const expected: number[] = [];
@@ -290,7 +295,7 @@ test("the demo picture's rows and occluder mask match its hand-placed shapes", (
       "wall:art",
       "bench:art",
       "lamp:art",
-      "bench-occluder:Depth 10",
+      "bench-occluder:Priority 10",
       "floor-edge:Wall",
       "gate:Gate",
       "south-exit:Trigger",
@@ -326,9 +331,9 @@ test("the playhead shows the picture drawn up to it and the pixel owners at that
     rowId: undefined,
   });
   assert.equal(doc.rowAt(1, 2, "visual"), UNASSIGNED);
-  // The Art lens reads the visual plane first, then falls back to priority.
-  assert.equal(doc.rowAtForLens(1, 1, "art"), "d");
-  assert.equal(doc.rowAtForLens(1, 0, "depth"), "a");
+  // The Visual lens reads the visual plane first, then falls back to priority.
+  assert.equal(doc.rowAtForLens(1, 1, "visual"), "d");
+  assert.equal(doc.rowAtForLens(1, 0, "priority"), "a");
 
   doc.playhead.value = 2; // vis 4 and the first line
   // By hand: a 160×168 picture starts white (15) on the visual plane and 4 on
@@ -361,10 +366,10 @@ test("source trust updates preserve the playhead while changed drawing commands 
 
 test("row masks: Unassigned uses the loose lines' pixels", () => {
   const doc = useStudioDocument({ bytes: bytesOf(SMALL), authoredSource: SMALL, profile });
-  assert.deepEqual(maskBox(doc.rowMask(UNASSIGNED, "art")), { x: 0, y: 2, width: 2, height: 1 });
-  assert.deepEqual(maskBox(doc.rowMask("d", "art")), { x: 0, y: 1, width: 4, height: 1 });
+  assert.deepEqual(maskBox(doc.rowMask(UNASSIGNED, "visual")), { x: 0, y: 2, width: 2, height: 1 });
+  assert.deepEqual(maskBox(doc.rowMask("d", "visual")), { x: 0, y: 1, width: 4, height: 1 });
   doc.playhead.value = 3;
-  assert.equal(maskBox(doc.rowMask("d", "art")), null);
+  assert.equal(maskBox(doc.rowMask("d", "visual")), null);
 });
 
 test("a clicked pixel explains the fill at the playhead, and nothing else", () => {

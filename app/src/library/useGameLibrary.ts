@@ -976,7 +976,7 @@ export function createGameLibrary(
   }
 
   const latestVersion = shallowRef<ProgressTarget>();
-  const latestVersionAtHero = shallowRef(false);
+  const latestVersionAtIntro = shallowRef(false);
   function dismissLatestVersion(): void {
     latestVersion.value = undefined;
     state.error = "";
@@ -984,8 +984,8 @@ export function createGameLibrary(
   }
   function offerLatestVersion(target: ProgressTarget, cause?: string): void {
     if (target.kind !== "project") return;
-    latestVersionAtHero.value =
-      typeof document !== "undefined" && !!document.activeElement?.closest(".hero");
+    latestVersionAtIntro.value =
+      typeof document !== "undefined" && !!document.activeElement?.closest(".intro");
     latestVersion.value = target;
     state.phase = "error";
     state.error = cause?.includes("Start the latest version?")
@@ -1244,14 +1244,14 @@ export function createGameLibrary(
       numbers.length === 1
         ? `save slot ${numbers[0]}`
         : `save slots ${listed(numbers.map(String))}`;
-    const keptSlots = slotsIn(stored?.slots ?? []);
+    const savedSlots = slotsIn(stored?.slots ?? []);
     const refusedSlots = slotsIn(stored?.failedSlots ?? []);
     const unknownSlots = slots.filter(
-      (slot) => !keptSlots.includes(slot) && !refusedSlots.includes(slot),
+      (slot) => !savedSlots.includes(slot) && !refusedSlots.includes(slot),
     );
     if (game.progress?.autosave)
       (stored?.autosave ? kept : stored ? refused : unconfirmed).push("saved progress");
-    if (keptSlots.length) kept.push(saves(keptSlots));
+    if (savedSlots.length) kept.push(saves(savedSlots));
     if (refusedSlots.length) refused.push(saves(refusedSlots));
     if (unknownSlots.length) unconfirmed.push(saves(unknownSlots));
     if (game.map) (stored?.map ? kept : refused).push("map");
@@ -1862,7 +1862,7 @@ export function createGameLibrary(
     onClearSavedGame,
     onPlayLibraryGame,
     latestVersion,
-    latestVersionAtHero,
+    latestVersionAtIntro,
     dismissLatestVersion,
     startLatestVersion,
     onStartLibraryGameOver,

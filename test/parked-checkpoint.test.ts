@@ -316,7 +316,7 @@ test("a malformed continuation is rejected without mutating the engine", () => {
   assert.deepEqual(engine.serialize(), before, "rejection left the state untouched");
 });
 
-test("2.089 persistent window partially erased by sprite keeps identical border pixels across checkpoint then show.pic", () => {
+test("2.089 persistent window partially erased by view keeps identical border pixels across checkpoint then show.pic", () => {
   const container = createContainer();
   container.putResource("picture", 1, PICTURE_1);
   // 1x1 opaque cel (color 2, transparent 15) so position(o1, 72, 76) covers 320x200 pixels
@@ -374,7 +374,7 @@ test("2.089 persistent window partially erased by sprite keeps identical border 
   fromAutosave.tick();
   assert.equal(fromAutosave.vars[102], 9);
   // Hand-computed overlay pixels at 320x200 after show.pic:
-  // (144, 84) was under the erased sprite so it stays transparent (0);
+  // (144, 84) was under the erased view so it stays transparent (0);
   // (146, 84) is the adjacent red top border bar pixel (5 = EGA 4 + 1) and stays red.
   const liveOverlay = live.getPresentation().windowOverlay;
   const autoOverlay = fromAutosave.getPresentation().windowOverlay;

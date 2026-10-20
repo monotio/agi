@@ -309,7 +309,7 @@ test("opening the map during a walkthrough stops the replay ticks", async ({ pag
     .toBeGreaterThan(frozen);
 });
 
-test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ page }) => {
+test("Watch from here seeks the walkthrough to the room's progress entry", async ({ page }) => {
   test.skip(Boolean(kq1Missing), kq1Missing || "");
   await page.goto("/");
   await page
@@ -346,9 +346,9 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
 
 test("closing the map restores only the pause it owns", async ({ page }) => {
   await bootMapGame(page);
-  // The Ask drawer holds a pause the map must not release. (Create shows the
+  // The Agent drawer holds a pause the map must not release. (Create shows the
   // map as a docked panel that never pauses; the window is Play's.)
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await page.getByTestId("btn-world-map").click();

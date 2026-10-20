@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { itemRoomOptions } from "../src/studio/workspace/itemRoomOptions.ts";
 
-test("item locations keep special meanings and numeric room order with shared names", () => {
+test("object locations keep special meanings and numeric room order with shared names", () => {
   assert.deepEqual(
     itemRoomOptions({
       rooms: [

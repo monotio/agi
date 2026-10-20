@@ -1,7 +1,7 @@
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 /**
  * The project transaction boundary. Every write that puts a running game's
- * work into browser storage — a Studio Keep, an AI remix, a room built from
+ * work into browser storage — a Studio commit, an AI remix, a room built from
  * the map or written mid-play, a conversation, settings or history-adoption
  * save, an autosave — depends on four answers, and this module owns them:
  *
@@ -34,7 +34,7 @@ import type { PortableProjectWorkspace } from "../../../src/authoring/projectWor
  *
  * The authoring base belongs to the booted game, not to a session: the tab
  * holds one authoring state per game at a time — its live session, or,
- * without one, the booted record Room Studio opens a draft on — and every
+ * without one, the booted record PICTURE editor opens a draft on — and every
  * session a game gets hydrates from the same record.
  */
 import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
@@ -114,7 +114,7 @@ const authoringBases = new WeakMap<BootedGame, AuthoringBase>();
 
 /**
  * The tab read `authoringState` for `game` — at boot, when a session
- * hydrates, when a Keep reads the record. The first read is the base; a
+ * hydrates, when a commit reads the record. The first read is the base; a
  * later one holding other content means another tab changed it since, and
  * the game is stale for authoring writes from then on. False while it is.
  */

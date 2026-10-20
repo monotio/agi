@@ -13,7 +13,7 @@ export type OperandKind =
   | "imm" // immediate byte
   | "var" // variable index
   | "flag" // flag index
-  | "item" // inventory item number
+  | "item" // object number
   | "object" // screen object number
   | "resource" // logic/picture/view/sound resource number
   | "controller" // input controller number

@@ -648,7 +648,7 @@ test("a stored download refuses when the native revision moves while it prepares
   assert.notEqual(lib.exportRefusal.value, "");
 });
 
-test("a removed stored body refuses the private download instead of exporting a ghost", async (t) => {
+test("a removed stored body refuses the private download instead of exporting a standIn", async (t) => {
   installLocalStorage(t);
   const { downloads } = installDownloads(t);
   const { files } = gameContainer();
@@ -840,7 +840,7 @@ test("a stored download refuses when the body is recreated during ZIP entry coll
   assert.notEqual(lib.exportRefusal.value, "");
 });
 
-test("an installed game's download carries only its own locator's records and its real checkpoint", async (t) => {
+test("an installed game's download carries only its own locator's records and its real progress entry", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const { downloads } = installDownloads(t);
@@ -1004,7 +1004,7 @@ test("a live download refuses when the worker answers for another binding", asyn
   assert.notEqual(lib.exportRefusal.value, "");
 });
 
-test("a live download survives a storage wall with its worker checkpoint and a truthful report", async (t) => {
+test("a live download survives a storage wall with its worker progress entry and a truthful report", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const { downloads } = installDownloads(t);
@@ -1057,9 +1057,9 @@ test("a live download survives a storage wall with its worker checkpoint and a t
     if (previous) Object.defineProperty(globalThis, "localStorage", previous);
   });
   await lib.onExportAgiZip(true, true);
-  assert.equal(downloads.length, 1, "the direct checkpoint carries the download anyway");
+  assert.equal(downloads.length, 1, "the direct progress entry carries the download anyway");
   const opened = await readGameZip(await downloads[0]!.bytes());
-  assert.equal(opened.progress?.autosave?.room, 5, "the worker checkpoint is the autosave");
+  assert.equal(opened.progress?.autosave?.room, 5, "the worker progress entry is the autosave");
   assert.equal(opened.progress?.autosave?.game.identity.project, id);
   assert.equal(opened.backupWarning === undefined, false, "the report says it is incomplete");
   assert.match(
@@ -1090,7 +1090,7 @@ test("an unbound live export ships the in-memory game and says what it could not
   assert.equal(downloads.length, 1);
   const opened = await readGameZip(await downloads[0]!.bytes());
   assert.deepEqual(opened.files["VOL.0"], files["VOL.0"]);
-  assert.equal(opened.progress?.autosave?.room, 8, "the running checkpoint still ships");
+  assert.equal(opened.progress?.autosave?.room, 8, "the running progress entry still ships");
   assert.equal(opened.progress?.autosave?.game.installed, false);
   assert.equal(opened.progress?.autosave?.game.identity.project, id);
   assert.deepEqual(opened.progress?.saves, {}, "no stored slots exist to carry");
@@ -1104,7 +1104,7 @@ test("an unbound live export ships the in-memory game and says what it could not
   );
 });
 
-test("a live checkpoint matches the authored vocabulary, not the container's WORDS.TOK", async (t) => {
+test("a live progress entry matches the authored vocabulary, not the container's WORDS.TOK", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const { downloads } = installDownloads(t);
@@ -1151,11 +1151,11 @@ test("a live checkpoint matches the authored vocabulary, not the container's WOR
   assert.equal(
     opened.progress?.autosave?.room,
     6,
-    "the checkpoint restores under the authored WORDS.TOK basis",
+    "the progress entry restores under the authored WORDS.TOK basis",
   );
 });
 
-test("a live checkpoint is omitted with a named cause when the runtime booted other bytes", async (t) => {
+test("a live progress entry is omitted with a named cause when the runtime booted other bytes", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const { downloads } = installDownloads(t);
@@ -1201,7 +1201,7 @@ test("a live checkpoint is omitted with a named cause when the runtime booted ot
   assert.equal(
     opened.progress?.autosave,
     undefined,
-    "a checkpoint that cannot restore under the export is not relabelled into it",
+    "a progress entry that cannot restore under the export is not relabelled into it",
   );
   assert.match(lib.exportRefusal.value, /play position could not be matched/);
 });
@@ -1272,7 +1272,7 @@ for (const project of [false, true]) {
       assert.equal(
         selected.vars[42],
         17,
-        "the real selected-profile bytecode reached its checkpoint",
+        "the real selected-profile bytecode reached its progress entry",
       );
       const selectedImage = selected.autosaveImage();
       assert.ok(selectedImage);
@@ -1295,7 +1295,7 @@ for (const project of [false, true]) {
       if (project) {
         assert.ok(
           opened.progress?.autosave,
-          "the selected-profile checkpoint survives native import",
+          "the selected-profile progress entry survives native import",
         );
         const restored = new Engine(
           openContainer(new Map(Object.entries(opened.files)), { profile: opened.profile! }),
@@ -1320,7 +1320,7 @@ for (const project of [false, true]) {
 }
 
 for (const scenario of ["removed stored owner", "blocked stored owner"] as const) {
-  test(`a live ${scenario} still exports playable resources and its direct checkpoint`, async (t) => {
+  test(`a live ${scenario} still exports playable resources and its direct progress entry`, async (t) => {
     const cleanup = cleanupAfter(t);
     installLocalStorage(t);
     const { downloads } = installDownloads(t);

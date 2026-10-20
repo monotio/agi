@@ -1,5 +1,5 @@
 /**
- * Typed Room Studio rules and their two directions: `emitRule` writes the one
+ * Typed PICTURE editor rules and their two directions: `emitRule` writes the one
  * canonical AGI logic fragment for a model, and `parseRule` reads a fragment
  * back into a model ONLY when it has exactly one of those canonical shapes.
  * Anything else — other opcodes, labels, gotos, extra clauses, a different

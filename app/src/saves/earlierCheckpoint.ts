@@ -160,15 +160,15 @@ export async function prepareEarlierCheckpoint(options: {
 }): Promise<PreparedEarlierCheckpoint> {
   const locals = checkpointLocals(options.read);
   if (locals === undefined)
-    throw new Error("This earlier progress source offers no checkpoint to open.");
+    throw new Error("This earlier progress source offers no progress entry to open.");
   const entry = locals.local[options.entryIndex];
   if (entry === undefined || entry.key !== autosaveKey(locals.spelling))
-    throw new Error("The selected entry is not this source's checkpoint.");
+    throw new Error("The selected entry is not this source's progress entry.");
   const record = parseAutosaveRecord(entry.value);
   if (record === null)
-    throw new Error("This checkpoint is not an autosave record this version can read.");
+    throw new Error("This progress entry is not an autosave record this version can read.");
   if (!autosaveMatchesKey(record.game, locals.spelling))
-    throw new Error("This checkpoint belongs to a different progress source.");
+    throw new Error("This progress entry belongs to a different progress source.");
 
   // Own the resource bytes before the first await: a caller reusing the
   // buffers under an in-flight preparation must not change what is hashed
@@ -180,7 +180,7 @@ export async function prepareEarlierCheckpoint(options: {
   if (options.target.identity.revision !== revision)
     throw new Error("The selected game's current files do not match its progress binding.");
   if (record.game.identity.revision !== revision)
-    throw new Error("This checkpoint was saved under different game data.");
+    throw new Error("This progress entry was saved under different game data.");
 
   // The restore check boots a real Engine — load it lazily so it stays off
   // the Play boot path.
@@ -191,14 +191,14 @@ export async function prepareEarlierCheckpoint(options: {
     autosave = readProgressEntries(entries, "", files, options.profile)?.autosave;
   } catch (error) {
     throw new Error(
-      `This checkpoint cannot be restored into the selected game: ${describe(error)}`,
+      `This progress entry cannot be restored into the selected game: ${describe(error)}`,
       {
         cause: error,
       },
     );
   }
   if (!autosave)
-    throw new Error("This checkpoint is not an autosave record this version can read.");
+    throw new Error("This progress entry is not an autosave record this version can read.");
 
   return {
     origin: locals.origin,

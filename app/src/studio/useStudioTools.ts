@@ -1,5 +1,5 @@
 /**
- * Room Studio's tool rail at work on the canvas. Drawing tools insert a new
+ * PICTURE editor's tool rail at work on the canvas. Drawing tools insert a new
  * item where the draw-order playhead stands (studioTools.ts
  * `insertionPoint`), with the current values of the active lens, as ONE undo
  * step through the draft's kernel edit and lens locks: a rect or brush drag
@@ -16,7 +16,7 @@ import type { EditOperation } from "../../../src/studio/editOperations.ts";
 import { commandHead } from "../../../src/studio/editState.ts";
 import { pictureItemAtLine } from "../../../src/studio/pictureDocument.ts";
 import { whyNotFilled, type FillExplanation } from "../../../src/studio/pictureQuery.ts";
-import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../../../src/studio/itemGroups.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { SCREEN_WIDTH } from "../../../src/types.ts";
 import type { PanePress } from "./StudioCanvas.vue";
@@ -110,8 +110,8 @@ export function useStudioTools(options: StudioToolsOptions) {
   const spaceHeld = shallowRef(false);
   /** Current values per lens, so each lens keeps its own. */
   const values = reactive<Record<StudioLens, CurrentValues>>({
-    art: defaultValues("art"),
-    depth: defaultValues("depth"),
+    visual: defaultValues("visual"),
+    priority: defaultValues("priority"),
   });
   const current = computed(() => values[lens.value]);
   const filled = shallowRef(false);
@@ -236,7 +236,7 @@ export function useStudioTools(options: StudioToolsOptions) {
     });
   }
 
-  /** Drawing is blocked (view only, or a Keep that needs a reload): say so. */
+  /** Drawing is blocked (view only, or a commit that needs a reload): say so. */
   function blocked(): boolean {
     if (options.frozen()) {
       options.say({ tone: "warn", text: "This picture is read-only." });
@@ -374,7 +374,7 @@ export function useStudioTools(options: StudioToolsOptions) {
   /**
    * The bucket on a painted spot: recolour the step that painted it,
    * everywhere that step painted. The step is the cell's last painter at the
-   * insertion point; a locked item, derived depth, raw bytes, or a spot that
+   * insertion point; a locked item, derived priority, raw bytes, or a spot that
    * is already the chosen colour falls back to the fill's own advice.
    * Returns whether a recolour was attempted.
    */
@@ -395,7 +395,8 @@ export function useStudioTools(options: StudioToolsOptions) {
     if (!STEP_HEADS.includes(commandHead(draft.document.value.lines[line - 1] ?? ""))) return false;
     const item = pictureItemAtLine(draft.document.value, line);
     if (item?.locked) return false;
-    if (item?.depth && line > item.depth.openLine && line < item.depth.closeLine) return false;
+    if (item?.priority && line > item.priority.openLine && line < item.priority.closeLine)
+      return false;
     const name = options.nameOf?.(line) ?? item?.label ?? `step ${k + 1}`;
     const outcome = draft.apply({ type: "setStepColor", line, plane, value }, `Recolour ${name}`);
     options.report(outcome);
@@ -405,7 +406,7 @@ export function useStudioTools(options: StudioToolsOptions) {
         ? "off"
         : plane === "visual"
           ? (EGA_COLOUR_NAMES[value] ?? `colour ${value}`)
-          : (CONTROL_VALUES[value]?.name ?? `depth band ${value}`);
+          : (CONTROL_VALUES[value]?.name ?? `priority band ${value}`);
     const notice: StudioNotice = {
       tone: "ok",
       text: `Recoloured ${name} to ${colour}.`,
@@ -617,7 +618,7 @@ export function useStudioTools(options: StudioToolsOptions) {
 
   // A lens change or a frozen draft ends what was being drawn with the old values.
   watch([lens, options.frozen, () => options.paused?.() ?? false], () => cancel());
-  // The picture changed under the fill tool's explanation (undo, Keep), or the
+  // The picture changed under the fill tool's explanation (undo, commit), or the
   // scrubber moved from where it was asked: it no longer holds.
   watch([() => draft.source.value, () => insertion.value.index], () => (fillWhy.value = null));
 

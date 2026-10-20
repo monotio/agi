@@ -37,7 +37,7 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
     <section>
       <h2>Buttons</h2>
       <div class="row">
-        <UiButton variant="primary">Keep changes</UiButton>
+        <UiButton variant="primary">Save changes</UiButton>
         <UiButton variant="primary" icon="play">Play here</UiButton>
         <UiButton>Secondary</UiButton>
         <UiButton icon="map">World map</UiButton>
@@ -49,7 +49,7 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
       <div class="row">
         <UiButton variant="primary" size="sm">Small primary</UiButton>
         <UiButton size="sm" trailing-icon="chevron-down">Game</UiButton>
-        <UiButton variant="ghost" size="sm" icon="sparkles">Ask</UiButton>
+        <UiButton variant="ghost" size="sm" icon="sparkles">Agent</UiButton>
       </div>
       <div class="row">
         <UiIconButton
@@ -140,14 +140,14 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
     </section>
 
     <section class="split">
-      <UiPanel title="Scene" flush>
+      <UiPanel title="Items" flush>
         <template #actions><UiIconButton icon="plus" label="Add object" size="sm" /></template>
         <ul class="list">
           <li>Walls &amp; beams</li>
-          <li class="selected">Bench occluder</li>
+          <li class="selected">Bench priority</li>
           <li>Floor edge</li>
         </ul>
-        <template #footer>Art is locked in the Depth lens.</template>
+        <template #footer>The visual plane is locked in the Priority lens.</template>
       </UiPanel>
       <UiPanel title="Room">
         <div class="stack">

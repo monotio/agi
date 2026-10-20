@@ -123,7 +123,7 @@ test("overlayBoxes converts object records to logical-pixel boxes", () => {
     h: 20,
     baseline: 100,
     num: 2,
-    label: "Object 2",
+    label: "Actor 2",
     priority: 9,
     direction: 3,
     stepSize: 1,
@@ -166,7 +166,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
   const latch = latchPickAt(frame, PICK)!;
   assert.equal(latch.cycle, 42);
   assert.equal(latch.patchGeneration, 7); // the frame's own revision, not a poll
-  assert.equal(describeObject(latch.object!), "Object 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
+  assert.equal(describeObject(latch.object!), "Actor 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
 
   // The object moves, changes, then disappears in later observations; newer
   // frames arrive out of order. The latched card keeps its original fields.
@@ -175,7 +175,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
   frame.objects.length = 0;
   const stale = { ...frame, cycle: 41, objects: [objectFixture({ num: 2, x: 5 })] };
   const newer = { ...frame, cycle: 55, patchGeneration: 8, objects: [] };
-  assert.equal(describeObject(latch.object!), "Object 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
+  assert.equal(describeObject(latch.object!), "Actor 2 · VIEW 10 loop 0 cel 1 · pri 11 · normal");
   assert.equal(latch.cycle, 42);
   assert.equal(latch.patchGeneration, 7);
   assert.ok(latchIsStale(latch, stale)); // restore/seek/new game regresses cycle
@@ -186,7 +186,7 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
 test("a picture-layer pick samples the picture surface, not the composite", () => {
   const frame = frameFixture();
   frame.objects = [objectFixture()];
-  // The composed pixel is a sprite (color 4, priority 11, owner 2) covering
+  // The composed pixel is a view (color 4, priority 11, owner 2) covering
   // picture color 2 at priority 6 — the exploded geometry exposed it.
   const picVisual = new Uint8Array(160 * 168).fill(15);
   const picPriority = new Uint8Array(160 * 168).fill(9);
@@ -200,13 +200,13 @@ test("a picture-layer pick samples the picture surface, not the composite", () =
   assert.deepEqual(latch.inspection, { color: 2, priority: 6, owner: null });
   assert.equal(latch.object, null);
 
-  // The sprite band pick on the same pixel reads the composed frame.
-  const sprite = latchPickAt(frame, { ...PICK, layerKind: "sprite", layerBand: 11 })!;
-  assert.deepEqual(sprite.inspection, { color: 4, priority: 11, owner: 2 });
-  assert.equal(sprite.object?.num, 2);
+  // The view band pick on the same pixel reads the composed frame.
+  const view = latchPickAt(frame, { ...PICK, layerKind: "actor", layerBand: 11 })!;
+  assert.deepEqual(view.inspection, { color: 4, priority: 11, owner: 2 });
+  assert.equal(view.object?.num, 2);
 
   // The crop shows the picked layer's pixels: picture green 2, not the
-  // composed sprite red 4.
+  // composed view red 4.
   const crop = cropFrameRgba(frame, 40, 50, 4, pickVisualSource(frame, "picture")!);
   const o = (4 * 9 + 4) * 4;
   assert.deepEqual([...crop.data.slice(o, o + 4)], [0, 0xaa, 0, 255]);

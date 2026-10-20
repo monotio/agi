@@ -4,7 +4,7 @@ import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { computed, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import type { RoomPlacement } from "../../../src/authoring/roomPlacements.ts";
-import type { GhostView } from "./useGhostProbe.ts";
+import type { StandInView } from "./useStandInProbe.ts";
 import type { Viewport } from "../../../src/studio/viewport.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { forEachPaintedPixel } from "../../../src/view/view.ts";
@@ -31,7 +31,7 @@ const {
   readOnly,
 } = defineProps<{
   figures: readonly RoomPlacement[];
-  views: readonly GhostView[];
+  views: readonly StandInView[];
   viewport: Viewport;
   opacity: number;
   picture: { visual: Uint8Array; priority: Uint8Array };

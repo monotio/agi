@@ -2,7 +2,7 @@ import { numberedLabel, type NumberedLabelContext } from "../logic/numberedLabel
 /**
  * Removal admission review for a compiled project candidate: the inventory of
  * definite and potential uses that must be empty before a reviewed resource
- * deletion may Keep. compileProjectSelection already strict-compiles the
+ * deletion may be committed. compileProjectSelection already strict-compiles the
  * candidate and inventories its native image; this review adds the candidate's
  * authoring intent (bindings reservations, world room plans, music intent),
  * the preserved reference-art associations it carries and every unselected open
@@ -69,7 +69,7 @@ export interface ProjectRemovalInput {
    */
   readonly drafts: readonly { readonly key: string; readonly content: DocumentContent }[];
   /** The kept baseline's bindings: a second name-resolution context for drafts. */
-  readonly keptBindings: BindingMap;
+  readonly savedBindings: BindingMap;
   readonly profile: AgiProfile;
   readonly renumbering?: string | undefined;
 }
@@ -552,7 +552,7 @@ function inspectSourceDraft(
   input: ProjectRemovalInput,
   report: Report,
 ): void {
-  for (const bindings of [input.authoring.bindings, input.keptBindings]) {
+  for (const bindings of [input.authoring.bindings, input.savedBindings]) {
     let analysis: ReturnType<typeof inspectProjectSourceDependencies>;
     try {
       analysis = inspectProjectSourceDependencies({

@@ -243,7 +243,7 @@
 }
 @media (max-width: 600px) {
   .agent-drawer,
-  .in-game .shell-body.assistant-open .agent-drawer--play {
+  .in-game .shell-body.agent-open .agent-drawer--play {
     top: 0;
     left: 0;
     width: 100vw;

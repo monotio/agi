@@ -5,7 +5,7 @@ import {
   TUTORIAL_LESSONS,
   verifyMirrorEdit,
   verifyMuralObject,
-  verifyStandDepth,
+  verifyStandPriority,
 } from "../games/adventure-department/lessons.ts";
 import { TUTORIAL_PICTURES } from "../games/adventure-department/sceneArt.ts";
 import type { LessonVerifyInput } from "../app/src/lessons/types.ts";
@@ -18,13 +18,13 @@ import {
   serializePictureDocument,
   type PictureDocument,
 } from "../src/studio/pictureDocument.ts";
-import { openSprite } from "../src/view/spriteDocument.ts";
-import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
+import { openViewDocument } from "../src/view/viewDocument.ts";
+import { applyViewEdit, type ViewEdit } from "../src/studio/view/viewOperations.ts";
 
 const profile = DEFAULT_V2_PROFILE;
 const tutorial = openContainer(new Map(Object.entries(buildTutorial().files)));
 
-/** The shipped picture `num` as Room Studio opens it, and the result of editing it with `ops`. */
+/** The shipped picture `num` as PICTURE editor opens it, and the result of editing it with `ops`. */
 function pictureEdit(num: number, ...ops: EditOperation[]): LessonVerifyInput {
   const source = TUTORIAL_PICTURES[num]!;
   let document: PictureDocument = parsePictureDocument(source).document;
@@ -45,12 +45,12 @@ function pictureEdit(num: number, ...ops: EditOperation[]): LessonVerifyInput {
   };
 }
 
-/** The shipped view `num` as Sprite Studio opens it, and the result of `ops`. */
-function viewEdit(num: number, ...ops: SpriteEdit[]): LessonVerifyInput {
+/** The shipped view `num` as VIEW editor opens it, and the result of `ops`. */
+function viewEdit(num: number, ...ops: ViewEdit[]): LessonVerifyInput {
   const before = tutorial.getResource("view", num)!;
-  let document = openSprite(before, profile);
+  let document = openViewDocument(before, profile);
   for (const op of ops) {
-    const result = applySpriteEdit(document, op);
+    const result = applyViewEdit(document, op);
     if ("error" in result) assert.fail(result.error);
     document = result.document;
   }
@@ -58,18 +58,25 @@ function viewEdit(num: number, ...ops: SpriteEdit[]): LessonVerifyInput {
 }
 
 /**
- * A filled depth rectangle added as its own Depth item right after Counter
- * depth, so the walk barriers drawn later still sit on top of it.
+ * A filled priority rectangle added as its own Priority item right after Counter
+ * priority, so the walk barriers drawn later still sit on top of it.
  */
-function depthRect(num: number, priority: number, x1: number, y1: number, x2: number, y2: number) {
+function priorityRect(
+  num: number,
+  priority: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+) {
   const { items } = parsePictureDocument(TUTORIAL_PICTURES[num]!).document;
   const counter = items.find(({ id }) => id === "counter-depth")!;
   return {
     type: "insertShape",
     atLine: counter.closeLine + 1,
     shape: { kind: "rect", color: null, priority, filled: true, x1, y1, x2, y2 },
-    id: "stand-depth",
-    label: "Stand depth",
+    id: "stand-priority",
+    label: "Stand priority",
     kind: "depth",
   } as const satisfies EditOperation;
 }
@@ -80,9 +87,9 @@ describe("Adventure Department lessons", () => {
     assert.deepEqual(
       TUTORIAL_LESSONS.lessons.map(({ id, open }) => [id, open]),
       [
-        ["ad-gallery-recipe", { studio: "room", picture: 4 }],
-        ["ad-lab-mirror", { studio: "sprite", view: 2, loop: 1, cel: 0 }],
-        ["ad-archive-depth", { studio: "room", picture: 3 }],
+        ["ad-gallery-recipe", { studio: "picture", picture: 4 }],
+        ["ad-lab-mirror", { studio: "view", view: 2, loop: 1, cel: 0 }],
+        ["ad-archive-depth", { studio: "picture", picture: 3 }],
       ],
     );
     for (const lesson of TUTORIAL_LESSONS.lessons) {
@@ -212,7 +219,7 @@ describe("Adventure Department lessons", () => {
     });
 
     it("passes one pencil pixel in loop 1's first cel", () => {
-      const cel = openSprite(tutorial.getResource("view", 2)!, profile).loops[1]!.cels[0]!;
+      const cel = openViewDocument(tutorial.getResource("view", 2)!, profile).loops[1]!.cels[0]!;
       const x = cel.width >> 1;
       const y = cel.height >> 1;
       const colour = [4, 2].find((value) => value !== cel.pixels[y * cel.width + x])!;
@@ -261,8 +268,8 @@ describe("Adventure Department lessons", () => {
     });
   });
 
-  describe("the archive: give the ledger stand the counter's depth", () => {
-    it("passes Counter depth extended over the stand, as its source text", () => {
+  describe("the archive: give the ledger stand the counter's priority", () => {
+    it("passes Counter priority extended over the stand, as its source text", () => {
       const source = TUTORIAL_PICTURES[3]!;
       const extended = source.replace(
         "rect 56,85 118,121\nfill 57,86",
@@ -279,49 +286,49 @@ describe("Adventure Department lessons", () => {
         afterSource: extended,
         profile,
       };
-      assert.deepEqual(verifyStandDepth(input), { ok: true });
+      assert.deepEqual(verifyStandPriority(input), { ok: true });
     });
 
-    it("passes a depth-11 region over the stand", () => {
-      assert.deepEqual(verifyStandDepth(pictureEdit(3, depthRect(3, 11, 38, 84, 53, 120))), {
+    it("passes a priority-11 region over the stand", () => {
+      assert.deepEqual(verifyStandPriority(pictureEdit(3, priorityRect(3, 11, 38, 84, 53, 120))), {
         ok: true,
       });
     });
 
-    it("fails depth that also lands elsewhere", () => {
-      const verdict = verifyStandDepth(pictureEdit(3, depthRect(3, 11, 38, 60, 100, 120)));
+    it("fails priority that also lands elsewhere", () => {
+      const verdict = verifyStandPriority(pictureEdit(3, priorityRect(3, 11, 38, 60, 100, 120)));
       assert.equal(verdict.ok, false);
       assert.match(verdict.hint ?? "", /away from the ledger stand/);
     });
 
-    it("fails a depth that would hide the apprentice standing in front", () => {
-      const verdict = verifyStandDepth(pictureEdit(3, depthRect(3, 12, 38, 84, 53, 120)));
+    it("fails a priority that would hide the apprentice standing in front", () => {
+      const verdict = verifyStandPriority(pictureEdit(3, priorityRect(3, 12, 38, 84, 53, 120)));
       assert.equal(verdict.ok, false);
       assert.match(verdict.hint ?? "", /closer than 11 \(a bigger number\)/);
     });
 
-    it("fails depth painted over the walk barriers", () => {
+    it("fails priority painted over the walk barriers", () => {
       const end = parsePictureDocument(TUTORIAL_PICTURES[3]!).document.lines.indexOf("end") + 1;
-      const verdict = verifyStandDepth(
-        pictureEdit(3, { ...depthRect(3, 11, 38, 84, 53, 121), atLine: end }),
+      const verdict = verifyStandPriority(
+        pictureEdit(3, { ...priorityRect(3, 11, 38, 84, 53, 121), atLine: end }),
       );
       assert.equal(verdict.ok, false);
       assert.equal(
         verdict.hint,
-        "That covered a walk barrier, so the apprentice could walk through things. Draw the depth earlier: undo, click Counter depth's last step under Details › Steps (or drag the draw order back before the barriers), and draw it again.",
+        "That covered a walk barrier, so the apprentice could walk through things. Draw the priority earlier: undo, click the last step of the counter's priority item under Details › Steps (or drag the draw order back before the barriers), and draw it again.",
       );
     });
 
     it("fails a change to the picture itself", () => {
-      const verdict = verifyStandDepth(
+      const verdict = verifyStandPriority(
         pictureEdit(3, { type: "setItemColor", itemId: "ledger-stand", plane: "visual", value: 4 }),
       );
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /edit in the Depth lens/);
+      assert.match(verdict.hint ?? "", /edit in the Priority lens/);
     });
 
     it("fails no edit", () => {
-      const verdict = verifyStandDepth(pictureEdit(3));
+      const verdict = verifyStandPriority(pictureEdit(3));
       assert.equal(verdict.ok, false);
       assert.match(verdict.hint ?? "", /Make your first change|To begin/);
     });

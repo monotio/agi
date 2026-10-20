@@ -33,7 +33,7 @@ const SELECTORS: Record<FocusZone, string> = {
   game: ".play-area",
   panel:
     '[data-testid="workspace-problems"], [data-testid="dock-panel-activity"], [data-testid="dock-panel-inspect"]',
-  agent: ".assistant-host",
+  agent: ".agent-host",
 };
 function roots(): ReadonlyMap<FocusZone, HTMLElement> {
   const zones = new Map<FocusZone, HTMLElement>();
@@ -109,10 +109,10 @@ function agent(): void {
     zones.zoneFor(document.activeElement) !== "agent"
   )
     agentOrigin = document.activeElement;
-  workspace.showPanel("assistant");
+  workspace.showPanel("agent");
   shell.openRemix();
   void nextTick().then(() => {
-    document.querySelector<HTMLElement>(".assistant-host textarea, .assistant-host input")?.focus();
+    document.querySelector<HTMLElement>(".agent-host textarea, .agent-host input")?.focus();
   });
 }
 const offDefaults = registerDefaultCommands(props.registry, {

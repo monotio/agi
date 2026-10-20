@@ -166,7 +166,11 @@ function runningGame(
 
 /** The refusal: nothing Start over would have replaced has moved. */
 function assertRefused(game: ReturnType<typeof runningGame>): void {
-  assert.equal(readAutosave(game.target.locator)?.image, "checkpoint", "the checkpoint is kept");
+  assert.equal(
+    readAutosave(game.target.locator)?.image,
+    "checkpoint",
+    "the progress entry is kept",
+  );
   assert.equal(readAutosave(game.target.locator)?.cycle, 42);
   assert.equal(game.worker(), game.first, "no new worker was spawned");
   assert.equal(game.expectingStartOver(), false, "no Started over mark is expected");
@@ -220,7 +224,7 @@ test("Start over without the unsaved timeline proceeds past a failing seal", asy
   const game = runningGame(t, failures.rejects);
   await assert.rejects(game.startOver(KEY, config), HistoryUnsavedError);
   await game.startOver(KEY, config, { abandonHistory: true });
-  assert.equal(readAutosave(game.target.locator), null, "the checkpoint is cleared");
+  assert.equal(readAutosave(game.target.locator), null, "the progress entry is cleared");
   assert.notEqual(game.worker(), game.first, "the game booted afresh");
   assert.equal(game.expectingStartOver(), true, "the fresh boot is marked Started over");
 });

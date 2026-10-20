@@ -19,10 +19,10 @@ const rect = {
 };
 
 describe("accessible picture authoring", () => {
-  it("advertises strict, bounded depth and shape tools", () => {
+  it("advertises strict, bounded priority and shape tools", () => {
     assert.deepEqual(
       PICTURE_TOOLS.map((tool) => tool.name),
-      ["add_depth", "draw_picture_items"],
+      ["add_priority", "draw_picture_items"],
     );
     const tool = PICTURE_TOOLS.find((tool) => tool.name === "draw_picture_items")!;
     assert.equal(tool.parameters.additionalProperties, false);

@@ -54,7 +54,7 @@ async function seedMixedProject(page: Page, title: string): Promise<string> {
   return projectId;
 }
 
-/** The library card's Edit verb opens Logic Studio on the stored project. */
+/** The library card's Edit verb opens LOGIC editor on the stored project. */
 async function openStudio(page: Page, title: string): Promise<void> {
   await openStoredWorkspace(page, title);
   await openWorkspaceLogic(page);

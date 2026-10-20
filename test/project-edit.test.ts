@@ -175,7 +175,7 @@ for (const [name, source, operand, message] of [
     "12345",
     "Word group 12345 has no dictionary entry.",
   ],
-  ["inventory item", "get(i253); return;", "i253", "Inventory item 253 is absent."],
+  ["object", "get(i253); return;", "i253", "Inventory item 253 is absent."],
   ["operand bounds", "sound(256, f180); return;", "256", "byte value out of range"],
   ["message", "print(m0); return;", "m0", "message numbers are 1-based"],
   ["syntax", "sound(s5 f180); return;", "f180", "expected"],

@@ -1,7 +1,7 @@
 /**
  * The World panel's words for room → picture facts (roomPictureUse): the
  * chip on a room row, the line on its detail card, and which pictures — if
- * any — "Open in Studio" can open. Honest by construction: a room number is
+ * any — "Open editor" can open. Honest by construction: a room number is
  * never offered as its picture number.
  */
 import { numberedLabel, type NumberedLabelContext } from "../../../src/logic/numberedLabels.ts";

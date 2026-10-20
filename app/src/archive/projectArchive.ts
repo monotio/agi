@@ -241,7 +241,7 @@ export function readProjectContext(
     "projectHistory",
     "chats",
   ]);
-  const hasAssistant = [
+  const hasConversation = [
     "provider",
     "model",
     "sessionId",
@@ -252,14 +252,14 @@ export function readProjectContext(
     ...envelope,
     authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
   };
-  if (hasAssistant && raw.conversation?.formatVersion !== 1)
+  if (hasConversation && raw.conversation?.formatVersion !== 1)
     throw new Error("This project conversation version is not supported.");
   if (
-    hasAssistant &&
+    hasConversation &&
     (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
   )
     throw new Error("Invalid project model metadata.");
-  if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
+  if (hasConversation) knownFields(raw.conversation, ["formatVersion", "messages"]);
   if (raw.references !== undefined && !Array.isArray(raw.references))
     throw new Error("Invalid project reference field.");
   if (
@@ -378,7 +378,7 @@ export function readProjectContext(
     }
   }
 
-  if (hasAssistant) scanRaw(raw.conversation.messages);
+  if (hasConversation) scanRaw(raw.conversation.messages);
   scanRaw(raw.authoringState);
   if (raw.conversationHistory) {
     scanRaw(raw.conversationHistory);
@@ -415,7 +415,7 @@ export function readProjectContext(
     }
     return value;
   }
-  const transcript = hasAssistant
+  const transcript = hasConversation
     ? validateTranscript(restore(raw.conversation.messages), raw.provider)
     : undefined;
   const authoringState = restore(raw.authoringState);
@@ -515,7 +515,7 @@ export function readProjectContext(
       })
     : undefined;
   return {
-    ...(hasAssistant
+    ...(hasConversation
       ? {
           provider: raw.provider,
           model: raw.model,

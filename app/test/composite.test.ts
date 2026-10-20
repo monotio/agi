@@ -49,7 +49,7 @@ test("split wipes priority in from the divider column", () => {
   assert.deepEqual(pixelAt(out, 164, y), EGA_PALETTE[2], "right of divider is priority");
 });
 
-test("blend tints depth bands and hatches control lines", () => {
+test("blend tints priority bands and hatches control lines", () => {
   const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
   compositeFrame(fixture(), out, "blend");
   // Band 15 tint (0xff,0x90,0x30) over white at a=0.34.
@@ -77,7 +77,7 @@ test("a character the font does not draw is reported once, not left silently bla
   ]);
 });
 
-test("checkpoint glyph codes 0x01..0x07 keep their pre-9f506052 pixels", () => {
+test("progress entry glyph codes 0x01..0x07 keep their pre-9f506052 pixels", () => {
   // A host-image checkpoint stays at format version 1 and copies text cells
   // unchanged (src/runtime/engine.ts:3720), so a checkpoint written before
   // 9f506052 holds the OLD glyph meanings: 0x01 horizontal line, 0x02
@@ -609,7 +609,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
       | "overlayGreenLine0to10"
       | "priScreenTop1"
       | "addToPicBlue00"
-      | "spriteBlue20";
+      | "viewBlue20";
     const expectedPixelFor = (
       mode: RowsMode,
       x: number,
@@ -633,7 +633,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           return y < 8 ? [0, 0, 0] : redPriRgb;
         case "addToPicBlue00":
           return y === 8 && (x === 0 || x === 1) ? blueRgb : [0, 0, 0];
-        case "spriteBlue20":
+        case "viewBlue20":
           return y === 8 && (x === 0 || x === 1 || x === 4 || x === 5) ? blueRgb : [0, 0, 0];
       }
     };
@@ -881,7 +881,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "show.pic after fill (picTop 1, white pic): supersedes y=8..10 while y=0..7 stays black, directly and after checkpoint restore",
+        name: "show.pic after fill (picTop 1, white pic): supersedes y=8..10 while y=0..7 stays black, directly and after progress entry restore",
         act: () => {
           engine.flags[211] = 1;
           tickPast(engine);
@@ -892,7 +892,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "configure.screen 2 then 0 around fill: rows 0..10 stay black before show.pic, directly and after checkpoint restore",
+        name: "configure.screen 2 then 0 around fill: rows 0..10 stay black before show.pic, directly and after progress entry restore",
         act: () => {
           engine.flags[212] = 1;
           tickPast(engine);
@@ -903,7 +903,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "configure.screen 2 then 0 around fill, then show.pic: uninterrupted and checkpoint-restored both paint rows 0..10 white",
+        name: "configure.screen 2 then 0 around fill, then show.pic: uninterrupted and progress entry-restored both paint rows 0..10 white",
         act: () => {
           const fromAutosave = cloneViaAutosave(engine);
           const fromRecording = cloneViaRecording(engine);
@@ -936,7 +936,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "add.to.pic 1px blue cel at (0,0) after fill: paints (0,8)..(1,8) blue over fill, directly and after checkpoint restore",
+        name: "add.to.pic 1px blue cel at (0,0) after fill: paints (0,8)..(1,8) blue over fill, directly and after progress entry restore",
         act: () => {
           engine.flags[214] = 1;
           tickPast(engine);
@@ -947,7 +947,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "further sprite draw and erase after checkpoint restore over add.to.pic and fill",
+        name: "further view draw and erase after progress entry restore over add.to.pic and fill",
         act: () => {
           const fromAutosave = cloneViaAutosave(engine);
           const fromRecording = cloneViaRecording(engine);
@@ -957,19 +957,19 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
           }
           const drawnRef = composeEngine(engine);
           const glyphRef = glyphRefFor(engine.displayBase);
-          assertRows0to10(drawnRef, "spriteBlue20", glyphRef, "sprite drawn uninterrupted");
+          assertRows0to10(drawnRef, "viewBlue20", glyphRef, "view drawn uninterrupted");
           assertRows0to10(
             composeEngine(fromAutosave),
-            "spriteBlue20",
+            "viewBlue20",
             glyphRef,
-            "sprite drawn after autosave restore",
+            "view drawn after autosave restore",
             drawnRef,
           );
           assertRows0to10(
             composeEngine(fromRecording),
-            "spriteBlue20",
+            "viewBlue20",
             glyphRef,
-            "sprite drawn after recording restore",
+            "view drawn after recording restore",
             drawnRef,
           );
           for (const eng of [engine, fromAutosave, fromRecording]) {
@@ -981,14 +981,14 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
             composeEngine(fromAutosave),
             "addToPicBlue00",
             glyphRef,
-            "sprite erased after autosave restore",
+            "view erased after autosave restore",
             erasedRef,
           );
           assertRows0to10(
             composeEngine(fromRecording),
             "addToPicBlue00",
             glyphRef,
-            "sprite erased after recording restore",
+            "view erased after recording restore",
             erasedRef,
           );
         },
@@ -1188,9 +1188,9 @@ test("the Amiga menu strip: Kickstart's bar over the title, titles 2 px in, the 
   assert.deepEqual(pixelAt(out, 62 + sLead, 14), AMIGA_PALETTE[0], "first item text");
   const rLead = Math.clz32(AMIGA_FONT[0x52 * 8]!) - 24;
   assert.deepEqual(pixelAt(out, 62 + rLead, 23), AMIGA_PALETTE[0], "second item text");
-  // The ghosted separator: its dashes (glyph row 3, y 35) lose every pixel where x % 4 == 1.
+  // The standIned separator: its dashes (glyph row 3, y 35) lose every pixel where x % 4 == 1.
   assert.deepEqual(pixelAt(out, 63, 35), AMIGA_PALETTE[0]);
-  assert.deepEqual(pixelAt(out, 65, 35), AMIGA_PALETTE[15], "ghost pattern");
+  assert.deepEqual(pixelAt(out, 65, 35), AMIGA_PALETTE[15], "standIn pattern");
   assert.deepEqual(pixelAt(out, 66, 35), AMIGA_PALETTE[0]);
   assert.deepEqual(pixelAt(out, 73, 35), AMIGA_PALETTE[15]);
   // A highlighted item complements its select box.

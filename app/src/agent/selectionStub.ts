@@ -126,7 +126,7 @@ function asEditContext(value: unknown): PictureContext | ViewContext {
 /**
  * Opens the selection's barrier under the default Walk locks: the barrier
  * cells' box becomes the walkable control value already there (water 3, else
- * signal 2), so no cell moves into, out of or within depth values 4–15.
+ * signal 2), so no cell moves into, out of or within priority values 4–15.
  * Null when the selection holds no barrier or no walkable control to match.
  */
 function walkableProposal(context: PictureContext) {

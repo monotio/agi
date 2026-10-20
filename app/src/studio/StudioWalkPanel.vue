@@ -31,7 +31,7 @@ import {
  * Play here), and the room's doors: a list, and for the selected door where
  * it leads, its condition, the art it follows, its box, and its two-sided
  * status, with how to test it (or why the last walk aimed at it did not go
- * through). Doors written in the room's script are read-only here and open
+ * through). Doors written in the room's LOGIC are read-only here and open
  * as text instead. Every
  * control is a plain form control, so the keyboard reaches all of it.
  */
@@ -53,7 +53,7 @@ const tint = defineModel<boolean>("tint", { default: true });
 const labels = useProjectLabels();
 /** Why the door fields are off, on each of them. */
 const DOORS_OFF =
-  "Door editing pauses while the room is read-only, a change is open, or its script needs repair.";
+  "Door editing pauses while the room is read-only, a change is open, or its LOGIC needs repair.";
 const doorsOff = computed(() => (walk.canEditDoors.value ? undefined : DOORS_OFF));
 
 const result = computed(() => walk.result.value);
@@ -167,7 +167,7 @@ const roomChoices = computed(() => {
 <template>
   <div class="walk-panel" data-testid="walk-panel">
     <section class="walk-panel__sec">
-      <h3>Where characters walk</h3>
+      <h3>Where actors walk</h3>
       <label class="walk-panel__check">
         <input v-model="tint" type="checkbox" />
         <i class="walk-panel__swatch" aria-hidden="true"></i>
@@ -322,7 +322,7 @@ const roomChoices = computed(() => {
               :tone="door.planned ? 'warn' : 'neutral'"
               data-testid="walk-door-kind"
             >
-              {{ door.planned ? "Planned" : "In script" }}
+              {{ door.planned ? "Planned" : "In LOGIC" }}
             </UiChip>
           </button>
           <UiExplain
@@ -455,7 +455,7 @@ const roomChoices = computed(() => {
         </template>
         <template v-else>
           <p class="walk-panel__note" data-testid="door-native">
-            {{ walk.labelOf(selected) }} is written in the room's script.
+            {{ walk.labelOf(selected) }} is written in the room's LOGIC.
           </p>
           <UiButton
             size="sm"

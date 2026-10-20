@@ -157,7 +157,7 @@ export function checkJsonLossless(value: unknown, bounds?: EarlierExportBounds):
         return {
           ok: false,
           path: current.path,
-          reason: `nesting deeper than ${maxDepth} levels`,
+          reason: `nesting deeper than ${maxDepth} nested values`,
         };
       const v = current.value;
       const path = current.path;

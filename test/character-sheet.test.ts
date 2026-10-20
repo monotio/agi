@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseView, selectViewCel } from "../src/view/view.ts";
-import { EGA_PALETTE } from "../src/view/spritesheet.ts";
+import { EGA_PALETTE } from "../src/view/sheet.ts";
 import { convertCharacterSheet, type SheetBitmap } from "../src/view/characterSheet.ts";
 
 /**
@@ -10,7 +10,7 @@ import { convertCharacterSheet, type SheetBitmap } from "../src/view/characterSh
  * bright-red block bottom-aligned in each cell unless noted.
  *
  * Hand-computed EGA indices (weighted metric 2dR^2+4dG^2+3dB^2, see
- * test/spritesheet.test.ts): #ff00ff -> 13, #ff0000 -> 4.
+ * test/sheet.test.ts): #ff00ff -> 13, #ff0000 -> 4.
  *
  * Union bounding box of the default figure: cell-local x 5..10, y 2..11 —
  * 6x10 source pixels. With celHeight 10 and pixelAspect 2 the cels are

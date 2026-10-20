@@ -17,11 +17,11 @@ import { useOptionalPresentation } from "../play/usePresentation.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useShell } from "../shell/useShell.ts";
-import { useSpriteStudio } from "../world/useSpriteStudio.ts";
+import { useViewStudio } from "../world/useViewStudio.ts";
 
 /**
  * Reference-art upload: attach a picture the player supplies — a room plate
- * the agent hand-encodes with write_picture, or a character sheet that
+ * the agent hand-encodes with write_picture, or a cel sheet that
  * converts to a staged VIEW the player keeps, repairs in the VIEW editor, or
  * revises. Raised from the chat bubble or the world map's room detail via
  * referenceUploadState.
@@ -29,7 +29,7 @@ import { useSpriteStudio } from "../world/useSpriteStudio.ts";
 const engine = useEngineApi();
 const { llmConfig } = useAiSettings();
 const shell = useShell();
-const sprites = useSpriteStudio();
+const views = useViewStudio();
 
 const FACING_LABELS: Record<SheetFacing, string> = {
   right: "Facing right",
@@ -152,7 +152,7 @@ async function onAttach(): Promise<void> {
 }
 
 /**
- * Open the staged candidate in Create for repairs. Edits use the workspace save pipeline.
+ * Open the staged changes in Create for repairs. Edits use the workspace save pipeline.
  */
 async function onOpenInStudio(): Promise<void> {
   const reference = attached.value;
@@ -160,7 +160,7 @@ async function onOpenInStudio(): Promise<void> {
   shell.setMode("create");
   if (shell.mode.value !== "create") return;
   try {
-    await sprites.openStaged(reference);
+    await views.openStaged(reference);
     referenceUpload.open = false;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
@@ -183,7 +183,7 @@ async function onSendToAgent(): Promise<void> {
     const note =
       brief.value.trim() ||
       (attached.value?.kind === "character"
-        ? "Use the attached character sheet for the player sprite."
+        ? "Use the attached sheet for the hero's VIEW."
         : "Use the attached reference for this room.");
     await engine.submitPowerUp(note, [id]);
     referenceUpload.open = false;
@@ -232,7 +232,7 @@ async function onDetachExisting(reference: StoredReference): Promise<void> {
 }
 
 /**
- * Reopen a stored staged candidate: the attach view's preview and
+ * Reopen a stored staged changes: the attach view's preview and
  * Send controls work on `attached`, so reopening is selecting the stored
  * record — its staged spec is validated storage, not a rebuild.
  */
@@ -432,7 +432,7 @@ function onReopenStaged(reference: StoredReference): void {
         <footer class="reference-upload-foot">
           <UiButton
             icon="pencil"
-            data-testid="reference-open-sprite"
+            data-testid="reference-open-view"
             :disabled="busy || sending"
             @click="onOpenInStudio"
           >
@@ -467,7 +467,7 @@ function onReopenStaged(reference: StoredReference): void {
 </template>
 
 <style scoped>
-/* The dialog chrome (backdrop, border, shadow, font) comes from UiDialog;
+/* The dialog chrome (background, border, shadow, font) comes from UiDialog;
    only the panel's geometry is kept. */
 .reference-upload {
   width: min(520px, calc(100vw - 32px));

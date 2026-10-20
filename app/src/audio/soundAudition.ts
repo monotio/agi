@@ -505,7 +505,7 @@ export class SoundAudition {
     try {
       cb(this.snapshot());
     } catch (error) {
-      this.warn(`a snapshot subscriber failed: ${message(error)}`);
+      this.warn(`a state subscriber failed: ${message(error)}`);
     }
     return () => {
       this.subscribers.delete(cb);
@@ -852,7 +852,7 @@ export class SoundAudition {
       try {
         cb(this.snapshot());
       } catch (error) {
-        this.warn(`a snapshot subscriber failed: ${message(error)}`);
+        this.warn(`a state subscriber failed: ${message(error)}`);
       }
     }
   }

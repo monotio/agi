@@ -323,7 +323,7 @@ export function prepareProjectEdit(input: {
         authoring,
         references: documents["references"],
         drafts: unselectedDrafts,
-        keptBindings: readBindingsDocument(
+        savedBindings: readBindingsDocument(
           typeof beforeBindings === "string" ? beforeBindings : "{}",
         ),
         profile,

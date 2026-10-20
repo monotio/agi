@@ -319,12 +319,12 @@ for (const mode of [
     assert.equal(
       readGameProgress(storage, targetB).autosave?.image,
       "Qg==",
-      "B's independent checkpoint stays intact",
+      "B's independent progress entry stays intact",
     );
     assert.equal(
       storage.getItem(autosaveKey(targetA.locator)),
       savedA,
-      "a fetched replacement build must not clear A's checkpoint",
+      "a fetched replacement build must not clear A's progress entry",
     );
     assert.equal(
       h.lifecycle.getBootedGame()?.revision,
@@ -339,7 +339,7 @@ for (const mode of [
   });
 }
 
-test("matching native bytes admit the fresh boot: one fetch, selected checkpoint cleared, empty resume", async (t) => {
+test("matching native bytes admit the fresh boot: one fetch, selected progress entry cleared, empty resume", async (t) => {
   const folder = "native-admission-matching";
   const h = harness(t, [descriptor(folder)]);
   h.serve(folder, BUILD_A);
@@ -384,7 +384,7 @@ test("a descriptor already naming another build refuses before seal, read or fet
   assert.deepEqual(events, []);
 });
 
-test("an installed Start over clears its physical checkpoint but keeps the same-spelling saved legacy record", async (t) => {
+test("an installed Start over clears its physical progress entry but keeps the same-spelling saved legacy record", async (t) => {
   const folder = "native-admission-legacy-collision";
   const h = harness(t, [descriptor(folder)]);
   const id = requireProjectId(folder);
@@ -420,7 +420,7 @@ test("an installed Start over clears its physical checkpoint but keeps the same-
   );
 });
 
-test("a native fetch that fails leaves the running world, its checkpoint and the pointer alone", async (t) => {
+test("a native fetch that fails leaves the running world, its progress entry and the pointer alone", async (t) => {
   const folder = "native-admission-fetch-failure";
   const h = harness(t, [descriptor(folder)]);
   h.serve(folder, BUILD_A);
@@ -435,7 +435,7 @@ test("a native fetch that fails leaves the running world, its checkpoint and the
   assert.equal(
     storage.getItem(autosaveKey(target.locator)),
     saved,
-    "the checkpoint survives a failed fetch",
+    "the progress entry survives a failed fetch",
   );
   assert.equal(h.lifecycle.getBootedGame(), before, "the old world still owns the slot");
   assert.notDeepEqual(h.outcome(), { status: "completed" });
@@ -474,7 +474,7 @@ test("a start-over parked on the native fetch cannot act once another boot owns 
   assert.equal(h.lifecycle.getBootedGame()?.revision, revB);
   assert.ok(
     !events.some((event) => event === `remove:${autosaveKey(target.locator)}`),
-    "the selected physical checkpoint was never touched",
+    "the selected physical progress entry was never touched",
   );
 });
 
@@ -499,7 +499,7 @@ test("an installed Start over without the fresh-boot seam refuses before clear o
   assert.equal(
     readResumePointer(storage)?.value,
     target.locator,
-    "the resume pointer still names the checkpoint",
+    "the resume pointer still names the progress entry",
   );
   assert.equal(h.lifecycle.getBootedGame(), before, "the running world keeps the slot");
   assert.equal(h.state.phase, "running");
@@ -509,7 +509,7 @@ test("an installed Start over without the fresh-boot seam refuses before clear o
   );
   assert.ok(
     !events.some((event) => event.startsWith("remove:")),
-    "no physical checkpoint was removed",
+    "no physical progress entry was removed",
   );
   assert.ok(!events.some((event) => event.startsWith("worker:boot")), "no boot posted");
   assert.ok(!events.includes("note"), "no Undo note published");
@@ -520,7 +520,7 @@ test("an installed Start over without the fresh-boot seam refuses before clear o
   );
 });
 
-test("a denied selected physical removal fails closed: checkpoint, pointer and world stay", async (t) => {
+test("a denied selected physical removal fails closed: progress entry, pointer and world stay", async (t) => {
   const folder = "native-admission-removal-denied";
   const h = harness(t, [descriptor(folder)]);
   h.serve(folder, BUILD_A);
@@ -546,7 +546,7 @@ test("a denied selected physical removal fails closed: checkpoint, pointer and w
   assert.equal(
     storage.getItem(autosaveKey(target.locator)),
     saved,
-    "the selected checkpoint survived byte-for-byte",
+    "the selected progress entry survived byte-for-byte",
   );
   assert.equal(
     readResumePointer(storage)?.value,
@@ -566,7 +566,7 @@ test("a denied selected physical removal fails closed: checkpoint, pointer and w
   assert.ok(events.includes("resume:startOver"), "the operation's own pause hold was released");
 });
 
-test("a denied selected checkpoint read refuses — never read as absent", async (t) => {
+test("a denied selected progress entry read refuses — never read as absent", async (t) => {
   const folder = "native-admission-read-denied";
   const h = harness(t, [descriptor(folder)]);
   h.serve(folder, BUILD_A);
@@ -600,7 +600,7 @@ test("a denied selected checkpoint read refuses — never read as absent", async
 });
 
 for (const mode of ["corrupt", "foreign"] as const) {
-  test(`a value under the selected key that is not this checkpoint refuses, not absence: ${mode}`, async (t) => {
+  test(`a value under the selected key that is not this progress entry refuses, not absence: ${mode}`, async (t) => {
     const folder = `native-admission-incompatible-${mode}`;
     const h = harness(t, [descriptor(folder)]);
     h.serve(folder, BUILD_A);
@@ -611,7 +611,7 @@ for (const mode of ["corrupt", "foreign"] as const) {
     // bytes, or a well-formed record another build owns.
     const stored =
       mode === "corrupt"
-        ? "not a stored checkpoint {"
+        ? "not a stored progress entry {"
         : JSON.stringify({
             format: "monotio.agi.autosave",
             version: 1,

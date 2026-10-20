@@ -1489,7 +1489,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const files = await link.query("exportFiles");
     // The binding captured before the storage and worker reads must still
     // be the running game's in full — a superseded boot owns the slot now,
-    // and a rebound target is not this export's: a Keep advancing the bound
+    // and a rebound target is not this export's: a commit advancing the bound
     // revision keeps the same owner object and saved-body locator, so the
     // logical project and full revision are compared beside the locator.
     // An unbound game (a removed saved body) compares equal on both sides
@@ -1505,7 +1505,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       throw new Error("The game changed during export. Try again.");
     // The download is the running game as it stands; storage is not written.
     // Every resource write already saved its files before installing them,
-    // so a running game that differs from the record is behind it (a Keep
+    // so a running game that differs from the record is behind it (a commit
     // it never loaded, a save from another tab), and writing its files back
     // would roll that newer save back.
     const words = files["WORDS.TOK"]

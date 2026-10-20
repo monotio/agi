@@ -19,11 +19,11 @@ import {
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
-test("forking the tutorial keeps each card’s own checkpoint", async ({ page }) => {
+test("forking the tutorial keeps each card’s own progress entry", async ({ page }) => {
   const original = TUTORIAL_LOGIC_SOURCES[1]!;
   const patched = original.replace("PICTURE GALLERY", "REMIX GALLERY");
   expect(patched).not.toBe(original);
-  const sprite = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
+  const view = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
   // Keep preview code pending while the proposal and its controls become ready.
   let releaseReview!: () => void;
   const reviewChunk = new Promise<void>((resolve) => {
@@ -37,7 +37,7 @@ test("forking the tutorial keeps each card’s own checkpoint", async ({ page })
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
     const calls = [
-      ["write_view", { num: 9, source: sprite }],
+      ["write_view", { num: 9, source: view }],
       [
         "write_logic",
         {

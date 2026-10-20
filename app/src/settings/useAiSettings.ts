@@ -18,7 +18,7 @@ import {
 } from "./aiSettings.ts";
 import { DEFAULT_TASK_BUDGET_USD } from "./aiSettings.ts";
 
-export type AiSettingsContext = "header" | "create" | "assistant";
+export type AiSettingsContext = "header" | "create" | "agent";
 
 export interface AiSettingsDeps {
   /** The mounted AiSettings dialog (App.vue owns its template ref). */
@@ -27,8 +27,8 @@ export interface AiSettingsDeps {
   releaseMovement(): void;
   /** The create pane's launch button: return focus lands here by default. */
   createButtonEl(): HTMLElement | null | undefined;
-  /** The assistant bubble's input: return focus lands here for that context. */
-  assistantInputEl(): HTMLElement | null | undefined;
+  /** The agent bubble's input: return focus lands here for that context. */
+  agentInputEl(): HTMLElement | null | undefined;
 }
 
 export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
@@ -153,7 +153,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
     nextTick(() => {
       if (returnFocus?.isConnected) returnFocus.focus();
       else if (aiSettingsContext.value === "create") deps.createButtonEl()?.focus();
-      else if (aiSettingsContext.value === "assistant") deps.assistantInputEl()?.focus();
+      else if (aiSettingsContext.value === "agent") deps.agentInputEl()?.focus();
       else document.querySelector<HTMLElement>('[data-testid="settings-menu"]')?.focus();
     });
   }

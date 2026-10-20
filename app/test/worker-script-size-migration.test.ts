@@ -281,7 +281,7 @@ test("a history view before the migration commit runs the busy room at 200", asy
   ctx.fns.stopTimers();
 });
 
-test("a checkpoint taken before the migration resumes on the migrated game with the larger buffer", async () => {
+test("a progress entry taken before the migration resumes on the migrated game with the larger buffer", async () => {
   // Play boots: a resume needs no Create admission. A checkpoint stored by a
   // run without the option (a released build, a Play session that never
   // opened Create) carries the authentic 50 pairs with f200 already set.
@@ -291,7 +291,7 @@ test("a checkpoint taken before the migration resumes on the migrated game with 
   const image = before.ctx.run.engine!.autosaveImage();
   assert.ok(image);
   assert.equal(before.ctx.run.engine!.flags[200], 1, "logic 0's boot block already ran");
-  assert.equal(capacity(before.ctx.run.engine!), 50, "the stored checkpoint carries 50 pairs");
+  assert.equal(capacity(before.ctx.run.engine!), 50, "the stored progress entry carries 50 pairs");
   before.ctx.fns.stopTimers();
   const migrated = migrateScriptSize({ "logic:0": PRE_125_LOGIC0 })!["logic:0"] as string;
   for (const adoptDeclaredScriptSize of [true, false]) {

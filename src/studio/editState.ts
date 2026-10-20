@@ -1,5 +1,5 @@
 /**
- * Drawing state for Room Studio edits: what the renderer's visual, priority
+ * Drawing state for PICTURE editor edits: what the renderer's visual, priority
  * and pen registers hold at a source line, which of them the following lines
  * read before setting, and the source lines that restore them. Behind the
  * state-restoration rule of `editOperations.ts`.

@@ -1,5 +1,5 @@
 /**
- * Native items: the Room Studio's first view of a picture that has no
+ * Native items: the PICTURE editor's first view of a picture that has no
  * `@item` directives yet (typically `disassemblePicture` output). The drawing
  * elements of `groupPictureElements` become `@item` comments, so the compiled
  * bytes never change.
@@ -9,7 +9,7 @@ import type { AgiProfile } from "../runtime/profile.ts";
 import {
   groupPictureElements,
   PLANE_CONTROL,
-  PLANE_DEPTH,
+  PLANE_PRIORITY,
   PLANE_VISUAL,
 } from "../picture/elements.ts";
 import { compilePictureSource } from "../picture/source.ts";
@@ -26,7 +26,7 @@ export function isInferredItemId(id: string): boolean {
 /** The kind of an item from the planes its lines write. */
 export function kindOf(planes: number): PictureItemKind {
   if (planes === PLANE_VISUAL) return "art";
-  if (planes === PLANE_DEPTH) return "depth";
+  if (planes === PLANE_PRIORITY) return "depth";
   if (planes === PLANE_CONTROL) return "walk";
   return "mixed";
 }

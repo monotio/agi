@@ -8,16 +8,16 @@ import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 
 import type { AgiProfile } from "../runtime/profile.ts";
 import {
-  assistRefusalText,
+  agentRefusalText,
   checkCandidate,
   draftRevision,
   selectionArea,
-  type AssistCheck,
-  type AssistDraft,
-  type AssistScope,
-  type PictureAssistScope,
-  type ViewAssistScope,
-} from "../studio/assistScope.ts";
+  type AgentCheck,
+  type AgentDraft,
+  type AgentScope,
+  type PictureAgentScope,
+  type ViewAgentScope,
+} from "../studio/agentScope.ts";
 import { applyEdit, type EditOperation } from "../studio/editOperations.ts";
 import {
   compileEditDocument,
@@ -37,13 +37,9 @@ import type { PicturePlane } from "../studio/pictureQuery.ts";
 import { probeActor } from "../studio/probe.ts";
 import { sideEffectData, sideEffectLine } from "../studio/sideEffects.ts";
 import type { SceneShape } from "../studio/shapes.ts";
-import { RESIZE_ANCHORS, type ResizeAnchor } from "../studio/sprite/spriteCels.ts";
-import { openSprite, type SpriteDocument } from "../view/spriteDocument.ts";
-import {
-  applySpriteEdit,
-  type CelRef,
-  type SpriteEdit,
-} from "../studio/sprite/spriteOperations.ts";
+import { RESIZE_ANCHORS, type ResizeAnchor } from "../studio/view/viewCels.ts";
+import { openViewDocument, type ViewDocument } from "../view/viewDocument.ts";
+import { applyViewEdit, type CelRef, type ViewEdit } from "../studio/view/viewOperations.ts";
 import { walkableMask } from "../runtime/walkable.ts";
 import { PictureSourceSyntaxError } from "../picture/source.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
@@ -53,11 +49,11 @@ import { scanContainerExits } from "./roomMap.ts";
 import { roomPictureUse } from "./roomPictures.ts";
 import {
   cropScale,
-  PICTURE_ASSIST_PREVIEW_CAPTION,
-  pictureAssistPreviewPng,
+  PICTURE_AGENT_PREVIEW_CAPTION,
+  pictureAgentPreviewPng,
   pictureCropPng,
   pictureOverviewPng,
-  spriteSheetPng,
+  viewSheetPng,
   type CelPair,
 } from "./selectionPreview.ts";
 import type { AgentSessionState, AgentToolImage, AgentToolResult } from "./agentState.ts";
@@ -71,11 +67,11 @@ const DEFAULT_HORIZON = 36;
 const SOURCE_CHAR_BUDGET = 65536;
 /** Hex rows read_edit_context shows at most, in pixels, as read_view. */
 const MAX_ROW_PIXELS = 65536;
-/** Rows a sprite candidate sheet shows at most. */
+/** Rows a view candidate sheet shows at most. */
 const MAX_SHEET_ROWS = 8;
 
-/** A ghost actor placed in PICTURE editor: one cel standing at one place. */
-interface SelectionGhost {
+/** A standIn screen object placed in PICTURE editor: one cel standing at one place. */
+interface SelectionStandIn {
   readonly view: number;
   readonly loop: number;
   readonly cel: number;
@@ -86,14 +82,14 @@ interface SelectionGhost {
 
 /** What the creator selected and asked about; built by the UI per request. */
 export interface SelectionFocus {
-  readonly scope: AssistScope;
+  readonly scope: AgentScope;
   /** The editor's current draft; read on every tool call. */
-  readonly draft: () => AssistDraft;
-  /** The Studio lens ("art" | "depth" in PICTURE editor), reported as is. */
+  readonly draft: () => AgentDraft;
+  /** The Studio lens ("visual" | "priority" in the PICTURE editor), reported as is. */
   readonly lens?: string | undefined;
   /** The room the editor was opened from. */
   readonly room?: number | undefined;
-  readonly ghost?: SelectionGhost | undefined;
+  readonly standIn?: SelectionStandIn | undefined;
   /** The room's horizon for the walkable estimate; AGI's default 36 otherwise. */
   readonly horizon?: number | undefined;
   /**
@@ -116,7 +112,7 @@ interface CandidateBase {
   readonly summary: string;
   /** Before | after | diff, as returned to the model. */
   readonly previewPng: Uint8Array;
-  readonly check: AssistCheck;
+  readonly check: AgentCheck;
 }
 
 type SelectionCandidate =
@@ -133,7 +129,7 @@ type SelectionCandidate =
     })
   | (CandidateBase & {
       readonly kind: "view";
-      readonly ops: readonly SpriteEdit[];
+      readonly ops: readonly ViewEdit[];
       readonly draft: { readonly kind: "view"; readonly payload: Uint8Array };
     });
 
@@ -268,7 +264,7 @@ const PICTURE_OP = {
   ],
 } as const;
 
-const SPRITE_OP_TYPES = [
+const VIEW_OP_TYPES = [
   "setPixels",
   "fillCel",
   "recolor",
@@ -282,11 +278,11 @@ const SPRITE_OP_TYPES = [
   "unlinkMirror",
 ] as const;
 
-const SPRITE_OP = {
+const VIEW_OP = {
   type: "object",
   additionalProperties: false,
   properties: {
-    type: { type: "string", enum: SPRITE_OP_TYPES },
+    type: { type: "string", enum: VIEW_OP_TYPES },
     loop: nullable(int(0, 254)),
     cel: nullable(int(0, 254)),
     propagate: nullable({ type: "boolean" }),
@@ -374,7 +370,7 @@ export const SELECTION_TOOLS: readonly ToolDefinition[] = [
         baseRevision: { type: "string", minLength: 1, maxLength: 64 },
         summary: { type: "string", minLength: 1, maxLength: 240 },
         pictureOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: PICTURE_OP },
-        spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: SPRITE_OP },
+        spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: VIEW_OP },
       },
       required: ["baseRevision", "summary", "pictureOps", "spriteOps"],
     }),
@@ -532,7 +528,7 @@ function pictureOp(raw: Raw, label: string): EditOperation {
   }
 }
 
-function spriteOp(raw: Raw, label: string): SpriteEdit {
+function viewOp(raw: Raw, label: string): ViewEdit {
   const get = <T>(field: string) => need<T>(raw, field, label);
   const ref = () => ({ loop: get<number>("loop"), cel: get<number>("cel") });
   const propagate = raw["propagate"] === true ? { propagate: true } : {};
@@ -601,7 +597,7 @@ function spriteOp(raw: Raw, label: string): SpriteEdit {
     case "unlinkMirror":
       return { type: "unlinkMirror", loop: get("loop") };
     default:
-      throw new OpError(`${label}: unknown sprite operation '${String(raw["type"])}'`);
+      throw new OpError(`${label}: unknown view operation '${String(raw["type"])}'`);
   }
 }
 
@@ -666,7 +662,7 @@ const box = (count: CellCount) =>
 
 function openPicture(
   session: AgentSessionState,
-  draft: AssistDraft,
+  draft: AgentDraft,
 ): { document: PictureDocument; compiled: CompiledDocument } {
   if (draft.kind !== "picture") throw new OpError("the editor draft is not a picture");
   const { document, diagnostics } = parsePictureDocument(draft.source);
@@ -684,10 +680,10 @@ function openPicture(
   }
 }
 
-function openView(session: AgentSessionState, draft: AssistDraft): SpriteDocument {
+function openView(session: AgentSessionState, draft: AgentDraft): ViewDocument {
   if (draft.kind !== "view") throw new OpError("the editor draft is not a view");
   try {
-    return openSprite(draft.payload, session.profile);
+    return openViewDocument(draft.payload, session.profile);
   } catch (error) {
     throw new OpError(`the draft view does not decode: ${String(error)}`);
   }
@@ -727,7 +723,7 @@ function walkable(
   };
 }
 
-const walkRelevant = (scope: PictureAssistScope) => !scope.lockedPlanes.includes("priority");
+const walkRelevant = (scope: PictureAgentScope) => !scope.lockedPlanes.includes("priority");
 
 /** Control values 0..3 inside `area`: what a Priority lens edit may repaint. */
 function controlsIn(priority: Uint8Array, area: Uint8Array) {
@@ -764,24 +760,25 @@ function roomContext(
       out["picturesError"] = String(error);
     }
   }
-  const ghost = focus.ghost;
-  if (ghost && planes) {
+  const standIn = focus.standIn;
+  if (standIn && planes) {
     try {
-      const payload = session.container.getResource("view", ghost.view);
+      const payload = session.container.getResource("view", standIn.view);
       const cel = payload
-        ? parseView(payload, session.profile).loops[ghost.loop]?.cels[ghost.cel]
+        ? parseView(payload, session.profile).loops[standIn.loop]?.cels[standIn.cel]
         : undefined;
-      if (!cel) throw new Error(`view ${ghost.view} has no loop ${ghost.loop}, cel ${ghost.cel}`);
+      if (!cel)
+        throw new Error(`view ${standIn.view} has no loop ${standIn.loop}, cel ${standIn.cel}`);
       const probe = probeActor({
         picture: planes,
         cel,
-        x: ghost.x,
-        baselineY: ghost.baselineY,
-        priority: ghost.priority,
+        x: standIn.x,
+        baselineY: standIn.baselineY,
+        priority: standIn.priority,
         profile: session.profile,
       });
-      out["ghost"] = {
-        ...ghost,
+      out["standIn"] = {
+        ...standIn,
         bandPriority: probe.bandPriority,
         drawPriority: probe.drawPriority,
         hiddenPixels: countMask(probe.hiddenMask).cells,
@@ -790,7 +787,7 @@ function roomContext(
         footprintAccepted: probe.footprint.accepted,
       };
     } catch (error) {
-      out["ghost"] = { error: String(error) };
+      out["standIn"] = { error: String(error) };
     }
   }
   return Object.keys(out).length > 0 ? out : null;
@@ -827,8 +824,8 @@ function excerpt(document: PictureDocument, targets: readonly string[]): string 
 function readPictureContext(
   session: AgentSessionState,
   focus: SelectionFocus,
-  scope: PictureAssistScope,
-  draft: AssistDraft,
+  scope: PictureAgentScope,
+  draft: AgentDraft,
   images: boolean,
   sourceOffset: number,
 ): AgentToolResult {
@@ -955,7 +952,7 @@ function readPictureContext(
   };
 }
 
-function celRows(document: SpriteDocument, targets: readonly CelRef[]) {
+function celRows(document: ViewDocument, targets: readonly CelRef[]) {
   let pixels = 0;
   const out: {
     loop: number;
@@ -987,8 +984,8 @@ function celRows(document: SpriteDocument, targets: readonly CelRef[]) {
 function readViewContext(
   session: AgentSessionState,
   focus: SelectionFocus,
-  scope: ViewAssistScope,
-  draft: AssistDraft,
+  scope: ViewAgentScope,
+  draft: AgentDraft,
   images: boolean,
 ): AgentToolResult {
   const document = openView(session, draft);
@@ -1054,7 +1051,7 @@ function readViewContext(
       ? {
           images: [
             {
-              png: spriteSheetPng(
+              png: viewSheetPng(
                 scope.targetCels
                   .slice(0, MAX_SHEET_ROWS)
                   .map(({ loop, cel }) => ({ after: document.loops[loop]?.cels[cel] })),
@@ -1085,14 +1082,14 @@ const HINTS: Record<string, string> = {
 };
 
 function refusal(
-  assist: SelectionEdit,
+  agent: SelectionEdit,
   reason: string,
   violations: readonly { constraint: string; message: string }[],
 ): AgentToolResult {
-  assist.refusals++;
+  agent.refusals++;
   const hints = [...new Set(violations.map((v) => HINTS[v.constraint]).filter(Boolean))];
-  const kept = assist.candidate
-    ? `Candidate ${assist.candidate.candidateId} is still the one the creator sees.`
+  const kept = agent.candidate
+    ? `Candidate ${agent.candidate.candidateId} is still the one the creator sees.`
     : "There is no candidate yet.";
   return {
     success: false,
@@ -1100,7 +1097,7 @@ function refusal(
     details: {
       ok: false,
       violations,
-      candidateId: assist.candidate?.candidateId ?? null,
+      candidateId: agent.candidate?.candidateId ?? null,
     },
   };
 }
@@ -1120,9 +1117,9 @@ const NON_PIXEL_OPS: readonly string[] = ["setItemMeta", "setTransparent", "unli
  * The refusal of a candidate that renders like the draft: nothing for the
  * creator to accept, whatever its bytes or annotations.
  */
-function noChange(assist: SelectionEdit, unchanged: string, requested: string): AgentToolResult {
+function noChange(agent: SelectionEdit, unchanged: string, requested: string): AgentToolResult {
   return refusal(
-    assist,
+    agent,
     `the operations draw the same pixels as the draft (${unchanged}). Propose a change that alters ${requested} within the selection, or reply with one sentence explaining why none can work within the selection and locks`,
     [{ constraint: "no-change", message: unchanged }],
   );
@@ -1132,9 +1129,9 @@ const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
 
 function proposePicture(
   session: AgentSessionState,
-  assist: SelectionEdit,
-  scope: PictureAssistScope,
-  draft: AssistDraft,
+  agent: SelectionEdit,
+  scope: PictureAgentScope,
+  draft: AgentDraft,
   rawOps: readonly Raw[],
   summary: string,
 ): AgentToolResult {
@@ -1147,14 +1144,14 @@ function proposePicture(
     const outside = edits.filter((id) => !allowed.has(id));
     if (outside.length)
       return refusal(
-        assist,
+        agent,
         `pictureOps[${index}] (${op.type}) edits ${outside.join(", ")}, which is not selected`,
         [{ constraint: "outside-target", message: `${op.type} edits ${outside.join(", ")}` }],
       );
     const result = applyEdit(document, op, { profile: session.profile });
     if ("error" in result)
       return refusal(
-        assist,
+        agent,
         `the editor refused pictureOps[${index}] (${op.type}): ${result.error}`,
         [{ constraint: "kernel", message: result.error }],
       );
@@ -1174,14 +1171,14 @@ function proposePicture(
       !ops.every((op) => NON_PIXEL_OPS.includes(op.type)))
   )
     return noChange(
-      assist,
+      agent,
       `visual and priority planes unchanged, ${signed(after.bytes.length - before.compiled.bytes.length)} bytes`,
       "the requested plane",
     );
   const check = checkCandidate(before.compiled, after, scope);
-  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
-  const candidateId = `c${assist.proposals}`;
-  const previewPng = pictureAssistPreviewPng(
+  if (!check.ok) return refusal(agent, agentRefusalText(check), check.violations);
+  const candidateId = `c${agent.proposals}`;
+  const previewPng = pictureAgentPreviewPng(
     before.compiled,
     after,
     colourTableForProfile(session.profile),
@@ -1189,15 +1186,15 @@ function proposePicture(
   const area = selectionArea(before.compiled, scope.targetIds);
   const walk = walkRelevant(scope)
     ? (() => {
-        const was = walkable(session, assist.focus, before.compiled.priority, area);
-        const now = walkable(session, assist.focus, after.priority, area);
+        const was = walkable(session, agent.focus, before.compiled.priority, area);
+        const now = walkable(session, agent.focus, after.priority, area);
         return was && now ? { before: was.inSelection, after: now.inSelection } : null;
       })()
     : null;
   const candidateDraft = { kind: "picture", source } as const;
   const revision = draftRevision(candidateDraft);
   const effects = check.sideEffects;
-  assist.candidate = {
+  agent.candidate = {
     kind: "picture",
     candidateId,
     num: scope.num,
@@ -1226,27 +1223,27 @@ function proposePicture(
       ...(walk ? { walkable: walk } : {}),
       ...(effects ? { sideEffects: sideEffectData(effects) } : {}),
     },
-    images: [{ png: previewPng, caption: PICTURE_ASSIST_PREVIEW_CAPTION }],
+    images: [{ png: previewPng, caption: PICTURE_AGENT_PREVIEW_CAPTION }],
   };
 }
 
 function proposeView(
   session: AgentSessionState,
-  assist: SelectionEdit,
-  scope: ViewAssistScope,
-  draft: AssistDraft,
+  agent: SelectionEdit,
+  scope: ViewAgentScope,
+  draft: AgentDraft,
   rawOps: readonly Raw[],
   summary: string,
 ): AgentToolResult {
   const before = openView(session, draft);
-  const ops = rawOps.map((raw, index) => spriteOp(raw, `spriteOps[${index}]`));
+  const ops = rawOps.map((raw, index) => viewOp(raw, `spriteOps[${index}]`));
   let document = before;
   const isolated = new Set<number>();
   for (const [index, op] of ops.entries()) {
-    const result = applySpriteEdit(document, op);
+    const result = applyViewEdit(document, op);
     if ("error" in result)
       return refusal(
-        assist,
+        agent,
         `the editor refused spriteOps[${index}] (${op.type}): ${result.error}`,
         [{ constraint: "kernel", message: result.error }],
       );
@@ -1284,18 +1281,18 @@ function proposeView(
       before.loops.length === document.loops.length &&
       !ops.every((op) => NON_PIXEL_OPS.includes(op.type)))
   )
-    return noChange(assist, "every cel unchanged", "the selected cels");
+    return noChange(agent, "every cel unchanged", "the selected cels");
   const check = checkCandidate(before, document, scope);
-  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
-  const previewPng = spriteSheetPng(
+  if (!check.ok) return refusal(agent, agentRefusalText(check), check.violations);
+  const previewPng = viewSheetPng(
     pairs.length ? pairs : [{ before: undefined, after: undefined }],
     true,
     colourTableForProfile(session.profile),
   );
-  const candidateId = `c${assist.proposals}`;
+  const candidateId = `c${agent.proposals}`;
   const candidateDraft = { kind: "view", payload: document.payload.slice() } as const;
   const revision = draftRevision(candidateDraft);
-  assist.candidate = {
+  agent.candidate = {
     kind: "view",
     candidateId,
     num: scope.num,
@@ -1333,8 +1330,8 @@ function proposeView(
 }
 
 /** Clear the candidate on the model's own verdict; nothing else changes. */
-function withdraw(assist: SelectionEdit, reason: string): AgentToolResult {
-  const withdrawn = assist.candidate;
+function withdraw(agent: SelectionEdit, reason: string): AgentToolResult {
+  const withdrawn = agent.candidate;
   if (!withdrawn)
     return {
       success: false,
@@ -1342,7 +1339,7 @@ function withdraw(assist: SelectionEdit, reason: string): AgentToolResult {
         "There is no candidate to withdraw. Reply with one sentence saying what blocks the change.",
       details: { ok: false, candidateId: null },
     };
-  assist.candidate = null;
+  agent.candidate = null;
   return {
     success: true,
     message: `Withdrew candidate ${withdrawn.candidateId}: the creator sees no proposal, only your reply. Call edit_selection to propose something else, or explain what blocks the change.`,
@@ -1351,21 +1348,21 @@ function withdraw(assist: SelectionEdit, reason: string): AgentToolResult {
 }
 
 /**
- * Execute read_edit_context, edit_selection or withdraw_selection for `assist`, or
+ * Execute read_edit_context, edit_selection or withdraw_selection for `agent`, or
  * return undefined for any other name. Arguments are already
  * schema-validated.
  */
 export function executeSelectionEditTool(
   session: AgentSessionState,
-  assist: SelectionEdit,
+  agent: SelectionEdit,
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
   if (!SELECTION_TOOL_NAMES.includes(name)) return undefined;
-  if (name === "withdraw_selection") return withdraw(assist, String(args["reason"]).trim());
-  const { scope } = assist.focus;
+  if (name === "withdraw_selection") return withdraw(agent, String(args["reason"]).trim());
+  const { scope } = agent.focus;
   try {
-    const draft = assist.focus.draft();
+    const draft = agent.focus.draft();
     if (draft.kind !== scope.kind)
       return {
         success: false,
@@ -1376,54 +1373,55 @@ export function executeSelectionEditTool(
       return scope.kind === "picture"
         ? readPictureContext(
             session,
-            assist.focus,
+            agent.focus,
             scope,
             draft,
             images,
             Number(args["sourceOffset"] ?? 0),
           )
-        : readViewContext(session, assist.focus, scope, draft, images);
+        : readViewContext(session, agent.focus, scope, draft, images);
     }
-    if (assist.maxProposals !== undefined && assist.proposals >= assist.maxProposals)
+    if (agent.maxProposals !== undefined && agent.proposals >= agent.maxProposals)
       return {
         success: false,
-        error: `Refused: this request allows ${assist.maxProposals} proposals and all were used. Reply with one sentence saying what blocks the change.`,
+        error: `Refused: this request allows ${agent.maxProposals} proposals and all were used. Reply with one sentence saying what blocks the change.`,
         details: {
           ok: false,
-          candidateId: assist.candidate?.candidateId ?? null,
+          candidateId: agent.candidate?.candidateId ?? null,
         },
       };
-    assist.proposals++;
+    agent.proposals++;
     const pictureOps = args["pictureOps"] as Raw[] | null;
-    const spriteOps = args["spriteOps"] as Raw[] | null;
+    // spriteOps is the edit_selection schema field.
+    const viewOps = args["spriteOps"] as Raw[] | null;
     const summary = String(args["summary"]).trim();
-    const ops = scope.kind === "picture" ? pictureOps : spriteOps;
-    const other = scope.kind === "picture" ? spriteOps : pictureOps;
+    const ops = scope.kind === "picture" ? pictureOps : viewOps;
+    const other = scope.kind === "picture" ? viewOps : pictureOps;
     if (!ops || other)
       return refusal(
-        assist,
+        agent,
         `this request is about ${scope.kind} ${scope.num}: send ${scope.kind === "picture" ? "pictureOps" : "spriteOps"} and set ${scope.kind === "picture" ? "spriteOps" : "pictureOps"} to null`,
         [],
       );
     const current = draftRevision(draft);
     if (current !== scope.baseRevision)
       return refusal(
-        assist,
+        agent,
         "the creator changed the draft after asking, so this request can no longer propose a change; reply with one sentence asking them to ask again",
         [{ constraint: "stale-base", message: "the draft changed during the request" }],
       );
     if (args["baseRevision"] !== current)
       return refusal(
-        assist,
+        agent,
         `baseRevision ${String(args["baseRevision"])} is not the draft's current revision`,
         [{ constraint: "stale-base", message: "the proposal was built on an older draft" }],
       );
     return scope.kind === "picture"
-      ? proposePicture(session, assist, scope, draft, ops, summary)
-      : proposeView(session, assist, scope, draft, ops, summary);
+      ? proposePicture(session, agent, scope, draft, ops, summary)
+      : proposeView(session, agent, scope, draft, ops, summary);
   } catch (error) {
     if (error instanceof OpError) {
-      if (name === "edit_selection") return refusal(assist, error.message, []);
+      if (name === "edit_selection") return refusal(agent, error.message, []);
       return { success: false, error: `read_edit_context failed: ${error.message}` };
     }
     throw error;

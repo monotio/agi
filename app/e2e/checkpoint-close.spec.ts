@@ -29,7 +29,7 @@ async function position(page: Page): Promise<{ room: number; egoX: number; egoY:
 }
 
 // A document transaction cannot hold back progress for the already stored revision.
-test("closing during a notes save resumes the checkpoint stored before pagehide", async ({
+test("closing during a notes save resumes the progress entry stored before pagehide", async ({
   page,
   context,
 }) => {
@@ -103,7 +103,7 @@ test("closing during a notes save resumes the checkpoint stored before pagehide"
       .map((key) => JSON.parse(localStorage.getItem(key)!) as { cycle: number; room: number }),
   );
   expect(stored).toHaveLength(1);
-  expect(stored[0]!.cycle, "localStorage holds the checkpoint before pagehide").toBe(
+  expect(stored[0]!.cycle, "localStorage holds the progress entry before pagehide").toBe(
     (await textHook(page)).autosave,
   );
   expect(stored[0]!.room).toBe(walked.room);
@@ -127,7 +127,7 @@ test("closing during a notes save resumes the checkpoint stored before pagehide"
     (keys) => Promise.all(keys.map((key) => navigator.locks.request(key, () => {}))),
     journals,
   );
-  await reopened.getByTestId("hero-primary").click();
+  await reopened.getByTestId("intro-primary").click();
   await waitForGameInput(reopened);
   expect(await position(reopened)).toEqual(walked);
   await expect

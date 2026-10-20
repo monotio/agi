@@ -136,7 +136,7 @@ test("f1 reports complete ego occlusion without requiring the host to request a 
     },
   ]);
   e.tick();
-  assert.equal(e.flags[1], 1, "a later opaque sprite can cover ego completely");
+  assert.equal(e.flags[1], 1, "a later opaque view can cover ego completely");
   e.patchResources([
     {
       kind: "logic",
@@ -145,5 +145,5 @@ test("f1 reports complete ego occlusion without requiring the host to request a 
     },
   ]);
   e.tick();
-  assert.equal(e.flags[1], 0, "erasing the covering sprite reveals ego");
+  assert.equal(e.flags[1], 0, "erasing the covering view reveals ego");
 });

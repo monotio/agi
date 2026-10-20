@@ -10,7 +10,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * The calm canvas, as a rule over every element: in Room Studio and Sprite
+ * The calm canvas, as a rule over every element: in PICTURE editor and View
  * Studio, with the probe, the control-line legend, the values popover and a
  * selection open, anything positioned over the picture that takes the
  * pointer and says something is a menu or a dialog the creator opened, or
@@ -65,7 +65,7 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     await openWorkspacePicture(page, 2);
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await expect(studio).toBeVisible();
     const pictures = ".studio-pane__pixels, .game-surface";
     /** Every stray, by the step that showed it: all of them are reported at once. */
@@ -73,12 +73,12 @@ for (const [width, height] of [
     const look = async (step: string, root: Locator, over: string) =>
       seen.push(...(await strays(root, over)).map((stray) => `${step}: ${stray}`));
 
-    // A selection and the probe, in the Art lens.
+    // A selection and the probe, in the Visual lens.
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("g");
-    await expect(studio.getByTestId("ghost-probe")).toBeVisible();
-    await look("art", studio, pictures);
+    await expect(studio.getByTestId("stand-in-probe")).toBeVisible();
+    await look("visual", studio, pictures);
 
     // The Priority lens with its room panel showing.
     await page.keyboard.press("2");
@@ -86,18 +86,18 @@ for (const [width, height] of [
     await closeWorkspaceEditor(page);
     await expect(studio).toBeHidden();
 
-    // Sprite Studio: a selection on the cel.
+    // VIEW editor: a selection on the cel.
     await openWorkspaceView(page, 0);
-    const sprite = page.getByTestId("sprite-studio");
-    await expect(sprite).toBeVisible();
-    await sprite.getByTestId("sprite-stage").focus();
+    const view = page.getByTestId("view-studio");
+    await expect(view).toBeVisible();
+    await view.getByTestId("view-stage").focus();
     await page.keyboard.press("m");
-    const cel = (await sprite.locator(".sprite-studio__canvas canvas").boundingBox())!;
+    const cel = (await view.locator(".view-studio__canvas canvas").boundingBox())!;
     await page.mouse.move(cel.x + cel.width * 0.3, cel.y + cel.height * 0.3);
     await page.mouse.down();
     await page.mouse.move(cel.x + cel.width * 0.7, cel.y + cel.height * 0.6, { steps: 4 });
     await page.mouse.up();
-    await look("sprite", sprite, ".sprite-studio__canvas canvas");
+    await look("view", view, ".view-studio__canvas canvas");
     expect(seen).toEqual([]);
   });
 }

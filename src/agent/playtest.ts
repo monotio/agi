@@ -477,7 +477,7 @@ export class Simulation {
     const images = [
       {
         png: frameToPng(frame, "visual", colourTableForProfile(this.engine.profile)),
-        caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and sprites at authentic geometry; game text is transcribed separately.`,
+        caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and views at authentic geometry; game text is transcribed separately.`,
       },
     ];
     if (checkpointSheet)
@@ -522,7 +522,7 @@ export class Simulation {
             message:
               status === "passed"
                 ? extra["genesisValidated"]
-                  ? "Boot reached a shown, interactive scene with a valid ego spawn."
+                  ? "Boot reached a shown, interactive room with a valid ego spawn."
                   : "Executed the supplied actions; all supplied outcome assertions passed."
                 : status === "reached_planned_room"
                   ? `The exit to room ${String(extra["plannedRoom"])} fires. That room is planned and is built when the player first arrives, so the steps and expectations after the transition were not run.`
@@ -590,7 +590,7 @@ function object(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** Validate the actor's entire AGI baseline, dimensions, horizon and object overlaps. */
+/** Validate the screen object's entire AGI baseline, dimensions, horizon and object overlaps. */
 function footprint(engine: Engine, x: number, y: number): string[] {
   const ego = engine.screenObjects[0]!;
   const issues: string[] = [];
@@ -639,7 +639,7 @@ interface ControlSpan {
   x1: number;
 }
 
-/** Exact scene controls under a proposed actor baseline, grouped into horizontal spans. */
+/** Exact scene controls under a proposed screen object baseline, grouped into horizontal spans. */
 function baselineProbe(engine: Engine, x: number, y: number) {
   const ego = engine.screenObjects[0]!;
   const values = new Set<number>();
@@ -663,7 +663,7 @@ function baselineProbe(engine: Engine, x: number, y: number) {
   };
 }
 
-/** Current rendered depth over ego's logical bounding box; flag f1 is the exact engine verdict. */
+/** Current rendered priority over ego's logical bounding box; flag f1 is the exact engine verdict. */
 function occlusionProbe(engine: Engine) {
   const ego = engine.screenObjects[0]!;
   let actorBoxCells = 0;
@@ -1255,7 +1255,7 @@ export function playtestRoom(
           if (item?.room !== 255) {
             failure("item", id, 255, item?.room ?? null);
             nextSteps.push(
-              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
+              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said words, object location and puzzle preconditions before changing the outcome.`,
             );
             failures.push(
               `Expected item ${id} carried; observed ${item ? `room ${item.room}` : "missing item"}.`,

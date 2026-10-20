@@ -3,10 +3,10 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
  * The Studios' keyboard help, kept off the canvas: a tool's name and one
  * short line for the status bar, and the full key list the `?` sheet shows
  * (StudioKeySheet.vue). The keys themselves are studioKeys.ts and
- * spriteKeys.ts; this is only what they are called.
+ * viewKeys.ts; this is only what they are called.
  */
 
-import type { SpriteTool } from "./sprite/useSpriteTools.ts";
+import type { ViewTool } from "./view/useViewTools.ts";
 import type { StudioTool } from "./studioTools.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
 
@@ -29,7 +29,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   edge: "Edge exit",
 };
 
-/** The status bar's one line for the active Room Studio tool. */
+/** The status bar's one line for the active PICTURE editor tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
   select: `${SHIFT} adds to the selection.`,
   point: "Drag a point's handle · the item itself stays put",
@@ -54,7 +54,7 @@ export const ROOM_EDIT_HINT = `Arrows nudge (${SHIFT} 8 px) · ${ALT} arrows nex
 /** With several items selected: how they move, at the foot of the inspector. */
 export const ROOM_GROUP_HINT = `${SHIFT} moves by 8 px; [ and ] reorder one item at a time.`;
 
-export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
+export const VIEW_TOOL_NAMES: Record<ViewTool, string> = {
   pencil: "Pencil",
   eraser: "Eraser",
   fill: "Fill",
@@ -65,7 +65,7 @@ export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
   recolor: "Recolour",
 };
 
-export const SPRITE_TOOL_HINTS: Record<SpriteTool, string> = {
+export const VIEW_TOOL_HINTS: Record<ViewTool, string> = {
   pencil: "Space starts or stops painting at the cursor.",
   eraser: "",
   fill: "",
@@ -86,7 +86,7 @@ export interface KeySection {
   readonly rows: readonly KeyRow[];
 }
 
-/** What Space or Enter does at the keyboard cursor, per Room Studio tool that takes one. */
+/** What Space or Enter does at the keyboard cursor, per PICTURE editor tool that takes one. */
 const ROOM_CLICK: Partial<Record<StudioTool, string>> = {
   line: "adds a point; on the last point, finishes",
   polygon: "adds a point; on the last point, closes",
@@ -203,7 +203,7 @@ export function logicKeySheet(): KeySection[] {
   ];
 }
 
-export function spriteKeySheet(): KeySection[] {
+export function viewKeySheet(): KeySection[] {
   return [
     {
       title: "Tools",

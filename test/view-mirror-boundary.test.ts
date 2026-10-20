@@ -11,9 +11,9 @@ import {
   selectViewCel,
   type BuildLoopInput,
 } from "../src/view/view.ts";
-import { buildViewFromSheet } from "../src/view/spritesheet.ts";
-import { buildSprite, openSprite } from "../src/view/spriteDocument.ts";
-import { applySpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
+import { buildViewFromSheet } from "../src/view/sheet.ts";
+import { buildViewDocument, openViewDocument } from "../src/view/viewDocument.ts";
+import { applyViewEdit } from "../src/studio/view/viewOperations.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { executeAgentTool } from "../src/agent/tools.ts";
 
@@ -88,13 +88,13 @@ for (const id of ["2.001", "2.411", "2.936", "2.230"] as const) {
         assert.deepEqual([...selectViewCel(view, alias, 0)!.pixels], [0, 2, 1]);
         assert.deepEqual([...selectViewCel(view, alias, 0)!.pixels], [0, 2, 1]);
       }
-      const document = openSprite(payload, profile);
+      const document = openViewDocument(payload, profile);
       assert.deepEqual([...document.loops[alias]!.cels[0]!.pixels], [0, 2, 1]);
-      assert.deepEqual(buildSprite(document, profile), payload);
+      assert.deepEqual(buildViewDocument(document, profile), payload);
       const container = createContainer();
-      container.putResource("view", 1, buildSprite(document, profile));
+      container.putResource("view", 1, buildViewDocument(document, profile));
       const imported = openContainer(container.files, { profile }).getResource("view", 1)!;
-      const reopened = openSprite(imported, profile);
+      const reopened = openViewDocument(imported, profile);
       assert.deepEqual([...reopened.loops[source]!.cels[0]!.pixels], [1, 2, 0]);
       assert.deepEqual([...reopened.loops[alias]!.cels[0]!.pixels], [0, 2, 1]);
       const engine = engineFor(imported, profile, `set.loop(o0, ${alias});`);
@@ -107,13 +107,13 @@ for (const id of ["2.001", "2.411", "2.936", "2.230"] as const) {
 
   test(`${id}: Studio Add mirror produces the requested pixels beyond the native alias boundary`, () => {
     const count = Math.max(1, limit + 1);
-    let document = openSprite(
+    let document = openViewDocument(
       buildView({ loops: Array.from({ length: count }, () => ({ cels: [cel] })) }, profile),
       profile,
     );
-    const result = applySpriteEdit(document, { type: "addLoop", at: count, mirrorOf: count - 1 });
+    const result = applyViewEdit(document, { type: "addLoop", at: count, mirrorOf: count - 1 });
     assert.ok("document" in result, "error" in result ? result.error : "");
-    document = openSprite(buildSprite(result.document, profile), profile);
+    document = openViewDocument(buildViewDocument(result.document, profile), profile);
     assert.deepEqual([...document.loops[count]!.cels[0]!.pixels], [0, 2, 1]);
     const view = parseView(document.payload, profile);
     for (let repeat = 0; repeat < 3; repeat++)
@@ -148,7 +148,7 @@ test("Agent write_view preserves mirror intent for a profile with no native mirr
     [...selectViewCel(parseView(payload, PROFILES["2.001"]), 1, 0)!.pixels],
     [0, 2, 1],
   );
-  const document = openSprite(payload, PROFILES["2.001"]);
+  const document = openViewDocument(payload, PROFILES["2.001"]);
   assert.deepEqual([...document.loops[1]!.cels[0]!.pixels], [0, 2, 1]);
 });
 
@@ -231,9 +231,13 @@ for (const id of ["2.411", "2.936", "2.230"] as const) {
     // member, so each fresh native preview starts reversed: [0,2,1].
     if (profile.packedViewLoopHeader) original[9] = 0xe1;
     else original[14] = 0xa0;
-    const document = openSprite(original, profile);
-    assert.deepEqual(buildSprite(document, profile), original, "untouched bytes remain native");
-    const result = applySpriteEdit(document, {
+    const document = openViewDocument(original, profile);
+    assert.deepEqual(
+      buildViewDocument(document, profile),
+      original,
+      "untouched bytes remain native",
+    );
+    const result = applyViewEdit(document, {
       type: "setPixels",
       loop: 0,
       cel: 0,
@@ -272,9 +276,9 @@ test("editing a high packed loop does not retain metadata that arms mirroring on
   );
   const at = original[13]! | (original[14]! << 8);
   original[at] = 0x81; // mutable, initially not mirrorable, one cel
-  const document = openSprite(original, profile);
-  assert.deepEqual(buildSprite(document, profile), original);
-  const result = applySpriteEdit(document, {
+  const document = openViewDocument(original, profile);
+  assert.deepEqual(buildViewDocument(document, profile), original);
+  const result = applyViewEdit(document, {
     type: "setPixels",
     loop: 4,
     cel: 0,
@@ -286,11 +290,11 @@ test("editing a high packed loop does not retain metadata that arms mirroring on
     assert.deepEqual([...selectViewCel(view, 4, 0)!.pixels], [3, 2, 0]);
 });
 
-test("sprite-sheet compilation carries the native mirror capabilities", () => {
+test("view-sheet compilation carries the native mirror capabilities", () => {
   const profile = PROFILES["2.001"];
   const payload = buildViewFromSheet(
     [{ width: 3, height: 1, pixels: Uint8Array.of(1, 2, 0), mask: Uint8Array.of(1, 1, 0) }],
-    { loops: [{ frames: [0] }, { mirrorOf: 0 }] },
+    { loops: [{ cels: [0] }, { mirrorOf: 0 }] },
     profile,
   );
   assert.deepEqual([...selectViewCel(parseView(payload, profile), 1, 0)!.pixels], [0, 2, 1]);
@@ -314,8 +318,8 @@ for (const id of ["2.936", "2.411"] as const) {
     // Native aliasing, deliberately outside the builder's stable sharing rules.
     const start = offset(plain, 0);
     plain[start + 5] = 0x80;
-    const document = openSprite(plain, profile);
-    const result = applySpriteEdit(document, {
+    const document = openViewDocument(plain, profile);
+    const result = applyViewEdit(document, {
       type: "setPixels",
       loop: count - 1,
       cel: 0,
@@ -330,6 +334,9 @@ for (const id of ["2.936", "2.411"] as const) {
     for (let index = 0; index < count; index++)
       assert.equal(offset(edited, index), offset(plain, index));
     assert.deepEqual(edited.slice(start, start + 9), plain.slice(start, start + 9));
-    assert.deepEqual([...openSprite(edited, profile).loops[count - 1]!.cels[0]!.pixels], [3, 2, 0]);
+    assert.deepEqual(
+      [...openViewDocument(edited, profile).loops[count - 1]!.cels[0]!.pixels],
+      [3, 2, 0],
+    );
   });
 }

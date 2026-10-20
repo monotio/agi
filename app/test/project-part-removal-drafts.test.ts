@@ -195,7 +195,7 @@ test("Tests never block game edits: room cleanup preserves unreadable tests with
   assert.match(plan.testNotice, /Tests could not be read/);
 });
 
-test("Tests never block game edits: inventory item locations do not make a recorded test use a room", async () => {
+test("Tests never block game edits: object locations do not make a recorded test use a room", async () => {
   const { newSaveState, encodeSave } = await import("../../src/runtime/persistence.ts");
   const { buildObjectFile } = await import("../../src/authoring/inventory.ts");
   const state = newSaveState(profile);

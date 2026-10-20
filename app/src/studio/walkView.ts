@@ -1,6 +1,6 @@
 import { numberedLabel, type NumberedLabelContext } from "../../../src/logic/numberedLabels.ts";
 /**
- * Room Studio's room tools (Priority lens) as pure data: the room's doors (door boxes and
+ * PICTURE editor's room tools (Priority lens) as pure data: the room's doors (door boxes and
  * edge exits, from the annotated rules and the compiled exits), their
  * labels and two-sided status in plain words, where an edge click or a
  * door puts a test walk's start, what stopped a walk, and the words for
@@ -108,7 +108,7 @@ export function walkDoors(
     // A native rule's exit is listed with its rule above.
     if (doors.some((door) => !door.editable && door.contract === contract)) continue;
     n++;
-    const where = contract.edge ? `the ${EDGE_NAMES[contract.edge]} edge` : "the room's script";
+    const where = contract.edge ? `the ${EDGE_NAMES[contract.edge]} edge` : "the room's LOGIC";
     doors.push({
       id: `native-${n}`,
       shape: contract.edge ? "edge" : "other",
@@ -174,7 +174,7 @@ export function doorStatus(
   if (contract.wayBack.length === 0)
     return { wayBack: "One way: nothing there leads back", tested, testedOk };
   const ways = contract.wayBack
-    .map((edge) => (edge === null ? "a door or the script" : `the ${EDGE_NAMES[edge]} edge`))
+    .map((edge) => (edge === null ? "a door or the LOGIC" : `the ${EDGE_NAMES[edge]} edge`))
     .filter((text, i, all) => all.indexOf(text) === i);
   const list = ways.length > 1 ? `${ways.slice(0, -1).join(", ")} or ${ways.at(-1)}` : ways[0]!;
   return { wayBack: `Way back from there: ${list}`, tested, testedOk };
@@ -383,7 +383,7 @@ export function doorTestNote(
   if (testedOk) return null;
   if (miss) return miss;
   if (door.shape === "other")
-    return "Exits made by the room's script run in play: play the game to test this one.";
+    return "Exits made by the room's LOGIC run in play: play the game to test this one.";
   return "To test it: set a start with the test walk tool (T), then click this door as the goal.";
 }
 

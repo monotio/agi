@@ -39,13 +39,13 @@ test("inventory, room titles, Parts names, word groups and controllers use the s
     ] as const,
     bindings: { action: { kind: "controller", num: 4 }, actor: { kind: "object", num: 0 } },
   };
-  assert.equal(numberedLabel("inventory", 0, context, "option"), "key (Item 0)");
+  assert.equal(numberedLabel("inventory", 0, context, "option"), "key (Object 0)");
   assert.equal(numberedLabel("object", 0, context), "actor");
   assert.equal(numberedLabel("room", 8, context, "option"), "Garden (Room 8)");
   assert.equal(numberedLabel("sound", 2, context, "row"), "Chime · SOUND 2");
   assert.equal(numberedLabel("w", 10, context, "option"), "open, unlock (Word group 10)");
   assert.equal(numberedLabel("c", 4, context), "action");
-  assert.equal(numberedLabel("object", 1, context), "Object 1");
+  assert.equal(numberedLabel("object", 1, context), "Actor 1");
   assert.equal(numberedLabel("view", 3, context), "VIEW 3");
   assert.equal(numberedLabel("room", 12, context), "Room 12");
 });
@@ -69,7 +69,7 @@ test("incomplete name documents retain valid siblings and numbered fallbacks", (
     bindings: JSON.stringify({ quiet: { kind: "flag", num: 9 } }),
   });
   assert.equal(numberedLabel("flag", 9, context), "quiet");
-  assert.equal(numberedLabel("inventory", 0, context), "Item 0");
+  assert.equal(numberedLabel("inventory", 0, context), "Object 0");
   assert.equal(numberedLabel("word", 12, context), "Word group 12");
 });
 
@@ -88,7 +88,7 @@ test("native and authored inventory and word documents resolve the same labels",
     words: buildWordsTok(words.map(([word, id]) => ({ word, id }))),
   });
   for (const context of [text, native]) {
-    assert.equal(numberedLabel("inventory", 0, context, "option"), "brass key (Item 0)");
+    assert.equal(numberedLabel("inventory", 0, context, "option"), "brass key (Object 0)");
     assert.equal(numberedLabel("word", 10, context, "option"), "open, unlock (Word group 10)");
   }
 });
@@ -127,7 +127,7 @@ test("recorded-test suggestions use shared named slots without changing assertio
   assert.equal(suggestions.find((s) => s.id === "room")?.label, "Garden (Room 2)");
   assert.equal(suggestions.find((s) => s.id === "flag-9")?.label, "quiet (Flag 9) set");
   assert.equal(suggestions.find((s) => s.id === "var-40")?.label, "total (Variable 40) = 3");
-  assert.equal(suggestions.find((s) => s.id === "item-0")?.label, "carrying key (Item 0)");
+  assert.equal(suggestions.find((s) => s.id === "item-0")?.label, "carrying key (Object 0)");
 });
 
 test("room titles use the proved picture association, then explicit room titles", () => {

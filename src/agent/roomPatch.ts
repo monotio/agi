@@ -26,7 +26,7 @@ export interface RoomPatch {
  * Validate the entire response, including container capacity, before any live
  * write. The room number is context, not an authority boundary: a turn may
  * rewrite other already-built resources — a source room gaining a planned exit,
- * a shared logic — as long as every payload parses, existing vocabulary IDs and
+ * a shared logic — as long as every payload parses, existing word group ids and
  * inventory bindings stay stable, and the requested room ends up playable. Any
  * rejection lands before `resources` is returned, so callers either commit the
  * whole staged set or nothing. Payloads are checked under `profile`, the
@@ -56,12 +56,11 @@ export function prepareRoomPatch(
         entry[1] > 65535,
     )
   ) {
-    throw new Error("Invalid room vocabulary");
+    throw new Error("Invalid room WORDS");
   }
   const nextDictionary = new Map(words);
   for (const [word, id] of dictionary) {
-    if (nextDictionary.get(word) !== id)
-      throw new Error("Room authoring changed existing vocabulary");
+    if (nextDictionary.get(word) !== id) throw new Error("Room authoring changed existing WORDS");
   }
   const effective = detectProfile(container.files, profile);
   const staged = openContainer(container.files, { profile: effective });

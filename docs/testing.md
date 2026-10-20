@@ -378,7 +378,7 @@ To reproduce a load race in local Chromium, set `AGI_E2E_CPU_RATE` (for example 
 to slow the page's own work, or `AGI_E2E_LATENCY_MS` (for example `70`) to delay every
 request as a busy dev server does. The first open of a lazily loaded editor fetches
 its modules one by one, so latency slows it and CPU throttling barely does: 70 ms
-makes Room Studio's first open take longer than the 5 s expect default.
+makes the PICTURE editor's first open take longer than the 5 s expect default.
 The diagnostic workflow has no schedule. It retains browser reports and updates
 a diagnostic flake issue when a test has both passing and failing attempts.
 Consistent failures remain failures. Only that report job has `issues: write`.
@@ -839,7 +839,7 @@ reports missing resources by name.
 
 Tests never block a game edit. Deleting a room offers **Also delete tests that
 use this room**, checked by default. Clear it to keep the tests; those tests
-will fail when run. A recorded setup's inventory item locations do not make its
+will fail when run. A recorded setup's object locations do not make its
 test use those rooms. The room and optional test deletions share one Undo.
 
 Recorded game tests store a host snapshot and a bounded operation tape in

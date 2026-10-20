@@ -16,7 +16,7 @@ import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
  */
 import { sha256Hex } from "../crypto.ts";
 import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
-import { EGA_COLOUR_NAMES } from "../studio/sceneGroups.ts";
+import { EGA_COLOUR_NAMES } from "../studio/itemGroups.ts";
 import type { AgentToolImage, AgentToolResult } from "./agentState.ts";
 import type { ToolDefinition } from "./tools.ts";
 import { REFERENCE_WORKING_EDGE } from "./toolTransport.ts";
@@ -33,7 +33,7 @@ const STRIP_COLUMNS = 8;
 /** Pixels the colour summary samples at most; larger images are read on a stride. */
 const COLOUR_SAMPLES = 262_144;
 /** Transparent pixels are shown over this grey. */
-const BACKDROP = 128;
+const BACKGROUND = 128;
 
 type ReferenceTarget =
   | { readonly kind: "room"; readonly num: number }
@@ -51,7 +51,7 @@ export interface ReferenceBitmap {
 export interface ReferenceArt {
   /** Content-derived handle, `referenceArtId` of the stored bytes. */
   readonly id: string;
-  /** What it is: "Room plate", "Character sheet, right-facing row". */
+  /** What it is: "Room plate", "Cel sheet, right-facing row". */
   readonly label: string;
   readonly target: ReferenceTarget;
   /** The player's note, verbatim. */
@@ -135,13 +135,13 @@ function resample(
   return out;
 }
 
-/** RGBA over the grey backdrop, as RGB. */
+/** RGBA over the grey background, as RGB. */
 function toRgb(rgba: Uint8Array): Uint8Array {
   const rgb = new Uint8Array((rgba.length / 4) * 3);
   for (let i = 0, o = 0; i < rgba.length; i += 4, o += 3) {
     const alpha = rgba[i + 3]!;
     for (let c = 0; c < 3; c++)
-      rgb[o + c] = Math.round((rgba[i + c]! * alpha + BACKDROP * (255 - alpha)) / 255);
+      rgb[o + c] = Math.round((rgba[i + c]! * alpha + BACKGROUND * (255 - alpha)) / 255);
   }
   return rgb;
 }
@@ -286,7 +286,7 @@ export async function referenceManifest(
     } catch {
       // One unreadable image must not cost the turn its other references.
       lines.push(`${art.id} · ${art.label} · ${targetText(art.target)} · could not be decoded`);
-      thumbs.push({ width: 1, height: 1, rgb: new Uint8Array(3).fill(BACKDROP) });
+      thumbs.push({ width: 1, height: 1, rgb: new Uint8Array(3).fill(BACKGROUND) });
       continue;
     }
     lines.push(manifestLine(art, bitmap, colourSummary(bitmap)));

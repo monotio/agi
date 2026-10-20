@@ -344,7 +344,7 @@ describe("agent tools", () => {
     );
     assert.match(res.message ?? "", /controls \[0@x20-21\]/);
     // A rect draws its 8x4 outline: 8 + 8 + 2 + 2 = 20 distinct cells.
-    assert.match(res.message ?? "", /higher-priority scenery 20\/192 cells/);
+    assert.match(res.message ?? "", /higher-priority picture pixels 20\/192 cells/);
   });
 
   it("write_picture checks every actor layout the source asks for", () => {

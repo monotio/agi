@@ -581,7 +581,7 @@ test("a branch restored by Undo rewind leaves the list", async () => {
   );
 });
 
-test("an unsettled staged candidate travels the backup and reimports unsettled", async () => {
+test("an unsettled staged changes travels the backup and reimports unsettled", async () => {
   const target = installedTarget("tape-store-staged-export");
   const key = target.locator;
   assert.equal(
@@ -596,7 +596,7 @@ test("an unsettled staged candidate travels the backup and reimports unsettled",
   assert.deepEqual(await loadRetainedBranches(key), [], "unsettled: no branch yet");
 
   const exported = await loadProjectHistory(key);
-  assert.deepEqual(exported?.staged, [staged], "the staged candidate joins the archive");
+  assert.deepEqual(exported?.staged, [staged], "the staged changes joins the archive");
 
   // Re-imported under a fresh key it stays unsettled — the new browser
   // cannot pretend the swap committed, so it waits for the settle pass.

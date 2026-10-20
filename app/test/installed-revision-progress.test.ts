@@ -191,8 +191,8 @@ test("a qualified installed locator reads only a record of its own revision", ()
   const ta = installedProgressTarget({ folder: "revision-peer-read" }, revA)!;
   const tb = installedProgressTarget({ folder: "revision-peer-read" }, revB)!;
   assert.notEqual(ta.locator, tb.locator);
-  const imageA = btoa("checkpoint of build A");
-  const imageB = btoa("checkpoint of build B");
+  const imageA = btoa("progress entry of build A");
+  const imageB = btoa("progress entry of build B");
   assert.ok(writeAutosave(storage, ta, checkpoint(ta, imageA)));
   // A string-addressed read at a qualified locator returns its own record.
   assert.equal(readGameProgress(storage, ta.locator).autosave?.image, imageA);

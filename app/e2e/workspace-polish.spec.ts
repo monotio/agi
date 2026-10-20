@@ -16,7 +16,7 @@ async function start(page: Page, width = 1440) {
 }
 async function picture(page: Page) {
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
 }
 async function upload(page: Page) {
   const rgba = new Uint8Array(64 * 64 * 4);
@@ -67,7 +67,7 @@ for (const width of [1440, 390]) {
   test(`walk status screenshots ${width}${phone}`, async ({ page }) => {
     await start(page, width);
     await picture(page);
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await studio
       .getByRole("radiogroup", { name: "Lens", exact: true })
       .getByRole("radio", { name: "Priority", exact: true })
@@ -190,7 +190,7 @@ test("trace handles preview privately and Update makes each chosen History step 
   await expect(scale).toBeVisible();
   await expect(move.locator("svg")).toBeVisible();
   await expect(scale.locator("svg")).toBeVisible();
-  const canvas = page.locator('[data-layer="art"] canvas');
+  const canvas = page.locator('[data-layer="visual"] canvas');
   const sample = () =>
     canvas.evaluate((element) => {
       const c = element as HTMLCanvasElement;

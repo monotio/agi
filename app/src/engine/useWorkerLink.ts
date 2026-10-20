@@ -610,7 +610,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       const game = options.getBootedGame();
       if (
         (game?.removed || game?.behindStorage) &&
-        deps.handleRecoveryError?.("The saved checkpoint's project changed during recovery.")
+        deps.handleRecoveryError?.("The saved progress's project changed during recovery.")
       )
         return;
       // Ingress validation for whatever structured clone delivered: unknown

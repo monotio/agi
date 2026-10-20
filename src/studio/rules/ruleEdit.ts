@@ -1,5 +1,5 @@
 /**
- * Room Studio rule edits: add, update, remove or re-box one annotated rule in
+ * PICTURE editor rule edits: add, update, remove or re-box one annotated rule in
  * a room's logic document and prove the result still assembles.
  *
  * Sections follow the room logic convention write_room and the tutorial use:
@@ -101,8 +101,8 @@ function assemblyError(error: unknown): string {
 // ---------- Structure scan ----------
 
 interface Structure {
-  /** Brace depth at the start of each 0-based line. */
-  readonly depth: readonly number[];
+  /** Brace priority at the start of each 0-based line. */
+  readonly priority: readonly number[];
   /** 0-based line of the init block's closing brace. */
   readonly initClose: number | null;
   /** 0-based line and column of the last top-level `return`. */
@@ -113,11 +113,11 @@ interface Structure {
 
 /** Top-level structure from a comment- and string-aware brace scan. */
 function scanStructure(lines: readonly string[]): Structure {
-  const tokens: { text: string; line: number; col: number; depth: number }[] = [];
-  const depth: number[] = [];
+  const tokens: { text: string; line: number; col: number; priority: number }[] = [];
+  const priority: number[] = [];
   let level = 0;
   for (let line = 0; line < lines.length; line++) {
-    depth.push(level);
+    priority.push(level);
     const text = lines[line]!;
     if (text.trimStart().startsWith("#")) continue;
     for (let i = 0; i < text.length;) {
@@ -127,17 +127,17 @@ function scanStructure(lines: readonly string[]): Structure {
       if (ch === '"') {
         for (i++; i < text.length && text[i] !== '"'; i += text[i] === "\\" ? 2 : 1);
         i++;
-        tokens.push({ text: '"', line, col, depth: level });
+        tokens.push({ text: '"', line, col, priority: level });
         continue;
       }
       const word = /^[A-Za-z0-9_.]+/.exec(text.slice(i));
       if (word) {
-        tokens.push({ text: word[0], line, col, depth: level });
+        tokens.push({ text: word[0], line, col, priority: level });
         i += word[0].length;
         continue;
       }
       if (ch === "}") level--;
-      if (!/\s/.test(ch)) tokens.push({ text: ch, line, col, depth: level });
+      if (!/\s/.test(ch)) tokens.push({ text: ch, line, col, priority: level });
       if (ch === "{") level++;
       i++;
     }
@@ -147,7 +147,7 @@ function scanStructure(lines: readonly string[]): Structure {
   let firstStatement: number | null = null;
   for (let at = 0; at < tokens.length; at++) {
     const token = tokens[at]!;
-    if (token.depth !== 0) continue;
+    if (token.priority !== 0) continue;
     firstStatement ??= token.line;
     if (token.text === "return") finalReturn = { line: token.line, col: token.col };
     const head = tokens
@@ -155,9 +155,10 @@ function scanStructure(lines: readonly string[]): Structure {
       .map((t) => t.text)
       .join(" ");
     if (initClose === null && head === "if ( isset ( f5 ) ) {")
-      initClose = tokens.slice(at + 8).find((t) => t.text === "}" && t.depth === 0)?.line ?? null;
+      initClose =
+        tokens.slice(at + 8).find((t) => t.text === "}" && t.priority === 0)?.line ?? null;
   }
-  return { depth, initClose, finalReturn, firstStatement };
+  return { priority, initClose, finalReturn, firstStatement };
 }
 
 /**
@@ -305,7 +306,7 @@ export function applyRuleEdit(
         (entry) =>
           entry.model !== "native" &&
           entry.model.kind === model.kind &&
-          structure.depth[entry.rule.openLine - 1] === 0,
+          structure.priority[entry.rule.openLine - 1] === 0,
       )
       .at(-1)?.rule;
     const place = placeRule(lines, structure, lastOfKind, model.kind);
@@ -330,7 +331,7 @@ export function applyRuleEdit(
     const { rule, model: current } = existing;
     if (current === "native")
       return refuse(
-        `Rule '${op.id}' is written directly in the room's script, which the door editor cannot read. Change it in the script text.`,
+        `Rule '${op.id}' is written directly in the room's LOGIC, which the door editor cannot read. Change it in the LOGIC text.`,
       );
     const span = rule.closeLine - rule.openLine + 1;
     if (op.op === "removeRule") {

@@ -162,7 +162,7 @@ export function replaceRun(ctx: WorkerContext, kind: ReplacementKind, prepared: 
   ctx.fns.stopTimers();
   resetRecording(ctx);
   ctx.previewVisitSerial++;
-  ctx.imageHeroPreview = undefined;
+  ctx.imageEgoPreview = undefined;
   ctx.imagePreviewEngine = undefined;
   ctx.imagePreviewSerial = (ctx.imagePreviewSerial ?? 0) + 1;
   const fresh = newRunSession(ctx.ports.now());

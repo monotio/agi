@@ -84,7 +84,7 @@ export interface CompositeInput {
   visual: Uint8Array;
   /** 160x168 priority nibbles; required by the debug view modes. */
   priority?: Uint8Array | undefined;
-  /** Visible sprite ownership, needed by CGA's distinct picture and cel mappings. */
+  /** Visible view ownership, needed by CGA's distinct picture and cel mappings. */
   ownership?: Uint16Array | undefined;
   /** Visible cel pixels without a live owner: add.to.pic stamps and show.obj previews. */
   celPixels?: Uint8Array | undefined;
@@ -213,7 +213,7 @@ function drawText(
  * under it, titles two pixels in and one row down, the active title's box
  * complemented, and the pull-down with a one-pixel top and bottom line,
  * two-pixel sides, item text four pixels in and one row down inside each
- * select box, the highlighted box complemented, and ghosted items erased
+ * select box, the highlighted box complemented, and hidden items erased
  * through Intuition's 0x4444/0x1111 pattern.
  */
 function drawIntuitionMenu(
@@ -312,7 +312,7 @@ export function compositeFrame(
         (input.celPixels?.[i] || input.ownership?.[i]) &&
         mode !== "priority" &&
         !(mode === "split" && px > splitX)
-          ? look.spritePairs
+          ? look.viewPairs
           : y & 1
             ? (look.alternatePicturePairs ?? look.picturePairs)
             : look.picturePairs

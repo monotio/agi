@@ -109,7 +109,7 @@ below.
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Logic and opcodes             | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                                                                     | [binary-decoded](#amiga-interpreter-profiles)                                                                                   | [binary-decoded](#dispatch-bounds-fact)                                                                                                                            |
 | Pictures and priority         | [binary-decoded](#original-picture-drawing-and-fill)                                                                                                                                                          | [binary-decoded](#original-picture-drawing-and-fill)                                                                            | [binary-decoded](#original-amiga-and-iigs-pattern-brushes)                                                                                                         |
-| Sprites and cels              | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                                                                   | [binary-decoded](#original-cel-handling-and-priority-table)                                                                     | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                        |
+| Screen objects and cels       | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                                                                   | [binary-decoded](#original-cel-handling-and-priority-table)                                                                     | [binary-decoded](#original-cel-handling-and-priority-table)                                                                                                        |
 | Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font [recreates the Tandy 1000 SX BIOS design pixel for pixel](#text-beyond-ascii); IBM-BIOS machines draw a different design, not yet recreated | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
 | Palette and display adapters  | [binary-decoded](#pc-fonts-and-display-adapters) (the DOS overlays' dispatch verified; the 2.001 booter's adapter census is open; not every adapter offered)                                                  | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
 | Screen geometry               | [binary-decoded](#original-window-and-status-line-text)                                                                                                                                                       | binary-decoded, [MAME cross-checked](#amiga-screen-font-and-pointer)                                                            | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
@@ -354,7 +354,7 @@ The mode ends there or at the next direction event.
 
 ### Pictures, priority and control lines
 
-Pictures, sprites and text share a single bitmap on the original machines, and
+Pictures, screen objects and text share a single bitmap on the original machines, and
 games rely on the consequences:
 
 - A cel added with `add.to.pic` over a control line changes the pixels' colour
@@ -363,7 +363,7 @@ games rely on the consequences:
   value around the lower part of the cel: its baseline row, its sides up to the
   height of its priority band, and a top row. With margin 0 the box is a wall;
   Police Quest and Space Quest place obstacles this way.
-- Sprites drawn or erased over text repaint it: text written under a later
+- Screen objects drawn or erased over text repaint it: text written under a later
   graphic is gone, and `show.pic` clears the picture area's text.
 - An open message window does not pause object updates, so an animated object
   that overlaps the window paints over it.
@@ -439,7 +439,7 @@ no catalogued message prints.
 
 The message formatter walks the text once. `%v` inserts a variable (with an
 optional `|` width), `%m` and `%g` insert messages from the current logic and
-logic 0, `%o` an inventory item, `%s` a string and `%w` a parsed word. Inserted
+logic 0, `%o` an object, `%s` a string and `%w` a parsed word. Inserted
 messages and strings are formatted recursively, but output is only appended,
 never rescanned, so a variable's digits cannot extend a code before it. The
 original bounds its output by counting lines; the engine uses an insert stack
@@ -1436,7 +1436,7 @@ Behaviors established by these vectors, all followed by the engine:
 
 - Horizontal screen bounds are resolved before vertical bounds. Simultaneous
   top/left or top/right reports border 1; bottom/left or bottom/right reports 3.
-- A non-ego target actor completing at a border restores its saved step, sets its
+- A non-ego target screen object completing at a border restores its saved step, sets its
   completion flag and clears target mode while preserving direction. Object 0
   also retains its direction byte at that instant but clears v6 and hands back
   player control; the following direction-coupling phase applies the zero.
@@ -1451,19 +1451,19 @@ Behaviors established by these vectors, all followed by the engine:
   `height-1`, applying the horizon only when that top correction occurs. It
   preserves equal-edge, left and bottom coordinates, and suppresses the next
   due movement after a correction.
-- Every eligible actor changes cel before any actor moves. A later actor growing
-  or shrinking can therefore change the first actor’s collision result in the
+- Every eligible screen object changes cel before any screen object moves. A later screen object growing
+  or shrinking can therefore change the first screen object’s collision result in the
   same pass.
 - Water and land restrictions are independent bits. Setting both rejects ordinary
   footprints on water and land; priority 15 still bypasses the footprint test.
   `obj.on.anything` clears both. Save packing and navigation retain the combined
   constraint.
 - After an executed postlogic updating-object pass, ego's water/land restriction
-  bits are cleared. Non-ego restrictions persist. If no actor is eligible, the
+  bits are cleared. Non-ego restrictions persist. If no screen object is eligible, the
   dispatcher skips movement and preserves ego's restrictions and v2. The broader
   top-level tail still separately clears v4/v5.
 
-The vectors also confirm behavior the engine already modelled: stopped-update actors remain collision candidates
+The vectors also confirm behavior the engine already modelled: stopped-update screen objects remain collision candidates
 (the original collision mask is drawn plus animated, 0x41; engine `update`
 represents animated membership and `earlierPartition` encodes stopped update),
 strict target bands, inclusive horizontal contact, strict baseline crossing,
@@ -1536,7 +1536,7 @@ Independent synthetic Engine execution confirmed these contracts:
   `reverse.loop` write their completion flag into the **first byte**. Animation
   completion reads that first byte even when later motion overwrote it.
 
-For a non-ego actor at (10,80), step size 4 and three cels:
+For a non-ego screen object at (10,80), step size 4 and three cels:
 
 | Opcode sequence                                  | Final shared bank | Observable result                      |
 | ------------------------------------------------ | ----------------- | -------------------------------------- |
@@ -1876,7 +1876,7 @@ profiles match (fact).
 ### Border variables cleared
 
 Each executed movement pass zeroes the border variables v2, v4 and v5. When
-no actor belongs to the updating list, the original dispatcher skips that
+no screen object belongs to the updating list, the original dispatcher skips that
 pass and leaves v2 intact; the top-level tail still clears v4/v5 separately.
 See the [complete movement audit](#original-complete-movement-and-follow-audit).
 
@@ -1885,7 +1885,7 @@ Manhunter's v3 city map polls v2 for page turns.
 **Specification:** The spec clears v4 and v5 at the cycle start and v2 only on room entry.
 
 **Evidence:** the hash-pinned dispatcher and movement executions in that audit
-cover both the eligible-actor and empty-list branches, with entry offsets.
+cover both the eligible-screen object and empty-list branches, with entry offsets.
 
 **Tests:** [object-cadence.test.ts](../test/object-cadence.test.ts), [mh1.test.ts](../test/mh1.test.ts).
 
@@ -1909,26 +1909,26 @@ the kept indices are out of range.
 ### Original previous-position commit
 
 Static disassembly of the descrambled KQ3 2.936 image. The collision routine at
-0x4719 compares the mover's and the other actor's word at record offset 0x18
+0x4719 compares the mover's and the other screen object's word at record offset 0x18
 with their baselines at 0x05. That word has four writers: `position` and
-`position.v` (0x7c1c, 0x7c5a), `draw` (0x0a5a) and the sprite-list commit at
-0x048c..0x04d8. For each listed actor whose step countdown equals its step
+`position.v` (0x7c1c, 0x7c5a), `draw` (0x0a5a) and the screen object-list commit at
+0x048c..0x04d8. For each listed screen object whose step countdown equals its step
 time, the commit sets state bit 0x4000 when x and y equal the saved pair, and
 otherwise copies x and y into 0x16/0x18 and clears the bit. Fact: the movement
 routine does not write the saved pair. Inference from that placement: the pair
-changes once per pass after every actor has moved, so a later actor in the pass
-tests against an earlier actor's pre-move value, and on the next pass a mover's
+changes once per pass after every screen object has moved, so a later screen object in the pass
+tests against an earlier screen object's pre-move value, and on the next pass a mover's
 saved baseline equals its current one. No routine was executed for this entry;
 the executed [movement vectors](#original-complete-movement-and-follow-audit) used steps for which both readings agree.
 
 The engine commits the pair the same way, after the whole pass has moved and
-only for actors whose countdown reloaded, and derives the stationary bit from
+only for screen objects whose countdown reloaded, and derives the stationary bit from
 that comparison. A pair written inside the move would sit one step stale: an
-actor stepping one pixel per pass past a standing actor's corner would be
+screen object stepping one pixel per pass past a standing screen object's corner would be
 judged to have crossed its baseline a pass late and stop for good. Police
 Quest logic 37 walks the bikers out past a scripted ego position this way.
 Because `reposition` and cel clipping move x/y without touching the pair, an
-actor they move reads as moved even when its own step lands back on its feet;
+screen object they move reads as moved even when its own step lands back on its feet;
 Space Quest II's swamp lurker, nudged by its room script while it follows
 Roger, walks straight at him for that reason instead of sidestepping.
 
@@ -1977,7 +1977,7 @@ set f5; clear the mapped controller array; redraw status and input line.
 Consequences the engine models, and one it does not:
 
 - The object loop **selects** the updating partition (0x10) while clearing
-  drawn (0x01) and animated membership (0x40). A stopped-update actor
+  drawn (0x01) and animated membership (0x40). A stopped-update screen object
   rejoins the updating partition across a room change; the engine's reset
   reproduces this. What the engine adds is two extra clears the original's
   0xFFBE mask preserves: pending-reposition (0x0400) and the initial
@@ -2145,8 +2145,8 @@ differs from it only in relocated data operands.
 
 ### Text under later graphics
 
-Text and graphics share one bitmap: a cel drawn by add.to.pic, a sprite drawn or erased, and every
-updating sprite's per-cycle redraw repaint the text under them. show.pic clears the picture band's
+Text and graphics share one bitmap: a cel drawn by add.to.pic, a screen object drawn or erased, and every
+updating screen object's per-cycle redraw repaint the text under them. show.pic clears the picture band's
 text. The engine stamps text cells with their write and drops the stamped cells a later drawing
 covers.
 
@@ -2254,7 +2254,7 @@ Static disassembly of the unscrambled Gold Rush 3.002.149 executable. The
 formatter at 0x2208 walks the source once. On `%` it reads one letter and
 dispatches through the table at 0x23a4: `g` (a message of logic 0, formatted
 by a recursive call), `m` (a message of the current logic, recursive), `o` (the
-inventory item named by the variable, recursive), `s` (a string slot,
+object named by the variable, recursive), `s` (a string slot,
 recursive), `v` (the variable as decimal, with `|` width zero-padded) and `w`
 (a parsed word, recursive). Any other letter is skipped with its percent sign.
 Output is appended, never rescanned. The comparison with nineteen at 0x2221
@@ -3047,7 +3047,7 @@ There are two independent cases per single-file build: a patterned memory image 
 byte preservation; a hand-initialized game state tests fresh export without decoding an expected
 file, followed by importing the original writer’s file into a real Engine. The latter carries
 signature `TEST`, v100=37, f100/f200 set, s0=`Hello`, a drawn animated ego at (40,80) using
-view 3, one carried inventory item and three active replay pairs: load picture 1, draw picture 1,
+view 3, one carried object and three active replay pairs: load picture 1, draw picture 1,
 load view 3. Capacity is four; the fourth pair is inactive. Reference tokens and reserved fields
 are zero, except the documented reserved word 15. Resume contains the empty cache head and
 terminator. The patterned case additionally carries nonzero tokens, string/description tails,
@@ -4521,7 +4521,7 @@ Divergences: text in the picture band goes at `show.pic` instead of dissolving a
 keeps text in its own cell layer); where the original leaves rows 0..1 alone, the engine shows
 the new rows at once (under the title bar while the status line is on); the length is fixed per
 build, while the original varies with interrupt load (room 2 above, +4%); and the start frame is
-the engine's composition before `draw.pic`, so sprites that the pass erased before it are gone
+the engine's composition before `draw.pic`, so screen objects that the pass erased before it are gone
 from the start frame. Inference: the original's screen still shows them until their cells are
 reached.
 
@@ -4567,17 +4567,17 @@ addresses come from the earlier pass and were not re-verified.
 
   **Engine correction.** The initial “engine matches” conclusion was premature: dimension
   updates still changed nonpacked orientation, and `show.obj` could draw rows last oriented by
-  an actor sharing its VIEW. Those paths are corrected. SetLoop/SetCel dimension reads leave
-  nonpacked rows unchanged; actors, `show.obj`, add.to.pic and detached previews use the same
+  a screen object sharing its VIEW. Those paths are corrected. SetLoop/SetCel dimension reads leave
+  nonpacked rows unchanged; screen objects, `show.obj`, add.to.pic and detached previews use the same
   profile-aware cel-for-blitting boundary. Packed `2.230` still mirrors at loop selection and
   reads that selected orientation when blitting. **Remaining packed exception:** `show.obj`
-  and add.to.pic reselect the shared loop before drawing, which can change a loaded actor's
+  and add.to.pic reselect the shared loop before drawing, which can change a loaded screen object's
   facing. This behavior is retained pending original-interpreter evidence; it is not a verified
   match to F-VIEWS-10. Direct selection of loop 2 and selection via
   loop 1 now give the same first nonpacked blit when no blit intervenes. Native repeated blits
   outside the orientation mask still toggle, as the recorded native contract requires.
 
-  **Authoring translation.** The builder and Sprite Studio carry the same packed-header and
+  **Authoring translation.** The builder and Screen object Studio carry the same packed-header and
   mirror-mask capabilities as the reader. An authored mirror becomes independent reversed
   cels when either loop index lies outside the stable native range, the profile has no
   mirroring, or adding another mutable alias would change the requested facing. Mirror chains
@@ -5280,7 +5280,7 @@ cell row the engine's text surface carries them on. Engine:
 Amiga look draws the label there, over the cells.
 
 **Pointer (fact).** `h130+0x404..0x4b2` reads `data/pointer` (`h131+0x105`):
-72 bytes of sprite data (a 16-row, 16-wide two-plane hardware sprite with
+72 bytes of hardware sprite data (a 16-row, 16-wide two-plane hardware sprite with
 its control words), then two signed bytes of hot-spot offset and three words
 of colour, and `h130+0x4d6..0x534` reads `data/busy` the same way, falling
 back to the pointer data. `h130+0x560` calls SetPointer(window, data, 16, 16,
@@ -6094,7 +6094,7 @@ when it becomes `Menu.Width - itemWidth` so the pull-down opens to the
 left. `submit.menu` calls SetMenuStrip (`h221+0x2a2` through the veneer
 `h245+0x13a`); `enable.item` / `disable.item` (`h221+0x348` / `+0x370`)
 walk the strip and call OnMenu / OffMenu (`h245+0xb8` / `+0xa0`) with the
-item's menu number, so a disabled item is ghosted by Intuition and cannot
+item's menu number, so a disabled item is standIned by Intuition and cannot
 be selected.
 
 **What the player sees (MAME frames, SQ2 2.202; Kickstart draws it).**
@@ -6107,8 +6107,8 @@ is `maxItemWidth + 8` wide and `9 × items + 8` tall, starting at x
 and row 9: a one-pixel pen 0 line top and bottom, two-pixel sides, pen 15
 inside; each item's select box sits four pixels inside the box, 9 rows per
 item, with its text at (+4, +1) in pen 0 (SQ2's `File` box spans 54..173 ×
-9..61 with `Save     <F5>` at (62, 14)). A ghosted item is drawn and then
-erased through Intuition's ghost pattern aligned to the screen: on odd
+9..61 with `Save     <F5>` at (62, 14)). A standIned item is drawn and then
+erased through Intuition's standIn pattern aligned to the screen: on odd
 rows every pixel with x ≡ 1 (mod 4) returns to pen 15, on even rows x ≡ 3
 (mod 4) (the separator's dashes at row 35 lose x = 65, 73, 81). The
 highlighted item's select box is complemented (inference from HIGHCOMP
@@ -7769,7 +7769,7 @@ PQ1 2.903 `CGA_GRAF.OVL` SHA-256
 returns a two-row picture pattern from `AGIDATA.OVL + 0x1d0a`, while
 `0x0037..0x00da` maps cel colours through the separate table at `0x1d4a`.
 Thus a post-process with one four-colour palette cannot reproduce it.
-The compositor accepts sprite ownership and an explicit cel-pixel mask
+The compositor accepts screen object ownership and an explicit cel-pixel mask
 for previews and persistent stamps to select the cel mapping, uses
 alternating picture rows and retains both horizontal hardware pixels.
 

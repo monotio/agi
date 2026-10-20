@@ -74,7 +74,7 @@ export function createCreateWorkspace(deps: {
   };
 }): CreateWorkspace {
   const storage = deps.storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
-  const active = reactive({ left: "world", right: "assistant", sheet: "world" });
+  const active = reactive({ left: "world", right: "agent", sheet: "world" });
   const collapsed = reactive(readCollapsed(storage));
   const sheetOpen = ref(false);
   const compactAgent = computed(() => deps.compactAgent?.() ?? false);

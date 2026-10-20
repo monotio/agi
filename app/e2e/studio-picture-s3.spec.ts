@@ -21,7 +21,7 @@ async function picture(
   await page.setViewportSize(size);
   await start(page);
   await open(page, part);
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -35,7 +35,7 @@ async function catalog(page: Page, size = { width: 1440, height: 900 }) {
   await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
   await open(page, "part-room:1:picture:1");
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -124,9 +124,9 @@ test("Sierra's two layers: the Priority lens holds the control lines, the walk t
   // The view modes never offer "Priority" a second time.
   await lens(studio, "Priority");
   // An item's Wall tag says what a wall does.
-  await expect(studio.locator(".scene-list__tag", { hasText: /^Wall$/ }).first()).toHaveAttribute(
+  await expect(studio.locator(".item-list__tag", { hasText: /^Wall$/ }).first()).toHaveAttribute(
     "title",
-    "Characters can't cross a wall.",
+    "Actors can't cross a wall.",
   );
   const view = studio.getByRole("toolbar", { name: "View", exact: true });
   await expect(view).toBeVisible();
@@ -136,12 +136,12 @@ test("Sierra's two layers: the Priority lens holds the control lines, the walk t
   await studio.locator('button[data-tool="line"]').click();
   const strip = studio.getByRole("radiogroup", { name: "Priority", exact: true });
   await expect(strip.getByRole("radio")).toHaveCount(16);
-  for (const name of [/^Wall:/, /^Gate:/, /^Trigger:/, /^Water:/, /^Depth 4:/, /^Depth 15:/])
+  for (const name of [/^Wall:/, /^Gate:/, /^Trigger:/, /^Water:/, /^Priority 4:/, /^Priority 15:/])
     await expect(strip.getByRole("radio", { name })).toBeVisible();
   // The filter offers the control lines as one choice.
   await expect(studio.getByTestId("priority-filter").locator("option")).toContainText([
     "All priority",
-    "Distance bands",
+    "Priority bands",
     "Walls, water, triggers, gates",
   ]);
   // The walk tools ride the rail in the Priority lens, and leave with it.
@@ -212,7 +212,7 @@ test("insert here on an Items row draws new shapes before it @webkit-desktop", a
   const target = rows.nth(3);
   await expect(target).toBeVisible();
   const id = (await target.getAttribute("data-row"))!;
-  const label = (await target.locator(".scene-list__label").innerText()).trim();
+  const label = (await target.locator(".item-list__label").innerText()).trim();
   // Select the row first: once shapes draw before it, the canvas stops at the
   // marker and the row, no longer drawn, wears no marks.
   await target.click();
@@ -262,7 +262,7 @@ test("the Items list's Draw order button sorts the list and leaves the transport
     "vis 4\nline 10,10 30,10\nline 10,20 30,20\nline 10,30 30,30\nvis 1\nline 50,50 70,50\nend\n",
   );
   await open(page, "part-room:8:picture:8");
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   const order = studio.getByRole("button", { name: "Draw order", exact: true });
   const scrubber = studio.getByTestId("studio-scrubber");
   await expect(scrubber).toBeVisible();
@@ -294,7 +294,7 @@ test("the Priority pen's slider runs Far at 4 to Near at 15; the header drops th
   const pen = studio.getByRole("radiogroup", { name: "Priority pen", exact: true });
   await expect(pen).toBeVisible();
   await pen.getByRole("radio", { name: "Distance", exact: true }).click();
-  const band = studio.getByRole("slider", { name: "Distance band", exact: true });
+  const band = studio.getByRole("slider", { name: "Priority band", exact: true });
   await expect(band).toBeVisible();
   await expect(band).toHaveAttribute("min", "4");
   await expect(band).toHaveAttribute("max", "15");
@@ -320,7 +320,7 @@ test("Stand in the room gives the item its base distance and a wall along its ba
   const source = await workspaceDocument(page, "picture:1");
   const bust = source.slice(source.indexOf('"Marble bust"'));
   const block = bust.slice(0, bust.indexOf("# @end\n"));
-  // One item: its depth block names the base row and the wall, then draws them.
+  // One item: its priority block names the base row and the wall, then draws them.
   const base = Number(block.match(/# @depth base=(\d+) wall\n/)![1]);
   expect(Number(block.match(/\npri 0\nline \d+,(\d+) \d+,\1\n/)![1])).toBe(base);
 });
@@ -372,7 +372,7 @@ test("Copy position always writes position(oN, x, y) @webkit-desktop", async ({ 
   await expect(status).toContainText("position(o0, 60, 140);");
   await expect(status).not.toContainText("position.v");
   // A dragged preview copies where it now stands.
-  await drag(page, figure, studio.locator('.studio-pane[data-layer="art"]'), 10);
+  await drag(page, figure, studio.locator('.studio-pane[data-layer="visual"]'), 10);
   await expect(figure).toHaveAttribute("data-x", "70");
   await panel.getByTestId("view-copy").click();
   await expect(status).toContainText("position(o0, 70, 140);");
@@ -405,7 +405,7 @@ test("views draw as in the game: no hover marks, every Set in line, a preview fo
   await expect(unknown).toBeVisible();
   await expect(unknown).toHaveAttribute("data-preview", "true");
   const x = Number(await unknown.getAttribute("data-x"));
-  await drag(page, unknown, studio.locator('.studio-pane[data-layer="art"]'), 10);
+  await drag(page, unknown, studio.locator('.studio-pane[data-layer="visual"]'), 10);
   await expect(unknown).toHaveAttribute("data-x", String(x + 10));
   expect(await workspaceDocument(page, "logic:8")).toBe(logic);
   // Every row has Set in; the conditional one lists both placing lines.

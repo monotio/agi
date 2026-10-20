@@ -23,7 +23,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio editing, end to end on the real app: a stored project whose
+ * PICTURE editor editing, end to end on the real app: a stored project whose
  * room 1 draws PIC 5 (never the room's own number). Expected planes are
  * decoded here with the engine's renderer from bytes read out of the page,
  * storage and the exported ZIP; cell values are hand-placed in SOURCE.
@@ -47,7 +47,7 @@ const SOURCE = [
   "vis 6",
   "rect 44,92 116,104",
   "# @end",
-  '# @item occluder "Bench occluder" depth',
+  '# @item occluder "Bench priority" depth',
   "vis off",
   "pri 10",
   "polygon 40,90 119,90 126,98 119,105 40,105",
@@ -122,7 +122,7 @@ async function resumeInRoom(page: Page): Promise<void> {
 async function openStudio(page: Page): Promise<Locator> {
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -176,7 +176,7 @@ async function dragHandle(page: Page, line: number, index: number, dx: number, d
   await page.mouse.up();
 }
 
-test("a depth drag changes only the priority plane, undoes, keeps, reloads, exports and plays @webkit-desktop", async ({
+test("a priority drag changes only the priority plane, undoes, keeps, reloads, exports and plays @webkit-desktop", async ({
   page,
 }) => {
   await bootStudioGame(page);
@@ -185,7 +185,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   const original = await draftBytes(page);
   expect(original).toEqual(PIC_5);
 
-  // Depth lens, the occluder selected: Select moves it whole and shows no
+  // Priority lens, the occluder selected: Select moves it whole and shows no
   // handles; the Point tool shows its polygon's and fill seed's.
   await page.keyboard.press("2");
   await studio.locator('[data-row="occluder"]').click();
@@ -220,7 +220,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
   expect(await storedPicture(page, 5)).toEqual(kept);
 
-  // Room 1 draws PIC 5, so the live room re-enters and shows the new depth.
+  // Room 1 draws PIC 5, so the live room re-enters and shows the new priority.
   await closeWorkspaceEditor(page);
   await expect(studio).toBeHidden();
   await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
@@ -271,11 +271,11 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   // One row above the top edge 40,90-119,90, halfway along it: the "+" sits on
   // the edge at 80,90, and only while Alt is held.
   await page.mouse.move(...cell(80, 89));
-  const ghost = pane.locator('[data-role="insert-ghost"]');
-  await expect(ghost).toHaveCount(0);
+  const standIn = pane.locator('[data-role="insert-mark"]');
+  await expect(standIn).toHaveCount(0);
   await page.keyboard.down("Alt");
   await page.mouse.move(...cell(80, 89));
-  await expect(ghost).toHaveAttribute("data-point", "80,90");
+  await expect(standIn).toHaveAttribute("data-point", "80,90");
   await page.screenshot({ path: test.info().outputPath("studio-insert-point-hover.png") });
 
   // Alt+press adds it; the same drag carries it 6 rows up. One step.
@@ -283,7 +283,7 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   for (let k = 1; k <= 3; k++) await page.mouse.move(...cell(80, 89 - 2 * k));
   await page.mouse.up();
   await page.keyboard.up("Alt");
-  await expect(ghost).toHaveCount(0);
+  await expect(standIn).toHaveCount(0);
   await workspaceUpdated(page);
   // The Point tool shows the new point's handle.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
@@ -323,7 +323,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await canvas.focus();
   const original = await draftBytes(page);
 
-  // A whole item moves whole in any lens: the bench frame nudged in the Depth
+  // A whole item moves whole in any lens: the bench frame nudged in the Priority
   // lens takes its art along, and the notice says so.
   await page.keyboard.press("2");
   await studio.locator('[data-row="bench"]').click();
@@ -335,7 +335,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await workspaceUpdated(page);
   await page.keyboard.press("ControlOrMeta+z");
   await workspaceUpdated(page);
-  // Art is locked in the Depth lens for editing within it: with the Point
+  // The visual plane is locked in the Priority lens for editing within it: with the Point
   // tool, a corner of the frame dragged up a row is refused, with the count and box of the art
   // cells it would change (row 91 gains 44..116, row 92 loses 45..115), and
   // nothing changes.
@@ -352,7 +352,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   // The refusal offers the way out: unlocked for the session, the same drag goes through.
   await page.locator(".workspace-status").getByTestId("studio-notice-action").click();
   await expect(page.locator(".workspace-status").getByTestId("studio-notice")).toHaveText(
-    "Unlocked until you close Studio. Try it again.",
+    "Unlocked until you close the editor. Try it again.",
   );
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
   await workspaceUpdated(page);
@@ -405,7 +405,7 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   const catalog = new URL(page.url()).hash;
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   // An untitled room's Studio is named by the picture it edits.
   await expect(studio).toHaveAttribute("aria-label", "PICTURE: PICTURE 1");
   // The tutorial's own picture text: named objects, not disassembled elements.
@@ -422,12 +422,12 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
     "Velvet rope",
   ];
   const rowLabels = () =>
-    studio.locator('[role="treeitem"][data-row] .scene-list__label').allTextContents();
+    studio.locator('[role="treeitem"][data-row] .item-list__label').allTextContents();
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   expect((await rowLabels()).filter((label) => /^Element \d/.test(label))).toEqual([]);
   // The picture's own source: nothing says Rebuilt.
   await expect(page.locator(".workspace-status").getByTestId("studio-source-kind")).toHaveCount(0);
-  // A barrier nudged up one row: a Walk-kind edit the Depth lens allows.
+  // A barrier nudged up one row: a Walk-kind edit the Priority lens allows.
   await page.keyboard.press("2");
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
   await studio.locator('[role="treeitem"][data-row]').first().click();
@@ -469,7 +469,7 @@ test("the copy and fresh-room notices close by themselves", async ({ page }) => 
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await page.keyboard.press("2");
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
   await studio.locator('[role="treeitem"][data-row]').first().click();

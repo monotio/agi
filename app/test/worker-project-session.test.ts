@@ -139,7 +139,7 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
   tick();
   assert.ok(
     presentation.some((message) => message.type === "autosave"),
-    "an admitted native edit takes a checkpoint at the first boundary, before the next periodic save",
+    "an admitted native edit takes a progress entry at the first boundary, before the next periodic save",
   );
   assert.equal(
     (await edit("logic:0", source.replace("Old room", "New room"), "logic")).status,

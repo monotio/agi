@@ -391,7 +391,7 @@ export function resolveSourceEdit(
     const revision = sourceContextRevision(state, kind, num, source);
     if (revision !== args["expectedRevision"])
       throw new Error(
-        "Source revision changed. Read the current source before editing; its text, dictionary, profile, or named bindings may have drifted.",
+        "Source revision changed. Read the current source before editing; its text, WORDS, profile, or named bindings may have drifted.",
       );
     const edits = args["edits"];
     if (!Array.isArray(edits) || !edits.length || edits.length > 65535)

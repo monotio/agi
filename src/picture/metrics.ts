@@ -22,9 +22,9 @@ export interface PictureMetrics {
   edgeDensity: number;
   /** 4-connected same-colour regions on the visual surface. */
   regionCount: number;
-  /** Fraction of cells whose priority is a depth band 4..15 (not control 0..3). */
+  /** Fraction of cells whose priority is a priority band 4..15 (not control 0..3). */
   priorityBandFraction: number;
-  /** Distinct depth bands 4..15 in use. */
+  /** Distinct priority bands 4..15 in use. */
   priorityBands: number;
   /** Fraction of cells above the horizon that keep the far band 4. */
   priorityHorizonSanity: number;

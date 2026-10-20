@@ -28,8 +28,8 @@ const KINDS: Record<string, string> = {
 const TITLES: Record<string, string> = {
   flag: "Flag",
   variable: "Variable",
-  object: "Object",
-  inventory: "Item",
+  object: "Actor",
+  inventory: "Object",
   room: "Room",
   word: "Word group",
   string: "String",

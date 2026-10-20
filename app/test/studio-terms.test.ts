@@ -21,13 +21,13 @@ test("editor explainers and walk labels use the shared vocabulary", () => {
     CONTROL_VALUES.map(({ name }) => name),
     ["Wall", "Gate", "Trigger", "Water"],
   );
-  assert.equal(STUDIO_TERMS.depth.says, "What stands in front. Lower on the screen is nearer.");
-  assert.equal(STUDIO_TERMS.ghost.name, "Stand-in");
-  assert.equal(STUDIO_TERMS.backdrop.name, "Background");
+  assert.equal(STUDIO_TERMS.priority.says, "What stands in front. Lower on the screen is nearer.");
+  assert.equal(STUDIO_TERMS.standIn.name, "Stand-in");
+  assert.equal(STUDIO_TERMS.background.name, "Background");
   assert.equal(STUDIO_TERMS.onion.name, "Onion skin");
   assert.equal(
     STUDIO_TERMS.transparent.says,
-    "Pixels in this colour show the room behind the character.",
+    "Pixels in this colour show the room behind the actor.",
   );
   assert.equal(
     STUDIO_TERMS.order.says,

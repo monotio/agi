@@ -1,5 +1,5 @@
 /**
- * Edit validation for the Room Studio: the UI and the agent
+ * Edit validation for the PICTURE editor: the UI and the agent
  * pass the same check, which compares the DECODED visual and priority planes
  * before and after an edit, never the operations or the source text.
  */
@@ -195,7 +195,7 @@ export function filledCell(
 /**
  * 160x168 mask: 1 where item `itemId` owns the final cell on `plane` (or on
  * either plane for "both"); all zero when the document has no such item.
- * Room Studio reports as side effects the changed cells outside the OR of the
+ * PICTURE editor reports as side effects the changed cells outside the OR of the
  * edited items' masks on each plane, before and after the edit
  * (app/src/studio/studioLocks.ts). `commands` keeps only the cells
  * whose owning command is a fill ("fills") or is not ("bounded"), read from

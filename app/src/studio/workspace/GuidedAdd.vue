@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ROOM_ACTION_LABELS as labels, type RoomActionKind } from "./guidedActions.ts";
-import { roomHeroView } from "../logic/guided/guidedPreview.ts";
+import { roomEgoView } from "../logic/guided/guidedPreview.ts";
 import { computed, onBeforeUnmount, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import { prepareWorkspaceAction, type WorkspaceAction } from "./workspaceGuided.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import { PROFILES, type ProfileId } from "../../../../src/runtime/profile.ts";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
-import { openSprite } from "../../../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../../../src/view/viewDocument.ts";
 import { openContainer } from "../../../../src/container/container.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
@@ -140,7 +140,7 @@ const viewChoices = computed(
 const action = computed<WorkspaceAction | undefined>(() => {
   const room = props.room;
   switch (kind.value) {
-    case "place-hero":
+    case "place-ego":
       return { kind: kind.value, room, view: view.value, x: x.value, y: y.value };
     case "response":
       return {
@@ -193,7 +193,7 @@ const words = computed(() => {
       : [];
 });
 const showPreview = computed(() =>
-  kind.value === "place-hero" || kind.value === "door" || kind.value === "add-room"
+  kind.value === "place-ego" || kind.value === "door" || kind.value === "add-room"
     ? true
     : !!command.value && (kind.value === "play-sound" || !!response.value),
 );
@@ -210,7 +210,7 @@ function open(next: WorkspaceAction["kind"]): void {
   const bindings = props.snapshot.read("bindings")?.content;
   view.value =
     typeof source === "string"
-      ? (roomHeroView(source, typeof bindings === "string" ? bindings : undefined) ?? 0)
+      ? (roomEgoView(source, typeof bindings === "string" ? bindings : undefined) ?? 0)
       : 0;
   guidedPlacement.value?.cancel();
   guidedPlacement.value = undefined;
@@ -234,7 +234,7 @@ async function startHere(): Promise<void> {
   positionPicked.value = true;
   notice.value = "Start position selected.";
 }
-function place(target: "hero" | "box" | "arrival"): void {
+function place(target: "ego" | "box" | "arrival"): void {
   const wasFocused = editor.focus.value;
   const wasPlaytesting = editor.phonePlaytest.value;
   editor.focus.value = false;
@@ -243,8 +243,11 @@ function place(target: "hero" | "box" | "arrival"): void {
   placing.value = true;
   let cel;
   try {
-    const sprite = openSprite(props.views[`view:${view.value}`]!, PROFILES[props.profileId]);
-    cel = (sprite.loops[2] ?? sprite.loops[0])?.cels[0];
+    const document = openViewDocument(
+      props.views[`view:${view.value}`]!,
+      PROFILES[props.profileId],
+    );
+    cel = (document.loops[2] ?? document.loops[0])?.cels[0];
   } catch {
     /* A position marker works before the first VIEW is drawn. */
   }
@@ -254,7 +257,7 @@ function place(target: "hero" | "box" | "arrival"): void {
     editor.phonePlaytest.value = wasPlaytesting;
   }
   guidedPlacement.value = {
-    kind: target === "box" ? "box" : "hero",
+    kind: target === "box" ? "box" : "ego",
     x: arrival.value?.x ?? x.value,
     y: arrival.value?.y ?? y.value,
     box: { x1: doorX.value, y1: doorY.value, x2: x2.value, y2: y2.value },
@@ -269,7 +272,7 @@ function place(target: "hero" | "box" | "arrival"): void {
           : "Drag the hero to the start",
     done(value: GuidedPlacement) {
       if (target === "arrival") arrival.value = { x: value.x, y: value.y };
-      else if (target === "hero") {
+      else if (target === "ego") {
         x.value = value.x;
         y.value = value.y;
         positionPicked.value = true;
@@ -366,10 +369,10 @@ function add(): void {
         :reply="kind === 'response'"
         :disabled="busy"
       />
-      <template v-if="kind === 'place-hero'">
+      <template v-if="kind === 'place-ego'">
         <p>Walk the hero to a spot in the game.</p>
         <UiButton size="sm" :disabled="busy" @click="startHere">Start here</UiButton>
-        <UiButton size="sm" variant="ghost" :disabled="busy" @click="place('hero')"
+        <UiButton size="sm" variant="ghost" :disabled="busy" @click="place('ego')"
           >Drag to place</UiButton
         >
         <p v-if="positionPicked">Start position selected.</p>
@@ -443,9 +446,9 @@ function add(): void {
           >
         </p>
       </template>
-      <details v-if="kind === 'door' || kind === 'place-hero' || kind === 'play-sound'">
+      <details v-if="kind === 'door' || kind === 'place-ego' || kind === 'play-sound'">
         <summary>Exact numbers</summary>
-        <label v-if="kind === 'place-hero'"
+        <label v-if="kind === 'place-ego'"
           >VIEW<input v-model.number="view" type="number" min="0" max="255"
         /></label>
         <label v-if="kind === 'play-sound'"
@@ -459,7 +462,7 @@ function add(): void {
         <label v-if="kind === 'door'"
           >Destination ROOM<input v-model.number="destination" type="number" min="1" max="254"
         /></label>
-        <template v-if="kind === 'place-hero'">
+        <template v-if="kind === 'place-ego'">
           <label>X<input v-model.number="x" type="number" min="0" max="159" /></label>
           <label>Y<input v-model.number="y" type="number" min="0" max="167" /></label>
         </template>

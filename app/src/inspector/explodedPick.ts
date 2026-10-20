@@ -7,12 +7,12 @@
  */
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
 
-/** Logical picture geometry the exploded view separates into depth layers. */
+/** Logical picture geometry the exploded view separates into priority layers. */
 const PIC_W = 160;
 const PIC_H = 168;
 
 export interface PickHit {
-  /** Mesh name identifying the layer: control, pic:N, sprite:N, explodedText. */
+  /** Mesh name identifying the layer: control, pic:N, screenObject:N, explodedText. */
   name: string;
   /** Texture-space hit point; all band layers share one uv mapping. */
   u: number;
@@ -42,12 +42,12 @@ export interface StagePick {
   y: number;
   /**
    * The layer whose rendered pixel the ray actually selected: control lines,
-   * a picture wall band, a sprite band, the modal preview, the text surface,
+   * a picture wall band, a screen object band, the modal preview, the text surface,
    * or background when geometry was hit but every layer masked the pixel
-   * out. A non-sprite kind never carries an object identity.
+   * out. A non-actor kind never carries an object identity.
    */
-  kind: "control" | "picture" | "sprite" | "preview" | "text" | "background";
-  /** Priority band for picture/sprite picks. */
+  kind: "control" | "picture" | "actor" | "preview" | "text" | "background";
+  /** Priority band for picture/actor picks. */
   band?: number;
 }
 
@@ -78,10 +78,10 @@ export function pickThroughLayers(hits: readonly PickHit[], masks: PickMasks): S
       const band = Number(hit.name.slice(4));
       if (masks.picturePriority && masks.picturePriority[i] === band)
         return { x: lx, y: ly, kind: "picture", band };
-    } else if (hit.name.startsWith("sprite:")) {
-      const band = Number(hit.name.slice(7));
+    } else if (hit.name.startsWith("screenObject:")) {
+      const band = Number(hit.name.slice("screenObject:".length));
       if (masks.priority && masks.owner && masks.priority[i] === band && masks.owner[i]! > 0)
-        return { x: lx, y: ly, kind: "sprite", band };
+        return { x: lx, y: ly, kind: "actor", band };
     }
   }
   return firstFramePoint ? { ...firstFramePoint, kind: "background" } : null;

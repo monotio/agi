@@ -114,8 +114,8 @@ for (const [text, kind, num, name] of [
     const heading = {
       flag: "Flag",
       variable: "Variable",
-      object: "Object",
-      inventory: "Item",
+      object: "Actor",
+      inventory: "Object",
       message: "Message",
       view: "VIEW",
       logic: "LOGIC",
