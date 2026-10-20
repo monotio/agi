@@ -1,17 +1,101 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Engine } from "../src/runtime/engine.ts";
-import { openContainer } from "../src/container/container.ts";
+import { createContainer, openContainer } from "../src/container/container.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
+import { migrateRecordedReplayState } from "../src/runtime/recordingState.ts";
 import { decodeRecordedReplay } from "../src/agent/recordedReplay.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { Simulation } from "../src/agent/playtest.ts";
 import { runGameTests } from "../src/agent/gameTestsRunner.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
+import { buildSound } from "../src/sound/build.ts";
 import type { SoundOutput } from "../src/sound/sound.ts";
 import { releasedSound, assertSoundContinuation } from "./released-sound.ts";
 
 const profile = PROFILES["2.001"];
+
+test("silent recordings and room launches keep the released replay form across profiles", () => {
+  for (const p of Object.values(PROFILES)) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic("return;", { dictionary: new Map(), profile: p }).payload,
+    );
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeKeys: () => [],
+        takeInputLine: () => null,
+      },
+      new Map(),
+      { profile: p },
+    );
+    engine.tick();
+    const state = engine.captureReplayState(true);
+    assert.equal(Object.hasOwn(state, "version"), false, p.id);
+    assert.deepEqual(
+      migrateRecordedReplayState(state, p, () => null),
+      state,
+      p.id,
+    );
+    assert.equal(Object.hasOwn(engine.captureRoomLaunchState().replay, "version"), false, p.id);
+  }
+});
+
+test("released playback outside the booter profile keeps every recorded field", () => {
+  for (const p of Object.values(PROFILES)) {
+    if (p.sound === "booter-2.001") continue;
+    const container = createContainer();
+    container.putResource(
+      "sound",
+      0,
+      p.sound === "iigs"
+        ? Uint8Array.of(0x02, 0x00, 0x00, 0x90, 0x3c, 0x40, 0x08, 0xfc)
+        : buildSound([{ notes: [{ note: "A4", duration: 10, attenuation: 0 }] }]),
+    );
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic("load.sound(0);sound(0,40);return;", {
+        dictionary: new Map(),
+        profile: p,
+      }).payload,
+    );
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeKeys: () => [],
+        takeInputLine: () => null,
+      },
+      new Map(),
+      { profile: p },
+    );
+    engine.tick();
+    const state = engine.captureReplayState(true);
+    assert.notEqual(state.sound, null, p.id);
+    assert.equal(Object.hasOwn(state, "version"), false, p.id);
+    const before = structuredClone(state);
+    assert.deepEqual(
+      migrateRecordedReplayState(state, p, () => {
+        assert.fail("unchanged playback needs no resource migration");
+      }),
+      state,
+      p.id,
+    );
+    engine.restoreReplayState(state);
+    assert.deepEqual(engine.captureReplayState(true), state, p.id);
+    assert.deepEqual(state, before, p.id);
+  }
+});
+
 for (const capture of releasedSound.captures) {
   const files = () =>
     new Map(
@@ -52,6 +136,9 @@ for (const capture of releasedSound.captures) {
       current,
       "current state does not migrate twice",
     );
+    const launch = engine.captureRoomLaunchState().replay;
+    assert.equal(launch.sound, null);
+    assert.equal(Object.hasOwn(launch, "version"), false, "silent launches keep released form");
     assertSoundContinuation(engine, capture.name, outputs);
 
     const sim = new Simulation(
