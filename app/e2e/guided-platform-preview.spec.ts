@@ -1,4 +1,5 @@
 import { expect, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import {
   FIRST_LOAD_BUDGET_MS,
   isolateStorage,
@@ -19,7 +20,7 @@ test.use({ keepDetectedProfileOption: false });
 // (255, 119, 0), not the PC table's magenta. The hero cel is one index-13
 // pixel block so the placement ghost exposes its palette choice. Logic 0
 // draws the picture and enters room 1 so the workspace's room actions show.
-async function startAmiga(page: import("@playwright/test").Page): Promise<void> {
+async function startAmiga(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   const game = createContainer();
