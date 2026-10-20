@@ -957,7 +957,7 @@ export async function stageRetainedOriginal(
 }
 
 /**
- * The worker acknowledged the swap: the named staged candidate becomes a
+ * The worker acknowledged the swap: the named staged changes becomes a
  * kept branch. `dropBranch` removes the branch the swap restored — the
  * adopted original leaves the undo list because it is live again.
  */
@@ -1013,7 +1013,7 @@ export function clearStagedOriginal(
 export type StagedSwapResolution = "none" | "settled" | "ambiguous";
 
 /**
- * Settle staged candidates left behind by interrupted swaps — each is
+ * Settle staged changess left behind by interrupted swaps — each is
  * judged independently. The tape is the witness: only adoption stamps the
  * departing segment's "resume" end, so a staged copy with that marker is
  * owed a branch slot (the worker adopted; only the promotion write failed).
@@ -1024,7 +1024,7 @@ export type StagedSwapResolution = "none" | "settled" | "ambiguous";
  * stages beside it.
  *
  * `liveSegment` is the worker's current segment when the caller just asked.
- * It is decisive in both directions: a staged candidate whose departing
+ * It is decisive in both directions: a staged changes whose departing
  * segment is still live was never adopted; one whose segment the worker has
  * left was. Without it the tape alone cannot prove an open segment dead —
  * its "resume" end may be the very write that failed — so that case stays

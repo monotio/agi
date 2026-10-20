@@ -40,7 +40,7 @@ const SOURCE = [
   "vis 6",
   "rect 44,92 116,104",
   "# @end",
-  '# @item occluder "Bench occluder part 12" depth',
+  '# @item occluder "Bench priority part 12" depth',
   "vis off",
   "pri 10",
   "polygon 40,90 119,90 126,98 119,105 40,105",
@@ -104,7 +104,7 @@ async function bootGame(page: Page): Promise<void> {
   await waitForCycles(page, 2);
 }
 
-/** Create, room 1, Open in Studio: all from the keyboard. */
+/** Create, room 1, Open editor: all from the keyboard. */
 async function openStudio(page: Page): Promise<Locator> {
   const create = page.getByRole("radio", { name: "Create", exact: true });
   if ((await create.getAttribute("aria-checked")) !== "true") {
@@ -290,7 +290,7 @@ test("while Studio is open the page holds still and Tab stays in its workspace",
   // The full label is the row's tooltip; the filter shows a focus ring.
   await expect(studio.locator('[data-row="occluder"] .item-list__label')).toHaveAttribute(
     "title",
-    "Bench occluder part 12",
+    "Bench priority part 12",
   );
   await expect(studio.locator('[data-row="occluder"] .item-list__tail')).toHaveText(" 12");
   await studio.getByRole("searchbox", { name: "Filter items" }).focus();

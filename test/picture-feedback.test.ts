@@ -163,7 +163,7 @@ describe("picture feedback: authentic scene geometry", () => {
     );
     assert.equal(
       text,
-      "- ego: logical x1-2 y1-3 (2x3), display x2-5 y1-3 (4x3); priority 7; baseline values [0, 7], controls [0@x1]; higher-priority scenery 2/6 cells",
+      "- ego: logical x1-2 y1-3 (2x3), display x2-5 y1-3 (4x3); priority 7; baseline values [0, 7], controls [0@x1]; higher-priority picture pixels 2/6 cells",
     );
   });
 });

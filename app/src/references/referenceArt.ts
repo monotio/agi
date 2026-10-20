@@ -50,7 +50,7 @@ interface ReferenceImage {
   readonly height: number;
 }
 
-/** A converted character sheet waiting on the player's keep/revise call. */
+/** A converted cel sheet waiting on the player's keep/revise call. */
 interface StagedView {
   /** The VIEW resource number it commits to on keep. */
   readonly num: number;

@@ -322,7 +322,7 @@ const roomChoices = computed(() => {
               :tone="door.planned ? 'warn' : 'neutral'"
               data-testid="walk-door-kind"
             >
-              {{ door.planned ? "Planned" : "In script" }}
+              {{ door.planned ? "Planned" : "In LOGIC" }}
             </UiChip>
           </button>
           <UiExplain

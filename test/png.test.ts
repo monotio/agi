@@ -39,7 +39,7 @@ describe("png encoder (zero dependency, stored deflate)", () => {
     const ihdr = [
       ...be32(1), // width
       ...be32(1), // height
-      8, // bit priority
+      8, // bit depth
       2, // colour type: truecolour RGB
       0, // compression: deflate
       0, // filter method: adaptive

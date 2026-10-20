@@ -22,9 +22,9 @@ export interface EditHistory {
   /** An open gesture: its label and the text it started from. */
   readonly gesture?: HistoryStep;
   /** The most steps `past` keeps; older ones are dropped. */
-  readonly priority: number;
+  readonly limit: number;
   /**
-   * How many of the oldest steps `past` has dropped at `priority` so far, so a
+   * How many of the oldest steps `past` has dropped at `limit` so far, so a
    * shared undo order can drop exactly their places (useUndoOrder `dropped`).
    */
   readonly dropped: number;
@@ -36,30 +36,30 @@ export type HistoryResult =
   | { readonly ok: true; readonly history: EditHistory; readonly source: string }
   | { readonly ok: false; readonly reason: string };
 
-export const DEFAULT_HISTORY_PRIORITY = 200;
+export const DEFAULT_HISTORY_LIMIT = 200;
 
 export function createHistory(
   source: string,
-  priority = DEFAULT_HISTORY_PRIORITY,
+  limit = DEFAULT_HISTORY_LIMIT,
   subject = "picture",
 ): EditHistory {
-  if (!Number.isInteger(priority) || priority < 1) throw new RangeError(`priority must be >= 1`);
-  return { past: [], future: [], current: source, priority, subject, dropped: 0 };
+  if (!Number.isInteger(limit) || limit < 1) throw new RangeError(`limit must be >= 1`);
+  return { past: [], future: [], current: source, limit, subject, dropped: 0 };
 }
 
-/** The history with these stacks and text, no gesture, `past` capped at `priority`. */
+/** The history with these stacks and text, no gesture, `past` capped at `limit`. */
 function settle(
   history: EditHistory,
   past: readonly HistoryStep[],
   future: readonly HistoryStep[],
   current: string,
 ): EditHistory {
-  const over = Math.max(0, past.length - history.priority);
+  const over = Math.max(0, past.length - history.limit);
   return {
     past: past.slice(over),
     future,
     current,
-    priority: history.priority,
+    limit: history.limit,
     subject: history.subject,
     dropped: history.dropped + over,
   };

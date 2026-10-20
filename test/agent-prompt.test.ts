@@ -69,8 +69,8 @@ describe("agent system prompt", () => {
   it("keeps the cross-tool workflow rules the picture eval proved", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Working with the tools"), "workflow section");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Register vocabulary before writing a said() handler"),
-      "vocabulary before said()",
+      AGI_SYSTEM_PROMPT.includes("Register WORDS before writing a said() handler"),
+      "WORDS before said()",
     );
     assert.ok(AGI_SYSTEM_PROMPT.includes("Call finish when the work is done"), "finish invariant");
     assert.ok(
@@ -169,7 +169,7 @@ describe("agent system prompt", () => {
       "raw EGA priority/control",
       "semantic overlay",
       "numeric probes",
-      "real hero",
+      "real ego",
       "drafting aids",
       "compiled outputs",
       "bounded speedrun",

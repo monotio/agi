@@ -3256,7 +3256,7 @@ onBeforeUnmount(() => {
     <div id="workspace-history-errors"></div>
     <p>{{ VOCABULARY.history.help }}</p>
     <form @submit.prevent="nameVersion">
-      <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton
+      <input v-model="versionName" aria-label="Version name" placeholder="Opening room" /><UiButton
         size="sm"
         type="submit"
         :disabled="editingPaused || editor.busy.value"

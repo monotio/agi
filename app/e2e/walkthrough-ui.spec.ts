@@ -500,7 +500,7 @@ test.describe("Walkthrough UI", () => {
       .toBeGreaterThan(1000);
   });
 
-  test("seeks past King Edward to Dagger checkpoint", async ({ page }) => {
+  test("seeks past King Edward to Dagger progress entry", async ({ page }) => {
     test.skip(Boolean(missing), missing || "");
     await isolateStorage(page);
     await page.goto("/");
@@ -575,7 +575,9 @@ test.describe("Walkthrough UI", () => {
     await engineRoomIs(page, 118);
   });
 
-  test("scrubs sq1 past name prompt and reaches Hallway checkpoint cleanly", async ({ page }) => {
+  test("scrubs sq1 past name prompt and reaches Hallway progress entry cleanly", async ({
+    page,
+  }) => {
     const sq1Missing = fixtureSkip(KNOWN_GAME_HASH.SQ1, ["AGIDATA.OVL"]);
     test.skip(Boolean(sq1Missing), sq1Missing || "");
     await isolateStorage(page);

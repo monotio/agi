@@ -39,7 +39,7 @@ const IMAGE_TOOLS: readonly ToolDefinition[] = [
     name: "make_cels_from_an_image",
     description: toolDescription(
       "make_cels_from_an_image",
-      "Reuse an image attached to this project to append native VIEW cels while retaining existing loops and cels. Read the images document for its encoded SHA-256 handle. Supply target view:N and explicit frame regions, output sizes and loop numbers; frames null suggests separated strips or a four-column grid. The complete art/attachment change joins the coordinated proposal for review and one History commit.",
+      "Reuse an image attached to this project to append native VIEW cels while retaining existing loops and cels. Read the images document for its encoded SHA-256 handle. Supply target view:N and explicit cel regions, output sizes and loop numbers; the frames field set to null suggests separated strips or a four-column grid. The complete art/attachment change joins the coordinated proposal for review and one History commit.",
     ),
     parameters: parameterDescriptions("make_cels_from_an_image", {
       type: "object",

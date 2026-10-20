@@ -110,7 +110,7 @@ test("an autosave resumed after a reload shows the frame it was taken from", asy
   tick();
   assert.equal(ctx.run.engine!.modalKind, null);
   tick(50);
-  assert.ok(ctx.fns.autosave(true), "a checkpoint is taken in room 2");
+  assert.ok(ctx.fns.autosave(true), "a progress entry is taken in room 2");
   const saved = presentation.findLast((message) => message.type === "autosave");
   assert.ok(saved?.type === "autosave" && saved.room === 2);
   const before = frameOf(ctx);

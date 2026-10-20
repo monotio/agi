@@ -99,15 +99,15 @@ describe("prepareView", () => {
       recipe([frame({ id: "f1" })], [cels("only", ["f1"])]),
       PROFILE,
     );
-    const prepared_frame = prepared.frames[0]!;
+    const preparedCel = prepared.cels[0]!;
     // 1:1 crop: the transparent source pixel stays transparent.
-    assert.deepEqual(Array.from(prepared_frame.mask), [1, 0, 1, 1]);
+    assert.deepEqual(Array.from(preparedCel.mask), [1, 0, 1, 1]);
     // Transparent cells hold the reserved transparent index; mask is the authority.
-    assert.deepEqual(Array.from(prepared_frame.pixels), [15, 1, 4, 0]);
-    assert.equal(prepared_frame.transparentIndex, 1); // lowest index free of 15/4/0
-    assert.equal(prepared_frame.baseline, 1);
-    assert.equal(prepared_frame.diagnostics.opaque, 3);
-    assert.equal(prepared_frame.diagnostics.alphaErased, 1);
+    assert.deepEqual(Array.from(preparedCel.pixels), [15, 1, 4, 0]);
+    assert.equal(preparedCel.transparentIndex, 1); // lowest index free of 15/4/0
+    assert.equal(preparedCel.baseline, 1);
+    assert.equal(preparedCel.diagnostics.opaque, 3);
+    assert.equal(preparedCel.diagnostics.alphaErased, 1);
 
     // Hand-computed payload: 5-byte header + 2-byte loop table, one loop at
     // offset 7 with a 1-cel table, cel at 7+3=10:
@@ -140,7 +140,7 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 1]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 1]);
 
     const strict = prepareView(
       [src],
@@ -159,7 +159,7 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.deepEqual(Array.from(strict.frames[0]!.mask), [0, 0]);
+    assert.deepEqual(Array.from(strict.cels[0]!.mask), [0, 0]);
   });
 
   it("keeps an opaque border colour: no border-key detection on new imports", () => {
@@ -184,10 +184,10 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.ok(prepared.frames[0]!.mask.every((m) => m === 1));
-    assert.equal(prepared.frames[0]!.diagnostics.keyIndex, null);
-    assert.equal(prepared.frames[0]!.diagnostics.keyErased, 0);
-    assert.equal(prepared.frames[0]!.transparentIndex, 0);
+    assert.ok(prepared.cels[0]!.mask.every((m) => m === 1));
+    assert.equal(prepared.cels[0]!.diagnostics.keyIndex, null);
+    assert.equal(prepared.cels[0]!.diagnostics.keyErased, 0);
+    assert.equal(prepared.cels[0]!.transparentIndex, 0);
   });
 
   it("erases the explicit key colour and reports every erased pixel", () => {
@@ -213,13 +213,13 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    const diagnostics = prepared.frames[0]!.diagnostics;
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 1, 0, 0]);
+    const diagnostics = prepared.cels[0]!.diagnostics;
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 1, 0, 0]);
     assert.equal(diagnostics.keyIndex, 13);
     assert.equal(diagnostics.keyErased, 2);
     assert.equal(diagnostics.alphaErased, 1);
     // The key index is always free for transparency under key mode.
-    assert.equal(prepared.frames[0]!.transparentIndex, 13);
+    assert.equal(prepared.cels[0]!.transparentIndex, 13);
   });
 
   it("breaks nearest-colour ties toward the lower EGA index", () => {
@@ -242,8 +242,8 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.deepEqual(Array.from(prepared.frames[0]!.pixels), [0]);
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [1]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.pixels), [0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [1]);
   });
 
   it("samples nearest-centre on downscale: 4x2 -> 2x1 picks columns 1 and 3 of row 1", () => {
@@ -272,8 +272,8 @@ describe("prepareView", () => {
       PROFILE,
     );
     // oy 0 -> sy = floor(1*2/2) = 1; ox 0 -> floor(0.5*4/2) = 1; ox 1 -> 3.
-    assert.deepEqual(Array.from(prepared.frames[0]!.pixels), [15, 0]);
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [1, 1]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.pixels), [15, 0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [1, 1]);
   });
 
   it("honours arbitrary frame order, reuse and a seven-cel loop", () => {
@@ -367,8 +367,8 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    const [a, b] = prepared.frames;
-    // Frame a: 1:1 — source rows 2..7 -> canvas rows 0..5. The region covers
+    const [a, b] = prepared.cels;
+    // Cel a: 1:1 — source rows 2..7 -> canvas rows 0..5. The region covers
     // source cols 0..3, so opaque cols 1..3 land at canvas cols 1..3 and the
     // padding rows above stay transparent.
     assert.deepEqual(Array.from(a!.mask), [
@@ -397,11 +397,11 @@ describe("prepareView", () => {
       1,
       1,
     ]);
-    // Frame b: W_left = 2 - 3*(6/6) = -1 -> canvas col ox samples source
+    // Cel b: W_left = 2 - 3*(6/6) = -1 -> canvas col ox samples source
     // ox-1. Region covers source cols 1..6, so cols 0..1 are padding and
     // opaque source cols 5..6 are clipped off the right edge: 2 columns x
     // 3 rows = 6 opaque pixels of crop loss needing explicit approval.
-    assert.deepEqual(prepared.frames[1]!.diagnostics.cropLoss.outsideCanvas, {
+    assert.deepEqual(prepared.cels[1]!.diagnostics.cropLoss.outsideCanvas, {
       opaque: 6,
       transparent: 10,
     });
@@ -479,13 +479,13 @@ describe("prepareView", () => {
       );
     assert.throws(() => prepareView([src], mk(false), PROFILE), /"f1".*below baselineEdgeY/);
     const prepared = prepareView([src], mk(true), PROFILE);
-    assert.deepEqual(prepared.frames[0]!.diagnostics.cropLoss.belowBaseline, {
+    assert.deepEqual(prepared.cels[0]!.diagnostics.cropLoss.belowBaseline, {
       opaque: 1,
       transparent: 2,
     });
     // Window = rows -1..2 sampled onto 4 rows: canvas row 0 is padding, the
     // rest are the region's rows 0..2.
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it("rejects opaque content clipped outside the canvas unless approved", () => {
@@ -509,10 +509,10 @@ describe("prepareView", () => {
       );
     assert.throws(() => prepareView([src], mk(false), PROFILE), /"f1".*outside.*canvas/i);
     const prepared = prepareView([src], mk(true), PROFILE);
-    assert.equal(prepared.frames[0]!.diagnostics.cropLoss.outsideCanvas.opaque, 2);
+    assert.equal(prepared.cels[0]!.diagnostics.cropLoss.outsideCanvas.opaque, 2);
     // Window covers source cols -2..1: only source col 1 lands on canvas
     // (col 3), and it is transparent.
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 0, 0, 0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 0, 0, 0]);
   });
 
   it("rejects a cel using all 16 EGA colours — palette remap required", () => {
@@ -700,10 +700,10 @@ describe("prepareView", () => {
       /sourceAnchor\.x/,
     );
     assert.throws(() => r([frame({ id: "f1", sample: "bilinear" })]), /sample/);
-    assert.throws(() => r([f(), f()]), /duplicate frame id/);
+    assert.throws(() => r([f(), f()]), /duplicate cel id/);
     assert.throws(() => r([f()], []), /loops/);
     assert.throws(() => r([f()], [cels("only", [])]), /frameIds/);
-    assert.throws(() => r([f()], [cels("only", ["standIn"])]), /unknown frame id/);
+    assert.throws(() => r([f()], [cels("only", ["standIn"])]), /unknown cel id/);
     assert.throws(
       () => r([f()], [{ id: "x", frameIds: ["f1"], mirrorOf: "x" } as never]),
       /exactly one of/,
@@ -782,8 +782,8 @@ describe("prepareView", () => {
     const first = build();
     const bytes = first.payload.slice();
     // Mutating returned buffers must not corrupt any retained state.
-    first.frames[0]!.pixels.fill(9);
-    first.frames[0]!.mask.fill(0);
+    first.cels[0]!.pixels.fill(9);
+    first.cels[0]!.mask.fill(0);
     first.payload.fill(0);
     const second = build();
     assert.deepEqual(Array.from(second.payload), Array.from(bytes));
@@ -815,7 +815,7 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    const d = prepared.frames[0]!.diagnostics;
+    const d = prepared.cels[0]!.diagnostics;
     assert.equal(d.keyErased, 1);
     assert.equal(d.alphaErased, 1);
     assert.equal(d.opaque, 1);

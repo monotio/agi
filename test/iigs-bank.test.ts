@@ -72,7 +72,7 @@ function omfFile(segments: { name: string; length: number; body: number[] }[]): 
 
 /**
  * A synthetic instrument record: fixed valid envelope, `marker` in the
- * vibratoPriority byte and the wave page, wave counts as given, topKeys
+ * vibratoDepth byte and the wave page, wave counts as given, topKeys
  * increasing to 127.
  */
 function synthInstrument(aCount: number, bCount: number, marker: number): number[] {
@@ -88,7 +88,7 @@ function synthInstrument(aCount: number, bCount: number, marker: number): number
     [0, 0],
   ];
   for (const [breakpoint, increment] of envelope) bytes.push(breakpoint, ...u16le(increment));
-  // releaseSegment, priorityIncrement, pitchBendRange, vibratoPriority,
+  // releaseSegment, priorityIncrement, pitchBendRange, vibratoDepth,
   // vibratoSpeed, spare, aWaveCount, bWaveCount
   bytes.push(3, 32, 2, marker, 0, 0, aCount, bCount);
   const waves = aCount + bCount;
@@ -163,7 +163,7 @@ test("parseIigsInstrument decodes the record layout and reports its length", () 
     3, // releaseSegment
     32, // priorityIncrement
     4, // pitchBendRange
-    75, // vibratoPriority
+    75, // vibratoDepth
     50, // vibratoSpeed
     0xaa, // spare
     2, // aWaveCount
@@ -206,7 +206,7 @@ test("parseIigsInstrument decodes the record layout and reports its length", () 
   assert.equal(instrument.releaseSegment, 3);
   assert.equal(instrument.priorityIncrement, 32);
   assert.equal(instrument.pitchBendRange, 4);
-  assert.equal(instrument.vibratoPriority, 75);
+  assert.equal(instrument.vibratoDepth, 75);
   assert.equal(instrument.vibratoSpeed, 50);
   assert.deepEqual(instrument.a, [
     { topKey: 60, waveAddr: 0x20, waveSize: 0x2d, docMode: 0x06, relPitch: 3072 },
@@ -233,14 +233,14 @@ test("a synthetic ~globals segment resolves the map through its cRELOC records",
   assert.equal(bank.programs.length, 50);
   // The map slots hold zeros in the image; only the relocation records tie
   // program 0 to record 1 (marker byte 1, wave page 0x21).
-  assert.equal(bank.programs[0]!.vibratoPriority, 1);
+  assert.equal(bank.programs[0]!.vibratoDepth, 1);
   assert.equal(bank.programs[0]!.a[0]!.waveAddr, 0x21);
-  assert.equal(bank.programs[1]!.vibratoPriority, 0);
-  assert.equal(bank.programs[49]!.vibratoPriority, 21); // STARTS[21]
+  assert.equal(bank.programs[1]!.vibratoDepth, 0);
+  assert.equal(bank.programs[49]!.vibratoDepth, 21); // STARTS[21]
   assert.equal(bank.programs[27]!.a.length, 6); // the 104-byte record
   // The channel default is the record at ~globals+0x05c4: with 44-byte
   // records that is record 6.
-  assert.equal(bank.defaultInstrument.vibratoPriority, 6);
+  assert.equal(bank.defaultInstrument.vibratoDepth, 6);
 });
 
 test("the map must resolve to record starts", () => {
@@ -300,7 +300,7 @@ test(
       releaseSegment: 3,
       priorityIncrement: 32,
       pitchBendRange: 2,
-      vibratoPriority: 0,
+      vibratoDepth: 0,
       vibratoSpeed: 0,
       a: [{ topKey: 127, waveAddr: 72, waveSize: 27, docMode: 18, relPitch: 512 }],
       b: [{ topKey: 127, waveAddr: 0, waveSize: 0, docMode: 1, relPitch: 0 }],
@@ -363,7 +363,7 @@ test(
       releaseSegment: 3,
       priorityIncrement: 32,
       pitchBendRange: 2,
-      vibratoPriority: 75,
+      vibratoDepth: 75,
       vibratoSpeed: 50,
       a: [{ topKey: 127, waveAddr: 80, waveSize: 18, docMode: 0, relPitch: -2500 }],
       b: [{ topKey: 127, waveAddr: 80, waveSize: 18, docMode: 0, relPitch: -2500 }],

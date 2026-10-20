@@ -294,7 +294,7 @@ test("view-sheet compilation carries the native mirror capabilities", () => {
   const profile = PROFILES["2.001"];
   const payload = buildViewFromSheet(
     [{ width: 3, height: 1, pixels: Uint8Array.of(1, 2, 0), mask: Uint8Array.of(1, 1, 0) }],
-    { loops: [{ frames: [0] }, { mirrorOf: 0 }] },
+    { loops: [{ cels: [0] }, { mirrorOf: 0 }] },
     profile,
   );
   assert.deepEqual([...selectViewCel(parseView(payload, profile), 1, 0)!.pixels], [0, 2, 1]);

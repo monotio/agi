@@ -134,7 +134,7 @@ describe("walkView: doors and words", () => {
       testedBy: ["route"],
     });
     assert.deepEqual(doorStatus({ destination: 2, contract: back }, none), {
-      wayBack: "Way back from there: the east edge or a door or the script",
+      wayBack: "Way back from there: the east edge or a door or the LOGIC",
       tested: "Tested ✓ (route)",
       testedOk: true,
     });

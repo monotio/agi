@@ -270,7 +270,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
     name: "write_words",
     description: toolDescription(
       "write_words",
-      'Compile parser vocabulary into WORDS.TOK. A word starts with a letter and uses only a-z, 0-9, apostrophes and spaces (a phrase): write break in, not break-in. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. `ignored` lists words the parser drops before matching (AGI word group 0), such as a, an and the, so LOOK AT THE NOTICE can match said("look", "notice") when at and the are ignored. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.',
+      'Compile parser WORDS into WORDS.TOK. A word starts with a letter and uses only a-z, 0-9, apostrophes and spaces (a phrase): write break in, not break-in. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. `ignored` lists words the parser drops before matching (AGI word group 0), such as a, an and the, so LOOK AT THE NOTICE can match said("look", "notice") when at and the are ignored. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.',
     ),
     parameters: parameterDescriptions("write_words", {
       type: "object",
@@ -323,7 +323,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
     name: "write_picture",
     description: toolDescription(
       "write_picture",
-      "Compile and replace picture `room` from complete vector `source`. Returns a visual/priority/overlay comparison image, spatial metrics and revision. A `# layout: <name> x<a>-<b> y<c>-<d> colour <n>` comment reports the colour and coverage that rendered in that box with an OK/UNDERFILLED/SHIFTED/MISSING verdict. A `# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>` comment reports that footprint's extent, the control values on its baseline and how many cells of higher-priority scenery would occlude it. Failure stores nothing.",
+      "Compile and replace picture `room` from complete vector `source`. Returns a visual/priority/overlay comparison image, spatial metrics and revision. A `# layout: <name> x<a>-<b> y<c>-<d> colour <n>` comment reports the colour and coverage that rendered in that box with an OK/UNDERFILLED/SHIFTED/MISSING verdict. A `# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>` comment reports that footprint's extent, the control values on its baseline and how many cells of higher-priority picture pixels would occlude it. Failure stores nothing.",
     ),
     parameters: parameterDescriptions("write_picture", {
       type: "object",

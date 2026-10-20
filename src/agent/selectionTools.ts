@@ -85,7 +85,7 @@ export interface SelectionFocus {
   readonly scope: AssistScope;
   /** The editor's current draft; read on every tool call. */
   readonly draft: () => AssistDraft;
-  /** The Studio lens ("art" | "depth" in PICTURE editor), reported as is. */
+  /** The Studio lens ("visual" | "priority" in the PICTURE editor), reported as is. */
   readonly lens?: string | undefined;
   /** The room the editor was opened from. */
   readonly room?: number | undefined;

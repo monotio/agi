@@ -411,8 +411,7 @@ export function executeRoomTool(
           }
           if (match.id !== 0) retained.push(match.text);
         }
-        if (!retained.length)
-          throw new Error(`Command '${command}' contains only ignored dictionary words.`);
+        if (!retained.length) throw new Error(`Command '${command}' contains only ignored WORDS.`);
         patterns.push(`said(${retained.map((word) => JSON.stringify(word)).join(", ")})`);
         commandPatterns.push(command);
       }

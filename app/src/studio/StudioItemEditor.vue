@@ -196,7 +196,7 @@ const penReason = computed(
           step="1"
           :value="priority"
           :disabled="penDisabled"
-          aria-label="Distance band"
+          aria-label="Priority band"
           data-testid="priority-band"
           @input="edit.setColour('priority', Number(($event.target as HTMLInputElement).value))"
         />

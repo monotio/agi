@@ -11,7 +11,7 @@ import type { KeySection } from "./studioHelp.ts";
 const {
   name,
   sections,
-  where = "Keys work while the canvas or the studio has focus. Text fields take typing.",
+  where = "Keys work while the canvas or editor has focus. Text fields take typing.",
 } = defineProps<{
   /** PICTURE, VIEW editor or LOGIC. */
   name: string;

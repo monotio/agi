@@ -176,7 +176,7 @@ describe("rules bound to picture items", () => {
       {
         ok: false,
         error:
-          "Rule 'bust-spot' follows 'bust' but is written directly in the room's LOGIC; move its box in the script text.",
+          "Rule 'bust-spot' follows 'bust' but is written directly in the room's LOGIC; move its box in the LOGIC text.",
       },
     );
   });

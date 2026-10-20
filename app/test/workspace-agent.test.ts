@@ -717,7 +717,7 @@ function fixture(
   });
   return { session, agent, sent, resumed, documents, projectId, saved: () => savedData! };
 }
-test("one coordinated review selects resources, records a chat checkpoint and undoes all admitted changes", async () => {
+test("one coordinated review selects resources, records a chat progress entry and undoes all admitted changes", async () => {
   const { session, agent, documents } = fixture();
   await agent.send("Add a welcome sign");
   assert.equal(session.history.capture().commits.length, 1);
@@ -1340,7 +1340,7 @@ test("Ask stores a formatted reply with raw context and keeps ordinary follow-up
   session.dispose();
 });
 
-test("approval keeps its checkpoint when project observers refresh the review", async () => {
+test("approval keeps its progress entry when project observers refresh the review", async () => {
   const { session, agent } = fixture();
   await agent.send("Add sign");
   let refreshed = false;
@@ -3056,7 +3056,7 @@ for (const restore of [false, true]) {
                 origin: "guided",
                 author: "creator",
               });
-              throw new Error("Project proposal is stale.");
+              throw new Error("Project changes are stale.");
             }
             return submit(edit);
           };
@@ -3162,7 +3162,7 @@ test("An Agent turn that commits nothing has no Undo message and cannot undo a c
     assert.equal(
       submissions,
       0,
-      "a no-op Agent sends no document write whose receipt can acquire a creator checkpoint",
+      "a no-op Agent sends no document write whose receipt can acquire a creator progress entry",
     );
     assert.equal(session.history.capture().cursor, before);
     const message = session

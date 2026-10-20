@@ -531,7 +531,7 @@ test("a record this release does not recognise is never overwritten", async (t) 
   );
 });
 
-test("removing a library game clears its conversation, checkpoint, save slots and resume pointer", async (t) => {
+test("removing a library game clears its conversation, progress entry, save slots and resume pointer", async (t) => {
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   t.after(() => {

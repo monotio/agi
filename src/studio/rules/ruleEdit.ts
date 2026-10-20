@@ -331,7 +331,7 @@ export function applyRuleEdit(
     const { rule, model: current } = existing;
     if (current === "native")
       return refuse(
-        `Rule '${op.id}' is written directly in the room's LOGIC, which the door editor cannot read. Change it in the script text.`,
+        `Rule '${op.id}' is written directly in the room's LOGIC, which the door editor cannot read. Change it in the LOGIC text.`,
       );
     const span = rule.closeLine - rule.openLine + 1;
     if (op.op === "removeRule") {

@@ -568,15 +568,15 @@ function salvageStateUse(
     let index = 0;
     let closed = false;
     while (cursor < tokens.length) {
-      let priority = 0;
+      let depth = 0;
       let end = cursor;
       while (end < tokens.length) {
         const t = tokens[end]!;
-        if (t.type === "punct" && t.text === "(") priority++;
+        if (t.type === "punct" && t.text === "(") depth++;
         else if (t.type === "punct" && t.text === ")") {
-          if (priority === 0) break;
-          priority--;
-        } else if (t.type === "punct" && t.text === "," && priority === 0) break;
+          if (depth === 0) break;
+          depth--;
+        } else if (t.type === "punct" && t.text === "," && depth === 0) break;
         end++;
       }
       const arg = tokens.slice(cursor, end);

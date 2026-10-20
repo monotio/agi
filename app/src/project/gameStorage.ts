@@ -1150,7 +1150,7 @@ export async function commitProject(
                 stored.receipt.candidateHash !==
                   sha256Hex(new TextEncoder().encode(JSON.stringify(commitContent(request)))))
             )
-              throw new Error("This commit ID was reused for a different candidate.");
+              throw new Error("This commit ID was reused for a different change set.");
             if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
               throw new ProjectDeletedError(
                 "This commit belongs to a removed or replaced project lifetime.",
@@ -1395,7 +1395,7 @@ async function recoverProjectJournal(
           "This commit belongs to a removed or replaced project lifetime.",
         );
       if (committed.receipt.journalHash !== capture.hash)
-        throw new Error("This commit ID was reused for a different candidate.");
+        throw new Error("This commit ID was reused for a different change set.");
       return { receipt: committed.receipt };
     }
     let lifetime: string | null = null;

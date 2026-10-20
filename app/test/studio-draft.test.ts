@@ -95,7 +95,7 @@ describe("useStudioDraft", () => {
         profile: DEFAULT_V2_PROFILE,
         lens: "priority",
         unlocks: NO_UNLOCKS,
-        historyPriority: 2,
+        historyLimit: 2,
       });
       // The door history: counted steps, both counts changing in one assignment.
       const door = shallowRef({ past: 0, future: 0 });

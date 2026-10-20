@@ -158,6 +158,7 @@ rule.
 Use `Record` for static string-keyed tables, and `Map` or `Set` only for dynamic or non-string keys.
 A one-expression wrapper function needs a public contract to justify its name. Name editor features
 with vendor-neutral terms: code intelligence, completion, signature help, hover documentation.
+Names follow the glossary in `src/vocabulary.ts`: one term per concept in copy, technical prose and code; `FORMAT_LITERALS` lists the stored spellings it leaves alone.
 
 Pointer drags, moves, resizes and wheel gestures stay smooth. A handler records the latest pointer
 state and applies it at most once per animation frame. Expensive work waits until the gesture ends

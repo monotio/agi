@@ -332,7 +332,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   await page.screenshot({ path: test.info().outputPath("creation-expanded.png"), fullPage: true });
 });
 
-test("a checkpoint cannot resume against changed game resources and remains recoverable", async ({
+test("a progress entry cannot resume against changed game resources and remains recoverable", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -373,7 +373,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     const projectId = locator.split(":")[1]!;
     const key = `monotio_agi.autosave.${locator}`;
     const raw = localStorage.getItem(key);
-    if (!raw) throw new Error("No checkpoint was stored before returning to the menu");
+    if (!raw) throw new Error("No progress entry was stored before returning to the menu");
     const cached = await storage.loadAuthoredGame(projectId);
     const original = Object.fromEntries(
       Object.entries(cached.files as Record<string, Uint8Array>).map(([name, bytes]) => [
@@ -398,7 +398,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect(page.getByTestId("older-position-choice")).toContainText("earlier version");
   expect(
     await page.evaluate(({ key, raw }) => localStorage.getItem(key) === raw, checkpoint),
-    "Rejected resume preserves the checkpoint bytes",
+    "Rejected resume preserves the progress entry bytes",
   ).toBe(true);
   await page.evaluate(async ({ projectId, original }) => {
     const path = "/src/project/gameStorage.ts";

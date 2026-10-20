@@ -135,43 +135,43 @@ describe("quantizeToEga", () => {
 });
 
 /**
- * Two hand-drawn 4x4 frames side by side (an 8x4 sheet), magenta key.
- * Frame 0 has opaque pixels at local (1,1) and (1,2); frame 1 at (2,2) only.
- * The union bounding box is therefore x 1..2, y 1..2 for both frames, so the
- * bottom row of each trimmed frame is source row 2 — the shared baseline.
+ * Two hand-drawn 4x4 cels side by side (an 8x4 sheet), magenta key.
+ * Frame 0 has opaque pixels at local (1,1) and (1,2); cel 1 at (2,2) only.
+ * The union bounding box is therefore x 1..2, y 1..2 for both cels, so the
+ * bottom row of each trimmed cel is source row 2 — the shared baseline.
  */
 function twoFrameSheet(): EgaSheet {
   const px: (readonly [number, number, number, number])[] = new Array(8 * 4).fill(MAGENTA);
-  px[1 * 8 + 1] = WHITE; // frame 0, local (1,1)
-  px[2 * 8 + 1] = RED; // frame 0, local (1,2)
-  px[2 * 8 + 6] = BLACK; // frame 1, local (2,2)
+  px[1 * 8 + 1] = WHITE; // cel 0, local (1,1)
+  px[2 * 8 + 1] = RED; // cel 0, local (1,2)
+  px[2 * 8 + 6] = BLACK; // cel 1, local (2,2)
   return quantizeToEga(rgbaFrom(px), 8, 4);
 }
 
 describe("cutGrid", () => {
-  it("cuts frames in reading order and trims to a shared bounding box", () => {
-    const frames = cutGrid(twoFrameSheet(), 2, 1);
-    assert.equal(frames.length, 2);
-    for (const frame of frames) {
-      assert.equal(frame.width, 2);
-      assert.equal(frame.height, 2);
+  it("cuts cels in reading order and trims to a shared bounding box", () => {
+    const cels = cutGrid(twoFrameSheet(), 2, 1);
+    assert.equal(cels.length, 2);
+    for (const cel of cels) {
+      assert.equal(cel.width, 2);
+      assert.equal(cel.height, 2);
     }
-    assert.deepEqual(Array.from(frames[0]!.mask), [1, 0, 1, 0]);
-    assert.deepEqual(Array.from(frames[0]!.pixels), [15, 13, 4, 13]);
-    assert.deepEqual(Array.from(frames[1]!.mask), [0, 0, 0, 1]);
-    assert.deepEqual(Array.from(frames[1]!.pixels), [13, 13, 13, 0]);
+    assert.deepEqual(Array.from(cels[0]!.mask), [1, 0, 1, 0]);
+    assert.deepEqual(Array.from(cels[0]!.pixels), [15, 13, 4, 13]);
+    assert.deepEqual(Array.from(cels[1]!.mask), [0, 0, 0, 1]);
+    assert.deepEqual(Array.from(cels[1]!.pixels), [13, 13, 13, 0]);
   });
 
-  it("keeps the baseline aligned: every frame's opaque content shares a bottom row", () => {
-    const frames = cutGrid(twoFrameSheet(), 2, 1);
+  it("keeps the baseline aligned: every cel's opaque content shares a bottom row", () => {
+    const cels = cutGrid(twoFrameSheet(), 2, 1);
     const bottomRowOpaque = (f: SheetCel): number[] =>
       Array.from(f.mask.subarray((f.height - 1) * f.width));
-    // Both frames carry their source row 2 as their last row; frame 0's white
+    // Both cels carry their source row 2 as their last row; cel 0's white
     // pixel at source row 1 stays one row above it rather than being pushed
-    // down by an independent per-frame trim.
-    assert.deepEqual(bottomRowOpaque(frames[0]!), [1, 0]);
-    assert.deepEqual(bottomRowOpaque(frames[1]!), [0, 1]);
-    assert.equal(frames[0]!.mask[0], 1);
+    // down by an independent per-cel trim.
+    assert.deepEqual(bottomRowOpaque(cels[0]!), [1, 0]);
+    assert.deepEqual(bottomRowOpaque(cels[1]!), [0, 1]);
+    assert.equal(cels[0]!.mask[0], 1);
   });
 
   it("cuts a multi-row grid in reading order (left to right, then down)", () => {
@@ -196,9 +196,9 @@ describe("cutGrid", () => {
       YELLOW,
     ];
     const sheet = quantizeToEga(rgbaFrom(px), 4, 4, { keyColor: null });
-    const frames = cutGrid(sheet, 2, 2);
+    const cels = cutGrid(sheet, 2, 2);
     assert.deepEqual(
-      frames.map((f) => Array.from(f.pixels)),
+      cels.map((f) => Array.from(f.pixels)),
       [
         [15, 15, 15, 15],
         [4, 4, 4, 4],
@@ -209,10 +209,10 @@ describe("cutGrid", () => {
   });
 
   it("trim:false keeps the full cell", () => {
-    const frames = cutGrid(twoFrameSheet(), 2, 1, { trim: false });
-    assert.equal(frames[0]!.width, 4);
-    assert.equal(frames[0]!.height, 4);
-    assert.deepEqual(Array.from(frames[0]!.mask), [0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    const cels = cutGrid(twoFrameSheet(), 2, 1, { trim: false });
+    assert.equal(cels[0]!.width, 4);
+    assert.equal(cels[0]!.height, 4);
+    assert.deepEqual(Array.from(cels[0]!.mask), [0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
   });
 
   it("downsamples nearest-neighbour with the 2:1 logical pixel aspect", () => {
@@ -242,15 +242,15 @@ describe("cutGrid", () => {
       }
     }
     const sheet = quantizeToEga(rgbaFrom(px), 8, 8, { keyColor: null });
-    const [frame] = cutGrid(sheet, 1, 1, { targetHeight: 4 });
-    // width = round(8 * (4/8) / 2) = 2, so a square-pixel 8x8 frame becomes a
+    const [cel] = cutGrid(sheet, 1, 1, { targetHeight: 4 });
+    // width = round(8 * (4/8) / 2) = 2, so a square-pixel 8x8 cel becomes a
     // 2x4 cel that redisplays as 4x4 raster pixels: proportions preserved.
-    assert.equal(frame!.width, 2);
-    assert.equal(frame!.height, 4);
+    assert.equal(cel!.width, 2);
+    assert.equal(cel!.height, 4);
     // Nearest neighbour samples the source under each destination centre:
     //   sy = floor((y+0.5)*8/4) = 1,3,5,7 ; sx = floor((x+0.5)*8/2) = 2,6.
-    assert.deepEqual(Array.from(frame!.pixels), [3, 7, 5, 9, 7, 11, 9, 13]);
-    assert.ok(Array.from(frame!.mask).every((m) => m === 1));
+    assert.deepEqual(Array.from(cel!.pixels), [3, 7, 5, 9, 7, 11, 9, 13]);
+    assert.ok(Array.from(cel!.mask).every((m) => m === 1));
   });
 
   it("rejects a grid that does not divide the sheet evenly", () => {
@@ -259,7 +259,7 @@ describe("cutGrid", () => {
 });
 
 describe("buildViewFromSheet", () => {
-  const frame = (width: number, height: number, colors: number[], mask: number[]): SheetCel => ({
+  const sheetCel = (width: number, height: number, colors: number[], mask: number[]): SheetCel => ({
     width,
     height,
     pixels: new Uint8Array(colors),
@@ -268,8 +268,8 @@ describe("buildViewFromSheet", () => {
 
   it("picks the lowest free transparent colour and round-trips through parseView", () => {
     // 2x2 cel using colours 15 and 4: colour 0 is free, so it is transparent.
-    const frames = [frame(2, 2, [15, 4, 4, 4], [1, 1, 1, 1])];
-    const view = parseView(buildViewFromSheet(frames, { loops: [{ frames: [0] }] }));
+    const cels = [sheetCel(2, 2, [15, 4, 4, 4], [1, 1, 1, 1])];
+    const view = parseView(buildViewFromSheet(cels, { loops: [{ cels: [0] }] }));
     assert.equal(view.loops.length, 1);
     const cel = view.loops[0]!.cels[0]!;
     assert.equal(cel.width, 2);
@@ -280,35 +280,33 @@ describe("buildViewFromSheet", () => {
 
   it("avoids a transparent colour the art uses", () => {
     // Opaque black and white leave colour 1 as the lowest free index.
-    const frames = [frame(2, 2, [0, 0, 15, 15], [1, 1, 1, 1])];
-    const cel = parseView(buildViewFromSheet(frames, { loops: [{ frames: [0] }] })).loops[0]!
-      .cels[0]!;
+    const cels = [sheetCel(2, 2, [0, 0, 15, 15], [1, 1, 1, 1])];
+    const cel = parseView(buildViewFromSheet(cels, { loops: [{ cels: [0] }] })).loops[0]!.cels[0]!;
     assert.equal(cel.transparentColor, 1);
     assert.deepEqual(Array.from(cel.pixels), [0, 0, 15, 15]);
     // preferTransparent is honoured when free, ignored when the art uses it.
     const preferred = parseView(
-      buildViewFromSheet(frames, { loops: [{ frames: [0] }], preferTransparent: 9 }),
+      buildViewFromSheet(cels, { loops: [{ cels: [0] }], preferTransparent: 9 }),
     ).loops[0]!.cels[0]!;
     assert.equal(preferred.transparentColor, 9);
     const clashing = parseView(
-      buildViewFromSheet(frames, { loops: [{ frames: [0] }], preferTransparent: 15 }),
+      buildViewFromSheet(cels, { loops: [{ cels: [0] }], preferTransparent: 15 }),
     ).loops[0]!.cels[0]!;
     assert.equal(clashing.transparentColor, 1);
   });
 
   it("writes masked-out pixels as the transparent colour", () => {
-    const frames = [frame(2, 2, [15, 13, 4, 4], [1, 0, 1, 1])];
-    const cel = parseView(buildViewFromSheet(frames, { loops: [{ frames: [0] }] })).loops[0]!
-      .cels[0]!;
+    const cels = [sheetCel(2, 2, [15, 13, 4, 4], [1, 0, 1, 1])];
+    const cel = parseView(buildViewFromSheet(cels, { loops: [{ cels: [0] }] })).loops[0]!.cels[0]!;
     assert.equal(cel.transparentColor, 0);
     assert.deepEqual(Array.from(cel.pixels), [15, 0, 4, 4]);
   });
 
   it("mirrors a loop by reusing the preceding loop's cel data", () => {
-    const frames = [frame(2, 2, [15, 4, 4, 4], [1, 1, 1, 1])];
+    const cels = [sheetCel(2, 2, [15, 4, 4, 4], [1, 1, 1, 1])];
     const view = parseView(
-      buildViewFromSheet(frames, {
-        loops: [{ frames: [0] }, { mirrorOf: 0 }],
+      buildViewFromSheet(cels, {
+        loops: [{ cels: [0] }, { mirrorOf: 0 }],
         description: "ego",
       }),
     );
@@ -320,30 +318,27 @@ describe("buildViewFromSheet", () => {
     assert.deepEqual(Array.from(view.loops[1]!.cels[0]!.pixels), [4, 15, 4, 4]);
   });
 
-  it("rejects an empty loop and an out-of-range frame index", () => {
-    assert.throws(() => buildViewFromSheet([], { loops: [{}] }), /neither frames nor mirrorOf/);
+  it("rejects an empty loop and an out-of-range cel index", () => {
+    assert.throws(() => buildViewFromSheet([], { loops: [{}] }), /neither cels nor mirrorOf/);
     assert.throws(
-      () => buildViewFromSheet([], { loops: [{ frames: [0] }] }),
-      /references frame 0, but only 0 were cut/,
+      () => buildViewFromSheet([], { loops: [{ cels: [0] }] }),
+      /references cel 0, but only 0 were cut/,
     );
   });
 
   it("rejects a cel that leaves no colour for transparency", () => {
     const colors = Array.from({ length: 16 }, (_, i) => i);
-    const frames = [frame(16, 1, colors, new Array<number>(16).fill(1))];
-    assert.throws(
-      () => buildViewFromSheet(frames, { loops: [{ frames: [0] }] }),
-      /all 16 EGA colours/,
-    );
+    const cels = [sheetCel(16, 1, colors, new Array<number>(16).fill(1))];
+    assert.throws(() => buildViewFromSheet(cels, { loops: [{ cels: [0] }] }), /all 16 EGA colours/);
   });
 });
 
 describe("sheet to view pipeline", () => {
   it("carries hand-drawn sheet pixels through to decoded cels", () => {
-    const frames = cutGrid(twoFrameSheet(), 2, 1);
+    const cels = cutGrid(twoFrameSheet(), 2, 1);
     const view = parseView(
-      buildViewFromSheet(frames, {
-        loops: [{ frames: [0, 1] }, { mirrorOf: 0 }],
+      buildViewFromSheet(cels, {
+        loops: [{ cels: [0, 1] }, { mirrorOf: 0 }],
       }),
     );
     // Loop 0, cel 0: white at (0,0), red at (0,1); transparent elsewhere.

@@ -357,7 +357,7 @@ export class AgentSession implements AgentHandler {
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
-    this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
+    this.onEvent("request", `[Agent] ${question}`, { instruction: question, room });
     const context = await this.orientationContext(room, ASK_TOOLS, true);
     if (!this.conversation) {
       const result = await this.executeTool(
@@ -373,7 +373,7 @@ export class AgentSession implements AgentHandler {
       const text = result.success
         ? `You are in room ${room}. This test provider can inspect the game; connect a model for hints and debugging.`
         : result.error!;
-      this.onEvent("response", `[Ask] ${text}`, { text });
+      this.onEvent("response", `[Agent] ${text}`, { text });
       this.messages.push({ role: "assistant", text });
       return text;
     }
@@ -398,7 +398,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const call of turn.toolCalls) {
           await this.task.checkpoint(false);
-          this.onEvent("request", `[Ask] ${call.name}`, { tool: call.name });
+          this.onEvent("request", `[Agent] ${call.name}`, { tool: call.name });
           this.task.assertActive();
           this.assertAdoptable();
           const toolStart = performance.now();
@@ -415,7 +415,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             result.success ? "response" : "error",
-            `[Ask] ${call.name} → ${result.success ? (result.message ?? "Done") : result.error}`,
+            `[Agent] ${call.name} → ${result.success ? (result.message ?? "Done") : result.error}`,
             { tool: call.name, result: { ...result, images: undefined } },
           );
           this.task.recordTool(
@@ -430,13 +430,13 @@ Answer the player's question using evidence from inspection when needed. For hin
         turn = await this.observeTurn(this.conversation.complete(), "ask");
       }
       const text = turn.text || "What would you like to explore next?";
-      this.noteUnviewed("Ask", watch.unviewed(text));
-      this.onEvent("response", `[Ask] ${text}`, { text });
+      this.noteUnviewed("Agent", watch.unviewed(text));
+      this.onEvent("response", `[Agent] ${text}`, { text });
       this.messages.push({ role: "assistant", text });
       return text;
     } catch (error) {
       this.conversation.recordInterruption?.(
-        `The Ask turn was interrupted. No game changes were applied. ${String(error)}`,
+        `The agent turn was interrupted. No game changes were applied. ${String(error)}`,
       );
       throw error;
     }
@@ -544,7 +544,7 @@ Answer the player's question using evidence from inspection when needed. For hin
    * resources, and finishes with a text turn; every tool call streams into
    * the bubble through onEvent. Returns what to patch into the interpreter.
    * `beforeAdopt` is the host's commit gate, awaited once the turn's work is
-   * done but before its staged candidate is adopted — a refusal discards the
+   * done but before its staged changes is adopted — a refusal discards the
    * turn exactly like a failed one: nothing reaches the session's resources.
    */
   runPowerUp(
@@ -620,12 +620,12 @@ Answer the player's question using evidence from inspection when needed. For hin
       // Nothing staged may reach the game on the provider's word alone. A
       // text turn closes the remix in one of two ways: no write succeeded,
       // or the host's own verdict — every stored game test and every
-      // declared plan exit checked against this exact staged candidate —
+      // declared plan exit checked against this exact staged changes —
       // passes. The genesis leg of finish is skipped here: the running
       // game already proves it boots, and imported games have no genesis
       // to re-litigate. A failing verdict goes back to the model for repair
       // until completion or a visible task pause. A text reply may be a
-      // progress note while the staged candidate still needs repair.
+      // progress note while the staged changes still needs repair.
       let stagedChanges = false;
       let finishStatus = "";
       let finishNotes: readonly string[] = [];
@@ -729,7 +729,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       }
 
       // The host's commit gate: a refusal throws into the turn's failure
-      // path, which discards the staged candidate untouched.
+      // path, which discards the staged changes untouched.
       await beforeAdopt?.();
       this.task.assertActive();
       this.assertAdoptable();
@@ -1410,7 +1410,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       for (;;) {
         if (turn.toolCalls.length === 0) {
           // Only a passing finish — the host's own validation of the exact
-          // staged candidate — completes the room; a text reply commits
+          // staged changes — completes the room; a text reply commits
           // nothing, whether or not the resources merely exist.
           const missing =
             !staged.container.getResource("logic", room) ||
@@ -1457,7 +1457,7 @@ Answer the player's question using evidence from inspection when needed. For hin
                 staged.container.getResource("picture", room)
               ) {
                 // The room's structural gate first, then the shared host
-                // validation (stored game tests) against the staged candidate.
+                // validation (stored game tests) against the staged changes.
                 result = await this.executeTool(candidate, "finish", tc.input, snapshot);
                 if (result.success) {
                   staged = candidate;

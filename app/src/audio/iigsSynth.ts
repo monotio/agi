@@ -71,14 +71,14 @@ function iigsVibratoTable(index: number): number {
 export function vibratoStep(
   phase: number,
   speed: number,
-  priority: number,
+  depth: number,
 ): { phase: number; offset: number } {
   const sum0 = (phase & 0xff) + (speed & 0xff);
   const carry0 = sum0 > 0xff ? 1 : 0;
   const nextPhase = sum0 & 0xff;
   const negative = (nextPhase & 0x80) !== 0;
   const lookup = negative ? nextPhase ^ 0xff : nextPhase;
-  const sum1 = iigsVibratoTable(lookup) + (priority & 0xff) + carry0;
+  const sum1 = iigsVibratoTable(lookup) + (depth & 0xff) + carry0;
   const carry1 = sum1 > 0xff ? 1 : 0;
   const level = ((sum1 & 0xff) + carry1 - 0x80) & 0xff;
   if ((level & 0x80) !== 0) return { phase: nextPhase, offset: 0 };
@@ -324,7 +324,7 @@ export class IigsSynth {
     const waves = [waveFor(instrument.a, semitone), waveFor(instrument.b, semitone)];
     const a = waves[0];
     const pitchCarry = a && semitone * 256 + (a.relPitch & 0xffff) > 0xffff ? 1 : 0;
-    const hasVibrato = instrument.vibratoPriority > 0 && instrument.vibratoSpeed > 0;
+    const hasVibrato = instrument.vibratoDepth > 0 && instrument.vibratoSpeed > 0;
     for (const [half, wave] of waves.entries()) {
       // docMode bit 0 halts the oscillator: that half of the pair is silent.
       if (!wave || (wave.docMode & 1) !== 0) continue;
@@ -341,7 +341,7 @@ export class IigsSynth {
       source.start(now);
       sources.push(source);
       if (hasVibrato) {
-        const initial = vibratoStep(0, instrument.vibratoSpeed, instrument.vibratoPriority);
+        const initial = vibratoStep(0, instrument.vibratoSpeed, instrument.vibratoDepth);
         source.playbackRate.setValueAtTime(
           iigsByteRate(semitone, wave, carry + initial.offset) / BUFFER_RATE,
           now,
@@ -362,7 +362,7 @@ export class IigsSynth {
           const offsets: number[] = [];
           let phase = initial.phase;
           do {
-            const step = vibratoStep(phase, instrument.vibratoSpeed, instrument.vibratoPriority);
+            const step = vibratoStep(phase, instrument.vibratoSpeed, instrument.vibratoDepth);
             phase = step.phase;
             offsets.push(step.offset);
           } while (phase !== initial.phase);

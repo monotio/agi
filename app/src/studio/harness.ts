@@ -48,7 +48,7 @@ const written =
     : pic === "injected"
       ? (input?.source ?? disassemblePicture(new Uint8Array(input?.bytes ?? []), { profile }))
       : ORIGINAL_SCENE_PICTURES[Number(pic)];
-if (written === undefined) throw new Error(`studio harness: unknown ?pic=${pic}`);
+if (written === undefined) throw new Error(`editor harness: unknown ?pic=${pic}`);
 const bytes = input?.bytes
   ? new Uint8Array(input.bytes)
   : compilePictureSource(written, { profile }).bytes;

@@ -18,7 +18,7 @@ const item = (id: string, label: string, kind: string, lines: readonly string[])
 ];
 
 export const DEMO_PICTURE_SOURCE = `${[
-  "# Studio demo: a gallery corner with priority and walk marks.",
+  "# PICTURE editor demo: a gallery corner with priority and walk marks.",
   ...item("floor", "Floor", "art", [
     ...shapeSource({
       kind: "rect",

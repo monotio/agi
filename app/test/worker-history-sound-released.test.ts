@@ -37,7 +37,7 @@ for (const capture of releasedSound.captures) {
   }
 }
 
-test("migrating released sound never authenticates a changed checkpoint against itself", () => {
+test("migrating released sound never authenticates a changed progress entry against itself", () => {
   for (const anchor of [undefined, 0]) {
     const segment = releasedSound.captures[0]!.history.segments[0]!;
     const alteredReplay = structuredClone(segment);

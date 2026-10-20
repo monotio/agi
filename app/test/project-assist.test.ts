@@ -355,7 +355,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
     assert.equal(assist.state().pendingProposal, null);
   });
 
-  test("stop parks at the next checkpoint; resume continues; cancel ends the request", async () => {
+  test("stop parks at the next progress entry; resume continues; cancel ends the request", async () => {
     const fake = fakeConversation([
       { hold: { tools: [{ name: "read_project_context" }] } },
       { text: "after" },

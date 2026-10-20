@@ -728,7 +728,7 @@ async function onRecordSave(): Promise<void> {
       Shortcuts appear here when the game registers them.
     </p>
     <template v-else>
-      <p class="controls-hint">Some shortcuts work only in certain scenes.</p>
+      <p class="controls-hint">Some shortcuts work only in certain rooms.</p>
       <p v-if="shortcutsBlocked" class="controls-hint">Return to the game to use shortcuts.</p>
       <div class="shortcut-list">
         <button

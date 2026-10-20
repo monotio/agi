@@ -78,7 +78,7 @@ for (const [width, height] of [
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("g");
     await expect(studio.getByTestId("stand-in-probe")).toBeVisible();
-    await look("art", studio, pictures);
+    await look("visual", studio, pictures);
 
     // The Priority lens with its room panel showing.
     await page.keyboard.press("2");

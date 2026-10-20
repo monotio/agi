@@ -70,8 +70,8 @@ export interface StudioDraftOptions {
   readonly priorityBase?: MaybeRefOrGetter<number | undefined>;
   readonly lens: MaybeRefOrGetter<StudioLens>;
   readonly unlocks: MaybeRefOrGetter<LensUnlocks>;
-  /** The most undo steps the history keeps; DEFAULT_HISTORY_PRIORITY when omitted. */
-  readonly historyPriority?: number;
+  /** The most undo steps the history keeps; DEFAULT_HISTORY_LIMIT when omitted. */
+  readonly historyLimit?: number;
 }
 
 /** Why an edit did not happen: `message` in plain words, `detail` the technical account. */
@@ -180,7 +180,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const initial = toValue(options.base);
   /** The text and revision the game holds: the last Keep, or what Studio opened. */
   const kept = shallowRef<DraftBase>(initial);
-  const history = shallowRef<EditHistory>(createHistory(initial.source, options.historyPriority));
+  const history = shallowRef<EditHistory>(createHistory(initial.source, options.historyLimit));
   /** The accepted candidate of the open gesture; null shows the draft itself. */
   const preview = shallowRef<DraftCandidate | null>(null);
   /** The last refusal; cleared by the next accepted edit. */
@@ -218,7 +218,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
 
   function reset(base: DraftBase): void {
     kept.value = base;
-    history.value = createHistory(base.source, options.historyPriority);
+    history.value = createHistory(base.source, options.historyLimit);
     keptPriority.value = 0;
     preview.value = null;
     refusal.value = null;

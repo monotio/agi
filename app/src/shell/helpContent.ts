@@ -49,7 +49,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "stuck",
         title: "Stuck?",
         body: [
-          "Look at everything, then look again. Sierra hid a lot in the scenery.",
+          "Look at everything, then look again. Sierra hid a lot in the picture.",
           "Get a hint gives a nudge from the agent and leaves the game as it is. The map shows the rooms you have walked, and games with a recorded walkthrough can play it for you, spoilers included.",
         ],
         action: { kind: "hint", label: "Get a hint" },

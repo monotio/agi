@@ -295,7 +295,7 @@ export function executePictureTool(
       0,
     );
     if (totalVertices > MAX_TOTAL_VERTICES) {
-      throw new Error(`Scene exceeds the ${MAX_TOTAL_VERTICES}-vertex limit.`);
+      throw new Error(`PICTURE exceeds the ${MAX_TOTAL_VERTICES}-vertex limit.`);
     }
     const source = sceneSource(backgroundColor, shapes, { annotate: true });
     const compiled = compilePictureSource(source, { profile: state.profile });
@@ -344,6 +344,6 @@ export function executePictureTool(
       ],
     };
   } catch (error) {
-    return { success: false, error: `Scene was not written: ${String(error)}` };
+    return { success: false, error: `PICTURE was not written: ${String(error)}` };
   }
 }

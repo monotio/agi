@@ -1,28 +1,46 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
+import { execFileSync } from "node:child_process";
 import ts from "typescript";
 import { baseParse, NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-dom";
 import { ROOM_TOOL_HINTS, ROOM_TOOL_NAMES } from "../src/studio/studioHelp.ts";
 import { ROOM_ACTION_LABELS } from "../src/studio/workspace/guidedActions.ts";
-import { VOCABULARY, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
+import { VOCABULARY, GLOSSARY, FORMAT_LITERALS } from "../../src/vocabulary.ts";
 
 // These are persisted values, editor modes and resource identifiers, rather than visible copy.
 const IDENTIFIERS: Readonly<Record<string, true>> = {
-  sprite: true,
-  ghost: true,
-  keep: true,
-  onion: true,
-  backdrop: true,
-  stipple: true,
-  "studio-ghost": true,
-  "studio-keep": true,
-  "sprites-loops": true,
-  ask: true,
-  candidate: true,
-  proposal: true,
-  assistant: true,
+  ghost: true, // UiButton variant.
+  stipple: true, // Picture source and pen field.
+  onion: true, // Editor option id.
+  keep: true, // In-memory commit mode.
+  snapshot: true, // State notification protocol discriminator.
+  checkpoint: true, // Engine-state protocol discriminator.
+  dictionary: true, // Stored history field.
+  depth: true, // Annotated picture item kind.
+  studio: true, // In-memory lesson target field.
+  candidates: true, // Earlier-progress collection field.
+  levels: true, // History recovery field.
+  ask: true, // Conversation mode.
+  candidate: true, // Validated edit identity.
+  proposal: true, // Submitted edit identity.
+  assistant: true, // Stored conversation role.
 };
+
+const escapePattern = (value: string): string =>
+  value.replace(/[^a-zA-Z0-9_-]/g, (character) => String.fromCharCode(92) + character);
+
+function copyPattern(key: string): RegExp {
+  const entry = GLOSSARY[key]!;
+  return new RegExp(
+    entry.avoidPattern ?? `\\b(?:${entry.avoid.map(escapePattern).join("|")})s?\\b`,
+    key === "history" || key === "saved" ? "" : "i",
+  );
+}
+
+const COPY_RULES = Object.entries(GLOSSARY)
+  .filter(([, entry]) => entry.avoid.length > 0)
+  .map(([key]) => ({ key, pattern: copyPattern(key) }));
 
 function strings(source: string): string[] {
   const output: string[] = [];
@@ -34,16 +52,16 @@ function strings(source: string): string[] {
       ts.isTemplateMiddle(node) ||
       ts.isTemplateTail(node)
     ) {
+      if (ts.isPropertyAssignment(node.parent) && node.parent.name.getText(ast) === "technical")
+        return;
       const value = node.text;
+      if (/^\.[\w-]+\s+(?:textarea|input)(?:, .*|)$/.test(value)) return;
+      if (/^# @depth(?: |$)/.test(value)) return;
       // Import paths, selectors, CSS classes and test ids are explicitly identifier-shaped.
       if (
-        !(value in IDENTIFIERS) &&
+        !(value.trim() in IDENTIFIERS) &&
         (!/^[a-zA-Z0-9_./:@#*-]+$/.test(value) ||
-          Object.keys(RETIRED_UI_TERMS).some(
-            (term) =>
-              value.toLowerCase() === term.toLowerCase() ||
-              value.toLowerCase() === term.toLowerCase() + "s",
-          )) &&
+          (!/[-./:@#*]/.test(value) && COPY_RULES.some(({ pattern }) => pattern.test(value)))) &&
         !/^\[(?:data-testid|aria-labelledby)=(["'])[-\w:]+\1\](?:\s+\[tabindex=(["'])-?\d+\2\])?$/.test(
           value,
         ) &&
@@ -58,7 +76,9 @@ function strings(source: string): string[] {
 }
 
 function visibleCopy(file: string): string[] {
-  const source = readFileSync(file, "utf8");
+  const fullSource = readFileSync(file, "utf8");
+  const source =
+    file === "src/vocabulary.ts" ? fullSource.split("/** One term per concept")[0]! : fullSource;
   if (!file.endsWith(".vue")) return strings(source);
   const script = /<script[^>]*>([\s\S]*?)<\/script\b[^>]*>/i.exec(source)?.[1] ?? "";
   const template = source.slice(
@@ -95,34 +115,96 @@ function files(directory: string): string[] {
   });
 }
 
-function retiredPattern(retired: string): RegExp {
-  return new RegExp(
-    retired === "Keep"
-      ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
-      : `\\b${retired}${["view", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
-    retired === "Keep" ? "" : "i",
-  );
-}
-
-test("Keep remains retired for editor commits and dialog choices", () => {
-  const keep = retiredPattern("Keep");
-  assert.equal(keep.test("Keep it"), true);
-  assert.equal(keep.test("Keep"), true);
-  assert.equal(keep.test("Keep changes"), true);
-  assert.equal(keep.test("Keep it and apply"), true);
+test("editor commit actions say Saved", () => {
+  const pattern = copyPattern("saved");
+  for (const label of ["Keep it", "Keep", "Keep changes", "Keep it and apply"])
+    assert.ok(pattern.test(label), label);
 });
 
-test("visible editor copy uses the shared vocabulary, allowing internal identifiers", () => {
+const COPY_EXCEPTIONS: readonly {
+  readonly file: string;
+  readonly pattern: RegExp;
+  readonly reason: string;
+  readonly when?: RegExp;
+}[] = [
+  {
+    file: "app/src/home/ProfileChoiceDialog.vue",
+    pattern: /AGI Studio/g,
+    reason: "Third-party authoring application's proper name.",
+  },
+  {
+    file: "app/src/render/amigaAppearance.ts",
+    pattern: /depth gadget row/g,
+    reason: "Amiga window stacking gadget, distinct from AGI priority.",
+  },
+  {
+    file: "src/agent/history.ts",
+    pattern: /\bdictionary\b/g,
+    reason: "Stored history field validation names the dictionary field.",
+  },
+  {
+    file: "src/agent/transcript.ts",
+    pattern: /\bassistant\b/g,
+    when: /only user and assistant messages/,
+    reason: "Stored conversation role literal.",
+  },
+  {
+    file: "app/src/agent/workspaceAgentTools.ts",
+    pattern: /\bframes\b/g,
+    when: /explicit cel regions/,
+    reason: "The preparation recipe's frames field.",
+  },
+  {
+    file: "src/agent/coreToolDefinitions.ts",
+    pattern: /\bframes\b/g,
+    when: /^Inspect a room's compiled/,
+    reason: "read_room captures rendered frames and can tile them into a sheet.",
+  },
+  {
+    file: "src/agent/prompt.ts",
+    pattern: /\bframes?\b/g,
+    when: /(?:composed frames|frames section is unavailable)/,
+    reason: "Rendered frame inspection, distinct from VIEW cels in the same contract.",
+  },
+  {
+    file: "src/agent/commandReference.ts",
+    pattern: /item = inventory/g,
+    reason: "AGI command-signature operand kind; item denotes the OBJECT entry argument.",
+  },
+  {
+    file: "src/agent/tools.ts",
+    pattern: /is not in the dictionary/g,
+    reason: "Compiler diagnostic matched to choose the next inspection tool.",
+  },
+];
+
+test("copy uses the glossary in the app, editor kernels and tool prose", () => {
   const violations: string[] = [];
-  for (const file of [...files("app/src/studio"), "app/src/shell/helpContent.ts"]) {
-    for (const copy of visibleCopy(file)) {
-      for (const retired of Object.keys(RETIRED_UI_TERMS)) {
-        const pattern = retiredPattern(retired);
-        if (pattern.test(copy)) violations.push(`${file}: ${copy.trim()}`);
+  for (const file of [
+    ...files("app/src"),
+    "src/vocabulary.ts",
+    ...files("src/studio"),
+    ...files("src/agent"),
+  ]) {
+    for (const original of visibleCopy(file)) {
+      let copy = original;
+      for (const exception of COPY_EXCEPTIONS)
+        if (file === exception.file && (!exception.when || exception.when.test(copy)))
+          copy = copy.replace(exception.pattern, " ");
+      if (file.startsWith("src/agent/") && !/\s/.test(copy.trim())) continue;
+      for (const { key, pattern } of COPY_RULES) {
+        // Agent contracts use technical terms for submissions, validation, script buffers and pen bits.
+        if (
+          /^(?:app\/src|src)\/agent\//.test(file) &&
+          ["changes", "speckled", "history", "saved"].includes(key)
+        )
+          continue;
+        const conflict = pattern.exec(copy)?.[0];
+        if (conflict) violations.push(`${file}: ${conflict} → see GLOSSARY.${key}`);
       }
     }
   }
-  assert.deepEqual(violations, []);
+  assert.equal(violations.length, 0, violations.join("\n"));
 });
 
 test("the meaning action uses the same Add meaning label as its accessible name", () => {
@@ -141,13 +223,13 @@ test("action labels use canonical verbs across app surfaces", () => {
         violations.push(`${file}: ${copy.trim()}`);
     }
   }
-  assert.deepEqual(violations, []);
+  assert.equal(violations.length, 0, violations.join("\n"));
 });
 
 test("copy extraction detects visible text and dynamic tooltips while ignoring identifiers", () => {
   assert.deepEqual(
     strings(
-      `const mode = "sprite"; const picker = "[data-testid='sprite-transparent-colour']"; const from = "[aria-labelledby='sprite-recolor-from'] [tabindex='0']"; const label = "Ghost probe"; const heading = "Sprites";`,
+      `const mode = "view"; const picker = "[data-testid='view-transparent-colour']"; const from = "[aria-labelledby='view-recolor-from'] [tabindex='0']"; const label = "Ghost probe"; const heading = "Sprites";`,
     ),
     ["Ghost probe", "Sprites"],
   );
@@ -249,8 +331,8 @@ test("unsupported project recovery uses version-neutral copy and plain actions",
   for (const label of ["Download", "Remove"]) assert.ok(copy.includes(label));
 });
 
-test("Keep action labels are retired while tab-open sentences remain allowed", () => {
-  const pattern = retiredPattern("Keep");
+test("commit actions say Saved while tab-open instructions remain clear", () => {
+  const pattern = copyPattern("saved");
   for (const label of ["Keep", "Keep changes", "Keep edits", "Keep this tab open changes"])
     assert.ok(pattern.test(label), label);
   for (const copy of [
@@ -270,7 +352,7 @@ test("Playtest names only the agent's playtest; the room tool and the phone tab 
   assert.match(workspace, /phonePlaytest\.value = true"\s*>Game</);
 });
 
-test("reference roles retire Checked across analysis, tools and presentation", () => {
+test("reference roles use the shared analysis and presentation terms", () => {
   const paths = [
     ...files("src/logic"),
     ...files("src/agent"),
@@ -278,5 +360,174 @@ test("reference roles retire Checked across analysis, tools and presentation", (
     ...files("app/src/studio"),
   ];
   const violations = paths.filter((file) => /\bChecked\b/.test(readFileSync(file, "utf8")));
-  assert.deepEqual(violations, []);
+  assert.equal(violations.length, 0, violations.join("\n"));
+});
+
+/** Each exception names a sense or a format, never a directory-wide waiver. */
+const SWEEP_EXCEPTIONS: readonly {
+  readonly file: string;
+  readonly pattern: RegExp;
+  readonly reason: string;
+}[] = [
+  {
+    file: "app/test/vocabulary-copy.test.ts",
+    pattern: /[\s\S]+/g,
+    reason: "The checker declares conflicting words and deliberately exercises them.",
+  },
+  {
+    file: "src/vocabulary.ts",
+    pattern: /export interface GlossaryEntry[\s\S]+/g,
+    reason: "The glossary declares conflicting terms and format spellings as data.",
+  },
+  {
+    file: "docs/fidelity.md",
+    pattern: /BACKDROP \| BORDERLESS|borderless backdrop window/g,
+    reason: "Amiga window flag and window type.",
+  },
+  {
+    file: "app/src/studio/PixelInspector.vue",
+    pattern: /\bdepth(?=:)/g,
+    reason: "Label table indexed by the stored picture item kind.",
+  },
+  {
+    file: "app/src/studio/StudioItemEditor.vue",
+    pattern: /\bdepth(?=:)/g,
+    reason: "Label table indexed by the stored picture item kind.",
+  },
+  {
+    file: "src/studio/sideEffects.ts",
+    pattern: /\bdepth(?=:)/g,
+    reason: "Label table indexed by the stored picture item kind.",
+  },
+  {
+    file: "app/src/ui/UiButton.vue",
+    pattern: /\bghost\b/g,
+    reason: "The button variant's API, documentation and CSS name.",
+  },
+  {
+    file: "app/src/ui/ActionMenu.vue",
+    pattern: /["']ghost["']/g,
+    reason: "UiButton variant union.",
+  },
+  {
+    file: "app/src/studio/view/ViewMirrorNote.vue",
+    pattern: /["']ghost["']/g,
+    reason: "UiButton variant in a conditional expression.",
+  },
+  {
+    file: "app/src/studio/workspace/SoundPicker.vue",
+    pattern: /["']ghost["']/g,
+    reason: "UiButton variant in a conditional expression.",
+  },
+  {
+    file: "test/speedrun/kq2.ts",
+    pattern: /ghosts/g,
+    reason: "King's Quest II castle guards in game dialogue.",
+  },
+  {
+    file: "test/speedrun/kq4.ts",
+    pattern: /\b\w*[Gg]host\w*\b/g,
+    reason: "King's Quest IV manor characters, commands and route functions.",
+  },
+  {
+    file: "test/tutorial-game.test.ts",
+    pattern: /charging bay's sprite editor/g,
+    reason: "Adventure Department's in-world dialogue.",
+  },
+];
+
+const SWEEP_RULES: readonly {
+  readonly key: string;
+  readonly pattern: RegExp;
+  readonly applies?: (file: string) => boolean;
+}[] = [
+  { key: "view", pattern: /\bsprites?\b/gi },
+  { key: "background", pattern: /\bbackdrop\b/gi },
+  { key: "standIn", pattern: /\bghost\b/gi },
+  { key: "pictureEditor", pattern: /\b(?:Room Studio|Sprite Studio|Logic Studio)\b/g },
+  { key: "items", pattern: /\b(?:sceneList|SceneList|sceneGroups)\b/g },
+  {
+    key: "ego",
+    pattern: /\b\w*(?:hero[A-Z]|Hero[A-Z])\w*\b/g,
+    applies: (file) => /^(?:app\/src|src)\//.test(file),
+  },
+  {
+    key: "screenObject",
+    pattern: /\bactors?\b/gi,
+    applies: (file) => file.startsWith("src/runtime/") || file === "docs/fidelity.md",
+  },
+  {
+    key: "priority",
+    pattern: /\bdepth\b|[a-z]Depth\b/g,
+    applies: (file) => /^(?:app\/src|src)\/studio\//.test(file),
+  },
+  { key: "cel", pattern: /\b(?:SheetFrame|sheetFrame)\w*\b/g },
+];
+
+function maskFormats(source: string): string {
+  let masked = source;
+  const hide = (match: string): string => match.replace(/[^\n]/g, " ");
+  for (const literal of Object.keys(FORMAT_LITERALS).sort((a, b) => b.length - a.length))
+    masked = masked.replace(new RegExp(`(?<![\\w])${escapePattern(literal)}(?![\\w])`, "g"), hide);
+  return masked
+    .replace(/\b[a-z]+(?:\.[a-z0-9]+)+\b/g, hide)
+    .replace(/monotio_agi\.[\w.]+/g, hide)
+    .replace(/hardware sprites?|pointer sprites?/gi, hide)
+    .replace(/::backdrop/g, hide)
+    .replace(/variant\s*(?:=\s*["']ghost["']|:\s*["']ghost["'])/g, hide);
+}
+
+function terminologyViolations(file: string, source: string): string[] {
+  let masked = maskFormats(source);
+  for (const exception of SWEEP_EXCEPTIONS)
+    if (file === exception.file)
+      masked = masked.replace(exception.pattern, (match) => match.replace(/[^\n]/g, " "));
+  const violations: string[] = [];
+  for (const { key, pattern, applies } of SWEEP_RULES) {
+    if (applies && !applies(file)) continue;
+    for (const match of masked.matchAll(pattern)) {
+      const line = masked.slice(0, match.index).split("\n").length;
+      violations.push(`${file}:${line}: ${match[0]} → see GLOSSARY.${key}`);
+    }
+  }
+  return violations;
+}
+
+test("tracked text uses the glossary's code and technical names", () => {
+  const paths = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
+    .split("\0")
+    .filter(
+      (file) =>
+        /^(?:src|app\/src|test|app\/test|app\/e2e|scripts|docs)\//.test(file) ||
+        ["README.md", "CONTRIBUTING.md", "games/adventure-department/lessons.ts"].includes(file),
+    );
+  const violations: string[] = [];
+  for (const file of paths) {
+    if (
+      /^(?:app\/test\/(?:formats|fixtures)|test\/formats)\//.test(file) ||
+      !/\.(?:ts|vue|md|css|mjs|json|yml)$/.test(file)
+    )
+      continue;
+    violations.push(...terminologyViolations(file, readFileSync(file, "utf8")));
+    violations.push(...terminologyViolations(file, file));
+  }
+  assert.equal(violations.length, 0, violations.join("\n"));
+});
+
+test("the terminology sweep catches mixed names and preserves format literals", () => {
+  assert.match(
+    terminologyViolations("app/src/studio/example.ts", "const sprite = 1;")[0]!,
+    /GLOSSARY.view/,
+  );
+  assert.match(
+    terminologyViolations("app/src/studio/example.ts", "const depth = 1;")[0]!,
+    /GLOSSARY.priority/,
+  );
+  assert.deepEqual(
+    terminologyViolations(
+      "app/src/studio/example.ts",
+      "const op = { spriteOps: null }; // # @depth base=48",
+    ),
+    [],
+  );
 });

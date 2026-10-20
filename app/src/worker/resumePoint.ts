@@ -207,7 +207,7 @@ export function adoptResumePoint(
     const semantic = { ...recordedSemantic };
     if (semantic.image !== undefined) {
       const image = candidate.recordingImage();
-      if (!image) throw new Error("The saved moment needs a completed checkpoint.");
+      if (!image) throw new Error("The saved moment needs a completed progress entry.");
       semantic.image = bytesToBase64(image);
     }
     if (semantic.replay !== undefined) semantic.replay = candidate.captureReplayState();

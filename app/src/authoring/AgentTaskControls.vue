@@ -18,10 +18,10 @@ onMounted(() => {
 });
 onUnmounted(() => clearInterval(clock));
 const TOOL_SUBJECTS: Record<string, string> = {
-  write_picture: "scenery",
+  write_picture: "pictures",
   write_view: "views",
   write_logic: "room behavior",
-  write_words: "vocabulary",
+  write_words: "WORDS",
   write_objects: "inventory",
   write_sound: "sound",
   write_music: "music",

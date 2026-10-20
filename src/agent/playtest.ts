@@ -522,7 +522,7 @@ export class Simulation {
             message:
               status === "passed"
                 ? extra["genesisValidated"]
-                  ? "Boot reached a shown, interactive scene with a valid ego spawn."
+                  ? "Boot reached a shown, interactive room with a valid ego spawn."
                   : "Executed the supplied actions; all supplied outcome assertions passed."
                 : status === "reached_planned_room"
                   ? `The exit to room ${String(extra["plannedRoom"])} fires. That room is planned and is built when the player first arrives, so the steps and expectations after the transition were not run.`
@@ -1255,7 +1255,7 @@ export function playtestRoom(
           if (item?.room !== 255) {
             failure("item", id, 255, item?.room ?? null);
             nextSteps.push(
-              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
+              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said words, object location and puzzle preconditions before changing the outcome.`,
             );
             failures.push(
               `Expected item ${id} carried; observed ${item ? `room ${item.room}` : "missing item"}.`,

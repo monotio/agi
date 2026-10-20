@@ -333,7 +333,7 @@ test.describe("the first guided game", () => {
     await page.keyboard.press("Enter");
     await expect(await gameHint(page, "prompt-hint")).toBeVisible();
     await page.mouse.move(0, 0);
-    await input.fill("Moonlit checkpoint");
+    await input.fill("Moonlit progress entry");
     await input.press("Enter");
     await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Save in slot 1?");
     await page.keyboard.press("Enter");
@@ -356,7 +356,9 @@ test.describe("the first guided game", () => {
     await expect
       .poll(async () => (await textHook(page)).modal, { intervals: [100] })
       .toBe("restore");
-    await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Moonlit checkpoint");
+    await expect
+      .poll(() => screenText(page), { intervals: [100] })
+      .toContain("Moonlit progress entry");
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await textHook(page)).room, { intervals: [100] }).toBe(2);
     await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBeNull();

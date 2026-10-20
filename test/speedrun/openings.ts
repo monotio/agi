@@ -96,7 +96,7 @@ export function openingRoute(query: string): Speedrun {
     run.advance(120);
     run.dismiss();
   }
-  run.wait(() => run.state().room === openingRoom, "opening scene");
+  run.wait(() => run.state().room === openingRoom, "opening room");
   // Parser availability cannot identify control in games that use only keys.
   if (alias === "mumg")
     run.wait(() => run.engine.flags[115] === 0 && run.engine.flags[117] === 0, "arrival complete");

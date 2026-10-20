@@ -680,7 +680,7 @@ export function createWorkspaceAgent(options: Options) {
           if (
             attempt === 0 &&
             error instanceof Error &&
-            error.message === "Project proposal is stale."
+            error.message === "Project changes are stale."
           )
             continue;
           throw error;
@@ -1610,7 +1610,7 @@ export function createWorkspaceAgent(options: Options) {
           desired.set(change.key, change.content);
         }
       } catch {
-        // Tool results retain validation failures when the staged candidate cannot compile.
+        // Tool results retain validation failures when the staged changes cannot compile.
       }
       for (const change of prepared.values()) {
         touched.add(change.key);

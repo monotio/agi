@@ -49,7 +49,7 @@ async function rig() {
   return { local, storage, target };
 }
 
-test("adopts the released checkpoint once, preserving the legacy string", async () => {
+test("adopts the released progress entry once, preserving the legacy string", async () => {
   const { local, storage, target } = await rig();
   const legacy = local.get(autosaveKey(project));
   await adoptEarlierProjectProgress(storage, target);

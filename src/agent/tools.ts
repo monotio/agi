@@ -625,7 +625,7 @@ function executeLegacyTool(
         if (nextId > 0xffff) {
           nextId = 2;
           while (nextId < 100 && usedIds.has(nextId)) nextId++;
-          if (nextId >= 100) throw new Error("Dictionary has no free word IDs.");
+          if (nextId >= 100) throw new Error("WORDS has no free word group ids.");
         }
         usedIds.add(nextId);
         return nextId++;
@@ -657,7 +657,7 @@ function executeLegacyTool(
             .map((word) => word.trim().toLowerCase().replace(/\s+/g, " "));
           if (group.some((word) => !/^[a-z][a-z0-9' ]{0,63}$/.test(word)))
             throw new Error(
-              `Invalid vocabulary '${item}': use ASCII words or phrases starting with a letter; punctuation is not silently removed.`,
+              `Invalid WORDS '${item}': use ASCII words or phrases starting with a letter; punctuation is not silently removed.`,
             );
           const existingIds = new Set(
             group.flatMap((word) => {
@@ -689,12 +689,12 @@ function executeLegacyTool(
         const adjustments: string[] = [];
         if (addedNavWords.length > 0) {
           adjustments.push(
-            `Automatically ensured standard navigation vocabulary: ${addedNavWords.join(", ")}.`,
+            `Automatically ensured standard navigation WORDS: ${addedNavWords.join(", ")}.`,
           );
         }
         return {
           success: true,
-          message: `Dictionary (WORDS.TOK) compiled successfully with ${session.sources.words.size} words (${payload.length} bytes).`,
+          message: `WORDS.TOK compiled successfully with ${session.sources.words.size} words (${payload.length} bytes).`,
           ...(adjustments.length > 0 ? { adjustments } : {}),
           details: {
             totalWords: session.sources.words.size,
@@ -703,7 +703,7 @@ function executeLegacyTool(
           },
         };
       } catch (err) {
-        return { success: false, error: `Dictionary compilation error: ${String(err)}` };
+        return { success: false, error: `WORDS compilation error: ${String(err)}` };
       }
     }
 
@@ -761,7 +761,7 @@ function executeLegacyTool(
         const related = command ? relatedCommands(session.profile, command, kind) : [];
         const nextSteps = text.includes("is not in the dictionary")
           ? [
-              "Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying the source.",
+              "Use read_words to inspect existing word groups, then write_words to register the missing words or its synonyms before retrying the source.",
             ]
           : [
               "Use read_command_reference for the active profile's exact signatures and semantics. Candidates below are suggestions; choose by intended behavior, not spelling alone.",
@@ -1115,8 +1115,8 @@ function executeLegacyTool(
         message:
           groups.length === 0
             ? prefix === ""
-              ? "Dictionary is empty; call write_words before any said() handler."
-              : `No dictionary words start with '${prefix}'.`
+              ? "WORDS is empty; call write_words before any said() handler."
+              : `No WORDS start with '${prefix}'.`
             : `Dictionary: ${session.sources.words.size} words in ${groups.length} synonym group(s)${groups.length > shown.length ? ` (first ${shown.length} shown)` : ""}.\n${summary}`,
         details: {
           totalWords: session.sources.words.size,

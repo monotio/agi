@@ -278,7 +278,7 @@ test("watch expressions evaluate old and new against the snapshot", () => {
   );
 });
 
-test("source length, node count and nesting priority are bounded", () => {
+test("source length, node count and nesting depth are bounded", () => {
   assert.throws(
     () => compileDebugExpression(`1 ${" ".repeat(1024)}`),
     DebugExpressionError,
@@ -294,7 +294,7 @@ test("source length, node count and nesting priority are bounded", () => {
     "129 nodes rejected",
   );
   const nest = (n: number): string => `${"(".repeat(n)}1${")".repeat(n)}`;
-  assert.equal(run(nest(16)), 1, "priority 16 allowed");
+  assert.equal(run(nest(16)), 1, "depth 16 allowed");
   assert.throws(() => compileDebugExpression(nest(17)), DebugExpressionError);
   assert.equal(run(`${"!".repeat(16)}f0`), true);
   assert.throws(() => compileDebugExpression(`${"!".repeat(17)}f0`), DebugExpressionError);

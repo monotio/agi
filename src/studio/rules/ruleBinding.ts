@@ -162,7 +162,7 @@ export function followPictureEdit(
     if (model === "native")
       return {
         ok: false,
-        error: `Rule '${rule.id}' follows '${item}' but is written directly in the room's LOGIC; move its box in the script text.`,
+        error: `Rule '${rule.id}' follows '${item}' but is written directly in the room's LOGIC; move its box in the LOGIC text.`,
       };
     const box = ruleBox(model);
     if (box === null) {

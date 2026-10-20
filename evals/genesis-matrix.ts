@@ -471,7 +471,8 @@ interface PictureSummary {
   regionCount: number;
   priorityBandsUsed: number[];
   priorityBandCount: number;
-  priorityDrawnPct: number;
+  /** Archived report.json metric key. */
+  depthDrawnPct: number;
   controlPct: Record<string, number>;
   controlAnyPct: number;
   horizon: number;
@@ -600,7 +601,7 @@ function analyzePicture(
       regionCount: metrics.regionCount,
       priorityBandsUsed: bands,
       priorityBandCount: bands.length,
-      priorityDrawnPct: pct(priorityDrawn),
+      depthDrawnPct: pct(priorityDrawn),
       controlPct: control,
       controlAnyPct: pct(sum(hist.slice(0, 4)) / (W * H)),
       horizon,
@@ -1293,7 +1294,7 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
           p.distinctColors,
           p.fillPct,
           p.priorityBandsUsed.join(","),
-          p.priorityDrawnPct,
+          p.depthDrawnPct,
           p.controlPct["barrier0"],
           p.controlPct["conditional1"],
           p.controlPct["trigger2"],
@@ -1417,9 +1418,9 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
   out.push(
     `- Most distinct said() patterns: ${richest.map((r) => `${short(r.lane)} ${r.logic.saidDistinctPatterns}`).join(", ")}.`,
   );
-  const priority = by((r) => r.pictures[0]?.priorityDrawnPct ?? 0);
+  const priority = by((r) => r.pictures[0]?.depthDrawnPct ?? 0);
   out.push(
-    `- Priority-drawn priority area (pri 5-15): ${priority.map((r) => `${short(r.lane)} ${r.pictures[0]?.priorityDrawnPct ?? 0}%`).join(", ")}.`,
+    `- Priority-drawn priority area (pri 5-15): ${priority.map((r) => `${short(r.lane)} ${r.pictures[0]?.depthDrawnPct ?? 0}%`).join(", ")}.`,
   );
   out.push(
     `- All runs passed the harness playtest: ${runs.every((r) => r.playtest?.success) ? "yes" : "no"}.`,

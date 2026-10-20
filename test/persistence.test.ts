@@ -1327,7 +1327,7 @@ describe("ordered resource discard", () => {
 });
 
 describe("restore replays instead of re-entering the room", () => {
-  test("the picture, ego position and item locations come back after a mutation", () => {
+  test("the picture, ego position and object locations come back after a mutation", () => {
     const container = createContainer();
     container.putResource(
       "logic",

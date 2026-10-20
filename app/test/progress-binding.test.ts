@@ -413,7 +413,7 @@ test("writeAutosave refuses a record whose embedded identity is not the target's
   }
 });
 
-test("writeAutosave keeps a future-version checkpoint instead of overwriting it", (t) => {
+test("writeAutosave keeps a future-version progress entry instead of overwriting it", (t) => {
   installLocalStorageMock(t);
   const revision = testRevision("autosave-rev");
   const target = projectProgressTarget("saved-one", revision, "initial")!;
@@ -721,7 +721,7 @@ function otherDigest(folder: string, revision: string): string {
   return parsed.folderDigest;
 }
 
-test("a saved game without a captured epoch writes no checkpoint", async (t) => {
+test("a saved game without a captured epoch writes no progress entry", async (t) => {
   installLocalStorageMock(t);
   const revision = testRevision("autosave-rev");
   const booted: BootedGame = {
@@ -911,7 +911,7 @@ for (const originalKind of ["installed", "project"] as const) {
       noticeCount,
       "test saving sends no play ownership or pause messages",
     );
-    assert.equal(resets, 0, "test saving keeps the game's existing checkpoint cache");
+    assert.equal(resets, 0, "test saving keeps the game's existing progress entry cache");
     assert.equal(flushes, 0);
     const remixTarget = projectProgressTarget(remixId, rig.revision, remixLifetime)!;
     claimProgressWriter(localStorage, remixTarget, "second");
@@ -1305,7 +1305,7 @@ for (const source of ["catalog", "installed"] as const) {
         undefined,
         "the remix has acquired its own progress writer",
       );
-      assert.ok(flushes > 0, "native adoption resumes checkpoint saving on the remix");
+      assert.ok(flushes > 0, "native adoption resumes progress entry saving on the remix");
       const slots = useSaveSlotController({
         getBootedGame: () => game,
         getWriterGeneration: () => ownership.generation(),

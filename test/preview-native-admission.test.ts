@@ -203,7 +203,7 @@ function booted(): { engine: Engine; host: QuietHost } {
   return { engine, host };
 }
 
-/** Build a complete candidate image by replaying edits on a detached container. */
+/** Build a complete change image by replaying edits on a detached container. */
 function candidateFiles(
   base: ReadonlyMap<string, Uint8Array>,
   edit: (container: GameContainer) => void,
@@ -256,7 +256,7 @@ for (const change of ["preserved", "entry", "payload", "header"] as const) {
     const base = new Map([
       ["GAMEDIR", directory],
       ["GAMEVOL.0", new Uint8Array()],
-      // A compressed two-byte payload with an invalid dictionary stream.
+      // A compressed two-byte payload with an invalid WORDS stream.
       ["GAMEVOL.3", Uint8Array.of(0x12, 0x34, 3, 3, 0, 2, 0, 0, 0)],
     ]);
     const before = openContainer(base);
@@ -736,7 +736,7 @@ test("add.to.pic composition requires restart and leaves the background intact",
   assert.equal(engine.getFrame().visual[10 * 160 + 10], 2, "old overlay still there");
 });
 
-test("staged candidate bytes stay detached until commit", () => {
+test("staged changes bytes stay detached until commit", () => {
   const { engine } = booted();
   const newLogic1 = assembleLogic(LOGIC_1_CHANGED, { dictionary: DICT }).payload;
   const files = candidateFiles(engine.containerFiles, (c) => {

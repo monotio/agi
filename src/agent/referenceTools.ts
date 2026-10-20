@@ -51,7 +51,7 @@ export interface ReferenceBitmap {
 export interface ReferenceArt {
   /** Content-derived handle, `referenceArtId` of the stored bytes. */
   readonly id: string;
-  /** What it is: "Room plate", "Character sheet, right-facing row". */
+  /** What it is: "Room plate", "Cel sheet, right-facing row". */
   readonly label: string;
   readonly target: ReferenceTarget;
   /** The player's note, verbatim. */

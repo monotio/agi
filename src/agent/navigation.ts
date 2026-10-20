@@ -492,7 +492,7 @@ export function renderNavigationSnapshot(
   const json = JSON.stringify(
     {
       legend:
-        "Left: composed scene. Right: red=solid, white=conditional block, magenta=trigger, cyan=water, orange=objects, blue=ego baseline, green=target, yellow=candidate path; grid every 10 pixels.",
+        "Left: composed frame. Right: red=solid, white=control 1, magenta=trigger, cyan=water, orange=objects, blue=ego baseline, green=target, yellow=candidate path; grid every 10 pixels.",
       plan,
       state: describePosition(run),
     },

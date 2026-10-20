@@ -309,7 +309,7 @@ test("opening the map during a walkthrough stops the replay ticks", async ({ pag
     .toBeGreaterThan(frozen);
 });
 
-test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ page }) => {
+test("Watch from here seeks the walkthrough to the room's progress entry", async ({ page }) => {
   test.skip(Boolean(kq1Missing), kq1Missing || "");
   await page.goto("/");
   await page

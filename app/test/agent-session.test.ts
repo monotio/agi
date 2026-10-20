@@ -224,7 +224,7 @@ test("a remix finish waits until the model has read a failure from its own batch
 test("a remix ending in text commits only after the host verdict passes", async (t) => {
   // Offline bad case: the provider staged a write that broke a declared
   // exit, finish rejected it, and the model answered "Done." anyway.
-  // The host must produce its own verdict on the exact staged candidate
+  // The host must produce its own verdict on the exact staged changes
   // instead of adopting it on the provider's word.
   const requests: Record<string, unknown>[] = [];
   let liveLogicWhenTexted: Uint8Array | null | undefined;
@@ -1163,7 +1163,10 @@ for (const provider of ["openai", "anthropic"] as const) {
 }
 
 for (const provider of ["openai", "anthropic"] as const) {
-  test(`${provider} cancellation in the initial request also prevents orientation tools`, async () => {
+  test(`${provider} cancellation in the initial request also prevents orientation tools`, async (t) => {
+    t.mock.method(globalThis, "fetch", () =>
+      assert.fail("Cancellation must precede a provider request"),
+    );
     let tools = 0;
     const session = new AgentSession(
       {
@@ -1172,7 +1175,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         apiKey: "offline",
       },
       (kind, message) => {
-        if (kind === "request" && message === "[Ask] Inspect") session.task.cancel();
+        if (kind === "request" && message === "[Agent] Inspect") session.task.cancel();
       },
     );
     session.setOrientation({ game: "Test", profile: "2.936" });

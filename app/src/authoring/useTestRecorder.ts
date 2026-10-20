@@ -85,7 +85,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
       state.modal === "restore" ||
       state.prompt !== null
     ) {
-      state.recording.error = "Close the open prompt or assistant before recording a game test.";
+      state.recording.error = "Close the open prompt or agent before recording a game test.";
       return;
     }
     state.recording.starting = true;

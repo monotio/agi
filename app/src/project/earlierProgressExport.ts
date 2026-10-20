@@ -32,7 +32,7 @@ const EARLIER_PROGRESS_EXPORT_VERSION = 1;
 /** Read/export work bounds — limits on the export, never on stored data. */
 export interface EarlierExportBounds {
   /** Deepest object nesting accepted (default 64). */
-  readonly maxPriority?: number | undefined;
+  readonly maxDepth?: number | undefined;
   /** Most values visited while proving lossless shape (default 200_000). */
   readonly maxNodes?: number | undefined;
   /** Largest serialized document accepted, in UTF-8 bytes (default 8 MiB). */
@@ -131,7 +131,7 @@ function childPath(path: string, name: string): string {
  * produce text, because the clone's reference identity would be lost.
  */
 export function checkJsonLossless(value: unknown, bounds?: EarlierExportBounds): JsonLosslessCheck {
-  const maxPriority = bounds?.maxPriority ?? 64;
+  const maxDepth = bounds?.maxDepth ?? 64;
   const maxNodes = bounds?.maxNodes ?? 200_000;
   const active = new Set<object>();
   const seen = new Set<object>();
@@ -139,25 +139,25 @@ export function checkJsonLossless(value: unknown, bounds?: EarlierExportBounds):
   interface Frame {
     self: object;
     path: string;
-    priority: number;
+    depth: number;
     entries: readonly [string, unknown][];
     index: number;
   }
   const stack: Frame[] = [];
-  let current: { value: unknown; path: string; priority: number } | null = {
+  let current: { value: unknown; path: string; depth: number } | null = {
     value,
     path: "$",
-    priority: 0,
+    depth: 0,
   };
   for (;;) {
     while (current !== null) {
       if (++nodes > maxNodes)
         return { ok: false, path: current.path, reason: `more than ${maxNodes} values` };
-      if (current.priority > maxPriority)
+      if (current.depth > maxDepth)
         return {
           ok: false,
           path: current.path,
-          reason: `nesting deeper than ${maxPriority} levels`,
+          reason: `nesting deeper than ${maxDepth} nested values`,
         };
       const v = current.value;
       const path = current.path;
@@ -182,7 +182,7 @@ export function checkJsonLossless(value: unknown, bounds?: EarlierExportBounds):
       if ("issue" in owned) return { ok: false, path, reason: owned.issue };
       seen.add(v);
       active.add(v);
-      stack.push({ self: v, path, priority: current.priority, entries: owned.entries, index: 0 });
+      stack.push({ self: v, path, depth: current.depth, entries: owned.entries, index: 0 });
       current = null;
     }
     const frame = stack[stack.length - 1];
@@ -193,7 +193,7 @@ export function checkJsonLossless(value: unknown, bounds?: EarlierExportBounds):
       continue;
     }
     const [name, child] = frame.entries[frame.index++]!;
-    current = { value: child, path: childPath(frame.path, name), priority: frame.priority + 1 };
+    current = { value: child, path: childPath(frame.path, name), depth: frame.depth + 1 };
   }
   return { ok: true, nodes };
 }

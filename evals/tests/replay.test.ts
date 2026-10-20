@@ -278,8 +278,13 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
           `Expected ${tool} to fail for ${file}, but it unexpectedly succeeded`,
         );
         if (content.expectedErrorSnippet) {
+          // Stored snippets keep exact geometry while the plane uses its technical term.
+          const expectedError = content.expectedErrorSnippet.replace(
+            /\bdepth and walk\b/g,
+            "priority and walk",
+          );
           assert.ok(
-            res.error?.includes(content.expectedErrorSnippet),
+            res.error?.includes(expectedError),
             `Expected error to contain '${content.expectedErrorSnippet}', got: '${res.error}'`,
           );
         }

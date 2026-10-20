@@ -138,7 +138,7 @@ defineExpose({ open });
             data-testid="help-lesson-open"
             @click="runLesson(lesson)"
           >
-            Open in Studio
+            Open editor
           </UiButton>
         </section>
       </div>

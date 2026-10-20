@@ -50,7 +50,7 @@ interface StagedViewRequest {
 
 /**
  * What a studio tab carries from whoever opened it: the Help guide lesson it
- * came from, the room that frames a picture, or a staged candidate.
+ * came from, the room that frames a picture, or a staged changes.
  * Everything else the workspace reads live from the project.
  */
 export interface StudioRequest {
@@ -138,7 +138,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
   // The shell's docks: the world map left, the assistant right.
   registerPanel({ id: "world", dock: "left", title: "World", icon: "map", order: 0 });
-  registerPanel({ id: "assistant", dock: "right", title: "Assistant", icon: "sparkles", order: 0 });
+  registerPanel({ id: "assistant", dock: "right", title: "Agent", icon: "sparkles", order: 0 });
   /** The dock a panel id sits in, when it is registered. */
   function panelDock(id: string): DockSide | undefined {
     return panels.get(id)?.dock;

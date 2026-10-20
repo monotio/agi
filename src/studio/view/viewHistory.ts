@@ -7,7 +7,7 @@
 import {
   cancel,
   createHistory,
-  DEFAULT_HISTORY_PRIORITY,
+  DEFAULT_HISTORY_LIMIT,
   record,
   redo,
   undo,
@@ -38,9 +38,9 @@ function restore(document: ViewDocument, snapshot: string): ViewDocument {
 
 export function createViewHistory(
   document: ViewDocument,
-  priority = DEFAULT_HISTORY_PRIORITY,
+  limit = DEFAULT_HISTORY_LIMIT,
 ): EditHistory {
-  return createHistory(viewSnapshot(document), priority, "view");
+  return createHistory(viewSnapshot(document), limit, "view");
 }
 
 /** Record the edit that turned `before` into `after` (inside a gesture: extend it). */

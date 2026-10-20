@@ -141,7 +141,7 @@ test("analysis warns for reordered have.key but leaves ordinary pure tests quiet
   );
 });
 
-test("strict compilation owns framing diagnostics and refuses invalid dictionary ids", () => {
+test("strict compilation owns framing diagnostics and refuses invalid WORDS ids", () => {
   assert.throws(
     () => assembleLogic('#message 1 "' + "a".repeat(65536) + '"\nreturn;', { dictionary }),
     AssemblerError,

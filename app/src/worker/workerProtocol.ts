@@ -42,7 +42,7 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
  *   soundEnabled / soundDevice
  *   debug / debugWrite / debugTrace / debugEvents / traceAck
  *   previewUpdate / previewUpdateStatus
- *                       same-Engine Play-preview candidate admission
+ *                       same-Engine Play-preview changes admission
  *
  * Messages out:
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,

@@ -217,7 +217,7 @@ test("a Unicode-folder installation's remix names the minted parent and binds th
   });
 });
 
-test("a remix of an installed edition keeps the original's physical checkpoint untouched", async (t) => {
+test("a remix of an installed edition keeps the original's physical progress entry untouched", async (t) => {
   const files = testFiles();
   const source = await installedGame("ember-tale", files);
   const target = source.progressTarget!;

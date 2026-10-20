@@ -310,7 +310,7 @@ test("a tab that hears another tab's authoring edit is stale for authoring at on
   assert.equal(
     b.game.behindStorage,
     undefined,
-    "B's bytes are still current: it keeps its checkpoints",
+    "B's bytes are still current: it keeps its progress entrys",
   );
   await b.controller.openPowerUp(STUB);
   assert.equal(b.ui.powerUp.error, STALE_SAVE_MESSAGE);

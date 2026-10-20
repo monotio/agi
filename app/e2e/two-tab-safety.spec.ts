@@ -34,7 +34,7 @@ const SOURCE = [
   "rect 0,0 159,111",
   "fill 80,40",
   "# @end",
-  '# @item occluder "Bench occluder" depth',
+  '# @item occluder "Bench priority" depth',
   "vis off",
   "pri 10",
   "polygon 40,90 119,90 126,98 119,105 40,105",
@@ -134,7 +134,7 @@ async function keepLabelInTabB(page: Page): Promise<void> {
     const session = probe.getSession();
     const capture = session.model.capture();
     const source = capture.read("picture:5")!.content as string;
-    const content = source.replace('occluder "Bench occluder"', 'occluder "Low bench"');
+    const content = source.replace('occluder "Bench priority"', 'occluder "Low bench"');
     if (content === source) throw new Error("Missing labelled occluder");
     const result = await session.submit({
       proposal: session.model.propose(capture, "Rename bench", [{ key: "picture:5", content }]),

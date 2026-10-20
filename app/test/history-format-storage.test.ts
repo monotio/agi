@@ -379,7 +379,7 @@ test("a v1 import lands supported — no fork, and the first live append upgrade
   );
 });
 
-test("a v1 import of an unsettled staged candidate stays staged through the upgrade", async () => {
+test("a v1 import of an unsettled staged changes stays staged through the upgrade", async () => {
   const target = installedTarget("fmt-v1-import-staged");
   const key = target.locator;
   const staged: RetainedOriginal = {
@@ -422,7 +422,7 @@ test("a v1 import of an unsettled staged candidate stays staged through the upgr
   assert.deepEqual(
     exported?.staged?.map((s) => s.id),
     ["b-imp"],
-    "the staged candidate survived the upgrade",
+    "the staged changes survived the upgrade",
   );
 });
 

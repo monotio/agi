@@ -56,12 +56,11 @@ export function prepareRoomPatch(
         entry[1] > 65535,
     )
   ) {
-    throw new Error("Invalid room vocabulary");
+    throw new Error("Invalid room WORDS");
   }
   const nextDictionary = new Map(words);
   for (const [word, id] of dictionary) {
-    if (nextDictionary.get(word) !== id)
-      throw new Error("Room authoring changed existing vocabulary");
+    if (nextDictionary.get(word) !== id) throw new Error("Room authoring changed existing WORDS");
   }
   const effective = detectProfile(container.files, profile);
   const staged = openContainer(container.files, { profile: effective });

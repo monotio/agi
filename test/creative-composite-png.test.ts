@@ -109,7 +109,7 @@ test("encodePngRgba emits a deterministic sRGB RGBA PNG that decodes byte-exact"
   const ihdrView = new DataView(ihdr.buffer, ihdr.byteOffset, ihdr.byteLength);
   assert.equal(ihdrView.getUint32(0), 3);
   assert.equal(ihdrView.getUint32(4), 2);
-  assert.equal(ihdr[8], 8, "8-bit priority");
+  assert.equal(ihdr[8], 8, "8-bit depth");
   assert.equal(ihdr[9], 6, "RGBA colour type");
   assert.equal(chunks[1]!.data[0], 0, "sRGB perceptual rendering intent");
 

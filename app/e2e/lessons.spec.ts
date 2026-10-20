@@ -29,7 +29,7 @@ const PIC_4 = TUTORIAL.getResource("picture", 4)!;
 const VIEW_2 = TUTORIAL.getResource("view", 2)!;
 const MURAL = "ad-gallery-recipe";
 const MIRROR = "ad-lab-mirror";
-const PRIORITY = "ad-archive-priority";
+const PRIORITY = "ad-archive-depth";
 
 const planes = (bytes: Uint8Array) => {
   const surface = createPictureSurface();
@@ -181,18 +181,18 @@ test("the Priority lesson opens the archive and a mid-order edit preserves the b
   await page.mouse.up();
   const verdict = studio.locator('[data-role="stand-in-verdict"]');
   await expect(verdict).toBeVisible();
-  await expect(verdict).toContainText("Behind Counter priority");
+  await expect(verdict).toContainText("Behind Counter depth");
   await expect(studio.getByTestId("stand-in-probe")).toHaveAttribute("data-verdict", "behind");
   await shot(page, "lessons-archive-stand-in-behind");
   await probe.click();
   await expect(handle).toHaveCount(0);
 
   const shipped = parsePictureDocument(TUTORIAL_PICTURES[3]!).document;
-  const counter = shipped.items.find(({ id }) => id === "counter-priority")!;
+  const counter = shipped.items.find(({ id }) => id === "counter-depth")!;
   const drawn = compileEditDocument(shipped, DEFAULT_V2_PROFILE).spans.filter(
     ({ line }) => line < counter.closeLine,
   ).length;
-  await studio.locator('[data-row="counter-priority"]').click();
+  await studio.locator('[data-row="counter-depth"]').click();
   await page.getByTestId("workspace-focus").click();
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
@@ -201,7 +201,7 @@ test("the Priority lesson opens the archive and a mid-order edit preserves the b
   await page.keyboard.press("r");
   // The playhead stands just after the counter's priority: the next shape goes
   // before what draws next, the globe's priority.
-  await expect(page.getByTestId("studio-insert-at")).toHaveText("Drawing before Globe priority");
+  await expect(page.getByTestId("studio-insert-at")).toHaveText("Drawing before Globe depth");
   await studio.getByTestId("studio-tool-filled").check();
   await studio.locator('.workspace-palette [data-colour="11"]').click();
   await page.mouse.move(...(await cell(page, 38, 84)));

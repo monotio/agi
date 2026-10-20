@@ -53,7 +53,7 @@ snapshots:
     - source: The background is never saved.
       style: primary
       start: 14
-      end: 42
+      end: 44
   const hint = "Use Remix instead of Play.";:
     labels:
     - source: Use Remix instead of Play.

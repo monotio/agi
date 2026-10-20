@@ -1438,7 +1438,7 @@ test("Tests never block game edits: malformed tests remain visible in a successf
   assert.match(String(verdict.details?.["testsVerdict"]), /valid JSON/);
 });
 
-test("Write tests first: recorded setup names missing resources and ignores unrelated item locations", () => {
+test("Write tests first: recorded setup names missing resources and ignores unrelated object locations", () => {
   const state = world();
   state.objectPayload = buildObjectFile([
     { name: "key", startingRoom: 1 },

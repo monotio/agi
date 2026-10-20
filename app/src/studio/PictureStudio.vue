@@ -1337,7 +1337,7 @@ function onKeyup(event: KeyboardEvent): void {
     class="studio"
     :class="{
       'has-reference': !!underlay,
-      'is-art-idle': lens === 'visual' && !draft.gesturing.value,
+      'is-visual-idle': lens === 'visual' && !draft.gesturing.value,
     }"
     data-testid="picture-studio"
     tabindex="-1"

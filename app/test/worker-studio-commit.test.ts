@@ -1081,7 +1081,7 @@ test("a view edit is refused as stale or invalid before storage or the worker", 
   assert.equal(patches(r).length, 0);
 });
 
-test("a staged candidate repaired in VIEW editor keeps the repaired bytes and spends the offer", async (t) => {
+test("a staged changes repaired in VIEW editor keeps the repaired bytes and spends the offer", async (t) => {
   const { projectId, revision, r } = await authoredRig(
     t,
     "view-staged",

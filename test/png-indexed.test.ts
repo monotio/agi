@@ -8,7 +8,7 @@ interface ParsedPng {
   chunks: Map<string, Uint8Array>;
   width: number;
   height: number;
-  bitPriority: number;
+  bitDepth: number;
   colorType: number;
 }
 
@@ -43,7 +43,7 @@ function parsePng(png: Uint8Array): ParsedPng {
     chunks,
     width: header.getUint32(0),
     height: header.getUint32(4),
-    bitPriority: header.getUint8(8),
+    bitDepth: header.getUint8(8),
     colorType: header.getUint8(9),
   };
 }
@@ -69,7 +69,7 @@ describe("indexed palette PNG encoder", () => {
     const parsed = parsePng(encodePngPaletteRgb(2, 2, rgb));
     assert.deepEqual([...parsed.chunks.keys()], ["IHDR", "PLTE", "IDAT", "IEND"]);
     assert.deepEqual(
-      [parsed.width, parsed.height, parsed.bitPriority, parsed.colorType],
+      [parsed.width, parsed.height, parsed.bitDepth, parsed.colorType],
       [2, 2, 8, 3],
     );
     assert.deepEqual([...parsed.chunks.get("PLTE")!], [255, 0, 0, 0, 255, 0, 0, 0, 255]);

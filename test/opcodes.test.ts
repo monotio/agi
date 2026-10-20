@@ -787,7 +787,7 @@ test("F-VIEWS-04: add.to.pic takes the band for a zero priority only where ObjIn
   }
 });
 
-test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit priority mask apply across all 18 binary-verified profiles", () => {
+test("F-VIEWS-05, F-VIEWS-07: in-place cel clipping and 4-bit depth mask apply across all 18 binary-verified profiles", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const container = createContainer();

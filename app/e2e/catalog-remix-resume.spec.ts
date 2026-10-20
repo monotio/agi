@@ -19,7 +19,7 @@ import {
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
-test("forking the tutorial keeps each card’s own checkpoint", async ({ page }) => {
+test("forking the tutorial keeps each card’s own progress entry", async ({ page }) => {
   const original = TUTORIAL_LOGIC_SOURCES[1]!;
   const patched = original.replace("PICTURE GALLERY", "REMIX GALLERY");
   expect(patched).not.toBe(original);

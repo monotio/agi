@@ -21,7 +21,7 @@ import { useViewStudio } from "../world/useViewStudio.ts";
 
 /**
  * Reference-art upload: attach a picture the player supplies — a room plate
- * the agent hand-encodes with write_picture, or a character sheet that
+ * the agent hand-encodes with write_picture, or a cel sheet that
  * converts to a staged VIEW the player keeps, repairs in the VIEW editor, or
  * revises. Raised from the chat bubble or the world map's room detail via
  * referenceUploadState.
@@ -152,7 +152,7 @@ async function onAttach(): Promise<void> {
 }
 
 /**
- * Open the staged candidate in Create for repairs. Edits use the workspace save pipeline.
+ * Open the staged changes in Create for repairs. Edits use the workspace save pipeline.
  */
 async function onOpenInStudio(): Promise<void> {
   const reference = attached.value;
@@ -232,7 +232,7 @@ async function onDetachExisting(reference: StoredReference): Promise<void> {
 }
 
 /**
- * Reopen a stored staged candidate: the attach view's preview and
+ * Reopen a stored staged changes: the attach view's preview and
  * Send controls work on `attached`, so reopening is selecting the stored
  * record — its staged spec is validated storage, not a rebuild.
  */

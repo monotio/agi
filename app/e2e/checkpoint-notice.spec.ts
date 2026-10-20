@@ -9,7 +9,7 @@ import {
   waitForGameInput,
 } from "./engineProbe.ts";
 
-test("Play explains refused checkpoint storage and clears the notice when progress saves @phone", async ({
+test("Play explains refused progress entry storage and clears the notice when progress saves @phone", async ({
   page,
 }) => {
   const files = createStarterProject("starter").files();

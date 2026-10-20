@@ -27,7 +27,7 @@ async function checkpoint(page: Page): Promise<number[]> {
     const image = await project.query("checkpoint");
     if (!window.__AGI_STATE__?.paused)
       project.getWorker().postMessage({ type: "pause", paused: false });
-    if (!image) throw new Error("The game needs a checkpoint.");
+    if (!image) throw new Error("The game needs a progress entry.");
     return [...image];
   });
 }

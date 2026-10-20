@@ -47,7 +47,7 @@ const SOURCE = [
   "vis 6",
   "rect 44,92 116,104",
   "# @end",
-  '# @item occluder "Bench occluder" depth',
+  '# @item occluder "Bench priority" depth',
   "vis off",
   "pri 10",
   "polygon 40,90 119,90 126,98 119,105 40,105",

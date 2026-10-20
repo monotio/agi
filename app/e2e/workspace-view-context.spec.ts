@@ -24,9 +24,7 @@ test("VIEW context is reachable in Focus with room preview and game pacing", asy
   await page.screenshot({ path: test.info().outputPath("view-context.png") });
 });
 
-test("a character sheet opens its staged candidate in the workspace VIEW editor", async ({
-  page,
-}) => {
+test("a cel sheet opens its staged changes in the workspace VIEW editor", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await isolateStorage(page);
   await page.goto("/");

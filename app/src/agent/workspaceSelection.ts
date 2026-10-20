@@ -54,7 +54,7 @@ export function workspaceSelection(
   scene: Pick<SelectionFocus, "horizon" | "standIn"> = {},
 ) {
   const picture =
-    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (art|priority)\./.exec(
+    /Selection: PICTURE (\d+)[^\n]*\nSelected item ids: ([^\n]+)\. Lens: (visual|priority)\./.exec(
       context,
     );
   const view = /Selection: VIEW (\d+)[^\n]*\nSelected VIEW \d+, loop (\d+), cel (\d+)\./.exec(

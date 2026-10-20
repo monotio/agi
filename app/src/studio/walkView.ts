@@ -174,7 +174,7 @@ export function doorStatus(
   if (contract.wayBack.length === 0)
     return { wayBack: "One way: nothing there leads back", tested, testedOk };
   const ways = contract.wayBack
-    .map((edge) => (edge === null ? "a door or the script" : `the ${EDGE_NAMES[edge]} edge`))
+    .map((edge) => (edge === null ? "a door or the LOGIC" : `the ${EDGE_NAMES[edge]} edge`))
     .filter((text, i, all) => all.indexOf(text) === i);
   const list = ways.length > 1 ? `${ways.slice(0, -1).join(", ")} or ${ways.at(-1)}` : ways[0]!;
   return { wayBack: `Way back from there: ${list}`, tested, testedOk };

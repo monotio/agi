@@ -22,7 +22,7 @@ export class AssemblerError extends Error {
 // and strict lowering before allocating expanded condition trees.
 const MAX_SOURCE_BYTES = 256 * 1024;
 const MAX_TOKENS = 100_000;
-export const MAX_PRIORITY = 128;
+export const MAX_DEPTH = 128;
 
 // ---------- Lexer ----------
 
@@ -272,11 +272,11 @@ interface NamedReference extends NamedDefinition {
 
 class Parser {
   private pos = 0;
-  private priority = 0;
+  private depth = 0;
   private nextStatementId = 0;
 
   private enter(tok: Token): void {
-    if (++this.priority > MAX_PRIORITY) {
+    if (++this.depth > MAX_DEPTH) {
       throw new AssemblerError("syntax nesting limit exceeded", tok.line, tok.col);
     }
   }
@@ -359,14 +359,14 @@ class Parser {
 
   private parseEntry(out: Stmt[], inBlock: boolean): void {
     const start = this.pos;
-    const priority = this.priority;
+    const depth = this.depth;
     try {
       if (!inBlock && this.peek().type === "directive") this.parseDirective();
       else out.push(this.parseLabel() ?? this.parseStmt());
     } catch (error) {
       if (!this.errors || !(error instanceof AssemblerError)) throw error;
       recordError(this.errors, error);
-      this.priority = priority;
+      this.depth = depth;
       // Resume at a statement boundary, preserving the closing brace for
       // parseBlock. Every recovery either advances or reaches EOF.
       while (
@@ -381,7 +381,7 @@ class Parser {
     }
   }
 
-  /** A `name:` label, at any nesting priority; null when the next token is not one. */
+  /** A `name:` label, at any nesting depth; null when the next token is not one. */
   private parseLabel(): Stmt | null {
     const tok = this.peek();
     if (tok.type !== "ident" || this.tokens[this.pos + 1]?.text !== ":") return null;
@@ -460,7 +460,7 @@ class Parser {
     const statementId = this.nextStatementId++;
     this.enter(tok);
     const body = this.parseStmtBody();
-    this.priority--;
+    this.depth--;
     return { ...body, tok, end: this.tokens[this.pos - 1]!.end, statementId };
   }
 
@@ -617,7 +617,7 @@ class Parser {
     const tok = this.peek();
     this.enter(tok);
     let result = this.parseUnaryBody();
-    this.priority--;
+    this.depth--;
     const end = this.tokens[this.pos - 1]!.end;
     if (result.type === "cond") result = { ...result, end };
     else if (result.type === "not" && result.inner.type === "cond") {

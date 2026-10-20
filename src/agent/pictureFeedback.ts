@@ -45,7 +45,7 @@ const CONTROL_OVERLAY_RGB: readonly (readonly [number, number, number])[] = [
 ];
 
 export const PICTURE_COMPARISON_LEGEND =
-  "Left: clean visual. Middle: raw priority/control in the game's colours (0 barrier, 1 conditional barrier, 2 trigger, 3 water, 4 open/far floor, 5..15 higher priority/occluders). Right: overlay (4 untinted; 5..15 50% blend with the game colours; controls highlighted as 0 light red, 1 white, 2 magenta, 3 cyan).";
+  "Left: clean visual. Middle: raw priority/control in the game's colours (0 barrier, 1 conditional barrier, 2 trigger, 3 water, 4 open/far floor, 5..15 higher priority bands). Right: overlay (4 untinted; 5..15 50% blend with the game colours; controls highlighted as 0 light red, 1 white, 2 magenta, 3 cyan).";
 
 /**
  * Three aligned native-aspect panels: clean visual, raw priority/control in
@@ -269,7 +269,7 @@ export function screenObjectLayoutFeedback(
       .join(", ");
     const values = [...baselineValues].sort((a, b) => a - b).join(", ");
     lines.push(
-      `- ${screenObject.name}: logical x${screenObject.x}-${x1} y${y0}-${screenObject.y} (${screenObject.width}x${screenObject.height}), display x${screenObject.x * 2}-${x1 * 2 + 1} y${y0}-${screenObject.y} (${screenObject.width * 2}x${screenObject.height}); priority ${screenObject.priority}; baseline values [${values}], controls [${controls}]; higher-priority scenery ${higher}/${sampled} cells${inBounds ? "" : "; OUT OF BOUNDS"}`,
+      `- ${screenObject.name}: logical x${screenObject.x}-${x1} y${y0}-${screenObject.y} (${screenObject.width}x${screenObject.height}), display x${screenObject.x * 2}-${x1 * 2 + 1} y${y0}-${screenObject.y} (${screenObject.width * 2}x${screenObject.height}); priority ${screenObject.priority}; baseline values [${values}], controls [${controls}]; higher-priority picture pixels ${higher}/${sampled} cells${inBounds ? "" : "; OUT OF BOUNDS"}`,
     );
   }
   return lines.join("\n");

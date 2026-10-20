@@ -81,7 +81,7 @@ test("IIgs vibrato keeps its discrete cycle through a twelve-second sustain @web
       releaseSegment: 1,
       priorityIncrement: 0,
       pitchBendRange: 0,
-      vibratoPriority: 66,
+      vibratoDepth: 66,
       vibratoSpeed: 64,
       a: [wave],
       b: [],

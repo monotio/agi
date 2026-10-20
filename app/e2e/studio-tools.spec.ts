@@ -44,7 +44,7 @@ const SOURCE = [
   "vis 6",
   "rect 44,92 116,104",
   "# @end",
-  '# @item occluder "Bench occluder" depth',
+  '# @item occluder "Bench priority" depth',
   "vis off",
   "pri 10",
   "polygon 40,90 119,90 126,98 119,105 40,105",
@@ -177,7 +177,7 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
   // At the end the context row stays quiet and the transport says where shapes draw.
   await expect(page.getByTestId("studio-insert-at")).toHaveCount(0);
-  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench priority");
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
   await dragCells(page, [20, 120], [40, 140]);
@@ -338,7 +338,7 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await expect(context.getByTestId("studio-playhead-end")).toHaveAccessibleName("Back to the end");
   await context.getByTestId("studio-playhead-end").click();
   await expect(context.getByTestId("studio-insert-at")).toHaveCount(0);
-  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench priority");
 });
 
 test("G stands the standIn actor on the draft; dragged behind the occluder it reads Behind", async ({
@@ -361,7 +361,7 @@ test("G stands the standIn actor on the draft; dragged behind the occluder it re
   await page.mouse.up();
   await expect(standIn).toHaveAttribute("data-verdict", "behind");
   await expect(studio.locator('[data-role="stand-in-verdict"]')).toContainText(
-    "Behind Bench occluder",
+    "Behind Bench priority",
   );
   await expect(studio.locator('[data-role="stand-in-band"]')).toContainText(
     "y 97 → priority band 9",

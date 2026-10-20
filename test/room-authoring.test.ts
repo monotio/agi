@@ -51,7 +51,7 @@ for (const [name, bad, error] of [
     { ...response, resources: [response.resources[0], { kind: "picture", num: 7, data: [256] }] },
     /Invalid room resource/,
   ],
-  ["vocabulary reassignment", { ...response, words: [["look", 101]] }, /existing vocabulary/],
+  ["vocabulary reassignment", { ...response, words: [["look", 101]] }, /existing WORDS/],
   [
     "duplicate resource",
     { ...response, resources: [...response.resources, response.resources[0]] },

@@ -153,7 +153,7 @@ async function copyDebugBundle(): Promise<void> {
         <SoundPreview v-if="entry.audio?.length" :audio="entry.audio" />
       </div>
       <p v-if="!state.agentLog.length" class="agent-empty">
-        Agent requests, tool calls and results appear here as the assistant works.
+        Agent requests, tool calls and results appear here as the agent works.
       </p>
     </div>
   </section>

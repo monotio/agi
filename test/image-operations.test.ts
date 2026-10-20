@@ -270,8 +270,8 @@ test("preparation identifies the current pixels after an in-place image edit", (
   const first = prepareImageCels(source, frames, PROFILES["2.936"]);
   source.rgba[0] = 170;
   const next = prepareImageCels(source, frames, PROFILES["2.936"]);
-  assert.notDeepEqual(next.frames[0]!.source, first.frames[0]!.source);
-  assert.equal(next.frames[0]!.source.id, sha256Hex(source.rgba));
+  assert.notDeepEqual(next.cels[0]!.source, first.cels[0]!.source);
+  assert.equal(next.cels[0]!.source.id, sha256Hex(source.rgba));
 });
 
 // An imported picture is matched to the colours the game shows, because those
@@ -353,10 +353,10 @@ test("a recipe naming a palette needs its table, and one without a name is EGA",
   const replay = prepareView(raster, { ...recipe, paletteId: "amiga" } as never, profile, {
     amiga: AMIGA_TABLE,
   });
-  assert.equal(replay.frames[0]!.pixels[0], 13);
+  assert.equal(replay.cels[0]!.pixels[0], 13);
   assert.throws(
     () => prepareView(raster, { ...recipe, paletteId: "amiga" } as never, profile),
     /paletteId/,
   );
-  assert.equal(prepareView(raster, recipe as never, profile).frames[0]!.pixels[0], 5);
+  assert.equal(prepareView(raster, recipe as never, profile).cels[0]!.pixels[0], 5);
 });

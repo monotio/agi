@@ -1081,7 +1081,7 @@ describe("applyEdit ungroupItem", () => {
   });
 
   it("refuses one drawing element, a locked item and an unknown one", () => {
-    refused(parts, ungroup("el-1"), /'el-1' is one drawing element: there is nothing to ungroup/);
+    refused(parts, ungroup("el-1"), /'el-1' is one item: there is nothing to ungroup/);
     const locked = doc('# @item a "A" art locked', "rect 0,0 3,3", "line 50,50 60,50", "# @end");
     refused(locked, ungroup("a"), /item 'a' is locked; unlock it first/);
     refused(parts, ungroup("nope"), /no item 'nope'/);

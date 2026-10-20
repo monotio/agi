@@ -37,13 +37,13 @@ test("the guide states the interpreter behaviors the engine follows", () => {
   assert.match(actors, /set\.view keeps the object's current loop/);
   assert.match(actors, /call set\.cel\(o, 0\) explicitly/);
   const walking = AUTHORING_GUIDE["walking-barriers-and-water"]!.body;
-  assert.match(walking, /ego_on_trigger is set for hero when ANY feet row pixel touches control 2/);
+  assert.match(walking, /ego_on_trigger is set for ego when ANY feet row pixel touches control 2/);
   assert.match(walking, /ego_in_water is set only when EVERY feet row pixel is on water/);
-  assert.match(walking, /zero-distance move\.obj on hero/);
+  assert.match(walking, /zero-distance move\.obj on ego/);
   const timing = AUTHORING_GUIDE["timing-and-pacing"]!.body;
   assert.match(timing, /have\.key\(\) polled once per cycle/);
   assert.match(timing, /ten minutes/);
-  assert.match(timing, /pressing the direction the hero already walks stops it/);
+  assert.match(timing, /pressing the direction the ego already walks stops it/);
 });
 
 test("the tool is catalogued for Ask turns and validates its topic argument", () => {

@@ -18,7 +18,7 @@
  *  - a trailing forward `goto` at the end of a then-block becomes `else`,
  *    because that is byte-for-byte what the assembler emits for else;
  *  - every other jump becomes an explicit `goto Lxxxx;` plus a label named
- *    after the target offset, emitted at whatever nesting priority that offset
+ *    after the target offset, emitted at whatever nesting depth that offset
  *    falls in (the assembler accepts labels inside blocks);
  *  - an OR group holding a single predicate keeps its parentheses, which is
  *    how the source asks for the 0xfc markers around one condition;
@@ -398,7 +398,7 @@ class Disassembler {
     }
   }
 
-  /** Offsets at which a statement is rendered, at any priority: label sites. */
+  /** Offsets at which a statement is rendered, at any depth: label sites. */
   private collectStarts(nodes: readonly Node[], into: Set<number>): void {
     for (const node of nodes) {
       into.add(node.insn.at);
@@ -422,7 +422,7 @@ class Disassembler {
   }
 
   /**
-   * Build the statement tree. Labels may sit at any priority, so the only reason
+   * Build the statement tree. Labels may sit at any depth, so the only reason
    * left to give up an `else` is a jump that lands on the very goto the `else`
    * consumed: that goto is not rendered, so nothing there could carry a label.
    */
@@ -478,8 +478,8 @@ class Disassembler {
     }
     if (lines.length > 0) lines.push("");
 
-    const emit = (list: readonly Node[], priority: number): void => {
-      const pad = this.indent.repeat(priority);
+    const emit = (list: readonly Node[], depth: number): void => {
+      const pad = this.indent.repeat(depth);
       for (const [index, node] of list.entries()) {
         if (labels.has(node.insn.at)) lines.push(`${pad}L${node.insn.at}:`);
         if (node.kind === "goto") {
@@ -487,7 +487,7 @@ class Disassembler {
           continue;
         }
         if (node.kind === "simple") {
-          if (priority === 0 && node.insn.kind === "return" && node.insn.end === this.code.length) {
+          if (depth === 0 && node.insn.kind === "return" && node.insn.end === this.code.length) {
             // Keep a terminal site when the preceding statement is itself a
             // return: otherwise the assembler would reuse that earlier exit.
             const previous = list[index - 1];
@@ -503,12 +503,12 @@ class Disassembler {
           continue;
         }
         lines.push(`${pad}if (${node.insn.text}) {`);
-        emit(node.then, priority + 1);
+        emit(node.then, depth + 1);
         if (node.else_ === null) {
           lines.push(`${pad}}`);
         } else {
           lines.push(`${pad}} else {`);
-          emit(node.else_, priority + 1);
+          emit(node.else_, depth + 1);
           lines.push(`${pad}}`);
         }
       }

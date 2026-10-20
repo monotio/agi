@@ -534,12 +534,85 @@ fingerprint before deriving a migrated expectation. An old booter-sound tape can
 after its anchor because of the earlier sound-timing correction; see
 [2.001 speaker row execution](docs/fidelity.md#2001-speaker-row-execution).
 
-### Shared vocabulary
+### Terminology
 
-UI labels, explanations and tool help come from `src/vocabulary.ts`:
-`VOCABULARY` names controls, `VOCABULARY_ACTIONS` describes actions, and
-`RETIRED_UI_TERMS` records replaced terms. Use this shared vocabulary in UI and
-tool descriptions. `app/test/vocabulary-copy.test.ts` rejects retired copy.
+The glossary in `src/vocabulary.ts` gives each concept one term per register.
+Plain words belong in visible copy, Help and lessons.
+Technical words belong in engine explanations, LOGIC documentation and tool contracts.
+Code names use the technical term in camelCase; `Studio` names the canvas editor implementation.
+
+| Concept              | Plain                                        | Technical                    | Code                                      |
+| -------------------- | -------------------------------------------- | ---------------------------- | ----------------------------------------- |
+| LOGIC                | LOGIC                                        | LOGIC N                      | logic                                     |
+| shared LOGIC         | SHARED LOGIC                                 | shared LOGIC                 | sharedLogic                               |
+| room                 | Room                                         | room N                       | room                                      |
+| PICTURE              | PICTURE                                      | PICTURE N                    | picture                                   |
+| lens                 | Visual, Priority                             | visual plane, priority plane | lens                                      |
+| picture item         | item                                         | item (annotated source)      | item, PictureItem                         |
+| picture step         | step                                         | picture command              | step                                      |
+| VIEW                 | VIEW                                         | VIEW N                       | view, ViewDocument                        |
+| loop                 | loop                                         | loop N                       | loop                                      |
+| cel                  | cel                                          | cel N                        | cel                                       |
+| mirror loop          | mirror loop                                  | mirror bit                   | mirror                                    |
+| transparent colour   | transparent colour                           | transparency index           | transparent                               |
+| feet                 | feet                                         | baseline                     | feet, baseline                            |
+| cel background       | Background                                   | background                   | background, CelBackground, RoomBackground |
+| added to the picture | added to the picture                         | add.to.pic                   | addToPic                                  |
+| SOUND                | SOUND                                        | SOUND N                      | sound                                     |
+| music                | music                                        | music intent document        | music                                     |
+| sound voice          | Voice, Drums                                 | channel, noise voice         | voice                                     |
+| note                 | note                                         | frequency divisor            | note                                      |
+| pitch                | pitch                                        | frequency divisor            | pitch                                     |
+| volume               | volume                                       | attenuation                  | volume                                    |
+| OBJECT               | OBJECT                                       | OBJECT file                  | objects                                   |
+| inventory object     | object                                       | inventory object iN          | object, inventory                         |
+| inventory            | inventory                                    | inventory, room 255          | inventory                                 |
+| WORDS                | WORDS                                        | WORDS.TOK                    | words                                     |
+| word meaning         | meaning                                      | word group N, synonym group  | wordGroup, group                          |
+| screen object        | actor                                        | screen object oN             | ScreenObject, screenObject                |
+| ego                  | hero                                         | ego, o0                      | ego                                       |
+| story character      | character                                    | story character              | character                                 |
+| priority             | Priority                                     | priority, band, set.pri.base | priority, priorityBand                    |
+| control              | Walk: Wall, Gate, Trigger, Water             | control 0..3                 | control, walk                             |
+| horizon              | horizon                                      | set.horizon                  | horizon                                   |
+| base line            | base line                                    | baseline                     | baseY                                     |
+| rendered frame       | frame                                        | frame                        | frame, FRAME_WIDTH                        |
+| image sheet          | sheet                                        | sheet, cel region            | sheet, SheetCel, cutGrid                  |
+| script buffer        | script buffer                                | script buffer, script.size   | script                                    |
+| message              | message                                      | mN                           | message                                   |
+| command              | command                                      | said()                       | command                                   |
+| response             | response                                     | response                     | response                                  |
+| flag                 | flag                                         | fN                           | flag                                      |
+| variable             | variable                                     | vN                           | variable                                  |
+| string               | string                                       | sN                           | string                                    |
+| controller           | controller                                   | cN                           | controller                                |
+| exit                 | Exit, door                                   | new.room transition          | exit, door                                |
+| parts list           | parts                                        | resource, slot               | part, WorkspacePartGroup                  |
+| PICTURE editor       | PICTURE editor                               | PICTURE editor               | PictureStudio, picture-studio             |
+| VIEW editor          | VIEW editor                                  | VIEW editor                  | ViewStudio, view-                         |
+| LOGIC editor         | LOGIC editor                                 | LOGIC editor                 | LogicEditor                               |
+| SOUND editor         | SOUND editor                                 | SOUND editor                 | SoundPanel                                |
+| WORDS editor         | WORDS editor                                 | WORDS editor                 | WordsEditor                               |
+| OBJECT editor        | OBJECT editor                                | OBJECT editor                | TableEditor                               |
+| Items panel          | Items                                        | Items panel                  | ItemList, itemGroups                      |
+| Stand-in             | Stand-in                                     | probe cel                    | standIn                                   |
+| Speckled brush       | Speckled                                     | splatter                     | stipple                                   |
+| Onion skin           | Onion skin                                   | Onion skin                   | onion                                     |
+| Trace                | Trace                                        | underlay                     | trace                                     |
+| Reference image      | Reference image                              | reference image              | reference                                 |
+| Focus                | Focus                                        | Focus                        | focus                                     |
+| agent                | Agent                                        | agent                        | agent                                     |
+| agent changes        | changes, Review, Approve, Reject             | proposal, candidate          | proposal, candidate                       |
+| project history      | History, version, Name this version, Restore | commit                       | history, commit                           |
+| engine checkpoint    | Earlier                                      | checkpoint                   | checkpoint                                |
+| resource commit      | Saved                                        | commit                       | commit, resourceCommit                    |
+| plan                 | plan                                         | plan                         | plan                                      |
+| game tests           | game tests                                   | game tests                   | gameTests                                 |
+| Test walk            | Test walk                                    | Test walk                    | walk                                      |
+| Playtest room        | Playtest room                                | Playtest room                | playtest                                  |
+| launch               | launch                                       | launch                       | launch                                    |
+
+Game content and `FORMAT_LITERALS` are outside the glossary.
 
 ### Extending
 

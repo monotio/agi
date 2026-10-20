@@ -77,7 +77,7 @@ function pick(next: number | null): void {
       class="value-picker__cell value-picker__off"
       :aria-checked="value === null"
       :aria-label="`${plane === 'visual' ? 'Visual' : 'Priority'} off: draw no ${plane === 'visual' ? 'visual' : 'priority'}`"
-      :title="`Off: draw no ${plane === 'visual' ? 'art' : 'depth'}`"
+      :title="`Off: draw no ${plane === 'visual' ? 'visual colour' : 'priority'}`"
       :disabled="disabled"
       data-value="off"
       @click="pick(null)"

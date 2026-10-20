@@ -89,7 +89,7 @@ const image = computed<CardImage | undefined>(() => {
     };
   const opening = game.library?.preview;
   return opening
-    ? { src: opening, alt: `${title.value} opening scene`, kind: "opening" }
+    ? { src: opening, alt: `${title.value} opening room`, kind: "opening" }
     : undefined;
 });
 

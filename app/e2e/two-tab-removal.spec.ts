@@ -28,7 +28,7 @@ const SIBLING = testProjectId("a.b");
 const TITLE = "Removed elsewhere";
 const REMOVED = "This project was removed. Download your unsaved edits to keep them.";
 const SOURCE = [
-  '# @item occluder "Bench occluder" depth',
+  '# @item occluder "Bench priority" depth',
   "vis off",
   "pri 10",
   "polygon 40,90 119,90 126,98 119,105 40,105",

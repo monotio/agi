@@ -647,7 +647,7 @@ function insertPlot(ctx: Context, op: Extract<EditOperation, { type: "insertPlot
   const bad = op.points.find(({ x, y }) => !onSurface(x, y));
   if (bad) throw new EditRefusal(`plot point ${bad.x},${bad.y} is off the surface`);
   if (stipple !== (op.seed !== undefined)) {
-    throw new EditRefusal("a stipple pen needs a seed, and only a stipple pen takes one");
+    throw new EditRefusal("a speckled pen needs a seed, and only a speckled pen takes one");
   }
   if (op.seed !== undefined && !(Number.isInteger(op.seed) && op.seed >= 0 && op.seed <= 0xef)) {
     throw new EditRefusal(`seed must be 0..239, got ${op.seed}`);
@@ -786,8 +786,7 @@ function elementParts(ctx: Context, item: PictureItem): Line[] {
     out.push(newLine(ctx, "# @end"));
     k = end + 1;
   }
-  if (runs < 2)
-    throw new EditRefusal(`'${item.id}' is one drawing element: there is nothing to ungroup`);
+  if (runs < 2) throw new EditRefusal(`'${item.id}' is one item: there is nothing to ungroup`);
   return out;
 }
 

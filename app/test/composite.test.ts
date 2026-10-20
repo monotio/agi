@@ -77,7 +77,7 @@ test("a character the font does not draw is reported once, not left silently bla
   ]);
 });
 
-test("checkpoint glyph codes 0x01..0x07 keep their pre-9f506052 pixels", () => {
+test("progress entry glyph codes 0x01..0x07 keep their pre-9f506052 pixels", () => {
   // A host-image checkpoint stays at format version 1 and copies text cells
   // unchanged (src/runtime/engine.ts:3720), so a checkpoint written before
   // 9f506052 holds the OLD glyph meanings: 0x01 horizontal line, 0x02
@@ -223,7 +223,7 @@ test("the window frame renders the decoded sub-cell OpenWndw fill and bars acros
 
 // Amiga look (docs/fidelity.md "Amiga screen, font and pointer"): the
 // build's own colour table, the status line as the 11 px screen title bar
-// with the priority gadgets, and gadget labels at the original's off-grid
+// with the depth gadgets, and gadget labels at the original's off-grid
 // position. Expected pixels are hand-computed from the recorded geometry.
 import { appearanceForProfile, loadAppearance } from "../src/render/appearance.ts";
 import { AMIGA_FONT } from "../src/render/fontAmiga.ts";
@@ -289,7 +289,7 @@ test("the Amiga status line is the screen title bar: 10 white rows, text at (2,1
   const lead = Math.clz32(top) - 24;
   assert.deepEqual(pixelAt(out, 2 + lead, 1), AMIGA_PALETTE[0], "title text starts at (2, 1)");
   assert.deepEqual(pixelAt(out, 2 + lead, 0), AMIGA_PALETTE[15], "nothing on bar row 0");
-  // The priority gadgets fill the bar's last 34 columns, on a 2 px pen 0 border.
+  // The depth gadgets fill the bar's last 34 columns, on a 2 px pen 0 border.
   assert.deepEqual(pixelAt(out, 286, 0), AMIGA_PALETTE[0], "back gadget border");
   assert.deepEqual(pixelAt(out, 303, 5), AMIGA_PALETTE[0], "front gadget border");
   assert.deepEqual(pixelAt(out, 288, 0), AMIGA_PALETTE[1], "gadget ground is pen 1");
@@ -881,7 +881,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "show.pic after fill (picTop 1, white pic): supersedes y=8..10 while y=0..7 stays black, directly and after checkpoint restore",
+        name: "show.pic after fill (picTop 1, white pic): supersedes y=8..10 while y=0..7 stays black, directly and after progress entry restore",
         act: () => {
           engine.flags[211] = 1;
           tickPast(engine);
@@ -892,7 +892,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "configure.screen 2 then 0 around fill: rows 0..10 stay black before show.pic, directly and after checkpoint restore",
+        name: "configure.screen 2 then 0 around fill: rows 0..10 stay black before show.pic, directly and after progress entry restore",
         act: () => {
           engine.flags[212] = 1;
           tickPast(engine);
@@ -903,7 +903,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "configure.screen 2 then 0 around fill, then show.pic: uninterrupted and checkpoint-restored both paint rows 0..10 white",
+        name: "configure.screen 2 then 0 around fill, then show.pic: uninterrupted and progress entry-restored both paint rows 0..10 white",
         act: () => {
           const fromAutosave = cloneViaAutosave(engine);
           const fromRecording = cloneViaRecording(engine);
@@ -936,7 +936,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "add.to.pic 1px blue cel at (0,0) after fill: paints (0,8)..(1,8) blue over fill, directly and after checkpoint restore",
+        name: "add.to.pic 1px blue cel at (0,0) after fill: paints (0,8)..(1,8) blue over fill, directly and after progress entry restore",
         act: () => {
           engine.flags[214] = 1;
           tickPast(engine);
@@ -947,7 +947,7 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         compareCheckpoints: true,
       },
       {
-        name: "further view draw and erase after checkpoint restore over add.to.pic and fill",
+        name: "further view draw and erase after progress entry restore over add.to.pic and fill",
         act: () => {
           const fromAutosave = cloneViaAutosave(engine);
           const fromRecording = cloneViaRecording(engine);
@@ -1158,7 +1158,7 @@ test("the Amiga menu strip: Kickstart's bar over the title, titles 2 px in, the 
   for (const y of [0, 8, 9])
     assert.deepEqual(pixelAt(out, 250, y), AMIGA_PALETTE[15], `bar row ${y}`);
   assert.deepEqual(pixelAt(out, 250, 10), AMIGA_PALETTE[0], "the bar's bottom line");
-  assert.deepEqual(pixelAt(out, 300, 5), AMIGA_PALETTE[15], "no priority gadgets on the strip");
+  assert.deepEqual(pixelAt(out, 300, 5), AMIGA_PALETTE[15], "no depth gadgets on the strip");
   // "Sierra": the S glyph's top row lit from column 2 of the glyph, drawn at x = 2, y = 1.
   const sLead = Math.clz32(AMIGA_FONT[0x53 * 8]!) - 24;
   assert.deepEqual(pixelAt(out, 2 + sLead, 1), AMIGA_PALETTE[0], "title text at (2, 1)");

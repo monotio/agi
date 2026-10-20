@@ -28,7 +28,7 @@ test("malformed play hashes recover to the picker without a startup exception", 
 });
 
 for (const failure of ["unsafe", "timeout", "storage"] as const) {
-  test(`project export discloses ${failure} checkpoint failure while downloading available progress`, async ({
+  test(`project export discloses ${failure} progress entry failure while downloading available progress`, async ({
     page,
   }, testInfo) => {
     await isolateStorage(page);

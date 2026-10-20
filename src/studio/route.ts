@@ -58,7 +58,7 @@ export interface RoutePlan {
 }
 
 const ESTIMATE =
-  "An estimate from the walk lines alone; other objects, blocks and scripts can change the outcome.";
+  "An estimate from the walk lines alone; other objects, blocks and LOGIC can change the outcome.";
 
 /** A route over the walkable estimate, searched the way navigation searches. */
 export function planRoute(input: RouteInput): RoutePlan {

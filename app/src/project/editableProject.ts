@@ -172,7 +172,7 @@ interface CandidateState {
   readonly buildId: string;
   readonly revision: ResourceRevision;
   readonly diagnostics: ReferenceDiagnostics;
-  /** inspectProjectReferences over the compiled candidate image, kept whole for removal review. */
+  /** inspectProjectReferences over the compiled change image, kept whole for removal review. */
   readonly image: SelectionCompile["references"];
   readonly removedResources: readonly string[];
   /** The kept baseline's named bindings, captured at build for draft review. */
@@ -378,7 +378,7 @@ class EditableProjectService implements EditableProject {
   ): Promise<EditableKeepResult> {
     const state = this.candidates.get(candidate);
     if (state === undefined)
-      throw new Error("This candidate was created by another workspace or service.");
+      throw new Error("These changes were created by another workspace or service.");
     // Admission checks run while the caller is synchronous with the draft:
     // typing during the storage wait stays a valid newer draft instead of
     // invalidating this already-admitted write. The review arguments are
@@ -449,7 +449,7 @@ class EditableProjectService implements EditableProject {
       });
       if (findings.length > 0)
         throw new Error(
-          `This candidate removes ${removals.join(", ")}; ${findings
+          `These changes remove ${removals.join(", ")}; ${findings
             .map((finding) => finding.message)
             .join("; ")}`,
         );
@@ -527,15 +527,15 @@ class EditableProjectService implements EditableProject {
     if (reviewed === undefined) {
       if (removals.length > 0)
         throw new Error(
-          `This candidate removes ${removals.join(", ")}; removal requires review: pass the exact list in 'reviewedRemovals'.`,
+          `These changes remove ${removals.join(", ")}; removal requires review: pass the exact list in 'reviewedRemovals'.`,
         );
-      throw new Error("A removal review was given, but this candidate removes no resources.");
+      throw new Error("A removal review was given, but these changes remove no resources.");
     }
     const seen = new Set<string>();
     for (const key of reviewed) {
       if (!removals.includes(key))
         throw new Error(
-          `Removal review '${key}' names no removal in this candidate; reviewedRemovals must list exactly ${removals.join(", ")}.`,
+          `Removal review '${key}' names no removal in these changes; reviewedRemovals must list exactly ${removals.join(", ")}.`,
         );
       if (seen.has(key))
         throw new Error(`Removal review lists '${key}' twice; each removal is reviewed once.`);

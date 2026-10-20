@@ -553,7 +553,7 @@ test("Undo during room preparation never claims that a prompt is open", () => {
 
 // Player rule: rewinding never trades a restored checkpoint for the game's start. Paused before
 // its first cycle after the restore, the checkpoint is not keepable yet and the notice says so.
-test("a restored checkpoint paused before its first cycle keeps its position", () => {
+test("a restored progress entry paused before its first cycle keeps its position", () => {
   const game = gameContainer(
     [
       "increment(v41); if (v41 > 3) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
@@ -569,13 +569,13 @@ test("a restored checkpoint paused before its first cycle keeps its position", (
   const h = viewHarness(game, { restoreImage: bytesToBase64(checkpoint) });
   const { ctx, send } = h;
   send({ type: "pause", paused: true });
-  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint is live");
+  assert.equal(ctx.run.engine!.vars[41], 2, "the progress entry is live");
   send({ type: "historyRetain", id: 1 });
   const reply = h.control.findLast((m) => m.type === "historyRetained");
   assert.ok(reply?.type === "historyRetained");
   assert.equal(reply.boot, null);
   assert.equal(reply.reason, "starting");
-  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint keeps its position");
+  assert.equal(ctx.run.engine!.vars[41], 2, "the progress entry keeps its position");
   ctx.fns.stopTimers();
 });
 
@@ -782,12 +782,12 @@ test("viewing the tape replays it in a scratch session the live engine never fee
 
   // Player input while viewing is transport traffic, never engine input:
   // neither the scratch's stream nor the parked engine's queues move.
-  const queuePriority = ctx.run.input.keyQueue.length;
+  const queueDepth = ctx.run.input.keyQueue.length;
   send({ type: "key", code: 65 });
   send({ type: "click", x: 161, y: 108 });
   send({ type: "input", text: "jump" });
   send({ type: "direction", dir: 8 });
-  assert.equal(ctx.run.input.keyQueue.length, queuePriority, "the parked engine heard nothing");
+  assert.equal(ctx.run.input.keyQueue.length, queueDepth, "the parked engine heard nothing");
   assert.equal(ctx.run.input.clickQueue.length, 0, "the parked engine took no click");
 
   // The live engine sat through the whole session untouched.
@@ -1468,7 +1468,7 @@ test("a start whose anchor mismatches the folded stream reports the error and cl
   send({ type: "historyViewEnd" });
 });
 
-test("a take carries the authoring checkpoint belonging to the adopted position", () => {
+test("a take carries the authoring progress entry belonging to the adopted position", () => {
   const h = viewHarness(viewGame(), { rngSeed: 0xbeef });
   const { send, tick } = h;
   tick(4);
@@ -1529,7 +1529,7 @@ test("a take carries the authoring checkpoint belonging to the adopted position"
   // Upstream of every checkpoint there is no snapshot — the host's
   // same-revision carry or a clean rebuild decides, never a stale future.
   const earliest = takeAt(3, checkpoints[0]!.tick - 1);
-  assert.equal(earliest.session, undefined, "no checkpoint upstream of the position");
+  assert.equal(earliest.session, undefined, "no progress entry upstream of the position");
 
   // At the uncheckpointed patch the tape cannot name the state belonging to
   // the adopted bytes — the older checkpoint is a different revision's and
@@ -1539,7 +1539,7 @@ test("a take carries the authoring checkpoint belonging to the adopted position"
   assert.equal(
     uncheckpointed.session,
     undefined,
-    "a mutation newer than the last checkpoint vetoes the stale snapshot",
+    "a mutation newer than the last progress entry vetoes the stale snapshot",
   );
 });
 
@@ -2041,7 +2041,7 @@ test("released retained originals restore through historyViewRestore and still r
 });
 
 for (const sound of [false, true]) {
-  test(`a retained released ${sound ? "sound" : "non-sound"} checkpoint restores through historyViewRestore`, () => {
+  test(`a retained released ${sound ? "sound" : "non-sound"} progress entry restores through historyViewRestore`, () => {
     const tape = JSON.parse(
       readFileSync(new URL("formats/history-1.2.2-paused-reenter.json", import.meta.url), "utf8"),
     ) as { batches: HistoryBatch[] };

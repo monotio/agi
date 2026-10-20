@@ -124,7 +124,7 @@ test("a replacement waits for the autosave interval on the host clock", (t) => {
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 2);
 });
 
-test("a forced checkpoint refused before the first picture is taken once the room has drawn", (t) => {
+test("a forced progress entry refused before the first picture is taken once the room has drawn", (t) => {
   // Play after Create asks for a checkpoint at once; a game that has not drawn
   // yet still owes it, rather than leaving the edit unsaved until the next interval.
   const { ctx, presentation } = workerHarness(drawnGame());
@@ -138,7 +138,7 @@ test("a forced checkpoint refused before the first picture is taken once the roo
   assert.equal(presentation.filter((m) => m.type === "autosave").length, 1);
 });
 
-test("periodic checkpoints continue when every host poll arrives a heartbeat apart", (t) => {
+test("periodic progress entrys continue when every host poll arrives a heartbeat apart", (t) => {
   // A busy browser can deliver the poll timer late; the cycle report must not
   // take every poll and starve the checkpoint.
   const { ctx, presentation } = workerHarness(drawnGame());

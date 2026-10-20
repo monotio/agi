@@ -61,9 +61,9 @@ watch(
 );
 
 /** Nested dragenter/dragleave pairs: the outline stays while anything is over Home. */
-const dragPriority = ref(0);
+const dragDepth = ref(0);
 function onDrop(event: DragEvent): void {
-  dragPriority.value = 0;
+  dragDepth.value = 0;
   void onGameDrop(event.dataTransfer ?? undefined);
 }
 </script>
@@ -71,10 +71,10 @@ function onDrop(event: DragEvent): void {
   <div
     v-if="!routePending && (state.phase === 'idle' || state.phase === 'error')"
     class="setup-panel"
-    :class="{ dragging: dragPriority > 0, 'new-game-page': createOpen }"
+    :class="{ dragging: dragDepth > 0, 'new-game-page': createOpen }"
     data-testid="game-zip-drop"
-    @dragenter.prevent="dragPriority++"
-    @dragleave="dragPriority = Math.max(0, dragPriority - 1)"
+    @dragenter.prevent="dragDepth++"
+    @dragleave="dragDepth = Math.max(0, dragDepth - 1)"
     @dragover.prevent
     @drop.prevent="onDrop"
   >

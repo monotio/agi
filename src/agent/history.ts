@@ -720,6 +720,7 @@ function clickPairs(value: unknown, name: string): [number, number][] {
   });
 }
 
+// dictionary is the stored agent history record field.
 function dictionary(value: unknown): [string, number][] {
   if (!Array.isArray(value) || value.length > 65536) fail("dictionary must be a bounded list.");
   return value.map((entry) => {

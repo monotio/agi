@@ -226,19 +226,19 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
         const x = act["x"];
         const y = act["y"];
         if (typeof label !== "string" || !label) {
-          throw new Error(`Invalid checkpoint label at action ${i}`);
+          throw new Error(`Invalid walkthrough marker label at action ${i}`);
         }
         if (typeof room !== "number" || !Number.isInteger(room) || room < 0 || room > 255) {
-          throw new Error(`Invalid checkpoint room at action ${i}`);
+          throw new Error(`Invalid walkthrough marker room at action ${i}`);
         }
         if (typeof score !== "number" || !Number.isInteger(score) || score < 0 || score > 255) {
-          throw new Error(`Invalid checkpoint score at action ${i}`);
+          throw new Error(`Invalid walkthrough marker score at action ${i}`);
         }
         if (typeof x !== "number" || !Number.isInteger(x) || x < 0 || x > 255) {
-          throw new Error(`Invalid checkpoint x coordinate at action ${i}`);
+          throw new Error(`Invalid walkthrough marker x coordinate at action ${i}`);
         }
         if (typeof y !== "number" || !Number.isInteger(y) || y < 0 || y > 255) {
-          throw new Error(`Invalid checkpoint y coordinate at action ${i}`);
+          throw new Error(`Invalid walkthrough marker y coordinate at action ${i}`);
         }
         actions.push({ kind: "checkpoint", label, room, score, x, y });
         break;

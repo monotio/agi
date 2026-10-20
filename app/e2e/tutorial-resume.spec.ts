@@ -15,7 +15,9 @@ import {
 
 const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
-test("the tutorial shelf offers Resume and restores the checkpoint exactly", async ({ page }) => {
+test("the tutorial shelf offers Resume and restores the progress entry exactly", async ({
+  page,
+}) => {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
@@ -32,7 +34,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
   const stopped = await textHook(page);
   expect(stopped.room).toBe(1);
   await waitForCycles(page, 2);
-  expect((await textHook(page)).egoX, "ego must stand still before the checkpoint").toBe(
+  expect((await textHook(page)).egoX, "ego must stand still before the progress entry").toBe(
     stopped.egoX,
   );
 
@@ -46,7 +48,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
   expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
   const play = page.getByTestId("catalog-play-adventure-department");
   await expect
-    .soft(play, "the shelf must offer the checkpoint, not a fresh start")
+    .soft(play, "the shelf must offer the progress entry, not a fresh start")
     .toHaveText("Resume");
 
   await play.click();
@@ -54,7 +56,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
   await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_PROJECT_ID}$`));
   await expect
     .poll(async () => (await textHook(page)).egoX, {
-      message: "the checkpoint must be restored, not overwritten by a boot from room 1",
+      message: "the progress entry must be restored, not overwritten by a boot from room 1",
     })
     .toBe(stopped.egoX);
   await waitForCycles(page, 2);

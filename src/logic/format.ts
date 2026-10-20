@@ -59,7 +59,7 @@ export function formatLogic(source: string, options: FormatOptions = {}): TextEd
 
   const lines: string[] = [];
   let line = "";
-  let priority = 0;
+  let depth = 0;
   let parens = 0;
   let previous = "";
   let previousEnd = 0;
@@ -103,11 +103,11 @@ export function formatLogic(source: string, options: FormatOptions = {}): TextEd
     }
     if (joinElse) boundary = false;
     if (token?.type === "directive") inDirective = true;
-    if (close) priority--;
+    if (close) depth--;
     if (punct && text === ")") parens--;
     if (!line)
       line = "  ".repeat(
-        directive || inDirective || label || labelColon ? 0 : priority + (parens > 0 ? 1 : 0),
+        directive || inDirective || label || labelColon ? 0 : depth + (parens > 0 ? 1 : 0),
       );
     const space =
       line.trim().length > 0 &&
@@ -125,7 +125,7 @@ export function formatLogic(source: string, options: FormatOptions = {}): TextEd
       boundary = true;
     }
     if (punct && text === "(") parens++;
-    if (punct && text === "{") priority++;
+    if (punct && text === "{") depth++;
     if ((punct && [";", "{", "}", ":"].includes(text)) || !token) boundary = true;
     previous = text;
     previousEnd = piece.end;

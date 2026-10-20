@@ -223,7 +223,7 @@ describe("captureAgentWorkspace: capture and the invalid-draft contract", () => 
     assert.equal(workspace.compilable, true);
   });
 
-  test("case-varied and duplicate authored words hydrate to the compiled dictionary", () => {
+  test("case-varied and duplicate authored words hydrate to the compiled WORDS", () => {
     const project = createStarterProject("blank");
     const files = filesRecord(project);
     const read = readProjectDocuments({
@@ -240,7 +240,7 @@ describe("captureAgentWorkspace: capture and the invalid-draft contract", () => 
     assert.equal(workspace.compilable, true);
 
     const candidate = workspace.openToolState();
-    // The tool dictionary is the compiled dictionary — folded, sorted and
+    // The tool dictionary is the compiled WORDS — folded, sorted and
     // deduplicated — never raw document pairs overlaid on native words.
     assert.deepEqual(
       [...candidate.state.sources.words].sort(([a], [b]) => (a < b ? -1 : 1)),

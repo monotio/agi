@@ -1,6 +1,6 @@
 /**
  * Preview-plan issuer authority. The handle returned by preparePreviewUpdate
- * is an opaque token: nothing it exposes can reach the staged candidate, and
+ * is an opaque token: nothing it exposes can reach the staged changes, and
  * no constructed, cloned, spread, Object.create'd or foreign-engine handle
  * authorizes a commit. Deferred outcomes keep the issuer record alive and
  * re-run every dynamic check on retry; committed and terminal verdicts

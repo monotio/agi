@@ -147,7 +147,7 @@ test("a session recorded through dissolves replays, from its boot and every anch
   assert.equal(historySyncDigest(replayed.ctx.run.engine!), live);
   assert.ok(
     segment.anchors.some((a) => a.replay.continuation?.modals.some((m) => m.kind === "dissolve")),
-    "the pause anchored a checkpoint mid-dissolve",
+    "the pause anchored a progress entry mid-dissolve",
   );
   for (let anchor = 0; anchor < segment.anchors.length; anchor++) {
     const fromAnchor = replayHistorySegment(segment, { anchor });

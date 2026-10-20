@@ -1111,7 +1111,11 @@ for (const delivery of ["publish", "cancel", "replace", "failure"] as const) {
         );
       } else {
         await project.flush();
-        assert.equal(checkpoints, 1, "a parked room gets a checkpoint at its installed revision");
+        assert.equal(
+          checkpoints,
+          1,
+          "a parked room gets a progress entry at its installed revision",
+        );
         assert.ok(project.model.capture().read("logic:2"));
         const stored = (await loadAuthoredGame(projectId))!;
         assert.ok(openContainer(new Map(Object.entries(stored.files))).getResource("logic", 2));
@@ -1806,7 +1810,7 @@ for (const withSession of [false, true]) {
 }
 
 const STALE_TURN_MESSAGE =
-  "The game was changed elsewhere while the assistant worked, so nothing was applied. Reload the game, then ask again.";
+  "The game was changed elsewhere while the agent worked, so nothing was applied. Reload the game, then ask again.";
 
 type WorkerPost = {
   type: string;

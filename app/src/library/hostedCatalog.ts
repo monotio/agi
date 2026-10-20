@@ -153,7 +153,7 @@ function catalogEntry(
       const directory = new URL(record.path, manifestUrl);
       for (const name of record.files) {
         const url = new URL(name, directory);
-        // Defence in priority: every request stays inside the game's directory.
+        // Defence in depth: every request stays inside the game's directory.
         if (url.origin !== directory.origin || !url.pathname.startsWith(directory.pathname))
           throw new Error("Hosted catalog file name is invalid.");
         const bytes = await fetchFile(url, fetchImpl);

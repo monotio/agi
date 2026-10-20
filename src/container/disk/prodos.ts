@@ -49,8 +49,8 @@ export function readProDos(
   };
   const result: DiskFiles = { files: new Map(), unreadable: new Map() };
   const directories = new Set<number>();
-  const visit = (first: number, path: string, priority: number): void => {
-    if (priority > 32)
+  const visit = (first: number, path: string, depth: number): void => {
+    if (depth > 32)
       throw new Error(
         "The disk has a damaged ProDOS directory tree. Add a fresh copy of the disk.",
       );
@@ -79,7 +79,7 @@ export function readProDos(
           diskName(image.subarray(current * 512 + at + 1, current * 512 + at + 1 + (packed & 15)));
         const key = directory.getUint16(at + 17, true);
         if (type === 13) {
-          visit(key, name + "/", priority + 1);
+          visit(key, name + "/", depth + 1);
           continue;
         }
         addDiskFile(result, name, budget, () => {

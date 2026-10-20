@@ -116,7 +116,7 @@ const SESSION_SNAPSHOT: Record<string, unknown> = {
   sources: { logics: [], pictures: [], views: [], sounds: [] },
 };
 /** The tape's last authoring checkpoint — what a take installs. */
-const TAKE_SNAPSHOT: Record<string, unknown> = { plan: "the tape's checkpoint" };
+const TAKE_SNAPSHOT: Record<string, unknown> = { plan: "the tape's progress entry" };
 const TAKEN_BOOT: HistoryBoot = stampBoot({ ...BOOT, rng: 55, resourceSet: "rev-taken" });
 
 const VIEW_PROJECT = testProjectId("view-test");
@@ -570,7 +570,7 @@ test("a take acknowledged but never promoted stays pending — no player vote", 
   assert.ok(pauses.includes("transport"), "the parked surface is the transport's hold");
   assert.equal(v.pendingSwaps, 1);
   assert.match(v.error, /could not be saved/i);
-  // The staged candidate stayed durable — the departing session's only copy.
+  // The staged changes stayed durable — the departing session's only copy.
   assert.equal((await loadRetainedBranches(target.locator)).length, 0, "nothing promoted yet");
   const outline = await loadTapeOutline(target.locator);
   assert.equal(outline?.pending, 1, "the candidate stays preserved, unsettled");
@@ -689,7 +689,7 @@ test("a failed stage write releases the hold and asks the worker nothing", async
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
 
-  // Fail the staged candidate's first record write — a definite failure
+  // Fail the staged changes's first record write — a definite failure
   // before any adoption, so the hold must release.
   const put = RECORDS.set.bind(RECORDS);
   let armed = true;
@@ -708,10 +708,10 @@ test("a failed stage write releases the hold and asks the worker nothing", async
   assert.deepEqual(takes, [], "no adoption was requested");
 });
 
-test("a staged candidate the tape proves adopted settles into a branch on the next open", async () => {
+test("a staged changes the tape proves adopted settles into a branch on the next open", async () => {
   const target = await bindViewGame();
   // The departing segment ended with the "resume" stamp only adoption
-  // writes — the staged candidate is owed a branch slot.
+  // writes — the staged changes is owed a branch slot.
   const adopted: HistoryRecording = {
     ...RECORDING,
     segments: [
@@ -736,10 +736,10 @@ test("a staged candidate the tape proves adopted settles into a branch on the ne
   assert.equal(branches[0]!.boot.rng, 77);
 });
 
-test("a staged candidate the tape cannot settle stays quiet and blocks nothing", async () => {
+test("a staged changes the tape cannot settle stays quiet and blocks nothing", async () => {
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });
-  // An earlier swap left a staged candidate whose departing segment is
+  // An earlier swap left a staged changes whose departing segment is
   // still open and unidentified — the tape cannot prove either outcome.
   await stageRetainedOriginal(target, {
     id: "s-open",
@@ -972,7 +972,7 @@ test("a seek answer landing after close writes nothing back", async () => {
   assert.equal(v.error, "", "no error resurrects the transport");
 });
 
-test("Resume from here installs the tape's checkpoint and keeps the departing session's state", async () => {
+test("Resume from here installs the tape's progress entry and keeps the departing session's state", async () => {
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });
   const { state, view, adoptions, sessionState } = makeHarness();
@@ -1000,7 +1000,7 @@ test("a failed authoring install keeps the adoption hold and ends the view", asy
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });
   const { state, view, adoptions, sessionState } = makeHarness({
-    adoptError: "the recorded authoring checkpoint is malformed",
+    adoptError: "the recorded authoring progress entry is malformed",
   });
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;

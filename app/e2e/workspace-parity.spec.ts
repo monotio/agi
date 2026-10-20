@@ -153,7 +153,7 @@ test("Focus gives the PICTURE canvas more room @webkit-desktop", async ({ page }
   const after = (await studio.locator(".studio__stage").boundingBox())!;
   expect(after.width * after.height).toBeGreaterThan(before.width * before.height * 1.2);
 });
-test("draw order, Split and Distance bands are reachable in the workspace @phone", async ({
+test("draw order, Split and Priority bands are reachable in the workspace @phone", async ({
   page,
 }) => {
   const studio = await picture(page);
@@ -678,7 +678,7 @@ test("stand-in readout and an item's priority controls are reachable @phone", as
   await expect(distance).toBeVisible();
   await distance.click();
   await expect(distance).toHaveAttribute("aria-checked", "true");
-  const band = studio.getByRole("slider", { name: "Distance band", exact: true });
+  const band = studio.getByRole("slider", { name: "Priority band", exact: true });
   await expect(band).toBeVisible();
   await band.fill("8");
   await expect(band).toHaveValue("8");

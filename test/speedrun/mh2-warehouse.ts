@@ -273,11 +273,11 @@ function stateKey(s: SimState): string {
  * sweeping it), so the score measures distance left along the whole route
  * and the goal is the exit threshold itself. Returns the predicted state
  * after every planned cycle plus the headings that produce them; when
- * nothing reaches the exit inside MAX_PRIORITY, the best-ranked frontier
+ * nothing reaches the exit inside MAX_DEPTH, the best-ranked frontier
  * node's path still leads the walk.
  */
 const BEAM = 48;
-const MAX_PRIORITY = 800;
+const MAX_DEPTH = 800;
 function planSearch(
   x: number,
   y: number,
@@ -329,7 +329,7 @@ function planSearch(
     dirs.shift(); // the root's own move is meaningless
     return { states, dirs, reached };
   };
-  for (let priority = 0; priority < MAX_PRIORITY && frontier.length; priority++) {
+  for (let depth = 0; depth < MAX_DEPTH && frontier.length; depth++) {
     const next: BeamNode[] = [];
     for (const s of frontier) {
       for (let dir = 0; dir <= 8; dir++) {

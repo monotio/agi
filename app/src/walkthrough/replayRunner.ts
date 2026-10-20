@@ -417,7 +417,7 @@ export async function runReplayBatch(
         case "checkpoint": {
           checkAborted();
           const obs = driver.latest;
-          if (!obs) throw new Error("No observation at checkpoint");
+          if (!obs) throw new Error("No observation at walkthrough marker");
           const actual = {
             room: obs.state.room,
             score: obs.state.vars[3] ?? 0,

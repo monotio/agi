@@ -185,7 +185,7 @@ watch(
         :model-value="overlayOn"
         @update:model-value="inspector.setOverlay($event)"
       >
-        Object boxes<small>Outline every animated object</small>
+        Object boxes<small>Outline every actor</small>
       </UiSwitch>
       <UiSwitch
         size="sm"
@@ -195,7 +195,7 @@ watch(
         @update:model-value="inspector.setInspectArmed($event)"
       >
         Pick a pixel<small>{{
-          inspectArmed ? "Click the scene to latch a pick" : "Read colour, priority and owner"
+          inspectArmed ? "Click the frame to latch a pick" : "Read colour, priority and owner"
         }}</small>
       </UiSwitch>
     </div>
@@ -351,7 +351,7 @@ watch(
           <td>{{ ["—", "move", "follow", "wander"][o.motionMode] }}</td>
         </tr>
         <tr v-if="!state.debugObjects.length">
-          <td colspan="5" class="dd-hint">no animated objects</td>
+          <td colspan="5" class="dd-hint">no actors</td>
         </tr>
       </tbody>
     </table>

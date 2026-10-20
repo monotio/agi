@@ -115,7 +115,7 @@ export interface PowerUpUiState {
  * points at: only reloading the game from storage continues.
  */
 const STALE_TURN_MESSAGE =
-  "The game was changed elsewhere while the assistant worked, so nothing was applied. Reload the game, then ask again.";
+  "The game was changed elsewhere while the agent worked, so nothing was applied. Reload the game, then ask again.";
 
 /**
  * The refusal of a conversation or session save whose project moved past
@@ -1365,7 +1365,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // the durable write runs first: a refused save installs nothing, and
       // the running game follows only once it confirms the saved files.
       const currentFiles = await query("exportFiles");
-      if (!currentFiles) throw new Error("The remixed game snapshot is unavailable.");
+      if (!currentFiles) throw new Error("The remixed game state is unavailable.");
       const container = openContainer(new Map(Object.entries(currentFiles)), {
         profile: session.state.profile,
       });

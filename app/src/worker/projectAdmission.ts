@@ -239,13 +239,13 @@ function validateCandidate(
   value: unknown,
   engineProfileId: ProfileId,
 ): { candidate: ValidatedCandidate } | { error: string } {
-  if (!isRecord(value)) return { error: "preview candidate must be an object" };
+  if (!isRecord(value)) return { error: "preview changes must be an object" };
   const filesValue = value["files"];
   if (!isRecord(filesValue) || Object.keys(filesValue).length === 0)
-    return { error: "preview candidate carries no file image" };
+    return { error: "preview changes carries no file image" };
   for (const [name, bytes] of Object.entries(filesValue)) {
     if (!(bytes instanceof Uint8Array))
-      return { error: `preview candidate file '${name}' is not bytes` };
+      return { error: `preview changes file '${name}' is not bytes` };
   }
   let canonical: Map<string, Uint8Array>;
   try {
@@ -258,13 +258,13 @@ function validateCandidate(
   }
   const profile = value["profile"];
   if (profile !== undefined && (typeof profile !== "string" || !Object.hasOwn(PROFILES, profile)))
-    return { error: "preview candidate declares an unknown profile" };
+    return { error: "preview changes declares an unknown profile" };
   const sourcesValue = value["sources"];
   if (!isRecord(sourcesValue) || Object.values(sourcesValue).some((s) => typeof s !== "string"))
-    return { error: "preview candidate sources must map logic numbers to source text" };
+    return { error: "preview changes sources must map logic numbers to source text" };
   const sourceBindingsValue = value["sourceBindings"];
   if (!isRecord(sourceBindingsValue))
-    return { error: "preview candidate sourceBindings must be a name map" };
+    return { error: "preview changes sourceBindings must be a name map" };
   const sourceBindings: Record<string, { kind: SourceBindingKind; num: number }> = {};
   for (const [name, binding] of Object.entries(sourceBindingsValue)) {
     const kind = isRecord(binding) ? binding["kind"] : undefined;
@@ -276,16 +276,16 @@ function validateCandidate(
       (num as number) > 255
     )
       return {
-        error: `preview candidate binding '${name}' needs { kind: logic|picture|view|sound|flag|variable|string, num: 0..255 }`,
+        error: `preview changes binding '${name}' needs { kind: logic|picture|view|sound|flag|variable|string, num: 0..255 }`,
       };
     sourceBindings[name] = { kind: kind as SourceBindingKind, num: num as number };
   }
   const buildId = value["buildId"];
   if (typeof buildId !== "string" || buildId === "")
-    return { error: "preview candidate carries no claimed build identity" };
+    return { error: "preview changes carries no claimed build identity" };
   const revision = value["revision"];
   if (typeof revision !== "string" || revision === "")
-    return { error: "preview candidate carries no claimed resource revision" };
+    return { error: "preview changes carries no claimed resource revision" };
   const origins = value["origins"];
   if (
     !Array.isArray(origins) ||
@@ -297,7 +297,7 @@ function validateCandidate(
         (origin["version"] as number) < 0,
     )
   )
-    return { error: "preview candidate origins must be a list of { key, version }" };
+    return { error: "preview changes origins must be a list of { key, version }" };
   const record: Record<string, Uint8Array> = {};
   for (const [name, bytes] of canonical) record[name] = bytes;
   return {
@@ -556,7 +556,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         compiled.build.identity.buildId !== candidate.buildId ||
         projectDocumentId(compiled.documents(), sha256Hex) !== documentId
       )
-        throw new Error("project documents do not reproduce the candidate image");
+        throw new Error("project documents do not reproduce the change image");
       const bindings = compiled.documents()["bindings"];
       if (bindings !== undefined && typeof bindings === "string") {
         const complete = JSON.parse(bindings) as Record<
@@ -564,12 +564,12 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
           { kind: SourceBindingKind; num: number }
         >;
         if (!sameSourceBindings(complete, candidate.sourceBindings))
-          throw new Error("project bindings differ from candidate bindings");
+          throw new Error("project bindings differ from change bindings");
       } else if (Object.keys(candidate.sourceBindings).length > 0)
-        throw new Error("candidate bindings lack project documents");
+        throw new Error("change bindings lack project documents");
     } catch (error) {
       settleRefused(
-        `candidate build capture failed: ${String(error instanceof Error ? error.message : error)}`,
+        `change build capture failed: ${String(error instanceof Error ? error.message : error)}`,
       );
       return;
     }
@@ -639,7 +639,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       });
     } catch (error) {
       settleRefused(
-        `candidate image cannot be inspected: ${String(
+        `change image cannot be inspected: ${String(
           error instanceof Error ? error.message : error,
         )}`,
       );
@@ -676,7 +676,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     if (violations.length > 0) {
       const first = violations[0]!;
       settleRefused(
-        `candidate fails detached project validation: ${first.document}: ${first.message}` +
+        `changes fail detached project validation: ${first.document}: ${first.message}` +
           (violations.length > 1 ? ` (+${violations.length - 1} more)` : ""),
       );
       return;
@@ -806,7 +806,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         committedDictionary = parseWordsTok(wordsFile);
       } catch (error) {
         settleRefused(
-          `candidate WORDS.TOK is not a valid dictionary: ${String(
+          `changed WORDS.TOK could not be read: ${String(
             error instanceof Error ? error.message : error,
           )}`,
         );

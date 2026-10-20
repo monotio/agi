@@ -30,7 +30,7 @@ const MODES = [
 /** What of priority shows; the select also offers each single value. */
 const SHOWS = [
   { value: "all", label: "All priority" },
-  { value: "bands", label: "Distance bands" },
+  { value: "bands", label: "Priority bands" },
   { value: "controls", label: "Walls, water, triggers, gates" },
 ] as const;
 </script>

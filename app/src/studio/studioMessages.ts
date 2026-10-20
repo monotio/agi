@@ -58,10 +58,7 @@ const PLAIN: readonly (readonly [
     () => "Group takes neighbours in the draw order. Include the items between them.",
   ],
   [/needs at least two items/, () => "Select two items or more to group."],
-  [
-    /is one drawing element/,
-    () => "This item has one step. Select an item with several steps to ungroup.",
-  ],
+  [/is one item/, () => "This item has one step. Select an item with several steps to ungroup."],
 ];
 
 /** The creator's sentence for kernel refusal `error` of `op`. */

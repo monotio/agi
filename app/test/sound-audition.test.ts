@@ -1100,7 +1100,7 @@ describe("sound audition lifecycle", () => {
       assert.equal(studioAmiga.sources.at(-4)!.playbackRate.value, ((3579545 / 800) * 32) / 48000);
       await amigaAudition.audition.close();
 
-      // Type-1 IIgs sampled sound with vibratoPriority=66, vibratoSpeed=25 on its embedded instrument.
+      // Type-1 IIgs sampled sound with vibratoDepth=66, vibratoSpeed=25 on its embedded instrument.
       const samplePayload = new Uint8Array(2 + 8 + 44 + 256);
       samplePayload[0] = 1; // type 1
       samplePayload[2] = 50; // semitone 50
@@ -1111,7 +1111,7 @@ describe("sound audition lifecycle", () => {
       samplePayload[10] = 127; // seg0 breakpoint 127
       samplePayload[11] = 0;
       samplePayload[12] = 0x7f; // seg0 increment 32512
-      samplePayload[10 + 27] = 66; // vibratoPriority
+      samplePayload[10 + 27] = 66; // vibratoDepth
       samplePayload[10 + 28] = 25; // vibratoSpeed
       samplePayload[10 + 30] = 1; // 1 A wave
       samplePayload[10 + 32] = 127; // topKey

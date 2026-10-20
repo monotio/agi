@@ -696,7 +696,7 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".screen")).toBeVisible();
 });
 
-test("a corrupt autosave refuses recovery and preserves the stored checkpoint @webkit-desktop", async ({
+test("a corrupt autosave refuses recovery and preserves the stored progress entry @webkit-desktop", async ({
   page,
 }) => {
   await page.goto("/");
@@ -720,7 +720,7 @@ test("a corrupt autosave refuses recovery and preserves the stored checkpoint @w
   // KQ1 again before it reads the checkpoint: the same budget as the resume after a reload above.
   const error = page.getByTestId("error-panel");
   await expect(error).toBeVisible({ timeout: 20_000 });
-  await expect(error).toContainText("The checkpoint could not be restored");
+  await expect(error).toContainText("The progress entry could not be restored");
   await expect(page.locator(".screen")).toBeHidden();
   expect(await page.evaluate((key) => localStorage.getItem(key), autosaveKey)).toBe(damaged);
 });

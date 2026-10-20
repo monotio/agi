@@ -141,7 +141,7 @@ test("Sierra's two layers: the Priority lens holds the control lines, the walk t
   // The filter offers the control lines as one choice.
   await expect(studio.getByTestId("priority-filter").locator("option")).toContainText([
     "All priority",
-    "Distance bands",
+    "Priority bands",
     "Walls, water, triggers, gates",
   ]);
   // The walk tools ride the rail in the Priority lens, and leave with it.
@@ -294,7 +294,7 @@ test("the Priority pen's slider runs Far at 4 to Near at 15; the header drops th
   const pen = studio.getByRole("radiogroup", { name: "Priority pen", exact: true });
   await expect(pen).toBeVisible();
   await pen.getByRole("radio", { name: "Distance", exact: true }).click();
-  const band = studio.getByRole("slider", { name: "Distance band", exact: true });
+  const band = studio.getByRole("slider", { name: "Priority band", exact: true });
   await expect(band).toBeVisible();
   await expect(band).toHaveAttribute("min", "4");
   await expect(band).toHaveAttribute("max", "15");

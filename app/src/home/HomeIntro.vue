@@ -333,7 +333,7 @@ function onPrimary(): void {
         <img
           v-else-if="!last && tutorialScreen"
           :src="tutorialScreen"
-          :alt="`${featuredCatalog.title} opening scene`"
+          :alt="`${featuredCatalog.title} opening room`"
         />
         <div v-else class="continue-empty" aria-hidden="true"></div>
       </div>

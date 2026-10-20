@@ -808,7 +808,7 @@ test("tool results carry explicit evidence origins and a resource-set identity",
   assert.equal(liveOrigin["kind"], "live");
 });
 
-test("fromLiveCheckpoint restores the captured live image into the staged candidate", async () => {
+test("fromLiveCheckpoint restores the captured live image into the staged changes", async () => {
   const session = bootedSession();
   // Boot a live engine to a snapshottable cycle boundary, then capture it —
   // the same image the worker hands the session while the game is paused.
