@@ -112,7 +112,7 @@ test("the Command key stays with the browser unless the game binds its word", ()
   assert.equal(nativeGameKey(key("v", { metaKey: true }), "2.936", [{ key: 0x76 }]), undefined);
 });
 
-function gamepadRig(): {
+function gamepadRig(presentation = "pc"): {
   sent: (JoystickSample | null)[];
   keys: number[];
   owns: boolean;
@@ -134,7 +134,7 @@ function gamepadRig(): {
     send: (sample) => rig.sent.push(sample),
     prompt: () => rig.prompt,
     promptKey: (code) => rig.keys.push(code),
-    presentation: () => "pc",
+    presentation: () => presentation,
   });
   return rig;
 }
@@ -181,3 +181,40 @@ test("a fire button released while a host control holds focus does not fire late
   rig.poll();
   assert.deepEqual(rig.keys, [0x0101]);
 });
+
+// A button the game never saw released must not fire: a finger still down
+// across the focus handoff carries no fresh edge for either fire convention.
+for (const presentation of ["iigs", "pc", "amiga"]) {
+  test(`a fire button held across a focus loss stays stale until seen released (${presentation})`, () => {
+    const rig = gamepadRig(presentation);
+    rig.prompt = true;
+    // Establish a working fire button while the game owns the page.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(rig.keys, [0x0101]);
+    // Press and hold, then a host control takes the keyboard mid-hold.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.owns = false;
+    rig.poll();
+    // Focus returns with the finger still down: no fresh edge on either
+    // convention, so nothing may fire — not on the press (IIgs) and not on
+    // the release the game never saw begin (PC, Amiga).
+    rig.owns = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(rig.keys, presentation === "iigs" ? [0x0101, 0x0101] : [0x0101]);
+    // Once the held button has been seen released, the next press fires.
+    rig.pad.button1 = true;
+    rig.poll();
+    rig.pad.button1 = false;
+    rig.poll();
+    assert.deepEqual(
+      rig.keys,
+      presentation === "iigs" ? [0x0101, 0x0101, 0x0101] : [0x0101, 0x0101],
+    );
+  });
+}

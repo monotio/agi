@@ -256,7 +256,14 @@ test("a host control's focus holds the controller: held input releases and retur
   await held.focus();
   await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 0");
   await page.keyboard.press("Escape");
-  await page.getByTestId("input-line").focus();
+  // Focus returns the way a player's does: a click on the game. Aim past
+  // ego so click-to-walk agrees with the held stick's rightward push.
+  const egoX = (await textHook(page)).egoX;
+  const box = (await page.locator(".screen").boundingBox())!;
+  await page.mouse.click(
+    box.x + ((Math.min(egoX + 40, 315) + 0.5) * box.width) / 320,
+    box.y + ((120 + 0.5) * box.height) / 200,
+  );
   await expect.poll(async () => (await textHook(page)).rows[5]?.trim()).toBe("Direction 3");
 });
 

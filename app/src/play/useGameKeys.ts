@@ -64,9 +64,14 @@ export function createGamepadPoll(deps: {
   presentation(): string;
 }): () => void {
   let buttons = [false, false];
+  // A button that crossed the handoff still held is stale until a poll sees
+  // it released: its press edge happened under the host control, so neither
+  // convention may fire it — not on return (IIgs) and not on its late release.
+  let stale = [false, false];
   return () => {
     if (!deps.gameOwnsPad()) {
       buttons = [false, false];
+      stale = [true, true];
       deps.send(null);
       return;
     }
@@ -77,6 +82,10 @@ export function createGamepadPoll(deps: {
       // The Amiga gameport has one fire button (F-IN-17).
       for (let i = 0; i < (deps.presentation() === "amiga" ? 1 : 2); i++) {
         const pressed = next[i]!;
+        if (stale[i]!) {
+          if (!pressed) stale[i] = false;
+          continue;
+        }
         const wasPressed = buttons[i]!;
         if (deps.presentation() === "iigs" ? pressed && !wasPressed : wasPressed && !pressed)
           deps.promptKey(i === 0 ? 0x0101 : 0x0201);
