@@ -42,24 +42,21 @@ async function download(): Promise<void> {
     const url = URL.createObjectURL(new Blob([buildZip(entries)], { type: "application/zip" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = "agi-recovery-data.zip";
+    link.download = "agi-unsaved-edits.zip";
     link.click();
     URL.revokeObjectURL(url);
   } catch (cause) {
     const message = (cause instanceof Error ? cause.message : String(cause)).replace(/[.]+$/, "");
-    error.value = `Could not download the edits: ${message}. Try Download edits again.`;
+    error.value = `Could not download unsaved edits: ${message}. Try Download unsaved edits again.`;
   }
 }
 </script>
 
 <template>
   <div v-if="recoveries.length" data-testid="pending-edit-recovery" role="status">
-    <p>
-      Some edits were not saved because this game changed in another tab or window. Download them to
-      keep a copy, or discard them.
-    </p>
+    <p>Some edits could not be restored. Download unsaved edits to keep a copy.</p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <UiButton size="sm" @click="download">Download edits</UiButton>
+    <UiButton size="sm" @click="download">Download unsaved edits</UiButton>
     <UiButton size="sm" @click="discard">Discard edits</UiButton>
   </div>
 </template>

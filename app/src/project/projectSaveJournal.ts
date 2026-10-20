@@ -65,7 +65,7 @@ interface RecoveryMarker {
 }
 const terminal: Record<string, RecoveryMarker> = {};
 
-/** Retained journals whose base differs from the live project version. */
+/** Retained journals that could not be recovered automatically. */
 export function readProjectSaveRecoveries(
   storage: Storage,
   project: ProjectId,
@@ -180,7 +180,11 @@ export function markProjectSaveRecovery(storage: Storage, key: string, reason: s
     reason,
   };
   terminal[key] = marker;
-  storage.setItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`, JSON.stringify(marker));
+  try {
+    storage.setItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`, JSON.stringify(marker));
+  } catch {
+    // Keep the original journal and expose recovery on this page if storage is full.
+  }
   changed();
 }
 
@@ -239,39 +243,24 @@ export function resumeProjectSaveJournals(
               entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
               continue;
             }
-            if (
+            // Keep failed work exactly as it was before this attempt, including
+            // any successor appended while recovery awaited the write.
+            const current = readEntries(storage, key);
+            const index = current.findIndex(
+              (candidate) => entryIdentity(candidate) === entryIdentity(entry),
+            );
+            if (index >= 0) current[index] = beforeAttempt;
+            writeProjectSaveJournal(storage, key, current);
+            const conflict =
               error instanceof Error &&
-              ["ConcurrencyConflictError", "ProjectExistsError"].includes(error.name)
-            ) {
-              const current = readEntries(storage, key);
-              const index = current.findIndex(
-                (candidate) => entryIdentity(candidate) === entryIdentity(entry),
+              ["ConcurrencyConflictError", "ProjectExistsError"].includes(error.name);
+            if (!conflict || current.every((candidate) => observed.has(entryIdentity(candidate))))
+              markProjectSaveRecovery(
+                storage,
+                key,
+                error instanceof Error ? error.message : String(error),
               );
-              if (index >= 0) current[index] = beforeAttempt;
-              writeProjectSaveJournal(storage, key, current);
-              const raw = storage.getItem(key);
-              if (
-                raw !== null &&
-                current.every((candidate) => observed.has(entryIdentity(candidate)))
-              ) {
-                const marker: RecoveryMarker = {
-                  version: 1,
-                  hash: sha256Hex(new TextEncoder().encode(raw)),
-                  reason: error.message,
-                };
-                terminal[key] = marker;
-                try {
-                  storage.setItem(
-                    `${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`,
-                    JSON.stringify(marker),
-                  );
-                } catch {
-                  // Original bytes remain in the journal; this page can still surface recovery.
-                }
-              }
-              break;
-            }
-            throw error;
+            break;
           }
           const current = readEntries(storage, key);
           const index = current.findIndex(
@@ -305,7 +294,23 @@ export function resumeProjectSaveJournals(
           entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
         }
       };
-      await withUnownedJournal(key, recover);
+      await withUnownedJournal(key, async () => {
+        try {
+          await recover();
+        } catch (error) {
+          // Decoding, preparation and acknowledgement can fail too. A pending
+          // journal must never prevent reading the last saved project body.
+          try {
+            markProjectSaveRecovery(
+              storage,
+              key,
+              error instanceof Error ? error.message : String(error),
+            );
+          } catch {
+            // Storage itself may be unreadable; leave its bytes untouched.
+          }
+        }
+      });
     }
   })().finally(() => recovering.delete(project));
   recovering.set(project, run);

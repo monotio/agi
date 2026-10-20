@@ -1,6 +1,16 @@
+import type * as ProjectDocumentsModule from "../../src/authoring/projectDocuments.ts";
+import type * as ProjectWorkspaceModule from "../../src/authoring/projectWorkspace.ts";
+import type * as ContainerModule from "../../src/container/container.ts";
+import type * as ProjectHistoryModule from "../../src/authoring/projectHistory.ts";
+import type * as CryptoModule from "../../src/crypto.ts";
+import type * as ProjectContentModule from "../../src/authoring/projectContent.ts";
+import type * as ResourceRevisionModule from "../../src/authoring/resourceRevision.ts";
+import type * as GameIdentityModule from "../../src/gameIdentity.ts";
 import { readFile } from "node:fs/promises";
 import type { Page, Download } from "@playwright/test";
 import type { ProjectSession } from "../src/project/projectSession.ts";
+import { releasedTemplates } from "../../test/released-template-fixtures.ts";
+import type { BuildViewInput } from "../../src/view/view.ts";
 import { test, expect } from "./test.ts";
 import {
   downloadFromSettings,
@@ -737,10 +747,207 @@ test("recovery download reports browser failure and keeps the recovery data", as
   });
   const recovery = page.getByTestId("pending-edit-recovery");
   await expect(recovery).toBeVisible();
-  await recovery.getByRole("button", { name: "Download edits", exact: true }).click();
+  await recovery.getByRole("button", { name: "Download unsaved edits", exact: true }).click();
   await expect(recovery.getByRole("alert")).toHaveText(
-    "Could not download the edits: Browser refused the download. Try Download edits again.",
+    "Could not download unsaved edits: Browser refused the download. Try Download unsaved edits again.",
   );
   await page.screenshot({ path: test.info().outputPath("recovery-download-failure.png") });
   expect(errors).toEqual([]);
+});
+
+test("an older JSON VIEW journal opens its saved game with an edits download and one update @phone", async ({
+  page,
+}) => {
+  const viewports =
+    test.info().project.name === "iphone-webkit"
+      ? [{ width: 390, height: 844 }]
+      : [
+          { width: 1063, height: 815 },
+          { width: 1440, height: 900 },
+          { width: 390, height: 844 },
+        ];
+  await page.setViewportSize(viewports[0]!);
+  await isolateStorage(page);
+  await page.goto("/");
+  const fixture = JSON.parse(
+    await readFile(new URL("../test/fixtures/view-builder-1.2.4.json", import.meta.url), "utf8"),
+  ) as { cases: { profileId: string; input: BuildViewInput; bytes: number[] }[] };
+  const oldView = fixture.cases.find((entry) => entry.profileId === "2.936")!;
+  const retained = await page.evaluate(
+    async ({ oldView, logic0, engineRoot }) => {
+      const { compileProjectDocuments } = (await import(
+        engineRoot + "authoring/projectDocuments.ts"
+      )) as typeof ProjectDocumentsModule;
+      const { writeProjectWorkspace, readProjectWorkspace } = (await import(
+        engineRoot + "authoring/projectWorkspace.ts"
+      )) as typeof ProjectWorkspaceModule;
+      const { createContainer } = (await import(
+        engineRoot + "container/container.ts"
+      )) as typeof ContainerModule;
+      const { ProjectHistory } = (await import(
+        engineRoot + "authoring/projectHistory.ts"
+      )) as typeof ProjectHistoryModule;
+      const { sha256Hex } = (await import(engineRoot + "crypto.ts")) as typeof CryptoModule;
+      const { projectDocumentId } = (await import(
+        engineRoot + "authoring/projectContent.ts"
+      )) as typeof ProjectContentModule;
+      const { computeResourceRevision } = (await import(
+        engineRoot + "authoring/resourceRevision.ts"
+      )) as typeof ResourceRevisionModule;
+      const { requireProjectId } = (await import(
+        engineRoot + "gameIdentity.ts"
+      )) as typeof GameIdentityModule;
+      const { commitProject, loadAuthoredGameWithHistoryLifetime, authoringFingerprint } =
+        await import("/src/project/gameStorage.ts");
+      const { inspectEditableProject } = await import("/src/project/projectWorkspaceSource.ts");
+      const { captureProjectJournal } = await import("/src/project/projectJournalCapture.ts");
+      const { projectSaveJournalKey, writeProjectSaveJournal } =
+        await import("/src/project/projectSaveJournal.ts");
+      const projectId = requireProjectId("older-json-view-journal");
+      const savedDocuments = {
+        "logic:0": logic0,
+        "logic:1": "accept.input(); return;",
+        "view:1": JSON.stringify(oldView.input),
+        words: '[["known",1]]',
+        inventory: "[]",
+      };
+      const initial = compileProjectDocuments({
+        files: Object.fromEntries(createContainer().files),
+        documents: { ...savedDocuments, "view:1": Uint8Array.from(oldView.bytes) },
+        profileId: "2.936",
+      });
+      await commitProject({
+        projectId,
+        workspaceId: "initial",
+        commitId: "initial",
+        expected: null,
+        buildId: initial.build.identity.buildId,
+        documents: [],
+        data: {
+          title: "Older journal",
+          files: Object.fromEntries(initial.files()),
+          words: [],
+          workspace: writeProjectWorkspace(savedDocuments),
+        },
+      });
+      const opened = (await loadAuthoredGameWithHistoryLifetime(projectId))!;
+      const before = opened.data;
+      const documents = {
+        ...inspectEditableProject(before).documents,
+        ...readProjectWorkspace(before.workspace!),
+      };
+      const content = 'print("UNSAVED_124_ROOM"); return;';
+      const edited = { ...documents, "logic:1": content };
+      const compile = (source: typeof documents) =>
+        compileProjectDocuments({
+          files: before.files,
+          documents: { ...source, "view:1": Uint8Array.from(oldView.bytes) },
+          profileId: "2.936",
+        });
+      const base = compile(documents);
+      const image = compile(edited);
+      const metadata = {
+        label: "Recovered room",
+        origin: "logic",
+        author: "creator",
+        time: 2,
+      } as const;
+      const history = new ProjectHistory(sha256Hex);
+      history.record(documents, { ...metadata, label: "Opened", time: 1 });
+      history.record(edited, metadata);
+      const expected = {
+        projectId,
+        lifetime: opened.lifetime!,
+        generation: before.generation ?? 0,
+        revision: computeResourceRevision(before.files),
+        authoring: authoringFingerprint(before.authoringState, before.workspace),
+        buildId: base.build.identity.buildId,
+      };
+      const capture = captureProjectJournal({
+        base: before,
+        expected,
+        openedAt: 1,
+        baseImage: projectDocumentId(documents, sha256Hex),
+        image: projectDocumentId(edited, sha256Hex),
+        operations: [
+          { kind: "edit", changes: [{ key: "logic:1", content, version: 2 }], metadata },
+        ],
+        request: {
+          projectId,
+          workspaceId: "released-session",
+          commitId: "released-edit",
+          expected,
+          buildId: image.build.identity.buildId,
+          documents: Object.keys(edited).map((key) => ({
+            key,
+            version: key === "logic:1" ? 2 : 1,
+          })),
+          data: {
+            ...before,
+            files: Object.fromEntries(image.files()),
+            workspace: writeProjectWorkspace(edited),
+            projectHistory: history.capturePortable(),
+          },
+        },
+      });
+      const key = projectSaveJournalKey(projectId, "released-owner");
+      writeProjectSaveJournal(localStorage, key, [{ capture, attempted: false }]);
+      return { key, raw: localStorage.getItem(key)! };
+    },
+    {
+      oldView,
+      logic0: releasedTemplates.at(-1)!.source,
+      engineRoot: `/@fs${new URL("../../src/", import.meta.url).pathname}`,
+    },
+  );
+  // A full navigation reloads Home's index after the test seeds browser storage.
+  await page.goto("/?proof#create/older-json-view-journal");
+  const notice = page.getByTestId("pending-edit-recovery");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText(
+    "Some edits could not be restored. Download unsaved edits to keep a copy.",
+  );
+  await expect(page.getByRole("heading", { name: "Older journal", exact: true })).toBeVisible();
+  await workspaceSaved(page);
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await expect(
+      notice.getByRole("button", { name: "Download unsaved edits", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath(`older-journal-${viewport.width}.png`) });
+  }
+  const downloading = page.waitForEvent("download");
+  await notice.getByRole("button", { name: "Download unsaved edits", exact: true }).click();
+  const file = await downloading;
+  expect(file.suggestedFilename()).toBe("agi-unsaved-edits.zip");
+  const bytes = await readFile((await file.path())!);
+  expect(bytes.readUInt32LE(0)).toBe(0x04034b50);
+  expect(bytes.toString()).toContain("recovery-data/journal-1.json");
+  expect(bytes.toString()).toContain(retained.raw);
+  expect(bytes.toString()).toContain("UNSAVED_124_ROOM");
+  await page.reload();
+  await expect(notice).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Older journal", exact: true })).toBeVisible();
+  await workspaceSaved(page);
+  const saved = await page.evaluate(
+    async ({ key, engineRoot }) => {
+      const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+      const { requireProjectId } = (await import(
+        engineRoot + "gameIdentity.ts"
+      )) as typeof GameIdentityModule;
+      const { readProjectWorkspace } = (await import(
+        engineRoot + "authoring/projectWorkspace.ts"
+      )) as typeof ProjectWorkspaceModule;
+      const data = (await loadAuthoredGame(requireProjectId("older-json-view-journal")))!;
+      return {
+        updates: data.projectHistory!.commits.filter(
+          (commit) => commit.label === "Updated for 1.2.5",
+        ).length,
+        logic: readProjectWorkspace(data.workspace!)["logic:1"],
+        raw: localStorage.getItem(key),
+      };
+    },
+    { ...retained, engineRoot: `/@fs${new URL("../../src/", import.meta.url).pathname}` },
+  );
+  expect(saved).toEqual({ updates: 1, logic: "accept.input(); return;", raw: retained.raw });
 });

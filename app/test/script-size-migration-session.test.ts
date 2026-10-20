@@ -1,4 +1,11 @@
 import { readFileSync } from "node:fs";
+import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
+import { captureProjectJournal } from "../src/project/projectJournalCapture.ts";
+import {
+  projectSaveJournalKey,
+  readProjectSaveRecoveries,
+  writeProjectSaveJournal,
+} from "../src/project/projectSaveJournal.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { projectDocumentId } from "../../src/authoring/projectContent.ts";
 import { inspectEditableProject } from "../src/project/projectWorkspaceSource.ts";
@@ -885,4 +892,85 @@ test("journal recovery keeps a 1.2.4 LOGIC update and deferred VIEW rebuild pend
       );
       assert.equal(updated.authoringState?.["pendingViewRebuilds"], undefined);
     });
+});
+
+test("a failed 1.2.4 JSON VIEW journal opens the last save, keeps edits and updates once", async () => {
+  const id = await storedCombined("released-json-view-journal");
+  const opened = (await loadAuthoredGameWithHistoryLifetime(id))!;
+  const before = opened.data;
+  const documents = {
+    ...inspectEditableProject(before).documents,
+    ...readProjectWorkspace(before.workspace!),
+  };
+  const content = 'print("Recovered from 1.2.4"); return;';
+  const edited = { ...documents, "logic:1": content };
+  // Use released VIEW bytes to model the old compiler's output, while its
+  // accepted documents and journal image identities retain the active JSON.
+  const compile = (source: typeof documents) =>
+    compileProjectDocuments({
+      files: before.files,
+      documents: { ...source, "view:1": Uint8Array.from(oldView.bytes) },
+      profileId: "2.936",
+    });
+  const base = compile(documents);
+  const image = compile(edited);
+  const metadata = {
+    label: "Recovered room",
+    origin: "logic",
+    author: "creator",
+    time: 2,
+  } as const;
+  const history = new ProjectHistory(sha256Hex);
+  history.record(documents, { ...metadata, label: "Opened", time: 1 });
+  history.record(edited, metadata);
+  const expected = {
+    projectId: id,
+    lifetime: opened.lifetime!,
+    generation: before.generation ?? 0,
+    revision: computeResourceRevision(before.files),
+    authoring: authoringFingerprint(before.authoringState, before.workspace),
+    buildId: base.build.identity.buildId,
+  };
+  const capture = captureProjectJournal({
+    base: before,
+    expected,
+    openedAt: 1,
+    baseImage: projectDocumentId(documents, sha256Hex),
+    image: projectDocumentId(edited, sha256Hex),
+    operations: [{ kind: "edit", changes: [{ key: "logic:1", content, version: 2 }], metadata }],
+    request: {
+      projectId: id,
+      workspaceId: "released-session",
+      commitId: "released-edit",
+      expected,
+      buildId: image.build.identity.buildId,
+      documents: Object.keys(edited).map((key) => ({ key, version: key === "logic:1" ? 2 : 1 })),
+      data: {
+        ...before,
+        files: Object.fromEntries(image.files()),
+        workspace: writeProjectWorkspace(edited),
+        projectHistory: history.capturePortable(),
+      },
+    },
+  });
+  const key = projectSaveJournalKey(id, "released-owner");
+  writeProjectSaveJournal(localStorage, key, [{ capture, attempted: false }]);
+  const raw = localStorage.getItem(key);
+  const recovered = (await loadAuthoredGame(id))!;
+  assert.deepEqual(recovered.files, before.files);
+  assert.equal(readProjectWorkspace(recovered.workspace!)["logic:1"], documents["logic:1"]);
+  assert.equal(localStorage.getItem(key), raw, "the failed journal stays intact");
+  assert.equal(readProjectSaveRecoveries(localStorage, id)[0]?.raw, raw);
+  const reopened = await open(id, []);
+  await settle(reopened);
+  reopened.dispose();
+  const updated = (await loadAuthoredGame(id))!;
+  assert.equal(readProjectWorkspace(updated.workspace!)["logic:1"], documents["logic:1"]);
+  assert.equal(migrationCommits(updated), 1);
+  assert.notDeepEqual(viewBytes(updated), oldView.bytes);
+  const again = await open(id, []);
+  await settle(again);
+  again.dispose();
+  assert.equal(migrationCommits((await loadAuthoredGame(id))!), 1);
+  assert.equal(localStorage.getItem(key), raw);
 });
