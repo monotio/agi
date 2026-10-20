@@ -9,9 +9,9 @@
  * displays exactly the pixels the document holds: the block's own metadata
  * first, so an unchanged block keeps its orientation bits, then the builder's
  * default, then any other value. An unshared block is stored as displayed,
- * never behind an orientation that flips it. The result is decoded again and
- * compared; an arrangement the format cannot express is refused, never
- * approximated.
+ * never behind an orientation that flips it. Sharing that cannot keep the
+ * requested art stable becomes independent cels. The result is decoded again
+ * and compared; native size and cel-count limits are refused.
  *
  * An untouched document encodes to its original payload byte for byte, and so
  * does any document whose decoded state is again the original's.
@@ -260,9 +260,20 @@ function chooseEncoding(
       ? (high & 0xc0) === 0xc0
       : profile.celMirrorLoopMask !== 0 && (high & 0x80) !== 0;
     const limit = packed ? 3 : profile.celMirrorLoopMask;
+    // Packed writeback can arm bit 0x40 even when it starts clear. A high
+    // mutable index would toggle on the next selection (F-VIEWS-01).
+    if (packed && (high & 0x80) !== 0 && members.some((member) => member > 3)) continue;
     // A shared block with three mutable orientations cannot preserve each
     // facing across blits; out-of-mask indices toggle on repeat (F-VIEWS-01).
-    if (mutableMirror && (members.length > 2 || members.some((member) => member > limit))) continue;
+    if (
+      mutableMirror &&
+      (members.length > 2 ||
+        members.some((member) => member > limit) ||
+        // If neither member owns the stored orientation, both fresh previews
+        // flip, but alternating native blits toggle their facing (F-VIEWS-01).
+        (members.length > 1 && !members.includes((high >>> 4) & limit)))
+    )
+      continue;
     for (const rows of orientations) {
       const fits = members.every((member) =>
         cels.every((c, i) => {

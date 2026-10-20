@@ -210,7 +210,7 @@ export function executeSpriteTool(
       const revision = resourceCacheHint(payload);
       const geometry = [...targets.entries()].flatMap(([loop, cels]) =>
         [...cels.keys()].map((cel) => {
-          const selected = after.loops[loop]?.cels[cel]!;
+          const selected = after.loops[loop]!.cels[cel]!;
           return {
             loop,
             cel,

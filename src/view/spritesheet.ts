@@ -51,7 +51,14 @@
  * Zero dependencies; runs in browser, worker and Node.
  */
 
-import { buildView, type BuildCelInput, type BuildLoopInput, type BuildViewInput } from "./view.ts";
+import {
+  buildView,
+  type BuildCelInput,
+  type BuildLoopInput,
+  type BuildViewInput,
+  type ViewCapabilities,
+} from "./view.ts";
+import { DEFAULT_V2_PROFILE } from "../runtime/profile.ts";
 import { EGA_TABLE } from "../runtime/colourTables.ts";
 
 /** The authentic 16-colour EGA palette, RGB, indexed by colour nibble (the shared table in colourTables.ts). */
@@ -390,8 +397,9 @@ export function sheetViewInput(
 export function buildViewFromSheet(
   frames: readonly SheetFrame[],
   layout: SheetViewLayout,
+  profile: ViewCapabilities = DEFAULT_V2_PROFILE,
 ): Uint8Array {
-  return buildView(sheetViewInput(frames, layout));
+  return buildView(sheetViewInput(frames, layout), profile);
 }
 
 function celFromFrame(frame: SheetFrame, prefer: number | undefined): BuildCelInput {

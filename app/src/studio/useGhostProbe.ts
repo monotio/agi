@@ -75,8 +75,8 @@ export function useGhostProbe(options: GhostProbeOptions) {
   const loopCount = computed(() => entry.value?.view.loops.length ?? 0);
   const celCount = computed(() => entry.value?.view.loops[loop.value]?.cels.length ?? 0);
 
-  // Selection mirrors shared pixels in place, as the engine's set.loop does;
-  // the probe keeps its own copy so a later alias cannot change it.
+  // parseView supplies independent previews through the native blit boundary.
+  // The probe keeps its own copy for its selection.
   const cel = computed<ViewCel | undefined>(() => {
     const view = entry.value?.view;
     const selected = view && view.loops[loop.value]?.cels[celIndex.value];

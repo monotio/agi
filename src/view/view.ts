@@ -47,7 +47,7 @@ export interface BuildCelInput {
    */
   readonly pixels: Uint8Array | readonly number[];
   /**
-   * If true, this cel is marked mirrorable (control bit 0x80).
+   * Request the native mirrorable bit where this loop has a stable orientation.
    */
   readonly mirror?: boolean | null | undefined;
 }
@@ -55,12 +55,13 @@ export interface BuildCelInput {
 export interface BuildLoopInput {
   /**
    * Cels belonging to this loop.
-   * If `mirrorLoop` is specified and `cels` is absent or empty, this loop shares the cels of `mirrorLoop`.
+   * With mirrorLoop and no cels, the builder reverses that loop's displayed cels.
    */
   readonly cels?: readonly BuildCelInput[] | null | undefined;
   /**
-   * If specified (and `cels` is absent or empty), this loop reuses the cels and loop offset of another loop (0-based index).
-   * The referenced loop must appear before this loop.
+   * With no cels, mirror a preceding loop's displayed art (0-based index).
+   * The builder shares a native block when stable under the target profile;
+   * otherwise it writes independent reversed cels.
    */
   readonly mirrorLoop?: number | null | undefined;
 }
@@ -79,11 +80,41 @@ export interface AgiView {
 /** Native VIEW capabilities shared by readers, authoring and previews. */
 export type ViewCapabilities = Pick<AgiProfile, "packedViewLoopHeader" | "celMirrorLoopMask">;
 
+function validateCelInput(cel: BuildCelInput): void {
+  const { width, height, pixels } = cel;
+  const transColor = typeof cel.transparentColor === "number" ? cel.transparentColor : 0;
+  if (!Number.isInteger(width) || width < 1 || width > SCREEN_WIDTH) {
+    throw new RangeError(`cel width must be between 1 and ${SCREEN_WIDTH} (got ${width})`);
+  }
+  if (!Number.isInteger(height) || height < 1 || height > 168) {
+    throw new RangeError(`cel height must be between 1 and 168 (got ${height})`);
+  }
+  if (!Number.isInteger(transColor) || transColor < 0 || transColor > 15) {
+    throw new RangeError(`transparentColor must be 0..15 (got ${transColor})`);
+  }
+  if (pixels.length !== width * height) {
+    throw new RangeError(
+      `cel pixels length ${pixels.length} does not match width ${width} * height ${height} = ${width * height}`,
+    );
+  }
+  // Every pixel, before encoding: the row scan below stops at the last
+  // opaque pixel, and the encoder packs colours into a nibble.
+  for (let index = 0; index < pixels.length; index++) {
+    const color = pixels[index]!;
+    if (!Number.isInteger(color) || color < 0 || color > 15)
+      throw new RangeError(
+        `pixel at row ${Math.floor(index / width)}, col ${index % width} has invalid color ${color}`,
+      );
+  }
+}
+
 /** Compile displayed art, materializing mirrors the native profile cannot share stably. */
 export function buildView(
   input: BuildViewInput,
   profile: ViewCapabilities = DEFAULT_V2_PROFILE,
 ): Uint8Array {
+  if (input.loops.length < 1 || input.loops.length > 255)
+    throw new RangeError(`view must have between 1 and 255 loops (got ${input.loops.length})`);
   const loops: BuildLoopInput[] = [];
   const displayed: (readonly BuildCelInput[])[] = [];
   const shared = new Set<number>();
@@ -92,10 +123,14 @@ export function buildView(
     if (loop.cels?.length) {
       // A mirror flag on an independent high-index cel must not cause the
       // native truncated orientation to toggle at every blit (F-VIEWS-01).
-      const cels = loop.cels.map((cel) => ({
-        ...cel,
-        mirror: index <= limit && profile.celMirrorLoopMask !== 0 && cel.mirror === true,
-      }));
+      const cels = loop.cels.map((cel) => {
+        // Validate geometry before any reversal loop or pixel allocation.
+        validateCelInput(cel);
+        return {
+          ...cel,
+          mirror: index <= limit && profile.celMirrorLoopMask !== 0 && cel.mirror === true,
+        };
+      });
       displayed.push(cels);
       loops.push({ cels });
       continue;
@@ -196,33 +231,10 @@ export function encodeViewBlocks(
     const encodedCels: Uint8Array[] = [];
     for (let celIndex = 0; celIndex < celCount; celIndex++) {
       const cel = cels[celIndex]!;
+      validateCelInput(cel);
       const { width, height, transparentColor, mirror, pixels } = cel;
       const transColor = typeof transparentColor === "number" ? transparentColor : 0;
       const mirrorBit = Boolean(mirror);
-
-      if (!Number.isInteger(width) || width < 1 || width > SCREEN_WIDTH) {
-        throw new RangeError(`cel width must be between 1 and ${SCREEN_WIDTH} (got ${width})`);
-      }
-      if (!Number.isInteger(height) || height < 1 || height > 168) {
-        throw new RangeError(`cel height must be between 1 and 168 (got ${height})`);
-      }
-      if (!Number.isInteger(transColor) || transColor < 0 || transColor > 15) {
-        throw new RangeError(`transparentColor must be 0..15 (got ${transColor})`);
-      }
-      if (pixels.length !== width * height) {
-        throw new RangeError(
-          `cel pixels length ${pixels.length} does not match width ${width} * height ${height} = ${width * height}`,
-        );
-      }
-      // Every pixel, before encoding: the row scan below stops at the last
-      // opaque pixel, and the encoder packs colours into a nibble.
-      for (let index = 0; index < pixels.length; index++) {
-        const color = pixels[index]!;
-        if (!Number.isInteger(color) || color < 0 || color > 15)
-          throw new RangeError(
-            `pixel at row ${Math.floor(index / width)}, col ${index % width} has invalid color ${color}`,
-          );
-      }
 
       const mirrorable = mirrorBit || forceMirror;
       const control = packed

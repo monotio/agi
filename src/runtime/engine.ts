@@ -1284,6 +1284,9 @@ export class Engine {
             if (o.loop >= view.loops.length) o.loop = 0;
             const loop = view.loops[o.loop];
             if (loop && o.cel >= loop.cels.length) o.cel = 0;
+            // Replacing loaded state binds packed orientation anew; size
+            // reads themselves stay pure (docs/fidelity.md, F-VIEWS-01).
+            if (this.profile.packedViewLoopHeader) selectViewCel(view, o.loop, o.cel);
             this.updateCelSize(o);
           }
         } catch {
@@ -5241,6 +5244,9 @@ export class Engine {
       if (o.loop >= view.loops.length) o.loop = 0;
       const loop = view.loops[o.loop];
       if (loop && o.cel >= loop.cels.length) o.cel = 0;
+      // Restore rebinds the saved packed loop before presentation; this is
+      // selection, separate from dimensions (docs/fidelity.md, F-VIEWS-01).
+      if (this.profile.packedViewLoopHeader) selectViewCel(view, o.loop, o.cel);
       this.updateCelSize(o, !exactHistory);
     }
   }

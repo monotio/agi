@@ -5,6 +5,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES, type AgiProfile } from "../src/runtime/profile.ts";
 import { buildView, parseView, selectViewCel, type BuildLoopInput } from "../src/view/view.ts";
+import { buildViewFromSheet } from "../src/view/spritesheet.ts";
 import { buildSprite, openSprite } from "../src/view/spriteDocument.ts";
 import { applySpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
@@ -145,4 +146,144 @@ test("Agent write_view preserves mirror intent for a profile with no native mirr
   );
   const document = openSprite(payload, PROFILES["2.001"]);
   assert.deepEqual([...document.loops[1]!.cels[0]!.pixels], [0, 2, 1]);
+});
+
+for (const id of ["2.001", "2.411", "2.936", "2.230"] as const) {
+  test(`${id}: three authored facings and mirror chains keep their art through arbitrary selection order`, () => {
+    const profile = PROFILES[id];
+    const payload = buildView(
+      { loops: [{ cels: [cel] }, { mirrorLoop: 0 }, { mirrorLoop: 0 }, { mirrorLoop: 1 }] },
+      profile,
+    );
+    const view = parseView(payload, profile);
+    for (const loop of [0, 1, 2, 1, 0, 2, 3, 2, 0, 3])
+      assert.deepEqual(
+        [...selectViewCel(view, loop, 0)!.pixels],
+        loop === 1 || loop === 2 ? [0, 2, 1] : [1, 2, 0],
+      );
+  });
+
+  test(`${id}: add.to.pic orients each native stamp at its blit boundary`, () => {
+    const profile = PROFILES[id];
+    const payload = buildView(
+      { loops: [{ cels: [cel] }, { mirrorLoop: 0 }] },
+      PROFILES[id === "2.230" ? "2.230" : "2.936"],
+    );
+    const engine = engineFor(
+      payload,
+      profile,
+      `set.loop(o0, 1);
+      add.to.pic(1, 0, 0, 30, 90, 15, 4);
+      add.to.pic(1, 1, 0, 40, 90, 15, 4);
+      add.to.pic(1, 0, 0, 50, 90, 15, 4);`,
+    );
+    const image = engine.getFrame().visual;
+    for (const x of [30, 50])
+      assert.deepEqual([...image.slice(90 * 160 + x, 90 * 160 + x + 3)], [1, 2, 15]);
+    assert.deepEqual(
+      [...image.slice(90 * 160 + 40, 90 * 160 + 43)],
+      id === "2.001" ? [1, 2, 15] : [15, 2, 1],
+    );
+  });
+}
+
+test("packed SetLoop preserves native history while SetCel only refreshes dimensions", () => {
+  const profile = PROFILES["2.230"];
+  const pair = buildView({ loops: [{ cels: [cel] }, { mirrorLoop: 0 }] }, profile);
+  const three = Uint8Array.from([0, 0, 3, 0, 0, 11, 0, 11, 0, 11, 0, ...pair.slice(9)]);
+  const direct = engineFor(three, profile, "set.loop(o0, 2);");
+  const via = engineFor(three, profile, "set.loop(o0, 1); set.loop(o0, 2);");
+  assert.deepEqual([...direct.getFrame().visual.slice(80 * 160 + 20, 80 * 160 + 23)], [15, 2, 1]);
+  assert.deepEqual([...via.getFrame().visual.slice(80 * 160 + 20, 80 * 160 + 23)], [1, 2, 15]);
+  // At loop 4 the packed field cannot retain the index. SetCel must not
+  // accidentally perform another SetLoop and toggle the whole block again.
+  const five = Uint8Array.from([
+    0,
+    0,
+    5,
+    0,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    15,
+    0,
+    ...pair.slice(9),
+  ]);
+  const sameCel = engineFor(five, profile, "set.loop(o0, 4); set.cel(o0, 0);");
+  assert.deepEqual([...sameCel.getFrame().visual.slice(80 * 160 + 20, 80 * 160 + 23)], [15, 2, 1]);
+});
+
+for (const id of ["2.411", "2.936", "2.230"] as const) {
+  test(`${id}: editing an imported shared block whose orientation names neither member keeps both displayed facings`, () => {
+    const profile = PROFILES[id];
+    const original = buildView({ loops: [{ cels: [cel] }, { mirrorLoop: 0 }] }, profile);
+    // Two loops at offset 9, one cel at 12. Orientation 2 names neither
+    // member, so each fresh native preview starts reversed: [0,2,1].
+    if (profile.packedViewLoopHeader) original[9] = 0xe1;
+    else original[14] = 0xa0;
+    const document = openSprite(original, profile);
+    assert.deepEqual(buildSprite(document, profile), original, "untouched bytes remain native");
+    const result = applySpriteEdit(document, {
+      type: "setPixels",
+      loop: 0,
+      cel: 0,
+      changes: [{ x: 0, y: 0, color: 3 }],
+      propagate: true,
+    });
+    assert.ok("document" in result, "error" in result ? result.error : "");
+    const view = parseView(result.document.payload, profile);
+    for (const loop of [0, 1, 0, 1])
+      assert.deepEqual([...selectViewCel(view, loop, 0)!.pixels], [3, 2, 1]);
+  });
+}
+
+for (const operation of ["patch", "restore"] as const) {
+  test(`packed loop orientation is rebound after ${operation}`, () => {
+    const profile = PROFILES["2.230"];
+    const payload = buildView({ loops: [{ cels: [cel] }, { mirrorLoop: 0 }] }, profile);
+    const engine = engineFor(payload, profile, "set.loop(o0, 1);");
+    const row = () => [...engine.getFrame().visual.slice(80 * 160 + 20, 80 * 160 + 23)];
+    assert.deepEqual(row(), [15, 2, 1]);
+    if (operation === "patch") engine.patchResources([{ kind: "view", num: 1, payload }]);
+    else engine.restoreImage(engine.recordingImage(true));
+    assert.deepEqual(row(), [15, 2, 1]);
+  });
+}
+
+test("editing a high packed loop does not retain metadata that arms mirroring on selection", () => {
+  const profile = PROFILES["2.230"];
+  const original = buildView(
+    { loops: Array.from({ length: 5 }, () => ({ cels: [cel] })) },
+    profile,
+  );
+  const at = original[13]! | (original[14]! << 8);
+  original[at] = 0x81; // mutable, initially not mirrorable, one cel
+  const document = openSprite(original, profile);
+  assert.deepEqual(buildSprite(document, profile), original);
+  const result = applySpriteEdit(document, {
+    type: "setPixels",
+    loop: 4,
+    cel: 0,
+    changes: [{ x: 0, y: 0, color: 3 }],
+  });
+  assert.ok("document" in result, "error" in result ? result.error : "");
+  const view = parseView(result.document.payload, profile);
+  for (let repeat = 0; repeat < 4; repeat++)
+    assert.deepEqual([...selectViewCel(view, 4, 0)!.pixels], [3, 2, 0]);
+});
+
+test("sprite-sheet compilation carries the native mirror capabilities", () => {
+  const profile = PROFILES["2.001"];
+  const payload = buildViewFromSheet(
+    [{ width: 3, height: 1, pixels: Uint8Array.of(1, 2, 0), mask: Uint8Array.of(1, 1, 0) }],
+    { loops: [{ frames: [0] }, { mirrorOf: 0 }] },
+    profile,
+  );
+  assert.deepEqual([...selectViewCel(parseView(payload, profile), 1, 0)!.pixels], [0, 2, 1]);
 });

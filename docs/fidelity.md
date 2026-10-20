@@ -4557,8 +4557,8 @@ addresses come from the earlier pass and were not re-verified.
   `andi.b #$30,d0` / `#$70` at `+0x0400` and `lsr.b #4,d0`. The overlay InsertObj tests
   `test byte [si+0x2],0x80` at `+0x0097` and calls MirrorCell at `+0x009e`; the call resolves to
   the addresses above through the overlay load base (the executable reaches InsertObj at base
-  `+6`). No direct call to MirrorCell exists in those executables: earlier text saying `_SetCel`
-  also calls MirrorCell was wrong. `2.001` and `2.089` have no mirroring code (SetLoop `0x36d9` /
+  `+6`). No direct call to MirrorCell exists in those executables: **Superseded conclusion:** the earlier claim that `_SetCel`
+  also calls MirrorCell does not apply to these builds. `2.001` and `2.089` have no mirroring code (SetLoop `0x36d9` /
   `0x354d` and InsertObj test no mirror bit). `2.230` mirrors whole loops in `_SetLoop` (`0x350d`,
   called from the SetLoop routine
   `0x3493`): with the
@@ -4568,6 +4568,23 @@ addresses come from the earlier pass and were not re-verified.
   it for their own blit. IIgs `1.014` (MirrorCell `main+0x135a`, mask `0x70`) is from the earlier
   pass. Engine: `profile.celMirrorLoopMask` is `0` on `2.001`/`2.089`, `3` on `2.230..2.440` and
   `amiga-2.082..2.310`, and `7` on `2.903..3.002.149`, `amiga-2.316`/`2.333` and `iigs-1.014`.
+
+  **Engine correction.** The initial “engine matches” conclusion was premature: dimension
+  updates still changed nonpacked orientation, and `show.obj` could draw rows last oriented by
+  an actor sharing its VIEW. Those paths are corrected. SetLoop/SetCel dimension reads leave
+  nonpacked rows unchanged; actors, `show.obj`, add.to.pic and detached previews use the same
+  profile-aware cel-for-blitting boundary. Packed `2.230` still mirrors at loop selection and
+  reads that selected orientation when blitting. Direct selection of loop 2 and selection via
+  loop 1 now give the same first nonpacked blit when no blit intervenes. Native repeated blits
+  outside the orientation mask still toggle, as the recorded native contract requires.
+
+  **Authoring translation.** The builder and Sprite Studio carry the same packed-header and
+  mirror-mask capabilities as the reader. An authored mirror becomes independent reversed
+  cels when either loop index lies outside the stable native range, the profile has no
+  mirroring, or adding another mutable alias would change the requested facing. Mirror chains
+  resolve from displayed art. Native cel-count and resource-size limits remain errors. Opening
+  an imported VIEW keeps its original bytes, including native alias quirks; newly compiled
+  authoring intent uses the translation above.
 
 - **F-VIEWS-05 (fact on PC: SetCel clamps; divergence on unusual input: InsertObj does not
   clip).** The `set.cel` path (SetCel) clamps the object persistently: `cmp ax,0xa0 / jng` on

@@ -43,7 +43,7 @@ export function viewFeedback(payload: Uint8Array, profile: AgiProfile, num: numb
   const surface = new Uint8Array(width * height);
   for (let i = 0; i < frames.length; i++) {
     const frame = frames[i]!;
-    const cel = view.loops[frame.loop]?.cels[frame.cel]!;
+    const cel = view.loops[frame.loop]!.cels[frame.cel]!;
     const left = (i % columns) * TILE_WIDTH;
     const top = Math.floor(i / columns) * TILE_HEIGHT;
     for (let y = 4; y < TILE_HEIGHT - 4; y++) {

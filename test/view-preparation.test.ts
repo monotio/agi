@@ -608,44 +608,31 @@ describe("prepareView", () => {
         ),
       (e: unknown) => e instanceof RangeError && /earlier loop/.test(e.message),
     );
-    // Mirror-of-mirror chains are not encodable.
-    assert.throws(
-      () =>
-        prepareView(
-          base,
-          recipe([f], [cels("a", ["f1"]), mirror("b", "a"), mirror("c", "b")]),
-          PROFILE,
-        ),
-      /itself a mirror|pixel-flipped/,
-    );
   });
 
-  it("refuses a mirror the selected profile cannot represent", () => {
+  it("materializes mirror chains and mirrors beyond the selected profile's alias range", () => {
     const f = frame({ id: "f1" });
-    // Packed profile (2.230): a mirrored loop at index 4 is unencodable.
-    const packedLoops: ViewRecipeLoop[] = [
-      cels("l0", ["f1"]),
-      cels("l1", ["f1"]),
-      cels("l2", ["f1"]),
-      cels("l3", ["f1"]),
-      mirror("l4", "l0"),
-    ];
-    assert.throws(
-      () => prepareView([SRC_2X2()], recipe([f], packedLoops), PACKED),
-      /pixel-flipped independent copy/,
+    // Source is [15,transparent 1 / 4,0]; successive horizontal reversals are exact.
+    const chained = prepareView(
+      [SRC_2X2()],
+      recipe([f], [cels("a", ["f1"]), mirror("b", "a"), mirror("c", "b")]),
+      PROFILE,
     );
-    // Same recipe under the ordinary profile is legal and decodes mirrored.
-    const ok = prepareView([SRC_2X2()], recipe([f], packedLoops), PROFILE);
-    const decoded = parseView(ok.payload, PROFILE);
-    assert.equal(decoded.loops[4]!.cels[0]!.mirrored, true);
-    // Ordinary profile parity trap: loop 8 mirrors loop 0 -> equal mod 8.
-    const parity: ViewRecipeLoop[] = Array.from({ length: 8 }, (_, i) => cels(`l${i}`, ["f1"]));
-    parity.push(mirror("l8", "l0"));
-    assert.throws(
-      () => prepareView([SRC_2X2()], recipe([f], parity), PROFILE),
-      /pixel-flipped independent copy/,
+    assert.deepEqual(
+      [...parseView(chained.payload, PROFILE).loops[2]!.cels[0]!.pixels],
+      [15, 1, 4, 0],
     );
-    // Packed profile caps a loop at 15 cels.
+    for (const profile of [PROFILES["2.001"], PROFILES["2.411"], PACKED, PROFILE]) {
+      const limit = profile.packedViewLoopHeader ? 3 : profile.celMirrorLoopMask;
+      const loops: ViewRecipeLoop[] = Array.from({ length: limit + 1 }, (_, i) =>
+        cels(`l${i}`, ["f1"]),
+      );
+      loops.push(mirror("last", "l0"));
+      const result = prepareView([SRC_2X2()], recipe([f], loops), profile);
+      const decoded = parseView(result.payload, profile);
+      assert.deepEqual([...decoded.loops[limit + 1]!.cels[0]!.pixels], [1, 15, 0, 4]);
+    }
+    // Packed profile's real cel-count limit remains an error.
     const sixteen = Array.from({ length: 16 }, () => "f1");
     assert.throws(
       () => prepareView([SRC_2X2()], recipe([f], [cels("big", sixteen)]), PACKED),
