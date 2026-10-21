@@ -457,7 +457,7 @@ function menuPoint(clientX: number, clientY: number): { x: number; y: number } |
  * browser's own menu on a non-Amiga Play. The mode decides, not the lazily
  * mounted workspace: Create owns the button from the moment it is on stage.
  */
-type RightButtonOwner = "create" | "strip" | "game" | "browser";
+type RightButtonOwner = "create" | "strip" | "game" | "browser" | "cancelled";
 function currentRightButtonOwner(): RightButtonOwner {
   if (props.inspectorDocked) return "create";
   if (screenPresentation.value !== "amiga") return "browser";
@@ -543,7 +543,12 @@ watch(
   (docked) => {
     onScreenPointerCancel();
     // A room menu asked for before Create's workspace mounted leaves with it.
-    if (!docked) gameRoomMenu.value = undefined;
+    if (!docked) {
+      gameRoomMenu.value = undefined;
+      // Keep consuming a delayed contextmenu, but retire the room action
+      // even if Create returns before that old gesture finishes.
+      if (rightButtonOwner === "create") rightButtonOwner = "cancelled";
+    }
   },
 );
 
@@ -561,6 +566,10 @@ function onScreenContextMenu(ev: MouseEvent): void {
   const pressed = rightButtonOwner;
   rightButtonOwner = null;
   const owner = ev.button === 2 && pressed !== null ? pressed : currentRightButtonOwner();
+  if (owner === "cancelled") {
+    ev.preventDefault();
+    return;
+  }
   if (owner === "create") {
     // Create's menu answers the press even with no room under it, and the
     // browser's own menu never opens over the game.

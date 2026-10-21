@@ -338,6 +338,34 @@ test("a mode switch mid right-drag keeps the gesture's first owner @webkit-deskt
   expect(await roomMenuState(page)).toEqual({ open: false });
 });
 
+test("a Create right press loses its room action when Play begins before contextmenu @webkit-desktop", async ({
+  page,
+}) => {
+  await bootMenuGame(page, "right-owner-create-to-play");
+  await createMounted(page);
+  await retainPictureEditor(page);
+  await screenBoxSettled(page);
+  const screen = page.locator(".screen");
+  const at = await framePoint(page, 160, 100);
+  // Delay the Windows contextmenu until after the Create owner has left.
+  await screen.dispatchEvent("pointerdown", rightPointerInit(at));
+  await playFromCreate(page);
+  await screen.dispatchEvent("pointerup", rightPointerInit(at));
+  await contextMenuOn(page, ".screen", at, 2);
+  expect((await contextMenus(page)).at(-1)).toBe(true);
+  expect(await roomMenuState(page)).toEqual({ open: false });
+  expect(await modal(page)).toBeNull();
+
+  await createMounted(page);
+  await expect(page.getByTestId("game-room-menu")).toBeHidden();
+  expect(await roomMenuState(page)).toEqual({ open: false });
+  // Retiring the old action leaves a fresh right-click available in Create.
+  await screenBoxSettled(page);
+  const fresh = await framePoint(page, 160, 100);
+  await page.mouse.click(fresh.x, fresh.y, { button: "right" });
+  await expect(page.getByTestId("game-room-menu")).toBeVisible();
+});
+
 test("a keyboard context menu asks the mode on stage, not a stale press's owner @webkit-desktop", async ({
   page,
 }) => {
