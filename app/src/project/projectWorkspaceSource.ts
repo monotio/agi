@@ -31,6 +31,7 @@ import {
   readProjectDocuments,
 } from "../../../src/authoring/projectDocuments.ts";
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
+import { buildReleasedView } from "./releasedViewBuilder.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
 import { PROFILES, detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
@@ -463,8 +464,11 @@ export function inspectEditableProject(
           (loop) =>
             typeof loop.mirrorLoop === "number" || loop.cels?.some((cel) => cel.mirror === true),
         )
-      )
-        viewRebuilds[key] = source;
+      ) {
+        const native = read.documents[key] as Uint8Array;
+        if (sameBytes(native, buildReleasedView(input, PROFILES[profileId])))
+          viewRebuilds[key] = source;
+      }
     } catch {
       // Unusable source still receives the reader's diagnostic below.
     }

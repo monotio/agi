@@ -29,9 +29,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   buffer instead of 200. The base template now calls `script.size(200)` in
   its first cycle.
 - Games made with an older version keep their room memory even with customized
-  boot code. Opening an older project repairs its mirrored views, room memory
-  and unknown-word replies together in one undoable History entry, “Updated for
-  1.2.5”. Customized word feedback shows a reminder to count words from 0.
+  boot code. Opening an older project upgrades its released mirrored views, room memory
+  and unknown-word fallback together in one undoable History entry, “Updated for
+  1.2.5”. Customized word feedback gets a reminder to count words from 0.
   Copies and downloads keep pending updates until the project opens in Create.
   Edits left unsaved in 1.2.4 in a project with mirrored views can be
   downloaded, but they are not restored into the project.

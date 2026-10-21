@@ -12,7 +12,7 @@ import {
 import { sha256Hex } from "../../src/crypto.ts";
 import { projectDocumentId } from "../../src/authoring/projectContent.ts";
 import { inspectEditableProject } from "../src/project/projectWorkspaceSource.ts";
-import type { BuildViewInput } from "../../src/view/view.ts";
+import { buildView, parseView, type BuildViewInput } from "../../src/view/view.ts";
 import { decodeSave } from "../../src/runtime/persistence.ts";
 import { customizedLegacyBoot, releasedTemplates } from "../../test/released-template-fixtures.ts";
 import { Engine, HostWait } from "../../src/runtime/engine.ts";
@@ -41,6 +41,7 @@ import {
   commitProject,
   loadAuthoredGame,
   loadAuthoredGameWithHistoryLifetime,
+  serializeWriteAction,
 } from "../src/project/gameStorage.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import { normalizeLibraryMetadata, type LibraryMetadata } from "../src/project/gameMetadata.ts";
@@ -95,6 +96,7 @@ async function storedProject(
   name: string,
   extra: {
     files?: Record<string, Uint8Array>;
+    view?: Uint8Array;
     logic0?: string;
     documents?: Record<string, string>;
     data?: Partial<CachedGameData>;
@@ -113,6 +115,8 @@ async function storedProject(
     documents,
     profileId: "2.936",
   });
+  const native = openContainer(compiled.files());
+  if (extra.view !== undefined) native.putResource("view", 1, extra.view);
   const projectId = testProjectId(name);
   await commitProject({
     projectId,
@@ -123,7 +127,7 @@ async function storedProject(
     documents: [],
     data: {
       title: "Older game",
-      files: { ...Object.fromEntries(compiled.files()), ...extra.files },
+      files: { ...Object.fromEntries(native.files), ...extra.files },
       words: [],
       workspace: writeProjectWorkspace(documents),
       ...(extra.source
@@ -147,13 +151,14 @@ async function open(
   projectId: ReturnType<typeof testProjectId>,
   admitted: Admitted,
   options: {
+    opened?: NonNullable<Awaited<ReturnType<typeof loadAuthoredGameWithHistoryLifetime>>>;
     open?: typeof openOwnedProjectSession;
     write?: Parameters<typeof openOwnedProjectSession>[0]["write"];
     admit?: Parameters<typeof openOwnedProjectSession>[0]["admission"]["admit"];
     workingDocumentId?: string;
   } = {},
 ) {
-  const opened = (await loadAuthoredGameWithHistoryLifetime(projectId))!;
+  const opened = options.opened ?? (await loadAuthoredGameWithHistoryLifetime(projectId))!;
   return (options.open ?? openOwnedProjectSession)(
     {
       data: opened.data,
@@ -661,13 +666,10 @@ const oldView = (
   }
 ).cases.find((c) => c.profileId === "2.936")!;
 async function storedCombined(name: string) {
-  const id = await storedProject(name, { documents: { "view:1": JSON.stringify(oldView.input) } });
-  const before = (await loadAuthoredGame(id))!;
-  const container = openContainer(new Map(Object.entries(before.files)));
-  container.putResource("view", 1, Uint8Array.from(oldView.bytes));
-  const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
-  await saveAuthoredGame(id, { ...before, files: Object.fromEntries(container.files) });
-  return id;
+  return storedProject(name, {
+    documents: { "view:1": JSON.stringify(oldView.input) },
+    view: Uint8Array.from(oldView.bytes),
+  });
 }
 function viewBytes(data: CachedGameData) {
   return [...openContainer(new Map(Object.entries(data.files))).getResource("view", 1)!];
@@ -682,6 +684,46 @@ function assertCombined(data: CachedGameData) {
   assert.notDeepEqual(viewBytes(data), oldView.bytes);
   assert.deepEqual(data.authoringConventions, { version: 1, legacyRoomMemory: true });
 }
+
+for (const envelope of ["workspace", "legacy"] as const)
+  test(`a stale mirrored ${envelope} claim keeps native art and its diagnostic on open`, async () => {
+    const input: BuildViewInput = {
+      loops: [oldView.input.loops[0]!, { mirrorLoop: 0 }],
+    };
+    const source = JSON.stringify(input);
+    const id = await storedProject(`stale-mirror-${envelope}`, {
+      logic0: "accept.input(); return;",
+      documents: { "view:1": source },
+    });
+    const before = (await loadAuthoredGame(id))!;
+    const native = buildView({
+      loops: [{ cels: [{ width: 3, height: 1, pixels: [4, 5, 0] }] }],
+    });
+    const container = openContainer(new Map(Object.entries(before.files)));
+    container.putResource("view", 1, native);
+    const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+    const data = { ...before, files: Object.fromEntries(container.files) };
+    if (envelope === "legacy") {
+      delete data.workspace;
+      data.authoringState = { sources: { views: [[1, input]] } };
+    }
+    await saveAuthoredGame(id, data);
+    const session = await open(id, []);
+    await settle(session);
+    session.dispose();
+    const updated = (await loadAuthoredGame(id))!;
+    assert.deepEqual(
+      [...parseView(Uint8Array.from(viewBytes(updated))).loops[0]!.cels[0]!.pixels],
+      [4, 5, 0],
+    );
+    assert.deepEqual(viewBytes(updated), [...native]);
+    const inspection = inspectEditableProject(updated);
+    assert.equal(inspection.rejectedSources["view:1"], source);
+    assert.ok(inspection.diagnostics.some(({ key }) => key === "view:1"));
+    assert.deepEqual(inspection.viewRebuilds, {});
+    assert.equal(updated.authoringConventions, undefined);
+    assert.equal(migrationCommits(updated), 0);
+  });
 
 test("one update on open rebuilds VIEWs and LOGIC together; Undo restores exact old native bytes", async () => {
   const id = await storedCombined("combined-update");
@@ -1067,7 +1109,7 @@ test("temporary recovery failure keeps the pending update's base until reload re
   assert.equal(localStorage.getItem(key), null);
 });
 
-for (const pause of ["admission", "automatic flush"] as const)
+for (const pause of ["admission", "automatic flush", "storage queue"] as const)
   test(`a journal published during ${pause} preserves recovery and updates once on reopen`, async () => {
     const id = await storedCombined(`late-journal-${pause.replaceAll(" ", "-")}`);
     if (pause === "automatic flush") {
@@ -1096,6 +1138,7 @@ for (const pause of ["admission", "automatic flush"] as const)
     }
     const opened = (await loadAuthoredGameWithHistoryLifetime(id))!;
     const before = opened.data;
+    if (pause === "storage queue") assert.equal(before.generation, 1);
     const compiled = compileProjectDocuments({
       files: before.files,
       documents: inspectEditableProject(before).documents,
@@ -1106,7 +1149,30 @@ for (const pause of ["admission", "automatic flush"] as const)
     assert.equal(await writer.ready, true);
     const entered = Promise.withResolvers<void>();
     const resume = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<void>();
+    const queued =
+      pause === "storage queue"
+        ? serializeWriteAction(id, async () => {
+            entered.resolve();
+            await held.promise;
+          })
+        : undefined;
+    if (queued !== undefined) await entered.promise;
+    const committing = Promise.withResolvers<void>();
     const session = await open(id, [], {
+      ...(pause === "storage queue"
+        ? {
+            opened,
+            open: (input, backing) =>
+              openOwnedProjectSession(input, {
+                ...backing,
+                commit: (...args) => {
+                  committing.resolve();
+                  return commitProject(...args);
+                },
+              }),
+          }
+        : {}),
       ...(pause === "automatic flush"
         ? {
             workingDocumentId: projectDocumentId(
@@ -1117,7 +1183,7 @@ for (const pause of ["admission", "automatic flush"] as const)
         : {}),
       admit: async () => {
         entered.resolve();
-        await resume.promise;
+        if (pause !== "storage queue") await resume.promise;
         return { status: "committed", expected: null, current: null, patchGeneration: 0 };
       },
     });
@@ -1128,7 +1194,7 @@ for (const pause of ["admission", "automatic flush"] as const)
       });
     const flushing = session.flush();
     try {
-      await entered.promise;
+      await (pause === "storage queue" ? committing.promise : entered.promise);
       writeProjectSaveJournal(localStorage, key, [
         {
           attempted: false,
@@ -1153,6 +1219,8 @@ for (const pause of ["admission", "automatic flush"] as const)
       const raw = localStorage.getItem(key);
       writer.release(); // The other page closes before its durable write.
       resume.resolve();
+      held.resolve();
+      await queued;
       await flushing;
       assert.equal(session.saveStatus().state, "saved", "deferral needs no new notice");
       session.dispose();
@@ -1186,6 +1254,8 @@ for (const pause of ["admission", "automatic flush"] as const)
     } finally {
       writer.release();
       resume.resolve();
+      held.resolve();
+      await queued;
       session.dispose();
       await flushing.catch(() => {});
     }

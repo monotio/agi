@@ -1,3 +1,4 @@
+import { buildReleasedView } from "../src/project/releasedViewBuilder.ts";
 import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { readProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -45,6 +46,7 @@ test("opening released VIEWs keeps genesis and prior History, rebuilds once, and
           `${profileId}, ${envelope}, ${hasHistory ? "existing" : "no"} History`,
           async () => {
             const profile = PROFILES[profileId];
+            assert.deepEqual([...buildReleasedView(input, profile)], bytes);
             const source = JSON.stringify(input);
             const container = createContainer();
             container.putResource("view", 1, Uint8Array.from(bytes));
