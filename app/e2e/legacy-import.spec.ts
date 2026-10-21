@@ -1,3 +1,4 @@
+import { requireProjectId } from "../../src/gameIdentity.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { customizedLegacyBoot } from "../../test/released-template-fixtures.ts";
@@ -92,7 +93,7 @@ test("a raw import rechecks its opening if another tab removes the matched legac
   });
   const card = savedGameCard(page, "Edition changed");
   await expect(card.getByTestId("btn-resume-cached")).toBeEnabled();
-  const projectId = (await card.getAttribute("data-project-id"))!;
+  const projectId = requireProjectId((await card.getAttribute("data-project-id"))!);
   await page.evaluate((id) => {
     const state = { previews: 0, removed: false };
     Object.assign(window, { importRace: state });
@@ -128,15 +129,16 @@ test("a raw import rechecks its opening if another tab removes the matched legac
   const current = savedGameCard(page, "current");
   await expect(current.getByTestId("btn-resume-cached")).toBeEnabled();
   expect(
-    await page.evaluate(async () => {
-      const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
-      const id = document
-        .querySelector('[data-testid^="saved-game-card-"]')!
-        .getAttribute("data-project-id")!;
-      return {
-        ...(window as unknown as { importRace: { previews: number; removed: boolean } }).importRace,
-        conventions: (await loadAuthoredGame(id))!.authoringConventions,
-      };
-    }),
+    await page.evaluate(
+      async (id) => {
+        const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+        return {
+          ...(window as unknown as { importRace: { previews: number; removed: boolean } })
+            .importRace,
+          conventions: (await loadAuthoredGame(id))!.authoringConventions,
+        };
+      },
+      requireProjectId((await current.getAttribute("data-project-id"))!),
+    ),
   ).toEqual({ previews: 2, removed: true, conventions: { version: 1 } });
 });
