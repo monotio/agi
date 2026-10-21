@@ -434,10 +434,11 @@ export function inspectEditableProject(
     if (authoring?.music !== undefined) metadata["music"] = JSON.stringify(authoring.music);
   }
 
-  // A refused update can be followed by an ordinary native-byte edit. Keep
-  // its deferred source separate from active workspace claims until admission.
+  // Deferred VIEW claims stay beside the native-byte workspace until a creator
+  // replaces that document. Authentication below alone can authorize a rebuild;
+  // stale claims keep their diagnostic even after another resource was updated.
   const pendingViews = data.authoringState?.["pendingViewRebuilds"];
-  if (updateDue && isRecord(pendingViews))
+  if (isRecord(pendingViews))
     for (const [key, source] of Object.entries(pendingViews))
       if (
         /^view:\d+$/.test(key) &&

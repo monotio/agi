@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { prepareLocalProject } from "../src/project/localProject.ts";
 import { readSoundDocumentEnvelope } from "../../src/sound/document.ts";
 import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
-import { captureProjectJournal } from "../src/project/projectJournalCapture.ts";
+import { captureProjectJournal, decodeJournalValue } from "../src/project/projectJournalCapture.ts";
 import {
   claimProjectSaveJournal,
   projectSaveJournalKey,
@@ -686,44 +686,65 @@ function assertCombined(data: CachedGameData) {
 }
 
 for (const envelope of ["workspace", "legacy"] as const)
-  test(`a stale mirrored ${envelope} claim keeps native art and its diagnostic on open`, async () => {
-    const input: BuildViewInput = {
-      loops: [oldView.input.loops[0]!, { mirrorLoop: 0 }],
-    };
-    const source = JSON.stringify(input);
-    const id = await storedProject(`stale-mirror-${envelope}`, {
-      logic0: "accept.input(); return;",
-      documents: { "view:1": source },
+  for (const bootUpdate of [false, true])
+    test(`a stale mirrored ${envelope} claim keeps native art and its diagnostic ${bootUpdate ? "through a boot update" : "on open"}`, async () => {
+      const input: BuildViewInput = {
+        loops: [oldView.input.loops[0]!, { mirrorLoop: 0 }],
+      };
+      const source = JSON.stringify(input);
+      const id = await storedProject(`stale-mirror-${envelope}-${bootUpdate}`, {
+        logic0: bootUpdate ? PRE_125_LOGIC0 : "accept.input(); return;",
+        documents: { "view:1": source },
+      });
+      const before = (await loadAuthoredGame(id))!;
+      const native = buildView({
+        loops: [{ cels: [{ width: 3, height: 1, pixels: [4, 5, 0] }] }],
+      });
+      const container = openContainer(new Map(Object.entries(before.files)));
+      container.putResource("view", 1, native);
+      const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
+      const data = { ...before, files: Object.fromEntries(container.files) };
+      if (envelope === "legacy") {
+        delete data.workspace;
+        data.authoringState = {
+          sources: {
+            views: [[1, input]],
+            logics: [[0, bootUpdate ? PRE_125_LOGIC0 : "accept.input(); return;"]],
+          },
+        };
+      }
+      await saveAuthoredGame(id, data);
+      const session = await open(id, []);
+      await settle(session);
+      session.dispose();
+      const updated = (await loadAuthoredGame(id))!;
+      assert.deepEqual(
+        [...parseView(Uint8Array.from(viewBytes(updated))).loops[0]!.cels[0]!.pixels],
+        [4, 5, 0],
+      );
+      assert.deepEqual(viewBytes(updated), [...native]);
+      const inspection = inspectEditableProject(updated);
+      assert.equal(inspection.rejectedSources["view:1"], source);
+      assert.ok(inspection.diagnostics.some(({ key }) => key === "view:1"));
+      assert.deepEqual(inspection.viewRebuilds, {});
+      assert.equal(updated.authoringConventions?.version, bootUpdate ? 1 : undefined);
+      assert.equal(migrationCommits(updated), bootUpdate ? 1 : 0);
+      const creator = await open(id, []);
+      await creator.submit({
+        proposal: creator.model.propose(creator.model.capture(), "Choose VIEW source", [
+          { key: "view:1", content: source },
+        ]),
+        label: "Choose VIEW source",
+        origin: "view",
+        author: "creator",
+      });
+      await settle(creator);
+      creator.dispose();
+      const chosen = (await loadAuthoredGame(id))!;
+      assert.deepEqual(viewBytes(chosen), [...buildView(input)]);
+      assert.equal(inspectEditableProject(chosen).rejectedSources["view:1"], undefined);
+      assert.equal(chosen.authoringState?.["pendingViewRebuilds"], undefined);
     });
-    const before = (await loadAuthoredGame(id))!;
-    const native = buildView({
-      loops: [{ cels: [{ width: 3, height: 1, pixels: [4, 5, 0] }] }],
-    });
-    const container = openContainer(new Map(Object.entries(before.files)));
-    container.putResource("view", 1, native);
-    const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
-    const data = { ...before, files: Object.fromEntries(container.files) };
-    if (envelope === "legacy") {
-      delete data.workspace;
-      data.authoringState = { sources: { views: [[1, input]] } };
-    }
-    await saveAuthoredGame(id, data);
-    const session = await open(id, []);
-    await settle(session);
-    session.dispose();
-    const updated = (await loadAuthoredGame(id))!;
-    assert.deepEqual(
-      [...parseView(Uint8Array.from(viewBytes(updated))).loops[0]!.cels[0]!.pixels],
-      [4, 5, 0],
-    );
-    assert.deepEqual(viewBytes(updated), [...native]);
-    const inspection = inspectEditableProject(updated);
-    assert.equal(inspection.rejectedSources["view:1"], source);
-    assert.ok(inspection.diagnostics.some(({ key }) => key === "view:1"));
-    assert.deepEqual(inspection.viewRebuilds, {});
-    assert.equal(updated.authoringConventions, undefined);
-    assert.equal(migrationCommits(updated), 0);
-  });
 
 test("one update on open rebuilds VIEWs and LOGIC together; Undo restores exact old native bytes", async () => {
   const id = await storedCombined("combined-update");
@@ -1109,8 +1130,16 @@ test("temporary recovery failure keeps the pending update's base until reload re
   assert.equal(localStorage.getItem(key), null);
 });
 
-for (const pause of ["admission", "automatic flush", "storage queue"] as const)
+for (const pause of [
+  "admission",
+  "automatic flush",
+  "storage queue",
+  "closing before acknowledgment a-first",
+  "closing before acknowledgment z-last",
+] as const)
   test(`a journal published during ${pause} preserves recovery and updates once on reopen`, async () => {
+    const closes = pause.startsWith("closing");
+    const queues = pause === "storage queue" || closes;
     const id = await storedCombined(`late-journal-${pause.replaceAll(" ", "-")}`);
     if (pause === "automatic flush") {
       const { saveAuthoredGame } = await import("../src/project/gameStorage.ts");
@@ -1138,38 +1167,44 @@ for (const pause of ["admission", "automatic flush", "storage queue"] as const)
     }
     const opened = (await loadAuthoredGameWithHistoryLifetime(id))!;
     const before = opened.data;
-    if (pause === "storage queue") assert.equal(before.generation, 1);
+    if (queues) assert.equal(before.generation, 1);
     const compiled = compileProjectDocuments({
       files: before.files,
       documents: inspectEditableProject(before).documents,
       profileId: "2.936",
     });
-    const key = projectSaveJournalKey(id, "other-tab");
+    const key = projectSaveJournalKey(id, pause.endsWith("z-last") ? "z-other-tab" : "other-tab");
     const writer = claimProjectSaveJournal(key);
     assert.equal(await writer.ready, true);
     const entered = Promise.withResolvers<void>();
     const resume = Promise.withResolvers<void>();
     const held = Promise.withResolvers<void>();
-    const queued =
-      pause === "storage queue"
-        ? serializeWriteAction(id, async () => {
-            entered.resolve();
-            await held.promise;
-          })
-        : undefined;
+    const queued = queues
+      ? serializeWriteAction(id, async () => {
+          entered.resolve();
+          await held.promise;
+        })
+      : undefined;
     if (queued !== undefined) await entered.promise;
     const committing = Promise.withResolvers<void>();
+    const decided = Promise.withResolvers<void>();
+    const acknowledgment = Promise.withResolvers<void>();
     const session = await open(id, [], {
-      ...(pause === "storage queue"
+      ...(queues
         ? {
             opened,
             open: (input, backing) =>
               openOwnedProjectSession(input, {
                 ...backing,
-                commit: (...args) => {
+                commit: (async (...args: Parameters<typeof commitProject>) => {
                   committing.resolve();
-                  return commitProject(...args);
-                },
+                  const result = await commitProject(...args);
+                  if (closes) {
+                    decided.resolve();
+                    await acknowledgment.promise;
+                  }
+                  return result;
+                }) as typeof commitProject,
               }),
           }
         : {}),
@@ -1183,7 +1218,7 @@ for (const pause of ["admission", "automatic flush", "storage queue"] as const)
         : {}),
       admit: async () => {
         entered.resolve();
-        if (pause !== "storage queue") await resume.promise;
+        if (!queues) await resume.promise;
         return { status: "committed", expected: null, current: null, patchGeneration: 0 };
       },
     });
@@ -1194,7 +1229,7 @@ for (const pause of ["admission", "automatic flush", "storage queue"] as const)
       });
     const flushing = session.flush();
     try {
-      await (pause === "storage queue" ? committing.promise : entered.promise);
+      await (queues ? committing.promise : entered.promise);
       writeProjectSaveJournal(localStorage, key, [
         {
           attempted: false,
@@ -1221,8 +1256,16 @@ for (const pause of ["admission", "automatic flush", "storage queue"] as const)
       resume.resolve();
       held.resolve();
       await queued;
-      await flushing;
-      assert.equal(session.saveStatus().state, "saved", "deferral needs no new notice");
+      if (closes) {
+        await decided.promise;
+        session.dispose();
+        acknowledgment.resolve();
+      }
+      if (closes) await assert.rejects(flushing, /Project save is pending/);
+      else {
+        await flushing;
+        assert.equal(session.saveStatus().state, "saved", "deferral needs no new notice");
+      }
       session.dispose();
       // Inspect committed storage directly: loading would already attempt recovery.
       const unchanged = records.get(id) as CachedGameData;
@@ -1236,10 +1279,19 @@ for (const pause of ["admission", "automatic flush", "storage queue"] as const)
       assert.equal(unchanged.authoringConventions, undefined);
       assert.equal(localStorage.getItem(key), raw);
       assert.deepEqual(readProjectSaveRecoveries(localStorage, id), []);
-      assert.deepEqual(
-        [...values.keys()].filter((entry) => entry.startsWith(`monotio_agi.project-writes.${id}.`)),
-        [key],
+      const pending = [...values.keys()].filter((entry) =>
+        entry.startsWith(`monotio_agi.project-writes.${id}.`),
       );
+      if (closes) {
+        assert.equal(pending.length, 2, "closing precedes automatic journal acknowledgment");
+        const automatic = pending.find((entry) => entry !== key)!;
+        const entries = decodeJournalValue(
+          JSON.parse(localStorage.getItem(automatic)!).entries,
+        ) as {
+          automatic?: boolean;
+        }[];
+        assert.equal(entries[0]!.automatic, true);
+      } else assert.deepEqual(pending, [key]);
       const reopened = await open(id, []);
       await settle(reopened);
       reopened.dispose();
@@ -1247,6 +1299,8 @@ for (const pause of ["admission", "automatic flush", "storage queue"] as const)
       assert.equal(recovered.title, "Recovered late work");
       assertCombined(recovered);
       assert.equal(localStorage.getItem(key), null);
+      assert.deepEqual(readProjectSaveRecoveries(localStorage, id), []);
+      assert.ok(pending.every((entry) => localStorage.getItem(entry) === null));
       const again = await open(id, []);
       await settle(again);
       again.dispose();
@@ -1255,6 +1309,7 @@ for (const pause of ["admission", "automatic flush", "storage queue"] as const)
       writer.release();
       resume.resolve();
       held.resolve();
+      acknowledgment.resolve();
       await queued;
       session.dispose();
       await flushing.catch(() => {});

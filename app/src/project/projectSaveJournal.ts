@@ -1,6 +1,10 @@
 /** Accepted project captures recover interrupted storage acknowledgements. */
 import type { ProjectId } from "../../../src/gameIdentity.ts";
-import type { ProjectCommitRequest, ProjectCommitReceipt } from "./gameStorage.ts";
+import type {
+  AutomaticProjectWrite,
+  ProjectCommitRequest,
+  ProjectCommitReceipt,
+} from "./gameStorage.ts";
 import {
   encodeJournalValue,
   decodeJournalValue,
@@ -12,6 +16,8 @@ interface JournalEntry {
   request?: ProjectCommitRequest;
   capture?: ProjectJournalCapture;
   attempted: boolean;
+  /** Recomputable updates keep their deferral policy across interrupted acknowledgment. */
+  automatic?: boolean;
 }
 function entryIdentity(entry: JournalEntry): string {
   return entry.capture?.identity.commitId ?? entry.request!.commitId;
@@ -228,8 +234,15 @@ export function markProjectSaveRecovery(storage: Storage, key: string, reason: s
 export function resumeProjectSaveJournals(
   storage: Storage,
   project: ProjectId,
-  write: (request: ProjectCommitRequest) => Promise<{ receipt: ProjectCommitReceipt }>,
-  rebuild?: (capture: ProjectJournalCapture) => Promise<{ receipt: ProjectCommitReceipt }>,
+  write: (
+    request: ProjectCommitRequest,
+    journalHash?: string,
+    automatic?: AutomaticProjectWrite,
+  ) => Promise<{ receipt: ProjectCommitReceipt } | undefined>,
+  rebuild?: (
+    capture: ProjectJournalCapture,
+    automatic?: AutomaticProjectWrite,
+  ) => Promise<{ receipt: ProjectCommitReceipt } | undefined>,
 ): Promise<void> | undefined {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
   if (!locks) return undefined;
@@ -267,10 +280,26 @@ export function resumeProjectSaveJournals(
                 throw Object.assign(new Error("Project journal recovery is unavailable."), {
                   name: "ProjectJournalRefusalError",
                 });
-              previous = (await rebuild(entry.capture)).receipt;
-            } else previous = (await write(entry.request!)).receipt;
+              previous = (
+                await rebuild(entry.capture, entry.automatic ? { ownJournalKey: key } : undefined)
+              )?.receipt;
+            } else
+              previous = (
+                await write(
+                  entry.request!,
+                  undefined,
+                  entry.automatic ? { ownJournalKey: key } : undefined,
+                )
+              )?.receipt;
           } catch (error) {
-            if (error instanceof Error && error.name === "ProjectDeletedError") {
+            if (
+              error instanceof Error &&
+              (error.name === "ProjectDeletedError" ||
+                (entry.automatic && error.name === "ConcurrencyConflictError"))
+            ) {
+              // Another journal may have recovered first. An obsolete automatic
+              // update is recomputed on open, never a creator recovery conflict.
+              previous = undefined;
               const current = readEntries(storage, key);
               const index = current.findIndex(
                 (candidate) => entryIdentity(candidate) === entryIdentity(entry),
@@ -311,7 +340,7 @@ export function resumeProjectSaveJournals(
           current.splice(index, 1);
           // Keep the successor's resolved base durable before dropping its predecessor.
           const successor = current[index];
-          if (successor && !successor.attempted) {
+          if (successor && !successor.attempted && previous !== undefined) {
             if (successor.capture !== undefined && entry.capture !== undefined) {
               const { hash: _hash, ...capture } = successor.capture;
               const next = {

@@ -31,7 +31,11 @@ import {
   type AgentChats,
 } from "../../../src/agent/chats.ts";
 import { encodeJournalValue, type ProjectJournalCapture } from "./projectJournalCapture.ts";
-import { clearProjectSaveJournals, resumeProjectSaveJournals } from "./projectSaveJournal.ts";
+import {
+  clearProjectSaveJournals,
+  hasUnresolvedProjectSaveJournal,
+  resumeProjectSaveJournals,
+} from "./projectSaveJournal.ts";
 import {
   conversationUpdateOf,
   mergeConversationChats,
@@ -1067,13 +1071,29 @@ function projectCommitContent(request: ProjectCommitRequest): unknown {
  * Candidate metadata accepts finite JSON values, undefined and Uint8Array bytes;
  * other structured-clone types are rejected before storage.
  */
+interface ProjectCommitResult {
+  receipt: ProjectCommitReceipt;
+  warnings: readonly "indexRepairPending"[];
+}
+/** A recomputable update yields to other pages' pending creator work at publication. */
+export interface AutomaticProjectWrite {
+  readonly ownJournalKey: string;
+}
+export function commitProject(
+  input: ProjectCommitRequest,
+  journalHash?: string,
+): Promise<ProjectCommitResult>;
+export function commitProject(
+  input: ProjectCommitRequest,
+  journalHash: string | undefined,
+  automatic: AutomaticProjectWrite | undefined,
+): Promise<ProjectCommitResult | undefined>;
 export async function commitProject(
   input: ProjectCommitRequest,
   journalHash?: string,
-): Promise<{
-  receipt: ProjectCommitReceipt;
-  warnings: readonly "indexRepairPending"[];
-}> {
+  automatic?: AutomaticProjectWrite,
+): Promise<ProjectCommitResult | undefined> {
+  const ownJournalKey = automatic?.ownJournalKey;
   // Ownership precedes every await, including waiting behind another writer.
   const { projectHistory: offeredHistory, ...inputData } = input.data;
   const sealedHistory =
@@ -1127,7 +1147,14 @@ export async function commitProject(
     const history = historyModule.checkedProjectHistory(data);
     if (history !== undefined) data.projectHistory = history;
     const receiptKey = `commit/${request.projectId}/${request.commitId}`;
-    const committed = await updateBodyRecords(
+    const committed = await updateBodyRecords<
+      | {
+          receipt: ProjectCommitReceipt;
+          body: StoredGameBody;
+          changed: boolean;
+        }
+      | undefined
+    >(
       receiptKey,
       (raw) => {
         const admit = (): BodyRecordsOutcome<{
@@ -1267,6 +1294,21 @@ export async function commitProject(
               rows,
               current?.editHistory,
             );
+            // Every queued/module/metadata/History/IndexedDB read has finished.
+            // This callback issues its writes synchronously after this decision.
+            // Receipt retries acknowledge their earlier publication unchanged.
+            if (settled.result.changed && ownJournalKey !== undefined) {
+              try {
+                if (
+                  typeof localStorage !== "undefined" &&
+                  hasUnresolvedProjectSaveJournal(localStorage, request.projectId, ownJournalKey)
+                )
+                  return { result: undefined };
+              } catch {
+                // Unreadable recovery storage cannot establish a safe base.
+                return { result: undefined };
+              }
+            }
             return {
               result: settled.result,
               puts: [...(settled.puts ?? []), ...changes.puts],
@@ -1290,6 +1332,7 @@ export async function commitProject(
         },
       ],
     );
+    if (committed === undefined) return undefined;
     const warnings: "indexRepairPending"[] = [];
     try {
       // An old retry must refresh from the current body, never its old candidate.
@@ -1378,7 +1421,8 @@ export function runInWriteTurn<T>(
 }
 async function recoverProjectJournal(
   capture: ProjectJournalCapture,
-): Promise<{ receipt: ProjectCommitReceipt }> {
+  automatic?: AutomaticProjectWrite,
+): Promise<{ receipt: ProjectCommitReceipt } | undefined> {
   const { hash, ...intent } = capture;
   if (sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(intent)))) !== hash)
     throw Object.assign(new Error("Invalid pending project write identity."), {
@@ -1434,7 +1478,7 @@ async function recoverProjectJournal(
     commit: commitProject,
     fingerprint: authoringFingerprint,
   });
-  return commitProject(rebuilt, capture.hash);
+  return commitProject(rebuilt, capture.hash, automatic);
 }
 
 export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGameData | null> {

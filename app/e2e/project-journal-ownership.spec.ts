@@ -1,5 +1,9 @@
 import { expect, test } from "./test.ts";
 import { isolateStorage } from "./engineProbe.ts";
+import type * as ProjectDocumentsModule from "../../src/authoring/projectDocuments.ts";
+import type * as ProjectWorkspaceModule from "../../src/authoring/projectWorkspace.ts";
+import type * as ContainerModule from "../../src/container/container.ts";
+import { releasedTemplates } from "../../test/released-template-fixtures.ts";
 import type { ProjectCommitRequest } from "../src/project/gameStorage.ts";
 
 for (const mode of ["locks", "without-locks"] as const) {
@@ -220,4 +224,202 @@ test("a stale journal in the live lifetime offers discard in Create and Home", a
       Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.project-recovery.")),
     ),
   ).toEqual([]);
+});
+
+test("a queued automatic update yields to another page's closing journal", async ({
+  page,
+  context,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  const expected = await page.evaluate(
+    async ({ engineRoot, logic0 }) => {
+      const { compileProjectDocuments } = (await import(
+        engineRoot + "authoring/projectDocuments.ts"
+      )) as typeof ProjectDocumentsModule;
+      const { writeProjectWorkspace } = (await import(
+        engineRoot + "authoring/projectWorkspace.ts"
+      )) as typeof ProjectWorkspaceModule;
+      const { createContainer } = (await import(
+        engineRoot + "container/container.ts"
+      )) as typeof ContainerModule;
+      const {
+        commitProject,
+        loadAuthoredGameWithHistoryLifetime,
+        authoringFingerprint,
+        serializeWriteAction,
+      } = await import("/src/project/gameStorage.ts");
+      const { openOwnedProjectSession } = await import("/src/project/projectSessionCore.ts");
+      const projectId = "queued-automatic-update" as ProjectCommitRequest["projectId"];
+      const documents = {
+        "logic:0": logic0,
+        "logic:1": "accept.input(); return;",
+        words: "[]",
+        inventory: "[]",
+      };
+      const compiled = compileProjectDocuments({
+        files: Object.fromEntries(createContainer().files),
+        documents,
+        profileId: "2.936",
+      });
+      const initial = await commitProject({
+        projectId,
+        commitId: "initial",
+        workspaceId: "initial",
+        expected: null,
+        buildId: compiled.build.identity.buildId,
+        documents: [],
+        data: {
+          title: "Old saved title",
+          files: Object.fromEntries(compiled.files()),
+          words: [],
+          workspace: writeProjectWorkspace(documents),
+        },
+      });
+      const opened = (await loadAuthoredGameWithHistoryLifetime(projectId))!;
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const queued = serializeWriteAction(projectId, async () => {
+        entered.resolve();
+        await release.promise;
+      });
+      await entered.promise;
+      const committing = Promise.withResolvers<void>();
+      const session = openOwnedProjectSession(
+        {
+          data: opened.data,
+          lifetime: opened.lifetime!,
+          publish: () => {},
+          admission: {
+            runToken: "automatic",
+            admit: async () => ({
+              status: "committed",
+              expected: null,
+              current: null,
+              patchGeneration: 1,
+            }),
+          },
+        },
+        {
+          fingerprint: authoringFingerprint,
+          commit: ((...args: Parameters<typeof commitProject>) => {
+            committing.resolve();
+            return commitProject(...args);
+          }) as typeof commitProject,
+        },
+      );
+      const flushing = session.flush();
+      Object.assign(window, {
+        finishQueuedUpdate: async () => {
+          release.resolve();
+          await queued;
+          await flushing;
+          session.dispose();
+        },
+      });
+      await committing.promise;
+      return initial.receipt.saved;
+    },
+    {
+      engineRoot: `/@fs${new URL("../../src/", import.meta.url).pathname}`,
+      logic0: releasedTemplates.at(-1)!.source,
+    },
+  );
+  expect(expected.generation).toBe(1);
+  const writer = await context.newPage();
+  await writer.goto("/");
+  const pending = await writer.evaluate(async (expected) => {
+    const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+    const { claimProjectSaveJournal, projectSaveJournalKey, writeProjectSaveJournal } =
+      await import("/src/project/projectSaveJournal.ts");
+    const before = (await loadAuthoredGame(expected.projectId))!;
+    const key = projectSaveJournalKey(expected.projectId, "closing-creator");
+    const ownership = claimProjectSaveJournal(key);
+    if (!(await ownership.ready)) throw new Error("Journal ownership unavailable");
+    Object.assign(window, { journalOwnership: ownership });
+    writeProjectSaveJournal(localStorage, key, [
+      {
+        attempted: false,
+        request: {
+          projectId: expected.projectId,
+          workspaceId: "creator",
+          commitId: "pending-title",
+          expected,
+          buildId: expected.buildId,
+          documents: [],
+          data: { ...before, title: "Creator pending title" },
+        },
+      },
+    ]);
+    return { key, raw: localStorage.getItem(key) };
+  }, expected);
+  await writer.close();
+  await page.evaluate((key) => navigator.locks.request(key, () => {}), pending.key);
+  const deferred = await page.evaluate(async ({ key }) => {
+    await (window as unknown as { finishQueuedUpdate(): Promise<void> }).finishQueuedUpdate();
+    const { bodyTransaction } = await import("/src/project/gameStorage.ts");
+    const { readProjectSaveRecoveries } = await import("/src/project/projectSaveJournal.ts");
+    const body = await bodyTransaction("readonly", (store) => store.get("queued-automatic-update"));
+    return {
+      generation: body.generation,
+      title: body.title,
+      conventions: body.authoringConventions ?? null,
+      raw: localStorage.getItem(key),
+      conflicts: readProjectSaveRecoveries(localStorage, body.projectId),
+    };
+  }, pending);
+  expect(deferred).toEqual({
+    generation: 1,
+    title: "Old saved title",
+    conventions: null,
+    raw: pending.raw,
+    conflicts: [],
+  });
+  const recovered = await page.evaluate(async (key) => {
+    const { loadAuthoredGameWithHistoryLifetime, authoringFingerprint, commitProject } =
+      await import("/src/project/gameStorage.ts");
+    const { openOwnedProjectSession } = await import("/src/project/projectSessionCore.ts");
+    const { readProjectSaveRecoveries } = await import("/src/project/projectSaveJournal.ts");
+    const id = "queued-automatic-update" as ProjectCommitRequest["projectId"];
+    for (const run of ["reopen", "again"]) {
+      const loaded = (await loadAuthoredGameWithHistoryLifetime(id))!;
+      const session = openOwnedProjectSession(
+        {
+          data: loaded.data,
+          lifetime: loaded.lifetime!,
+          publish: () => {},
+          admission: {
+            runToken: run,
+            admit: async () => ({
+              status: "committed",
+              expected: null,
+              current: null,
+              patchGeneration: 1,
+            }),
+          },
+        },
+        { fingerprint: authoringFingerprint, commit: commitProject },
+      );
+      await session.flush();
+      session.dispose();
+    }
+    const data = (await loadAuthoredGameWithHistoryLifetime(id))!.data;
+    return {
+      title: data.title,
+      generation: data.generation,
+      conventions: data.authoringConventions?.version,
+      updates: data.projectHistory?.commits.filter((commit) => commit.label === "Updated for 1.2.5")
+        .length,
+      raw: localStorage.getItem(key),
+      conflicts: readProjectSaveRecoveries(localStorage, id),
+    };
+  }, pending.key);
+  expect(recovered).toEqual({
+    title: "Creator pending title",
+    generation: 3,
+    conventions: 1,
+    updates: 1,
+    raw: null,
+    conflicts: [],
+  });
 });

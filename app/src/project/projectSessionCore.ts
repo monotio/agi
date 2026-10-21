@@ -487,7 +487,11 @@ function createSession(
                 .filter(({ index }) => index > operationBase && index <= capture.operation)
                 .map(({ operation }) => operation),
             });
-          return { capture: capture.journal, attempted: capture.attempted === true };
+          return {
+            capture: capture.journal,
+            attempted: capture.attempted === true,
+            ...(capture.automatic ? { automatic: true } : {}),
+          };
         });
       writeProjectSaveJournal(localStorage, journalKey, entries);
     } catch {
@@ -553,11 +557,14 @@ function createSession(
         delete capture.journal;
         persistPending();
       }
-      // Admission, ownership and autosave may all yield to another page. Check
-      // again without yielding before the durable attempt; our own capture is safe.
-      if (capture.automatic && !automaticWritesAllowed()) return undefined;
       return input.write === undefined
-        ? (await storage.commit(capture.request!, capture.journal?.hash)).receipt
+        ? (
+            await storage.commit(
+              capture.request!,
+              capture.journal?.hash,
+              capture.automatic ? { ownJournalKey: journalKey } : undefined,
+            )
+          )?.receipt
         : input.write(capture.request!);
     },
     saved: async (receipt, capture) => {
@@ -654,13 +661,18 @@ function createSession(
     if (authoringState !== undefined) delete authoringState["pendingViewRebuilds"];
     // Pending sources travel beside the native-byte workspace, which must still
     // match its History cursor. Only the applied update activates these sources.
-    const pendingViewRebuilds = updatePending
-      ? Object.fromEntries(
-          Object.entries(viewRebuilds).filter(([key]) =>
-            sameProjectContent(snapshot.read(key)?.content, inspection.documents[key]),
-          ),
-        )
-      : {};
+    const pendingViewRebuilds = Object.fromEntries(
+      Object.entries({
+        ...inspection.rejectedSources,
+        ...(updatePending ? viewRebuilds : {}),
+      }).filter(
+        ([key, content]) =>
+          /^view:\d+$/.test(key) &&
+          typeof content === "string" &&
+          inspection.documents[key] instanceof Uint8Array &&
+          sameProjectContent(snapshot.read(key)?.content, inspection.documents[key]),
+      ),
+    );
     const savedAuthoringState = Object.keys(pendingViewRebuilds).length
       ? { ...authoringState, pendingViewRebuilds }
       : authoringState;
@@ -1391,7 +1403,7 @@ function createSession(
         throw new Error(session.saveStatus().message || "Project session was closed.");
       if (sourceClaimsNeedCapture && automaticWritesAllowed())
         await schedule(async () => {
-          if (!sourceClaimsNeedCapture || !automaticWritesAllowed()) return;
+          if (!sourceClaimsNeedCapture) return;
           recordOperation({ kind: "capture" });
           captureSave(model.capture(), undefined, false, true, false, true);
         });
