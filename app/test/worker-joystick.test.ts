@@ -4,6 +4,7 @@ import { Engine } from "../../src/runtime/engine.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
+import { createGamepadPoll } from "../src/play/useGameKeys.ts";
 import type { WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 function setup(profile: keyof typeof PROFILES, source = "set.key(1,1,1); return;") {
@@ -330,3 +331,91 @@ test("a Gamepad revealed after logic 0's init.joy comes online and replays ident
     engine.captureReplayState(true).joystick,
   );
 });
+
+// Exercise the browser ownership poll through the real dispatcher and native
+// fire conventions, rather than asserting only the samples the poll produces.
+for (const profile of ["amiga-2.202", "2.936", "iigs-1.014"] as const) {
+  for (const origin of ["host control", "game"] as const) {
+    for (const button of profile === "amiga-2.202"
+      ? (["button1"] as const)
+      : (["button1", "button2"] as const)) {
+      test(`${profile} ${button} held from ${origin} cannot fire on focus return or late release`, () => {
+        const { ctx } = setup(
+          profile,
+          `
+          if (!isset(f200)) {
+            set(f200); init.joy();
+            set.key(1,1,1); set.key(1,2,1); set.key(13,0,1);
+          }
+          if (controller(c1)) { increment(v40); }
+          display(2,0,"Actions %v40"); display(3,0,"Direction %v6");
+          return;`,
+        );
+        const engine = ctx.run.engine!;
+        // init.joy runs before a browser has revealed its controller.
+        ctx.fns.tickEngine();
+        let owns = true;
+        const pad = { x: 0.9, y: 0, button1: false, button2: false };
+        const poll = createGamepadPoll({
+          gameOwnsPad: () => owns,
+          sample: () => pad,
+          send: (sample) => onWorkerMessage(ctx, { type: "joystick", sample }),
+          prompt: () => false,
+          promptKey: () => assert.fail("ordinary play has no prompt"),
+          presentation: () => engine.profile.presentation,
+        });
+        const step = () => {
+          poll();
+          ctx.fns.pollJoystickInput();
+          ctx.fns.tickEngine();
+        };
+        step();
+        assert.equal(engine.textRow(3).trim(), "Direction 3", "the held stick walks right");
+        if (origin === "game") {
+          pad[button] = true;
+          step();
+        }
+        const actions = profile === "iigs-1.014" && origin === "game" ? 1 : 0;
+        assert.equal(
+          engine.textRow(2).trim(),
+          `Actions ${actions}`,
+          "only IIgs fires the original in-game press",
+        );
+        owns = false;
+        step();
+        assert.equal(engine.textRow(3).trim(), "Direction 0", "host focus stops the held stick");
+        pad[button] = true;
+        step();
+        assert.equal(engine.textRow(2).trim(), `Actions ${actions}`, "host controls cannot fire");
+        owns = true;
+        step();
+        assert.equal(
+          engine.textRow(3).trim(),
+          "Direction 3",
+          "focus return intentionally resumes the held stick",
+        );
+        assert.equal(
+          engine.textRow(2).trim(),
+          `Actions ${actions}`,
+          "return with fire held cannot start a new action",
+        );
+        pad[button] = false;
+        step();
+        assert.equal(
+          engine.textRow(2).trim(),
+          `Actions ${actions}`,
+          "the stale release cannot fire late",
+        );
+        pad[button] = true;
+        step();
+        pad[button] = false;
+        step();
+        assert.equal(
+          engine.textRow(2).trim(),
+          `Actions ${actions + 1}`,
+          "a fresh fire gesture still works",
+        );
+      });
+    }
+  }
+}

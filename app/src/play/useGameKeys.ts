@@ -79,19 +79,20 @@ export function createGamepadPoll(deps: {
     const next = [Boolean(sample?.button1), Boolean(sample?.button2)];
     // A button held across the handoff stays stale until an owned poll sees
     // it up — prompt or no prompt — and that release is not a fire edge.
-    const wasStale = [stale[0], stale[1]];
-    for (let i = 0; i < 2; i++) if (!next[i]) stale[i] = false;
+    for (let i = 0; i < 2; i++) {
+      if (!next[i]) stale[i] = false;
+      else if (stale[i]) next[i] = false;
+    }
     if (deps.prompt()) {
       deps.send(null);
       // The Amiga gameport has one fire button (F-IN-17).
       for (let i = 0; i < (deps.presentation() === "amiga" ? 1 : 2); i++) {
-        if (wasStale[i]!) continue;
         const pressed = next[i]!;
         const wasPressed = buttons[i]!;
         if (deps.presentation() === "iigs" ? pressed && !wasPressed : wasPressed && !pressed)
           deps.promptKey(i === 0 ? 0x0101 : 0x0201);
       }
-    } else deps.send(sample);
+    } else deps.send(sample ? { ...sample, button1: next[0]!, button2: next[1]! } : null);
     buttons = next;
   };
 }
