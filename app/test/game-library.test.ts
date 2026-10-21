@@ -3,6 +3,13 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
+import { decodeSave } from "../../src/runtime/persistence.ts";
+import { isLegacyAuthoredProject } from "../../src/authoring/projectConventions.ts";
+import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { openContainer } from "../../src/container/container.ts";
+import { previewGame } from "../src/library/gamePreview.ts";
+import { installPreviewWorkerFixture } from "./previewWorkerFixture.ts";
+import { unstampedArchive } from "./unstampedArchive.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -1184,4 +1191,125 @@ test("a new external import records current conventions before gaining agent con
     opening,
   );
   assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, { version: 1 });
+});
+
+for (const order of ["current-first", "legacy-first"] as const)
+  test(`public compatibility editions stay distinct (${order}) while equivalent contracts and raw reimports retain progress`, async (t) => {
+    installLocalStorage(t);
+    installPreviewWorkerFixture(t);
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents: {
+        words: "[]",
+        inventory: "[]",
+        "logic:0": `display(5,2,"${order}"); increment(v42); if (v42 == 8) { load.pic(v0); draw.pic(v0); load.view(1); ${"add.to.pic(1,0,0,0,0,9,0);".repeat(12)} show.pic(); } return;`,
+        "picture:0": "vis 1\nfill 0,0\nend",
+        "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+      },
+      profileId: "2.936",
+    });
+    const files = Object.fromEntries(compiled.files());
+    const archive = async (version: number, legacy: boolean) =>
+      readGameZip(
+        buildPublicGameZip({
+          title: order,
+          files,
+          authoringConventions: { version, ...(legacy ? { legacyRoomMemory: true as const } : {}) },
+        }),
+      );
+    const legacy = await archive(1, true);
+    const current = await archive(1, false);
+    const checked = await previewGame(legacy);
+    assert.equal(checked.status, "ready");
+    const first = order === "current-first" ? current : legacy;
+    const second = order === "current-first" ? legacy : current;
+    const firstId = await addLibraryGame(first, order, "zip", await previewGame(first));
+    const secondId = await addLibraryGame(second, order, "zip", await previewGame(second));
+    assert.notEqual(firstId, secondId, "an explicit capacity change is a playable edition");
+    const legacyId = order === "legacy-first" ? firstId : secondId;
+    const currentId = order === "current-first" ? firstId : secondId;
+    const host = {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    };
+    for (const [id, capacity] of [
+      [legacyId, 200],
+      [currentId, 50],
+    ] as const) {
+      const data = (await loadAuthoredGame(id))!;
+      const engine = new Engine(
+        openContainer(new Map(Object.entries(data.files))),
+        host,
+        new Map(),
+        { legacyRoomMemory: isLegacyAuthoredProject(data) },
+      );
+      assert.equal(decodeSave(engine.serialize(), engine.profile).replayCapacity, capacity);
+      const play = () => {
+        for (let tick = 0; tick < 8; tick++) engine.tick();
+      };
+      if (capacity === 50) assert.throws(play, /50-pair capacity/);
+      else {
+        assert.doesNotThrow(play);
+        assert.equal(engine.surface.visual[100], 1);
+      }
+    }
+    assert.equal(await addLibraryGame(await archive(0, true), order, "zip", checked), legacyId);
+    assert.equal(
+      await addLibraryGame(await archive(0, false), order, "zip", checked),
+      legacyId,
+      "pending version 0 is effectively legacy even without its optional flag",
+    );
+    const unstamped = await readGameZip(
+      unstampedArchive(buildPublicGameZip({ title: order, files })),
+    );
+    assert.equal(await addLibraryGame(unstamped, order, "zip", checked), legacyId);
+    assert.equal(
+      await addLibraryGame(current, order, "zip", await previewGame(current)),
+      currentId,
+    );
+
+    // Keep only the legacy edition, with a real bound save, before a raw reimport.
+    await clearCachedGame(currentId);
+    const stored = (await loadAuthoredGame(legacyId))!;
+    const engine = new Engine(
+      openContainer(new Map(Object.entries(stored.files))),
+      host,
+      new Map(),
+      { legacyRoomMemory: true },
+    );
+    engine.tick();
+    const { storeImportedProgress } = await import("../src/saves/gameProgress.ts");
+    const bound = (await bindSavedProgressTarget(legacyId))!;
+    const progress = { saves: { "2": engine.serialize() }, autosave: null };
+    storeImportedProgress(localStorage, bound, progress);
+    const raw = readGameFiles(new Map(Object.entries(files)));
+    assert.equal(await addLibraryGame(raw, order, "folder", await previewGame(raw)), legacyId);
+    assert.deepEqual(
+      (await loadAuthoredGame(legacyId))!.authoringConventions,
+      stored.authoringConventions,
+    );
+    assert.deepEqual(readGameProgress(localStorage, bound), progress);
+  });
+
+test("deleting a matched edition after preview cannot publish a different room-memory contract", async (t) => {
+  installLocalStorage(t);
+  installPreviewWorkerFixture(t);
+  const original = await readGameZip(
+    buildPublicGameZip({
+      title: "Deleted during preview",
+      files: game('display(5,2,"Deleted during preview"); return;'),
+      authoringConventions: { version: 0, legacyRoomMemory: true },
+    }),
+  );
+  const id = await addLibraryGame(original, "Legacy", "zip", await previewGame(original));
+  const raw = readGameFiles(new Map(Object.entries(original.files)));
+  const checked = await previewGame(raw);
+  await clearCachedGame(id); // Another page closes/removes the matched edition while inspection runs.
+  await assert.rejects(addLibraryGame(raw, "Raw", "zip", checked), /opening.*changed/i);
+  const rechecked = await previewGame(raw);
+  const imported = await addLibraryGame(raw, "Raw", "zip", rechecked);
+  assert.deepEqual((await loadAuthoredGame(imported))!.authoringConventions, { version: 1 });
 });

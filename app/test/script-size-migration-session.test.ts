@@ -16,9 +16,15 @@ import { buildView, parseView, type BuildViewInput } from "../../src/view/view.t
 import { decodeSave } from "../../src/runtime/persistence.ts";
 import { customizedLegacyBoot, releasedTemplates } from "../../test/released-template-fixtures.ts";
 import { Engine, HostWait } from "../../src/runtime/engine.ts";
-import { isLegacyAuthoredProject } from "../../src/authoring/projectConventions.ts";
+import {
+  effectiveProjectCompatibility,
+  isLegacyAuthoredProject,
+} from "../../src/authoring/projectConventions.ts";
 import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchive.ts";
-import { readGameZip } from "../src/archive/gameZip.ts";
+import { readGameFiles, readGameZip } from "../src/archive/gameZip.ts";
+import { previewGame } from "../src/library/gamePreview.ts";
+import { installPreviewWorkerFixture } from "./previewWorkerFixture.ts";
+import { unstampedArchive } from "./unstampedArchive.ts";
 import { addLibraryGame, copyLibraryGame } from "../src/library/gameLibrary.ts";
 /**
  * The one-time script.size migration an older authored game receives when it
@@ -66,8 +72,14 @@ Object.defineProperty(globalThis, "localStorage", {
     },
     key: (index: number) => [...values.keys()][index] ?? null,
     getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
+    setItem(key: string, value: string) {
+      values.set(key, value);
+      Object.defineProperty(this, key, { configurable: true, enumerable: true, value });
+    },
+    removeItem(key: string) {
+      values.delete(key);
+      Reflect.deleteProperty(this, key);
+    },
   },
 });
 const frames = new Map<number, FrameRequestCallback>();
@@ -525,7 +537,8 @@ test("a pruned or cleared History never reapplies an undone upgrade", async () =
   assert.equal(storedLogic0((await loadAuthoredGame(pruned))!), PRE_125_LOGIC0);
 });
 
-test("customized f199 keeps busy rooms playable through session admission and both export/reimports", async () => {
+test("customized f199 keeps busy rooms playable through session admission and both export/reimports", async (t) => {
+  installPreviewWorkerFixture(t);
   const source = customizedLegacyBoot;
   const id = await storedProject("f199-round-trip", {
     logic0: source,
@@ -545,12 +558,9 @@ test("customized f199 keeps busy rooms playable through session admission and bo
   assert.ok(storedLogic0(data).includes("set(f199);"));
   for (const bytes of [buildPublicGameZip(data), await buildProjectZip(data)]) {
     const opened = await readGameZip(bytes);
-    const imported = await addLibraryGame(opened, "Custom game", "zip", {
-      preview: "data:image/png;base64,iVBORw0KGgo=",
-      status: "ready",
-      message: "Ready",
-      profile: "2.936",
-    });
+    const opening = await previewGame(opened, opened.profile);
+    assert.equal(opening.status, "ready");
+    const imported = await addLibraryGame(opened, "Custom game", "zip", opening);
     const kept = (await loadAuthoredGame(imported))!;
     const engine = new Engine(
       openContainer(new Map(Object.entries(kept.files))),
@@ -562,7 +572,10 @@ test("customized f199 keeps busy rooms playable through session admission and bo
         takeKeys: () => [],
       },
       new Map(),
-      { legacyRoomMemory: isLegacyAuthoredProject(kept), adoptDeclaredScriptSize: true },
+      {
+        legacyRoomMemory: effectiveProjectCompatibility(kept).legacyRoomMemory,
+        adoptDeclaredScriptSize: true,
+      },
     );
     assert.doesNotThrow(() => {
       for (let n = 0; n < 4; n++) engine.tick();
@@ -583,6 +596,62 @@ test("customized f199 keeps busy rooms playable through session admission and bo
     assert.doesNotThrow(() => engine.tick());
   }
 });
+
+for (const kind of ["public", "private"] as const)
+  for (const stamp of ["released", "version-0"] as const)
+    test(`${kind} ${stamp} f199 archive passes the mandatory busy-opening preview without rewriting LOGIC 0`, async (t) => {
+      installPreviewWorkerFixture(t);
+      const id = await storedProject(`preview-${kind}-${stamp}`, {
+        logic0: customizedLegacyBoot,
+        documents: {
+          words: JSON.stringify([
+            ["known", 1],
+            [`${kind}${stamp}`, 2],
+          ]),
+          "logic:1": `if (isset(f5)) { load.pic(1); draw.pic(1); load.view(1); ${"add.to.pic(1,0,0,0,0,9,0);".repeat(12)} show.pic(); } return;`,
+          "picture:1": "vis 1\nfill 0,0\nend",
+          "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+        },
+        data: {
+          provider: "stub",
+          model: "stub",
+          transcript: [{ role: "user", content: "Private creator notes" }],
+        },
+      });
+      const original = (await loadAuthoredGame(id))!;
+      const logic0 = openContainer(new Map(Object.entries(original.files))).getResource("logic", 0);
+      const zip =
+        kind === "public" ? buildPublicGameZip(original) : await buildProjectZip(original);
+      const opened = await readGameZip(stamp === "released" ? unstampedArchive(zip) : zip);
+      assert.deepEqual(
+        opened.authoringConventions,
+        stamp === "released" ? undefined : { version: 0, legacyRoomMemory: true },
+      );
+      const opening = await previewGame(opened, opened.profile);
+      assert.equal(opening.status, "ready");
+      const imported = await addLibraryGame(opened, "Busy legacy game", "zip", opening);
+      const stored = (await loadAuthoredGame(imported))!;
+      assert.deepEqual(
+        openContainer(new Map(Object.entries(stored.files))).getResource("logic", 0),
+        logic0,
+      );
+      assert.deepEqual(stored.authoringConventions, { version: 0, legacyRoomMemory: true });
+      // A raw reimport must reach dedup through the same busy-opening gate.
+      const raw = readGameFiles(new Map(Object.entries(stored.files)));
+      const rawOpening = await previewGame(raw, undefined, "folder");
+      assert.equal(await addLibraryGame(raw, "Raw reimport", "folder", rawOpening), imported);
+      assert.equal((await previewGame(original, undefined, "stored")).status, "ready");
+      const copy = (await loadAuthoredGame(await copyLibraryGame(imported)))!;
+      for (const exported of [buildPublicGameZip(copy), await buildProjectZip(copy)]) {
+        const reopened = await readGameZip(exported);
+        assert.deepEqual(reopened.authoringConventions, { version: 0, legacyRoomMemory: true });
+        if (reopened.project)
+          assert.deepEqual(reopened.project.authoringConventions, {
+            version: 0,
+            legacyRoomMemory: true,
+          });
+      }
+    });
 
 for (const [name, prefix] of [
   ["Astra commented guard", "// Historical boot: if (!isset(f200)) {\nset(f200);"],
