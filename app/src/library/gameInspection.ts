@@ -23,6 +23,8 @@ export interface GameInspection {
 export interface PreviewWorkerInbound {
   files: Record<string, Uint8Array>;
   words: [string, number][];
+  /** Effective room-memory contract; private project context stays in the host. */
+  legacyRoomMemory?: boolean | undefined;
   /** The library entry's override; the opening runs under it. */
   profile?: ProfileId | undefined;
 }
@@ -57,6 +59,7 @@ export async function inspectGame(game: PreviewWorkerInbound): Promise<GameInspe
     new Map(game.words),
     {
       instructionBudget: 100_000,
+      legacyRoomMemory: game.legacyRoomMemory === true,
       ...(game.profile ? { profile: game.profile } : {}),
     },
   );

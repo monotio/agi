@@ -33,6 +33,41 @@ export function isLegacyAuthoredProject(data: ConventionEvidence): boolean {
   );
 }
 
+/** The same effective contract drives import inspection, edition identity and Play. */
+export function effectiveProjectCompatibility(
+  data: ConventionEvidence & {
+    project?: { authoringConventions?: AuthoringConventions | undefined } | undefined;
+    metadata?: object | undefined;
+  },
+  importSource?: string,
+): {
+  authoringConventions: AuthoringConventions;
+  legacyRoomMemory: boolean;
+  /** Raw imports request no change to an edition already in the library. */
+  specified: boolean;
+} {
+  const specified =
+    importSource === undefined ||
+    importSource === "catalog" ||
+    data.project !== undefined ||
+    data.metadata !== undefined ||
+    data.authoringConventions !== undefined;
+  const authoringConventions =
+    readAuthoringConventions(data.project?.authoringConventions ?? data.authoringConventions) ??
+    (importSource !== undefined && (!specified || isRecognizedOriginal(data.files, importSource))
+      ? { version: AUTHORING_CONVENTIONS_VERSION }
+      : projectConventions(data));
+  return {
+    authoringConventions,
+    legacyRoomMemory: isLegacyAuthoredProject({
+      files: data.files,
+      authoringConventions,
+      library: { source: importSource ?? data.library?.source },
+    }),
+    specified,
+  };
+}
+
 /** Copies and exports preserve pending updates until the session saves them. */
 export function projectConventions(data: ConventionEvidence): AuthoringConventions {
   readAuthoringConventions(data.authoringConventions);

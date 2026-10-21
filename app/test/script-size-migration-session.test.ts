@@ -16,9 +16,12 @@ import type { BuildViewInput } from "../../src/view/view.ts";
 import { decodeSave } from "../../src/runtime/persistence.ts";
 import { customizedLegacyBoot, releasedTemplates } from "../../test/released-template-fixtures.ts";
 import { Engine, HostWait } from "../../src/runtime/engine.ts";
-import { isLegacyAuthoredProject } from "../../src/authoring/projectConventions.ts";
+import {
+  effectiveProjectCompatibility,
+  isLegacyAuthoredProject,
+} from "../../src/authoring/projectConventions.ts";
 import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchive.ts";
-import { readGameZip } from "../src/archive/gameZip.ts";
+import { readGameFiles, readGameZip } from "../src/archive/gameZip.ts";
 import { previewGame } from "../src/library/gamePreview.ts";
 import { installPreviewWorkerFixture } from "./previewWorkerFixture.ts";
 import { unstampedArchive } from "./unstampedArchive.ts";
@@ -68,8 +71,14 @@ Object.defineProperty(globalThis, "localStorage", {
     },
     key: (index: number) => [...values.keys()][index] ?? null,
     getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
+    setItem(key: string, value: string) {
+      values.set(key, value);
+      Object.defineProperty(this, key, { configurable: true, enumerable: true, value });
+    },
+    removeItem(key: string) {
+      values.delete(key);
+      Reflect.deleteProperty(this, key);
+    },
   },
 });
 const frames = new Map<number, FrameRequestCallback>();
@@ -558,7 +567,10 @@ test("customized f199 keeps busy rooms playable through session admission and bo
         takeKeys: () => [],
       },
       new Map(),
-      { legacyRoomMemory: isLegacyAuthoredProject(kept), adoptDeclaredScriptSize: true },
+      {
+        legacyRoomMemory: effectiveProjectCompatibility(kept).legacyRoomMemory,
+        adoptDeclaredScriptSize: true,
+      },
     );
     assert.doesNotThrow(() => {
       for (let n = 0; n < 4; n++) engine.tick();
@@ -587,6 +599,10 @@ for (const kind of ["public", "private"] as const)
       const id = await storedProject(`preview-${kind}-${stamp}`, {
         logic0: customizedLegacyBoot,
         documents: {
+          words: JSON.stringify([
+            ["known", 1],
+            [`${kind}${stamp}`, 2],
+          ]),
           "logic:1": `if (isset(f5)) { load.pic(1); draw.pic(1); load.view(1); ${"add.to.pic(1,0,0,0,0,9,0);".repeat(12)} show.pic(); } return;`,
           "picture:1": "vis 1\nfill 0,0\nend",
           "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
@@ -615,6 +631,21 @@ for (const kind of ["public", "private"] as const)
         logic0,
       );
       assert.deepEqual(stored.authoringConventions, { version: 0, legacyRoomMemory: true });
+      // A raw reimport must reach dedup through the same busy-opening gate.
+      const raw = readGameFiles(new Map(Object.entries(stored.files)));
+      const rawOpening = await previewGame(raw, undefined, "folder");
+      assert.equal(await addLibraryGame(raw, "Raw reimport", "folder", rawOpening), imported);
+      assert.equal((await previewGame(original, undefined, "stored")).status, "ready");
+      const copy = (await loadAuthoredGame(await copyLibraryGame(imported)))!;
+      for (const exported of [buildPublicGameZip(copy), await buildProjectZip(copy)]) {
+        const reopened = await readGameZip(exported);
+        assert.deepEqual(reopened.authoringConventions, { version: 0, legacyRoomMemory: true });
+        if (reopened.project)
+          assert.deepEqual(reopened.project.authoringConventions, {
+            version: 0,
+            legacyRoomMemory: true,
+          });
+      }
     });
 
 for (const [name, prefix] of [

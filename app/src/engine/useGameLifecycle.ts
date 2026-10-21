@@ -59,7 +59,7 @@ import { admitQualifiedOpening, type QualifiedGameOpening } from "./openingAdmis
 import {
   AUTHORING_CONVENTIONS_VERSION,
   isRecognizedOriginal,
-  isLegacyAuthoredProject,
+  effectiveProjectCompatibility,
 } from "../../../src/authoring/projectConventions.ts";
 
 /**
@@ -75,7 +75,9 @@ function authoredScriptBuffer(project: CachedGameData | undefined): {
   return project !== undefined && !isRecognizedOriginal(project.files, project.library?.source)
     ? {
         adoptDeclaredScriptSize: true,
-        ...(isLegacyAuthoredProject(project) ? { legacyRoomMemory: true as const } : {}),
+        ...(effectiveProjectCompatibility(project).legacyRoomMemory
+          ? { legacyRoomMemory: true as const }
+          : {}),
       }
     : {};
 }

@@ -1165,21 +1165,30 @@ export function createGameLibrary(
     title: string,
     source: "zip" | "folder",
   ): Promise<{ stored: ImportStorageReport | null; copy: boolean; title: string }> {
-    const opening = await (await import("./gamePreview.ts")).previewGame(game, game.profile);
+    const { addLibraryGame, OpeningCompatibilityChangedError } = await import("./gameLibrary.ts");
     const before = new Map(
       savedGames.value.map((entry) => [entry.projectId, entry.library?.revision]),
     );
     let stored: ImportStorageReport | null = null;
-    const importedProjectId = await (
-      await import("./gameLibrary.ts")
-    ).addLibraryGame(
-      game,
-      game.title ?? title,
-      source,
-      opening,
-      undefined,
-      (report) => (stored = report),
-    );
+    let importedProjectId: ProjectId;
+    for (;;) {
+      const opening = await (
+        await import("./gamePreview.ts")
+      ).previewGame(game, game.profile, source);
+      try {
+        importedProjectId = await addLibraryGame(
+          game,
+          game.title ?? title,
+          source,
+          opening,
+          undefined,
+          (report) => (stored = report),
+        );
+        break;
+      } catch (error) {
+        if (!(error instanceof OpeningCompatibilityChangedError)) throw error;
+      }
+    }
     refreshLibrary(importedProjectId);
     const entry = getCachedGameMeta(importedProjectId);
     if (entry)
@@ -1399,7 +1408,7 @@ export function createGameLibrary(
       catalogGames.set(id, game);
       catalogOpenings.value[id] = await (
         await import("./gamePreview.ts")
-      ).previewGame(game, game.profile);
+      ).previewGame(game, game.profile, "catalog");
     } catch (error) {
       catalogGames.delete(id);
       catalogErrors.value[id] = String(error).replace(/^Error: /, "");
@@ -1468,7 +1477,7 @@ export function createGameLibrary(
       if (!game) throw new Error("This game is missing from your library. Import it again.");
       const opening = await (
         await import("./gamePreview.ts")
-      ).previewGame(game, game.library?.profile);
+      ).previewGame(game, game.library?.profile, "stored");
       const revision = game.library?.revision ?? (await gameRevision(game.files));
       if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
         throw new Error("The game changed while its opening was being checked. Try again.");

@@ -1201,6 +1201,7 @@ for (const order of ["current-first", "legacy-first"] as const)
       files: Object.fromEntries(createContainer().files),
       documents: {
         words: "[]",
+        inventory: "[]",
         "logic:0": `display(5,2,"${order}"); increment(v42); if (v42 == 8) { load.pic(v0); draw.pic(v0); load.view(1); ${"add.to.pic(1,0,0,0,0,9,0);".repeat(12)} show.pic(); } return;`,
         "picture:0": "vis 1\nfill 0,0\nend",
         "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
@@ -1223,9 +1224,7 @@ for (const order of ["current-first", "legacy-first"] as const)
     const first = order === "current-first" ? current : legacy;
     const second = order === "current-first" ? legacy : current;
     const firstId = await addLibraryGame(first, order, "zip", await previewGame(first));
-    t.after(() => clearCachedGame(firstId));
     const secondId = await addLibraryGame(second, order, "zip", await previewGame(second));
-    t.after(() => clearCachedGame(secondId));
     assert.notEqual(firstId, secondId, "an explicit capacity change is a playable edition");
     const legacyId = order === "legacy-first" ? firstId : secondId;
     const currentId = order === "current-first" ? firstId : secondId;
@@ -1267,7 +1266,10 @@ for (const order of ["current-first", "legacy-first"] as const)
       unstampedArchive(buildPublicGameZip({ title: order, files })),
     );
     assert.equal(await addLibraryGame(unstamped, order, "zip", checked), legacyId);
-    assert.equal(await addLibraryGame(await archive(1, false), order, "zip", checked), currentId);
+    assert.equal(
+      await addLibraryGame(current, order, "zip", await previewGame(current)),
+      currentId,
+    );
 
     // Keep only the legacy edition, with a real bound save, before a raw reimport.
     await clearCachedGame(currentId);
@@ -1291,3 +1293,23 @@ for (const order of ["current-first", "legacy-first"] as const)
     );
     assert.deepEqual(readGameProgress(localStorage, bound), progress);
   });
+
+test("deleting a matched edition after preview cannot publish a different room-memory contract", async (t) => {
+  installLocalStorage(t);
+  installPreviewWorkerFixture(t);
+  const original = await readGameZip(
+    buildPublicGameZip({
+      title: "Deleted during preview",
+      files: game('display(5,2,"Deleted during preview"); return;'),
+      authoringConventions: { version: 0, legacyRoomMemory: true },
+    }),
+  );
+  const id = await addLibraryGame(original, "Legacy", "zip", await previewGame(original));
+  const raw = readGameFiles(new Map(Object.entries(original.files)));
+  const checked = await previewGame(raw);
+  await clearCachedGame(id); // Another page closes/removes the matched edition while inspection runs.
+  await assert.rejects(addLibraryGame(raw, "Raw", "zip", checked), /opening.*changed/i);
+  const rechecked = await previewGame(raw);
+  const imported = await addLibraryGame(raw, "Raw", "zip", rechecked);
+  assert.deepEqual((await loadAuthoredGame(imported))!.authoringConventions, { version: 1 });
+});

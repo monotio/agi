@@ -1,7 +1,6 @@
 import {
-  AUTHORING_CONVENTIONS_VERSION,
+  effectiveProjectCompatibility,
   projectConventions,
-  isRecognizedOriginal,
 } from "../../../src/authoring/projectConventions.ts";
 import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import {
@@ -30,13 +29,74 @@ import { rebindStagedReferences } from "../references/referenceArt.ts";
 import type { OpenedGame } from "../archive/gameZip.ts";
 import type { ProfileDetectionKind } from "../../../src/runtime/profile.ts";
 
+/** Publication must use the contract that passed inspection, even if another page changes the library. */
+export class OpeningCompatibilityChangedError extends Error {
+  constructor() {
+    super("The opening settings changed. Import the game again.");
+    this.name = "OpeningCompatibilityChangedError";
+  }
+}
+
 export interface CheckedOpening {
+  legacyRoomMemory?: boolean | undefined;
   preview: string;
   status: "ready" | "needs-input";
   message: string;
   profile: string;
   kind?: ProfileDetectionKind | undefined;
   build?: string | undefined;
+}
+
+/** Resolve the edition before inspection and again before publication. Raw reimports keep its contract. */
+export async function resolveLibraryImport(
+  game: OpenedGame,
+  source: "zip" | "folder" | "catalog",
+  catalog?: { id: string; version: string },
+) {
+  const known = await detectKnownGame(game.files);
+  const revision = await gameRevision(game.files);
+  const compatibility = effectiveProjectCompatibility(game, source);
+  // Only private authoring context can enable room generation.
+  const roomGeneration =
+    source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
+  const parent = game.metadata?.parent;
+  if (!game.project || source === "catalog") {
+    const candidates = listCachedGames().filter((entry) => {
+      const library = entry.library;
+      return (
+        library?.revision === revision &&
+        (game.profile === undefined || library.profile === game.profile) &&
+        entry.roomGeneration === roomGeneration &&
+        library.parent?.project === parent?.project &&
+        library.parent?.revision === parent?.revision &&
+        (!catalog ||
+          (library?.catalog?.id === catalog.id && library.catalog?.version === catalog.version))
+      );
+    });
+    // Equal resource revisions can carry different player-owned fonts. Keep
+    // those imports independently, without rewriting either edition's bytes.
+    for (const existing of candidates) {
+      const stored = await loadAuthoredGame(existing.projectId);
+      if (!stored) continue;
+      if (
+        compatibility.specified &&
+        compatibility.legacyRoomMemory !== effectiveProjectCompatibility(stored).legacyRoomMemory
+      )
+        continue;
+      const names = new Set(
+        [...Object.keys(stored.files), ...Object.keys(game.files)].filter(isAuxiliaryFileName),
+      );
+      if (
+        [...names].every((name) => {
+          const a = stored.files[name];
+          const b = game.files[name];
+          return a && b && a.length === b.length && a.every((byte, i) => byte === b[i]);
+        })
+      )
+        return { known, revision, compatibility, roomGeneration, parent, existing: stored };
+    }
+  }
+  return { known, revision, compatibility, roomGeneration, parent, existing: null };
 }
 
 /** Import only after inspection. Re-importing bytes never replaces a remix or private project. */
@@ -57,26 +117,15 @@ export async function addLibraryGame(
     (!/^[A-Za-z0-9._-]{1,80}$/.test(catalog.id) || !/^[A-Za-z0-9._+-]{1,80}$/.test(catalog.version))
   )
     throw new Error("The catalog release identifier is invalid.");
-  const known = await detectKnownGame(game.files);
-  const revision = await gameRevision(game.files);
-  // Room authoring belongs to games created in the app. A public GAME.JSON can
-  // claim the flag, so it counts only when the authoring context travels with it.
-  const legacyImport =
-    !isRecognizedOriginal(game.files, source) &&
-    (game.project !== undefined ||
-      (game.metadata !== undefined && game.authoringConventions === undefined));
-  const conventions =
-    game.project?.authoringConventions ??
-    game.authoringConventions ??
-    (legacyImport
-      ? { version: 0, legacyRoomMemory: true as const }
-      : { version: AUTHORING_CONVENTIONS_VERSION });
-  const roomGeneration =
-    source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
-  // A remix names its parent in GAME.JSON, and stays its own game wherever it
-  // is imported: bytes it shares with its parent (or with the catalog card it
-  // came from) never fold it into that entry, nor a plain import into it.
-  const parent = game.metadata?.parent;
+  const { known, revision, compatibility, roomGeneration, parent, existing } =
+    await resolveLibraryImport(game, source, catalog);
+  const selectedCompatibility = existing ? effectiveProjectCompatibility(existing) : compatibility;
+  if (
+    opening.legacyRoomMemory !== undefined &&
+    opening.legacyRoomMemory !== selectedCompatibility.legacyRoomMemory
+  )
+    throw new OpeningCompatibilityChangedError();
+  if (existing) return existing.projectId;
   const remix = parent !== undefined && source !== "catalog";
   const basePrefix = catalog
     ? `catalog-${catalog.id}`
@@ -86,43 +135,6 @@ export async function addLibraryGame(
         ? known.alias
         : `imported-${revision}`;
   const preferredId = requireProjectId(catalog ? `${basePrefix}-${catalog.version}` : basePrefix);
-  // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
-  // The same bytes under another interpreter are another game to play: an
-  // archive that declares an interpreter reuses only an entry with that
-  // choice, so neither import silently changes the other's setting or saves.
-  // An archive that declares none asks for nothing different, and keeps the
-  // choice the player made for these bytes.
-  if (!game.project || source === "catalog") {
-    const candidates = listCachedGames().filter((entry) => {
-      const library = entry.library;
-      return (
-        library?.revision === revision &&
-        (game.profile === undefined || library.profile === game.profile) &&
-        entry.roomGeneration === roomGeneration &&
-        library.parent?.project === parent?.project &&
-        library.parent?.revision === parent?.revision &&
-        (!catalog ||
-          (library?.catalog?.id === catalog.id && library.catalog?.version === catalog.version))
-      );
-    });
-    // Equal resource revisions can carry different player-owned fonts. Keep
-    // those imports independently, without rewriting either edition's bytes.
-    for (const existing of candidates) {
-      const stored = await loadAuthoredGame(existing.projectId);
-      if (!stored) continue;
-      const names = new Set(
-        [...Object.keys(stored.files), ...Object.keys(game.files)].filter(isAuxiliaryFileName),
-      );
-      if (
-        [...names].every((name) => {
-          const a = stored.files[name];
-          const b = game.files[name];
-          return a && b && a.length === b.length && a.every((byte, i) => byte === b[i]);
-        })
-      )
-        return existing.projectId;
-    }
-  }
   let targetProjectId = preferredId;
   if (
     remix ||
@@ -157,7 +169,7 @@ export async function addLibraryGame(
   const effectiveTitle = game.title ?? known?.title ?? title;
   const data = {
     title: effectiveTitle,
-    authoringConventions: conventions,
+    authoringConventions: compatibility.authoringConventions,
     library,
     provider: game.project?.provider,
     model: game.project?.model,
