@@ -1,6 +1,11 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
+import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import type { RoomEntryState } from "../../../src/runtime/roomEntry.ts";
+import type { NativeMenuChrome } from "../../../src/runtime/nativeMenu.ts";
+import type { GadgetLabel } from "../../../src/runtime/textSurface.ts";
 import type { RoomLaunchRequest } from "./roomLaunch.ts";
 import type { HostRngState } from "../../../src/runtime/rng.ts";
+import type { ShakeFrame } from "../../../src/runtime/shake.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 /**
@@ -17,10 +22,11 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
  *   pause               remix freeze; acknowledged by "paused"
  *   input               player pressed Enter on the input line
  *   key                 key press; answers a parked key wait
- *   click               pointer click in 320x200 screen pixels (click-to-walk)
+ *   click               pointer click in 320x200 screen pixels (click-to-walk, confirmation gadgets)
  *   direction           movement key press (0 = tracked key release)
  *   edit                live mirror of the host input widget
- *   dismissPrint        acknowledge the engine's open modal (click path)
+ *   dismissPrint        tap on the engine's open modal; with its screen pixel, a tap on an Amiga
+ *                       confirmation gadget selects it, any other tap acknowledges the window
  *   hostAnswer          reply to a posted hostRequest
  *   reenter             re-enter the current room after a live patch
  *   playHere            jump the live game to a room and ego spot
@@ -36,7 +42,7 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
  *   soundEnabled / soundDevice
  *   debug / debugWrite / debugTrace / debugEvents / traceAck
  *   previewUpdate / previewUpdateStatus
- *                       same-Engine Play-preview candidate admission
+ *                       same-Engine Play-preview changes admission
  *
  * Messages out:
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,
@@ -214,7 +220,10 @@ export interface PreviewUpdateCandidateMessage {
 
 export interface BootMessage {
   amigaRegion?: "ntsc" | "pal";
+  /** The player's PC display preference; the engine keeps it where the build verifies it. */
+  pcDisplay?: PcDisplay;
   type: "boot";
+  joystick?: JoystickSample | null;
   files: Record<string, Uint8Array>;
   words: [string, number][];
   sessionId?: number;
@@ -231,6 +240,13 @@ export interface BootMessage {
    */
   autosaveFiles?: boolean;
   authorRooms?: boolean;
+  /**
+   * An authored project, never an original release: the engine adopts the
+   * script buffer LOGIC 0 declares on a live edit and a resume
+   * (docs/fidelity.md, "Authored script buffer on live edits").
+   */
+  adoptDeclaredScriptSize?: boolean;
+  legacyRoomMemory?: boolean;
   /**
    * base64 save image to restore into the freshly booted engine (autosave
    * resume). Applied BEFORE the first cycle: the alternative, a message sent
@@ -275,8 +291,23 @@ export type WorkerInbound =
   | { type: "projectPlay"; id?: number; restart?: boolean }
   | BootMessage
   | { type: "pause"; paused: boolean }
-  | { type: "key"; code: number; sessionId?: number }
+  | { type: "key"; code: number; sessionId?: number; pointer?: boolean }
   | { type: "click"; x: number; y: number; sessionId?: number }
+  /**
+   * The Amiga menu strip: the right button went down / the pointer moved /
+   * the button came up at a screen pixel, a tap on a host-held (sticky)
+   * strip, or a host cancel. Opening with `sticky` keeps the strip open
+   * without the button (touch and keyboard access).
+   */
+  | {
+      type: "menu";
+      op: "open" | "move" | "release" | "tap" | "cancel";
+      x: number;
+      y: number;
+      sticky?: boolean;
+      sessionId?: number;
+    }
+  | { type: "joystick"; sample: JoystickSample | null }
   | {
       type: "direction";
       dir: number;
@@ -285,7 +316,7 @@ export type WorkerInbound =
     }
   | { type: "input"; text: string }
   | { type: "edit"; text: string }
-  | { type: "dismissPrint" }
+  | { type: "dismissPrint"; x?: number; y?: number }
   | { type: "hostAnswer"; generation: number; id: number; response: string }
   | { type: "reenter"; room?: number }
   /**
@@ -324,7 +355,7 @@ export type WorkerInbound =
     }
   | { type: "state"; id: number }
   | {
-      type: "imageHeroPreview";
+      type: "imageEgoPreview";
       runToken: string;
       bytes: Uint8Array | null;
       loops?: readonly number[];
@@ -708,6 +739,7 @@ export type WorkerControl =
       /** The viewed moment is a boundary the live session could resume from. */
       canResume: boolean;
       diverged: HistoryViewDivergence | null;
+      incompatible?: HistoryViewDivergence | null;
       error: string | null;
     }
   /**
@@ -715,13 +747,15 @@ export type WorkerControl =
    * resumable). `from` is the position the departing session sits at in its
    * own open segment — the restore's provenance. `reason: "starting"` marks a
    * null boot whose only obstacle is the first room not having drawn yet.
+   * `reason: "text-mode"` marks a text screen that cannot be captured.
+   * An open host prompt takes precedence; other unsafe boundaries report busy.
    */
   | {
       type: "historyRetained";
       id: number;
       boot: HistoryBoot | null;
       from: { segment: string; seq: number; tick: number } | null;
-      reason?: "starting";
+      reason?: "starting" | "text-mode" | "prompt" | "busy";
     }
   | {
       type: "historyTaken";
@@ -908,7 +942,16 @@ export type WorkerPresentation =
       visual: Uint8Array;
       priority: Uint8Array;
       text: Uint8Array;
+      windowOverlay?: Uint8Array;
       picRow: number;
+      /** The Amiga screen title while the status line shows, else null. */
+      statusBar: string | null;
+      /** An open confirmation window's gadgets with their off-grid labels. */
+      gadgets?: GadgetLabel[];
+      /** The open Amiga menu strip, drawn over the title bar. */
+      menu?: NativeMenuChrome;
+      /** The Amiga strip can open now (gate and inhibitor clear): the host offers its Menu access. */
+      menuAvailable?: boolean;
       modal: string | null;
       textMode: boolean;
       inputEnabled: boolean;
@@ -927,6 +970,12 @@ export type WorkerPresentation =
        * frame while that modal is open so layered renderers can isolate it.
        */
       preview?: Uint8Array;
+      /** The PC display when it is not the profile's default look. */
+      display?: "cga-rgb";
+      /** The running Amiga region when it is PAL; the stage aspect follows it. */
+      region?: "pal";
+      /** CGA only: 1 where a cel drew the pixel (Engine.getCelPixels). */
+      cel?: Uint8Array;
     }
   /**
    * One acknowledged batch of trace records. `dropped` counts records the
@@ -943,7 +992,8 @@ export type WorkerPresentation =
     }
   | { type: "print"; text: string }
   | { type: "status"; text: string }
-  | { type: "shake"; count: number }
+  /** The running shake.screen step, or null when it ends (src/runtime/shake.ts). */
+  | { type: "shake"; shake: ShakeFrame | null }
   | { type: "showObj"; viewNum: number }
   | {
       type: "autosave";

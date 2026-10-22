@@ -102,7 +102,7 @@ export function validateTranscript(
         case "redacted_thinking":
         case "compaction":
           if (provider !== "anthropic" || role !== "assistant" || toolContent)
-            throw new Error("Invalid assistant state block.");
+            throw new Error("Invalid conversation state block.");
           if (block["type"] === "thinking") {
             string(block["thinking"]);
             string(block["signature"]);
@@ -149,7 +149,7 @@ export function validateTranscript(
       provider === "openai" &&
       ["reasoning", "compaction"].includes(String(item["type"]))
     ) {
-      if (role !== undefined) throw new Error("Invalid assistant state role.");
+      if (role !== undefined) throw new Error("Invalid conversation state role.");
       if (item["encrypted_content"] !== undefined && item["encrypted_content"] !== null)
         string(item["encrypted_content"]);
       if (item["type"] === "compaction") string(item["encrypted_content"]);
@@ -172,7 +172,7 @@ export function validateTranscript(
         item["phase"] !== undefined &&
         !["commentary", "final_answer"].includes(String(item["phase"]))
       )
-        throw new Error("Invalid assistant message phase.");
+        throw new Error("Invalid conversation message phase.");
     }
   }
   if (pending.size && !allowPending)

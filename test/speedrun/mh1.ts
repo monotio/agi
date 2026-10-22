@@ -1328,7 +1328,7 @@ export function museumMaze(mh: Manhunter): void {
       const cards = engine.vars[61]!;
       run.key(AGI_KEY.ENTER);
       mh.waitFor(() => engine.vars[50] === 1 && !engine.flags[22], "the keycard slot", 600);
-      // The keycard stack is always the first inventory item.
+      // The keycard stack is always the first object.
       run.key(AGI_KEY.TAB);
       mh.step(6);
       assert.equal(engine.modalKind, "inventory");

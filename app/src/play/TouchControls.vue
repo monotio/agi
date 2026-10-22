@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { AGI_KEY } from "../../../src/runtime/keys.ts";
-import { FUNCTION_KEYS, ALT_LETTER_SCANS } from "./gameControls.ts";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { AGI_KEY, hasKeypadStop, translatePlatformKey } from "../../../src/runtime/keys.ts";
+import { FUNCTION_KEYS } from "./gameControls.ts";
 import UiIcon from "../ui/UiIcon.vue";
 import UiSelect from "../ui/UiSelect.vue";
 
-const { disabled, navigating, hold } = defineProps<{
+const { disabled, navigating, hold, profile, menu } = defineProps<{
   disabled: boolean;
   navigating: boolean;
   hold: boolean;
+  profile: string | null;
+  /** The game's Amiga menu strip can open now: offer it, since touch has no right button. */
+  menu: boolean;
 }>();
-const emit = defineEmits<{ direction: [direction: number]; key: [code: number]; keyboard: [] }>();
+const emit = defineEmits<{
+  direction: [direction: number];
+  key: [code: number];
+  keyboard: [];
+  menu: [];
+}>();
 const active = ref<number>();
 const assistiveHeld = ref(false);
 let pointer: number | null = null;
@@ -26,14 +34,29 @@ const directions = [
   { dir: 5, angle: 90, name: "south" },
   { dir: 4, angle: 45, name: "southeast" },
 ];
-const extraKeys: Record<string, number> = {
+/**
+ * The joystick button words each machine can make (F-IN-17): two PC buttons
+ * with their double presses, one Amiga button whose double press (or a right
+ * double-click) makes 0x0401, and none on the IIgs, whose buttons press Enter.
+ */
+const fireKeys = computed<Record<string, number>>(() =>
+  profile === "iigs-1.014"
+    ? {}
+    : profile?.startsWith("amiga-")
+      ? { Fire: 0x0101, "Fire twice": 0x0401 }
+      : { "Fire 1": 0x0101, "Fire 2": 0x0201, "Fire 1 twice": 0x0301, "Fire 2 twice": 0x0401 },
+);
+const extraKeys = computed<Record<string, number>>(() => ({
   ...FUNCTION_KEYS,
   Tab: AGI_KEY.TAB,
   Backspace: AGI_KEY.BACKSPACE,
   Insert: AGI_KEY.INSERT,
-  Delete: AGI_KEY.DELETE,
+  Delete: translatePlatformKey({ key: "Delete" }, profile) ?? AGI_KEY.DELETE,
   "Scroll Lock": 0x4600,
-};
+  ...(hasKeypadStop(profile) ? { Stop: 0xf500 } : {}),
+  ...fireKeys.value,
+  ...(profile?.startsWith("amiga-") || profile === "iigs-1.014" ? { Sound: 0xff00 } : {}),
+}));
 const modifier = ref<"none" | "ctrl" | "alt">("none");
 const letters = "abcdefghijklmnopqrstuvwxyz".split("");
 
@@ -151,6 +174,9 @@ onBeforeUnmount(() => {
         <button type="button" :disabled @click="emit('key', AGI_KEY.ENTER)">Enter</button>
         <button type="button" :disabled @click="emit('key', AGI_KEY.ESCAPE)">Esc</button>
         <button type="button" :disabled @click="emit('key', AGI_KEY.SPACE)">Space</button>
+        <button v-if="menu" type="button" :disabled data-testid="touch-menu" @click="emit('menu')">
+          Menu
+        </button>
       </div>
     </div>
     <p class="movement-help">
@@ -187,18 +213,21 @@ onBeforeUnmount(() => {
       </label>
       <div class="key-grid letters">
         <button
-          v-for="(letter, index) in letters"
+          v-for="letter in letters"
           :key="letter"
           type="button"
           :disabled
           @click="
             emit(
               'key',
-              modifier === 'ctrl'
-                ? index + 1
-                : modifier === 'alt'
-                  ? ALT_LETTER_SCANS[letter.toUpperCase()]! << 8
-                  : letter.charCodeAt(0),
+              translatePlatformKey(
+                {
+                  key: letter,
+                  ctrlKey: modifier === 'ctrl',
+                  altKey: modifier === 'alt',
+                },
+                profile,
+              ) ?? letter.charCodeAt(0),
             )
           "
         >

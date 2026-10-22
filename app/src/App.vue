@@ -36,7 +36,7 @@ import { readCrtAmount } from "./settings/crtPreference.ts";
 import SetupPanel from "./home/SetupPanel.vue";
 import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
 import StartOverNote from "./play/StartOverNote.vue";
-import { nextViewportLayout } from "./play/viewportLayout.ts";
+import { displayAspect, gameAspectStyle, nextViewportLayout } from "./play/viewportLayout.ts";
 import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
@@ -109,6 +109,7 @@ const engine = useEngine(
       playArea.value?.handlePromptType(text);
     },
     onScreenReset: () => presentation.forgetFrame(),
+    onAppearance: (id, files, pcDisplay) => presentation.setProfile(id, files, pcDisplay),
   },
 );
 provideEngine(engine);
@@ -154,7 +155,7 @@ const ai = createAiSettings(engine, {
   dialog: aiSettingsDialog,
   releaseMovement,
   createButtonEl: () => shellBridge.createButtonEl(),
-  assistantInputEl: () => shellBridge.assistantInputEl(),
+  agentInputEl: () => shellBridge.agentInputEl(),
 });
 provideAiSettings(ai);
 const {
@@ -683,7 +684,10 @@ watch(
       'original-aspect': originalAspect,
       'workspace-focus': creating && workspaceEditor.focus.value,
     }"
-    :style="{ '--layout-height': `${viewport.height}px` }"
+    :style="{
+      '--layout-height': `${viewport.height}px`,
+      ...gameAspectStyle(displayAspect(state.profile, state.amigaRegion, originalAspect)),
+    }"
   >
     <div class="shell">
       <CreateKeyboard
@@ -726,7 +730,7 @@ watch(
       </GameHeader>
 
       <!-- One grid for both modes, so the live stage (and its GPU canvas) is
-           never remounted: Create adds docks around it, Play's Ask drawer
+           never remounted: Create adds docks around it, Play's Agent drawer
            takes the right column. -->
       <div
         class="shell-body"
@@ -751,7 +755,7 @@ watch(
           'shell-body--fold-left': creating && !phone && workspace.collapsed.left,
           'shell-body--fold-right': creating && !phone && workspace.collapsed.right,
           'shell-body--asking': !creating && state.phase === 'running' && state.powerUp.open,
-          'assistant-open': state.phase === 'running' && state.powerUp.open,
+          'agent-open': state.phase === 'running' && state.powerUp.open,
         }"
       >
         <CreateWorkspace
@@ -796,6 +800,13 @@ watch(
           </template>
           <template #screen-notes>
             <StartOverNote />
+            <UiToast
+              v-if="state.checkpointProblem && !creating"
+              tone="warn"
+              data-testid="checkpoint-notice"
+            >
+              {{ state.checkpointProblem }}
+            </UiToast>
             <UiToast v-if="state.entryProblem" tone="warn" data-testid="entry-notice">
               {{ state.entryProblem }}
             </UiToast>
@@ -823,9 +834,9 @@ watch(
               v-if="state.phase === 'running' && !creating"
               icon="sparkles"
               size="sm"
-              class="ask-button"
-              :class="{ 'ask-button--away': state.powerUp.open }"
-              data-testid="menu-assistant"
+              class="agent-button"
+              :class="{ 'agent-button--away': state.powerUp.open }"
+              data-testid="menu-agent"
               :aria-expanded="state.powerUp.open"
               title="Ask questions or get hints about this game."
               :disabled="

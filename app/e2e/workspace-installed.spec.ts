@@ -44,7 +44,7 @@ for (const viewport of [
       const part = page.getByTestId("part-room:1:picture:1");
       await expect(part).toBeVisible();
       await part.click();
-      const studio = page.getByTestId("room-studio");
+      const studio = page.getByTestId("picture-studio");
       await expect(studio).toBeVisible();
       const stored = () =>
         page.evaluate(async () =>

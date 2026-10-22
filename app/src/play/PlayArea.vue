@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { pointerFrame } from "../ui/frameTask.ts";
 import {
   computed,
   defineAsyncComponent,
@@ -12,8 +13,13 @@ import {
 } from "vue";
 import { layoutDragging } from "./layoutDrag.ts";
 import { guidedPlacement } from "./guidedPlacement.ts";
-import { gameRoomMenu, roomMenuArmed } from "./roomActionMenu.ts";
-import { PAGE_CONTROLS } from "./useGameKeys.ts";
+import { gameRoomMenu } from "./roomActionMenu.ts";
+import {
+  connectedGamepad,
+  createGamepadPoll,
+  nativeGameKey,
+  PAGE_CONTROLS,
+} from "./useGameKeys.ts";
 
 import TouchControls from "./TouchControls.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -21,13 +27,21 @@ import TransportBar from "../history/TransportBar.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
-import { crtFramePoint } from "../three/crtAmount.ts";
-import { stageScreenWidth } from "./viewportLayout.ts";
+import { crtFramePixel, crtFramePoint } from "../three/crtAmount.ts";
+import { displayAspect, stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
+import { amigaPointerCursor } from "./amigaPointer.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
-import { pcKey, movementDirection } from "./gameControls.ts";
+import { modalWaitsOnClock } from "../engine/useEngineTypes.ts";
+import { movementDirection } from "./gameControls.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
-import { AGI_KEY, DIRECTION_KEYS } from "../../../src/runtime/keys.ts";
+import {
+  AGI_KEY,
+  DIRECTION_KEYS,
+  normalizeKeyWord,
+  translatePlatformKey,
+  type JoystickSample,
+} from "../../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../../src/runtime/textSurface.ts";
 
 const props = defineProps<{
@@ -54,6 +68,8 @@ const {
   sendDirection,
   sendKey,
   sendClick,
+  sendMenu,
+  sendJoystick,
   submitPrompt,
 } = engine;
 const presentation = usePresentation();
@@ -122,6 +138,53 @@ function readKeyboard(): void {
 function onFocusMove(): void {
   setTimeout(readKeyboard, 0);
 }
+let gamepadTimer: ReturnType<typeof setInterval> | null = null;
+/** The last sample posted; the worker hears only changes, never a 60 Hz stream. */
+let gamepadSent = "null";
+function postGamepad(sample: JoystickSample | null): void {
+  const text = JSON.stringify(sample);
+  if (text === gamepadSent) return;
+  gamepadSent = text;
+  sendJoystick(sample);
+}
+function releaseGamepad(): void {
+  gamepadSent = "null";
+  sendJoystick(null);
+}
+/**
+ * The pad follows the keyboard's owner (useGameKeys): while a page control,
+ * sheet or dialog holds the keyboard the game's held input releases, and it
+ * resumes when the game takes the page back.
+ */
+const pollGamepad = createGamepadPoll({
+  gameOwnsPad: () =>
+    state.phase === "running" &&
+    !document.hidden &&
+    document.hasFocus() &&
+    gameFocused.value &&
+    state.inputReady &&
+    !state.paused &&
+    !agentBlocksGame.value &&
+    !state.walkthrough.active &&
+    !state.historyView.active,
+  sample: connectedGamepad,
+  send: postGamepad,
+  prompt: () => state.prompt !== null,
+  promptKey: onVirtualKey,
+  presentation: () => screenPresentation.value,
+});
+watch(
+  () =>
+    state.paused ||
+    agentBlocksGame.value ||
+    state.historyView.active ||
+    state.walkthrough.active ||
+    !gameFocused.value,
+  (blocked) => {
+    if (blocked) releaseGamepad();
+  },
+);
+
 onMounted(() => {
   document.addEventListener("keydown", onHelpEscape, true);
   document.addEventListener("pointerdown", onHelpOutside);
@@ -129,11 +192,27 @@ onMounted(() => {
   document.addEventListener("focusout", onFocusMove);
   window.addEventListener("focus", onFocusMove);
   window.addEventListener("blur", onFocusMove);
+  window.addEventListener("blur", releaseGamepad);
+  document.addEventListener("visibilitychange", releaseGamepad);
+  window.addEventListener("blur", onScreenPointerCancel);
+  document.addEventListener("visibilitychange", onScreenPointerCancel);
+  gamepadTimer = setInterval(pollGamepad, 1000 / 60);
   readKeyboard();
 });
 onBeforeUnmount(() => {
+  clearLongPress();
+  if (moveFrame) window.cancelAnimationFrame(moveFrame);
   // The next game screen mounts its own canvas and stage.
   presentation.closeScreen();
+  releaseGamepad();
+  window.removeEventListener("blur", releaseGamepad);
+  document.removeEventListener("visibilitychange", releaseGamepad);
+  window.removeEventListener("blur", onScreenPointerCancel);
+  document.removeEventListener("visibilitychange", onScreenPointerCancel);
+  if (gamepadTimer !== null) {
+    clearInterval(gamepadTimer);
+    gamepadTimer = null;
+  }
   document.removeEventListener("keydown", onHelpEscape, true);
   document.removeEventListener("pointerdown", onHelpOutside);
   document.removeEventListener("focusin", onFocusMove);
@@ -173,8 +252,42 @@ watch(layoutDragging, (dragging) => {
 const stageStyle = computed(() => {
   const box = stageBox.value;
   if (props.touchControls || !box || box.width <= 0 || box.height <= 0) return undefined;
-  const ratio = props.originalAspect ? 4 / 3 : FRAME_WIDTH / FRAME_HEIGHT;
+  const ratio = displayAspect(state.profile, state.amigaRegion, props.originalAspect);
   return { "--game-width": `${stageScreenWidth(box.width, box.height, ratio)}px` };
+});
+/**
+ * The Amiga interpreter shows its own arrow pointer over the game; the
+ * browser's cursor takes that shape over the screen, scaled like the
+ * frame's pixels in each direction (docs/fidelity.md "Amiga screen, font
+ * and pointer"). It is browser chrome: exported and composed frames carry
+ * no pointer.
+ */
+/**
+ * shake.screen moves the whole display by the engine's step offset in frame
+ * pixels; the screen clips it and shows black where nothing is drawn
+ * (src/runtime/shake.ts). The IIgs shake recolours instead of moving.
+ */
+const shakeSurfaceStyle = computed(() => {
+  const shake = state.shake;
+  if (shake === null || (shake.dx === 0 && shake.dy === 0)) return undefined;
+  return {
+    transform: `translate(${(shake.dx / FRAME_WIDTH) * 100}%, ${(shake.dy / FRAME_HEIGHT) * 100}%)`,
+  };
+});
+watch(
+  () => state.shake?.palette ?? null,
+  (palette) => presentation.setPaletteOverride(palette),
+);
+
+const screenCursor = computed(() => {
+  const profile = state.profile;
+  if (profile === null || !Object.hasOwn(PROFILES, profile)) return undefined;
+  if (PROFILES[profile as ProfileId].presentation !== "amiga") return undefined;
+  const width = parseFloat(stageStyle.value?.["--game-width"] ?? "");
+  const ratio = displayAspect(state.profile, state.amigaRegion, props.originalAspect);
+  const sx = width > 0 ? width / FRAME_WIDTH : 3;
+  const sy = width > 0 ? width / ratio / FRAME_HEIGHT : 3;
+  return amigaPointerCursor(sx, sy);
 });
 const inputLine = ref("");
 const promptLine = ref("");
@@ -253,18 +366,249 @@ watch(splitAt, () => presentation.repaint());
 
 /** Pointer type of the last screen press; the click event carries none. */
 let screenPointerType = "mouse";
+let amigaRightClickAt = -1000;
+
+const screenPresentation = computed(() => {
+  const profile = state.profile;
+  if (profile === null || !Object.hasOwn(PROFILES, profile)) return "pc";
+  return PROFILES[profile as ProfileId].presentation;
+});
+
+/**
+ * The Amiga menu strip (docs/fidelity.md "Original native menu dispatch"):
+ * the game can open it now, so the right mouse button is Intuition's. The
+ * touch and keyboard paths (a long press on the title bar, the Menu button)
+ * are host access, not original behavior.
+ */
+const amigaMenuReady = computed(
+  () =>
+    screenPresentation.value === "amiga" &&
+    state.menuAvailable &&
+    state.phase === "running" &&
+    !state.walkthrough.active &&
+    !state.historyView.active &&
+    !state.paused &&
+    !agentBlocksGame.value &&
+    !state.prompt,
+);
+/** The strip is open: on Amiga profiles the menu modal is always the native strip. */
+const amigaMenuOpen = computed(
+  () => screenPresentation.value === "amiga" && state.modal === "menu",
+);
+/** Clicks and taps on the Amiga save dialog select its gadgets and slot lines. */
+const amigaDialogOpen = computed(
+  () =>
+    screenPresentation.value === "amiga" && (state.modal === "save" || state.modal === "restore"),
+);
+let menuDrag = false;
+let movePending: { x: number; y: number } | null = null;
+let moveFrame = 0;
+let longPressTimer = 0;
+let longPressFired = false;
+const LONG_PRESS_MS = 500;
+/** Rows 0..10 are the title bar; a long press there opens the strip on touch. */
+const TITLE_BAR_BOTTOM = 10;
+
+function clearLongPress(): void {
+  if (longPressTimer) window.clearTimeout(longPressTimer);
+  longPressTimer = 0;
+}
+
+/**
+ * Pointer moves record only the latest client position; the canvas rect read
+ * and the frame mapping run once per animation frame, like every other drag.
+ */
+function queueScreenMove(clientX: number, clientY: number): void {
+  movePending = { x: clientX, y: clientY };
+  if (moveFrame) return;
+  moveFrame = window.requestAnimationFrame(() => {
+    moveFrame = 0;
+    const pending = movePending;
+    movePending = null;
+    if (!pending) return;
+    if (menuDrag) {
+      const point = menuPoint(pending.x, pending.y);
+      if (point) sendMenu("move", point.x, point.y);
+      return;
+    }
+    if (longPressTimer) {
+      const point = screenFramePoint(pending.x, pending.y);
+      if (!point || point.y > TITLE_BAR_BOTTOM) clearLongPress();
+    }
+  });
+}
+
+/** A pointer position clamped onto the frame, as Intuition clamps its pointer to the screen edge. */
+function menuPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+  const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
+  const rect = canvas?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  return crtFramePixel(
+    (clientX - rect.left) / rect.width,
+    (clientY - rect.top) / rect.height,
+    gpuBackend.value ? props.crtAmount : 0,
+  );
+}
+
+/**
+ * The right button's owner for its whole gesture: Create's room actions
+ * while Create is on stage, Intuition's strip while the game offers one, the
+ * game's own double-click word once the strip is withdrawn — and the
+ * browser's own menu on a non-Amiga Play. The mode decides, not the lazily
+ * mounted workspace: Create owns the button from the moment it is on stage.
+ */
+type RightButtonOwner = "create" | "strip" | "game" | "browser" | "cancelled";
+function currentRightButtonOwner(): RightButtonOwner {
+  if (props.inspectorDocked) return "create";
+  if (screenPresentation.value !== "amiga") return "browser";
+  // Intuition owns the right button while the strip can open or is open;
+  // the double-click word belongs to the game only when the verify fails.
+  return amigaMenuReady.value || amigaMenuOpen.value || menuDrag ? "strip" : "game";
+}
+/** The owner the last right press recorded; contextmenu honours it even after the release. */
+let rightButtonOwner: RightButtonOwner | null = null;
 
 function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
+  // One owner per gesture, settled at the press: contextmenu arrives after
+  // the release on Windows, and a mode switch mid-gesture must not hand the
+  // same press to two owners.
+  if (ev.button === 2) rightButtonOwner = currentRightButtonOwner();
+  // While Create is on stage the press stays theirs; only Play's native
+  // path may open the strip and capture the pointer.
+  if (
+    ev.button === 2 &&
+    ev.pointerType === "mouse" &&
+    rightButtonOwner === "strip" &&
+    amigaMenuReady.value
+  ) {
+    const point = menuPoint(ev.clientX, ev.clientY);
+    if (!point) return;
+    ev.preventDefault();
+    menuDrag = true;
+    try {
+      (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+    } catch {
+      /* No active pointer. */
+    }
+    sendMenu("open", point.x, point.y);
+    return;
+  }
+  clearLongPress();
+  longPressFired = false;
+  if (ev.pointerType !== "mouse" && ev.isPrimary && amigaMenuReady.value) {
+    const point = screenFramePoint(ev.clientX, ev.clientY);
+    if (!point || point.y > TITLE_BAR_BOTTOM) return;
+    longPressTimer = window.setTimeout(() => {
+      longPressTimer = 0;
+      // A pause or an opened sheet since the press revoked the strip.
+      if (!amigaMenuReady.value) return;
+      longPressFired = true;
+      sendMenu("open", point.x, point.y, true);
+    }, LONG_PRESS_MS);
+  }
 }
 
-/** Right-click offers the current room's actions while Create is armed; Play keeps the browser menu. */
+function onScreenPointerMove(ev: PointerEvent): void {
+  presentation.onScreenPointerMove(ev);
+  if (menuDrag || (longPressTimer !== 0 && ev.pointerType !== "mouse"))
+    queueScreenMove(ev.clientX, ev.clientY);
+}
+
+function onScreenPointerUp(ev: PointerEvent): void {
+  clearLongPress();
+  if (!menuDrag || ev.button !== 2) return;
+  menuDrag = false;
+  movePending = null;
+  try {
+    (ev.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId);
+  } catch {
+    /* Capture already gone. */
+  }
+  const point = menuPoint(ev.clientX, ev.clientY);
+  sendMenu("release", point?.x ?? -1, point?.y ?? -1);
+}
+
+function onScreenPointerCancel(): void {
+  clearLongPress();
+  if (!menuDrag) return;
+  menuDrag = false;
+  movePending = null;
+  sendMenu("cancel", 0, 0);
+}
+
+// A mode switch under a held button ends the gesture its old owner started.
+watch(
+  () => props.inspectorDocked,
+  (docked) => {
+    onScreenPointerCancel();
+    // A room menu asked for before Create's workspace mounted leaves with it.
+    if (!docked) {
+      gameRoomMenu.value = undefined;
+      // Keep consuming a delayed contextmenu, but retire the room action
+      // even if Create returns before that old gesture finishes.
+      if (rightButtonOwner === "create") rightButtonOwner = "cancelled";
+    }
+  },
+);
+
+/** The touch Menu button: open the strip without a button and keep it open. */
+function onTouchMenu(): void {
+  resumeAudio();
+  if (!amigaMenuReady.value) return;
+  sendMenu("open", -1, -1, true);
+}
+
+/** Right-click offers the current room's actions while Create is on stage; Amiga Play gets its right button. */
 function onScreenContextMenu(ev: MouseEvent): void {
-  if (!roomMenuArmed.value) return;
-  const room = engine.roomMap?.currentRoom.value ?? null;
-  if (room === null) return;
+  // The press's owner answers one contextmenu, for its own button only: a
+  // keyboard or long-press contextmenu (button 0) asks the mode on stage.
+  const pressed = rightButtonOwner;
+  rightButtonOwner = null;
+  const owner = ev.button === 2 && pressed !== null ? pressed : currentRightButtonOwner();
+  if (owner === "cancelled") {
+    ev.preventDefault();
+    return;
+  }
+  if (owner === "create") {
+    // Create's menu answers the press even with no room under it, and the
+    // browser's own menu never opens over the game.
+    ev.preventDefault();
+    const room = engine.roomMap?.currentRoom.value ?? null;
+    if (room !== null) gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
+    return;
+  }
+  if (owner === "strip") {
+    ev.preventDefault();
+    return;
+  }
+  if (owner === "game") onAmigaRightButton(ev);
+}
+
+/**
+ * The Amiga right mouse button (docs/fidelity.md "Original click-to-walk"):
+ * a double click outside text windows posts 0x0401. Native menus on the
+ * right button belong here too.
+ */
+function onAmigaRightButton(ev: MouseEvent): void {
+  if (
+    state.phase !== "running" ||
+    state.walkthrough.active ||
+    state.historyView.active ||
+    state.paused ||
+    agentBlocksGame.value ||
+    state.modal !== null ||
+    state.prompt
+  )
+    return;
   ev.preventDefault();
-  gameRoomMenu.value = { x: ev.clientX, y: ev.clientY, room };
+  const now = performance.now();
+  if (now - amigaRightClickAt <= 500) {
+    amigaRightClickAt = -1000;
+    sendKey(0x0401, undefined, true);
+  } else {
+    amigaRightClickAt = now;
+  }
 }
 
 function onScreenClick(ev: MouseEvent): void {
@@ -272,6 +616,16 @@ function onScreenClick(ev: MouseEvent): void {
   if (state.phase !== "running") return;
   // The tape is a recording — screen clicks can't interact with it.
   if (state.historyView.active) return;
+  // The release that ended a long press opened the strip; it is not a tap on it.
+  if (longPressFired) {
+    longPressFired = false;
+    return;
+  }
+  if (amigaMenuOpen.value && ev.button === 0 && !state.walkthrough.active) {
+    const point = screenFramePoint(ev.clientX, ev.clientY);
+    if (point) sendMenu("tap", point.x, point.y);
+    return;
+  }
   if (state.walkthrough.active) {
     if (advanceDialog()) return;
     if (state.walkthrough.status === "paused") {
@@ -280,6 +634,9 @@ function onScreenClick(ev: MouseEvent): void {
     }
   }
   if (state.prompt) {
+    // The Amiga describe window's Cancel gadget stays clickable under the
+    // description prompt; the worker decides whether the click hit it.
+    if (amigaDialogOpen.value && state.prompt.kind === "saveDescription") sendScreenClick(ev);
     inputEl.value?.focus({ preventScroll: true });
     return;
   }
@@ -291,7 +648,22 @@ function onScreenClick(ev: MouseEvent): void {
   // mode: `any-pointer: coarse` also matches hybrid laptops with a mouse.
   if (props.touchControls && screenPointerType !== "mouse") {
     if (state.modal !== null) {
-      if (state.modal !== "save" && state.modal !== "restore") dismissModal();
+      // The tap's screen pixel lets the worker select an Amiga confirmation
+      // gadget (Restart / Cancel, Quit / Continue) under it, or a save
+      // dialog's OK / Cancel gadget or slot line.
+      if (amigaDialogOpen.value) sendScreenClick(ev);
+      else if (state.modal !== "save" && state.modal !== "restore")
+        dismissModal(screenFramePoint(ev.clientX, ev.clientY) ?? undefined);
+      return;
+    }
+    if (
+      screenClickMove.value !== "none" &&
+      state.inputEnabled &&
+      !state.waitingForKey &&
+      !state.textMode &&
+      !hasKeyPrompt.value
+    ) {
+      sendScreenClick(ev);
       return;
     }
     // A tap is Enter, which wakes have.key() on title screens and prompts —
@@ -300,7 +672,7 @@ function onScreenClick(ev: MouseEvent): void {
     sendKey(hasKeyPrompt.value ? (keyPromptKeys.value[0]?.[0] ?? AGI_KEY.ENTER) : AGI_KEY.ENTER);
     return;
   }
-  // A mouse click is also pointer input on click-move profiles (Amiga, IIgs).
+  // A mouse click is also pointer input on Amiga and IIgs profiles.
   if (screenPointerType === "mouse") sendScreenClick(ev);
   inputEl.value?.focus({ preventScroll: true });
 }
@@ -313,30 +685,40 @@ const screenClickMove = computed(() => {
 });
 
 /**
- * Click-to-walk: map a mouse click on the visible surface into the 320x200
- * frame's pixels. The canvas fills `.screen`'s content box (its 2px border
- * stays outside the frame), so the canvas rect is the exact map.
+ * Map a pointer event on the visible surface into the 320x200 frame's
+ * pixels. The canvas fills `.screen`'s content box (its 2px border stays
+ * outside the frame), so the canvas rect is the exact map.
  */
-function sendScreenClick(ev: MouseEvent): void {
-  if (screenClickMove.value === "none") return;
-  if (
-    state.walkthrough.active ||
-    state.paused ||
-    agentBlocksGame.value ||
-    state.modal !== null ||
-    state.waitingForKey
-  ) {
-    return;
-  }
+function screenFramePoint(clientX: number, clientY: number): { x: number; y: number } | null {
   const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
   const rect = canvas?.getBoundingClientRect();
-  if (!rect || rect.width <= 0 || rect.height <= 0) return;
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
   const point = crtFramePoint(
-    (ev.clientX - rect.left) / rect.width,
-    (ev.clientY - rect.top) / rect.height,
+    (clientX - rect.left) / rect.width,
+    (clientY - rect.top) / rect.height,
     gpuBackend.value ? props.crtAmount : 0,
   );
-  if (point) sendClick(Math.floor(point.x), Math.floor(point.y));
+  return point ? { x: Math.floor(point.x), y: Math.floor(point.y) } : null;
+}
+
+/**
+ * Click-to-walk, open message/object windows, and the gadgets of an Amiga
+ * confirmation window: the worker's engine decides what a click on an open
+ * window or screen means (a gadget or window hit under it, or click-to-walk).
+ */
+function sendScreenClick(ev: MouseEvent): void {
+  if (screenPresentation.value === "pc") return;
+  if (state.walkthrough.active || state.paused || agentBlocksGame.value) return;
+  if (
+    state.modal !== null &&
+    state.modal !== "print" &&
+    state.modal !== "showObj" &&
+    state.modal !== "showPri" &&
+    !amigaDialogOpen.value
+  )
+    return;
+  const point = screenFramePoint(ev.clientX, ev.clientY);
+  if (point) sendClick(point.x, point.y);
 }
 
 let pendingInputFocus: Element | null | undefined;
@@ -415,6 +797,11 @@ function echoPrompt(): void {
 }
 
 function onPromptKey(ev: KeyboardEvent): void {
+  if (translatePlatformKey(ev, state.profile) === 0xff00) {
+    ev.preventDefault();
+    sendKey(0xff00);
+    return;
+  }
   const prompt = state.prompt!;
   // Native input/composition events own editable text, including Android IMEs.
   if (ev.target === inputEl.value && ev.key !== "Enter" && ev.key !== "Escape") return;
@@ -436,41 +823,10 @@ function onPromptKey(ev: KeyboardEvent): void {
 
 /** Keys while an engine modal (print window, inventory, menu…) is open. */
 function onModalKey(ev: KeyboardEvent): void {
-  const activeModal =
-    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
-      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
-      : state.modal;
-  if (state.waitingForKey || activeModal === "save" || activeModal === "restore") {
-    const code = pcKey(ev);
-    if (code !== undefined) {
-      ev.preventDefault();
-      sendKey(code);
-    }
-    return;
-  }
-  const dir = movementDirection(ev);
-  if (dir !== undefined) {
-    sendDirection(dir);
-    ev.preventDefault();
-    return;
-  }
-  const code =
-    ev.key === "Enter"
-      ? AGI_KEY.ENTER
-      : ev.key === "Escape"
-        ? AGI_KEY.ESCAPE
-        : ev.key === "Home"
-          ? AGI_KEY.HOME
-          : ev.key === "End"
-            ? AGI_KEY.END
-            : ev.key === "PageUp"
-              ? AGI_KEY.PAGE_UP
-              : ev.key === "PageDown"
-                ? AGI_KEY.PAGE_DOWN
-                : ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey
-                  ? ev.key.charCodeAt(0) & 0xff
-                  : null;
-  if (code === null) return;
+  // The queue classifies native direction words; every other key remains a
+  // raw modal key, including function keys on a bare inventory wait.
+  const code = nativeGameKey(ev, state.profile, state.controls);
+  if (code === undefined) return;
   ev.preventDefault();
   sendKey(code);
 }
@@ -550,18 +906,26 @@ function onTouchDirection(dir: number): void {
 function onVirtualKey(code: number): void {
   resumeAudio();
   if (state.phase !== "running" || agentBlocksGame.value || composing.value) return;
+  if (code === 0xff00 && screenPresentation.value !== "pc") {
+    sendKey(code);
+    return;
+  }
   if (state.prompt) {
-    if (code === AGI_KEY.ENTER || code === AGI_KEY.ESCAPE) {
-      submitPrompt(code === AGI_KEY.ESCAPE ? "" : promptLine.value, code === AGI_KEY.ESCAPE);
-    } else if (code === AGI_KEY.BACKSPACE) {
+    const promptCode = normalizeKeyWord(code, screenPresentation.value);
+    if (promptCode === AGI_KEY.ENTER || promptCode === AGI_KEY.ESCAPE) {
+      submitPrompt(
+        promptCode === AGI_KEY.ESCAPE ? "" : promptLine.value,
+        promptCode === AGI_KEY.ESCAPE,
+      );
+    } else if (promptCode === AGI_KEY.BACKSPACE) {
       promptLine.value = promptLine.value.slice(0, -1);
       echoPrompt();
     } else if (
-      code >= AGI_KEY.SPACE &&
-      code <= 126 &&
+      promptCode >= AGI_KEY.SPACE &&
+      promptCode <= 126 &&
       promptLine.value.length < Math.min(39, state.prompt.maxLen)
     ) {
-      const char = String.fromCharCode(code);
+      const char = String.fromCharCode(promptCode);
       if (state.prompt.kind !== "getnum" || /[0-9]/.test(char)) promptLine.value += char;
       echoPrompt();
     }
@@ -654,28 +1018,39 @@ function submit(): void {
 
 /** Split-mode wipe handle: a thin drag strip tracking the composited divider. */
 let splitDragEl: HTMLElement | null = null;
+const splitFrame = pointerFrame(() => {
+  splitDragEl = null;
+});
+watch([debugViewMode, debugOpen], () => splitFrame.cancel(), { flush: "sync" });
+onBeforeUnmount(splitFrame.cancel);
 
 function onSplitDown(ev: PointerEvent): void {
+  if (ev.button !== 0 || !splitFrame.begin(ev)) return;
   splitDragEl = ev.currentTarget as HTMLElement;
-  splitDragEl.setPointerCapture(ev.pointerId);
   ev.preventDefault();
 }
 
 function onSplitMove(ev: PointerEvent): void {
-  if (!splitDragEl) return;
+  if (!splitDragEl || !splitFrame.owns(ev)) return;
   const rect = splitDragEl.parentElement?.getBoundingClientRect();
   if (!rect || rect.width <= 0) return;
-  splitAt.value = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
+  const next = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
+  splitFrame.schedule(ev, () => {
+    splitAt.value = next;
+  });
 }
 
-function onSplitUp(): void {
+function onSplitUp(ev: PointerEvent): void {
+  if (!splitFrame.owns(ev)) return;
+  onSplitMove(ev);
+  splitFrame.finish(ev);
   splitDragEl = null;
 }
 
 onMounted(() => {
   void presentation.initStage(props.crtAmount);
   if (!props.touchControls) nextTick(claimGameFocus);
-  // Callers close whatever held the keyboard first (the assistant, a sheet);
+  // Callers close whatever held the keyboard first (the agent, a sheet);
   // the input re-enables on the next render, so focus lands after it.
   bridge.focusGameInput = () => void nextTick(focusInput);
   bridge.fillGameInput = (command) => {
@@ -723,13 +1098,17 @@ defineExpose({
           active: state.phase === 'running',
           'gpu-stage': !!gpuBackend,
           tube: !!gpuBackend && crtAmount > 0,
-          shake: state.shake,
+          shaking: shakeSurfaceStyle !== undefined,
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"
+        :style="screenCursor ? { cursor: screenCursor } : undefined"
         @click="onScreenClick"
         @contextmenu="onScreenContextMenu"
         @pointerdown="onScreenPointerDown"
-        @pointermove="presentation.onScreenPointerMove"
+        @pointermove="onScreenPointerMove"
+        @pointerup="onScreenPointerUp"
+        @pointercancel="onScreenPointerCancel"
+        @lostpointercapture="onScreenPointerCancel"
       >
         <canvas
           v-show="!!gpuBackend"
@@ -738,6 +1117,7 @@ defineExpose({
           width="960"
           height="600"
           data-testid="gpu-canvas"
+          :style="shakeSurfaceStyle"
         />
         <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
         <canvas
@@ -747,6 +1127,7 @@ defineExpose({
           width="320"
           height="200"
           data-testid="game-canvas"
+          :style="shakeSurfaceStyle"
         />
 
         <!-- Native keyboard/IME capture; the engine renders the only visible command line. -->
@@ -802,7 +1183,8 @@ defineExpose({
           @pointerdown.stop="onSplitDown"
           @pointermove="onSplitMove"
           @pointerup="onSplitUp"
-          @pointercancel="onSplitUp"
+          @pointercancel="splitFrame.cancel"
+          @lostpointercapture="splitFrame.cancel"
           @click.stop
         >
           <span class="split-grip">◂▸</span>
@@ -831,8 +1213,11 @@ defineExpose({
       :disabled="agentBlocksGame || state.paused"
       :navigating="state.modal !== null"
       :hold="state.holdToMove"
+      :profile="state.profile"
+      :menu="amigaMenuReady"
       @direction="onTouchDirection"
       @key="onVirtualKey"
+      @menu="onTouchMenu"
       @keyboard="inputEl?.focus({ preventScroll: true })"
     />
 
@@ -889,7 +1274,11 @@ defineExpose({
               >
                 Arrows to select · Enter to choose · Esc to return
               </p>
-              <p v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
+              <p
+                v-else-if="state.modal !== null && !modalWaitsOnClock(state.modal)"
+                class="caption"
+                data-testid="modal-hint"
+              >
                 A message is open: press Enter to continue
               </p>
               <p v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
@@ -916,12 +1305,15 @@ defineExpose({
               <li>Arrows or numpad to walk</li>
               <li>Enter answers a message</li>
               <li v-if="escOpensMenu">Esc for the game menu</li>
+              <li v-if="amigaMenuReady && !touchControls">
+                Hold the right mouse button for the game menu
+              </li>
               <li>Shift+Tab leaves the game</li>
               <li v-if="touchControls">Type opens the keyboard · Keys opens F1–F10</li>
             </ul>
           </div>
         </div>
-        <!-- Shell actions docked in the strip (Play's Ask), clear of the stage. -->
+        <!-- Shell actions docked in the strip (Play's Agent), clear of the stage. -->
         <slot name="strip-actions" />
       </div>
     </div>
@@ -1018,26 +1410,8 @@ defineExpose({
   background: var(--agi-0);
 }
 
-.screen.shake {
-  animation: screen-shake 0.1s linear infinite;
-}
-
-@keyframes screen-shake {
-  0% {
-    transform: translate(2px, 1px);
-  }
-  25% {
-    transform: translate(-2px, -1px);
-  }
-  50% {
-    transform: translate(1px, -2px);
-  }
-  75% {
-    transform: translate(-1px, 2px);
-  }
-  100% {
-    transform: translate(2px, 1px);
-  }
+.screen.shaking {
+  overflow: hidden;
 }
 
 /* Split-mode wipe: a wide invisible drag strip with a visible edge and grip. */

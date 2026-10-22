@@ -52,6 +52,10 @@ async function startOverFromHome(page: Page): Promise<void> {
   const more = await openPlayMore(page, card);
   await more.getByTestId("start-library-game-over").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The room on the hook comes first: a fresh session posts its room entry
+  // before its first frame, and a key pressed in between reaches nothing.
+  // The game takes keys once its command line is enabled.
+  await expect(page.getByTestId("input-line")).toBeEnabled();
 }
 
 test("Undo start over returns to the earlier session, and the timeline marks the start over @webkit-desktop", async ({
@@ -193,11 +197,14 @@ test("Start over hands an installed game's title screen the keyboard", async ({ 
   const input = page.getByTestId("input-line");
   await expect(input).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // Keys reach the game once the command line is enabled, after the room's entry.
+  await expect(input).toBeEnabled();
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect(input).toBeEnabled();
   const keys = page.getByTestId("game-keys");
   await expect(keys).toBeVisible();
   await expect(keys).toHaveText("Keys go to the game");

@@ -439,8 +439,8 @@ export class AgiStage {
 
   /**
    * Upload the picture-only composite (no screen objects) and its priority
-   * buffer. Band layers sample these, so sprite pixels leave no holes in the
-   * wall — the wall behind a sprite stays intact on its own depth layer.
+   * buffer. Band layers sample these, so screen object pixels leave no holes in the
+   * wall — the wall behind a screen object stays intact on its own depth layer.
    */
   setPictureData(rgba: Uint8Array | Uint8ClampedArray, priority: Uint8Array): void {
     if (this.disposed || !this.picTexture || !this.picPriTexture) return;
@@ -451,7 +451,7 @@ export class AgiStage {
   }
 
   /**
-   * Upload the per-pixel object ownership (num + 1, 0 = background). Sprite
+   * Upload the per-pixel object ownership (num + 1, 0 = background). Screen object
    * layers mask on it so only real object pixels render on a band. Pass null
    * when the ownership channel is disarmed: an absent buffer must not leave
    * a previous frame's ownership describing current pixels.
@@ -543,9 +543,9 @@ export class AgiStage {
 
   /**
    * Build the exploded scene. The 2D frame is decomposed into true sources —
-   * the picture surface, sprite pixels (by ownership), and the text surface —
+   * the picture surface, screen object pixels (by ownership), and the text surface —
    * then each is projected onto its own depth layer: a tinted control layer
-   * (priority 0-3), one picture layer per band 4-15, one sprite layer per
+   * (priority 0-3), one picture layer per band 4-15, one screen object layer per
    * band, and a front text layer. Every 2D pixel survives on exactly one
    * layer; the depth hierarchy shows as spacing, not missing content.
    */
@@ -582,7 +582,7 @@ export class AgiStage {
 
     const group = new THREE.Group();
     // Band layers get a partially-compensated scale: near layers read as
-    // closer by expanding radially around their logical centre, so a sprite
+    // closer by expanding radially around their logical centre, so a screen object
     // stays over whatever it stood in front of. Full-frame layers (text)
     // keep exact compensation so nothing leaves the frame.
     const addLayer = (mesh: THREE.Mesh, z: number, fullFrame: boolean) => {
@@ -650,24 +650,24 @@ export class AgiStage {
       const wallMesh = new THREE.Mesh(this.explodedGeometry, mat);
       wallMesh.name = `pic:${band}`;
       addLayer(wallMesh, z, false);
-      // Sprite layer: object-owned pixels whose effective priority is this
-      // band. A hair in front of the wall so coplanar pixels pick the sprite.
-      const spriteMat = new MeshBasicNodeMaterial();
-      spriteMat.colorNode = Fn(() => {
+      // Screen object layer: object-owned pixels whose effective priority is this
+      // band. A hair in front of the wall so coplanar pixels pick the screen object.
+      const screenObjectMat = new MeshBasicNodeMaterial();
+      screenObjectMat.colorNode = Fn(() => {
         const pri = samplePri();
         const owner = sampleOwner();
         Discard(pri.sub(bandU).abs().greaterThanEqual(0.5).or(owner.lessThan(0.5)));
         return frameSample(frameTex);
       })();
-      this.explodedMaterials.push(spriteMat);
-      const spriteMesh = new THREE.Mesh(this.explodedGeometry, spriteMat);
-      spriteMesh.name = `sprite:${band}`;
-      addLayer(spriteMesh, z + 0.004, false);
+      this.explodedMaterials.push(screenObjectMat);
+      const screenObjectMesh = new THREE.Mesh(this.explodedGeometry, screenObjectMat);
+      screenObjectMesh.name = `screenObject:${band}`;
+      addLayer(screenObjectMesh, z + 0.004, false);
     }
 
     // Modal preview layer: the show.obj cel rides band 15 in the composed
     // frame but owns no pixels — without this layer it would be masked out of
-    // every sprite band. It floats just behind the text surface so the modal
+    // every screen object band. It floats just behind the text surface so the modal
     // occludes the scene exactly like the flat view.
     const previewTex = this.previewTexture;
     const previewMat = new MeshBasicNodeMaterial();
@@ -714,7 +714,7 @@ export class AgiStage {
    * Centre every layer's origin on the camera ray for the frame region it
    * covers: band layers wrap the picture band, the text layer the whole
    * frame. Depth reads through the scale spread and pointer parallax — never
-   * through vertical drift, which would unregister sprites from the scene.
+   * through vertical drift, which would unregister screen objects from the scene.
    */
   private layoutExplodedLayers(): void {
     const bandCenter = 1 - (2 * (this.picRowUniform.value + PIC_H / 2)) / FRAME_HEIGHT;

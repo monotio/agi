@@ -47,7 +47,7 @@ function busy(error: unknown, reason: string): boolean {
   return true;
 }
 
-test("a Keep refused during a history lease commits nothing and stays keepable", async () => {
+test("a commit refused during a history lease commits nothing and stays keepable", async () => {
   const projectId = await seedProject("ws-lease-blocks-keep");
   const ws = await openEditableProject(projectId);
   const before = ws.savedIdentity();
@@ -56,26 +56,26 @@ test("a Keep refused during a history lease commits nothing and stays keepable",
   const lease = ws.draft.acquireHistoryMutation(ws.draft.capture().revision);
   // The refusal lands before admission: no request was registered, no storage
   // attempt ran, and the candidate is neither pending nor consumed.
-  await assert.rejects(ws.keepCandidate(candidate), (e: unknown) => busy(e, "native-history"));
+  await assert.rejects(ws.commitCandidate(candidate), (e: unknown) => busy(e, "native-history"));
   assert.equal(ws.savedIdentity(), before);
   ws.draft.releaseHistoryMutation(lease);
-  const result = await ws.keepCandidate(candidate);
+  const result = await ws.commitCandidate(candidate);
   assert.equal(result.kind, "savedOnly");
   assert.notEqual(ws.savedIdentity(), before);
   assert.deepEqual(ws.draft.dirtyKeys(), []);
 });
 
-test("an admitted Keep reserves the draft until it settles while typing stays free", async () => {
+test("an admitted commit reserves the draft until it settles while typing stays free", async () => {
   const projectId = await seedProject("ws-keep-reserves");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", "return; // a");
   const candidate = ws.buildSelected(["logic:1"]);
-  const pending = ws.keepCandidate(candidate);
+  const pending = ws.commitCandidate(candidate);
   // The synchronous window after admission: the durable attempt is in flight,
   // so history acquisition waits — but ordinary typing is not locked.
   assert.throws(
     () => ws.draft.acquireHistoryMutation(ws.draft.capture().revision),
-    (e: unknown) => busy(e, "keep-pending"),
+    (e: unknown) => busy(e, "commit-pending"),
   );
   editSource(ws, "logic:1", "return; // newer");
   await pending;
@@ -86,16 +86,16 @@ test("an admitted Keep reserves the draft until it settles while typing stays fr
   ws.draft.releaseHistoryMutation(lease);
 });
 
-test("a duplicate pending Keep shares the admitted attempt and its receipt", async () => {
+test("a duplicate pending commit shares the admitted attempt and its receipt", async () => {
   const projectId = await seedProject("ws-keep-dup");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", "return; // a");
   const before = ws.savedIdentity();
   const candidate: EditableCandidate = ws.buildSelected(["logic:1"]);
-  const first = ws.keepCandidate(candidate);
+  const first = ws.commitCandidate(candidate);
   // The second call joins the in-flight admission instead of admitting anew;
   // the async service wraps the shared pending promise, so compare the result.
-  const [one, two] = await Promise.all([first, ws.keepCandidate(candidate)]);
+  const [one, two] = await Promise.all([first, ws.commitCandidate(candidate)]);
   assert.equal(two.commitId, one.commitId);
   assert.equal(ws.savedIdentity().generation, before.generation + 1);
 });
@@ -108,8 +108,8 @@ test("a failed storage attempt releases its reservation and retry is a fresh adm
   // Another service moves the stored body out from under the admitted request.
   const other = await openEditableProject(projectId);
   editSource(other, "logic:1", "return; // moved");
-  await other.keepCandidate(other.buildSelected(["logic:1"]));
-  await assert.rejects(ws.keepCandidate(candidate), /changed elsewhere|modified by another/i);
+  await other.commitCandidate(other.buildSelected(["logic:1"]));
+  await assert.rejects(ws.commitCandidate(candidate), /changed elsewhere|modified by another/i);
   // Settlement released the reservation: history acquisition is free again.
   const lease = ws.draft.acquireHistoryMutation(ws.draft.capture().revision);
   ws.draft.releaseHistoryMutation(lease);
@@ -122,10 +122,10 @@ test("a settled candidate replays its receipt during a lease without baseline dr
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", "return; // a");
   const candidate = ws.buildSelected(["logic:1"]);
-  const first = await ws.keepCandidate(candidate);
+  const first = await ws.commitCandidate(candidate);
   const saved = ws.savedIdentity();
   const lease = ws.draft.acquireHistoryMutation(ws.draft.capture().revision);
-  const replay = await ws.keepCandidate(candidate);
+  const replay = await ws.commitCandidate(candidate);
   assert.equal(replay.commitId, first.commitId);
   assert.deepEqual(replay.saved, saved);
   assert.equal(ws.savedIdentity(), saved);

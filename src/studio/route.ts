@@ -1,5 +1,5 @@
 /**
- * Room Studio routes: a static route estimate over the walkable mask, and a
+ * PICTURE editor routes: a static route estimate over the walkable mask, and a
  * route test the engine executes.
  *
  * `planRoute` searches the walkable estimate with navigation's own anchor
@@ -58,7 +58,7 @@ export interface RoutePlan {
 }
 
 const ESTIMATE =
-  "An estimate from the walk lines alone; other objects, blocks and scripts can change the outcome.";
+  "An estimate from the walk lines alone; other objects, blocks and LOGIC can change the outcome.";
 
 /** A route over the walkable estimate, searched the way navigation searches. */
 export function planRoute(input: RouteInput): RoutePlan {

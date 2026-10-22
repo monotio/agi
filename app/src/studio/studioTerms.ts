@@ -3,7 +3,7 @@
  * for, its name, its one-sentence explanation and the Help topic "Learn
  * more" opens. A label names the thing in one or two words; the sentence
  * says what it is or does, and the Help topic has the page. Labels say
- * "Depth", "walk lines" and "steps"; the sentences keep AGI's own words
+ * "Priority", "walk lines" and "steps"; the sentences keep AGI's own words
  * (priority, drawing command) where a modder would search for them.
  * app/test/studio-terms.test.ts holds every entry to the copy rules and
  * checks that every Help topic exists.
@@ -16,7 +16,7 @@ import { keyLabel } from "../ui/keyLabel.ts";
 const topic = (id: string): HelpTarget => ({ section: "creating", topic: id });
 
 export const STUDIO_TERMS = {
-  "lens-lock-depth": {
+  "lens-lock-priority": {
     name: "Priority locked",
     says: "The Visual lens paints what players see. Moving an item carries its priority along.",
     help: topic("studio-locks"),
@@ -32,17 +32,17 @@ export const STUDIO_TERMS = {
     technical: VOCABULARY.lock.technical,
     help: topic("studio-locks"),
   },
-  depth: {
-    name: VOCABULARY.depth.label,
-    says: VOCABULARY.depth.help,
-    technical: VOCABULARY.depth.technical,
-    help: topic("studio-depth"),
+  priority: {
+    name: VOCABULARY.priority.label,
+    says: VOCABULARY.priority.help,
+    technical: VOCABULARY.priority.technical,
+    help: topic("studio-priority"),
   },
   bands: {
-    name: VOCABULARY.depthBand.label,
-    says: VOCABULARY.depthBand.help,
-    technical: VOCABULARY.depthBand.technical,
-    help: topic("studio-depth"),
+    name: VOCABULARY.priorityBand.label,
+    says: VOCABULARY.priorityBand.help,
+    technical: VOCABULARY.priorityBand.technical,
+    help: topic("studio-priority"),
   },
   "walk-lines": {
     name: "Walls, water, triggers, gates",
@@ -95,17 +95,17 @@ export const STUDIO_TERMS = {
     technical: VOCABULARY.brush.technical,
     help: topic("studio-tools"),
   },
-  ghost: {
+  standIn: {
     name: VOCABULARY.standIn.label,
     says: VOCABULARY.standIn.help,
     technical: VOCABULARY.standIn.technical,
-    help: topic("studio-ghost"),
+    help: topic("studio-standIn"),
   },
   feet: {
     name: VOCABULARY.feet.label,
     says: VOCABULARY.feet.help,
     technical: VOCABULARY.feet.technical,
-    help: topic("sprites-feet"),
+    help: topic("view-feet"),
   },
   "floor-estimate": {
     name: "Floor (estimate)",
@@ -145,70 +145,70 @@ export const STUDIO_TERMS = {
   "view-only": {
     name: "View only",
     says: "Reload the game to edit this part.",
-    help: topic("studio-keep"),
+    help: topic("studio-commit"),
   },
-  keep: {
+  saved: {
     name: VOCABULARY.saved.label,
     says: VOCABULARY.saved.help,
     technical: VOCABULARY.saved.technical,
-    help: topic("studio-keep"),
+    help: topic("studio-commit"),
   },
   loops: {
     name: VOCABULARY.loop.label,
     says: VOCABULARY.loop.help,
     technical: VOCABULARY.loop.technical,
-    help: topic("sprites-loops"),
+    help: topic("view-loops"),
   },
   mirror: {
     name: VOCABULARY.mirrorLoop.label,
     says: VOCABULARY.mirrorLoop.help,
     technical: VOCABULARY.mirrorLoop.technical,
-    help: topic("sprites-mirror"),
+    help: topic("view-mirror"),
   },
   transparent: {
     name: VOCABULARY.transparentColour.label,
     says: VOCABULARY.transparentColour.help,
     technical: VOCABULARY.transparentColour.technical,
-    help: topic("sprites-transparent"),
+    help: topic("view-transparent"),
   },
-  backdrop: {
+  background: {
     name: VOCABULARY.background.label,
     says: VOCABULARY.background.help,
     technical: VOCABULARY.background.technical,
-    help: topic("sprites-transparent"),
+    help: topic("view-transparent"),
   },
   onion: {
     name: VOCABULARY.onionSkin.label,
     says: VOCABULARY.onionSkin.help,
     technical: VOCABULARY.onionSkin.technical,
-    help: topic("sprites-loops"),
+    help: topic("view-loops"),
   },
   "mirror-bit": {
     name: VOCABULARY.mirrorLoop.label,
     says: VOCABULARY.mirrorLoop.help,
     technical: VOCABULARY.mirrorLoop.technical,
-    help: topic("sprites-mirror"),
+    help: topic("view-mirror"),
   },
   "shared-view": {
-    name: "Shared character",
+    name: "Shared VIEW",
     says: "Editing this VIEW changes it in every room that uses it.",
-    help: topic("sprites-loops"),
+    help: topic("view-loops"),
   },
   "recolour-scope": {
     name: "Recolour",
-    says: "Swaps one colour for another in this cel, this loop or the whole character.",
-    help: topic("sprites-tools"),
+    says: "Swaps one colour for another in this cel, this loop or the whole VIEW.",
+    help: topic("view-tools"),
   },
   shift: {
     name: "Shift",
     says: "Pixels wrap around the edges; shifting up or down moves the feet.",
-    help: topic("sprites-tools"),
+    help: topic("view-tools"),
   },
 } as const satisfies Record<string, Explainer>;
 
 export type StudioTerm = keyof typeof STUDIO_TERMS;
 
-/** An explainer's props for `<UiExplain v-bind="explain('depth')" />`. */
+/** An explainer's props for `<UiExplain v-bind="explain('priority')" />`. */
 export function explain(term: StudioTerm): Explainer & { readonly term: StudioTerm } {
   return { term, ...STUDIO_TERMS[term] };
 }

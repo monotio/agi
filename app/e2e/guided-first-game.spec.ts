@@ -220,21 +220,21 @@ test.describe("the first guided game", () => {
     await isolateStorage(page);
     projectId = await createStarter(page, "Guided grove");
 
-    const roomStudio = await openWorkspacePicture(page, 1);
-    await roomStudio.locator("[data-row]").first().click();
-    await roomStudio.getByRole("group", { name: /^Canvas/ }).focus();
+    const pictureStudio = await openWorkspacePicture(page, 1);
+    await pictureStudio.locator("[data-row]").first().click();
+    await pictureStudio.getByRole("group", { name: /^Canvas/ }).focus();
     await page.keyboard.press("ArrowDown");
     await workspaceUpdated(page);
     await closeWorkspaceEditor(page);
 
-    const sprite = await openWorkspaceView(page, 0);
-    await sprite.locator('[data-loop="0"][data-cel="0"]').click();
-    await sprite.getByTestId("sprite-stage").focus();
+    const view = await openWorkspaceView(page, 0);
+    await view.locator('[data-loop="0"][data-cel="0"]').click();
+    await view.getByTestId("view-stage").focus();
     await page.keyboard.press("c");
-    const recolor = sprite.getByTestId("sprite-recolor");
+    const recolor = view.getByTestId("view-recolor");
     await page.keyboard.press("Space");
     await recolor.getByRole("radio", { name: "To colour 2, green" }).click();
-    await recolor.getByTestId("sprite-recolor-apply").click();
+    await recolor.getByTestId("view-recolor-apply").click();
     await workspaceUpdated(page);
     await closeWorkspaceEditor(page);
 
@@ -333,7 +333,7 @@ test.describe("the first guided game", () => {
     await page.keyboard.press("Enter");
     await expect(await gameHint(page, "prompt-hint")).toBeVisible();
     await page.mouse.move(0, 0);
-    await input.fill("Moonlit checkpoint");
+    await input.fill("Moonlit progress entry");
     await input.press("Enter");
     await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Save in slot 1?");
     await page.keyboard.press("Enter");
@@ -356,7 +356,9 @@ test.describe("the first guided game", () => {
     await expect
       .poll(async () => (await textHook(page)).modal, { intervals: [100] })
       .toBe("restore");
-    await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Moonlit checkpoint");
+    await expect
+      .poll(() => screenText(page), { intervals: [100] })
+      .toContain("Moonlit progress entry");
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await textHook(page)).room, { intervals: [100] }).toBe(2);
     await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBeNull();
@@ -421,7 +423,7 @@ test("custom code stays precise: a rewritten entry block refuses Custom code, gu
   );
   expect(custom).not.toBe(source);
   await replaceWorkspaceDocument(page, "logic:1", custom);
-  await clickContextAction(page, "room-action-place-hero");
+  await clickContextAction(page, "room-action-place-ego");
   const form = page.getByTestId("workspace-guided-form");
   await expect(form).toBeVisible();
   await form.getByText("Exact numbers", { exact: true }).click();

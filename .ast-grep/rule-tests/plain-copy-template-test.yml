@@ -11,7 +11,7 @@ invalid:
   - "<p>Connect AI. Editing works either way.</p>"
   - "<p>Drawing and imports stay available without one.</p>"
   - "<p>Nothing is written until you approve.</p>"
-  - "<span>Edit<small>Open in Logic Studio; no engine needed</small></span>"
+  - "<span>Edit<small>Open in LOGIC editor; no engine needed</small></span>"
   - "<p>Build a game without an API key.</p>"
   - "<p>Create with or without AI.</p>"
   - '<button title="Just click to start">Start</button>'

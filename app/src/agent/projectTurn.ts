@@ -116,7 +116,7 @@ export async function submitAgentState(input: {
           : { chatId: input.chatId, messageId: input.messageId! }),
       });
     } catch (error) {
-      if (attempt === 0 && error instanceof Error && error.message === "Project proposal is stale.")
+      if (attempt === 0 && error instanceof Error && error.message === "Project changes are stale.")
         continue;
       throw error;
     }

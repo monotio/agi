@@ -3,6 +3,47 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.2.5] - 2026-10-20
+
+### Added
+
+- Amiga and Apple IIgs games show their own screens: the Amiga's title bar,
+  menu strip, save and restore windows and pointer, and a picture that
+  dissolves in on both platforms instead of appearing at once.
+- An Apple IIgs game with its own AGIFONT file plays in it.
+- PC games offer a display choice in Settings → Advanced…: EGA everywhere,
+  and CGA RGB on builds 2.411 and later, with the authentic palette pairs.
+- `shake.screen` shakes the screen as the originals do.
+- Connected gamepads follow the game's own joystick controls, and on a
+  phone, Keys offers function, modified letter and fire-button keys.
+- A fidelity coverage table in the interpreter notes records the evidence
+  behind each aspect and the gaps: IIgs native menus and the Standard File
+  window, Hercules and composite displays, and the `.SAV` panel are planned.
+- Contributors can compare frames against an original interpreter running on
+  their own MAME setup with `scripts/mame-diff.ts`
+  ([Original interpreter frame comparison](docs/testing.md#original-interpreter-frame-comparison)).
+
+### Changed
+
+- A game that never calls `script.size` gets the original 50-pair script
+  buffer instead of 200. The base template now calls `script.size(200)` in
+  its first cycle.
+- Games made with an older version keep their room memory even with customized
+  boot code. Opening an older project upgrades its released mirrored views, room memory
+  and unknown-word fallback together in one undoable History entry, “Updated for
+  1.2.5”. Customized word feedback gets a reminder to count words from 0.
+  Copies and downloads keep pending updates until the project opens in Create.
+  Edits left unsaved in 1.2.4 in a project with mirrored views can be
+  downloaded, but they are not restored into the project.
+- When unsaved edits cannot be restored, the project opens at its last save
+  and offers them with Download pending edits.
+- PC and Amiga text draws with the project's own pixel-for-pixel
+  recreations of the original typefaces: the Tandy 1000 SX BIOS design on
+  PC, and Topaz 8 on the Amiga.
+- Police Quest's PC build 2.903 runs on the verified 2.917 profile it
+  matches, so its walkthrough replays under it.
+- History keeps up to 1,024 versions of a project and replays them faster.
+
 ## [1.2.4] - 2026-10-15
 
 ### Added
@@ -142,7 +183,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
-- Ask inspects native resources without preparing or validating an edit candidate.
+- Agent inspects native resources without preparing or validating an edit candidate.
 - An unreadable unused resource or dictionary does not stop other inspection tools.
 - Each request captures its current interpreter profile, runtime and attached references.
 - Switching to Create waits for the conversation transfer and preserves unfinished drafts.
@@ -180,7 +221,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - LOGIC code intelligence, Problems, guided actions and a step debugger.
 - Game state names and Rename across the game, with inline printed text.
 - Answer a sentence and Teach beside missed sentences, with a game message preview.
-- PICTURE image tracing and Add depth; VIEW cels from an image.
+- PICTURE image tracing and Add priority; VIEW cels from an image.
 - WORDS meanings, sentence testing and missed-command collection.
 - SOUND grid, tracker, presets, MIDI and VGM import, and MIDI export.
 - Agent Review and Auto-approve across resource types, task chats and optional

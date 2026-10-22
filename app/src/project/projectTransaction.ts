@@ -1,7 +1,7 @@
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 /**
  * The project transaction boundary. Every write that puts a running game's
- * work into browser storage — a Studio Keep, an AI remix, a room built from
+ * work into browser storage — a Studio commit, an AI remix, a room built from
  * the map or written mid-play, a conversation, settings or history-adoption
  * save, an autosave — depends on four answers, and this module owns them:
  *
@@ -34,7 +34,7 @@ import type { PortableProjectWorkspace } from "../../../src/authoring/projectWor
  *
  * The authoring base belongs to the booted game, not to a session: the tab
  * holds one authoring state per game at a time — its live session, or,
- * without one, the booted record Room Studio opens a draft on — and every
+ * without one, the booted record PICTURE editor opens a draft on — and every
  * session a game gets hydrates from the same record.
  */
 import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
@@ -114,7 +114,7 @@ const authoringBases = new WeakMap<BootedGame, AuthoringBase>();
 
 /**
  * The tab read `authoringState` for `game` — at boot, when a session
- * hydrates, when a Keep reads the record. The first read is the base; a
+ * hydrates, when a commit reads the record. The first read is the base; a
  * later one holding other content means another tab changed it since, and
  * the game is stale for authoring writes from then on. False while it is.
  */
@@ -389,6 +389,12 @@ export interface SavedBase {
    * `message` otherwise. A removed one refuses with PROJECT_REMOVED_MESSAGE.
    */
   readonly removedMessage?: string | undefined;
+  /**
+   * True once this tab's own newer work replaced what the caller checks:
+   * the record must still exist in this lifetime, and its revision and
+   * authoring content no longer decide anything.
+   */
+  readonly superseded?: (() => boolean) | undefined;
 }
 
 /**
@@ -420,6 +426,7 @@ export async function requireSaved(game: BootedGame, base: SavedBase): Promise<S
     markBehindStorage(game);
     throw stale(base.removedMessage);
   }
+  if (base.superseded?.()) return saved;
   if (saved.revision !== (base.revision ?? game.revision)) {
     markBehindStorage(game);
     throw stale();
@@ -446,6 +453,24 @@ export async function writeOverSaved(
   if (await write(await requireSaved(game, base))) return true;
   await requireSaved(game, base);
   return false;
+}
+
+/**
+ * A Play-booted game carries no History. Before Play opens Create or a
+ * conversation on it, the running game takes the stored record — History,
+ * workspace, generation — once storage confirms it (`requireSaved`).
+ *
+ * A publish from this tab's own session while the record is read supersedes
+ * the check: the running game already holds the newer record, possibly
+ * before its write lands, and the session's writes are generation-checked.
+ * The older stored record is then neither installed nor taken for another
+ * tab's change.
+ */
+export async function adoptStoredProject(game: BootedGame, message: string): Promise<void> {
+  const checked = game.authoredGame;
+  const superseded = () => game.authoredGame !== checked;
+  const saved = await requireSaved(game, { authoring: true, message, superseded });
+  if (!superseded()) game.authoredGame = saved.data;
 }
 
 export interface ProjectWriteWatch {

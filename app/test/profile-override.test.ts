@@ -279,7 +279,7 @@ test("a profile write the storage refuses is reported, not dropped", async (t) =
   assert.match(c.calls.errors[0]!, /interpreter profile/);
 });
 
-test("the opening check runs under a requested override and reports the detection", () => {
+test("the opening check runs under a requested override and reports the detection", async () => {
   const container = createContainer();
   container.putResource(
     "logic",
@@ -287,8 +287,8 @@ test("the opening check runs under a requested override and reports the detectio
     assembleLogic("accept.input(); return;", { dictionary: new Map() }).payload,
   );
   const files = Object.fromEntries(container.files);
-  assert.throws(() => inspectGame({ files, words: [], profile: "9.999" as never }));
-  const opening = inspectGame({ files, words: [], profile: "2.411" });
+  await assert.rejects(() => inspectGame({ files, words: [], profile: "9.999" as never }));
+  const opening = await inspectGame({ files, words: [], profile: "2.411" });
   assert.equal(opening.profile, "2.936", "the detected profile stays the automatic default");
   assert.equal(opening.kind, "default");
 });

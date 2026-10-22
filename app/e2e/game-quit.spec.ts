@@ -75,7 +75,7 @@ test("a game that quits lands Home saying so, keeps its last picture and can be 
   // The black screen before the quit is not the card's picture.
   expect(await autosavePreview(page)).toBe(before);
   // Its progress from before the quit is what the primary action continues.
-  await expect(page.getByTestId("hero-primary")).toHaveText("Continue quitter");
+  await expect(page.getByTestId("intro-primary")).toHaveText("Continue quitter");
   await expect(page.getByTestId("game-ended-continue")).toHaveCount(0);
 
   await page.getByTestId("game-ended-play-again").click();

@@ -19,7 +19,7 @@ import {
   pickVisualSource,
   type PickPoint,
 } from "./debugView.ts";
-import { EGA_PALETTE } from "../render/palette.ts";
+import type { Appearance } from "../render/appearance.ts";
 import { useInspector } from "./useInspector.ts";
 
 const { state } = useEngineApi();
@@ -35,7 +35,7 @@ function eventPoint(ev: PointerEvent): PickPoint | null {
   const rect = el.getBoundingClientRect();
   const frame = debugFrame.value;
   if (debugViewMode.value === "explode") {
-    // Layers are displaced by depth — a flat mapping picks the wrong pixel.
+    // Layers are displaced by priority — a flat mapping picks the wrong pixel.
     // Raycast the tap into the layer stack instead.
     const nx = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
@@ -44,7 +44,7 @@ function eventPoint(ev: PointerEvent): PickPoint | null {
     const bandLayer =
       hit.kind === "control" ||
       hit.kind === "picture" ||
-      hit.kind === "sprite" ||
+      hit.kind === "actor" ||
       hit.kind === "preview";
     const point: PickPoint = {
       // Band layers pick in logical picture space; the text surface and
@@ -105,7 +105,14 @@ function onOverlayClick(ev: PointerEvent): void {
   if (!latch) return;
   // Crop the same surface the inspection sampled — the picked layer's own.
   const surface = pickVisualSource(frame, point.layerKind) ?? frame.visual;
-  const crop = cropFrameRgba(frame, point.logical.x, point.logical.y, 12, surface);
+  const crop = cropFrameRgba(
+    frame,
+    point.logical.x,
+    point.logical.y,
+    12,
+    surface,
+    presentation.appearance.palette,
+  );
   picked.value = { ...latch, cropUrl: cropToDataUrl(crop.width, crop.height, crop.data) };
 }
 
@@ -124,21 +131,23 @@ const DIR_DELTA: [number, number][] = [
 ];
 
 /** An AGI palette colour at `alpha`, for the canvas. */
-function agi(index: number, alpha = 1): string {
-  const [r, g, b] = EGA_PALETTE[index]!;
+function agi(palette: Appearance["palette"], index: number, alpha = 1): string {
+  const [r, g, b] = palette[index]!;
   return `rgb(${r} ${g} ${b} / ${alpha})`;
 }
 
 /** Mark colours are the AGI palette's own (marks annotate game pixels): cyan, magenta, yellow, green, white. */
-const MARK = {
-  horizon: agi(11, 0.65),
-  base: agi(13, 0.55),
-  box: agi(11, 0.9),
-  hot: agi(14),
-  heading: agi(10),
-  tether: agi(15, 0.45),
-  hover: agi(15, 0.7),
-} as const;
+function markColours(palette: Appearance["palette"]) {
+  return {
+    horizon: agi(palette, 11, 0.65),
+    base: agi(palette, 13, 0.55),
+    box: agi(palette, 11, 0.9),
+    hot: agi(palette, 14),
+    heading: agi(palette, 10),
+    tether: agi(palette, 15, 0.45),
+    hover: agi(palette, 15, 0.7),
+  } as const;
+}
 
 /** The move-target line is no game colour: the warn token, read once. */
 let targetInk: string | undefined;
@@ -146,6 +155,7 @@ const targetColour = (): string =>
   (targetInk ??= getComputedStyle(document.documentElement).getPropertyValue("--warn").trim());
 
 function drawOverlay(): void {
+  const MARK = markColours(presentation.appearance.palette);
   const c = overlayCanvas.value;
   const ctx = c?.getContext("2d");
   if (!c || !ctx) return;
@@ -156,7 +166,7 @@ function drawOverlay(): void {
   const exploded = debugViewMode.value === "explode";
 
   // Logical pic coords → overlay px. Exploded projects onto the band's layer
-  // so marks hug the displaced sprites instead of their flat positions.
+  // so marks hug the displaced views instead of their flat positions.
   const px = (band: number, x: number, y: number): [number, number] => {
     if (exploded) {
       const p = presentation.debugProject(band, x, y);
@@ -241,7 +251,7 @@ function drawOverlay(): void {
         ctx.globalAlpha = 1;
       }
       if (exploded) {
-        // Ground tether: the sprite floats on its band while the collision
+        // Ground tether: the view floats on its band while the collision
         // logic still thinks in flat space — drop a plumb line to the same
         // logical point projected on the control layer, and mark it.
         const [fx, fy] = px(band, box.x + box.w / 2, box.baseline);
@@ -274,7 +284,7 @@ function drawOverlay(): void {
   }
 }
 
-watch([debugFrame, overlayOn, inspectArmed, picked, hover, report], drawOverlay);
+watch([debugFrame, overlayOn, inspectArmed, picked, hover, report, presentation.look], drawOverlay);
 
 // While exploded, the camera keeps easing toward the pointer — redraw every
 // frame so projected marks track the parallax instead of lagging behind.

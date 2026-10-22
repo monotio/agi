@@ -154,7 +154,7 @@ test("a refused genesis offers Open starter and opens a real editable starter pr
   );
   await page.keyboard.press("Escape");
 
-  // Keep/reload coherence: the stored checkpoint resumes the manual project.
+  // commit/reload coherence: the stored checkpoint resumes the manual project.
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
   await waitForRoom(page, 1, { coldBoot: true });

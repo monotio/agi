@@ -14,6 +14,9 @@ import type {
   WorkerInbound,
   WorkerPresentation,
 } from "../src/worker/workerProtocol.ts";
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await loadAppearance("iigs-1.014");
 
 test("worker boot with a profile override reports the chosen profile and detection kind", () => {
   const container = gameContainer(["assignn(v0, 1); accept.input(); return;"]);
@@ -202,4 +205,21 @@ test("the recorded boot carries the override and replays and adoptions use it", 
     "2.411",
     "the adopted engine runs the recorded override",
   );
+});
+
+test("a IIgs boot needs no original system font", async () => {
+  const { workerHarness } = await import("./worker-ctx.ts");
+  const { ctx, control } = workerHarness(gameContainer(["return;"]));
+  const previous = ctx.run.engine;
+  onWorkerMessage(ctx, {
+    type: "boot",
+    profile: "iigs-1.014",
+    files: Object.fromEntries(previous!.containerFiles),
+    words: [],
+  });
+  ctx.fns.stopTimers();
+  assert.notEqual(ctx.run.engine, previous);
+  assert.equal(ctx.run.engine?.profile.id, "iigs-1.014");
+  assert.ok(control.some((message) => message.type === "booted"));
+  assert.ok(!control.some((message) => message.type === "error"));
 });

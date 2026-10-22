@@ -99,6 +99,13 @@ test("room removal, Launches, journal replay and Undo share one edit", async () 
     assert.equal(outcome.status, "committed", JSON.stringify(outcome));
     assert.equal(session.history.capture().commits.length, beforeCommits + 1);
     const pruned = session.model.capture().documents();
+    const kept = session.history.capture();
+    const cursor = kept.commits.find((commit) => commit.id === kept.cursor)!;
+    assert.equal(
+      kept.blobs[cursor.documents["world"]!],
+      pruned["world"],
+      "History records the prepared Launch cleanup",
+    );
     assert.deepEqual(JSON.parse(String(pruned["world"])).launches, {
       "1": { entries: [{ id: "path", name: "Path", items: { "1": 255 } }] },
     });
@@ -131,7 +138,9 @@ test("room removal, Launches, journal replay and Undo share one edit", async () 
     assert.deepEqual(session.model.capture().documents(), before);
     assert.equal((await session.redo())?.status, "committed");
     assert.deepEqual(session.model.capture().documents(), pruned);
-    const image = openContainer(session.model.capture().lastAdmissibleBuild!.files(), { profile });
+    const image = openContainer(session.model.capture().lastAdmissibleBuild!.files(), {
+      profile,
+    });
     assert.equal(image.getResource("logic", 2), null);
   } finally {
     session.dispose();

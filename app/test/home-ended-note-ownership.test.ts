@@ -8,7 +8,7 @@ import { installedProgressTarget } from "../src/project/progressTarget.ts";
 // Exercise the component's real projection and action predicate with Vue's
 // actual computed invalidation. A note replacement may have identical text.
 test("an ended action belongs to the exact quit note, including an unbound game", () => {
-  const source = readFileSync(new URL("../src/home/HomeHero.vue", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/home/HomeIntro.vue", import.meta.url), "utf8");
   const start = source.indexOf("const ended = ");
   const end = source.indexOf("/** Play again", start);
   assert.ok(start >= 0 && end > start);

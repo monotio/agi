@@ -2,11 +2,12 @@
 import { computed, ref, useTemplateRef, onMounted } from "vue";
 import { guidedPlacement, dockPicturePoint } from "./guidedPlacement.ts";
 import { celRgba } from "../render/palette.ts";
-import { watchEffect } from "vue";
+import { useGamePalette } from "../render/useGamePalette.ts";
+import { watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 const { picRow } = defineProps<{ picRow: number }>();
 const root = useTemplateRef("root");
-const ghost = useTemplateRef("ghost");
+const placementPreview = useTemplateRef("placementPreview");
 onMounted(() => root.value?.focus({ preventScroll: true }));
 const dragging = ref(false);
 let anchor: { x: number; y: number } | undefined;
@@ -34,18 +35,20 @@ const boxStyle = computed(() => {
       }
     : {};
 });
-watchEffect(
+const palette = useGamePalette();
+watch(
+  [placementPreview, () => guidedPlacement.value?.cel, palette],
   () => {
-    const canvas = ghost.value;
+    const canvas = placementPreview.value;
     const cel = guidedPlacement.value?.cel;
     if (!canvas || !cel) return;
     canvas.width = cel.width;
     canvas.height = cel.height;
     const image = new ImageData(cel.width, cel.height);
-    celRgba(cel, image.data);
+    celRgba(cel, image.data, undefined, palette.value);
     canvas.getContext("2d")?.putImageData(image, 0, 0);
   },
-  { flush: "post" },
+  { flush: "post", immediate: true },
 );
 function move(event: PointerEvent): void {
   const value = guidedPlacement.value;
@@ -53,7 +56,7 @@ function move(event: PointerEvent): void {
   if (!value || !dragging.value || !rect || event.pointerId !== pointer) return;
   const point = dockPicturePoint(event.clientX, event.clientY, rect, picRow);
   guidedPlacement.value =
-    value.kind === "hero"
+    value.kind === "ego"
       ? { ...value, ...point }
       : {
           ...value,
@@ -103,7 +106,7 @@ function keys(event: KeyboardEvent): void {
     const value = guidedPlacement.value!;
     const dx = Number(event.key === "ArrowRight") - Number(event.key === "ArrowLeft");
     const dy = Number(event.key === "ArrowDown") - Number(event.key === "ArrowUp");
-    if (value.kind === "hero")
+    if (value.kind === "ego")
       guidedPlacement.value = {
         ...value,
         x: Math.max(0, Math.min(159, value.x + dx)),
@@ -151,14 +154,14 @@ function keys(event: KeyboardEvent): void {
       :style="{ top: `${picRow * 4}%` }"
     />
     <canvas
-      v-if="guidedPlacement?.kind === 'hero' && guidedPlacement.cel"
-      ref="ghost"
-      class="placement-ghost"
+      v-if="guidedPlacement?.kind === 'ego' && guidedPlacement.cel"
+      ref="placementPreview"
+      class="placement-preview"
       :style="pointStyle"
     />
     <span
-      v-else-if="guidedPlacement?.kind === 'hero'"
-      class="placement-ghost placement-mark"
+      v-else-if="guidedPlacement?.kind === 'ego'"
+      class="placement-preview placement-mark"
       :style="pointStyle"
       >✚</span
     >
@@ -186,7 +189,7 @@ function keys(event: KeyboardEvent): void {
   height: 84%;
   image-rendering: pixelated;
 }
-.placement-ghost {
+.placement-preview {
   position: absolute;
   transform: translateY(-100%);
   opacity: 0.7;

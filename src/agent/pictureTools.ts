@@ -18,6 +18,7 @@ import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 import { editableSource, sourceContextRevision } from "./authoringTools.ts";
 import { applyEdit } from "../studio/editOperations.ts";
 import { parsePictureDocument, serializePictureDocument } from "../studio/pictureDocument.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 const MAX_SHAPES = 128;
 const MAX_VERTICES_PER_SHAPE = 64;
@@ -39,12 +40,12 @@ const POINT_SCHEMA = {
 /** Strict-compatible schema for deterministic scene geometry. */
 export const PICTURE_TOOLS: readonly ToolDefinition[] = [
   {
-    name: "add_depth",
+    name: "add_priority",
     description: toolDescription(
-      "add_depth",
-      "Adds derived Depth to picture `num` item `itemId`. Read the picture first and pass its `expectedRevision`. Null `baseY` uses the item's lowest drawn row; null `priorityBase` uses 48, the default set.pri.base. Supply the room's current priority base when it differs. Replaces the item's painted Depth with ordinary AGI lines and records the base line so later item edits regenerate it. Locked items, stale revisions, invalid source or excessive byte size leave the resource unchanged. Returns the new editable-source revision and written resource. Art stays unchanged.",
+      "add_priority",
+      "Adds derived Priority to picture `num` item `itemId`. Read the picture first and pass its `expectedRevision`. Null `baseY` uses the item's lowest drawn row; null `priorityBase` uses 48, the default set.pri.base. Supply the room's current priority base when it differs. Replaces the item's painted Priority with ordinary AGI lines and records the base line so later item edits regenerate it. Locked items, stale revisions, invalid source or excessive byte size leave the resource unchanged. Returns the new editable-source revision and written resource. Art stays unchanged.",
     ),
-    parameters: parameterDescriptions("add_depth", {
+    parameters: parameterDescriptions("add_priority", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -61,7 +62,7 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
     name: "draw_picture_items",
     description: toolDescription(
       "draw_picture_items",
-      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing. Name shapes so the creator can find and edit them in Room Studio.",
+      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing. Name shapes so the creator can find and edit them in the PICTURE editor.",
     ),
     parameters: parameterDescriptions("draw_picture_items", {
       type: "object",
@@ -233,7 +234,7 @@ export function executePictureTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name === "add_depth") {
+  if (name === "add_priority") {
     try {
       const num = integer(args["num"], "Picture number", 0, 255);
       const source = editableSource(state, "picture", num);
@@ -247,7 +248,7 @@ export function executePictureTool(
       const result = applyEdit(
         parsed.document,
         {
-          type: "addDepth",
+          type: "addPriority",
           itemId: String(args["itemId"]),
           ...(args["baseY"] == null ? {} : { baseY: integer(args["baseY"], "Base line", 0, 167) }),
         },
@@ -263,12 +264,12 @@ export function executePictureTool(
       const next = serializePictureDocument(result.document);
       const compiled = compilePictureSource(next, { profile: state.profile });
       if (compiled.bytes.length > MAX_PAYLOAD_BYTES)
-        throw new Error(`Depth exceeds ${MAX_PAYLOAD_BYTES} bytes. Simplify the item first.`);
+        throw new Error(`Priority exceeds ${MAX_PAYLOAD_BYTES} bytes. Simplify the item first.`);
       state.container.putResource("picture", num, compiled.bytes);
       state.sources.pictures.set(num, next);
       return {
         success: true,
-        message: `Added depth to ${args["itemId"]}.`,
+        message: `Added priority to ${args["itemId"]}.`,
         details: {
           revision: sourceContextRevision(state, "picture", num, next),
           writtenResources: [{ kind: "picture", num }],
@@ -294,7 +295,7 @@ export function executePictureTool(
       0,
     );
     if (totalVertices > MAX_TOTAL_VERTICES) {
-      throw new Error(`Scene exceeds the ${MAX_TOTAL_VERTICES}-vertex limit.`);
+      throw new Error(`PICTURE exceeds the ${MAX_TOTAL_VERTICES}-vertex limit.`);
     }
     const source = sceneSource(backgroundColor, shapes, { annotate: true });
     const compiled = compilePictureSource(source, { profile: state.profile });
@@ -309,7 +310,12 @@ export function executePictureTool(
       horizon: DEFAULT_HORIZON,
       commandCount: compiled.commandCount,
     });
-    const png = pictureComparisonPng(surface.visual, surface.priority);
+    const png = pictureComparisonPng(
+      surface.visual,
+      surface.priority,
+      undefined,
+      colourTableForProfile(state.profile),
+    );
     state.container.putResource("picture", room, compiled.bytes);
     state.sources.pictures.set(room, source);
     const revision = resourceCacheHint(compiled.bytes);
@@ -338,6 +344,6 @@ export function executePictureTool(
       ],
     };
   } catch (error) {
-    return { success: false, error: `Scene was not written: ${String(error)}` };
+    return { success: false, error: `PICTURE was not written: ${String(error)}` };
   }
 }

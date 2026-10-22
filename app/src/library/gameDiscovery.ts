@@ -1,3 +1,4 @@
+import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import { preferCatalogedEdition, type InstalledGameDescriptor } from "../project/gameTypes.ts";
 import { isPlayableFileName } from "../project/gameMetadata.ts";
 import { canonicalResourceName } from "../../../src/types.ts";
@@ -148,7 +149,7 @@ export async function fetchFixtureFiles(target: string): Promise<Record<string, 
   const manifestRes = await fetch(`/fixtures/${encoded}/`);
   if (!manifestRes.ok) throw new Error(`Fixture manifest fetch failed for ${target}`);
   const manifest: string[] = await manifestRes.json();
-  const names = manifest.filter(isPlayableFileName);
+  const names = manifest.filter((name) => isPlayableFileName(name) || isAuxiliaryFileName(name));
   const files: Record<string, Uint8Array> = {};
   for (const name of names) {
     const res = await fetch(`/fixtures/${encoded}/${encodeURIComponent(name)}`);

@@ -395,7 +395,7 @@ test("private archive carries edit History; public export omits its commits and 
   const history = new ProjectHistory(sha256Hex);
   const documents = { "logic:0": "return;" };
   const commit = history.record(documents, {
-    label: "Private checkpoint",
+    label: "Private progress entry",
     origin: "logic",
     author: "creator",
     time: 1,

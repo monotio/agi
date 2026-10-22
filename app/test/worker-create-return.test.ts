@@ -129,7 +129,7 @@ test("returning from Create keeps the room-generation setting changed there", (t
   }
 });
 
-test("Create boot excludes the first later death checkpoint and pagehide flush", async (t) => {
+test("Create boot excludes the first later death progress entry and pagehide flush", async (t) => {
   const { ctx, presentation, control } = workerHarness(game());
   t.after(() => ctx.fns.stopTimers());
   onWorkerMessage(ctx, {

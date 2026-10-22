@@ -22,6 +22,7 @@ interface FakeParam {
   writes: [number, number][];
   setValueAtTime(value: number, at: number): void;
   linearRampToValueAtTime(value: number, at: number): void;
+  cancelScheduledValues(at: number): void;
 }
 
 interface FakeNode {
@@ -54,6 +55,7 @@ function fakeAudioContext() {
       this.value = value;
       this.writes.push([value, at]);
     },
+    cancelScheduledValues() {},
   });
   const node = (): FakeNode => ({
     stopped: false,
@@ -568,7 +570,7 @@ describe("sound audition transport", () => {
   it("reports unsupported lane controls for opaque families without faking lanes", async () => {
     // PC booter register rows: one tick of silence-ish bytes, one terminator row.
     const { audition } = auditionWith();
-    audition.setTarget(target(new Uint8Array([0x9f, 0x00, 0xbf, 0x00]), { profileId: "2.001" }));
+    audition.setTarget(target(new Uint8Array([1, 0x9f, 0x00, 0xbf, 0x00]), { profileId: "2.001" }));
     assert.equal(audition.snapshot().laneControls, "unsupported");
     audition.setLaneMuted(0, true);
     audition.setLaneSolo(0);
@@ -1051,5 +1053,95 @@ describe("sound audition lifecycle", () => {
     scheduler.advance(TICK_MS * 12);
     assert.equal(audition.snapshot().status, "complete");
     assert.deepEqual(seen, expected);
+  });
+
+  it("matches Play's Amiga clock region and renders standalone IIgs samples in Studio", async () => {
+    const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const store = new Map<string, string>([["monotio_agi.amigaRegion", "pal"]]);
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, val: string) => store.set(key, val),
+      },
+    });
+    try {
+      const studioAmiga = fakeAudioContext();
+      const amigaAudition = auditionWith({ audio: studioAmiga.audio });
+      amigaAudition.audition.setTarget(
+        target(soundPayload([[toneRecord(0, 4, 200, 0)], [], [], []]), {
+          profileId: "amiga-2.316",
+        }),
+      );
+      await amigaAudition.audition.play();
+      amigaAudition.scheduler.advance(TICK_MS);
+      assert.equal(
+        amigaAudition.audition.snapshot().positionTicks,
+        0,
+        "PAL Amiga audition waits 20 ms (50 Hz) rather than 16.67 ms (60 Hz)",
+      );
+      amigaAudition.scheduler.advance(20 - TICK_MS);
+      assert.equal(amigaAudition.audition.snapshot().positionTicks, 1);
+      // Divisor 200 -> period 4 * 200 = 800; PAL clock 3,546,895 Hz.
+      assert.equal(studioAmiga.sources[0]!.playbackRate.value, ((3546895 / 800) * 32) / 48000);
+      store.set("monotio_agi.amigaRegion", "ntsc");
+      amigaAudition.scheduler.advance(TICK_MS);
+      assert.equal(
+        amigaAudition.audition.snapshot().positionTicks,
+        1,
+        "a setting change applies on the next start",
+      );
+      amigaAudition.scheduler.advance(20 - TICK_MS);
+      assert.equal(amigaAudition.audition.snapshot().positionTicks, 2);
+      amigaAudition.audition.stop();
+      await amigaAudition.audition.play();
+      amigaAudition.scheduler.advance(TICK_MS);
+      assert.equal(amigaAudition.audition.snapshot().positionTicks, 1);
+      assert.equal(studioAmiga.sources.at(-4)!.playbackRate.value, ((3579545 / 800) * 32) / 48000);
+      await amigaAudition.audition.close();
+
+      // Type-1 IIgs sampled sound with vibratoDepth=66, vibratoSpeed=25 on its embedded instrument.
+      const samplePayload = new Uint8Array(2 + 8 + 44 + 256);
+      samplePayload[0] = 1; // type 1
+      samplePayload[2] = 50; // semitone 50
+      samplePayload[4] = 127; // volume 127
+      samplePayload[6] = 44; // waveOffset
+      samplePayload[8] = 0;
+      samplePayload[9] = 1; // byteCount = 256
+      samplePayload[10] = 127; // seg0 breakpoint 127
+      samplePayload[11] = 0;
+      samplePayload[12] = 0x7f; // seg0 increment 32512
+      samplePayload[10 + 27] = 66; // vibratoDepth
+      samplePayload[10 + 28] = 25; // vibratoSpeed
+      samplePayload[10 + 30] = 1; // 1 A wave
+      samplePayload[10 + 32] = 127; // topKey
+      samplePayload[10 + 33] = 0xc0; // waveAddr $C0
+      samplePayload[10 + 34] = 0; // waveSize T=0, R=0
+      samplePayload[10 + 35] = 0; // free-run
+      samplePayload.fill(0xa0, 2 + 8 + 44);
+      const studioIigs = fakeAudioContext();
+      const iigsAudition = auditionWith({ audio: studioIigs.audio });
+      iigsAudition.audition.setTarget(target(samplePayload, { profileId: "iigs-1.014" }));
+      await iigsAudition.audition.play();
+      iigsAudition.scheduler.advance(TICK_MS);
+      assert.equal(
+        studioIigs.sources.length,
+        2,
+        "Studio audition renders the sample and vibrato control",
+      );
+      assert.ok(
+        studioIigs.sources[0]!.playbackRate.writes.length > 1,
+        "Studio audition schedules TOOL025 vibrato steps on the sample",
+      );
+      studioIigs.audio.output({ kind: "iigs", event: "all-off" });
+      assert.ok(
+        studioIigs.sources.every((source) => source.stopped),
+        "all-off stops standalone samples and their vibrato controls",
+      );
+      await iigsAudition.audition.close();
+    } finally {
+      if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+      else Reflect.deleteProperty(globalThis, "localStorage");
+    }
   });
 });

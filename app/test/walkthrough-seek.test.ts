@@ -197,7 +197,7 @@ test("a retarget ahead of the live replay head retunes the seek instead of resta
     assert.equal(
       playBatchStarts.at(-1),
       2,
-      "the tape resumes at the action after the tick-500 checkpoint",
+      "the tape resumes at the action after the tick-500 progress entry",
     );
     assert.equal(state.walkthrough.tick, 500);
     assert.notEqual(state.walkthrough.status, "error");
@@ -310,7 +310,7 @@ test("a refused walkthrough leaves the running tape's batch and seek intact", as
     await flush();
     assert.equal(restoreCalls.at(-1)?.tick, 700);
     assert.equal(restoreCalls.at(-1)?.sessionId, 2);
-    assert.equal(playBatchStarts.at(-1), 2, "the kq1 tape resumes after its checkpoint");
+    assert.equal(playBatchStarts.at(-1), 2, "the kq1 tape resumes after its progress entry");
     assert.equal(state.walkthrough.status, "playing");
   } finally {
     globalThis.fetch = originalFetch;

@@ -33,7 +33,7 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeVisible();
-  await expect(page.getByTestId("hero-primary")).toHaveText("Play the tutorial");
+  await expect(page.getByTestId("intro-primary")).toHaveText("Play the tutorial");
   await expect(page.getByTestId("create-adventure-toggle")).toBeVisible();
   // One shelf holds the tutorial and the ways to create; nothing is saved yet.
   await expect(page.getByRole("heading", { name: "Your games", exact: true })).toBeVisible();
@@ -277,7 +277,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
   };
   expect(await cards.nth(1).getByTestId("btn-resume-cached").evaluate(typography)).toEqual(
-    await page.getByTestId("hero-primary").evaluate(typography),
+    await page.getByTestId("intro-primary").evaluate(typography),
   );
 
   for (const width of [1440, 1024, 768, 390] as const) {
@@ -332,7 +332,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   await page.screenshot({ path: test.info().outputPath("creation-expanded.png"), fullPage: true });
 });
 
-test("a checkpoint cannot resume against changed game resources and remains recoverable", async ({
+test("a progress entry cannot resume against changed game resources and remains recoverable", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -373,7 +373,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     const projectId = locator.split(":")[1]!;
     const key = `monotio_agi.autosave.${locator}`;
     const raw = localStorage.getItem(key);
-    if (!raw) throw new Error("No checkpoint was stored before returning to the menu");
+    if (!raw) throw new Error("No progress entry was stored before returning to the menu");
     const cached = await storage.loadAuthoredGame(projectId);
     const original = Object.fromEntries(
       Object.entries(cached.files as Record<string, Uint8Array>).map(([name, bytes]) => [
@@ -398,7 +398,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect(page.getByTestId("older-position-choice")).toContainText("earlier version");
   expect(
     await page.evaluate(({ key, raw }) => localStorage.getItem(key) === raw, checkpoint),
-    "Rejected resume preserves the checkpoint bytes",
+    "Rejected resume preserves the progress entry bytes",
   ).toBe(true);
   await page.evaluate(async ({ projectId, original }) => {
     const path = "/src/project/gameStorage.ts";
@@ -447,7 +447,7 @@ test("the tutorial is one card that carries its progress, ahead of equal-height 
   const height = (await original.boundingBox())!.height;
   expect((await remix.boundingBox())!.height).toBe(height);
   const details = await openSavedGameDetails(original);
-  await expect(details).toContainText("Learn pictures, views and depth");
+  await expect(details).toContainText("Learn pictures, views and priority");
   await page.keyboard.press("Escape");
   expect((await original.boundingBox())!.height).toBe(height);
   expect((await remix.boundingBox())!.height).toBe(height);

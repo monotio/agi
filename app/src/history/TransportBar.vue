@@ -13,7 +13,7 @@ const props = defineProps<{
   model: TransportModel;
   /**
    * Where the secondary controls float: a corner the stage shares with its
-   * own actions (Ask), so the card sits beside them and never over them.
+   * own actions (Agent), so the card sits beside them and never over them.
    */
   cardHost?: string | undefined;
 }>();
@@ -411,8 +411,8 @@ onUnmounted(() => {
 /*
  * One row inside the play strip: play, the scrub bar and LIVE. The tape's
  * and walkthrough's secondary controls float as a card in the stage's corner
- * beside Ask (the `cardHost`), so opening the tape never moves or resizes
- * the timeline under the pointer and never covers Ask. Errors and pending
+ * beside Agent (the `cardHost`), so opening the tape never moves or resizes
+ * the timeline under the pointer and never covers Agent. Errors and pending
  * notes wrap below the row.
  */
 .transport {

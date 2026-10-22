@@ -6,8 +6,9 @@ import {
 /** Bounded, detached execution of authored resources using the real interpreter. */
 import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
-import { Engine, type EngineHost } from "../runtime/engine.ts";
-import { AGI_KEY } from "../runtime/keys.ts";
+import { Engine, HostWait, type EngineHost } from "../runtime/engine.ts";
+import type { PcDisplay } from "../runtime/display.ts";
+import { AGI_KEY, type JoystickSample } from "../runtime/keys.ts";
 import { parseView } from "../view/view.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import {
@@ -27,6 +28,7 @@ import {
 } from "./navigationController.ts";
 import { resourceSetHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 /** A failure the Tests panel can describe without parsing Agent prose. */
 export interface PlaytestFailure {
@@ -148,6 +150,7 @@ export class Simulation {
   /** Keys the simulation pressed for a blocking wait; only genesis boots allow that. */
   keyPresses = 0;
   private recordedCalls: RecordedHostCall[] | null = null;
+  private recordedKeyResume: number | undefined;
   navigationFailureTarget: Target | null = null;
   private queuedDirection: number | null = null;
 
@@ -175,7 +178,7 @@ export class Simulation {
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
     instructionBudget = 50000,
-    options: { pressKeys?: boolean; rngVersion?: 1 | 2 } = {},
+    options: { pressKeys?: boolean; rngVersion?: 1 | 2; pcDisplay?: PcDisplay | undefined } = {},
   ) {
     this.cycleBudget = cycleBudget;
     this.resourceSet = resourceSetHint(state);
@@ -219,6 +222,12 @@ export class Simulation {
         if (this.recordedCalls[0]?.[0] !== "clicks") return [];
         return this.recordedCalls.shift()![1] as [number, number][];
       },
+      sampleJoystick: () => {
+        while (this.recordedCalls?.[0]?.[0] === "clock")
+          this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
+        if (this.recordedCalls?.[0]?.[0] !== "joystick") return null;
+        return this.recordedCalls.shift()![1] as JoystickSample | null;
+      },
       prepareRoom: (room) => {
         if (!container.getResource("logic", room)) {
           this.missingRooms.push(room);
@@ -230,12 +239,22 @@ export class Simulation {
         return true;
       },
       versionString: () =>
-        this.recordedCalls ? (this.recordedValue("version") as string) : `AGI ${state.profile.id}`,
+        this.recordedCalls
+          ? (this.recordedValue("version") as string)
+          : this.engine.defaultVersionBanner(),
       randomByte: () =>
         this.recordedCalls ? (this.recordedValue("random") as number) : randomByte(),
       soundDevice: () => (this.recordedCalls ? (this.recordedValue("soundDevice") as number) : 1),
       waitKey: () => {
-        if (this.recordedCalls) return this.recordedValue("waitKey") as number;
+        if (this.recordedCalls) {
+          const answer = this.recordedValue("waitKey") as number;
+          if (this.recordedCalls[0]?.[0] === "keyResume") {
+            this.recordedCalls.shift();
+            this.recordedKeyResume = answer;
+            throw new HostWait();
+          }
+          return answer;
+        }
         if (!options.pressKeys) return unsupported("waitKey");
         this.keyPresses += 1;
         return 13;
@@ -263,15 +282,39 @@ export class Simulation {
     };
     this.engine = new Engine(container, host, dictionary, {
       profile: state.profile,
+      ...(options.pcDisplay === undefined ? {} : { pcDisplay: options.pcDisplay }),
       instructionBudget,
     });
   }
+  private drainJoystickWait(consumeKey = true): number | undefined {
+    let generated: number | undefined;
+    for (;;) {
+      if (this.recordedCalls?.[0]?.[0] === "clock")
+        this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
+      else if (this.recordedCalls?.[0]?.[0] === "soundEnabled")
+        this.engine.setSoundEnabled(this.recordedCalls.shift()![1] !== 0);
+      else if (this.recordedCalls?.[0]?.[0] === "joystick") {
+        const remaining = this.recordedCalls.length;
+        if (consumeKey) {
+          const key = this.engine.pollJoystickKey();
+          if (key !== undefined) generated = key;
+        } else this.engine.pollJoystickInput();
+        if (this.recordedCalls.length >= remaining)
+          throw new Error("Recorded joystick wait did not consume its sample.");
+      } else break;
+    }
+    return generated;
+  }
+
   private recordedValue(kind: RecordedHostCall[0]): unknown {
     while (this.recordedCalls?.[0]?.[0] === "clock") {
       const call = this.recordedCalls.shift()!;
       this.advanceRecordedClock(call[1] as number);
     }
+    const generated = this.drainJoystickWait(kind === "waitKey");
     const call = this.recordedCalls?.shift();
+    if (generated !== undefined && call?.[1] !== generated)
+      throw new Error("Recorded joystick wait key diverged.");
     if (!call || call[0] !== kind)
       throw new Error(
         `Recorded replay diverged: expected host ${call?.[0] ?? "end of tick"}, received ${kind}.`,
@@ -302,10 +345,19 @@ export class Simulation {
         case "navigate":
           this.engine.modalNavigate(operation[1]);
           break;
+        case "menu":
+          this.engine.nativeMenuEvent(
+            operation[1][0] as "open" | "move" | "release" | "tap" | "cancel",
+            operation[1][1],
+            operation[1][2],
+            operation[1][3] !== 0,
+          );
+          break;
         case "ack":
           this.engine.ackPrint();
           break;
         case "release":
+        case "joystick":
         case "tick":
           if (operation[0] === "tick" && ++this.cycles > this.cycleBudget)
             throw new Error(`Simulation cycle limit (${this.cycleBudget}) exceeded.`);
@@ -314,13 +366,25 @@ export class Simulation {
           // called: its recorded answer was taken at delivery time, so feed
           // the parked interaction before the tick that consumed it.
           if (operation[0] === "tick" && this.engine.awaitingKey) {
-            while (this.recordedCalls[0]?.[0] === "clock")
-              this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
-            if (this.recordedCalls[0]?.[0] === "waitKey")
-              this.engine.deliverHostAnswer(this.recordedCalls.shift()![1]);
+            const generated = this.drainJoystickWait();
+            if (this.recordedCalls[0]?.[0] === "waitKey") {
+              const answer = this.recordedCalls.shift()![1];
+              if (generated !== undefined && generated !== answer)
+                throw new Error("Recorded joystick wait key diverged.");
+              if ((this.recordedCalls[0] as RecordedHostCall | undefined)?.[0] === "keyResume")
+                this.recordedCalls.shift();
+              this.engine.deliverHostAnswer(answer);
+            }
           }
           if (operation[0] === "tick") this.engine.tick();
+          else if (operation[0] === "joystick") this.engine.pollJoystickInput();
           else this.engine.releaseTrackedKey(true);
+          while (this.recordedKeyResume !== undefined) {
+            const answer = this.recordedKeyResume;
+            this.recordedKeyResume = undefined;
+            this.engine.deliverHostAnswer(answer);
+            this.engine.tick();
+          }
           if (this.recordedCalls.length)
             throw new Error(
               `Recorded replay diverged: ${this.recordedCalls.length} unconsumed host calls.`,
@@ -396,6 +460,7 @@ export class Simulation {
       ? framesToContactSheet(
           this.checkpoints.map(({ frame: checkpoint }) => checkpoint),
           "visual",
+          colourTableForProfile(this.engine.profile),
         )
       : null;
     const checkpoints = this.checkpoints.map((checkpoint, tile) => ({
@@ -411,8 +476,8 @@ export class Simulation {
     }));
     const images = [
       {
-        png: frameToPng(frame, "visual"),
-        caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and sprites at authentic geometry; game text is transcribed separately.`,
+        png: frameToPng(frame, "visual", colourTableForProfile(this.engine.profile)),
+        caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and views at authentic geometry; game text is transcribed separately.`,
       },
     ];
     if (checkpointSheet)
@@ -430,7 +495,12 @@ export class Simulation {
             y: engine.screenObjects[0]!.y,
           }),
         };
-        const snapshot = renderNavigationSnapshot(navState, this.navigationFailureTarget);
+        const snapshot = renderNavigationSnapshot(
+          navState,
+          this.navigationFailureTarget,
+          undefined,
+          colourTableForProfile(this.engine.profile),
+        );
         images.push({
           png: snapshot.png,
           caption:
@@ -452,7 +522,7 @@ export class Simulation {
             message:
               status === "passed"
                 ? extra["genesisValidated"]
-                  ? "Boot reached a shown, interactive scene with a valid ego spawn."
+                  ? "Boot reached a shown, interactive room with a valid ego spawn."
                   : "Executed the supplied actions; all supplied outcome assertions passed."
                 : status === "reached_planned_room"
                   ? `The exit to room ${String(extra["plannedRoom"])} fires. That room is planned and is built when the player first arrives, so the steps and expectations after the transition were not run.`
@@ -520,7 +590,7 @@ function object(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** Validate the actor's entire AGI baseline, dimensions, horizon and object overlaps. */
+/** Validate the screen object's entire AGI baseline, dimensions, horizon and object overlaps. */
 function footprint(engine: Engine, x: number, y: number): string[] {
   const ego = engine.screenObjects[0]!;
   const issues: string[] = [];
@@ -569,7 +639,7 @@ interface ControlSpan {
   x1: number;
 }
 
-/** Exact scene controls under a proposed actor baseline, grouped into horizontal spans. */
+/** Exact scene controls under a proposed screen object baseline, grouped into horizontal spans. */
 function baselineProbe(engine: Engine, x: number, y: number) {
   const ego = engine.screenObjects[0]!;
   const values = new Set<number>();
@@ -593,7 +663,7 @@ function baselineProbe(engine: Engine, x: number, y: number) {
   };
 }
 
-/** Current rendered depth over ego's logical bounding box; flag f1 is the exact engine verdict. */
+/** Current rendered priority over ego's logical bounding box; flag f1 is the exact engine verdict. */
 function occlusionProbe(engine: Engine) {
   const ego = engine.screenObjects[0]!;
   let actorBoxCells = 0;
@@ -735,7 +805,12 @@ export function playtestRoom(
       args["instructionBudget"] == null
         ? 50000
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
-      { rngVersion: options.rngVersion ?? 2 },
+      {
+        rngVersion: options.rngVersion ?? 2,
+        ...(recording?.state.pcDisplay === undefined
+          ? {}
+          : { pcDisplay: recording.state.pcDisplay }),
+      },
     );
     if (recording) simulation.originKind = "recorded";
     else if (setupImage) simulation.originKind = "candidate";
@@ -987,7 +1062,7 @@ export function playtestRoom(
       for (let cycle = 0; cycle < ticks; cycle++) {
         if (until !== null && untilMet(engine, until)) break;
         if (action === "wait") {
-          if (engine.modalKind)
+          if (engine.modalKind && !engine.clockModalOpen)
             throw new SimulationStop(
               `steps[${index}]: the ${engine.modalKind} modal pauses animation. Add an enter action before waiting to observe animation. Completed ${cycle} of ${ticks} requested cycles.`,
               "needs_input",
@@ -1180,7 +1255,7 @@ export function playtestRoom(
           if (item?.room !== 255) {
             failure("item", id, 255, item?.room ?? null);
             nextSteps.push(
-              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
+              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said words, object location and puzzle preconditions before changing the outcome.`,
             );
             failures.push(
               `Expected item ${id} carried; observed ${item ? `room ${item.room}` : "missing item"}.`,

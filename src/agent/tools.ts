@@ -18,7 +18,7 @@ import {
 } from "../picture/source.ts";
 import { computePictureMetrics, DEFAULT_HORIZON } from "../picture/metrics.ts";
 import {
-  actorLayoutFeedback,
+  screenObjectLayoutFeedback,
   colourGrid,
   editReport,
   formatLayoutDiff,
@@ -39,7 +39,7 @@ import {
   resolveSourceEdit,
   sourceContextRevision,
 } from "./authoringTools.ts";
-import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import { CEL_TOOLS, executeCelTool } from "./celTools.ts";
 import {
   executeSelectionEditTool,
   SELECTION_TOOL_NAMES,
@@ -109,6 +109,7 @@ import {
   type FramePlane,
   type FrameSource,
 } from "./frames.ts";
+import { colourTableForProfile } from "../runtime/colourTables.ts";
 
 export interface ToolDefinition {
   readonly name: string;
@@ -127,7 +128,7 @@ export { buildSound, midiToAgiDivisor, parseNoteToMidi } from "./soundBuilder.ts
 /** Shared JSON Schemas: OpenAI uses strict mode; Anthropic uses non-strict transport. */
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...AUTHORING_TOOLS,
-  ...SPRITE_TOOLS,
+  ...CEL_TOOLS,
   ...SOUND_TOOLS,
   ...PICTURE_TOOLS,
   ...ROOM_TOOLS,
@@ -179,7 +180,7 @@ function formatPictureMetrics(m: {
   return [
     `fill coverage ${pct(m.fillCoverage)} (target >= 95%), ${m.distinctColors} distinct colours (target 8-14)`,
     `${m.commandCount} commands, ${m.regionCount} regions, edge density ${pct(m.edgeDensity)}`,
-    `priority: ${pct(m.priorityBandFraction)} of cells in depth bands, ${m.priorityBands} distinct bands, walkable below horizon ${pct(m.walkableFraction)}, sky above horizon on band 4 ${pct(m.priorityHorizonSanity)}`,
+    `priority: ${pct(m.priorityBandFraction)} of cells in priority bands, ${m.priorityBands} distinct bands, walkable below horizon ${pct(m.walkableFraction)}, sky above horizon on band 4 ${pct(m.priorityHorizonSanity)}`,
   ].join("\n");
 }
 
@@ -470,7 +471,7 @@ function executeValidatedAgentTool(
     result =
       executeSourceEdit(session, name, args) ??
       executeAuthoringTool(session, name, args) ??
-      executeSpriteTool(session, name, args) ??
+      executeCelTool(session, name, args) ??
       executeSoundTool(session, name, args) ??
       executePictureTool(session, name, args) ??
       executeRoomTool(session, name, args) ??
@@ -624,7 +625,7 @@ function executeLegacyTool(
         if (nextId > 0xffff) {
           nextId = 2;
           while (nextId < 100 && usedIds.has(nextId)) nextId++;
-          if (nextId >= 100) throw new Error("Dictionary has no free word IDs.");
+          if (nextId >= 100) throw new Error("WORDS has no free word group ids.");
         }
         usedIds.add(nextId);
         return nextId++;
@@ -656,7 +657,7 @@ function executeLegacyTool(
             .map((word) => word.trim().toLowerCase().replace(/\s+/g, " "));
           if (group.some((word) => !/^[a-z][a-z0-9' ]{0,63}$/.test(word)))
             throw new Error(
-              `Invalid vocabulary '${item}': use ASCII words or phrases starting with a letter; punctuation is not silently removed.`,
+              `Invalid WORDS '${item}': use ASCII words or phrases starting with a letter; punctuation is not silently removed.`,
             );
           const existingIds = new Set(
             group.flatMap((word) => {
@@ -688,12 +689,12 @@ function executeLegacyTool(
         const adjustments: string[] = [];
         if (addedNavWords.length > 0) {
           adjustments.push(
-            `Automatically ensured standard navigation vocabulary: ${addedNavWords.join(", ")}.`,
+            `Automatically ensured standard navigation WORDS: ${addedNavWords.join(", ")}.`,
           );
         }
         return {
           success: true,
-          message: `Dictionary (WORDS.TOK) compiled successfully with ${session.sources.words.size} words (${payload.length} bytes).`,
+          message: `WORDS.TOK compiled successfully with ${session.sources.words.size} words (${payload.length} bytes).`,
           ...(adjustments.length > 0 ? { adjustments } : {}),
           details: {
             totalWords: session.sources.words.size,
@@ -702,7 +703,7 @@ function executeLegacyTool(
           },
         };
       } catch (err) {
-        return { success: false, error: `Dictionary compilation error: ${String(err)}` };
+        return { success: false, error: `WORDS compilation error: ${String(err)}` };
       }
     }
 
@@ -760,7 +761,7 @@ function executeLegacyTool(
         const related = command ? relatedCommands(session.profile, command, kind) : [];
         const nextSteps = text.includes("is not in the dictionary")
           ? [
-              "Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying the source.",
+              "Use read_words to inspect existing word groups, then write_words to register the missing words or its synonyms before retrying the source.",
             ]
           : [
               "Use read_command_reference for the active profile's exact signatures and semantics. Candidates below are suggestions; choose by intended behavior, not spelling alone.",
@@ -852,8 +853,9 @@ function executeLegacyTool(
             `${blockedFills.length} ${label} fill seeds did nothing: ${samples.join("; ")}${blockedFills.length > samples.length ? `; +${blockedFills.length - samples.length} more` : ""}. Enclose and fill regions while their interiors still have the target value.`,
           );
         }
-        const actors = actorLayoutFeedback(source, surface.priority);
-        if (actors.length > 0) feedback.push("Declared actor placement checks:", actors);
+        const screenObjects = screenObjectLayoutFeedback(source, surface.priority);
+        if (screenObjects.length > 0)
+          feedback.push("Declared screen object placement checks:", screenObjects);
         const masses = layoutDiff(source, surface.visual);
         if (masses.length > 0) {
           feedback.push("Declared `# layout:` masses vs what rendered:", formatLayoutDiff(masses));
@@ -875,7 +877,12 @@ function executeLegacyTool(
           ...(compiled.warnings.length > 0 ? { adjustments: [...compiled.warnings] } : {}),
           images: [
             {
-              png: pictureComparisonPng(surface.visual, surface.priority),
+              png: pictureComparisonPng(
+                surface.visual,
+                surface.priority,
+                undefined,
+                colourTableForProfile(session.profile),
+              ),
               caption: `Picture ${room}, 960x168 comparison sheet; each 320x168 panel uses native 2:1 logical-pixel aspect. ${PICTURE_COMPARISON_LEGEND}`,
             },
           ],
@@ -919,10 +926,12 @@ function executeLegacyTool(
         renderPicture(session.container.getResource("picture", num)!, surface, {
           profile: session.profile,
         });
-        const actors = actorLayoutFeedback(editableSource, surface.priority);
+        const screenObjects = screenObjectLayoutFeedback(editableSource, surface.priority);
         const diagnostics = [
           formatPriorityDiagnostics(surface.priority),
-          ...(actors.length > 0 ? ["Declared actor placement checks:", actors] : []),
+          ...(screenObjects.length > 0
+            ? ["Declared screen object placement checks:", screenObjects]
+            : []),
         ].join("\n");
         return {
           success: true,
@@ -935,7 +944,12 @@ function executeLegacyTool(
           },
           images: [
             {
-              png: pictureComparisonPng(surface.visual, surface.priority),
+              png: pictureComparisonPng(
+                surface.visual,
+                surface.priority,
+                undefined,
+                colourTableForProfile(session.profile),
+              ),
               caption: `Picture ${num}, stored bytes in a 960x168 comparison sheet; each 320x168 panel uses native 2:1 logical-pixel aspect. ${PICTURE_COMPARISON_LEGEND}`,
             },
           ],
@@ -1101,8 +1115,8 @@ function executeLegacyTool(
         message:
           groups.length === 0
             ? prefix === ""
-              ? "Dictionary is empty; call write_words before any said() handler."
-              : `No dictionary words start with '${prefix}'.`
+              ? "WORDS is empty; call write_words before any said() handler."
+              : `No WORDS start with '${prefix}'.`
             : `Dictionary: ${session.sources.words.size} words in ${groups.length} synonym group(s)${groups.length > shown.length ? ` (first ${shown.length} shown)` : ""}.\n${summary}`,
         details: {
           totalWords: session.sources.words.size,
@@ -1139,7 +1153,7 @@ function executeLegacyTool(
         const warnings = viewSourceWarnings(spec);
         return {
           success: true,
-          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
+          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the view preview.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
           images: [{ png, caption }],
           details: {
             view: num,
@@ -1232,7 +1246,7 @@ function executeLegacyTool(
         if (!obj || name.length === 0 || !Number.isInteger(startingRoom))
           return {
             success: false,
-            error: `Invalid inventory item at index ${index}: expected { name: non-empty string, startingRoom: integer or null }. The table was not changed.`,
+            error: `Invalid object at index ${index}: expected { name: non-empty string, startingRoom: integer or null }. The table was not changed.`,
           };
         objects.push({ name, startingRoom: startingRoom as number });
       }
@@ -1249,7 +1263,7 @@ function executeLegacyTool(
         session.sources.objects = objects;
         return {
           success: true,
-          message: `OBJECT file compiled successfully with ${objects.length} inventory items (${payload.length} bytes, profile ${session.profile.id}).`,
+          message: `OBJECT file compiled successfully with ${objects.length} objects (${payload.length} bytes, profile ${session.profile.id}).`,
           details: {
             objectCount: objects.length,
             bytes: payload.length,
@@ -1604,7 +1618,11 @@ async function executeReadFrames(
 
   const images: AgentToolImage[] = [];
   if (sheet && frames.length > 1) {
-    const { png, grid } = framesToContactSheet(frames, plane);
+    const { png, grid } = framesToContactSheet(
+      frames,
+      plane,
+      colourTableForProfile(session.profile),
+    );
     images.push({
       png,
       caption: `Contact sheet, ${plane} plane: ${grid.cols} columns x ${grid.rows} rows, row-major (oldest top-left), ${FRAME_WIDTH}x${FRAME_HEIGHT} per tile, ${SHEET_GAP}px gutter, sheet ${grid.width}x${grid.height}. Cycles in order: ${cycles.join(", ")}. ${noteText}`,
@@ -1612,7 +1630,7 @@ async function executeReadFrames(
   } else {
     for (const frame of frames) {
       images.push({
-        png: frameToPng(frame, plane),
+        png: frameToPng(frame, plane, colourTableForProfile(session.profile)),
         caption: `Cycle ${frame.cycle}, ${plane} plane, ${FRAME_WIDTH}x${FRAME_HEIGHT}. ${noteText}`,
       });
     }

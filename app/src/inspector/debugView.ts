@@ -33,7 +33,7 @@ export interface PickPoint {
    * the GPU stage. Undefined for flat 2D picks.
    */
   layerKind?: StagePick["kind"];
-  /** Priority band of a picture/sprite layer pick. */
+  /** Priority band of a picture/screen object layer pick. */
   layerBand?: number;
 }
 
@@ -77,10 +77,10 @@ export interface PixelInspection {
 /**
  * Sample the picked logical pixel. `layer` names the exploded layer the pick
  * selected: a picture or control band reads the picture-only surface — the
- * exploded geometry can expose a pixel a composed sprite covers, and the
+ * exploded geometry can expose a pixel a composed screen object covers, and the
  * composed value would contradict what the user clicked. A layer pick that
  * cannot sample its own surface reports nothing rather than another layer's
- * data. Only sprite (and flat, layer-less) picks may carry an owner.
+ * data. Only screen object (and flat, layer-less) picks may carry an owner.
  */
 export function inspectPixel(
   frame: Frame,
@@ -97,7 +97,7 @@ export function inspectPixel(
     return { color: visual[i]! & 0x0f, priority: priority[i]! & 0x0f, owner: null };
   }
   const owned = frame.ownership?.[i] ?? 0;
-  const ownerAllowed = layer === undefined || layer.kind === "sprite";
+  const ownerAllowed = layer === undefined || layer.kind === "actor";
   return {
     color: frame.visual[i]! & 0x0f,
     priority: frame.priority[i]! & 0x0f,
@@ -124,7 +124,7 @@ export interface LatchedPick {
   point: PickPoint;
   inspection: PixelInspection;
   /** Immutable screen-object snapshot for the owner, or null when the pick
-   * names a non-sprite layer or a pixel with no owner. */
+   * names a non-screen object layer or a pixel with no owner. */
   object: Readonly<ScreenObjectState> | null;
   /** Frame identity at capture: interpreter cycle + container revision. */
   cycle: number | null;
@@ -133,9 +133,9 @@ export interface LatchedPick {
 
 /**
  * Resolve a click into a self-contained observation. `point.layerKind`
- * selects the sampled surface and suppresses object identity for non-sprite
+ * selects the sampled surface and suppresses object identity for non-actor
  * layer picks — the ownership mask describes the composed frame, and a
- * composed sprite must not lend its owner to a picture band it merely covers.
+ * composed screen object must not lend its owner to a picture band it merely covers.
  */
 export function latchPickAt(frame: Frame, point: PickPoint): LatchedPick | null {
   if (!point.logical) return null;
@@ -151,9 +151,9 @@ export function latchPickAt(frame: Frame, point: PickPoint): LatchedPick | null 
         },
   );
   if (!inspection) return null;
-  const spritePick = point.layerKind === undefined || point.layerKind === "sprite";
+  const screenObjectPick = point.layerKind === undefined || point.layerKind === "actor";
   const source =
-    spritePick && inspection.owner !== null
+    screenObjectPick && inspection.owner !== null
       ? (frame.objects?.find((o) => o.num === inspection.owner) ?? null)
       : null;
   // Scalars plus two optional nested targets; deep-freeze covers them.
@@ -185,6 +185,8 @@ export function cropFrameRgba(
   radius: number,
   /** The surface to crop — the picked layer's source, defaulting to composed. */
   source: Uint8Array = frame.visual,
+  /** The running game's colours; EGA when omitted. */
+  palette: readonly (readonly [number, number, number])[] = EGA_PALETTE,
 ): { width: number; height: number; data: Uint8Array } {
   const size = radius * 2 + 1;
   const x0 = Math.max(0, Math.min(cx - radius, PIC_W - size));
@@ -195,7 +197,7 @@ export function cropFrameRgba(
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y0 + y) * PIC_W + (x0 + x);
-      const [r, g, b] = EGA_PALETTE[source[i]! & 0x0f]!;
+      const [r, g, b] = palette[source[i]! & 0x0f]!;
       const o = (y * w + x) * 4;
       data[o] = r;
       data[o + 1] = g;

@@ -79,7 +79,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate @
   expect(providerCalls).toBe(0);
 });
 
-test("AI settings pause only their own game interaction and preserve the assistant draft @phone", async ({
+test("AI settings pause only their own game interaction and preserve the agent draft @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -106,7 +106,7 @@ test("AI settings pause only their own game interaction and preserve the assista
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
   await enterPlayMode(page);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("agent-open-ai-settings")).toBeEnabled();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
@@ -128,7 +128,7 @@ test("AI settings pause only their own game interaction and preserve the assista
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 });
 
-test("AI settings settle a pending Assistant attachment before saving @webkit-desktop", async ({
+test("AI settings settle a pending Agent attachment before saving @webkit-desktop", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -156,7 +156,7 @@ test("AI settings settle a pending Assistant attachment before saving @webkit-de
     await page.getByTestId("catalog-play-adventure-department").click();
     await waitForRoom(page, 1, { coldBoot: true });
     await enterPlayMode(page);
-    await page.getByTestId("menu-assistant").click();
+    await page.getByTestId("menu-agent").click();
     await controllerRequested.promise;
     await openAiSettings(page);
     const dialog = page.getByTestId("ai-settings-dialog");
@@ -182,7 +182,7 @@ test("AI settings settle a pending Assistant attachment before saving @webkit-de
   }
 });
 
-test("a running Assistant task refuses settings without publishing the draft @webkit-desktop", async ({
+test("a running Agent task refuses settings without publishing the draft @webkit-desktop", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -219,7 +219,7 @@ test("a running Assistant task refuses settings without publishing the draft @we
     await page.getByTestId("catalog-play-adventure-department").click();
     await waitForRoom(page, 1, { coldBoot: true });
     await enterPlayMode(page);
-    await page.getByTestId("menu-assistant").click();
+    await page.getByTestId("menu-agent").click();
     await expect(page.getByTestId("agent-message")).toBeEnabled();
     await page.getByTestId("agent-message").fill("Where next?");
     await page.getByTestId("agent-send").click();
@@ -246,7 +246,7 @@ test("a running Assistant task refuses settings without publishing the draft @we
   }
 });
 
-test("a rejected settings write preserves the next Assistant request @webkit-desktop", async ({
+test("a rejected settings write preserves the next Agent request @webkit-desktop", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -278,7 +278,7 @@ test("a rejected settings write preserves the next Assistant request @webkit-des
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await enterPlayMode(page);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await openAiSettings(page);
   await dialog.getByTestId("api-key-input").fill("test-refused-storage-key");
@@ -306,7 +306,7 @@ test("a rejected settings write preserves the next Assistant request @webkit-des
   expect(authorizations.every((value) => value === "Bearer test-stored-key")).toBe(true);
 });
 
-test("changing the shared provider affects the next Ask without losing the conversation @phone", async ({
+test("changing the shared provider affects the next agent request without losing the conversation @phone", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -342,7 +342,7 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await enterPlayMode(page);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await dialog.getByTestId("provider-select").selectOption("openai");
@@ -406,7 +406,7 @@ test("AI settings and Connect AI open while the Agent is still opening", async (
   await page.evaluate(() =>
     (window as never as { holdNextStateQuery(): void }).holdNextStateQuery(),
   );
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
 
   // The Agent has not finished opening: both entry points still reach the dialog.
@@ -455,7 +455,7 @@ test("AI settings save while the game never answers the Agent's opening", async 
   await page.evaluate(() =>
     (window as never as { dropNextStateQuery(): void }).dropNextStateQuery(),
   );
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.powerUp.busy)).toBe(true);
   const dialog = page.getByTestId("ai-settings-dialog");
   await page.getByTestId("agent-open-ai-settings").click();

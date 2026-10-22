@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
 import { numberedLabel } from "../../../src/logic/numberedLabels.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import type { RoomPlacement } from "../../../src/authoring/roomPlacements.ts";
-import type { GhostView } from "./useGhostProbe.ts";
+import type { StandInView } from "./useStandInProbe.ts";
 import type { Viewport } from "../../../src/studio/viewport.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
-import { selectViewCel, forEachPaintedPixel } from "../../../src/view/view.ts";
+import { forEachPaintedPixel } from "../../../src/view/view.ts";
 import { probeActor } from "../../../src/studio/probe.ts";
 import { maskFillPath } from "./studioView.ts";
 
@@ -30,7 +31,7 @@ const {
   readOnly,
 } = defineProps<{
   figures: readonly RoomPlacement[];
-  views: readonly GhostView[];
+  views: readonly StandInView[];
   viewport: Viewport;
   opacity: number;
   picture: { visual: Uint8Array; priority: Uint8Array };
@@ -63,6 +64,9 @@ const fixed = (figure: RoomPlacement): boolean =>
   figure.reason === null && figure.x !== null && figure.y !== null;
 /** Where a figure with no known spot starts: centred, standing low on the picture. */
 const START_Y = 130;
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
+
 function startSpot(width: number): { x: number; y: number } {
   return { x: Math.max(0, Math.round((160 - width) / 2)), y: START_Y };
 }
@@ -71,7 +75,7 @@ const drawn = computed(() =>
     const entry = views.find((v) => v.number === figure.view);
     const cel =
       entry && figure.loop !== null && figure.cel !== null
-        ? selectViewCel(entry.view, figure.loop, figure.cel)
+        ? entry.view.loops[figure.loop]?.cels[figure.cel]
         : undefined;
     if (!cel) return [];
     const known =
@@ -90,9 +94,18 @@ const drawn = computed(() =>
       priorityBase,
     });
     const masks: Record<number, Uint8Array> = {};
-    forEachPaintedPixel(picture, cel, x, y, result.drawPriority, (at, colour) => {
-      (masks[colour] ??= new Uint8Array(160 * 168))[at] = 1;
-    });
+    forEachPaintedPixel(
+      picture,
+      cel,
+      x,
+      y,
+      result.drawPriority,
+      (at, colour) => {
+        (masks[colour] ??= new Uint8Array(160 * 168))[at] = 1;
+      },
+      profile.originalCelBlitClippingAndPriorityMask ?? false,
+      profile.presentation !== "pc" ? 4 : null,
+    );
     const label = `${numberedLabel("object", figure.object, labels.value, "option")} · ${numberedLabel("view", figure.view!, labels.value, "option")} · ${figure.reason ?? `(${x}, ${y})`}`;
     return [
       {
@@ -121,7 +134,7 @@ function point(event: PointerEvent) {
   };
 }
 function down(event: PointerEvent, figure: RoomPlacement): void {
-  if (event.button !== 0 || readOnly) return;
+  if (event.button !== 0 || readOnly || dragging.value) return;
   const spot = drawn.value.find((row) => row.figure.object === figure.object);
   if (!spot) return;
   const at = point(event);
@@ -139,6 +152,9 @@ function down(event: PointerEvent, figure: RoomPlacement): void {
   event.preventDefault();
 }
 function move(event: PointerEvent): void {
+  if (dragging.value?.pointer === event.pointerId) gestureFrame.schedule(() => applyMove(event));
+}
+function applyMove(event: PointerEvent): void {
   const grab = dragging.value;
   if (!grab || event.pointerId !== grab.pointer) return;
   const at = point(event);
@@ -154,12 +170,15 @@ function settle(figure: RoomPlacement, x: number, y: number): void {
 function up(event: PointerEvent): void {
   const grab = dragging.value;
   if (!grab || event.pointerId !== grab.pointer) return;
-  move(event);
+  gestureFrame.cancel();
+  applyMove(event);
   dragging.value = undefined;
   if (grab.x === grab.startX && grab.y === grab.startY) return;
   settle(grab.figure, grab.x, grab.y);
 }
-function cancel(): void {
+function cancel(event?: PointerEvent): void {
+  if (event && dragging.value?.pointer !== event.pointerId) return;
+  gestureFrame.cancel();
   dragging.value = undefined;
 }
 function nudge(event: KeyboardEvent, figure: RoomPlacement): void {

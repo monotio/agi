@@ -109,7 +109,7 @@ export function readHistoryArchive(bytes: Uint8Array): ProjectHistory {
     throw new Error("HISTORY.JSON is not a history record this app understands.");
   const recording = validateHistoryRecording(raw["recording"]);
   const retainedList = (key: "branches" | "staged"): RetainedOriginal[] => {
-    const entry = key === "branches" ? "retained branch" : "staged candidate";
+    const entry = key === "branches" ? "retained branch" : "staged changes";
     const rawList = raw[key] ?? [];
     if (!Array.isArray(rawList) || rawList.length > 16)
       throw new Error(`HISTORY.JSON ${key} are invalid.`);

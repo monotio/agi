@@ -207,7 +207,7 @@ for (const game of GAMES) {
       assert.equal(engine.vars[7], game.maximumScore);
       assert.equal(
         engine.textRow(0).slice(1, 18).trimEnd(),
-        `Score: ${engine.vars[3]} of ${game.maximumScore}`,
+        `Score:${engine.vars[3]} of ${game.maximumScore}`,
       );
     });
 
@@ -217,6 +217,7 @@ for (const game of GAMES) {
 
       const beforeVars = Array.from(engine.vars);
       const expectedFlags = Array.from(engine.flags);
+      if (engine.profile.restoreRewritesMachineState) expectedFlags[11] = 1;
       expectedFlags[12] = 1; // Successful original restore announces itself to logic.
       const beforeVisual = Array.from(engine.surface.visual);
       const beforePriority = Array.from(engine.surface.priority);

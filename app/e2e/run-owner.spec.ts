@@ -27,7 +27,7 @@ async function checkpoint(page: Page): Promise<number[]> {
     const image = await project.query("checkpoint");
     if (!window.__AGI_STATE__?.paused)
       project.getWorker().postMessage({ type: "pause", paused: false });
-    if (!image) throw new Error("The game needs a checkpoint.");
+    if (!image) throw new Error("The game needs a progress entry.");
     return [...image];
   });
 }
@@ -315,11 +315,32 @@ test("newest tab takes Play, rejects the old writer, and Take back survives clos
     );
     return { key, generation: writer?.generation as number };
   });
+  // A failed checkpoint belongs to this writer; taking Play elsewhere replaces its notice.
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("monotio_agi.autosave."))
+        throw new DOMException("Injected full storage", "QuotaExceededError");
+      setItem.call(this, key, value);
+    };
+    (window as unknown as { restoreCheckpointStorage: () => void }).restoreCheckpointStorage =
+      () => {
+        Storage.prototype.setItem = setItem;
+      };
+    window.dispatchEvent(new Event("pagehide"));
+  });
+  const checkpointNotice = page.getByTestId("checkpoint-notice");
+  await expect(checkpointNotice).toBeVisible();
   const newest = await context.newPage();
   await newest.goto(page.url());
   await waitForRoom(newest, 1, { coldBoot: true });
   const notice = page.getByTestId("other-tab-notice");
   await expect(notice).toBeVisible();
+  await expect(checkpointNotice).toBeHidden();
+  expect(await page.evaluate(() => window.__AGI_STATE__?.checkpointProblem)).toBe("");
+  await page.evaluate(() =>
+    (window as unknown as { restoreCheckpointStorage: () => void }).restoreCheckpointStorage(),
+  );
   await expect(notice).toContainText("This game is open in another tab.");
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   for (const [width, height] of [

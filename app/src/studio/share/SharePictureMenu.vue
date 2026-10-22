@@ -9,9 +9,10 @@ import UiDialog from "../../ui/UiDialog.vue";
 import UiIcon from "../../ui/UiIcon.vue";
 import { clipType, recordClip } from "./renderClip.ts";
 import { stillPng, type ShareCaption } from "./shareFrame.ts";
+import { colourTableForProfile } from "../../../../src/runtime/colourTables.ts";
 
 /**
- * Share in Room Studio's top bar, after the room's name: the picture painting itself as a clip
+ * Share in PICTURE editor's top bar, after the room's name: the picture painting itself as a clip
  * (renderClip.ts), or the finished picture as a still (shareFrame.ts), each
  * with its caption card. It shares the draft on the canvas, unkept changes
  * included, and says so. The file is previewed before it is downloaded or,
@@ -84,7 +85,7 @@ function ready(kind: "clip" | "still", file: File): void {
 
 async function still(): Promise<void> {
   const name = `${fileBase}.png`;
-  const png = await stillPng(picture.visual, caption);
+  const png = await stillPng(picture.visual, caption, colourTableForProfile(profile));
   ready("still", new File([png.slice()], name, { type: "image/png" }));
 }
 

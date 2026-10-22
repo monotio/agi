@@ -83,6 +83,17 @@ reviews of one push at a time miss properties of the whole system.
   implementing an opcode, read the specification's common contract and the selected profile's
   variants. A no-op is valid only where the specification says so. `test/games.test.ts` checks
   dispatch coverage; each opcode's semantics needs its own assertions.
+- A profile covers what the player sees and hears as well as what the game does: palette, font
+  metrics, prompts, menus, dialogs, pointer, sound and timing per platform. When a game's own
+  files include its font, such as the Apple IIgs `AGIFONT`, the player's copy is used at runtime.
+  Otherwise the project's own font table recreates the original bitmap typeface pixel for pixel,
+  credited as a recreation. The project never ships ROM or font files, never extracts their bytes
+  in the build or at runtime, and never asks players for ROMs, and a game without its font file
+  still plays. The original binary decides semantics and the values it encodes. MAME runs of the
+  original interpreter are a cross-check, not ground truth: MAME also emulates the graphics and
+  sound chips, so explain each difference instead of copying MAME's output. Only real hardware
+  settles chip output. The coverage table in `docs/fidelity.md` records each aspect's evidence
+  per platform.
 - Where the specification is silent or builds disagree, the original interpreter in a contributor's
   local `games/*` fixtures is the reference. Record each finding in `docs/fidelity.md` with build,
   binary hash, addresses and conclusion, and keep facts apart from inference. Code comments cite the
@@ -98,7 +109,9 @@ reviews of one push at a time miss properties of the whole system.
 ## Release contract
 
 Version 1.0 is the first public archive baseline. Released saves and exports stay readable, and
-readers reject unknown versions without rewriting bytes.
+readers reject unknown versions without rewriting bytes. Compatibility runs one way: the site always
+serves the latest release, so a newer release reads every older file, and an older release never
+needs to read a newer one.
 
 - `app/test/archive-formats.test.ts` must keep reading the released archives in `app/test/formats/`;
   never regenerate them.
@@ -145,6 +158,12 @@ rule.
 Use `Record` for static string-keyed tables, and `Map` or `Set` only for dynamic or non-string keys.
 A one-expression wrapper function needs a public contract to justify its name. Name editor features
 with vendor-neutral terms: code intelligence, completion, signature help, hover documentation.
+Names follow the glossary in `src/vocabulary.ts`: one term per concept in copy, technical prose and code; `FORMAT_LITERALS` lists the stored spellings it leaves alone.
+
+Pointer drags, moves, resizes and wheel gestures stay smooth. A handler records the latest pointer
+state and applies it at most once per animation frame. Expensive work waits until the gesture ends
+or runs throttled: image preparation, hashing, thumbnails, worker messages, live game previews and
+saves.
 
 ## UI copy
 
@@ -213,6 +232,12 @@ Publish identities, hashes, addresses, controlled inputs and behavioral findings
 computer details, personal paths, collection inventories, investigation dates and private plans out
 of tracked files, commit messages, issues and pull requests, and use portable fixture placeholders
 in examples. Public attribution, historical release dates and synthetic test data stay.
+
+Posts, release notes and other promotion may show a few frames of a commercial game as comparison
+or commentary, such as the original interpreter beside this engine on the same scene. Capture them
+from your own copies, credit the game and its rights holder on the image, and say the project is not
+affiliated with them. They never serve as a logo or the main image of a paid ad. Never share or point
+to game files, disk images or ROMs, and keep these images out of the repository.
 
 ## Working together
 

@@ -7,7 +7,7 @@ import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../src/agent/baseTemplate.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";
 import { assertNoImageData } from "./modelText.ts";
 
-test("animated sprite feedback explains timing and baseline without silently changing logic", () => {
+test("animated view feedback explains timing and baseline without silently changing logic", () => {
   const state = createAgentSessionState();
   const before = executeAgentTool(state, "write_logic", { room: 1, source: "return;" });
   assert.equal(before.success, true);

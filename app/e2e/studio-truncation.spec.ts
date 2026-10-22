@@ -12,7 +12,7 @@ import { expect, test } from "./test.ts";
 
 /**
  * Studio's meaning-bearing lines are read whole: the tool's hint, the
- * status readout, a notice, the fill's Why and the sprite's hint
+ * status readout, a notice, the fill's Why and the view's hint
  * either fit their box or wrap.
  * None is cut off with an ellipsis, at 1440 with the side panels open,
  * 1280 and 1024.
@@ -42,7 +42,7 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     await openWorkspacePicture(page, 2);
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await expect(studio).toBeVisible();
     const seen: string[] = [];
     const look = async (name: string, target: Locator) => {
@@ -83,9 +83,9 @@ for (const [width, height] of [
     await closeWorkspaceEditor(page);
     await expect(studio).toBeHidden();
 
-    // The sprite's subtitle.
+    // The view's subtitle.
     await openWorkspaceView(page, 0, false);
-    await look("sprite hint", page.getByTestId("sprite-hint"));
+    await look("view hint", page.getByTestId("view-hint"));
     expect(seen).toEqual([]);
   });
 }

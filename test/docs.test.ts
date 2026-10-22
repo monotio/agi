@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
+import { GLOSSARY } from "../src/vocabulary.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
@@ -80,4 +81,29 @@ test("the changelog dates every release, starting with the package version", () 
   assert.equal(headings[0]?.[1], version, "the newest entry names the package version");
   for (const [, release, date] of headings)
     assert.match(date!, /^\d{4}-\d{2}-\d{2}$/, `${release} carries a release date`);
+});
+
+test("Terminology table matches every glossary entry exactly", () => {
+  const source = readFileSync(join(ROOT, "CONTRIBUTING.md"), "utf8");
+  const section = source.split("### Terminology\n")[1]?.split("\n### ")[0];
+  assert.ok(section, "CONTRIBUTING has a Terminology section");
+  const rows = section
+    .split("\n")
+    .filter((line) => line.startsWith("|"))
+    .slice(2)
+    .map((line) =>
+      line
+        .split("|")
+        .slice(1, -1)
+        .map((cell) => cell.trim()),
+    );
+  assert.deepEqual(
+    rows,
+    Object.values(GLOSSARY).map((entry) => [
+      entry.concept,
+      entry.plain,
+      entry.technical,
+      entry.code,
+    ]),
+  );
 });

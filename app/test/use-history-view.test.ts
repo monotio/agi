@@ -116,7 +116,7 @@ const SESSION_SNAPSHOT: Record<string, unknown> = {
   sources: { logics: [], pictures: [], views: [], sounds: [] },
 };
 /** The tape's last authoring checkpoint — what a take installs. */
-const TAKE_SNAPSHOT: Record<string, unknown> = { plan: "the tape's checkpoint" };
+const TAKE_SNAPSHOT: Record<string, unknown> = { plan: "the tape's progress entry" };
 const TAKEN_BOOT: HistoryBoot = stampBoot({ ...BOOT, rng: 55, resourceSet: "rev-taken" });
 
 const VIEW_PROJECT = testProjectId("view-test");
@@ -563,14 +563,14 @@ test("a take acknowledged but never promoted stays pending — no player vote", 
   await view.resumeFromHere();
   // The worker adopted — the transport must NOT keep posing as a view of
   // history: it closes, parks the now-live adopted session, and shows the
-  // quiet pending status rather than a Keep it / Let it go vote.
+  // quiet pending status rather than a commit it / Let it go vote.
   assert.equal(v.active, false, "the adopted session went live");
   assert.equal(v.parked, true, "the surface returns parked — Resume releases it");
   assert.deepEqual(resumes, ["history"], "the view's hold released");
   assert.ok(pauses.includes("transport"), "the parked surface is the transport's hold");
   assert.equal(v.pendingSwaps, 1);
   assert.match(v.error, /could not be saved/i);
-  // The staged candidate stayed durable — the departing session's only copy.
+  // The staged changes stayed durable — the departing session's only copy.
   assert.equal((await loadRetainedBranches(target.locator)).length, 0, "nothing promoted yet");
   const outline = await loadTapeOutline(target.locator);
   assert.equal(outline?.pending, 1, "the candidate stays preserved, unsettled");
@@ -617,11 +617,70 @@ test("a retain refused while the game is starting names that cause and the next 
   });
   await taking;
   const v = state.historyView;
-  assert.equal(v.error, "The game is still starting. Play a moment, then rewind.");
+  assert.equal(
+    v.error,
+    "The game is still starting. Play a moment and try Resume from here again.",
+  );
   assert.deepEqual(takes, [], "no adoption was requested");
   assert.equal(sessionState.hold, null, "the adoption hold released");
   assert.equal(v.active, true, "the view stays open");
 });
+
+for (const paused of [false, true]) {
+  test(`Undo rewind refused on a text screen keeps the game ${paused ? "paused" : "playing"}`, async () => {
+    const target = await bindViewGame();
+    await importGameHistory(target, { recording: RECORDING });
+    await stageRetainedOriginal(target, {
+      id: "text-screen-undo",
+      boot: stampBoot(BOOT),
+      from: null,
+      retainedAt: 1,
+    });
+    await commitStagedOriginal(target, "text-screen-undo");
+    const { state, view, takes, waitHeld, release, sessionState } = makeHarness({
+      defer: ["historyRetain"],
+    });
+    if (paused) view.pauseAtLive();
+    const undoing = view.undoRewind();
+    await waitHeld("historyRetain");
+    release("historyRetain", {
+      type: "historyRetained",
+      id: 0,
+      boot: null,
+      from: null,
+      reason: "text-mode",
+    });
+    await undoing;
+    assert.equal(
+      state.historyView.error,
+      "The game is showing a text screen. Continue past it and try Undo rewind again.",
+    );
+    assert.deepEqual(takes, [], "no adoption was requested");
+    assert.equal(sessionState.hold, null, "authoring is released");
+    assert.equal(state.powerUp.busy, false);
+    assert.equal(state.historyView.parked, paused, "the player keeps their earlier pause choice");
+    assert.equal((await loadRetainedBranches(target.locator)).length, 1, "Undo stays available");
+  });
+}
+
+for (const reason of ["prompt", "busy", undefined] as const) {
+  test(`a refused capture explains ${reason ?? "an unknown block"} honestly`, async () => {
+    await importGameHistory(await bindViewGame(), { recording: RECORDING });
+    const h = makeHarness({ defer: ["historyRetain"] });
+    await h.view.openHistory({ segment: 0, tick: 8 });
+    const taking = h.view.resumeFromHere();
+    await h.waitHeld("historyRetain");
+    h.release("historyRetain", { boot: null, from: null, reason });
+    await taking;
+    assert.equal(
+      h.state.historyView.error,
+      reason === "prompt"
+        ? "A game prompt is open. Finish it and try Resume from here again."
+        : "The game can't keep this moment yet. Continue the game and try Resume from here again.",
+    );
+    assert.deepEqual(h.takes, []);
+  });
+}
 
 test("a failed stage write releases the hold and asks the worker nothing", async () => {
   const target = await bindViewGame();
@@ -630,7 +689,7 @@ test("a failed stage write releases the hold and asks the worker nothing", async
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
 
-  // Fail the staged candidate's first record write — a definite failure
+  // Fail the staged changes's first record write — a definite failure
   // before any adoption, so the hold must release.
   const put = RECORDS.set.bind(RECORDS);
   let armed = true;
@@ -649,10 +708,10 @@ test("a failed stage write releases the hold and asks the worker nothing", async
   assert.deepEqual(takes, [], "no adoption was requested");
 });
 
-test("a staged candidate the tape proves adopted settles into a branch on the next open", async () => {
+test("a staged changes the tape proves adopted settles into a branch on the next open", async () => {
   const target = await bindViewGame();
   // The departing segment ended with the "resume" stamp only adoption
-  // writes — the staged candidate is owed a branch slot.
+  // writes — the staged changes is owed a branch slot.
   const adopted: HistoryRecording = {
     ...RECORDING,
     segments: [
@@ -677,10 +736,10 @@ test("a staged candidate the tape proves adopted settles into a branch on the ne
   assert.equal(branches[0]!.boot.rng, 77);
 });
 
-test("a staged candidate the tape cannot settle stays quiet and blocks nothing", async () => {
+test("a staged changes the tape cannot settle stays quiet and blocks nothing", async () => {
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });
-  // An earlier swap left a staged candidate whose departing segment is
+  // An earlier swap left a staged changes whose departing segment is
   // still open and unidentified — the tape cannot prove either outcome.
   await stageRetainedOriginal(target, {
     id: "s-open",
@@ -913,7 +972,7 @@ test("a seek answer landing after close writes nothing back", async () => {
   assert.equal(v.error, "", "no error resurrects the transport");
 });
 
-test("Resume from here installs the tape's checkpoint and keeps the departing session's state", async () => {
+test("Resume from here installs the tape's progress entry and keeps the departing session's state", async () => {
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });
   const { state, view, adoptions, sessionState } = makeHarness();
@@ -941,7 +1000,7 @@ test("a failed authoring install keeps the adoption hold and ends the view", asy
   const target = await bindViewGame();
   await importGameHistory(target, { recording: RECORDING });
   const { state, view, adoptions, sessionState } = makeHarness({
-    adoptError: "the recorded authoring checkpoint is malformed",
+    adoptError: "the recorded authoring progress entry is malformed",
   });
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
@@ -1069,7 +1128,7 @@ test("an opening seek keeps its lane when stored extents differ from the live ou
   assert.deepEqual(seeks, [{ segment: 1, tick: 1 }]);
 });
 
-test("history adoption cannot overlap a staged Keep without an agent session", async () => {
+test("history adoption cannot overlap a staged commit without an agent session", async () => {
   await importGameHistory(await bindViewGame(), { recording: RECORDING });
   const { state, view, takes } = makeHarness({ noSession: true });
   await view.openHistory({ segment: 0, tick: 3 });
@@ -1400,6 +1459,47 @@ test("a seek that lands on a divergence holds there even when the tape was playi
   assert.equal(await tapeMoves(view), false);
 });
 
+test("a seek that lands on an incompatible legacy tail holds there and shows a compatibility notice, never divergence", async (t) => {
+  const { view, release, waitHeld } = await longHarness(t, { defer: ["historyViewSeek"] });
+  await watching(view);
+  const seeking = view.dispatchSeek(150);
+  await waitHeld("historyViewSeek");
+  release("historyViewSeek", {
+    type: "historyView",
+    id: 0,
+    final: true,
+    generation: 7,
+    segment: 0,
+    tick: 7,
+    seq: 1,
+    cycle: 7,
+    room: 1,
+    score: 0,
+    modal: null,
+    canResume: false,
+    diverged: null,
+    incompatible: {
+      at: { seq: 1, tick: 18, cycle: 18 },
+      detail:
+        "recorded event unreachable: replay cannot advance past tick 7: the engine terminated",
+    },
+    error: null,
+  });
+  await seeking;
+  await flushSeeks();
+  assert.notEqual(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), false);
+  assert.equal(view.transport.play?.disabled, true);
+  assert.deepEqual(view.transport.errors, [
+    {
+      testid: "history-incompatible",
+      text: "This earlier recording ended before this moment.",
+      details:
+        "recorded event unreachable: replay cannot advance past tick 7: the engine terminated",
+    },
+  ]);
+});
+
 test("a seek during a Watch step leaves one Watch loop running, not two", async (t) => {
   const { view, release, waitHeld, heldCount } = await longHarness(t, {
     defer: ["historyViewAdvance"],
@@ -1582,6 +1682,16 @@ test("Undo start over resumes the earlier session where it ended and keeps playi
     false,
     "no undo or redo button follows",
   );
+});
+
+test("Undo start over discards a fresh text screen without needing to capture it", async () => {
+  await importGameHistory(await bindViewGame(), { recording: STARTED_OVER });
+  const { state, view, takes } = makeHarness({
+    retainError: "the fresh text screen cannot be captured",
+  });
+  assert.equal(await view.undoStartOver(), true, state.historyView.error);
+  assert.equal(takes.length, 1);
+  assert.equal(state.historyView.parked, false);
 });
 
 test("Undo start over on a paused game leaves the earlier session paused", async () => {
@@ -1984,24 +2094,30 @@ test("a game replaced while Undo start over opens keeps the replacement paused",
   );
 });
 
-test("a game replaced after Undo start over's retain answers undoes nothing and leaves the replacement running", async () => {
+test("a game replaced after Undo start over's seek answers undoes nothing and leaves the replacement running", async () => {
   await importGameHistory(await bindViewGame(), { recording: STARTED_OVER });
   const b = await independentProject("undo-stale-retain", {
     ...RECORDING,
     segments: [segment("sB.1", [[1, 2, 3]])],
   });
-  const h = makeHarness({ defer: ["historyRetain"] });
+  const h = makeHarness({ defer: ["historyViewSeek"] });
   h.view.pauseAtLive();
   const pending = h.view.undoStartOver();
-  await h.waitHeld("historyRetain");
+  await h.waitHeld("historyViewSeek");
   // The old reply is delivered immediately before replacement in this
   // turn. Its queued continuation observes the replacement, exactly as a
   // settled query can outlive spawnWorker's drainPendingQueries.
-  h.release("historyRetain", {
-    type: "historyRetained",
+  h.release("historyViewSeek", {
+    type: "historyView",
     id: 0,
-    boot: stampBoot({ ...BOOT, rng: 42 }),
-    from: { segment: "sS.4", seq: 9, tick: 9 },
+    final: true,
+    segment: 2,
+    tick: 30,
+    seq: 30,
+    generation: 7,
+    canResume: true,
+    diverged: null,
+    error: null,
   });
   h.replaceGame(b.game, freshWorker());
   const before = h.pauses.length;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { PROFILES } from "../../src/runtime/profile.ts";
 import {
   sentenceOutcomes,
   meaningUses,
@@ -149,4 +150,14 @@ test("uses group LOGIC labels, sort and deduplicate linked lines, and retain ref
     locations: [{ logic: 3, label: "LOGIC 3 line", lines: [8] }],
   });
   assert.deepEqual(formatMeaningUses([]), { count: "0 uses", locations: [] });
+});
+
+test("response previews keep punctuation on 2.001 and strip it on later profiles", () => {
+  const docs = { "logic:1": 'if (said("look")) { print("A room."); } return;' };
+  // 2.001 keeps the !, so look! is unknown and cannot match the sole look operand.
+  assert.deepEqual(sentenceOutcomes("look!", words, docs, 1, PROFILES["2.001"]), []);
+  // 2.089 separates the !, leaving the single known word look.
+  assert.deepEqual(sentenceOutcomes("look!", words, docs, 1, PROFILES["2.089"]), [
+    { logic: 1, line: 1, message: "A room.", conditional: false, condition: "" },
+  ]);
 });

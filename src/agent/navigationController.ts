@@ -1,7 +1,7 @@
 import type { Engine } from "../runtime/engine.ts";
 import { decodeSave } from "../runtime/persistence.ts";
 import { fnv1a32 } from "../runtime/hash.ts";
-import { DIRECTION_KEYS, directionForDelta } from "./gameTestSteps.ts";
+import { DIRECTION_KEYS, directionForDelta } from "../runtime/keys.ts";
 import {
   planWalk,
   validateWalk,
@@ -214,7 +214,8 @@ export class NavigationController {
             `Expected ${this.goal.kind === "exit" ? this.goal.room : this.startRoom}, observed room ${engine.vars[0]}.`,
           );
     }
-    if (engine.modalKind !== null || engine.continuationPending)
+    // A shake or picture dissolve ends on the clock; the walk resumes after it.
+    if (!engine.clockModalOpen && (engine.modalKind !== null || engine.continuationPending))
       return this.finish("needs_input", inputReason(engine.modalKind));
     if (
       this.goal.kind === "position" &&
@@ -311,7 +312,7 @@ export class NavigationController {
           planningOptions,
         )
       ) {
-        // Moving actors, ceiling changes and animated water-scan widths need
+        // Moving screen objects, ceiling changes and animated water-scan widths need
         // replacement search only when the remaining trace is no longer legal.
         // Other geometry changes always consume the replacement-search budget.
         this.modelKey = key;

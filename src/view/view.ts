@@ -47,7 +47,7 @@ export interface BuildCelInput {
    */
   readonly pixels: Uint8Array | readonly number[];
   /**
-   * If true, this cel is marked mirrorable (control bit 0x80).
+   * Request the native mirrorable bit where this loop has a stable orientation.
    */
   readonly mirror?: boolean | null | undefined;
 }
@@ -55,12 +55,13 @@ export interface BuildCelInput {
 export interface BuildLoopInput {
   /**
    * Cels belonging to this loop.
-   * If `mirrorLoop` is specified and `cels` is absent or empty, this loop shares the cels of `mirrorLoop`.
+   * With mirrorLoop and no cels, the builder reverses that loop's displayed cels.
    */
   readonly cels?: readonly BuildCelInput[] | null | undefined;
   /**
-   * If specified (and `cels` is absent or empty), this loop reuses the cels and loop offset of another loop (0-based index).
-   * The referenced loop must appear before this loop.
+   * With no cels, mirror a preceding loop's displayed art (0-based index).
+   * The builder shares a native block when stable under the target profile;
+   * otherwise it writes independent reversed cels.
    */
   readonly mirrorLoop?: number | null | undefined;
 }
@@ -76,9 +77,100 @@ export interface AgiView {
   readonly description?: string;
 }
 
+/** Native VIEW capabilities shared by readers, authoring and previews. */
+export type ViewCapabilities = Pick<AgiProfile, "packedViewLoopHeader" | "celMirrorLoopMask">;
+
+function validateCelInput(cel: BuildCelInput): void {
+  const { width, height, pixels } = cel;
+  const transColor = typeof cel.transparentColor === "number" ? cel.transparentColor : 0;
+  if (!Number.isInteger(width) || width < 1 || width > SCREEN_WIDTH) {
+    throw new RangeError(`cel width must be between 1 and ${SCREEN_WIDTH} (got ${width})`);
+  }
+  if (!Number.isInteger(height) || height < 1 || height > 168) {
+    throw new RangeError(`cel height must be between 1 and 168 (got ${height})`);
+  }
+  if (!Number.isInteger(transColor) || transColor < 0 || transColor > 15) {
+    throw new RangeError(`transparentColor must be 0..15 (got ${transColor})`);
+  }
+  if (pixels.length !== width * height) {
+    throw new RangeError(
+      `cel pixels length ${pixels.length} does not match width ${width} * height ${height} = ${width * height}`,
+    );
+  }
+  // Every pixel, before encoding: the row scan below stops at the last
+  // opaque pixel, and the encoder packs colours into a nibble.
+  for (let index = 0; index < pixels.length; index++) {
+    const color = pixels[index]!;
+    if (!Number.isInteger(color) || color < 0 || color > 15)
+      throw new RangeError(
+        `pixel at row ${Math.floor(index / width)}, col ${index % width} has invalid color ${color}`,
+      );
+  }
+}
+
+/** Compile displayed art, materializing mirrors the native profile cannot share stably. */
 export function buildView(
   input: BuildViewInput,
-  profile: Pick<AgiProfile, "packedViewLoopHeader"> = DEFAULT_V2_PROFILE,
+  profile: ViewCapabilities = DEFAULT_V2_PROFILE,
+): Uint8Array {
+  if (input.loops.length < 1 || input.loops.length > 255)
+    throw new RangeError(`view must have between 1 and 255 loops (got ${input.loops.length})`);
+  const loops: BuildLoopInput[] = [];
+  const displayed: (readonly BuildCelInput[])[] = [];
+  const shared = new Set<number>();
+  const limit = profile.packedViewLoopHeader ? 3 : profile.celMirrorLoopMask;
+  for (const [index, loop] of input.loops.entries()) {
+    if (loop.cels?.length) {
+      // A mirror flag on an independent high-index cel must not cause the
+      // native truncated orientation to toggle at every blit (F-VIEWS-01).
+      const cels = loop.cels.map((cel) => {
+        // Validate geometry before any reversal loop or pixel allocation.
+        validateCelInput(cel);
+        return {
+          ...cel,
+          mirror: index <= limit && profile.celMirrorLoopMask !== 0 && cel.mirror === true,
+        };
+      });
+      displayed.push(cels);
+      loops.push({ cels });
+      continue;
+    }
+    const source = loop.mirrorLoop;
+    if (typeof source !== "number" || !Number.isInteger(source) || source < 0 || source >= index)
+      throw new RangeError(`loop ${index} mirrorLoop must reference a preceding loop`);
+    const cels = displayed[source]!.map((cel) => {
+      const pixels = new Uint8Array(cel.pixels);
+      for (let row = 0; row < cel.height; row++)
+        pixels.subarray(row * cel.width, (row + 1) * cel.width).reverse();
+      return { ...cel, pixels, mirror: false };
+    });
+    displayed.push(cels);
+    // Native orientation is mutable: three distinct aliases toggle on every
+    // change, rather than each keeping a fixed facing (docs/fidelity.md,
+    // F-VIEWS-01). One source/alias pair is stable inside the mask range.
+    if (
+      profile.celMirrorLoopMask !== 0 &&
+      index <= limit &&
+      source <= limit &&
+      !shared.has(source) &&
+      loops[source]!.cels?.length
+    ) {
+      loops.push({ mirrorLoop: source });
+      shared.add(source);
+      shared.add(index);
+    } else loops.push({ cels });
+  }
+  return encodeViewBlocks({ ...input, loops }, profile);
+}
+
+/**
+ * Encode physical native blocks: pixels are stored rows and mirrorLoop shares
+ * an offset verbatim. Metadata-preserving codecs use this before restoring
+ * native headers; authoring intent goes through buildView instead.
+ */
+export function encodeViewBlocks(
+  input: BuildViewInput,
+  profile: ViewCapabilities = DEFAULT_V2_PROFILE,
 ): Uint8Array {
   const packed = profile.packedViewLoopHeader;
   const loopCount = input.loops.length;
@@ -98,9 +190,6 @@ export function buildView(
         throw new RangeError(
           `loop ${i} mirrorLoop ${loop.mirrorLoop} must reference a preceding loop (0..${i - 1})`,
         );
-      }
-      if (packed && i > 3) {
-        throw new RangeError("packed mutable loop indices must be in 0..3");
       }
       isMirroredLoop.add(loop.mirrorLoop!);
     } else {
@@ -138,40 +227,14 @@ export function buildView(
     const celCount = cels.length;
     const forceMirror = isMirroredLoop.has(loopIndex);
     const packedMirror = packed && (forceMirror || cels.some((cel) => cel.mirror));
-    if (packedMirror && loopIndex > 3) {
-      throw new RangeError("packed mutable loop indices must be in 0..3");
-    }
 
     const encodedCels: Uint8Array[] = [];
     for (let celIndex = 0; celIndex < celCount; celIndex++) {
       const cel = cels[celIndex]!;
+      validateCelInput(cel);
       const { width, height, transparentColor, mirror, pixels } = cel;
       const transColor = typeof transparentColor === "number" ? transparentColor : 0;
       const mirrorBit = Boolean(mirror);
-
-      if (!Number.isInteger(width) || width < 1 || width > SCREEN_WIDTH) {
-        throw new RangeError(`cel width must be between 1 and ${SCREEN_WIDTH} (got ${width})`);
-      }
-      if (!Number.isInteger(height) || height < 1 || height > 168) {
-        throw new RangeError(`cel height must be between 1 and 168 (got ${height})`);
-      }
-      if (!Number.isInteger(transColor) || transColor < 0 || transColor > 15) {
-        throw new RangeError(`transparentColor must be 0..15 (got ${transColor})`);
-      }
-      if (pixels.length !== width * height) {
-        throw new RangeError(
-          `cel pixels length ${pixels.length} does not match width ${width} * height ${height} = ${width * height}`,
-        );
-      }
-      // Every pixel, before encoding: the row scan below stops at the last
-      // opaque pixel, and the encoder packs colours into a nibble.
-      for (let index = 0; index < pixels.length; index++) {
-        const color = pixels[index]!;
-        if (!Number.isInteger(color) || color < 0 || color > 15)
-          throw new RangeError(
-            `pixel at row ${Math.floor(index / width)}, col ${index % width} has invalid color ${color}`,
-          );
-      }
 
       const mirrorable = mirrorBit || forceMirror;
       const control = packed
@@ -306,6 +369,7 @@ interface LoadedLoop {
 interface LoadedView {
   loops: LoadedLoop[];
   packed: boolean;
+  celMask: 0 | 3 | 7;
 }
 
 // Loaded orientations belong to this decoded resource, never to container
@@ -314,12 +378,12 @@ const loadedViews = new WeakMap<AgiView, LoadedView>();
 
 /**
  * Validate a view and provide independent, initially selected cel previews.
- * Runtime users call selectViewCel on selection and readViewCel for drawing:
+ * Runtime users select packed loops on binding and call celForBlitting to draw:
  * selecting three aliases in sequence cannot be represented by static images.
  */
 export function parseView(
   payload: Uint8Array,
-  profile: Pick<AgiProfile, "packedViewLoopHeader"> = DEFAULT_V2_PROFILE,
+  profile: ViewCapabilities = DEFAULT_V2_PROFILE,
 ): AgiView {
   if (payload.length < 5) {
     throw new RangeError("view payload shorter than the 5-byte header");
@@ -329,9 +393,10 @@ export function parseView(
     throw new RangeError("loop offset table extends past the payload");
   }
   const packed = profile.packedViewLoopHeader;
+  const celMask = profile.celMirrorLoopMask;
   const celsByOffset = new Map<number, LoadedCel>();
   const loopsByOffset = new Map<number, LoadedLoop>();
-  const loaded: LoadedView = { loops: [], packed };
+  const loaded: LoadedView = { loops: [], packed, celMask };
   const loops: ViewLoop[] = [];
   for (let loopIndex = 0; loopIndex < loopCount; loopIndex++) {
     const loopStart = u16le(payload, 5 + loopIndex * 2);
@@ -355,7 +420,7 @@ export function parseView(
         const celStart = loopStart + u16le(payload, loopStart + 1 + celIndex * 2);
         let cel = celsByOffset.get(celStart);
         if (!cel) {
-          cel = decodeCel(payload, celStart);
+          cel = decodeCel(payload, celStart, celMask);
           celsByOffset.set(celStart, cel);
         }
         loop.cels.push(cel);
@@ -363,16 +428,21 @@ export function parseView(
       loopsByOffset.set(loopStart, loop);
     }
     loaded.loops.push(loop);
-    loops.push({
-      cels: loop.cels.map((state) => {
-        const mirrored = packed
-          ? loop.mutable && loop.mirrorable && loop.orientation !== loopIndex
-          : state.mirrorable && state.orientation !== (loopIndex & 7);
-        const cel = { ...state.cel, pixels: state.cel.pixels.slice(), mirrored: false };
-        if (mirrored) mirrorPixels(cel);
-        return cel;
-      }),
-    });
+    // Preview each loop from the file's initial state, through the same
+    // blit boundary as runtime. These detached pixels never mutate the
+    // resource's loaded orientation or another loop's preview (F-VIEWS-01).
+    const preview: AgiView = { loops: [] };
+    const previewLoops: LoadedLoop[] = [];
+    previewLoops[loopIndex] = {
+      ...loop,
+      cels: loop.cels.map((state) => ({
+        ...state,
+        cel: { ...state.cel, pixels: state.cel.pixels.slice() },
+      })),
+    };
+    loadedViews.set(preview, { loops: previewLoops, packed, celMask });
+    if (packed) selectViewCel(preview, loopIndex, 0);
+    loops.push({ cels: loop.cels.map((_, cel) => celForBlitting(preview, loopIndex, cel)!) });
   }
 
   const descOffset = u16le(payload, 3);
@@ -413,13 +483,32 @@ export function selectViewCel(
       if (loop.mirrorable) {
         for (const cel of loop.cels) mirrorPixels(cel.cel);
       }
-      loop.orientation = loopIndex;
+      // The writeback is a byte store of (header & 0xCF) | (loop<<4) with the
+      // loop operand UNMASKED: the equal-test above compares the full index,
+      // bits 0x30 read back as the orientation, and an index ≥ 4 also sets
+      // bit 0x40 — selecting loop 4 on an initially non-mirrorable loop
+      // (0x82 → 0xC2) makes the NEXT selection mirror (docs/fidelity.md
+      // "Early PC family", F-VIEWS-01).
+      const writeback = (loopIndex << 4) & 0xff;
+      loop.orientation = (writeback & 0x30) >>> 4;
+      loop.mirrorable = loop.mirrorable || (writeback & 0x40) !== 0;
     }
-  } else if (state.mirrorable && state.orientation !== (loopIndex & 7)) {
+  } else if (state.mirrorable && state.orientation !== loopIndex) {
     mirrorPixels(state.cel);
-    state.orientation = loopIndex & 7;
+    state.orientation = loopIndex & loaded.celMask;
   }
   return state.cel;
+}
+
+/**
+ * The native cel at the actual blit boundary. Nonpacked MirrorCell belongs
+ * here, while packed 2.230 keeps SetLoop's selection-time orientation
+ * (docs/fidelity.md, F-VIEWS-01). Consume shared pixels before the next blit.
+ */
+export function celForBlitting(view: AgiView, loop: number, cel: number): ViewCel | undefined {
+  return loadedViews.get(view)?.packed
+    ? readViewCel(view, loop, cel)
+    : selectViewCel(view, loop, cel);
 }
 
 function mirrorPixels(cel: ViewCel): void {
@@ -432,17 +521,17 @@ function mirrorPixels(cel: ViewCel): void {
   }
 }
 
-function decodeCel(payload: Uint8Array, celStart: number): LoadedCel {
+function decodeCel(payload: Uint8Array, celStart: number, celMask: 0 | 3 | 7 = 7): LoadedCel {
   if (celStart + 3 > payload.length) {
     throw new RangeError("cel header outside the payload");
   }
-  const width = payload[celStart]!;
-  const height = payload[celStart + 1]!;
+  const w = payload[celStart]!;
+  const h = payload[celStart + 1]!;
   const control = payload[celStart + 2]!;
   const transparentColor = control & 0x0f;
-  const pixels = new Uint8Array(width * height).fill(transparentColor);
+  const pixels = new Uint8Array(w * h).fill(transparentColor);
   let pos = celStart + 3;
-  for (let row = 0; row < height; row++) {
+  for (let row = 0; row < h; row++) {
     let x = 0;
     for (;;) {
       if (pos >= payload.length) {
@@ -453,23 +542,31 @@ function decodeCel(payload: Uint8Array, celStart: number): LoadedCel {
       const color = run >>> 4;
       const length = run & 0x0f;
       if (color !== transparentColor) {
-        for (let i = 0; i < length && x + i < width; i++) {
-          pixels[row * width + x + i] = color;
+        for (let i = 0; i < length && x + i < w; i++) {
+          pixels[row * w + x + i] = color;
         }
       }
       x += length;
     }
   }
   return {
-    cel: { width, height, transparentColor, mirrored: false, pixels },
-    orientation: (control & 0x70) >>> 4,
-    mirrorable: (control & 0x80) !== 0,
+    cel: { width: w, height: h, transparentColor, mirrored: false, pixels },
+    orientation: (control >>> 4) & celMask,
+    mirrorable: celMask !== 0 && (control & 0x80) !== 0,
   };
 }
 
 export interface DrawCelOptions {
   /** Drawing object's priority, 0..15. Defaults to 15 (preview semantics). */
   priority?: number;
+  /** Whether to clip negative-top and right-edge rows/columns in place and mask priority to 4 bits (F-VIEWS-05, F-VIEWS-07). */
+  clipInPlaceAndMaskPriority?: boolean;
+  /**
+   * Comparison priority when the downward control-pixel scan finds no value
+   * above 2: 4 on Amiga and IIgs; omitted (null) for the PC rule, which keeps
+   * row 167's control value, or 0 on row 167 itself (F-VIEWS-07).
+   */
+  controlScanFallbackPriority?: number | null;
   /** Observe pixels that survive transparency and priority tests (for visibility bookkeeping). */
   onPixel?(index: number): void;
 }
@@ -481,12 +578,16 @@ export interface DrawCelOptions {
  * Placement (spec order): top = yBaseline - height + 1; a negative top shifts
  * left X left and the baseline down (a position adjustment, not clipping);
  * a cel extending past the right edge shifts left to fit; destination cells
- * outside the 160x168 surface are skipped.
+ * outside the 160x168 surface are skipped. When `clipInPlaceAndMaskPriority`
+ * is enabled (verified across all 18 profiles; F-VIEWS-05, F-VIEWS-07),
+ * negative-top and right-edge overflow clip in place without shifting `left`,
+ * and `priority` is masked to its low nibble.
  *
  * Composition: transparent source pixels never modify the destination. Every
  * other source pixel is tested independently against the priority/control
  * channel: a destination value above 2 is the comparison value; values 0..2
- * scan downward in the same column for the first value above 2 (0 if none).
+ * scan downward in the same column for the first value above 2 (if none:
+ * row 167's control value on PC, `controlScanFallbackPriority` 4 on Amiga/IIgs).
  * The pixel draws when the comparison value is <= the drawing priority p,
  * replacing the visual color. Control values 0..2 survive the paint; other
  * destination priority values become p.
@@ -498,14 +599,26 @@ export function drawCel(
   yBaseline: number,
   opts?: DrawCelOptions,
 ): void {
-  const p = opts?.priority ?? 15;
-  forEachPaintedPixel(surface, cel, x, yBaseline, p, (cell, color) => {
-    surface.visual[cell] = color;
-    // A control pixel keeps its control value under a painted cel; only its
-    // colour changes (docs/fidelity.md, "Original cel blit over control pixels").
-    if (surface.priority[cell]! > 2) surface.priority[cell] = p;
-    opts?.onPixel?.(cell);
-  });
+  const clipMask = opts?.clipInPlaceAndMaskPriority ?? false;
+  const fallback = opts?.controlScanFallbackPriority ?? null;
+  const rawP = opts?.priority ?? 15;
+  const p = clipMask ? rawP & 0x0f : rawP;
+  forEachPaintedPixel(
+    surface,
+    cel,
+    x,
+    yBaseline,
+    p,
+    (cell, color) => {
+      surface.visual[cell] = color;
+      // A control pixel keeps its control value under a painted cel; only its
+      // colour changes (docs/fidelity.md, "Original cel blit over control pixels").
+      if (surface.priority[cell]! > 2) surface.priority[cell] = p;
+      opts?.onPixel?.(cell);
+    },
+    clipMask,
+    fallback,
+  );
 }
 
 /**
@@ -521,19 +634,24 @@ export function forEachPaintedPixel(
   yBaseline: number,
   p: number,
   visit: (cell: number, color: number) => void,
+  clipInPlaceAndMaskPriority = false,
+  controlScanFallbackPriority: number | null = null,
 ): void {
+  if (clipInPlaceAndMaskPriority) p &= 0x0f;
   let left = x;
   let top = yBaseline - cel.height + 1;
-  if (top < 0) {
-    left += top;
-    top = 0;
+  if (!clipInPlaceAndMaskPriority) {
+    if (top < 0) {
+      left += top;
+      top = 0;
+    }
+    if (left + cel.width > SCREEN_WIDTH) {
+      left = SCREEN_WIDTH - cel.width;
+    }
   }
-  if (left + cel.width > SCREEN_WIDTH) {
-    left = SCREEN_WIDTH - cel.width;
-  }
-
+  const firstY = Math.max(0, top);
   const bottom = Math.min(top + cel.height, SCREEN_HEIGHT);
-  for (let dy = top; dy < bottom; dy++) {
+  for (let dy = firstY; dy < bottom; dy++) {
     const rowBase = (dy - top) * cel.width;
     for (let sx = 0; sx < cel.width; sx++) {
       const dx = left + sx;
@@ -543,7 +661,13 @@ export function forEachPaintedPixel(
       const cell = dy * SCREEN_WIDTH + dx;
       let comparison = surface.priority[cell]!;
       if (comparison <= 2) {
-        comparison = 0;
+        // PC keeps the last control value it read: row 167's, or 0 when the
+        // pixel is on row 167 itself. Amiga and IIgs fall back to a constant.
+        comparison =
+          controlScanFallbackPriority ??
+          (dy === SCREEN_HEIGHT - 1
+            ? 0
+            : surface.priority[(SCREEN_HEIGHT - 1) * SCREEN_WIDTH + dx]!);
         for (let sy = dy + 1; sy < SCREEN_HEIGHT; sy++) {
           const below = surface.priority[sy * SCREEN_WIDTH + dx]!;
           if (below > 2) {

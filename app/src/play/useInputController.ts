@@ -1,4 +1,8 @@
+import type { JoystickSample } from "../../../src/runtime/keys.ts";
 import type { WorkerInbound } from "../worker/workerProtocol.ts";
+
+/** An Amiga menu strip event: the button down, the pointer moving, the button up, a tap or a cancel. */
+export type MenuOp = Extract<WorkerInbound, { type: "menu" }>["op"];
 
 export type LogAgentFn = (
   kind: "request" | "response" | "error" | "log" | "telemetry" | "input",
@@ -18,8 +22,11 @@ export interface InputController {
   sendInput(text: string): void;
   sendEdit(text: string): void;
   sendDirection(dir: number, sessionId?: number): void;
-  sendKey(code: number, sessionId?: number): void;
+  sendKey(code: number, sessionId?: number, pointer?: boolean): void;
+  sendJoystick(sample: JoystickSample | null): void;
   sendClick(x: number, y: number, sessionId?: number): void;
+  /** An Amiga menu strip event at a screen pixel; a sticky open is the touch/keyboard access. */
+  sendMenu(op: MenuOp, x: number, y: number, sticky?: boolean): void;
 }
 
 /** Composable managing engine input text, direction, and key queuing. */
@@ -47,7 +54,7 @@ export function useInputController(options: InputControllerOptions): InputContro
     } satisfies WorkerInbound);
   }
 
-  function sendKey(code: number, sessionId?: number): void {
+  function sendKey(code: number, sessionId?: number, pointer = false): void {
     const worker = options.getWorker();
     if (!worker) return;
     const activeSession = options.getActiveWalkthroughSession();
@@ -55,6 +62,7 @@ export function useInputController(options: InputControllerOptions): InputContro
     worker.postMessage({
       type: "key",
       code,
+      ...(pointer ? { pointer: true } : {}),
       ...(session > 0 ? { sessionId: session } : {}),
     } satisfies WorkerInbound);
   }
@@ -72,11 +80,32 @@ export function useInputController(options: InputControllerOptions): InputContro
     } satisfies WorkerInbound);
   }
 
+  function sendMenu(op: MenuOp, x: number, y: number, sticky = false): void {
+    const worker = options.getWorker();
+    if (!worker) return;
+    const activeSession = options.getActiveWalkthroughSession();
+    const session = activeSession > 0 ? activeSession : 0;
+    worker.postMessage({
+      type: "menu",
+      op,
+      x,
+      y,
+      ...(sticky ? { sticky: true } : {}),
+      ...(session > 0 ? { sessionId: session } : {}),
+    } satisfies WorkerInbound);
+  }
+
+  function sendJoystick(sample: JoystickSample | null): void {
+    options.getWorker()?.postMessage({ type: "joystick", sample } satisfies WorkerInbound);
+  }
+
   return {
+    sendJoystick,
     sendInput,
     sendEdit,
     sendDirection,
     sendKey,
     sendClick,
+    sendMenu,
   };
 }

@@ -5,7 +5,7 @@
  * Component-owned rules live in each component's scoped style block.
  */
 .app-container {
-  /* The game screen's width over height: square pixels, or the 4:3 monitor. */
+  /* The game screen's width over height: square pixels, or the monitor's own. */
   --game-ratio: 1.6;
   --game-aspect: 8 / 5;
   --shell-width: min(960px, calc(100vw - 32px));
@@ -14,7 +14,7 @@
     calc(100vw - 32px),
     max(640px, calc((100dvh - 280px) * var(--game-ratio)))
   );
-  /* The in-game chrome: top bar, transport strip and the Ask drawer. */
+  /* The in-game chrome: top bar, transport strip and the Agent drawer. */
   --shell-bar-h: 52px;
   --shell-strip-h: 48px;
   --shell-drawer-w: 380px;
@@ -108,13 +108,13 @@
   border-right: 1px solid var(--hairline);
   background: var(--surface-1);
 }
-.assistant-host {
+.agent-host {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
 }
-.assistant-start {
+.agent-start {
   display: grid;
   justify-items: start;
   gap: var(--space-4);
@@ -125,28 +125,28 @@
   color: var(--ink-2);
   font-size: var(--text-sm);
 }
-.assistant-start .dock-note {
+.agent-start .dock-note {
   margin: 0;
 }
-/* Play's Ask sits at the end of the play strip, clear of the stage. While
+/* Play's Agent sits at the end of the play strip, clear of the stage. While
    the drawer it opens is showing, it steps away (the drawer has its own ×). */
-.ask-button {
+.agent-button {
   flex: none;
 }
-.ask-button--away {
+.agent-button--away {
   visibility: hidden;
 }
 /* Narrow strips wrap the hints under the transport: the hint reads from the
-   left and Ask holds the right edge. */
+   left and Agent holds the right edge. */
 @media (max-width: 900px) {
-  .play-hints:has(.ask-button) {
+  .play-hints:has(.agent-button) {
     justify-content: space-between;
     text-align: left;
   }
 }
 
 /* Narrow windows: Create stacks its docks under the stage, and an open
-   assistant (the Ask drawer, or the Create assistant) overlays the game
+   agent (the Agent drawer, or the Create agent) overlays the game
    instead of taking a column. */
 @media (max-width: 900px) {
   .in-game .shell-body--asking,
@@ -156,7 +156,7 @@
   .in-game .shell-body--create {
     overflow-y: auto;
   }
-  .in-game .shell-body.assistant-open .shell-side {
+  .in-game .shell-body.agent-open .shell-side {
     position: fixed;
     top: var(--shell-bar-h);
     right: 0;
@@ -240,8 +240,8 @@
 }
 
 @media (max-width: 600px) {
-  /* A phone's two-row bar: the assistant takes the whole screen instead. */
-  .in-game .shell-body.assistant-open .shell-side {
+  /* A phone's two-row bar: the agent takes the whole screen instead. */
+  .in-game .shell-body.agent-open .shell-side {
     top: 0;
   }
   .app-container:not(.in-game) {

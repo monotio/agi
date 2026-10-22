@@ -13,7 +13,7 @@
  *
  * `add.to.pic` bakes a view's cel into the room's picture when the room is
  * drawn, so a changed view shows there only once the room is entered again;
- * `roomBakesView` answers that for a Keep. Animated objects read the view
+ * `roomBakesView` answers that for a commit. Animated objects read the view
  * afresh every frame and need no re-entry.
  */
 import { decodeLogicInsns } from "../logic/disassembler.ts";
@@ -138,7 +138,7 @@ export function roomBakesView(index: ViewUsageIndex, room: number, view: number)
   );
 }
 
-/** One line naming what uses the view: Sprite Studio's usage chip and the Resources tab. */
+/** One line naming what uses the view: VIEW editor's usage chip and the Resources tab. */
 export function usageText(usage: ViewUsage): string {
   const rooms = usage.rooms;
   if (rooms.length > 0) return `Used by room${rooms.length === 1 ? "" : "s"} ${rooms.join(", ")}`;

@@ -11,8 +11,8 @@ import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { renderPicture } from "../../../src/picture/renderer.ts";
 import { encodePngRgba } from "../../../src/creative/composite.ts";
 import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.ts";
-import { parseView, selectViewCel } from "../../../src/view/view.ts";
-import { EGA_RGB } from "../../../src/picture/png.ts";
+import { parseView } from "../../../src/view/view.ts";
+import { colourTableForProfile } from "../../../src/runtime/colourTables.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
 import {
   gameTestActionCount,
@@ -83,6 +83,7 @@ const images = computed(() => {
             surface.visual,
             index ? props.afterDocuments : props.beforeDocuments,
             target,
+            colourTableForProfile(props.profile),
           ),
         );
         return {
@@ -114,14 +115,13 @@ const views = computed(() => {
             after: index === 1,
             loops: view.loops.map((loop, loopIndex) => ({
               index: loopIndex,
-              cels: loop.cels.map((_cel, celIndex) => {
-                const cel = selectViewCel(view, loopIndex, celIndex)!;
+              cels: loop.cels.map((cel, celIndex) => {
                 const rgba = new Uint8Array(cel.width * 2 * cel.height * 4);
                 for (let y = 0; y < cel.height; y++)
                   for (let x = 0; x < cel.width * 2; x++) {
                     const color = cel.pixels[y * cel.width + Math.floor(x / 2)]!;
                     const offset = (y * cel.width * 2 + x) * 4;
-                    rgba.set(EGA_RGB[color]!, offset);
+                    rgba.set(colourTableForProfile(props.profile)[color]!, offset);
                     rgba[offset + 3] = color === cel.transparentColor ? 0 : 255;
                   }
                 return {

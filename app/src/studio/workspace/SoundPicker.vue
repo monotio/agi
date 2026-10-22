@@ -19,10 +19,19 @@ const {
   sounds,
   profileId,
   disabled = false,
-} = defineProps<{ sounds: readonly NamedSound[]; profileId: ProfileId; disabled?: boolean }>();
+  gameFiles = new Map<string, Uint8Array>(),
+} = defineProps<{
+  sounds: readonly NamedSound[];
+  profileId: ProfileId;
+  disabled?: boolean;
+  gameFiles?: ReadonlyMap<string, Uint8Array> | undefined;
+}>();
 const emit = defineEmits<{ choose: [choice: SoundChoice] }>();
 const choice = defineModel<SoundChoice>({ default: () => ({}) });
-const preview = createSoundPreview({ acquirePauseLease: async () => ({ release() {} }) });
+const preview = createSoundPreview({
+  acquirePauseLease: async () => ({ release() {} }),
+  getGameFiles: () => gameFiles,
+});
 const playing = ref("");
 const error = ref("");
 const off = preview.subscribe(() => {

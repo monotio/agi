@@ -845,7 +845,7 @@ function keys(event: KeyboardEvent) {
     newChat();
   }
 }
-bridge.assistantInputEl = () => composer.value;
+bridge.agentInputEl = () => composer.value;
 const commands = useOptionalCommands();
 const offApprove = commands?.register({
   id: "agent.approve",
@@ -914,7 +914,7 @@ onBeforeUnmount(() => {
         :options="approvalModes"
       />
       <button
-        @click="settings.openAiSettings($event, 'assistant')"
+        @click="settings.openAiSettings($event, 'agent')"
         class="agent-panel__model"
         :title="settings.aiModelLabel.value"
       >
@@ -1077,7 +1077,7 @@ onBeforeUnmount(() => {
         variant="ghost"
         data-testid="agent-open-ai-settings"
         :disabled="settings.aiSettingsUnavailable.value"
-        @click="settings.openAiSettings($event, 'assistant')"
+        @click="settings.openAiSettings($event, 'agent')"
         >Connect AI</UiButton
       >
     </p>

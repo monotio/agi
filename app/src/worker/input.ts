@@ -3,7 +3,7 @@
  * line buffer and the suspended key wait. Pure functions of the worker
  * context — importable under Node for unit tests.
  */
-import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../../src/runtime/keys.ts";
+import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS, isJoystickSample } from "../../../src/runtime/keys.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 export function createInput(ctx: WorkerContext) {
@@ -57,6 +57,7 @@ export function createInput(ctx: WorkerContext) {
       ctx.fns.runTickEntry(() =>
         ctx.run.recording.recording!.tape.run("tick", () => {
           ctx.run.recording.recording!.tape.host(["waitKey", queued]);
+          ctx.run.recording.recording!.tape.host(["keyResume", 1]);
           ctx.run.engine!.deliverHostAnswer(queued);
           ctx.run.engine!.tick();
         }),
@@ -88,7 +89,13 @@ export function createInput(ctx: WorkerContext) {
     if (ctx.fns.debugStoppedHeld()) return;
     flushDeferredMovement();
     const key = Number(msg.code) & 0xffff;
+    if (msg.pointer && (key !== 0x0401 || !ctx.run.engine?.pointerRightDoubleClickAllowed)) return;
     ctx.fns.historyRecord({ kind: "key", code: key });
+    if (ctx.run.engine?.consumePlatformKey(key)) {
+      ctx.run.recording.recording?.tape.recordSound(ctx.run.engine.flags[9] !== 0);
+      ctx.fns.postFrame();
+      return;
+    }
     // A parked key wait answers from the queue directly — any key,
     // including a navigation key that would otherwise defer.
     const keyWaitParked = ctx.run.engine?.awaitingKey === true;
@@ -189,16 +196,141 @@ export function createInput(ctx: WorkerContext) {
     const y = Number(msg.y);
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 319 || y < 0 || y > 199)
       return;
-    if (
-      engine.modalKind !== null ||
-      engine.awaitingKey ||
-      engine.awaitingHostAnswer ||
-      engine.profile.clickMove === "none" ||
-      ctx.fns.debugStoppedHeld()
-    )
+    if (ctx.fns.debugStoppedHeld()) return;
+    // The Amiga confirmation's gadgets (Restart / Cancel, Quit / Continue)
+    // are selectable: a click on one answers the parked wait with that
+    // gadget's choice, recorded as the click so a replay selects it again.
+    // The engine lays out the gadgets; a click beside them is dropped.
+    if (engine.hostInteraction?.kind === "confirm" && engine.awaitingHostAnswer) {
+      const answer = engine.confirmGadgetAt(x, y);
+      if (answer === null) return;
+      ctx.fns.historyRecord({ kind: "click", x, y });
+      ctx.run.input.keyQueue.unshift(answer);
+      deliverQueuedKey();
       return;
+    }
+    if (engine.awaitingKey) {
+      const answer = engine.pointerKeyAt(x, y);
+      if (answer === null) return;
+      ctx.fns.historyRecord({ kind: "click", x, y });
+      ctx.run.input.keyQueue.unshift(answer);
+      deliverQueuedKey();
+      return;
+    }
+    // The Amiga describe window waits on the host's description prompt; a
+    // click on its Cancel gadget withdraws that prompt and cancels the save,
+    // as the gadget does on the original.
+    if (
+      engine.hostInteraction?.kind === "saveDialog" &&
+      engine.hostInteraction.dialog.need?.kind === "describe" &&
+      engine.awaitingHostAnswer
+    ) {
+      if (engine.pointerKeyAt(x, y) !== AGI_KEY.ESCAPE) return;
+      ctx.fns.historyRecord({ kind: "click", x, y });
+      setKeyWaiting(false);
+      ctx.fns.abandonHostRequest();
+      engine.deliverHostAnswer(null);
+      ctx.fns.tickEngine();
+      ctx.fns.postFrame();
+      return;
+    }
+    if (engine.awaitingHostAnswer) return;
+    if (engine.modalKind !== null || engine.textModeActive || engine.profile.clickMove === "none") {
+      if (engine.pointerKeyAt(x, y) === null) return;
+    }
     ctx.fns.historyRecord({ kind: "click", x, y });
     ctx.run.input.clickQueue.push([x, y]);
+  }
+
+  /**
+   * The Amiga menu strip (docs/fidelity.md "Original native menu
+   * dispatch"): the engine decides whether the strip may open and what a
+   * pointer position means; only events that changed something are
+   * recorded, so a replay reproduces the same opens, highlights and the
+   * released item exactly. A stale open after the gate closed is ignored.
+   */
+  function onMenu(msg: Inbound<"menu">): void {
+    const engine = ctx.run.engine;
+    if (engine === null || !ctx.run.owner.active) return;
+    if (
+      ctx.replay.replay &&
+      typeof msg.sessionId === "number" &&
+      msg.sessionId !== 0 &&
+      msg.sessionId !== ctx.replay.currentSessionId
+    ) {
+      return;
+    }
+    if (ctx.fns.debugStoppedHeld()) return;
+    const x = Number(msg.x);
+    const y = Number(msg.y);
+    const sticky = msg.sticky === true;
+    const op = msg.op;
+    if (!["open", "move", "release", "tap", "cancel"].includes(op)) return;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < -1 || x > 319 || y < -1 || y > 199)
+      return;
+    if (!engine.nativeMenuEvent(op, x, y, sticky)) return;
+    ctx.fns.historyRecord({ kind: "menu", op, x, y, sticky });
+    ctx.run.recording.recording?.tape.record(["menu", [op, x, y, sticky ? 1 : 0]]);
+    ctx.fns.postFrame();
+  }
+
+  function onJoystick(msg: Inbound<"joystick">): void {
+    const engine = ctx.run.engine;
+    if (!engine) return;
+    if (ctx.replay.replay && !ctx.replay.historyReplay) return;
+    if (
+      msg.sample !== null &&
+      (!ctx.run.owner.active ||
+        ctx.fns.debugStoppedHeld() ||
+        !isJoystickSample(msg.sample) ||
+        ctx.run.cycle.paused)
+    )
+      return;
+    const sample = msg.sample;
+    const native =
+      sample === null
+        ? null
+        : engine.profile.presentation === "amiga"
+          ? { ...sample }
+          : {
+              ...sample,
+              x: Math.round(128 + 127 * sample.x),
+              y: Math.round(128 + 127 * sample.y),
+            };
+    if (JSON.stringify(native) === JSON.stringify(ctx.run.input.joystick)) return;
+    ctx.fns.historyRecord({ kind: "joystick", sample });
+    ctx.run.input.joystick = native;
+    if (sample !== null) ctx.run.input.joystickObserved = true;
+    else if (ctx.run.recording.recording)
+      ctx.run.recording.recording.tape.run("joystick", () => engine.pollJoystickInput());
+    else engine.pollJoystickInput();
+  }
+
+  function pollJoystickInput(): void {
+    const engine = ctx.run.engine;
+    if (
+      !engine ||
+      !ctx.run.input.joystickObserved ||
+      (engine.awaitingHostAnswer && !engine.awaitingKey)
+    )
+      return;
+    const tape = ctx.run.recording.recording?.tape;
+    if (!engine.awaitingKey) {
+      if (tape) tape.run("joystick", () => engine.pollJoystickInput());
+      else engine.pollJoystickInput();
+      return;
+    }
+    const poll = () => {
+      const key = engine.pollJoystickKey();
+      if (key !== undefined) {
+        ctx.run.input.keyQueue.push(key);
+        deliverQueuedKey();
+      }
+    };
+    if (tape) {
+      tape.run("tick", poll);
+      if (engine.awaitingHostAnswer) tape.holdTick();
+    } else poll();
   }
 
   function onInput(msg: Inbound<"input">): void {
@@ -219,8 +351,24 @@ export function createInput(ctx: WorkerContext) {
     ctx.fns.postFrame();
   }
 
-  function onDismissPrint(): void {
+  /**
+   * A tap on the open modal. With its screen position, a tap on one of the
+   * Amiga confirmation's gadgets selects that gadget like a click; any other
+   * tap acknowledges the window, answering a confirmation with its cancel key.
+   */
+  function onDismissPrint(msg?: Inbound<"dismissPrint">): void {
     if (!ctx.run.engine || !ctx.run.owner.active || ctx.fns.debugStoppedHeld()) return;
+    if (
+      msg !== undefined &&
+      typeof msg.x === "number" &&
+      typeof msg.y === "number" &&
+      ctx.run.engine.hostInteraction?.kind === "confirm" &&
+      ctx.run.engine.awaitingHostAnswer &&
+      ctx.run.engine.confirmGadgetAt(msg.x, msg.y) !== null
+    ) {
+      onClick({ type: "click", x: msg.x, y: msg.y });
+      return;
+    }
     ctx.run.recording.recording?.tape.record(["ack"]);
     ctx.fns.historyRecord({ kind: "dismiss" });
     const pending = ctx.run.engine.hostInteraction;
@@ -244,6 +392,9 @@ export function createInput(ctx: WorkerContext) {
     onKey,
     onDirection,
     onClick,
+    onMenu,
+    onJoystick,
+    pollJoystickInput,
     onInput,
     onEdit,
     onDismissPrint,

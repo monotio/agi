@@ -8,6 +8,7 @@
  */
 
 import { assembleLogic, type AssembleResult } from "../logic/assembler.ts";
+import { AUTHORED_SCRIPT_BUFFER_PAIRS } from "../runtime/authoredScriptBuffer.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildSound, type SoundTrackInput } from "../sound/build.ts";
 
@@ -59,6 +60,7 @@ export const BASE_TEMPLATE_LOGIC0_SOURCE = `#define C_MENU 200
 #message 16 "About"
 if (!isset(f200)) {
   set(f200);
+  script.size(${AUTHORED_SCRIPT_BUFFER_PAIRS});
   configure.screen(1, 22, 0);
   status.line.on();
   set(sound_on);
@@ -111,17 +113,17 @@ if (!isset(f202)) {
 }
 if (isset(input_received) && !isset(input_handled) && !isset(f202)) {
   if (greatern(parser_status, 0)) {
-    if (equaln(parser_status, 1)) { word.to.string(s11, 1); }
-    if (equaln(parser_status, 2)) { word.to.string(s11, 2); }
-    if (equaln(parser_status, 3)) { word.to.string(s11, 3); }
-    if (equaln(parser_status, 4)) { word.to.string(s11, 4); }
-    if (equaln(parser_status, 5)) { word.to.string(s11, 5); }
-    if (equaln(parser_status, 6)) { word.to.string(s11, 6); }
-    if (equaln(parser_status, 7)) { word.to.string(s11, 7); }
-    if (equaln(parser_status, 8)) { word.to.string(s11, 8); }
-    if (equaln(parser_status, 9)) { word.to.string(s11, 9); }
-    if (equaln(parser_status, 10)) { word.to.string(s11, 10); }
-    if (equaln(parser_status, 11)) { word.to.string(s11, 11); }
+    if (equaln(parser_status, 1)) { word.to.string(s11, 0); }
+    if (equaln(parser_status, 2)) { word.to.string(s11, 1); }
+    if (equaln(parser_status, 3)) { word.to.string(s11, 2); }
+    if (equaln(parser_status, 4)) { word.to.string(s11, 3); }
+    if (equaln(parser_status, 5)) { word.to.string(s11, 4); }
+    if (equaln(parser_status, 6)) { word.to.string(s11, 5); }
+    if (equaln(parser_status, 7)) { word.to.string(s11, 6); }
+    if (equaln(parser_status, 8)) { word.to.string(s11, 7); }
+    if (equaln(parser_status, 9)) { word.to.string(s11, 8); }
+    if (equaln(parser_status, 10)) { word.to.string(s11, 9); }
+    if (equaln(parser_status, 11)) { word.to.string(s11, 10); }
     print("I don't know the word \\"%s11\\".");
   } else {
     print("I don't understand that.");

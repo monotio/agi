@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "mumg",
     "revision": "0c20e2c06cf48a1738b76f3dd82753967f50ec2f635dfe2f91b524857301cfba"
@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 4972,
+  "elapsedMs": 23781,
   "virtualTicks": 58852,
   "cycles": 21680,
   "actions": [
@@ -6395,7 +6395,7 @@
       0,
       1,
       0,
-      0,
+      1,
       0,
       0,
       1,

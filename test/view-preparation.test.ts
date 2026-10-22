@@ -8,14 +8,14 @@ import {
   type SourceIdentity,
   type SourceRaster,
   type ViewPreparationRecipe,
-  type ViewRecipeFrame,
+  type ViewRecipeCel,
   type ViewRecipeLoop,
 } from "../src/view/preparation.ts";
 import { parseView } from "../src/view/view.ts";
 
 /**
  * Hand-labelled tiny RGBA grids. EGA indices are hand-computed with the
- * weighted metric 2dR^2+4dG^2+3dB^2 (see test/spritesheet.test.ts):
+ * weighted metric 2dR^2+4dG^2+3dB^2 (see test/sheet.test.ts):
  *   #ffffff -> 15, #ff0000 -> 4, #000000 -> 0, #ff00ff -> 13, #0000ff -> 1.
  */
 
@@ -47,7 +47,7 @@ function makeSource(
 const SRC_A: SourceIdentity = { id: "drawing-a", incarnation: "inc-1", revision: 2 };
 const SRC_B: SourceIdentity = { id: "drawing-b", incarnation: "inc-1", revision: 1 };
 
-function frame(partial: Partial<ViewRecipeFrame> & { id: string }): ViewRecipeFrame {
+function frame(partial: Partial<ViewRecipeCel> & { id: string }): ViewRecipeCel {
   return {
     source: SRC_A,
     region: { x: 0, y: 0, width: 2, height: 2 },
@@ -71,7 +71,7 @@ function mirror(id: string, mirrorOf: string): ViewRecipeLoop {
 }
 
 function recipe(
-  frames: readonly ViewRecipeFrame[],
+  frames: readonly ViewRecipeCel[],
   loops: readonly ViewRecipeLoop[],
   extra?: Partial<ViewPreparationRecipe>,
 ): ViewPreparationRecipe {
@@ -99,15 +99,15 @@ describe("prepareView", () => {
       recipe([frame({ id: "f1" })], [cels("only", ["f1"])]),
       PROFILE,
     );
-    const prepared_frame = prepared.frames[0]!;
+    const preparedCel = prepared.cels[0]!;
     // 1:1 crop: the transparent source pixel stays transparent.
-    assert.deepEqual(Array.from(prepared_frame.mask), [1, 0, 1, 1]);
+    assert.deepEqual(Array.from(preparedCel.mask), [1, 0, 1, 1]);
     // Transparent cells hold the reserved transparent index; mask is the authority.
-    assert.deepEqual(Array.from(prepared_frame.pixels), [15, 1, 4, 0]);
-    assert.equal(prepared_frame.transparentIndex, 1); // lowest index free of 15/4/0
-    assert.equal(prepared_frame.baseline, 1);
-    assert.equal(prepared_frame.diagnostics.opaque, 3);
-    assert.equal(prepared_frame.diagnostics.alphaErased, 1);
+    assert.deepEqual(Array.from(preparedCel.pixels), [15, 1, 4, 0]);
+    assert.equal(preparedCel.transparentIndex, 1); // lowest index free of 15/4/0
+    assert.equal(preparedCel.baseline, 1);
+    assert.equal(preparedCel.diagnostics.opaque, 3);
+    assert.equal(preparedCel.diagnostics.alphaErased, 1);
 
     // Hand-computed payload: 5-byte header + 2-byte loop table, one loop at
     // offset 7 with a 1-cel table, cel at 7+3=10:
@@ -140,7 +140,7 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 1]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 1]);
 
     const strict = prepareView(
       [src],
@@ -159,7 +159,7 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.deepEqual(Array.from(strict.frames[0]!.mask), [0, 0]);
+    assert.deepEqual(Array.from(strict.cels[0]!.mask), [0, 0]);
   });
 
   it("keeps an opaque border colour: no border-key detection on new imports", () => {
@@ -184,10 +184,10 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.ok(prepared.frames[0]!.mask.every((m) => m === 1));
-    assert.equal(prepared.frames[0]!.diagnostics.keyIndex, null);
-    assert.equal(prepared.frames[0]!.diagnostics.keyErased, 0);
-    assert.equal(prepared.frames[0]!.transparentIndex, 0);
+    assert.ok(prepared.cels[0]!.mask.every((m) => m === 1));
+    assert.equal(prepared.cels[0]!.diagnostics.keyIndex, null);
+    assert.equal(prepared.cels[0]!.diagnostics.keyErased, 0);
+    assert.equal(prepared.cels[0]!.transparentIndex, 0);
   });
 
   it("erases the explicit key colour and reports every erased pixel", () => {
@@ -213,13 +213,13 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    const diagnostics = prepared.frames[0]!.diagnostics;
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 1, 0, 0]);
+    const diagnostics = prepared.cels[0]!.diagnostics;
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 1, 0, 0]);
     assert.equal(diagnostics.keyIndex, 13);
     assert.equal(diagnostics.keyErased, 2);
     assert.equal(diagnostics.alphaErased, 1);
     // The key index is always free for transparency under key mode.
-    assert.equal(prepared.frames[0]!.transparentIndex, 13);
+    assert.equal(prepared.cels[0]!.transparentIndex, 13);
   });
 
   it("breaks nearest-colour ties toward the lower EGA index", () => {
@@ -242,8 +242,8 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    assert.deepEqual(Array.from(prepared.frames[0]!.pixels), [0]);
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [1]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.pixels), [0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [1]);
   });
 
   it("samples nearest-centre on downscale: 4x2 -> 2x1 picks columns 1 and 3 of row 1", () => {
@@ -272,8 +272,8 @@ describe("prepareView", () => {
       PROFILE,
     );
     // oy 0 -> sy = floor(1*2/2) = 1; ox 0 -> floor(0.5*4/2) = 1; ox 1 -> 3.
-    assert.deepEqual(Array.from(prepared.frames[0]!.pixels), [15, 0]);
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [1, 1]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.pixels), [15, 0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [1, 1]);
   });
 
   it("honours arbitrary frame order, reuse and a seven-cel loop", () => {
@@ -367,8 +367,8 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    const [a, b] = prepared.frames;
-    // Frame a: 1:1 — source rows 2..7 -> canvas rows 0..5. The region covers
+    const [a, b] = prepared.cels;
+    // Cel a: 1:1 — source rows 2..7 -> canvas rows 0..5. The region covers
     // source cols 0..3, so opaque cols 1..3 land at canvas cols 1..3 and the
     // padding rows above stay transparent.
     assert.deepEqual(Array.from(a!.mask), [
@@ -397,11 +397,11 @@ describe("prepareView", () => {
       1,
       1,
     ]);
-    // Frame b: W_left = 2 - 3*(6/6) = -1 -> canvas col ox samples source
+    // Cel b: W_left = 2 - 3*(6/6) = -1 -> canvas col ox samples source
     // ox-1. Region covers source cols 1..6, so cols 0..1 are padding and
     // opaque source cols 5..6 are clipped off the right edge: 2 columns x
     // 3 rows = 6 opaque pixels of crop loss needing explicit approval.
-    assert.deepEqual(prepared.frames[1]!.diagnostics.cropLoss.outsideCanvas, {
+    assert.deepEqual(prepared.cels[1]!.diagnostics.cropLoss.outsideCanvas, {
       opaque: 6,
       transparent: 10,
     });
@@ -479,13 +479,13 @@ describe("prepareView", () => {
       );
     assert.throws(() => prepareView([src], mk(false), PROFILE), /"f1".*below baselineEdgeY/);
     const prepared = prepareView([src], mk(true), PROFILE);
-    assert.deepEqual(prepared.frames[0]!.diagnostics.cropLoss.belowBaseline, {
+    assert.deepEqual(prepared.cels[0]!.diagnostics.cropLoss.belowBaseline, {
       opaque: 1,
       transparent: 2,
     });
     // Window = rows -1..2 sampled onto 4 rows: canvas row 0 is padding, the
     // rest are the region's rows 0..2.
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it("rejects opaque content clipped outside the canvas unless approved", () => {
@@ -509,10 +509,10 @@ describe("prepareView", () => {
       );
     assert.throws(() => prepareView([src], mk(false), PROFILE), /"f1".*outside.*canvas/i);
     const prepared = prepareView([src], mk(true), PROFILE);
-    assert.equal(prepared.frames[0]!.diagnostics.cropLoss.outsideCanvas.opaque, 2);
+    assert.equal(prepared.cels[0]!.diagnostics.cropLoss.outsideCanvas.opaque, 2);
     // Window covers source cols -2..1: only source col 1 lands on canvas
     // (col 3), and it is transparent.
-    assert.deepEqual(Array.from(prepared.frames[0]!.mask), [0, 0, 0, 0]);
+    assert.deepEqual(Array.from(prepared.cels[0]!.mask), [0, 0, 0, 0]);
   });
 
   it("rejects a cel using all 16 EGA colours — palette remap required", () => {
@@ -608,44 +608,31 @@ describe("prepareView", () => {
         ),
       (e: unknown) => e instanceof RangeError && /earlier loop/.test(e.message),
     );
-    // Mirror-of-mirror chains are not encodable.
-    assert.throws(
-      () =>
-        prepareView(
-          base,
-          recipe([f], [cels("a", ["f1"]), mirror("b", "a"), mirror("c", "b")]),
-          PROFILE,
-        ),
-      /itself a mirror|pixel-flipped/,
-    );
   });
 
-  it("refuses a mirror the selected profile cannot represent", () => {
+  it("materializes mirror chains and mirrors beyond the selected profile's alias range", () => {
     const f = frame({ id: "f1" });
-    // Packed profile (2.230): a mirrored loop at index 4 is unencodable.
-    const packedLoops: ViewRecipeLoop[] = [
-      cels("l0", ["f1"]),
-      cels("l1", ["f1"]),
-      cels("l2", ["f1"]),
-      cels("l3", ["f1"]),
-      mirror("l4", "l0"),
-    ];
-    assert.throws(
-      () => prepareView([SRC_2X2()], recipe([f], packedLoops), PACKED),
-      /pixel-flipped independent copy/,
+    // Source is [15,transparent 1 / 4,0]; successive horizontal reversals are exact.
+    const chained = prepareView(
+      [SRC_2X2()],
+      recipe([f], [cels("a", ["f1"]), mirror("b", "a"), mirror("c", "b")]),
+      PROFILE,
     );
-    // Same recipe under the ordinary profile is legal and decodes mirrored.
-    const ok = prepareView([SRC_2X2()], recipe([f], packedLoops), PROFILE);
-    const decoded = parseView(ok.payload, PROFILE);
-    assert.equal(decoded.loops[4]!.cels[0]!.mirrored, true);
-    // Ordinary profile parity trap: loop 8 mirrors loop 0 -> equal mod 8.
-    const parity: ViewRecipeLoop[] = Array.from({ length: 8 }, (_, i) => cels(`l${i}`, ["f1"]));
-    parity.push(mirror("l8", "l0"));
-    assert.throws(
-      () => prepareView([SRC_2X2()], recipe([f], parity), PROFILE),
-      /pixel-flipped independent copy/,
+    assert.deepEqual(
+      [...parseView(chained.payload, PROFILE).loops[2]!.cels[0]!.pixels],
+      [15, 1, 4, 0],
     );
-    // Packed profile caps a loop at 15 cels.
+    for (const profile of [PROFILES["2.001"], PROFILES["2.411"], PACKED, PROFILE]) {
+      const limit = profile.packedViewLoopHeader ? 3 : profile.celMirrorLoopMask;
+      const loops: ViewRecipeLoop[] = Array.from({ length: limit + 1 }, (_, i) =>
+        cels(`l${i}`, ["f1"]),
+      );
+      loops.push(mirror("last", "l0"));
+      const result = prepareView([SRC_2X2()], recipe([f], loops), profile);
+      const decoded = parseView(result.payload, profile);
+      assert.deepEqual([...decoded.loops[limit + 1]!.cels[0]!.pixels], [1, 15, 0, 4]);
+    }
+    // Packed profile's real cel-count limit remains an error.
     const sixteen = Array.from({ length: 16 }, () => "f1");
     assert.throws(
       () => prepareView([SRC_2X2()], recipe([f], [cels("big", sixteen)]), PACKED),
@@ -713,10 +700,10 @@ describe("prepareView", () => {
       /sourceAnchor\.x/,
     );
     assert.throws(() => r([frame({ id: "f1", sample: "bilinear" })]), /sample/);
-    assert.throws(() => r([f(), f()]), /duplicate frame id/);
+    assert.throws(() => r([f(), f()]), /duplicate cel id/);
     assert.throws(() => r([f()], []), /loops/);
     assert.throws(() => r([f()], [cels("only", [])]), /frameIds/);
-    assert.throws(() => r([f()], [cels("only", ["ghost"])]), /unknown frame id/);
+    assert.throws(() => r([f()], [cels("only", ["standIn"])]), /unknown cel id/);
     assert.throws(
       () => r([f()], [{ id: "x", frameIds: ["f1"], mirrorOf: "x" } as never]),
       /exactly one of/,
@@ -795,8 +782,8 @@ describe("prepareView", () => {
     const first = build();
     const bytes = first.payload.slice();
     // Mutating returned buffers must not corrupt any retained state.
-    first.frames[0]!.pixels.fill(9);
-    first.frames[0]!.mask.fill(0);
+    first.cels[0]!.pixels.fill(9);
+    first.cels[0]!.mask.fill(0);
     first.payload.fill(0);
     const second = build();
     assert.deepEqual(Array.from(second.payload), Array.from(bytes));
@@ -828,7 +815,7 @@ describe("prepareView", () => {
       ),
       PROFILE,
     );
-    const d = prepared.frames[0]!.diagnostics;
+    const d = prepared.cels[0]!.diagnostics;
     assert.equal(d.keyErased, 1);
     assert.equal(d.alphaErased, 1);
     assert.equal(d.opaque, 1);

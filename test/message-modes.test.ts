@@ -90,6 +90,8 @@ test("replacing a persistent window restores the original cells when the modal c
   );
   const before = e.textCells.slice();
   e.tick();
+  // print.at's row is relative to the display base (picTop = 1 added on the
+  // override path too), so row 2's window text starts at text row 3.
   assert.ok(e.textRow(3).includes("Modal."));
   assert.ok(
     !Array.from({ length: 25 }, (_, row) => e.textRow(row))
@@ -145,9 +147,9 @@ for (const profile of ["2.936", "3.002.149"] as const) {
   });
 }
 
-for (const profile of ["2.089"] as const) {
+for (const profile of ["2.001", "2.089"] as const) {
   test(`${profile}: prints retain f15 and timed windows retain v21`, () => {
-    // Early profiles preserve both values across print and window closure.
+    // PC 2.001 and 2.089 preserve both f15 and v21 across print and window closure.
     const e = game('set(f15);print("First.");print("Second.");increment(v200);return;', profile);
     e.tick();
     assert.equal(e.modalKind, null, "both prints stay non-blocking while f15 is kept");
@@ -164,26 +166,45 @@ for (const profile of ["2.089"] as const) {
     assert.equal(timed.modalKind, "print");
     timed.advanceClock(1000);
     assert.equal(timed.modalKind, null, "the timed window still closes on its own");
-    assert.equal(timed.vars[21], 2, "v21 is kept until the build is verified");
+    assert.equal(timed.vars[21], 2, "v21 is kept in 2.001 and 2.089");
     timed.tick();
     assert.equal(timed.vars[200], 1);
   });
 }
 
-for (const profile of ["2.089", "2.936", "3.002.149"] as const) {
-  test(`${profile}: show.pic closes persistent windows only in the specified profiles`, () => {
+test("amiga-2.082: prints retain f15 while timed windows clear v21", () => {
+  // Amiga 2.082 WindowNoWait (0x0026EA) tests IsSet(0x0F) without Reset(0x0F),
+  // but clears var[0x15] = 0 after WaitAcAb before CloseWndw.
+  const e = game(
+    'set(f15);print("First.");print("Second.");increment(v200);return;',
+    "amiga-2.082",
+  );
+  e.tick();
+  assert.equal(e.modalKind, null);
+  assert.equal(e.flags[15], 1, "amiga-2.082 retains f15");
+
+  const timed = game('assignn(v21,2);print("A moment.");increment(v200);return;', "amiga-2.082");
+  timed.tick();
+  timed.advanceClock(1000);
+  assert.equal(timed.modalKind, null);
+  assert.equal(timed.vars[21], 0, "amiga-2.082 clears v21 after WaitAcAb");
+});
+
+for (const profile of ["2.001", "2.089", "amiga-2.082", "2.936", "3.002.149"] as const) {
+  test(`${profile}: show.pic closes persistent windows only in profiles where ShowPic calls Reset(15)`, () => {
     const e = game(
-      'set(f15);print("Window.");assignn(v60,0);load.pic(v60);draw.pic(v60);show.pic();increment(v200);return;',
+      'set(f15);print("Window.");assignn(v60,0);load.pic(v60);overlay.pic(v60);show.pic();increment(v200);return;',
       profile,
     );
     e.tick();
     assert.equal(e.vars[200], 1);
-    assert.equal(e.flags[15], profile === "2.089" ? 1 : 0);
+    const retainsWindow = profile === "2.001" || profile === "2.089" || profile === "amiga-2.082";
+    assert.equal(e.flags[15], retainsWindow ? 1 : 0);
     assert.equal(
       Array.from({ length: 25 }, (_, row) => e.textRow(row))
         .join(" ")
         .includes("Window."),
-      profile === "2.089",
+      retainsWindow,
     );
   });
 }
@@ -197,4 +218,22 @@ test("pause remains blocking even when a game leaves output mode or a timeout en
   e.ackPrint();
   e.tick();
   assert.equal(e.vars[200], 1);
+});
+
+test("version honours the v21 timeout like any WindowPrint window", () => {
+  // Player-visible rule: v21=1 closes the version window after a half second.
+  // The 0x8d handler's WindowPrint call is the same routine print uses, with
+  // the same winTime path (kq3 2.936 0x733C; v21 clear at 0x1d80).
+  const e = game("assignn(v21,1);version();increment(v200);return;");
+  e.tick();
+  assert.equal(e.modalKind, "print");
+  assert.equal(e.vars[200], 0, "the pass is parked");
+  e.advanceClock(499);
+  e.tick();
+  assert.equal(e.modalKind, "print", "still open before the half second");
+  e.advanceClock(1);
+  assert.equal(e.modalKind, null, "the timeout closed the window");
+  assert.equal(e.vars[21], 0, "the timeout was consumed");
+  e.tick();
+  assert.equal(e.vars[200], 1, "the parked pass resumed");
 });

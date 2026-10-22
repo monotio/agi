@@ -1,5 +1,5 @@
 /**
- * The Room Studio's read-only document model: which source stands for the
+ * The PICTURE editor's read-only document model: which source stands for the
  * picture bytes, its items and draw-order timeline, the surface at the
  * scrubber's playhead, and per-pixel ownership. `buildStudioModel` is pure;
  * the composable adds the playhead and caches masks for hover.
@@ -22,8 +22,8 @@ import {
   dominantValues,
   EGA_COLOUR_NAMES,
   groupSceneItems,
-  sectionSceneRows,
-} from "../../../src/studio/sceneGroups.ts";
+  sectionItemRows,
+} from "../../../src/studio/itemGroups.ts";
 import {
   commandTimeline,
   compileDocument,
@@ -59,7 +59,7 @@ export const UNASSIGNED = "(unassigned)";
 const GROUP = "(group)";
 const SECTION = "(section)";
 
-export interface SceneRow {
+export interface ItemRow {
   id: string;
   label: string;
   /** The label as the calm UI reads it: a generated label becomes "Red line · 6 points". */
@@ -70,38 +70,38 @@ export interface SceneRow {
   entries: number[];
   /**
    * EGA colour of the value most of its own pixels hold (visual for art,
-   * priority for depth and walk; a control value in its own colour),
+   * priority for priority and walk; a control value in its own colour),
    * or null when it owns none.
    */
   swatch: number | null;
   /**
    * The value most of its own pixels hold on its plane (visual for art and
-   * mixed, priority for depth and walk), or null when it owns none there.
+   * mixed, priority for priority and walk), or null when it owns none there.
    */
   value: number | null;
-  /** Short tag: the kind, or the one priority/control value a depth/walk item draws. */
+  /** Short tag: the kind, or the one priority/control value a priority/walk item draws. */
   tag: string;
   /** Lenses painted by this row’s drawing commands. */
   lenses?: readonly StudioLens[];
 }
 
-/** An automatic group of consecutive items (sceneGroups.ts), as a row of its own. */
-export interface SceneGroupRow extends SceneRow {
+/** An automatic group of consecutive items (itemGroups.ts), as a row of its own. */
+export interface ItemGroupRow extends ItemRow {
   /** Member item ids, in draw order; at least two. */
   members: readonly string[];
 }
 
-/** One entry of the Scene list above the items: a group, or a single item shown flat. */
-export type SceneBranch =
-  | { readonly group: SceneGroupRow; readonly rows: readonly SceneRow[] }
-  | { readonly group: null; readonly rows: readonly [SceneRow] };
+/** One entry of the Items panel above the items: a group, or a single item shown flat. */
+export type ItemBranch =
+  | { readonly group: ItemGroupRow; readonly rows: readonly ItemRow[] }
+  | { readonly group: null; readonly rows: readonly [ItemRow] };
 
 /**
  * A draw-order section: a contiguous run of branches that a long list
- * (sceneGroups.ts `sectionSceneRows`) folds into one row, "Steps a–b".
+ * (itemGroups.ts `sectionItemRows`) folds into one row, "Steps a–b".
  */
-export interface SceneSectionRow extends SceneGroupRow {
-  branches: readonly SceneBranch[];
+export interface ItemSectionRow extends ItemGroupRow {
+  branches: readonly ItemBranch[];
   /** Its two or three dominant colours, by command count. */
   swatches: readonly number[];
 }
@@ -117,15 +117,15 @@ export interface StudioModel {
   /** Drawing commands: the timeline without its closing `end`, which draws nothing. */
   commands: number;
   /** Items in draw order, then the Unassigned group when there are loose commands. */
-  rows: SceneRow[];
+  rows: ItemRow[];
   /** The items (not Unassigned) folded into automatic groups, in draw order. */
-  branches: SceneBranch[];
+  branches: ItemBranch[];
   /** The multi-item groups, for lookups by id. */
-  groups: SceneGroupRow[];
+  groups: ItemGroupRow[];
   /** Draw-order sections over the branches; empty unless there are more than 60 branches. */
-  sections: SceneSectionRow[];
+  sections: ItemSectionRow[];
   /** Groups and sections: every row that stands for several items. */
-  folds: SceneGroupRow[];
+  folds: ItemGroupRow[];
   /** Per byte offset, the index into `rows` of the line that emitted it. */
   byteRow: Int32Array;
   profile: AgiProfile;
@@ -140,7 +140,7 @@ function dominant(counts: Uint32Array): number | null {
   return best < 0 ? null : best;
 }
 
-function tagFor(kind: SceneRow["kind"], entries: readonly TimelineEntry[]): string {
+function tagFor(kind: ItemRow["kind"], entries: readonly TimelineEntry[]): string {
   if (kind !== "depth" && kind !== "walk") return kind;
   const values = [
     ...new Set(
@@ -149,13 +149,13 @@ function tagFor(kind: SceneRow["kind"], entries: readonly TimelineEntry[]): stri
         .map((e) => e.priority!),
     ),
   ];
-  if (values.length !== 1) return kind;
+  if (values.length !== 1) return kind === "depth" ? "priority" : kind;
   const value = values[0]!;
-  return value < 4 ? CONTROL_VALUES[value]!.name : `Depth ${value}`;
+  return value < 4 ? CONTROL_VALUES[value]!.name : `Priority ${value}`;
 }
 
-/** "Brown visual · 12", "Depth band 9 · 4", "Wall walk · 3"; "Covered" when no pixel is left. */
-export function groupLabel(kind: SceneRow["kind"], value: number | null, count: number): string {
+/** "Brown visual · 12", "Priority band 9 · 4", "Wall walk · 3"; "Covered" when no pixel is left. */
+export function groupLabel(kind: ItemRow["kind"], value: number | null, count: number): string {
   const name =
     value === null
       ? "covered"
@@ -163,13 +163,13 @@ export function groupLabel(kind: SceneRow["kind"], value: number | null, count: 
         ? priorityMeaning(value)
         : EGA_COLOUR_NAMES[value]!;
   const label = `${name[0]!.toUpperCase()}${name.slice(1)}`;
-  const noun = kind === "art" ? "visual" : kind;
+  const noun = kind === "art" ? "visual" : kind === "depth" ? "priority" : kind;
   return `${label}${kind === "depth" && value !== null ? "" : ` ${noun}`} · ${count}`;
 }
 
 /** Fold consecutive items into automatic groups; one-item groups stay plain rows. */
-function branchesOf(items: readonly SceneRow[]): SceneBranch[] {
-  return groupSceneItems(items).map(({ start, count, kind, value }): SceneBranch => {
+function branchesOf(items: readonly ItemRow[]): ItemBranch[] {
+  return groupSceneItems(items).map(({ start, count, kind, value }): ItemBranch => {
     const rows = items.slice(start, start + count);
     const first = rows[0]!;
     if (count === 1) return { group: null, rows: [first] };
@@ -195,9 +195,9 @@ function branchesOf(items: readonly SceneRow[]): SceneBranch[] {
 }
 
 /** Fold a long list of branches into draw-order sections, "Steps a–b" in playhead numbers. */
-function sectionsOf(branches: readonly SceneBranch[]): SceneSectionRow[] {
+function sectionsOf(branches: readonly ItemBranch[]): ItemSectionRow[] {
   const heads = branches.map((branch) => branch.group ?? branch.rows[0]);
-  const spans = sectionSceneRows(heads.map((row) => row.entries.length)) ?? [];
+  const spans = sectionItemRows(heads.map((row) => row.entries.length)) ?? [];
   return spans.map(({ start, count }) => {
     const rows = branches.slice(start, start + count).flatMap((branch) => branch.rows);
     const entries = rows.flatMap((row) => row.entries);
@@ -262,7 +262,7 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
   const timeline = commandTimeline(document, profile);
   const commands = timeline.at(-1)?.op === "end" ? timeline.length - 1 : timeline.length;
 
-  const rows: SceneRow[] = document.items.map((item) => ({
+  const rows: ItemRow[] = document.items.map((item) => ({
     id: item.id,
     label: item.label,
     display: item.label,
@@ -274,7 +274,7 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
     tag: item.kind,
   }));
   const rowOf = new Map(document.items.map((item, index) => [item.id, index]));
-  const loose: SceneRow = {
+  const loose: ItemRow = {
     id: UNASSIGNED,
     label: "Unassigned",
     display: "Loose steps",
@@ -319,8 +319,10 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
     const drawing = row.entries
       .map((k) => timeline[k]!)
       .filter((entry) => tickFor(entry).kind !== "state");
-    row.lenses = (["art", "depth"] as const).filter((lens) =>
-      drawing.some((entry) => (lens === "art" ? entry.visual !== null : entry.priority !== null)),
+    row.lenses = (["visual", "priority"] as const).filter((lens) =>
+      drawing.some((entry) =>
+        lens === "visual" ? entry.visual !== null : entry.priority !== null,
+      ),
     );
     row.tag = tagFor(
       row.kind,
@@ -360,14 +362,14 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
 
 export interface SceneFilter {
   /** Items matching the filter, flat; null while it is empty (the list shows its groups). */
-  matches: SceneRow[] | null;
+  matches: ItemRow[] | null;
   /** The Unassigned row, when there is one and it matches. */
-  loose: SceneRow | undefined;
+  loose: ItemRow | undefined;
   /** The rows the canvas arrows step through, in draw order. */
-  steps: SceneRow[];
+  steps: ItemRow[];
 }
 
-/** Narrow the Scene list by label, id, tag, kind or group label ("brown" finds a group's members). */
+/** Narrow the Items panel by label, id, tag, kind or group label ("brown" finds a group's members). */
 export function filterScene(
   model: Pick<StudioModel, "rows" | "groups">,
   filter: string,
@@ -376,7 +378,7 @@ export function filterScene(
   const groupLabels = new Map<string, string>();
   for (const group of model.groups)
     for (const id of group.members) groupLabels.set(id, group.label);
-  const matching = (row: SceneRow): boolean =>
+  const matching = (row: ItemRow): boolean =>
     needle === "" ||
     [row.label, row.display, row.id, row.tag, row.kind, groupLabels.get(row.id) ?? ""].some(
       (text) => text.toLowerCase().includes(needle),
@@ -388,15 +390,15 @@ export function filterScene(
 }
 
 /** The plane a row's pixels are highlighted on under `lens`. */
-function rowPlane(row: Pick<SceneRow, "kind">, lens: StudioLens): PicturePlane {
+function rowPlane(row: Pick<ItemRow, "kind">, lens: StudioLens): PicturePlane {
   if (row.kind === "art") return "visual";
   if (row.kind === "depth" || row.kind === "walk") return "priority";
-  return lens === "art" ? "visual" : "priority";
+  return lens === "visual" ? "visual" : "priority";
 }
 
 /** The plane the canvas is read from under `lens`, and the fallback. */
 function lensPlanes(lens: StudioLens): readonly [PicturePlane, PicturePlane] {
-  return lens === "art" ? ["visual", "priority"] : ["priority", "visual"];
+  return lens === "visual" ? ["visual", "priority"] : ["priority", "visual"];
 }
 
 export interface PlanePixel {

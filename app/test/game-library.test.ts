@@ -3,6 +3,13 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
+import { decodeSave } from "../../src/runtime/persistence.ts";
+import { isLegacyAuthoredProject } from "../../src/authoring/projectConventions.ts";
+import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { openContainer } from "../../src/container/container.ts";
+import { previewGame } from "../src/library/gamePreview.ts";
+import { installPreviewWorkerFixture } from "./previewWorkerFixture.ts";
+import { unstampedArchive } from "./unstampedArchive.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -43,7 +50,7 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-installIndexedDbFixture();
+const records = installIndexedDbFixture();
 
 function game(
   source = 'display(5, 2, "Hello apprentice"); accept.input(); return;',
@@ -146,17 +153,17 @@ test("folder and ZIP resource identity is independent of path, case and entry or
   );
 });
 
-test("opening inspection captures real text and rejects missing boot resources and runaway logic", () => {
+test("opening inspection captures real text and rejects missing boot resources and runaway logic", async () => {
   const opened = readGameFiles(new Map(Object.entries(game())));
-  const result = inspectGame(opened);
+  const result = await inspectGame(opened);
   assert.equal(result.status, "ready");
   assert.ok(result.rows.join(" ").includes("Hello apprentice"));
   assert.equal(result.rgba.length, 320 * 200 * 4);
-  assert.throws(
+  await assert.rejects(
     () => inspectGame(readGameFiles(new Map(Object.entries(game("call(99); return;"))))),
     /logic.*99/i,
   );
-  assert.throws(
+  await assert.rejects(
     () => inspectGame(readGameFiles(new Map(Object.entries(game("loop: goto loop;"))))),
     /budget/i,
   );
@@ -355,7 +362,7 @@ test("import and copy rebind a verified staged reference; a stale one keeps its 
   );
   const imported = (await loadAuthoredGame(importedId))!;
   const [rebound, stillStale] = imported.references!;
-  // The import's fresh project id adopts the verified candidate — Keep can
+  // The import's fresh project id adopts the verified candidate — the commit can
   // proceed — while the stale draft stays refused.
   assert.equal(
     stagedRefusal(rebound!, { project: importedId, revision: imported.library!.revision }),
@@ -1064,4 +1071,245 @@ test("interpreter executables stay in the playable file set so detection can rea
     ".COM",
   ])
     assert.equal(isPlayableFileName(name), false, name);
+});
+
+test("optional game fonts survive import, captured builds, remix and both exports without changing revision", async (t) => {
+  installLocalStorage(t);
+  const { captureProjectBuild } = await import("../../src/authoring/projectBuild.ts");
+  const base = game('display(4, 1, "Font auxiliary"); return;');
+  const font = Uint8Array.of(1, 2, 3);
+  const files = { ...base, AgiFont: font };
+  assert.equal(await gameRevision(files), await gameRevision(base));
+  const opened = readGameFiles(new Map(Object.entries(files)));
+  assert.deepEqual(opened.files["AGIFONT"], font);
+  const build = captureProjectBuild({
+    files: opened.files,
+    profileId: "2.936",
+    sources: {},
+    bindings: {},
+  });
+  assert.deepEqual(build.files().get("AGIFONT"), font);
+  const id = await addLibraryGame(opened, "Font auxiliary", "zip", opening);
+  t.after(() => clearCachedGame(id));
+  const remixId = await copyLibraryGame(id);
+  t.after(() => clearCachedGame(remixId));
+  const remix = (await loadAuthoredGame(remixId))!;
+  assert.deepEqual(remix.files["AGIFONT"], font);
+  for (const zip of [buildPublicGameZip(remix), await buildProjectZip(remix)]) {
+    assert.deepEqual((await readGameZip(zip)).files["AGIFONT"], font);
+  }
+});
+
+test("re-importing the same resources with a different optional font preserves both copies", async (t) => {
+  installLocalStorage(t);
+  const base = game('display(4, 1, "Auxiliary editions"); return;');
+  const plain = readGameFiles(new Map(Object.entries(base)));
+  const withFont = readGameFiles(new Map(Object.entries({ ...base, AGIFONT: Uint8Array.of(9) })));
+  const plainId = await addLibraryGame(plain, "Plain", "zip", opening);
+  t.after(() => clearCachedGame(plainId));
+  const fontId = await addLibraryGame(withFont, "Font", "zip", opening);
+  t.after(() => clearCachedGame(fontId));
+  assert.notEqual(plainId, fontId);
+  assert.deepEqual((await loadAuthoredGame(fontId))!.files["AGIFONT"], Uint8Array.of(9));
+  assert.equal(await addLibraryGame(withFont, "Font again", "zip", opening), fontId);
+  assert.equal(await addLibraryGame(plain, "Plain again", "zip", opening), plainId);
+});
+
+test("folder and ZIP imports drop optional fonts over 64 KiB and retain the game", async () => {
+  for (const size of [65_536, 65_537]) {
+    const files = { ...game(), AGIFONT: new Uint8Array(size) };
+    const folder = readGameFiles(new Map(Object.entries(files)));
+    const zip = await readGameZip(buildPublicGameZip({ title: "Font bound", files }));
+    for (const opened of [folder, zip]) {
+      assert.ok(opened.files["WORDS.TOK"]);
+      assert.equal(opened.files["AGIFONT"]?.length, size === 65_536 ? size : undefined);
+    }
+  }
+});
+
+test("a second tab claiming the id after import preflight keeps its font and gets an independent edition", async (t) => {
+  installLocalStorage(t);
+  const files = game('display(5, 2, "Claimed in another tab"); return;');
+  const first = await addLibraryGame(
+    { files: { ...files, AGIFONT: Uint8Array.of(7, 8) }, words: [] },
+    "First tab",
+    "zip",
+    opening,
+  );
+  const committed = structuredClone(records.get(first));
+  assert.ok(committed);
+  await clearCachedGame(first);
+  const rawGet = records.get.bind(records);
+  let claimed = false;
+  t.after(() => {
+    records.get = rawGet;
+  });
+  // The read returns the old empty slot. Before the importing tab writes,
+  // another tab commits its own edition to that slot.
+  records.get = (key) => {
+    if (key === first && !claimed) {
+      claimed = true;
+      records.set(first, committed);
+      return undefined;
+    }
+    return rawGet(key);
+  };
+  const second = await addLibraryGame({ files, words: [] }, "Second tab", "zip", opening);
+  assert.ok(claimed);
+  assert.notEqual(second, first, "the losing allocator must choose a suffix");
+  assert.deepEqual((await loadAuthoredGame(first))?.files["AGIFONT"], Uint8Array.of(7, 8));
+  assert.equal((await loadAuthoredGame(second))?.files["AGIFONT"], undefined);
+  await clearCachedGame(first);
+  await clearCachedGame(second);
+});
+
+test("private imports without conventions are legacy; identical raw reimports retain the stored contract", async (t) => {
+  installLocalStorage(t);
+  const files = game("set(f199); return;");
+  const id = await addLibraryGame(
+    { files, words: [], project: {} },
+    "Legacy project",
+    "zip",
+    opening,
+  );
+  const data = (await loadAuthoredGame(id))!;
+  assert.deepEqual(data.authoringConventions, { version: 0, legacyRoomMemory: true });
+  const raw = await addLibraryGame({ files, words: [] }, "External game", "zip", opening);
+  assert.equal(raw, id);
+  assert.deepEqual((await loadAuthoredGame(raw))!.authoringConventions, {
+    version: 0,
+    legacyRoomMemory: true,
+  });
+});
+
+test("a new external import records current conventions before gaining agent context", async (t) => {
+  installLocalStorage(t);
+  const id = await addLibraryGame(
+    { files: game("set(f198); return;"), words: [] },
+    "New import",
+    "zip",
+    opening,
+  );
+  assert.deepEqual((await loadAuthoredGame(id))!.authoringConventions, { version: 1 });
+});
+
+for (const order of ["current-first", "legacy-first"] as const)
+  test(`public compatibility editions stay distinct (${order}) while equivalent contracts and raw reimports retain progress`, async (t) => {
+    installLocalStorage(t);
+    installPreviewWorkerFixture(t);
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents: {
+        words: "[]",
+        inventory: "[]",
+        "logic:0": `display(5,2,"${order}"); increment(v42); if (v42 == 8) { load.pic(v0); draw.pic(v0); load.view(1); ${"add.to.pic(1,0,0,0,0,9,0);".repeat(12)} show.pic(); } return;`,
+        "picture:0": "vis 1\nfill 0,0\nend",
+        "view:1": JSON.stringify({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+      },
+      profileId: "2.936",
+    });
+    const files = Object.fromEntries(compiled.files());
+    const archive = async (version: number, legacy: boolean) =>
+      readGameZip(
+        buildPublicGameZip({
+          title: order,
+          files,
+          authoringConventions: { version, ...(legacy ? { legacyRoomMemory: true as const } : {}) },
+        }),
+      );
+    const legacy = await archive(1, true);
+    const current = await archive(1, false);
+    const checked = await previewGame(legacy);
+    assert.equal(checked.status, "ready");
+    const first = order === "current-first" ? current : legacy;
+    const second = order === "current-first" ? legacy : current;
+    const firstId = await addLibraryGame(first, order, "zip", await previewGame(first));
+    const secondId = await addLibraryGame(second, order, "zip", await previewGame(second));
+    assert.notEqual(firstId, secondId, "an explicit capacity change is a playable edition");
+    const legacyId = order === "legacy-first" ? firstId : secondId;
+    const currentId = order === "current-first" ? firstId : secondId;
+    const host = {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    };
+    for (const [id, capacity] of [
+      [legacyId, 200],
+      [currentId, 50],
+    ] as const) {
+      const data = (await loadAuthoredGame(id))!;
+      const engine = new Engine(
+        openContainer(new Map(Object.entries(data.files))),
+        host,
+        new Map(),
+        { legacyRoomMemory: isLegacyAuthoredProject(data) },
+      );
+      assert.equal(decodeSave(engine.serialize(), engine.profile).replayCapacity, capacity);
+      const play = () => {
+        for (let tick = 0; tick < 8; tick++) engine.tick();
+      };
+      if (capacity === 50) assert.throws(play, /50-pair capacity/);
+      else {
+        assert.doesNotThrow(play);
+        assert.equal(engine.surface.visual[100], 1);
+      }
+    }
+    assert.equal(await addLibraryGame(await archive(0, true), order, "zip", checked), legacyId);
+    assert.equal(
+      await addLibraryGame(await archive(0, false), order, "zip", checked),
+      legacyId,
+      "pending version 0 is effectively legacy even without its optional flag",
+    );
+    const unstamped = await readGameZip(
+      unstampedArchive(buildPublicGameZip({ title: order, files })),
+    );
+    assert.equal(await addLibraryGame(unstamped, order, "zip", checked), legacyId);
+    assert.equal(
+      await addLibraryGame(current, order, "zip", await previewGame(current)),
+      currentId,
+    );
+
+    // Keep only the legacy edition, with a real bound save, before a raw reimport.
+    await clearCachedGame(currentId);
+    const stored = (await loadAuthoredGame(legacyId))!;
+    const engine = new Engine(
+      openContainer(new Map(Object.entries(stored.files))),
+      host,
+      new Map(),
+      { legacyRoomMemory: true },
+    );
+    engine.tick();
+    const { storeImportedProgress } = await import("../src/saves/gameProgress.ts");
+    const bound = (await bindSavedProgressTarget(legacyId))!;
+    const progress = { saves: { "2": engine.serialize() }, autosave: null };
+    storeImportedProgress(localStorage, bound, progress);
+    const raw = readGameFiles(new Map(Object.entries(files)));
+    assert.equal(await addLibraryGame(raw, order, "folder", await previewGame(raw)), legacyId);
+    assert.deepEqual(
+      (await loadAuthoredGame(legacyId))!.authoringConventions,
+      stored.authoringConventions,
+    );
+    assert.deepEqual(readGameProgress(localStorage, bound), progress);
+  });
+
+test("deleting a matched edition after preview cannot publish a different room-memory contract", async (t) => {
+  installLocalStorage(t);
+  installPreviewWorkerFixture(t);
+  const original = await readGameZip(
+    buildPublicGameZip({
+      title: "Deleted during preview",
+      files: game('display(5,2,"Deleted during preview"); return;'),
+      authoringConventions: { version: 0, legacyRoomMemory: true },
+    }),
+  );
+  const id = await addLibraryGame(original, "Legacy", "zip", await previewGame(original));
+  const raw = readGameFiles(new Map(Object.entries(original.files)));
+  const checked = await previewGame(raw);
+  await clearCachedGame(id); // Another page closes/removes the matched edition while inspection runs.
+  await assert.rejects(addLibraryGame(raw, "Raw", "zip", checked), /opening.*changed/i);
+  const rechecked = await previewGame(raw);
+  const imported = await addLibraryGame(raw, "Raw", "zip", rechecked);
+  assert.deepEqual((await loadAuthoredGame(imported))!.authoringConventions, { version: 1 });
 });

@@ -1,7 +1,7 @@
 /**
  * Lesson sets by catalog release, and the release a running game's lessons
  * come from: its own catalog entry, or the one its remix chain started from
- * (the first Keep of a catalog game forks a remix that should keep its lessons).
+ * (the first commit of a catalog game forks a remix that should keep its lessons).
  * A set verifies one release's resources, so the key is the id and the
  * version: an older release players still have stored, and its remixes, get
  * no lessons written for another.

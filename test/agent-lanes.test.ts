@@ -18,6 +18,29 @@ import { test } from "node:test";
 
 const scripts = fileURLToPath(new URL("../scripts/agent-lanes/", import.meta.url));
 
+test("lane contributors can pass the complete brief as a prompt argument with owner approval", () => {
+  const docs = readFileSync(new URL("../docs/agent-lanes.md", import.meta.url), "utf8");
+  const command = docs.match(/^export AGI_AGENT_CMD='(agy .+)'$/m)?.[1];
+  assert.ok(command, "the lane guide includes an argument-based CLI example");
+  assert.match(docs, /owner must approve running this command unsandboxed/);
+  const brief = 'Implement the fix.\nPreserve "quotes", $variables and $(literal text).\n';
+  const output = execFileSync(
+    "sh",
+    ["-c", `agy() { printf '%s\\0' "$@"; }\n${command.replace("<model>", "example-model")}`],
+    { input: brief, encoding: "utf8" },
+  );
+  assert.deepEqual(output.split("\0"), [
+    "--model",
+    "example-model",
+    "--dangerously-skip-permissions",
+    "--output-format",
+    "json",
+    "-p",
+    brief.trimEnd(),
+    "",
+  ]);
+});
+
 test("lane scripts create an isolated branch with the local game fixtures, install the workspaces once and wait for the agent", async () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "agi lanes ")));
   try {

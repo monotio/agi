@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GAME_CATALOG } from "../src/library/gameCatalog.ts";
 import type { LibraryMetadata } from "../src/project/gameMetadata.ts";
-import { checkLessonKeep, type LessonSession } from "../src/lessons/lessonCheck.ts";
+import { checkLessonCommit, type LessonSession } from "../src/lessons/lessonCheck.ts";
 import {
   createLessonBadges,
   LESSONS_STORAGE_KEY,
@@ -65,7 +65,7 @@ test("every registered lesson has a unique id, 2-4 steps and a target", async ()
     assert.equal(new Set(ids).size, ids.length);
     for (const lesson of set.lessons) {
       assert.ok(lesson.steps.length >= 2 && lesson.steps.length <= 4, lesson.id);
-      assert.ok(lesson.open.studio === "room" || lesson.open.studio === "sprite", lesson.id);
+      assert.ok(lesson.open.studio === "picture" || lesson.open.studio === "view", lesson.id);
     }
   }
 });
@@ -199,7 +199,7 @@ function session(verify?: NonNullable<StudioLesson["challenge"]>["verify"]): Les
       title: "Move the sun",
       teaser: "",
       steps: ["a", "b"],
-      open: { studio: "room", picture: 1 },
+      open: { studio: "picture", picture: 1 },
       ...(verify ? { challenge: { prompt: "Move the sun.", verify } } : {}),
     },
     before: Uint8Array.of(1, 2),
@@ -218,7 +218,7 @@ const kept = {
 test("a satisfied challenge awards its badge with a success line", () => {
   const seen: LessonVerifyInput[] = [];
   const awarded: string[] = [];
-  const outcome = checkLessonKeep(
+  const outcome = checkLessonCommit(
     session((input) => (seen.push(input), { ok: true })),
     kept,
     (id) => awarded.push(id),
@@ -241,7 +241,7 @@ test("a satisfied challenge awards its badge with a success line", () => {
 test("an unsatisfied challenge shows its hint and awards nothing", () => {
   const awarded: string[] = [];
   assert.deepEqual(
-    checkLessonKeep(
+    checkLessonCommit(
       session(() => ({ ok: false, hint: "The sun has not moved yet." })),
       kept,
       (id) => awarded.push(id),
@@ -249,7 +249,7 @@ test("an unsatisfied challenge shows its hint and awards nothing", () => {
     { ok: false, message: "The sun has not moved yet." },
   );
   assert.deepEqual(
-    checkLessonKeep(
+    checkLessonCommit(
       session(() => ({ ok: false })),
       kept,
       (id) => awarded.push(id),
@@ -259,9 +259,9 @@ test("an unsatisfied challenge shows its hint and awards nothing", () => {
   assert.deepEqual(awarded, []);
 });
 
-test("a throwing check awards nothing and never escapes the Keep", () => {
+test("a throwing check awards nothing and never escapes the commit", () => {
   const awarded: string[] = [];
-  const outcome = checkLessonKeep(
+  const outcome = checkLessonCommit(
     session(() => {
       throw new Error("boom");
     }),
@@ -278,15 +278,15 @@ test("no challenge, or a keep of another resource, checks nothing", () => {
   let calls = 0;
   const verify = () => (calls++, { ok: true });
   assert.equal(
-    checkLessonKeep(session(), kept, (id) => awarded.push(id)),
+    checkLessonCommit(session(), kept, (id) => awarded.push(id)),
     null,
   );
   assert.equal(
-    checkLessonKeep(session(verify), { ...kept, num: 2 }, (id) => awarded.push(id)),
+    checkLessonCommit(session(verify), { ...kept, num: 2 }, (id) => awarded.push(id)),
     null,
   );
   assert.equal(
-    checkLessonKeep(session(verify), { ...kept, kind: "view" }, (id) => awarded.push(id)),
+    checkLessonCommit(session(verify), { ...kept, kind: "view" }, (id) => awarded.push(id)),
     null,
   );
   assert.equal(calls, 0);

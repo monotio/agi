@@ -1,3 +1,6 @@
+import { readAuthoringConventions } from "../../../src/authoring/projectConventions.ts";
+import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
+import { sealedProjectHistory } from "../../../src/authoring/projectHistoryData.ts";
 import {
   bodyTransaction,
   updateBodyRecords,
@@ -28,7 +31,11 @@ import {
   type AgentChats,
 } from "../../../src/agent/chats.ts";
 import { encodeJournalValue, type ProjectJournalCapture } from "./projectJournalCapture.ts";
-import { clearProjectSaveJournals, resumeProjectSaveJournals } from "./projectSaveJournal.ts";
+import {
+  clearProjectSaveJournals,
+  hasUnresolvedProjectSaveJournal,
+  resumeProjectSaveJournals,
+} from "./projectSaveJournal.ts";
 import {
   conversationUpdateOf,
   mergeConversationChats,
@@ -124,7 +131,7 @@ export interface GameConversation {
 }
 
 /**
- * The conversation half of a session record — what an Ask, a Studio assist
+ * The conversation half of a session record — what an agent request, a Studio agent
  * request or an AI settings change writes. It never carries authoring
  * content: the stored plan, bindings and sources stay as they are.
  */
@@ -134,7 +141,7 @@ export interface ConversationUpdate {
   model: string;
   transcript: unknown[];
   sessionId?: string | undefined;
-  /** The assistant panel's messages, stored as the authoring state's `chat`. */
+  /** The agent panel's messages, stored as the authoring state's `chat`. */
   chat: unknown[];
 }
 
@@ -272,6 +279,9 @@ export function getCachedGameMeta(projectId: ProjectId): CachedGameMeta | null {
       ...(library ? { library } : {}),
       projectId: effectiveProjectId,
       ...(parsed.templateId ? { templateId: parsed.templateId } : {}),
+      ...(parsed.authoringConventions === undefined
+        ? {}
+        : { authoringConventions: readAuthoringConventions(parsed.authoringConventions) }),
       ...(typeof parsed.generation === "number" ? { generation: parsed.generation } : {}),
       title: parsed.title,
       authoredAt: parsed.authoredAt,
@@ -398,7 +408,7 @@ class ConcurrencyConflictError extends Error {
   }
 }
 
-class ProjectExistsError extends Error {
+export class ProjectExistsError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ProjectExistsError";
@@ -564,21 +574,20 @@ async function writeCurrentBody(
           body.editHistory = value.editHistory;
         }
         try {
-          const keys = [
-            ...new Set([
-              ...historyModule.historyBlobKeys(data.projectId, value?.editHistory),
-              ...Object.keys(history?.blobs ?? {}).map((hash) =>
-                historyModule.projectHistoryBlobKey(data.projectId, hash),
-              ),
-            ]),
-          ];
+          const previous =
+            options?.expectedGeneration !== undefined &&
+            !rememberedProjectReadError(data.projectId, value?.generation, lifetime)
+              ? value?.editHistory
+              : undefined;
+          const keys = historyModule.projectHistoryWriteKeys(data.projectId, previous, history);
           const rows = new Map<string, unknown>();
           const finish = () => {
             const changes = historyModule.projectHistoryWrites(
               data.projectId,
-              value?.editHistory,
+              previous,
               history,
               rows,
+              value?.editHistory,
             );
             for (const key of changes.deletes) store.delete(key);
             store.put(body);
@@ -620,6 +629,7 @@ function metadata(data: CachedGameData): CachedGameMeta {
   return {
     projectId: data.projectId,
     templateId: data.templateId,
+    authoringConventions: data.authoringConventions,
     generation: data.generation,
     library: data.library,
     title: data.title,
@@ -669,6 +679,7 @@ function readStoredFormat(raw: unknown, format: string | undefined, message: str
 export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameData {
   readStoredFormat(raw, "monotio.agi.stored-project", UNREADABLE_PROJECT_MESSAGE);
   const record = raw as StoredGameBody;
+  readAuthoringConventions(record.authoringConventions);
   const storedId = record.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
@@ -704,14 +715,14 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   if (data.chats !== undefined) {
     normalized.chats = readAgentChats(data.chats);
   }
-  const hasAssistant =
+  const hasConversation =
     normalized.provider !== undefined ||
     normalized.model !== undefined ||
     normalized.transcript !== undefined ||
     normalized.sessionId !== undefined ||
     normalized.conversationHistory !== undefined;
   if (
-    hasAssistant &&
+    hasConversation &&
     (typeof normalized.provider !== "string" || typeof normalized.model !== "string")
   )
     throw new Error("Invalid saved project model metadata.");
@@ -775,11 +786,14 @@ function rememberedProjectReadError(
 async function readBody(
   projectId: ProjectId,
   onLifetime?: (lifetime: string | null) => void,
+  includeHistory = true,
 ): Promise<CachedGameData | null> {
   const raw = readableIndex(projectId);
   const snapshot = await readBodyRecords(projectId, (raw) => [
     `lifetime/${projectId}`,
-    ...historyBlobKeys(projectId, (raw as StoredGameBody | undefined)?.editHistory),
+    ...(includeHistory
+      ? historyBlobKeys(projectId, (raw as StoredGameBody | undefined)?.editHistory)
+      : []),
   ]);
   const stored = snapshot.head as StoredGameBody | undefined;
   const lifetime = liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime);
@@ -790,8 +804,12 @@ async function readBody(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
     );
   const data = readStoredBody(stored, projectId);
+  if (!includeHistory) {
+    const remembered = rememberedProjectReadError(projectId, data.generation, lifetime);
+    if (remembered) throw remembered;
+  }
   try {
-    if (stored.editHistory !== undefined) {
+    if (includeHistory && stored.editHistory !== undefined) {
       for (const key of historyBlobKeys(projectId, stored.editHistory)) {
         const row = snapshot.records.get(key);
         if (row === undefined) throw new Error("This project History blob is missing.");
@@ -807,7 +825,7 @@ async function readBody(
         snapshot.records,
       );
     }
-    clearProjectReadError(projectId);
+    if (includeHistory) clearProjectReadError(projectId);
   } catch (error) {
     const rejected: ProjectReadError = {
       lifetime,
@@ -1023,6 +1041,29 @@ function commitContent(value: unknown): unknown {
   return value;
 }
 
+// Blob and commit identities cover the already checked immutable content. This
+// projection keeps retry identity independent of the portable byte-array encoding.
+function historyCommitContent(history: PortableProjectHistory): unknown {
+  return [
+    history.format,
+    history.version,
+    history.commits.map((commit) => commit.id),
+    Object.keys(history.blobs).sort(),
+    history.cursor,
+    history.future,
+    history.tags,
+    history.prunedParents ?? [],
+  ];
+}
+function projectCommitContent(request: ProjectCommitRequest): unknown {
+  const history = request.data.projectHistory;
+  return commitContent(
+    history === undefined
+      ? request
+      : { ...request, data: { ...request.data, projectHistory: historyCommitContent(history) } },
+  );
+}
+
 /**
  * Publish a complete, already validated candidate and its retry receipt in one
  * transaction. A receipt acknowledges durable storage only; installing the build
@@ -1030,15 +1071,36 @@ function commitContent(value: unknown): unknown {
  * Candidate metadata accepts finite JSON values, undefined and Uint8Array bytes;
  * other structured-clone types are rejected before storage.
  */
+interface ProjectCommitResult {
+  receipt: ProjectCommitReceipt;
+  warnings: readonly "indexRepairPending"[];
+}
+/** A recomputable update yields to other pages' pending creator work at publication. */
+export interface AutomaticProjectWrite {
+  readonly ownJournalKey: string;
+}
+export function commitProject(
+  input: ProjectCommitRequest,
+  journalHash?: string,
+): Promise<ProjectCommitResult>;
+export function commitProject(
+  input: ProjectCommitRequest,
+  journalHash: string | undefined,
+  automatic: AutomaticProjectWrite | undefined,
+): Promise<ProjectCommitResult | undefined>;
 export async function commitProject(
   input: ProjectCommitRequest,
   journalHash?: string,
-): Promise<{
-  receipt: ProjectCommitReceipt;
-  warnings: readonly "indexRepairPending"[];
-}> {
+  automatic?: AutomaticProjectWrite,
+): Promise<ProjectCommitResult | undefined> {
+  const ownJournalKey = automatic?.ownJournalKey;
   // Ownership precedes every await, including waiting behind another writer.
-  const request = structuredClone(input);
+  const { projectHistory: offeredHistory, ...inputData } = input.data;
+  const sealedHistory =
+    offeredHistory !== undefined && sealedProjectHistory(offeredHistory, sha256Hex) !== undefined;
+  const request: ProjectCommitRequest = structuredClone({ ...input, data: inputData });
+  if (offeredHistory !== undefined)
+    request.data.projectHistory = sealedHistory ? offeredHistory : structuredClone(offeredHistory);
   if (
     projectId(request.projectId) === null ||
     projectId(request.commitId) === null ||
@@ -1067,7 +1129,9 @@ export async function commitProject(
   }
   if (request.expected !== null && request.expected.projectId !== request.projectId)
     throw new Error("The commit base belongs to another project.");
-  const candidateHash = sha256Hex(new TextEncoder().encode(JSON.stringify(commitContent(request))));
+  const candidateHash = sha256Hex(
+    new TextEncoder().encode(JSON.stringify(projectCommitContent(request))),
+  );
   return serializeWrite(request.projectId, async () => {
     readableIndex(request.projectId);
     const data: CachedGameData = {
@@ -1083,7 +1147,14 @@ export async function commitProject(
     const history = historyModule.checkedProjectHistory(data);
     if (history !== undefined) data.projectHistory = history;
     const receiptKey = `commit/${request.projectId}/${request.commitId}`;
-    const committed = await updateBodyRecords(
+    const committed = await updateBodyRecords<
+      | {
+          receipt: ProjectCommitReceipt;
+          body: StoredGameBody;
+          changed: boolean;
+        }
+      | undefined
+    >(
       receiptKey,
       (raw) => {
         const admit = (): BodyRecordsOutcome<{
@@ -1099,9 +1170,20 @@ export async function commitProject(
           if (raw !== undefined) {
             const stored = raw as StoredProjectCommit;
             if (stored.format !== "monotio.agi.project-commit" || stored.version !== 1)
-              throw new Error("This project commit version is not supported by this app.");
-            if (stored.projectId !== receiptKey || stored.receipt.candidateHash !== candidateHash)
-              throw new Error("This commit ID was reused for a different candidate.");
+              throw Object.assign(
+                new Error("This project commit version is not supported by this app."),
+                { name: "ProjectJournalDecodeError" },
+              );
+            if (
+              stored.projectId !== receiptKey ||
+              (stored.receipt.candidateHash !== candidateHash &&
+                stored.receipt.candidateHash !==
+                  sha256Hex(new TextEncoder().encode(JSON.stringify(commitContent(request)))))
+            )
+              throw Object.assign(
+                new Error("This commit ID was reused for a different change set."),
+                { name: "ProjectJournalDecodeError" },
+              );
             if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
               throw new ProjectDeletedError(
                 "This commit belongs to a removed or replaced project lifetime.",
@@ -1144,7 +1226,11 @@ export async function commitProject(
                 ? {
                     history: {
                       cursor: history.cursor,
-                      hash: sha256Hex(new TextEncoder().encode(JSON.stringify(history))),
+                      hash: sha256Hex(
+                        new TextEncoder().encode(
+                          JSON.stringify(commitContent(historyCommitContent(history))),
+                        ),
+                      ),
                     },
                   }
                 : {}),
@@ -1183,25 +1269,46 @@ export async function commitProject(
           return { result: { ...finished, changed: true }, puts: finished.puts };
         };
         const outcome = admit();
-        const reads = [
-          ...new Set([
-            ...historyModule.historyBlobKeys(request.projectId, current?.editHistory),
-            ...Object.keys(history?.blobs ?? {}).map((hash) =>
-              historyModule.projectHistoryBlobKey(request.projectId, hash),
-            ),
-            ...("complete" in outcome ? outcome.reads : []),
-          ]),
-        ];
+        const previous =
+          request.expected !== null &&
+          !rememberedProjectReadError(
+            request.projectId,
+            current?.generation,
+            liveLifetime(previousLifetime),
+          )
+            ? current?.editHistory
+            : undefined;
+        const reads = historyModule.projectHistoryWriteKeys(
+          request.projectId,
+          previous,
+          "result" in outcome && outcome.result.changed ? history : undefined,
+        );
         return {
           reads,
           complete: (rows: Map<string, unknown>) => {
             const settled = "complete" in outcome ? outcome.complete(rows) : outcome;
             const changes = historyModule.projectHistoryWrites(
               request.projectId,
-              current?.editHistory,
+              previous,
               settled.result.changed ? history : undefined,
               rows,
+              current?.editHistory,
             );
+            // Every queued/module/metadata/History/IndexedDB read has finished.
+            // This callback issues its writes synchronously after this decision.
+            // Receipt retries acknowledge their earlier publication unchanged.
+            if (settled.result.changed && ownJournalKey !== undefined) {
+              try {
+                if (
+                  typeof localStorage !== "undefined" &&
+                  hasUnresolvedProjectSaveJournal(localStorage, request.projectId, ownJournalKey)
+                )
+                  return { result: undefined };
+              } catch {
+                // Unreadable recovery storage cannot establish a safe base.
+                return { result: undefined };
+              }
+            }
             return {
               result: settled.result,
               puts: [...(settled.puts ?? []), ...changes.puts],
@@ -1225,6 +1332,7 @@ export async function commitProject(
         },
       ],
     );
+    if (committed === undefined) return undefined;
     const warnings: "indexRepairPending"[] = [];
     try {
       // An old retry must refresh from the current body, never its old candidate.
@@ -1313,10 +1421,13 @@ export function runInWriteTurn<T>(
 }
 async function recoverProjectJournal(
   capture: ProjectJournalCapture,
-): Promise<{ receipt: ProjectCommitReceipt }> {
+  automatic?: AutomaticProjectWrite,
+): Promise<{ receipt: ProjectCommitReceipt } | undefined> {
   const { hash, ...intent } = capture;
   if (sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(intent)))) !== hash)
-    throw new Error("Invalid pending project write identity.");
+    throw Object.assign(new Error("Invalid pending project write identity."), {
+      name: "ProjectJournalDecodeError",
+    });
   const base = await serializeWrite(capture.base.projectId, async () => {
     const rows = await readBodyRecordSet([
       `commit/${capture.identity.projectId}/${capture.identity.commitId}`,
@@ -1327,7 +1438,10 @@ async function recoverProjectJournal(
     ) as StoredProjectCommit | undefined;
     if (committed !== undefined) {
       if (committed.format !== "monotio.agi.project-commit" || committed.version !== 1)
-        throw new Error("This project commit version is not supported by this app.");
+        throw Object.assign(
+          new Error("This project commit version is not supported by this app."),
+          { name: "ProjectJournalDecodeError" },
+        );
       if (
         liveLifetime(rows.get(`lifetime/${capture.identity.projectId}`) as HistoryLifetime) !==
         committed.receipt.saved.lifetime
@@ -1336,7 +1450,9 @@ async function recoverProjectJournal(
           "This commit belongs to a removed or replaced project lifetime.",
         );
       if (committed.receipt.journalHash !== capture.hash)
-        throw new Error("This commit ID was reused for a different candidate.");
+        throw Object.assign(new Error("This commit ID was reused for a different change set."), {
+          name: "ProjectJournalDecodeError",
+        });
       return { receipt: committed.receipt };
     }
     let lifetime: string | null = null;
@@ -1362,7 +1478,7 @@ async function recoverProjectJournal(
     commit: commitProject,
     fingerprint: authoringFingerprint,
   });
-  return commitProject(rebuilt, capture.hash);
+  return commitProject(rebuilt, capture.hash, automatic);
 }
 
 export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGameData | null> {
@@ -1401,6 +1517,7 @@ export async function loadProjectProgressIdentity(projectId: ProjectId) {
 /** Body and lifetime are read from one snapshot before a worker can start. */
 export async function loadAuthoredGameWithHistoryLifetime(
   projectId: ProjectId,
+  includeHistory = true,
 ): Promise<{ data: CachedGameData; lifetime: string | null } | null> {
   const recovery =
     typeof localStorage === "undefined"
@@ -1409,9 +1526,13 @@ export async function loadAuthoredGameWithHistoryLifetime(
   if (recovery !== undefined) await recovery;
   return serializeWrite(projectId, async () => {
     let lifetime: string | null = null;
-    const data = await readBody(projectId, (value) => {
-      lifetime = value;
-    });
+    const data = await readBody(
+      projectId,
+      (value) => {
+        lifetime = value;
+      },
+      includeHistory,
+    );
     return data === null ? null : { data, lifetime };
   });
 }
@@ -1439,17 +1560,37 @@ export function saveAuthoredGameCapture(
   data: Omit<CachedGameData, "projectId" | "authoredAt">,
   options?: ProjectWriteOptions,
 ): Promise<{ data: CachedGameData; lifetime: string } | null> {
+  let saved: CachedGameData;
+  try {
+    const { projectHistory, ...body } = data;
+    saved = structuredClone({
+      ...body,
+      projectId,
+      authoredAt: new Date().toISOString(),
+    }) as CachedGameData;
+    if (projectHistory !== undefined)
+      saved.projectHistory =
+        sealedProjectHistory(projectHistory, sha256Hex) !== undefined
+          ? projectHistory
+          : structuredClone(projectHistory);
+  } catch (error) {
+    console.error("Project storage failed:", error);
+    return Promise.resolve(null);
+  }
   return serializeWrite(projectId, async () => {
     try {
       const gen = options?.expectedGeneration;
-      const saved = structuredClone({ ...data, projectId, authoredAt: new Date().toISOString() });
       const lifetime = await writeBody(saved, {
         expectedGeneration: gen,
         expectedLifetime: options?.expectedLifetime,
         requireNew: options?.requireNew,
       });
-      return { data: structuredClone(saved), lifetime };
+      const { projectHistory: savedHistory, ...savedBody } = saved;
+      const captured: CachedGameData = structuredClone(savedBody);
+      if (savedHistory !== undefined) captured.projectHistory = savedHistory;
+      return { data: captured, lifetime };
     } catch (error) {
+      if (options?.requireNew && error instanceof ProjectExistsError) throw error;
       console.error("Project storage failed:", error);
       return null;
     }
@@ -1555,7 +1696,7 @@ export function updateAuthoredReferences(
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
-      const data = await readBody(projectId);
+      const data = await readBody(projectId, undefined, false);
       if (!data) return false;
       const next =
         typeof references === "function" ? references(data.references ?? []) : references;
@@ -1607,7 +1748,7 @@ export function updateProjectConversation(
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
-      const data = await readBody(projectId);
+      const data = await readBody(projectId, undefined, false);
       if (!data) return false;
       applyConversation(data, update.transcript, update.sessionId, update.provider, update.model);
       data.authoringState = { ...data.authoringState, chat: update.chat };
@@ -1633,7 +1774,7 @@ export function updateGameConversation(
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
-      const data = await readBody(projectId);
+      const data = await readBody(projectId, undefined, false);
       if (!data) return false;
       const gen = expectedGeneration ?? data.generation;
       if (backgroundChats?.length) data.chats = appendAgentTasks(data, backgroundChats);
@@ -1676,7 +1817,7 @@ export function renameAuthoredGame(
     const name = title.trim();
     if (!name || name.length > 100) return false;
     try {
-      const data = await readBody(projectId);
+      const data = await readBody(projectId, undefined, false);
       if (!data) return false;
       const gen = expectedGeneration ?? data.generation;
       data.title = name;
@@ -1697,7 +1838,7 @@ export function setLibraryGameProfile(
   return serializeWrite(projectId, async () => {
     if (profile !== undefined && !Object.hasOwn(PROFILES, profile)) return false;
     try {
-      const data = await readBody(projectId);
+      const data = await readBody(projectId, undefined, false);
       if (!data?.library) return false;
       const library = { ...data.library };
       if (profile) library.profile = profile;
@@ -2173,7 +2314,7 @@ export function updateGamePreview(
   expectedGeneration?: number,
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
-    const data = await readBody(projectId);
+    const data = await readBody(projectId, undefined, false);
     if (!data || !isLocalGamePreview(preview) || (await gameRevision(data.files)) !== revision)
       return false;
     const gen = expectedGeneration ?? data.generation;

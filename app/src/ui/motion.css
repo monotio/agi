@@ -4,7 +4,7 @@
  * tokens' --duration-* and --ease-out:
  *
  *   dialogs      fade and scale from 0.98 to 1        (UiDialog, every modal)
- *   sheets       fade and slide 8px from their edge   (Settings, the Ask drawer)
+ *   sheets       fade and slide 8px from their edge   (Settings, the Agent drawer)
  *   menus        fade and move 2px from their trigger (ActionMenu)
  *   toasts       slide 8px up into place              (UiToast)
  *   attention    one soft ring pulse, once            (.ui-pulse-once)

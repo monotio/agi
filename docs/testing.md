@@ -87,7 +87,7 @@ counts and behavior; other editions may need separate expectations.
 | Donald Duck's Playground | `games/ddp/`            | DOS 1.50; 2.272 / 2.440     | [Chapter proof](#walkthrough-tests) (beginner shift, purchase and playground placement), [difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                          |
 | Space Quest II           | `games/sq2/`            | 2.936                       | [Full-game completion proof](#walkthrough-tests) (250 points; Vohaul defeated), [opening and movement](../test/openings.test.ts)                                                                                                         |
 | Space Quest I            | `games/sq1/`            | 2.917                       | [Full-game completion proof](#walkthrough-tests) (202 points; ceremony and ending credits), [opening](../test/openings.test.ts)                                                                                                          |
-| Police Quest I           | `games/pq1/`            | 2.903 / 2.936 fallback      | [Full-game completion proof](#walkthrough-tests) (254 points; key to the city), [opening](../test/openings.test.ts)                                                                                                                      |
+| Police Quest I           | `games/pq1/`            | 2.903 / 2.917               | [Full-game completion proof](#walkthrough-tests) (254 points; key to the city), [opening](../test/openings.test.ts), [profiles](../test/games-profile.test.ts)                                                                           |
 | Leisure Suit Larry I     | `games/lsl1/`           | 2.440                       | [Full-game completion proof](#walkthrough-tests) (222 points; penthouse ending), [opening](../test/openings.test.ts)                                                                                                                     |
 | Gold Rush                | `games/gr1/`            | 3.002.149                   | [Full-game completion proof](#walkthrough-tests) (255 points; Panama route), [opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                          |
 | Manhunter: New York      | `games/mh1/`            | 3.002.107 / 3.002.102       | [Full-game completion proof](#walkthrough-tests) (all four days), [resources and Day 1](../test/mh1.test.ts)                                                                                                                             |
@@ -378,7 +378,7 @@ To reproduce a load race in local Chromium, set `AGI_E2E_CPU_RATE` (for example 
 to slow the page's own work, or `AGI_E2E_LATENCY_MS` (for example `70`) to delay every
 request as a busy dev server does. The first open of a lazily loaded editor fetches
 its modules one by one, so latency slows it and CPU throttling barely does: 70 ms
-makes Room Studio's first open take longer than the 5 s expect default.
+makes the PICTURE editor's first open take longer than the 5 s expect default.
 The diagnostic workflow has no schedule. It retains browser reports and updates
 a diagnostic flake issue when a test has both passing and failing attempts.
 Consistent failures remain failures. Only that report job has `issues: write`.
@@ -402,7 +402,10 @@ job. Main builds and publishes each checked commit. See
 Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
 handling, held-key release ordering and modal input. Save-selector tests cover
 twelve slots, descriptions, cancellation, overwrite confirmation, signature
-filtering and failure outcomes. Per-game browser storage stands in for the DOS
+filtering and failure outcomes; on the Amiga profiles they pin the original
+slot, describe and confirm windows with their gadgets, and
+`test/native-menu.test.ts` pins the Intuition menu strip's gate, geometry and
+controller delivery. Per-game browser storage stands in for the DOS
 drive/path interface; exact platform dialog presentation and the completion of
 every game/version are not established by these checks.
 
@@ -429,12 +432,12 @@ animations, and phone WebKit runs with full motion; a test whose rule needs moti
 A tag at the end of a test title selects its extra or separate runs. Linux WebKit is one config,
 `app/playwright.webkit.config.ts`, with one project per WebKit tag:
 
-| Tag                 | Project          | Script                                      | Runs                                                                                               |
-| ------------------- | ---------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review. |
-| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.  |
-| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Timing budgets, alone on one worker.                                                               |
-| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                   |
+| Tag                 | Project          | Script                                      | Runs                                                                                                          |
+| ------------------- | ---------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review.            |
+| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.             |
+| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Timing budgets, alone on one worker. The WebKit config skips `@perf`, so the tag wins over either WebKit tag. |
+| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                              |
 
 `npm --prefix app run e2e:webkit` runs both WebKit projects in one invocation. A test carrying both
 WebKit tags runs once in each project, and the config selects a tagged test from its existing
@@ -836,7 +839,7 @@ reports missing resources by name.
 
 Tests never block a game edit. Deleting a room offers **Also delete tests that
 use this room**, checked by default. Clear it to keep the tests; those tests
-will fail when run. A recorded setup's inventory item locations do not make its
+will fail when run. A recorded setup's object locations do not make its
 test use those rooms. The room and optional test deletions share one Undo.
 
 Recorded game tests store a host snapshot and a bounded operation tape in
@@ -936,6 +939,141 @@ match. Spectrograms of commercial games stay private under
 `AGI_AUDIO_RENDER_DIR`. `app/playwright.capture.config.ts` records selected browser tests with
 original resources and mocked provider replies; generated recordings stay under
 `.captures/` until reviewed and edited.
+
+## Original interpreter frame comparison
+
+`scripts/mame-diff.ts` is an opt-in local comparison against an original
+interpreter running on MAME. It never runs in `npm run check` or CI. Supply your
+own ROMs, boot media and game fixtures; all images, disk copies and results stay
+in an ignored output directory. MAME runs with `-video none -sound none` and
+headless keyboard automation, without opening a window. The Node side uses the
+real `Engine`, `CycleClock`, sound heartbeat and shipped CPU frame compositor.
+It does not exercise the browser GPU, scaling or CRT effects.
+
+```bash
+node --experimental-strip-types scripts/mame-diff.ts \
+  scripts/mame-diff/amiga.json /absolute/path/to/roms .local/mame-diff/amiga
+node --experimental-strip-types scripts/mame-diff.ts \
+  scripts/mame-diff/iigs.json /absolute/path/to/roms .local/mame-diff/iigs
+node --experimental-strip-types scripts/mame-diff.ts \
+  scripts/mame-diff/pc.json /absolute/path/to/roms .local/mame-diff/pc
+```
+
+An optional fourth argument selects the MAME executable. Missing MAME, ROMs,
+resource fixtures or disk media produce `SKIP` and `result.json` with a reason.
+Other execution failures exit nonzero. A completed capture records
+`status: "captured"`; this means measurements exist, not that frames agree.
+Inspect each original/ours pair before interpreting its numbers. A boot screen,
+a different animation phase or a different message is not a fidelity result.
+MAME also emulates the graphics hardware, so its frames are a cross-check, not
+ground truth: the original binary decides the values it encodes, and each
+difference needs an explanation rather than a copy of MAME's output.
+
+The supplied scripts cover SQ2 Amiga 2.202 (`a500n`, `kick13`), SQ2 IIgs 1.014
+(`apple2gsr1`, self-booting two-disk 2MG set; no separate GS/OS disk required),
+and PQ1 PC build 2.903, which runs on the 2.917 profile (`t1000sx`, FreeDOS).
+The `*-walk.json` scripts walk the ego under player control and capture every
+few steps: PQ1 walks to the evidence counter, where Russ passes behind the
+window bars, then walks back with the mirrored loop; SQ2 walks left, climbs the
+station hull and crosses the upper walkway. Fixture resources resolve through
+`test/fixtures.ts`; source disk images resolve recursively under `games/` by
+SHA-256. Each disk is copied before boot, and each run gets fresh configuration
+and NVRAM directories. ROMs are read from the supplied absolute directory.
+Do not point media paths at a previous run's writable disk copies.
+
+### PC boot media
+
+The PC script expects `.local/mame-diff/boot720.img` and `pq1-720.img`, prepared
+locally with your own FreeDOS boot disk and PQ1 fixture. Use a 720 KiB FreeDOS
+boot image, with `FDCONFIG.SYS` selecting its command interpreter directly and
+`FDAUTO.BAT` changing to B and running `start -t`. For FreeDOS 1.4's floppy
+edition, these files are sufficient (use DOS line endings):
+
+```text
+FILES=40
+BUFFERS=20
+LASTDRIVE=Z
+SHELL=\FREEDOS\BIN\COMMAND.COM \FREEDOS\BIN /E:2048 /P=\FDAUTO.BAT
+```
+
+```text
+@echo off
+set PATH=A:\FREEDOS\BIN
+B:
+start -t
+```
+
+With `mtools`, create the game disk using
+`mformat -C -i .local/mame-diff/pq1-720.img -f 720 ::`, then copy the PQ1
+interpreter, overlays, directories, vocabulary, inventory and volumes 0–2 with
+`mcopy -i IMAGE FILE ::`. Volume 3 does not fit on this disk and is not used by
+these opening-room scenes; this recipe does not cover later gameplay. Keep the
+complete resource fixture for Node. The manifest records the actual disk hashes
+and every Node input file hash. PQ1's joystick calibration is dismissed by the
+MAME-only boot action; the shared Enter skips the game title.
+
+### Scene scripts and measurements
+
+Copy a supplied JSON script into `.local/` to adapt it. Its fields are:
+
+- `fixture`, `profile`, `machine`, optional `bios` and device `args` select the
+  game and hardware. The detected resource profile must match the requested one.
+- `media` supplies a floppy `slot` and either a content `sha256` or a `path`
+  relative to the JSON file. If both are supplied, the path's bytes must match.
+- `crop` gives integer source-screen coordinates before normalization to
+  320×200 RGB. The supplied crops are Amiga `(74,46,640,400)`, IIgs
+  `(32,16,640,200)` and PC `(0,0,320,200)`, measured on MAME 0.289 raw screen
+  snapshots. Reinspect crops when changing hardware or MAME versions.
+- `seconds` bounds the original run. `boot` contains MAME-only bootstrap input
+  with `at` in emulated seconds and natural-keyboard coded `text`, such as
+  `{ENTER}`. Keep these separate from the game scene sequence.
+- Each ordered `steps` entry has `at` and one of `key`, `input` or `capture`.
+  Keys are Enter, Escape, F9, Space, Up, Down, Left or Right; `fields`
+  optionally selects exact MAME keyboard field names instead of
+  natural-keyboard codes. Node delivers a direction key as the PC navigation
+  word, which toggles ego motion as the original's keyboard poll does; use
+  `fields` for directions on MAME (`Cursor Left` on `t1000sx` and `a500n`,
+  `Left Arrow` on `apple2gsr1`). `input` submits the
+  same command line to both engines. `capture` names the output scene.
+- A step's `engine` wait runs before its action: `advanceMs` advances a fixed
+  interval, then optional `room`, `modal` (including `null`) and `text`
+  predicates must match within `maxMs` (default 120 seconds). Confirmations are
+  `print` modals. Node consumes each input before proceeding; blocking key
+  requests park through `HostWait`, preserving visible prompts. The IIgs broom
+  sequence needs a five-second wait before its key, so the moving broom has
+  reached its destination. This is a game-state dependency, not a test retry.
+
+The game input order is shared; boot time and host pacing differ, so the two
+runs use explicit MAME times and Node state predicates rather than assuming
+that equal elapsed seconds identify equal scenes. MAME scene correspondence
+is verified visually. Node uses `rngDraw` with state and zero-state reseed 1,
+or the script's optional `seed`; the original's RNG is not replaced. A walk
+script may pick the seed whose opening ego position matches the original's
+(SQ2 wanders the ego during its intro), and may start Node captures a few
+hundred milliseconds earlier than MAME's to absorb the original's measured
+key latency. Both are alignment choices recorded in the script; state them
+when reporting. The IIgs original's intro position changes between boots,
+so its walk converges only once the ego reaches the walkway's end. Animated objects, cursor blink and mouse position may therefore
+differ. Record these limits instead of hiding them with a tolerance or mask.
+
+Outputs include raw `*-mame.png`, cropped `*-original.png`, `*-ours.png` and
+absolute per-channel `*-diff.png` (black means exact agreement), plus:
+
+- `result.json`: exact differing RGB pixels out of 64,000, RGB palette
+  histograms for both frames, and counts and mismatch bounds per region.
+  Bounds use full-screen coordinates: status rows 0–7, play rows 8–175,
+  input/spare rows 176–199. No colour correction, palette remapping or masking
+  is applied. Normalization samples the centre of each nearest-neighbour cell.
+- `engine.json`: checkpoint room, modal, text rows, tick, completed cycles,
+  the view, loop, cel, position and priority of every active object, RNG
+  seed, profile and resource hashes.
+- `provenance.json`, `drive.lua`, `mame.log`: version, revision, exact scene
+  script, command line, disk hashes, input times and keyboard field inventory.
+
+Keep the entire output private. Compare static scene content separately in the
+review notes when animation phases differ. The metric tests use synthetic RGB
+pixels and need no original media:
+`node --test --experimental-strip-types test/mame-diff.test.ts`.
 
 ## Original interpreter audio comparison
 

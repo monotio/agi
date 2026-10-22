@@ -5,7 +5,7 @@ import type { LogicAnalysisClient } from "../src/studio/logic/analysisClient.ts"
 import type * as monacoLanguage from "../src/studio/logic/monacoLanguage.ts";
 
 /**
- * Temporary editor host for the Logic Studio Monaco adapter: a real editor and
+ * Temporary editor host for the LOGIC editor Monaco adapter: a real editor and
  * model against the real analysis worker, mounted inside the running app in
  * test mode. The production host (Studio workspace) is wired separately; the
  * adapter itself owns no DOM outside this fixture.

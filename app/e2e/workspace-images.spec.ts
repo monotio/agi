@@ -84,7 +84,7 @@ test("trace an attachment and draw over it with normal tools @phone", async ({ p
     .toContain('"opacity":0.7');
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
-  const referencePixel = await page.locator('[data-layer="art"] canvas').evaluate((element) => {
+  const referencePixel = await page.locator('[data-layer="visual"] canvas').evaluate((element) => {
     const canvas = element as HTMLCanvasElement;
     return [
       ...canvas
@@ -108,11 +108,11 @@ test("trace an attachment and draw over it with normal tools @phone", async ({ p
         .getSession()
         .capture().history.commits.length,
   );
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await studio.locator('[data-tool="rect"]').click();
   await studio.getByTestId("studio-tool-filled").check();
   await studio.locator('.workspace-palette [data-colour="4"]').click();
-  const box = (await studio.locator('[data-layer="art"] canvas').boundingBox())!;
+  const box = (await studio.locator('[data-layer="visual"] canvas').boundingBox())!;
   const zoom = box.height / 168;
   await page.mouse.move(box.x + 20.5 * 2 * zoom, box.y + 110.5 * zoom);
   await page.mouse.down();
@@ -197,7 +197,7 @@ test("make a four-cel walk loop and preview it on the running hero @phone", asyn
     .getByRole("button", { name: "Make cels from an image", exact: true })
     .click({ timeout: 8000 });
   await upload(page);
-  await expect(page.getByTestId("image-frame")).toHaveCount(4);
+  await expect(page.getByTestId("image-cel")).toHaveCount(4);
   const toggle = page.getByRole("button", { name: "Pause animation", exact: true });
   await expect(toggle.locator("svg")).toBeVisible();
   await toggle.click();
@@ -370,10 +370,10 @@ test("Generate sends one styled request and Use image opens tracing @webkit-desk
     });
   });
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("picture-studio")).not.toHaveClass(/is-live-game/);
   await page.evaluate(() => document.fonts.ready);
-  await page.locator('[data-layer="art"] canvas').hover();
-  const normalCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
+  await page.locator('[data-layer="visual"] canvas').hover();
+  const normalCanvas = (await page.locator('[data-layer="visual"] canvas').boundingBox())!;
   const normalEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
   await page.getByRole("button", { name: "Generate", exact: true }).click({ timeout: 8000 });
   await page.getByTestId("generate-prompt").fill("A tree reference");
@@ -427,13 +427,15 @@ test("Generate sends one styled request and Use image opens tracing @webkit-desk
   ).toContain("A tree reference");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toHaveText(/^(?:Saved|Draft saved)$/);
-  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
-  const generatedCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
-  const generatedEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
-  expect(generatedCanvas.width).toBe(normalCanvas.width);
-  expect(generatedCanvas.height).toBe(normalCanvas.height);
-  expect(generatedEditor.width).toBe(normalEditor.width);
-  expect(generatedEditor.x).toBe(normalEditor.x);
+  await expect(page.getByTestId("picture-studio")).not.toHaveClass(/is-live-game/);
+  // Staging finishes before ResizeObserver settles the tracing canvas's fitted zoom.
+  await expect
+    .poll(async () => {
+      const canvas = (await page.locator('[data-layer="visual"] canvas').boundingBox())!;
+      const editor = (await page.getByTestId("workspace-editor").boundingBox())!;
+      return [canvas.width, canvas.height, editor.width, editor.x];
+    })
+    .toEqual([normalCanvas.width, normalCanvas.height, normalEditor.width, normalEditor.x]);
   expect(requests).toBe(1);
   await imageShot(page, "generated-trace");
 });
@@ -484,7 +486,7 @@ for (const viewport of [
     await page.getByTestId("part-view:0").click();
     await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
     await upload(page);
-    await expect(page.getByTestId("image-frame")).toHaveCount(4);
+    await expect(page.getByTestId("image-cel")).toHaveCount(4);
     const preview = page.getByTestId("image-preview-hero");
     await expect(preview).toHaveText("Preview on hero");
     await preview.scrollIntoViewIfNeeded();
@@ -652,7 +654,7 @@ test("trace opacity previews during input and serializes quick releases", async 
   await upload(page);
   const slider = page.getByTestId("trace-opacity");
   await expect(slider).toBeVisible();
-  const art = page.locator('[data-layer="art"] canvas');
+  const art = page.locator('[data-layer="visual"] canvas');
   await expect(art).toBeVisible();
   const traceRed = () =>
     art.evaluate((element) => {

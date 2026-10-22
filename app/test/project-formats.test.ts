@@ -28,7 +28,7 @@ function manualProject() {
 const decode = (value: unknown) =>
   readProjectContext(new TextEncoder().encode(JSON.stringify(value)), new Map(), "");
 
-test("manual project backups contain source without invented assistant context", async () => {
+test("manual project backups contain source without invented agent context", async () => {
   const data = manualProject();
   const opened = await readGameZip(await buildProjectZip(data));
   assert.ok(opened.project);
@@ -39,7 +39,7 @@ test("manual project backups contain source without invented assistant context",
   assert.equal((await readGameZip(buildPublicGameZip(data))).project, undefined);
 });
 
-test("v1 assistant history is preserved in a subsequent backup", async () => {
+test("v1 agent history is preserved when a subsequent backup adds optional conventions", async () => {
   const fixture = new Uint8Array(
     readFileSync(new URL("./formats/project-v1.zip", import.meta.url)),
   );
@@ -52,7 +52,7 @@ test("v1 assistant history is preserved in a subsequent backup", async () => {
     words: original.words,
   };
   const migrated = await readGameZip(await buildProjectZip(data));
-  assert.deepEqual(migrated.project, original.project);
+  assert.deepEqual(migrated.project, { ...original.project, authoringConventions: { version: 0 } });
 });
 
 test("recovery travels separately from kept source and never enters a public Game", async () => {
@@ -76,9 +76,9 @@ test("recovery travels separately from kept source and never enters a public Gam
   assert.equal(new TextDecoder().decode(buildPublicGameZip(data)).includes("unfinished"), false);
 });
 
-test("v1 rejects unknown project, recovery and assistant schemas before dropping their fields", () => {
+test("v1 rejects unknown project, recovery and agent schemas before dropping their fields", () => {
   const plain = { format: "monotio.agi.project", version: 1, authoringState: {} };
-  assert.deepEqual(decode(plain), { authoringState: {} });
+  assert.deepEqual(decode(plain), { authoringState: {}, authoringConventions: undefined });
   assert.throws(() => decode({ ...plain, version: 999 }), /version/);
   assert.throws(() => decode({ ...plain, futureContent: {} }), /field/);
   assert.throws(
@@ -155,7 +155,7 @@ test("kept workspace documents travel in Project backups separately from recover
   );
 });
 
-test("v1 export refuses invalid assistant session IDs before producing an unreadable backup", async () => {
+test("v1 export refuses invalid agent session IDs before producing an unreadable backup", async () => {
   for (const sessionId of ["", "legacy/session", "x".repeat(65)]) {
     await assert.rejects(
       buildProjectZip({

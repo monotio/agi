@@ -138,7 +138,7 @@ for (const { route, length, title } of replays.sort((a, b) => b.ticks - a.ticks)
       const node = new Speedrun(route.hash, tape.seed, { rngVersion: 2 });
       node.replay(actions);
       expect(outcome.tick).toBe(node.ticks);
-      expect(outcome.state, "the state Node reaches at the same checkpoint").toEqual(
+      expect(outcome.state, "the state Node reaches at the same progress entry").toEqual(
         node.engine.readState(),
       );
     }

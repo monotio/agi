@@ -55,11 +55,11 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await expect(page.locator(".play-area")).toBeVisible();
   const before = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(before);
-  await expect(page.getByTestId("studio-keep")).toHaveCount(0);
+  await expect(page.getByTestId("studio-commit")).toHaveCount(0);
   await page.getByTestId("workspace-focus").click();
   await expect(page.locator(".play-area")).toBeHidden();
   await expect(page.getByTestId("workspace-show-game")).toBeVisible();
@@ -177,7 +177,7 @@ for (const [width, height] of [
       expect(inner.y + inner.height).toBeLessThanOrEqual(blankScreen.y + blankScreen.height);
     }
     await page.getByTestId("empty-add-room").click();
-    await expect(page.getByTestId("room-studio")).toBeVisible();
+    await expect(page.getByTestId("picture-studio")).toBeVisible();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     // Create keeps the Play strip hidden, also when the blank stage loaded its styles first.
     await expect(page.locator(".play-strip")).toBeHidden();
@@ -195,7 +195,7 @@ test("Focus game waits for input readiness and respects a later focus choice @we
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   const command = page.getByTestId("input-line");
   await expect(command).toBeVisible();
   await expect(command).toBeEnabled();
@@ -257,7 +257,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await expect.poll(probe).not.toBeNull();
   const original = (await probe())!;
   await page.getByTestId("part-room:1:picture:1").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await studio.locator('[data-tool="rect"]').click();
   await studio.getByTestId("studio-tool-filled").check();
   await studio.locator('.workspace-palette [data-colour="4"]').click();
@@ -320,11 +320,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     .toContain("A red flower grows.");
   await page.keyboard.press("Enter");
   await page.getByTestId("part-view:0").click();
-  const sprite = page.getByTestId("sprite-studio");
-  await expect(sprite).toBeVisible();
-  await sprite.locator('[data-loop="2"][data-cel="0"]').click();
-  await sprite.getByTestId("sprite-palette").locator('[data-colour="4"]').click();
-  const cel = (await sprite.getByTestId("sprite-canvas").boundingBox())!;
+  const view = page.getByTestId("view-studio");
+  await expect(view).toBeVisible();
+  await view.locator('[data-loop="2"][data-cel="0"]').click();
+  await view.getByTestId("view-palette").locator('[data-colour="4"]').click();
+  const cel = (await view.getByTestId("view-canvas").boundingBox())!;
   const hero = await page.evaluate(async () => {
     const api = (
       window as unknown as {
@@ -351,11 +351,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     (hero.y - hero.height + 1 + Math.floor(hero.height * 0.45)) * 160 +
     hero.x +
     Math.floor(hero.width * 0.45);
-  const previousHeroPixel = await page.evaluate(
+  const previousEgoPixel = await page.evaluate(
     (index) => window.__AGI_FRAME__?.()?.visual[index],
     pixel,
   );
-  expect(previousHeroPixel).not.toBe(4);
+  expect(previousEgoPixel).not.toBe(4);
   await page.mouse.click(cel.x + cel.width * 0.45, cel.y + cel.height * 0.45);
   await workspaceUpdated(page);
   await expect
@@ -367,7 +367,7 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
   await page.getByTestId("workspace-undo").click();
   await expect
     .poll(() => page.evaluate((index) => window.__AGI_FRAME__?.()?.visual[index], pixel))
-    .toBe(previousHeroPixel);
+    .toBe(previousEgoPixel);
   await page.getByTestId("workspace-undo").click();
   await page.getByTestId("workspace-undo").click();
   await page.getByTestId("workspace-undo").click();
@@ -407,7 +407,7 @@ for (const size of [{ width: 1440, height: 900 }]) {
     const shot = (name: string) =>
       reviewShot(page, `${test.info().project.name || "chromium"}-${size.width}-${name}`);
     await page.getByTestId("part-room:1:picture:1").click();
-    await expect(page.getByTestId("room-studio")).toBeVisible();
+    await expect(page.getByTestId("picture-studio")).toBeVisible();
     await shot("picture");
     await page.getByTestId("workspace-focus").click();
     await shot("picture-focus");
@@ -442,7 +442,7 @@ for (const size of [{ width: 1440, height: 900 }]) {
     await expect(page.getByTestId("workspace-problems")).toBeHidden();
     await page.getByTestId("workspace-show-game").click();
     await page.getByTestId("part-view:0").click();
-    await expect(page.getByTestId("sprite-studio")).toBeVisible();
+    await expect(page.getByTestId("view-studio")).toBeVisible();
     const editorBox = (await page.getByTestId("workspace-editor").boundingBox())!;
     expect(editorBox.y + editorBox.height).toBeGreaterThanOrEqual(size.height - 1);
     await shot("view");
@@ -657,7 +657,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await keyboardOpen(page, "PICTURE 1");
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await tabTo(page, studio.locator(".studio__stage"));
   await page.keyboard.press("b");
@@ -712,14 +712,14 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     .toContain("Keyboard flower.");
   await page.keyboard.press("Enter");
   await keyboardOpen(page, "VIEW 0");
-  const sprite = page.getByTestId("sprite-studio");
-  await expect(sprite).toBeVisible();
-  await tabTo(page, sprite.locator('[data-loop][data-cel][tabindex="0"]'));
+  const view = page.getByTestId("view-studio");
+  await expect(view).toBeVisible();
+  await tabTo(page, view.locator('[data-loop][data-cel][tabindex="0"]'));
   const currentLoop = Number(
     await page.evaluate(() => document.activeElement?.getAttribute("data-loop")),
   );
   for (let i = currentLoop; i < 2; i++) await page.keyboard.press("ArrowDown");
-  await tabTo(page, sprite.locator('[data-testid="sprite-palette"] [tabindex="0"]'));
+  await tabTo(page, view.locator('[data-testid="view-palette"] [tabindex="0"]'));
   for (
     let i = 0;
     i < 16 &&
@@ -757,7 +757,7 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     pixel,
   );
   expect(beforePixel).not.toBe(4);
-  await tabTo(page, sprite.getByTestId("sprite-stage"));
+  await tabTo(page, view.getByTestId("view-stage"));
   await page.keyboard.press("b");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
@@ -848,20 +848,20 @@ test("adding a room leaves play in place until Update and restart enters it", as
   await rename.press("Enter");
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await page.getByTestId("part-room:2:picture:2").click();
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   expect((await textHook(page)).room).toBe(1);
   const action = page.getByTestId("workspace-update");
   await expect(action).toBeVisible();
   await expect(action).toHaveAccessibleName("Update and restart Garden");
   await action.click();
-  await expect(page.getByTestId("room-studio").locator(".studio-pane")).toBeVisible();
+  await expect(page.getByTestId("picture-studio").locator(".studio-pane")).toBeVisible();
   // Restart creates a new run with its own cycle counter.
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(action).toHaveAccessibleName("Restart Garden");
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
-  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
-  await expect(page.getByTestId("room-studio").locator(".play-area")).toHaveCount(0);
+  await expect(page.getByTestId("picture-studio")).not.toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("picture-studio").locator(".play-area")).toHaveCount(0);
   await expect(page.locator(".play-area")).toBeVisible();
   const bar = page.getByTestId("workspace-game-bar");
   await expect(bar).toBeVisible();
@@ -954,7 +954,8 @@ test("Undo and History restore apply while a game message waits", async ({ page 
   await page.keyboard.press("Control+`");
   await page.keyboard.type("look");
   await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
+  // The 30-column print window wraps the line after "sunny" (docs/fidelity.md F-text-01).
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toMatch(/sunny\s+clearing/);
   await page.getByTestId("workspace-undo").click();
   await expect(page.locator(".monaco-editor")).not.toContainText("Instant Undo");
   await expect(page.getByTestId("workspace-redo")).toBeEnabled();
@@ -962,7 +963,7 @@ test("Undo and History restore apply while a game message waits", async ({ page 
   await expect(page.getByTestId("workspace-live")).toHaveText("Now");
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
-    .not.toContain("sunny clearing");
+    .not.toMatch(/sunny\s+clearing/);
   await page.getByTestId("workspace-redo").click();
   await expect(page.locator(".monaco-editor")).toContainText("Instant Undo");
   await page.getByTestId("workspace-saved").click();
@@ -1002,7 +1003,7 @@ for (const size of [{ width: 1440, height: 900 }]) {
     expect(area.width).toBeGreaterThan(body.width - parts.width - 10);
     await shot("idle-create");
     await page.getByTestId("part-room:1:picture:1").click();
-    const studio = page.getByTestId("room-studio");
+    const studio = page.getByTestId("picture-studio");
     await expect(studio.getByRole("radiogroup", { name: "Lens", exact: true })).toBeVisible();
     await expect(studio.getByRole("radio", { name: "Visual", exact: true })).toHaveAttribute(
       "aria-checked",
@@ -1023,15 +1024,15 @@ for (const size of [{ width: 1440, height: 900 }]) {
     await expect(studio.getByTestId("studio-value-priority")).toBeVisible();
     await expect(studio.getByTestId("studio-value-priority")).toHaveText("None");
     await expect(studio.getByTestId("studio-value-priority")).toBeDisabled();
-    await studio.getByTestId("explain-drawing-depth").click();
+    await studio.getByTestId("explain-drawing-priority").click();
     await expect(page.getByTestId("explain-pop")).toContainText("drawing tools");
     await page.keyboard.press("Escape");
     await shot("picture");
     await page.getByTestId("part-view:0").click();
-    const panel = (await page.locator(".sprite-studio__panel").boundingBox())!;
+    const panel = (await page.locator(".view-studio__panel").boundingBox())!;
     expect(panel.width).toBeGreaterThanOrEqual(290);
     const optionsFit = await page
-      .locator(".sprite-options")
+      .locator(".view-options")
       .evaluate((element) => element.scrollWidth <= element.clientWidth);
     expect(optionsFit).toBe(true);
     const edit = (await page.getByTestId("workspace-editor").boundingBox())!;
@@ -1076,7 +1077,7 @@ test("parts show keyboard focus and align the VIEW thumbnail with other rows", a
   await starter(page);
   const part = page.getByTestId("part-view:0");
   await part.click();
-  await expect(page.getByTestId("sprite-studio")).toBeVisible();
+  await expect(page.getByTestId("view-studio")).toBeVisible();
   await part.click();
   await expect(part).toBeFocused();
   await expect.soft(page.getByTestId("parts-list")).toHaveCSS("outline-style", "none");

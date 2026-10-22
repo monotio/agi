@@ -1,3 +1,4 @@
+import { projectConventions } from "../../../src/authoring/projectConventions.ts";
 /**
  * Shared project-archive format helpers used by both the synchronous
  * readers/public ZIP writer (`projectArchive.ts`) and the on-demand full
@@ -6,6 +7,7 @@
  * Conversation validation lives in `projectConversation.ts`, where the
  * entry composables reach it without anchoring these archive helpers.
  */
+import { isAuxiliaryFileName } from "../../../src/container/playableFiles.ts";
 import type { ZipFileInput } from "./zip.ts";
 import { publicGameMetadata, isPlayableFileName } from "../project/gameMetadata.ts";
 import { buildObjectFile } from "../../../src/agent/agentState.ts";
@@ -24,14 +26,25 @@ export const PROJECT_SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
  * same bytes it was imported as, with the same revision.
  */
 export function gameEntries(
-  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
+  data: Pick<
+    CachedGameData,
+    | "files"
+    | "title"
+    | "roomGeneration"
+    | "library"
+    | "authoringConventions"
+    | "templateId"
+    | "provider"
+    | "sessionId"
+    | "imported"
+  >,
   supplyInventory = true,
 ): ZipFileInput[] {
   const files = new Map(Object.entries(data.files));
   if (supplyInventory && !files.has("OBJECT"))
     files.set("OBJECT", buildObjectFile([], detectProfile(files, data.library?.profile)));
   const entries = [...files]
-    .filter(([name]) => isPlayableFileName(name))
+    .filter(([name]) => isPlayableFileName(name) || isAuxiliaryFileName(name))
     .map(([name, bytes]) => ({ name, data: bytes }) as ZipFileInput);
   entries.push({
     name: "GAME.JSON",
@@ -40,6 +53,7 @@ export function gameEntries(
       version: 1,
       metadata: publicGameMetadata(data.library),
       title: data.title,
+      authoringConventions: projectConventions(data),
       // The player's interpreter choice travels with the game; detection
       // evidence does not — the importer checks the opening itself.
       ...(data.library?.profile ? { profile: data.library.profile } : {}),

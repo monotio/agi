@@ -52,6 +52,7 @@ export async function mount(input: {
           documentKey: input.key,
           source: source.value,
           snapshot: snapshot.value,
+          savedSnapshot: snapshot.value,
           profileId: input.profileId,
           active: true,
           onEdit: (text: string) => {

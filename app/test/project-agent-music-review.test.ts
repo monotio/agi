@@ -17,17 +17,17 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
-test("removing authored music intent stays removed through Keep and reopen", async () => {
+test("removing authored music intent stays removed through commit and reopen", async () => {
   const project = prepareLocalProject({ title: "Clear cue intent", kind: "blank" });
   await project.save();
   const workspace = await openEditableProject(project.projectId);
   const music = '{"9":{"revision":"21-12345678","tempo":120}}';
   workspace.draft.edit("music", music, workspace.draft.capture().version("music"));
-  await workspace.keepCandidate(workspace.buildSelected(["music"]));
+  await workspace.commitCandidate(workspace.buildSelected(["music"]));
   const editing = await openEditableProject(project.projectId);
   const snapshot = editing.draft.capture();
   editing.draft.edit("music", null, snapshot.version("music"));
-  await editing.keepCandidate(editing.buildSelected(["music"]));
+  await editing.commitCandidate(editing.buildSelected(["music"]));
   const stored = await loadAuthoredGame(project.projectId);
   assert.ok(stored);
   assert.equal(readProjectWorkspace(stored.workspace)["music"], undefined);

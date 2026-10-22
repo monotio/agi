@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { EGA_PALETTE } from "../../render/palette.ts";
-import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/itemGroups.ts";
 import type { paletteContext } from "../useStudioPalette.ts";
 import { CONTROL_VALUES, priorityMeaning } from "../studioView.ts";
 const {
@@ -14,14 +14,15 @@ const {
   disabled?: boolean;
 }>();
 const emit = defineEmits<{ choose: [value: number] }>();
-const state = computed(() => context ?? { action: "draw", lens: "art" });
+const palette = useGamePalette();
+const state = computed(() => context ?? { action: "draw", lens: "visual" });
 /**
  * Visual offers the 16 colours. Priority offers the four control lines
- * (wall, gate, trigger, water), then the distance bands 4–15, each marked
+ * (wall, gate, trigger, water), then the priority bands 4–15, each marked
  * with the colour the canvas paints it in.
  */
 const options = computed(() => {
-  if (state.value.lens === "art")
+  if (state.value.lens === "visual")
     return Array.from({ length: 16 }, (_, value) => ({
       value,
       colour: value,
@@ -38,7 +39,7 @@ const options = computed(() => {
     ...Array.from({ length: 12 }, (_, k) => ({
       value: k + 4,
       colour: k + 4,
-      label: `Depth ${k + 4}: ${priorityMeaning(k + 4)}`,
+      label: `Priority ${k + 4}: ${priorityMeaning(k + 4)}`,
       text: String(k + 4),
     })),
   ];
@@ -62,7 +63,7 @@ function key(event: KeyboardEvent, index: number): void {
       class="workspace-palette__choices"
       :class="`is-${state.lens}`"
       role="radiogroup"
-      :aria-label="state.lens === 'art' ? 'Palette' : 'Priority'"
+      :aria-label="state.lens === 'visual' ? 'Palette' : 'Priority'"
     >
       <button
         v-for="(option, index) in options"
@@ -80,10 +81,10 @@ function key(event: KeyboardEvent, index: number): void {
         :title="option.label"
         :disabled
         :data-colour="option.value"
-        :class="{ 'is-band-start': state.lens !== 'art' && option.value === 4 }"
+        :class="{ 'is-band-start': state.lens !== 'visual' && option.value === 4 }"
         :style="
-          state.lens === 'art'
-            ? { background: `rgb(${EGA_PALETTE[option.colour]!.join(',')})` }
+          state.lens === 'visual'
+            ? { background: paletteCss(palette, option.colour) }
             : { '--mark': `var(--agi-${option.colour})` }
         "
         @click="emit('choose', option.value)"
@@ -139,10 +140,10 @@ button {
   cursor: pointer;
 }
 /* Priority values keep their number readable over a strip of the canvas colour. */
-.is-depth button {
+.is-priority button {
   box-shadow: inset 0 -4px 0 0 var(--mark);
 }
-.is-depth .is-band-start {
+.is-priority .is-band-start {
   margin-left: var(--space-2);
 }
 button[aria-checked="true"] {

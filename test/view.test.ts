@@ -346,11 +346,24 @@ describe("drawCel", () => {
     drawCel(surface, cel, 8, 10, { priority: 4 });
     assert.deepEqual(cell(surface, 8, 10), { visual: 6, priority: 0 });
 
-    // Column 9 below row 20 is all control value 1: the scan reaches the
-    // bottom, comparison 0, so even priority 0 draws.
+    // Column 9 below row 20 is all control value 1. On PC the scan stops at
+    // row 167 holding that row's control value, 1 (docs/fidelity.md F-VIEWS-07,
+    // KQ3 IBM_OBJS.OVL +0x0116..0x0133): priority 0 stays hidden, priority 1
+    // draws. On Amiga and IIgs the scan runs past the buffer and falls back to
+    // 4, hiding priority 3 and drawing priority 4.
     for (let y = 20; y < 168; y++) surface.priority[y * SCREEN_WIDTH + 9] = 1;
-    drawCel(surface, cel, 9, 20, { priority: 0 });
+    drawCel(surface, cel, 9, 20, { priority: 3, controlScanFallbackPriority: 4 });
+    assert.deepEqual(cell(surface, 9, 20), { visual: 15, priority: 1 });
+    drawCel(surface, cel, 9, 20, { priority: 4, controlScanFallbackPriority: 4 });
     assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
+    surface.visual[20 * SCREEN_WIDTH + 9] = 15;
+    drawCel(surface, cel, 9, 20, { priority: 0 });
+    assert.deepEqual(cell(surface, 9, 20), { visual: 15, priority: 1 });
+    drawCel(surface, cel, 9, 20, { priority: 1 });
+    assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
+    // A control pixel on row 167 itself scans nothing: comparison 0.
+    drawCel(surface, cel, 9, 167, { priority: 0 });
+    assert.deepEqual(cell(surface, 9, 167), { visual: 6, priority: 1 });
   });
 
   it("shifts left to fit the right edge and clips rows below the bottom", () => {
@@ -380,6 +393,22 @@ describe("drawCel", () => {
     assert.deepEqual(cell(surface, 19, 1), { visual: 6, priority: 7 });
     assert.deepEqual(cell(surface, 19, 2), { visual: 7, priority: 7 });
     assert.deepEqual(cell(surface, 20, 0), { visual: 15, priority: 4 });
+  });
+
+  it("clips negative top and right edge in place and masks priority to its low nibble when clipInPlaceAndMaskPriority is set (F-VIEWS-05, F-VIEWS-07)", () => {
+    const surface = createPictureSurface();
+    const wide = makeCel(4, 1, 0, [1, 2, 3, 4]);
+    drawCel(surface, wide, 158, 5, { priority: 7, clipInPlaceAndMaskPriority: true });
+    assert.deepEqual(cell(surface, 157, 5), { visual: 15, priority: 4 });
+    assert.deepEqual(cell(surface, 158, 5), { visual: 1, priority: 7 });
+    assert.deepEqual(cell(surface, 159, 5), { visual: 2, priority: 7 });
+
+    const cel = makeCel(1, 3, 0, [5, 6, 7]);
+    // top = 1 - 3 + 1 = -1 -> row -1 clips away; rows 0 and 1 land at column 20 with priority (0x17 & 0x0f) = 7.
+    drawCel(surface, cel, 20, 1, { priority: 0x17, clipInPlaceAndMaskPriority: true });
+    assert.deepEqual(cell(surface, 20, 0), { visual: 6, priority: 7 });
+    assert.deepEqual(cell(surface, 20, 1), { visual: 7, priority: 7 });
+    assert.deepEqual(cell(surface, 19, 0), { visual: 15, priority: 4 });
   });
 });
 

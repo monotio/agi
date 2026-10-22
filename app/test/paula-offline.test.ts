@@ -26,16 +26,29 @@ interface Boundary {
 // case that has its fixture.
 let renderer: Promise<{ server: RunningFixtureServer; browser: Browser }> | undefined;
 function startRenderer() {
-  renderer ??= Promise.all([startFixtureServer([]), chromium.launch({ headless: true })]).then(
-    ([server, browser]) => ({ server, browser }),
-  );
+  renderer ??= (async () => {
+    const [serverResult, browserResult] = await Promise.allSettled([
+      startFixtureServer([]),
+      chromium.launch({ headless: true }),
+    ]);
+    if (serverResult.status === "rejected") {
+      if (browserResult.status === "fulfilled") await browserResult.value.close();
+      throw serverResult.reason;
+    }
+    if (browserResult.status === "rejected") {
+      await serverResult.value.close();
+      throw browserResult.reason;
+    }
+    return { server: serverResult.value, browser: browserResult.value };
+  })();
   return renderer;
 }
 after(async () => {
   if (!renderer) return;
-  const { server, browser } = await renderer;
-  await browser.close();
-  await server.close();
+  const settled = await renderer.catch(() => null);
+  if (!settled) return;
+  await settled.browser.close();
+  await settled.server.close();
 });
 
 const renderDir = process.env["AGI_AUDIO_RENDER_DIR"];

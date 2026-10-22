@@ -16,7 +16,7 @@ import {
 import type { AuthoringState } from "../../../../src/authoring/authoringState.ts";
 import { inspectLaunches, repairLaunches } from "./launchRecovery.ts";
 import { renameRoomTitle } from "../../../../src/authoring/world.ts";
-import { gameRoomMenu, roomMenuArmed } from "../../play/roomActionMenu.ts";
+import { gameRoomMenu } from "../../play/roomActionMenu.ts";
 import UiDialog from "../../ui/UiDialog.vue";
 import GuidedAdd from "./GuidedAdd.vue";
 import ContextActions, { type ContextAction } from "./ContextActions.vue";
@@ -36,7 +36,6 @@ import {
   computed,
   defineAsyncComponent,
   onBeforeUnmount,
-  onMounted,
   onWatcherCleanup,
   ref,
   shallowRef,
@@ -68,6 +67,7 @@ import type { ProjectHistoryState } from "../../../../src/authoring/projectHisto
 import type { ProjectSession } from "../../project/projectSession.ts";
 import { layoutDragging } from "../../play/layoutDrag.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
+import { useGamePalette, useGamePaletteVars } from "../../render/useGamePalette.ts";
 import { workspaceStudioContext } from "./studioContext.ts";
 import type { PlayHereTarget } from "../../../../src/runtime/playHere.ts";
 import type { BindingKind } from "../../../../src/agent/authoringState.ts";
@@ -93,6 +93,7 @@ import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
 import { derivedLogicSource } from "../logic/logicWorkspace.ts";
 import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
 import { createWorkspacePending } from "./workspacePending.ts";
+import { createWorkspaceHistorySummary } from "./workspaceHistorySummary.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
@@ -211,13 +212,13 @@ const TableEditor = defineAsyncComponent({
   loadingComponent: EditorLoading,
   delay: 0,
 });
-const RoomStudio = defineAsyncComponent({
-  loader: () => import("../RoomStudio.vue"),
+const PictureStudio = defineAsyncComponent({
+  loader: () => import("../PictureStudio.vue"),
   loadingComponent: EditorLoading,
   delay: 0,
 });
-const SpriteStudio = defineAsyncComponent({
-  loader: () => import("../sprite/SpriteStudio.vue"),
+const ViewStudio = defineAsyncComponent({
+  loader: () => import("../view/ViewStudio.vue"),
   loadingComponent: EditorLoading,
   delay: 0,
 });
@@ -254,12 +255,14 @@ const profile = computed(() => engine.roomMap.resources.value.profile!);
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
 // Vue calls a function ref on every patch of its element; writing the same element to the
-// shallowRef again triggers nothing, so Room Studio moves only when the row mounts or unmounts.
+// shallowRef again triggers nothing, so PICTURE editor moves only when the row mounts or unmounts.
 function setContextTarget(element: Element | ComponentPublicInstance | null): void {
   editor.contextTarget.value = element instanceof HTMLElement ? element : null;
 }
 const commands = useOptionalCommands();
 const presentation = usePresentation();
+useGamePaletteVars(() => props.creating);
+const gamePalette = useGamePalette();
 const InspectPanel = defineAsyncComponent(() => import("../../inspector/InspectPanel.vue"));
 const phoneQuery = window.matchMedia("(max-width: 600px)");
 const phoneWidth = ref(phoneQuery.matches);
@@ -474,6 +477,7 @@ const {
   profile: () => profile.value.id,
 });
 const historyState = shallowRef<ProjectHistoryState>();
+const historySummary = createWorkspaceHistorySummary();
 const optimistic = shallowRef<Record<string, ProjectContent>>({});
 let offDrafts: (() => void) | undefined;
 let draftKeys = "";
@@ -562,11 +566,14 @@ function refresh(): void {
         traceUnderlays.value = Object.fromEntries(
           capture.snapshot.keys
             .filter((key) => key.startsWith("picture:"))
-            .map((key) => [key, presentTrace(session!, key, imageTraceUnderlay(documents, key))]),
+            .map((key) => [
+              key,
+              presentTrace(session!, key, imageTraceUnderlay(documents, key, gamePalette.value)),
+            ]),
         );
       });
     });
-  } else traceUnderlays.value = {};
+  } else if (Object.keys(traceUnderlays.value).length) traceUnderlays.value = {};
   const draftStatus = session.drafts().status();
   writeConflict.value =
     capture.save.state === "conflict" || draftStatus.error.includes("another tab");
@@ -575,6 +582,7 @@ function refresh(): void {
     session.pendingChanges || editor.busy.value || draftStatus.pending || !!draftStatus.error;
   if (writeConflict.value) editor.error.value = "";
   historyState.value = capture.history;
+  historySummary.update(capture.history);
   editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
     capture.save.state === "saved"
@@ -588,11 +596,9 @@ function refresh(): void {
       : capture.save.state === "pending" || capture.save.state === "saving"
         ? "Saving…"
         : capture.save.message;
-  editor.canUndo.value =
-    draftStatus.canUndo ||
-    !!capture.history.commits.find((commit) => commit.id === capture.history.cursor)?.parent;
-  editor.canRedo.value =
-    draftStatus.canRedo || (!draftStatus.canUndo && capture.history.future.length > 0);
+  const navigation = historySummary.read(draftStatus);
+  editor.canUndo.value = navigation.canUndo;
+  editor.canRedo.value = navigation.canRedo;
 }
 function attach(): void {
   const next = engine.getProjectSession();
@@ -601,6 +607,7 @@ function attach(): void {
     session = next;
     sessionOpen.value = session !== null;
     offDrafts?.();
+    historySummary.update(undefined);
     optimistic.value = {};
     deletedParts.value = [];
     partRemovalReview.value = undefined;
@@ -622,6 +629,7 @@ function attach(): void {
   }
   refresh();
 }
+watch(gamePalette, () => refresh());
 watch(() => [engine.state.phase, engine.state.patchTick, engine.state.status], attach, {
   immediate: true,
 });
@@ -937,13 +945,13 @@ const pictureWalks = computed(() =>
       }),
   ),
 );
-const spriteContexts = computed(() =>
+const viewContexts = computed(() =>
   Object.fromEntries(
     editor.retained.value
       .filter((key) => key.startsWith("view:"))
       .map((key) => [
         key,
-        studioContext.value.sprite(
+        studioContext.value.view(
           Number(key.slice(5)),
           engine.roomMap.currentRoom.value ?? undefined,
         ),
@@ -958,7 +966,7 @@ const selectedRoom = computed(() => {
     return Number.isFinite(room) ? room : undefined;
   }
   const uses = key.startsWith("view:")
-    ? (spriteContexts.value[key]?.usage.rooms ?? [])
+    ? (viewContexts.value[key]?.usage.rooms ?? [])
     : groups.value
         .flatMap((group) => group.entries)
         .filter((row) => row.key === key && row.room !== undefined)
@@ -968,7 +976,7 @@ const selectedRoom = computed(() => {
   if (
     key.startsWith("view:") &&
     current !== null &&
-    (spriteContexts.value[key]?.usage.logics.includes(0) ||
+    (viewContexts.value[key]?.usage.logics.includes(0) ||
       (livePreview.value.state?.vars[0] === current &&
         livePreview.value.objects.some((object) => object.view === Number(key.slice(5)))))
   )
@@ -1099,7 +1107,7 @@ const unusedArt = computed(
 // A VIEW that LOGIC picks at run time counts as used once the running room shows it. An update
 // restarts the room, and a read before the room's first cycle finds no objects yet, so while the
 // note says unused, the next few heartbeats in which the game ran check again. Then the reads stop:
-// a sprite left open does not keep the worker and Create busy for the rest of the session.
+// a view left open does not keep the worker and Create busy for the rest of the session.
 watch(
   () => (unusedArt.value && editor.kind.value === "view" ? engine.currentCycle.value : undefined),
   (cycle) => {
@@ -1459,9 +1467,12 @@ function draftChanged(force = false): void {
   if (!session || retired) return;
   const drafts = session.drafts();
   const changes = pendingParts.changes(snapshot.value, drafts.changes());
-  deletedParts.value = changes
-    .filter((change) => change.content === null)
-    .map((change) => change.key);
+  const deleted = changes.filter((change) => change.content === null).map((change) => change.key);
+  if (
+    deleted.length !== deletedParts.value.length ||
+    deleted.some((key, index) => key !== deletedParts.value[index])
+  )
+    deletedParts.value = deleted;
   const next: Record<string, ProjectContent> = {};
   for (const { key, content: value } of changes) if (value !== null) next[key] = value;
   const metadata = { world: next["world"], bindings: next["bindings"] };
@@ -1477,19 +1488,17 @@ function draftChanged(force = false): void {
   const parts = pendingParts.parts(snapshot.value, changes);
   if (parts.slice().sort().join("\0") !== draftMembership.value.slice().sort().join("\0"))
     draftMembership.value = parts;
-  const textChanged = changes.some(
-    ({ key, content }) =>
-      (key === "notes" || key.startsWith("logic:")) && optimistic.value[key] !== content,
+  const contentChanged = changes.some(
+    ({ key, content }) => content !== null && optimistic.value[key] !== content,
   );
-  if (force || keys !== draftKeys || textChanged) {
+  if (force || membershipChanged || contentChanged) {
     optimistic.value = next;
     draftKeys = keys;
   } else Object.assign(optimistic.value, next);
   const state = drafts.status();
-  const history = session.capture().history;
-  editor.canUndo.value =
-    state.canUndo || !!history.commits.find((commit) => commit.id === history.cursor)?.parent;
-  editor.canRedo.value = state.canRedo || (!state.canUndo && history.future.length > 0);
+  const navigation = historySummary.read(state);
+  editor.canUndo.value = navigation.canUndo;
+  editor.canRedo.value = navigation.canRedo;
   if (!state.error && editor.error.value === draftError) editor.error.value = "";
   draftError = state.error;
   editor.changeCount.value = parts.length;
@@ -2057,10 +2066,19 @@ const guidedSnapshot = computed(() => {
   void snapshot.value;
   return workingSnapshot();
 });
-/** Right-click on the game offers the current room's actions, whichever editor is open. */
-onMounted(() => {
-  roomMenuArmed.value = true;
-});
+/**
+ * Right-click on the game offers the current room's actions only while
+ * Create is on stage; the play area derives that from the mode itself, so
+ * the gesture has an owner before this lazily mounted workspace could
+ * answer. An open menu still retires with the mode.
+ */
+watch(
+  () => props.creating,
+  (creating) => {
+    if (!creating) gameRoomMenu.value = undefined;
+  },
+  { immediate: true },
+);
 watch(gameRoomMenu, (open) => {
   if (!open) return;
   const keys = (event: KeyboardEvent) => {
@@ -2069,7 +2087,7 @@ watch(gameRoomMenu, (open) => {
   window.addEventListener("keydown", keys);
   onWatcherCleanup(() => window.removeEventListener("keydown", keys));
 });
-function pickRoomAction(kind: "door" | "response" | "place-hero" | "play-sound"): void {
+function pickRoomAction(kind: "door" | "response" | "place-ego" | "play-sound"): void {
   const menu = gameRoomMenu.value;
   gameRoomMenu.value = undefined;
   if (!menu) return;
@@ -2541,7 +2559,6 @@ editor.unsavedEdits.value = () => {
   return buffers;
 };
 onBeforeUnmount(() => {
-  roomMenuArmed.value = false;
   gameRoomMenu.value = undefined;
   document.removeEventListener("focusin", trackGameFocus);
   document.removeEventListener("focusout", trackGameFocus);
@@ -2875,6 +2892,7 @@ onBeforeUnmount(() => {
         :thumbnails
         :views="viewThumbnails"
         :sounds="guidedSounds"
+        :game-files="files"
         :new-room="() => guidedAction({ kind: 'add-room', title: '' }, { stay: true })"
         @add="guidedAction"
       />
@@ -2980,7 +2998,7 @@ onBeforeUnmount(() => {
           refresh();
         "
       />
-      <RoomStudio
+      <PictureStudio
         :read-only="editingPaused || actionBusy"
         v-if="key.startsWith('picture:') && native(key) && profile"
         :active="creating && key === editor.selected.value"
@@ -3009,7 +3027,7 @@ onBeforeUnmount(() => {
         :files="files"
         @edit="edit(key, $event)"
       />
-      <SpriteStudio
+      <ViewStudio
         :location="
           editor.agentTarget.value?.resource === key ? editor.agentTarget.value : undefined
         "
@@ -3019,8 +3037,8 @@ onBeforeUnmount(() => {
         :workspace-focus="editor.focus.value || phoneWidth"
         :active="creating && key === editor.selected.value && imagePanel !== key"
         embedded
-        :usage="spriteContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
-        :rooms="spriteContexts[key]?.rooms ?? []"
+        :usage="viewContexts[key]?.usage ?? { rooms: [], logics: [], dynamic: false }"
+        :rooms="viewContexts[key]?.rooms ?? []"
         :speed="livePreview.state?.vars[10] ?? 2"
         :cyclers="previewCyclers"
         :priority-base="livePreview.state?.priorityBase"
@@ -3061,6 +3079,7 @@ onBeforeUnmount(() => {
         :location="logicLocation?.key === key ? logicLocation : undefined"
         :source="text(key)!"
         :snapshot="languageSnapshot ?? snapshot"
+        :saved-snapshot="snapshot"
         :profile-id="profile.id"
         :diagnostics
         :active="creating && key === editor.selected.value"
@@ -3102,6 +3121,7 @@ onBeforeUnmount(() => {
         :bytes="soundBytes(key)"
         :tempo="soundTempo(key)"
         :sounds="guidedSounds"
+        :game-files="files"
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="(bytes, tempo) => editSound(key, bytes, tempo)"
@@ -3236,7 +3256,7 @@ onBeforeUnmount(() => {
     <div id="workspace-history-errors"></div>
     <p>{{ VOCABULARY.history.help }}</p>
     <form @submit.prevent="nameVersion">
-      <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton
+      <input v-model="versionName" aria-label="Version name" placeholder="Opening room" /><UiButton
         size="sm"
         type="submit"
         :disabled="editingPaused || editor.busy.value"
@@ -3313,7 +3333,7 @@ onBeforeUnmount(() => {
   </aside>
   <div
     v-if="creating && gameRoomMenu"
-    class="game-room-menu__backdrop"
+    class="game-room-menu__background"
     @click="gameRoomMenu = undefined"
     @contextmenu.prevent="gameRoomMenu = undefined"
   >
@@ -3329,9 +3349,7 @@ onBeforeUnmount(() => {
       <button type="button" role="menuitem" @click="pickRoomAction('response')">
         Answer a sentence
       </button>
-      <button type="button" role="menuitem" @click="pickRoomAction('place-hero')">
-        Place hero
-      </button>
+      <button type="button" role="menuitem" @click="pickRoomAction('place-ego')">Place hero</button>
       <button type="button" role="menuitem" @click="pickRoomAction('play-sound')">
         Sound when…
       </button>
@@ -3368,7 +3386,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.game-room-menu__backdrop {
+.game-room-menu__background {
   position: fixed;
   inset: 0;
   z-index: var(--z-popover);

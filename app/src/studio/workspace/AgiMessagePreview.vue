@@ -2,14 +2,17 @@
 import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref } from "vue";
 import {
   TextSurface,
-  wrapLines,
-  placeWindow,
-  drawWindow,
+  attr,
+  windowLines,
+  placePrintWindow,
+  printWindowLayout,
+  stampWindow,
 } from "../../../../src/runtime/textSurface.ts";
+import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { compositeFrame } from "../../render/composite.ts";
 import { usePresentation } from "../../play/usePresentation.ts";
 import type { AgiStage } from "../../three/AgiStage.ts";
-const { text } = defineProps<{ text: string }>();
+const { text, profile } = defineProps<{ text: string; profile: AgiProfile }>();
 const preview = useTemplateRef("preview");
 const canvas = useTemplateRef("canvas");
 const flatCanvas = useTemplateRef("flatCanvas");
@@ -26,14 +29,20 @@ let starting = false;
 function render(): void {
   if (!stage && !fallback) return;
   const surface = new TextSurface();
-  const lines = wrapLines(text, 30);
-  drawWindow(surface, placeWindow(lines, 1), lines, 0xf0, 0xf4);
+  const layout = printWindowLayout(profile);
+  const lines = windowLines(text, 30, layout.maxLines);
+  // The window opens at the running game's picture row (configure.screen can
+  // move it), falling back to the profile's boot layout before a frame lands.
+  const row = presentation.lastFrame.value?.picRow ?? layout.displayBase;
+  stampWindow(surface, placePrintWindow(lines, row, layout.geometry), lines, attr(0, 15));
   const pixels = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
     {
+      appearance: presentation.appearance,
       visual: presentation.lastFrame.value?.visual ?? new Uint8Array(160 * 168),
       text: surface.cells,
-      picRow: 1,
+      windowOverlay: surface.overlay,
+      picRow: row,
     },
     pixels,
   );
@@ -98,6 +107,9 @@ onMounted(() => {
   visibility.observe(preview.value!);
 });
 watch(() => text, render);
+watch(() => presentation.look.value, render);
+watch(() => presentation.lastFrame.value?.picRow, render);
+watch(() => [profile.windowFrameGeometry, profile.presentation], render);
 onBeforeUnmount(() => {
   closed = true;
   visibility?.disconnect();
@@ -127,7 +139,7 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   max-width: 480px;
-  aspect-ratio: 8 / 5;
+  aspect-ratio: var(--game-aspect, 8 / 5);
   image-rendering: pixelated;
   border-radius: var(--radius);
   overflow: hidden;

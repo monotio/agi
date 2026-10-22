@@ -233,22 +233,21 @@ function readInventoryItems(value: unknown): InventoryItem[] {
   if (!Array.isArray(value) || value.length > 256)
     throw new Error("Invalid inventory document: expected at most 256 {name, startingRoom} items.");
   return value.map((entry) => {
-    const item = asRecord(entry, "inventory item");
+    const item = asRecord(entry, "object");
     rejectUnknownFields(item, ["name", "startingRoom"]);
-    if (typeof item["name"] !== "string")
-      throw new Error("Invalid inventory item: 'name' must be text.");
+    if (typeof item["name"] !== "string") throw new Error("Invalid object: 'name' must be text.");
     const name = item["name"];
     for (let i = 0; i < name.length; i++) {
       const code = name.charCodeAt(i);
       if (code === 0 || code > 0xff)
-        throw new Error(`Invalid inventory item name '${name}': characters must be single bytes.`);
+        throw new Error(`Invalid object name '${name}': characters must be single bytes.`);
     }
     const room = item["startingRoom"];
     if (
       room !== undefined &&
       (!Number.isInteger(room) || (room as number) < 0 || (room as number) > 255)
     )
-      throw new Error(`Invalid inventory item '${name}': startingRoom must be an integer 0..255.`);
+      throw new Error(`Invalid object '${name}': startingRoom must be an integer 0..255.`);
     return { name, startingRoom: room === undefined ? 0 : (room as number) };
   });
 }

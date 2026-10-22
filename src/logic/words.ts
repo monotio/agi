@@ -241,9 +241,17 @@ export function matchDictionaryPhrase(
   tokens: readonly string[],
   start: number,
   dictionary: ReadonlyMap<string, number>,
+  defaultLoneAAndI = true,
 ): { text: string; id: number | undefined; length: number } {
   let text = tokens[start] ?? "";
-  let matched = { text, id: dictionary.get(text), length: 1 };
+  const first = text.charCodeAt(0);
+  if (first < 0x61 || first > 0x7a) return { text, id: undefined, length: 1 };
+  const explicit = dictionary.get(text);
+  let matched = {
+    text,
+    id: explicit ?? (defaultLoneAAndI && (text === "a" || text === "i") ? 0 : undefined),
+    length: 1,
+  };
   for (let end = start + 1; end < tokens.length; end++) {
     text += ` ${tokens[end]!}`;
     const id = dictionary.get(text);

@@ -7,7 +7,7 @@ import { createStarterProject } from "../src/authoring/starterProject.ts";
 import {
   prepareGuidedAddRoom,
   prepareGuidedConnectDoor,
-  prepareGuidedPlaceHero,
+  prepareGuidedPlaceEgo,
   prepareGuidedPlaySound,
   prepareGuidedRespondToCommand,
   type GuidedContext,
@@ -80,13 +80,13 @@ test("a novice's guided chain produces a playable two-room game", () => {
   const ctx: GuidedContext = { draft, files, profileId: project.profileId };
 
   // 1. Place the hero nearer the clearing's centre.
-  mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, x: 100, y: 130 })).apply();
+  mustPrepare(prepareGuidedPlaceEgo(ctx, { room: 1, x: 100, y: 130 })).apply();
 
   // 2. Add a second room with the same hero standing at (76,110).
   const added = mustPrepare(
     prepareGuidedAddRoom(ctx, {
       title: "Moonlit Hall",
-      heroView: "hero_view",
+      egoView: "hero_view",
       spawn: { x: 76, y: 110 },
     }),
   );

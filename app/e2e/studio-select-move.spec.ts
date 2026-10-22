@@ -8,7 +8,7 @@ import {
 import { expect, reviewShot, test } from "./test.ts";
 
 /**
- * Selecting and moving in Room Studio's Select tool are separate gestures,
+ * Selecting and moving in PICTURE editor's Select tool are separate gestures,
  * as in vector editors, on the bundled tutorial's gallery (PIC 1 of the
  * Adventure Department). Cells are hand-picked from its source
  * (games/adventure-department/sceneArt.ts): the upper walls own 40,20 and
@@ -28,7 +28,7 @@ async function openGallery(page: Page, fixedZoom = false): Promise<Locator> {
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   await expect(studio.locator('[data-row="frame"]')).toHaveCount(1);
   if (fixedZoom) {

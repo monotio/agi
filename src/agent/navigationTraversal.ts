@@ -1,5 +1,5 @@
 import type { Engine } from "../runtime/engine.ts";
-import { DIRECTION_KEYS } from "./gameTestSteps.ts";
+import { DIRECTION_KEYS } from "../runtime/keys.ts";
 import {
   NavigationController,
   type NavigationBudgets,
@@ -125,7 +125,10 @@ export class NavigationTraversal {
     if (this.options.cancelled?.()) return this.finish("cancelled", "Cancelled by the host.");
     const hazard = this.options.hazard?.();
     if (hazard) return this.finish("hazard_detected", hazard);
-    if (this.engine.modalKind !== null || this.engine.continuationPending)
+    if (
+      !this.engine.clockModalOpen &&
+      (this.engine.modalKind !== null || this.engine.continuationPending)
+    )
       return this.finish(
         "needs_input",
         "A modal or suspended interaction needs explicit host input.",

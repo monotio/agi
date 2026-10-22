@@ -15,6 +15,7 @@ import { detachedHost, replaceRun } from "./runSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
+import { fingerprintMatchesRecorded, recordedHostImageVersion } from "./releasedHostImage.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
@@ -22,9 +23,9 @@ import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import {
   computeSyncMark,
   HISTORY_FINGERPRINT_VERSION,
+  HISTORY_FORMAT_VERSION,
   historyAnchorSemantic,
   historyBootSemantic,
-  historyFingerprint,
   type HistoryAnchor,
   type HistoryCommittedPatch,
   type HistoryEvent,
@@ -55,6 +56,8 @@ export interface HistoryReplayOptions {
   tailTicks?: number;
   /** Bound on virtual ticks so a corrupt stream cannot run forever. */
   maxTicks?: number;
+  /** Format version of the enclosing HistoryRecording (defaults to HISTORY_FORMAT_VERSION). */
+  recordingVersion?: number;
 }
 
 /** Fold container mutations the recorded events committed before `seq`. */
@@ -138,6 +141,13 @@ export interface HistoryDrive {
   readonly applied: number;
   /** First verification failure, or null when every mark held. */
   readonly diverged: HistoryDivergence | null;
+  /**
+   * A legacy combined-digest recording that replay cannot continue or verify
+   * — a plain compatibility notice, never a verified divergence: the released
+   * build's legitimately-different behavior (e.g. the version() modal, the
+   * v19 store ordering) can strand recorded events or marks.
+   */
+  readonly incompatible: HistoryDivergence | null;
   /** A thrown boundary or structurally unusable recording. */
   readonly error: string | null;
   /** The recorded tick the drive sits on (host-poll axis). */
@@ -177,6 +187,11 @@ function captureSemanticState(
   };
   if (template.rngPolicy !== undefined) out.rngPolicy = { ...ctx.run.rng.policy };
   if (template.amigaRegion !== undefined) out.amigaRegion = engine.amigaRegion;
+  if (template.pcDisplay !== undefined && engine.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
+  if (template.legacyRoomMemory !== undefined && engine.legacyRoomMemory)
+    out.legacyRoomMemory = true;
+  if (template.adoptDeclaredScriptSize !== undefined && engine.adoptsDeclaredScriptSize)
+    out.adoptDeclaredScriptSize = true;
   if (template.documentId !== undefined) {
     if (ctx.boot.project === undefined)
       throw new Error("project documents are missing at the restored boundary");
@@ -198,6 +213,8 @@ function captureSemanticState(
   if (template.directionQueue !== undefined)
     out.directionQueue = [...ctx.run.input.deferredMovement];
   if (template.inputLines !== undefined) out.inputLines = [...ctx.run.input.inputBuffer];
+  if (template.joystick !== undefined)
+    out.joystick = ctx.run.input.joystick === null ? null : { ...ctx.run.input.joystick };
   if (template.clickQueue !== undefined)
     out.clickQueue = ctx.run.input.clickQueue.map(([x, y]): [number, number] => [x, y]);
   if (template.clock !== undefined) out.clock = ctx.run.clocks.cycle.snapshot();
@@ -236,11 +253,30 @@ export function openHistoryDrive(
   const outcome = {
     applied: 0,
     diverged: null as HistoryDivergence | null,
+    incompatible: null as HistoryDivergence | null,
     error: null as string | null,
   };
   const fail = (at: { seq: number; tick: number; cycle: number }, detail: string): void => {
     if (outcome.diverged === null) outcome.diverged = { at, detail };
   };
+  const note = (at: { seq: number; tick: number; cycle: number }, detail: string): void => {
+    if (outcome.incompatible === null) outcome.incompatible = { at, detail };
+  };
+  // A segment without split-digest marks was recorded by a released build
+  // whose behavior legitimately differs from today's; nothing in it is
+  // verified, and a position replay cannot reach is a compatibility notice,
+  // never a divergence or a hard failure. When a short segment has no sync
+  // marks yet, the segment's own format version (or the enclosing recording's
+  // version, or a v1 host image on its boot/anchor) identifies whether it was
+  // recorded by a released build (versions 1 and 2).
+  const effectiveVersion = segment.version ?? options.recordingVersion ?? HISTORY_FORMAT_VERSION;
+  const legacyOnly =
+    segment.sync.length > 0
+      ? segment.sync.every((m) => m.state === undefined)
+      : effectiveVersion < HISTORY_FORMAT_VERSION ||
+        (segment.boot.image !== undefined && recordedHostImageVersion(segment.boot.image) === 1) ||
+        (segment.anchors[0] !== undefined &&
+          recordedHostImageVersion(segment.anchors[0].image) === 1);
 
   const events = segment.events;
   let ei = 0;
@@ -261,6 +297,9 @@ export function openHistoryDrive(
     },
     get diverged() {
       return outcome.diverged;
+    },
+    get incompatible() {
+      return outcome.incompatible;
     },
     get error() {
       return outcome.error;
@@ -313,17 +352,36 @@ export function openHistoryDrive(
     }
 
     const facade = detachedHost(ctx, anchor ? anchor.soundDevice : segment.boot.soundDevice);
-    const candidate = new Engine(
-      openContainer(files, segment.boot.profile ? { profile: segment.boot.profile } : {}),
-      facade.host,
-      dictionary,
-      {
-        ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
-        amigaRegion: segment.boot.amigaRegion ?? "ntsc",
-      },
+    const container = openContainer(
+      files,
+      segment.boot.profile ? { profile: segment.boot.profile } : {},
     );
+    const candidate = new Engine(container, facade.host, dictionary, {
+      ...(segment.boot.profile ? { profile: segment.boot.profile } : {}),
+      amigaRegion: segment.boot.amigaRegion ?? "ntsc",
+      ...(segment.boot.pcDisplay ? { pcDisplay: segment.boot.pcDisplay } : {}),
+      // A scratch replay knows only what the segment recorded. A segment
+      // opened under a released format predates the field, but the released
+      // build ran every game at the old 200-pair default — so an authored
+      // project (its boot carries project documents) replays under the
+      // option it could not record.
+      legacyRoomMemory:
+        segment.boot.legacyRoomMemory === true ||
+        (effectiveVersion < HISTORY_FORMAT_VERSION && segment.boot.project !== undefined),
+      adoptDeclaredScriptSize: segment.boot.adoptDeclaredScriptSize === true,
+    });
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
     candidate.flags[9] = 1;
+    if (legacyOnly) {
+      // Released pre-1.2.5 cold boots initialized the common [v20, v22, v24, v26, f11]
+      // tuple before per-profile ResetAll defaults were added; if the start point
+      // carries a saved image, restoreImage overwrites these below.
+      candidate.vars[20] = 0;
+      candidate.vars[22] = (facade.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+      candidate.vars[24] = 41;
+      candidate.vars[26] = 3;
+      candidate.flags[11] = 0;
+    }
     ctx.replay.replay = {
       tick: startTick,
       revision: 0,
@@ -377,6 +435,9 @@ export function openHistoryDrive(
           directionQueue: anchor ? anchor.directionQueue : (segment.boot.directionQueue ?? []),
           inputLines: anchor ? anchor.inputLines : (segment.boot.inputLines ?? []),
           clickQueue: anchor ? (anchor.clickQueue ?? []) : (segment.boot.clickQueue ?? []),
+          ...((anchor ?? segment.boot).joystick !== undefined
+            ? { joystick: (anchor ?? segment.boot).joystick! }
+            : {}),
           ...(clock ? { clock } : {}),
           ...(soundRemainder !== undefined ? { soundRemainder } : {}),
         },
@@ -391,13 +452,18 @@ export function openHistoryDrive(
     const fingerprint = anchor !== null ? anchor.fingerprint : segment.boot.fingerprint;
     if (fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
       throw new Error(`resume point carries fingerprint version ${fingerprint.v}`);
-    const actual = historyFingerprint(
-      captureSemanticState(
-        ctx,
-        anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
-      ),
-    );
-    if (actual.hash !== fingerprint.hash)
+    const recordedSemantic =
+      anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot);
+    const semantic = captureSemanticState(ctx, recordedSemantic);
+    if (
+      !fingerprintMatchesRecorded(
+        semantic,
+        recordedSemantic,
+        fingerprint,
+        candidate.profile,
+        (num) => container.getResource("sound", num),
+      )
+    )
       throw new Error(
         `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
       );
@@ -438,29 +504,45 @@ export function openHistoryDrive(
       const mark: HistorySyncMark = segment.sync[markIdx]!;
       const seqNow = appliedSeq();
       if (seqNow > mark.seq || replay!.tick > mark.tick) {
-        fail(
-          { seq: mark.seq, tick: mark.tick, cycle: mark.cycle },
-          `sync mark unreachable: stream passed it at tick ${replay!.tick} seq ${seqNow}`,
-        );
+        // A split-digest mark the stream passed is a verified divergence; a
+        // legacy combined-only mark only notes the recording cannot be
+        // verified from here on.
+        const at = { seq: mark.seq, tick: mark.tick, cycle: mark.cycle };
+        const detail = `sync mark unreachable: stream passed it at tick ${replay!.tick} seq ${seqNow}`;
+        if (mark.state === undefined || mark.text === undefined) note(at, detail);
+        else fail(at, detail);
         markIdx++;
         continue;
       }
       if (seqNow !== mark.seq || replay!.tick !== mark.tick) break;
-      const actual = computeSyncMark(engine!, mark.seq, mark.tick, mark.cycle);
       markIdx++;
+      // Released v1–v2 combined-digest marks replay unverified: the released
+      // build's legitimately-different behavior (e.g. the version() modal)
+      // can move any field, so they can never set outcome.diverged. Only
+      // split-digest marks are verified — the state digest and the text
+      // digest separately, plus room, score, patchGeneration, modal and
+      // cycle.
+      if (mark.state === undefined || mark.text === undefined) continue;
+      const actual = computeSyncMark(engine!, mark.seq, mark.tick, mark.cycle);
+      const detail =
+        actual.state !== mark.state
+          ? "state digest"
+          : actual.text !== mark.text
+            ? "text digest"
+            : null;
       if (
-        actual.digest !== mark.digest ||
+        detail !== null ||
+        ctx.run.cycle.cycleCount !== mark.cycle ||
         actual.room !== mark.room ||
         actual.score !== mark.score ||
         actual.patchGeneration !== mark.patchGeneration ||
-        actual.modal !== mark.modal ||
-        ctx.run.cycle.cycleCount !== mark.cycle
+        actual.modal !== mark.modal
       ) {
         outcome.diverged = {
           at: { seq: mark.seq, tick: mark.tick, cycle: mark.cycle },
-          detail: `sync mark mismatch at room ${mark.room} cycle ${ctx.run.cycle.cycleCount}/${mark.cycle}`,
-          expected: mark.digest,
-          actual: actual.digest,
+          detail: `sync mark mismatch at room ${mark.room} cycle ${ctx.run.cycle.cycleCount}/${mark.cycle}${detail !== null ? `: ${detail}` : ""}`,
+          expected: detail === "text digest" ? mark.text : mark.state,
+          actual: detail === "text digest" ? actual.text : actual.state,
         };
       }
       if (outcome.diverged !== null) return;
@@ -483,8 +565,20 @@ export function openHistoryDrive(
         if (ctx.run.input.deferredMovement.length < 19) ctx.run.input.deferredMovement.push(0);
         ctx.fns.flushDeferredMovement();
         return;
+      case "joystick":
+        ctx.fns.onJoystick({ type: "joystick", sample: cause.sample });
+        return;
       case "click":
         ctx.fns.onClick({ type: "click", x: cause.x, y: cause.y });
+        return;
+      case "menu":
+        ctx.fns.onMenu({
+          type: "menu",
+          op: cause.op,
+          x: cause.x,
+          y: cause.y,
+          sticky: cause.sticky,
+        });
         return;
       case "input":
         ctx.fns.onInput({ type: "input", text: cause.text });
@@ -667,12 +761,16 @@ export function openHistoryDrive(
       if (event === null && replay.tick >= endTick) return halt();
       // A pending event behind a terminated engine is one the live session
       // could never have produced — report the strand. Paused polls still
-      // advance the recorded tick, so a pause is never a strand.
+      // advance the recorded tick, so a pause is never a strand. A legacy
+      // combined-digest recording instead gets a plain compatibility notice:
+      // the released build's ordering legitimately differs, so the strand
+      // says nothing verified (e.g. a quit the v19 store ordering no longer
+      // reaches at the recorded tick).
       if (event !== null && engine.readLeanState().terminated) {
-        fail(
-          { seq: event.seq, tick: event.tick, cycle: event.cycle },
-          `recorded event unreachable: replay cannot advance past tick ${replay.tick}: the engine terminated`,
-        );
+        const at = { seq: event.seq, tick: event.tick, cycle: event.cycle };
+        const detail = `recorded event unreachable: replay cannot advance past tick ${replay.tick}: the engine terminated`;
+        if (legacyOnly) note(at, detail);
+        else fail(at, detail);
         return halt();
       }
       advanceTick();

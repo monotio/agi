@@ -52,13 +52,13 @@ export function roomEntryProblem(value: unknown, inventoryCount = 256): string |
       (from["edge"] !== undefined && (!integer(from["edge"], 4) || from["edge"] === 0)))
   )
     return "Came from needs a room from 0 to 255 and an edge from 1 to 4.";
-  const hero = value["hero"];
+  const ego = value["hero"];
   if (
-    hero !== undefined &&
-    (!record(hero) ||
-      Object.keys(hero).some((key) => !["x", "y"].includes(key)) ||
-      !integer(hero["x"], 159) ||
-      !integer(hero["y"], 167))
+    ego !== undefined &&
+    (!record(ego) ||
+      Object.keys(ego).some((key) => !["x", "y"].includes(key)) ||
+      !integer(ego["x"], 159) ||
+      !integer(ego["y"], 167))
   )
     return "Hero position needs X from 0 to 159 and Y from 0 to 167.";
   if (value["seed"] !== undefined && !integer(value["seed"], 65535))

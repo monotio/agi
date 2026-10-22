@@ -33,7 +33,7 @@ interface Pending {
 /** A newer snapshot can answer again; worker failures and cancellation cannot. */
 export class LogicAnalysisSupersededError extends Error {
   constructor() {
-    super("Logic analysis was superseded by a newer workspace snapshot.");
+    super("Logic analysis was superseded by a newer workspace state.");
     this.name = "LogicAnalysisSupersededError";
   }
 }

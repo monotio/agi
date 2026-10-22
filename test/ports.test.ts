@@ -244,8 +244,10 @@ test(
       profile: "iigs-1.014",
     });
     // Three sound ticks per interpreter tick matches the 60 Hz heartbeat
-    // against the ~20 Hz game pass.
+    // against the ~20 Hz game pass; the clock moves with them, so the
+    // picture dissolves end.
     const step = () => {
+      engine.advanceClock(50);
       engine.tick();
       for (let i = 0; i < 3; i++) engine.soundTick();
       if (host.prints.length > 0) engine.ackPrint();

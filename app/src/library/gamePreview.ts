@@ -1,3 +1,6 @@
+import { effectiveProjectCompatibility } from "../../../src/authoring/projectConventions.ts";
+import type { OpenedGame } from "../archive/gameZip.ts";
+import type { CachedGameData } from "../project/gameTypes.ts";
 import type {
   GameInspection,
   PreviewWorkerInbound,
@@ -7,12 +10,23 @@ import type { ProfileId } from "../../../src/runtime/profile.ts";
 
 /** The wall-clock deadline also bounds pathological binary decoders, outside bytecode budgets. */
 export async function previewGame(
-  game: {
-    files: Record<string, Uint8Array>;
-    words: [string, number][];
-  },
+  game: OpenedGame | CachedGameData,
   profile?: ProfileId,
-): Promise<Omit<GameInspection, "rgba" | "rows"> & { preview: string }> {
+  source: "zip" | "folder" | "catalog" | "stored" = "zip",
+): Promise<Omit<GameInspection, "rgba" | "rows"> & { preview: string; legacyRoomMemory: boolean }> {
+  let compatibility = effectiveProjectCompatibility(game, source === "stored" ? undefined : source);
+  if (source !== "stored" && !compatibility.specified) {
+    const { existing } = await (
+      await import("./gameLibrary.ts")
+    ).resolveLibraryImport(
+      { files: game.files, words: game.words, ...(profile ? { profile } : {}) },
+      source,
+    );
+    if (existing) {
+      compatibility = effectiveProjectCompatibility(existing);
+      profile ??= existing.library?.profile;
+    }
+  }
   const worker = new Worker(new URL("./preview.worker.ts", import.meta.url), { type: "module" });
   const result = await new Promise<GameInspection>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -46,6 +60,7 @@ export async function previewGame(
     worker.postMessage({
       files: game.files,
       words: game.words,
+      legacyRoomMemory: compatibility.legacyRoomMemory,
       ...(profile ? { profile } : {}),
     } satisfies PreviewWorkerInbound);
   });
@@ -62,5 +77,6 @@ export async function previewGame(
     kind: result.kind,
     build: result.build,
     preview: canvas.toDataURL("image/png"),
+    legacyRoomMemory: compatibility.legacyRoomMemory,
   };
 }

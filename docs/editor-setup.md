@@ -118,7 +118,7 @@ parts list includes Game state. External editors navigate to `bindings.json`.
 Closed-file references open in read-only source previews. `textDocument/formatting` uses two-space indentation, preserves comments and literals, and returns no edits for syntax errors.
 
 Numbered operands identify variables (`vN`), flags (`fN`), screen objects (`oN`),
-inventory items (`iN`), strings (`sN`), words (`wN`) and controllers (`cN`) across
+objects (`iN`), strings (`sN`), words (`wN`) and controllers (`cN`) across
 the game. Names used for the same kind and number share those references.
 Messages (`mN`) include their `#message N` declaration within the current LOGIC.
 Argument types distinguish numbered symbols from literal values. Hover shows

@@ -10,12 +10,35 @@ import {
 import {
   changedProjectManifest,
   projectCommitId,
+  sealPortableProjectHistory,
   type ProjectCommitMetadata,
   type ProjectHistoryCommit,
   type ProjectHistoryState,
 } from "./projectHistoryData.ts";
-import { checkProjectHistoryState, PROJECT_HISTORY_LIMITS } from "./projectHistoryCodec.ts";
+import {
+  checkProjectHistoryState,
+  PROJECT_HISTORY_FORMAT,
+  PROJECT_HISTORY_LIMITS,
+  type PortableProjectHistory,
+} from "./projectHistoryCodec.ts";
+import { pruneCheckedProjectHistory } from "./projectHistoryPruning.ts";
 import type { ProjectModel, ProjectProposal } from "./projectModel.ts";
+
+interface HistoryTotals {
+  readonly entries: number;
+  readonly bytes: number;
+  readonly images: boolean;
+}
+
+// Seals are process-local capabilities: cloning or decoding never confers trust.
+const snapshots = new WeakMap<
+  ProjectHistoryState,
+  { state: ProjectHistoryState; digest: ProjectDigest; totals: HistoryTotals }
+>();
+const portableBytes = new WeakMap<
+  Uint8Array,
+  { readonly type: "bytes"; readonly bytes: readonly number[] }
+>();
 
 export interface ProjectHistoryAction {
   readonly proposal: ProjectProposal;
@@ -34,10 +57,14 @@ interface ActionState {
 export class ProjectHistory {
   private readonly digest: ProjectDigest;
   private state: ProjectHistoryState;
+  private totals: HistoryTotals;
+  private readonly forkBase: ProjectHistoryState | undefined;
   private readonly actions = new WeakMap<ProjectHistoryAction, ActionState>();
 
   constructor(digest: ProjectDigest, state?: ProjectHistoryState) {
     this.digest = digest;
+    const offered = state === undefined ? undefined : snapshots.get(state);
+    const sealed = offered?.digest === digest ? offered : undefined;
     this.state =
       state === undefined
         ? Object.freeze({
@@ -47,21 +74,90 @@ export class ProjectHistory {
             future: Object.freeze([]),
             tags: Object.freeze({}),
           })
-        : checkProjectHistoryState(state, digest);
+        : sealed !== undefined
+          ? sealed.state
+          : checkProjectHistoryState(state, digest);
+    if (state !== undefined && sealed === undefined) {
+      // An imported history may carry unused blobs. Reclaim them once at admission,
+      // so sealed captures can be saved without scanning every retained manifest.
+      const reachable = new Set(
+        this.state.commits.flatMap((commit) => Object.values(commit.documents)),
+      );
+      this.state = Object.freeze({
+        ...this.state,
+        blobs: Object.freeze(
+          Object.fromEntries(
+            Object.entries(this.state.blobs).filter(([hash]) => reachable.has(hash)),
+          ),
+        ),
+      });
+    }
+    this.forkBase = sealed?.state;
+    for (const commit of this.state.commits) Object.freeze(commit.changed);
+    this.totals = sealed?.totals ?? this.measureTotals();
+  }
+
+  private measureTotals(state: ProjectHistoryState = this.state): HistoryTotals {
+    return {
+      entries: state.commits.reduce((sum, commit) => sum + Object.keys(commit.documents).length, 0),
+      bytes: Object.values(state.blobs).reduce<number>(
+        (sum, content) => sum + (typeof content === "string" ? content.length * 2 : content.length),
+        0,
+      ),
+      images: state.commits.some((commit) =>
+        Object.keys(commit.documents).some((key) => key.startsWith("attachment:")),
+      ),
+    };
   }
 
   capture(): ProjectHistoryState {
-    return Object.freeze({
+    const blobs = Object.create(null) as Record<string, ProjectContent>;
+    for (const [key, value] of Object.entries(this.state.blobs))
+      Object.defineProperty(blobs, key, {
+        enumerable: true,
+        get: () => (value instanceof Uint8Array ? value.slice() : value),
+      });
+    const snapshot = Object.freeze({ ...this.state, blobs: Object.freeze(blobs) });
+    snapshots.set(snapshot, { state: this.state, digest: this.digest, totals: this.totals });
+    return snapshot;
+  }
+
+  /** Immutable portable envelope; only newly encountered byte blobs need number arrays. */
+  capturePortable(): PortableProjectHistory {
+    const blobs = Object.fromEntries(
+      Object.entries(this.state.blobs).map(([hash, content]) => {
+        if (typeof content === "string")
+          return [hash, Object.freeze({ type: "text" as const, text: content })];
+        let blob = portableBytes.get(content);
+        if (blob === undefined) {
+          let bytes: readonly number[] | undefined;
+          blob = Object.freeze({
+            type: "bytes" as const,
+            get bytes() {
+              return (bytes ??= Object.freeze(Array.from(content)));
+            },
+          });
+          portableBytes.set(content, blob);
+        }
+        return [hash, blob];
+      }),
+    );
+    const portable = Object.freeze({
+      format: PROJECT_HISTORY_FORMAT,
+      version: 1 as const,
       ...this.state,
-      blobs: Object.freeze(
-        Object.fromEntries(
-          Object.entries(this.state.blobs).map(([key, value]) => [
-            key,
-            value instanceof Uint8Array ? new Uint8Array(value) : value,
-          ]),
-        ),
-      ),
+      blobs: Object.freeze(blobs),
     });
+    sealPortableProjectHistory(portable, this.capture(), this.digest);
+    return portable;
+  }
+
+  /** Install the checked preflight fork once, while its original base is still current. */
+  acceptRecorded(prospective: ProjectHistory): void {
+    if (prospective.digest !== this.digest || prospective.forkBase !== this.state)
+      throw new Error("Project History preflight is stale or belongs to another history.");
+    this.state = prospective.state;
+    this.totals = prospective.totals;
   }
 
   record(
@@ -88,16 +184,23 @@ export class ProjectHistory {
     const manifest: Record<string, string | null> = Object.fromEntries(
       Object.keys(previous).map((key) => [key, null]),
     );
+    let newBytes = 0;
     for (const [key, content] of Object.entries(owned)) {
-      const hash = projectContentHash(content, this.digest);
+      const previousHash = previous[key];
+      const hash =
+        previousHash != null && sameProjectContent(this.state.blobs[previousHash], content)
+          ? previousHash
+          : projectContentHash(content, this.digest);
       if (Object.hasOwn(blobs, hash) && !sameProjectContent(blobs[hash], content))
         throw new Error("Project blob hash collision between distinct content or content types.");
+      if (!Object.hasOwn(blobs, hash))
+        newBytes += typeof content === "string" ? content.length * 2 : content.length;
       blobs[hash] ??= content;
       manifest[key] = hash;
     }
     const changed = changedProjectManifest(previous, manifest);
     if (parent !== null && changed.length === 0) return null;
-    return this.append(manifest, blobs, metadata, false);
+    return this.append(manifest, blobs, metadata, false, newBytes);
   }
 
   private append(
@@ -105,6 +208,7 @@ export class ProjectHistory {
     blobs: Readonly<Record<string, ProjectContent>>,
     metadata: ProjectCommitMetadata,
     force: boolean,
+    newBytes = 0,
   ): ProjectHistoryCommit | null {
     const parent = this.state.cursor;
     const previous = parent === null ? {} : this.commit(parent).documents;
@@ -121,21 +225,89 @@ export class ProjectHistory {
       changed,
     };
     const commit = Object.freeze({ ...body, id: projectCommitId(body, this.digest) });
-    // Bounds, parent/diff and hashes are checked before changing live History.
-    this.state = checkProjectHistoryState(
-      {
-        ...(this.state.prunedParents !== undefined
-          ? { prunedParents: this.state.prunedParents }
-          : {}),
-        blobs,
-        commits: [...this.state.commits, commit],
-        cursor: commit.id,
-        future: [],
-        tags: this.state.tags,
-      },
+    const next = this.checkCandidate(commit, blobs, newBytes);
+    this.state = next.state;
+    this.totals = next.totals;
+    return commit;
+  }
+
+  private checkCandidate(
+    commit: ProjectHistoryCommit,
+    blobs: Readonly<Record<string, ProjectContent>>,
+    newBytes = 0,
+  ): { state: ProjectHistoryState; totals: HistoryTotals } {
+    const keys = Object.keys(commit.documents);
+    const totals = {
+      entries: this.totals.entries + keys.length,
+      bytes: this.totals.bytes + newBytes,
+      images: this.totals.images || keys.some((key) => key.startsWith("attachment:")),
+    };
+    const limits = PROJECT_HISTORY_LIMITS;
+    const candidate = {
+      ...this.state,
+      blobs,
+      commits: [...this.state.commits, commit],
+      cursor: commit.id,
+      future: [],
+    };
+    if (
+      candidate.commits.length > limits.maxCommits ||
+      Object.keys(blobs).length > limits.maxBlobs ||
+      totals.bytes > (totals.images ? limits.maxImageTotalBytes : limits.maxTotalBytes)
+    ) {
+      // One appended commit may sit on top of the retained bounds while
+      // retention removes the oldest unpinned versions; the retained commits
+      // and blobs were codec-admitted already, so pruning skips the codec.
+      this.checkAppend(commit, totals, Object.keys(blobs).length, true);
+      const state = pruneCheckedProjectHistory(candidate).state;
+      return {
+        state,
+        totals: this.measureTotals(state),
+      };
+    }
+    // Retained data is checked and privately owned. Only the new metadata is validated.
+    this.checkAppend(commit, totals, Object.keys(blobs).length);
+    return {
+      state: Object.freeze({
+        ...candidate,
+        blobs: Object.freeze(blobs),
+        commits: Object.freeze(candidate.commits),
+        future: Object.freeze(candidate.future),
+      }),
+      totals,
+    };
+  }
+
+  private checkAppend(
+    commit: ProjectHistoryCommit,
+    totals: HistoryTotals,
+    blobCount: number,
+    pending = false,
+  ): void {
+    const limits = PROJECT_HISTORY_LIMITS;
+    const keys = Object.keys(commit.documents);
+    if (
+      keys.length > limits.maxDocuments ||
+      totals.entries > limits.maxManifestEntries + (pending ? limits.maxDocuments : 0)
+    )
+      throw new Error("Invalid project history: manifest exceeds the limit.");
+    if (blobCount > limits.maxBlobs + (pending ? limits.maxDocuments : 0))
+      throw new Error("Invalid project history: blob count exceeds the limit.");
+    if (
+      totals.bytes >
+      (totals.images ? limits.maxImageTotalBytes : limits.maxTotalBytes) * (pending ? 2 : 1)
+    )
+      throw new Error("Invalid project history: blob payloads exceed the total limit.");
+    // Reuse the codec's metadata contract on a single empty root. Retained commits and
+    // blobs never enter this check; the real parent, manifest and diff are built here.
+    const body = { ...commit, parent: null, documents: {}, changed: [] };
+    const checked = { ...body, id: projectCommitId(body, this.digest) };
+    checkProjectHistoryState(
+      { blobs: {}, commits: [checked], cursor: checked.id, future: [], tags: {} },
       this.digest,
     );
-    return this.commit(commit.id);
+    if (this.state.commits.some((entry) => entry.id === commit.id))
+      throw new Error("Invalid project history: duplicate commit identity.");
   }
 
   tag(name: string, id: string): void {
@@ -146,6 +318,7 @@ export class ProjectHistory {
       { ...this.state, tags: { ...this.state.tags, [name]: id } },
       this.digest,
     );
+    for (const commit of this.state.commits) Object.freeze(commit.changed);
   }
 
   renameTag(name: string, next: string | null): void {
@@ -157,6 +330,7 @@ export class ProjectHistory {
     delete tags[name];
     const renamed = next === null ? tags : { ...tags, [next]: id };
     this.state = checkProjectHistoryState({ ...this.state, tags: renamed }, this.digest);
+    for (const commit of this.state.commits) Object.freeze(commit.changed);
   }
 
   undo(model: ProjectModel): ProjectHistoryAction | undefined {
@@ -191,10 +365,7 @@ export class ProjectHistory {
     };
     const commit = { ...body, id: projectCommitId(body, this.digest) };
     // Validate the Restore and its bounds before issuing an editable proposal.
-    checkProjectHistoryState(
-      { ...this.state, commits: [...this.state.commits, commit], cursor: commit.id, future: [] },
-      this.digest,
-    );
+    this.checkCandidate(commit, this.state.blobs);
     return this.action(model, id, "restore", origin);
   }
 

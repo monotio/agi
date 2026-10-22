@@ -12,7 +12,7 @@ import {
   traceImageChanges,
   traceOptionsChanges,
   makeCelsChanges,
-  suggestImageFrames,
+  suggestImageCels,
   imageTraceUnderlay,
 } from "../../src/creative/imageOperations.ts";
 import { readProjectImage, readImageReferences } from "../../src/creative/imageAttachments.ts";
@@ -131,7 +131,7 @@ test("attachments autosave in History, undo/redo and private archives; public ex
       session.model.capture().documents(),
       "view:0",
       image,
-      suggestImageFrames(image, 4),
+      suggestImageCels(image, 4),
       PROFILES["2.936"],
     ),
     "Make cels from an image",

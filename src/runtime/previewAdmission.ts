@@ -115,10 +115,17 @@ export interface StagedPreviewUpdate {
   readonly composition: PictureComposition;
   /** True when a changed PIC participates in the current composition. */
   readonly compositionAffected: boolean;
-  /** Detached rebuilt backdrop when an affected composition is feasible. */
+  /** Detached rebuilt background when an affected composition is feasible. */
   readonly surface: PictureSurface | null;
   /** Why an affected composition cannot commit, when it cannot. */
   readonly compositionBlocked: string | null;
+  /**
+   * The script buffer a changed LOGIC 0 guarantees (`authoredScriptFloor`
+   * with its declared script.size), when the host adopts declared script
+   * buffers (engine option `adoptDeclaredScriptSize`); null otherwise.
+   * docs/fidelity.md, "Authored script buffer on live edits".
+   */
+  readonly declaredScriptSize: number | null;
 }
 
 /**

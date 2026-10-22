@@ -60,7 +60,7 @@ test("test recorder refuses to start on a live host request but not a parked win
     });
     await recorder.startTestRecording();
     assert.equal(state.recording.active, false);
-    assert.match(state.recording.error, /Close the open prompt or assistant/);
+    assert.match(state.recording.error, /Close the open prompt or agent/);
   }
 });
 

@@ -289,7 +289,12 @@ export function createHostRequests(ctx: WorkerContext) {
                 takeKeys: () => [],
               },
               undefined,
-              { profile: ctx.run.engine.profile },
+              {
+                profile: ctx.run.engine.profile,
+                pcDisplay: ctx.run.engine.pcDisplay,
+                adoptDeclaredScriptSize: ctx.run.engine.adoptsDeclaredScriptSize,
+                legacyRoomMemory: ctx.run.engine.legacyRoomMemory,
+              },
             );
             try {
               candidate.restoreImage(bytes);

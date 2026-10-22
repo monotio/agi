@@ -1,5 +1,5 @@
 /**
- * Room Studio edit operations: the one kernel through which the UI and the
+ * PICTURE editor edit operations: the one kernel through which the UI and the
  * agent change a picture document. Each operation rewrites source lines,
  * never the input, and the result must re-parse without diagnostics and
  * compile before it is returned.
@@ -41,7 +41,7 @@ import {
   type PictureItemKind,
 } from "./pictureDocument.ts";
 import { itemVisualFootprint, type PicturePlane } from "./pictureQuery.ts";
-import { clearItemDepth, addDepth, standInRoom } from "./pictureDepth.ts";
+import { clearItemPriority, addPriority, standInRoom } from "./picturePriority.ts";
 import { shapeSource, validateSimplePolygon, type Point, type SceneShape } from "./shapes.ts";
 import { linePoints } from "./editPoints.ts";
 import { commandHead, registerLine, registersRead } from "./editState.ts";
@@ -82,16 +82,16 @@ import {
 export type EditOperation =
   | {
       /** Derive priority from the item's visual pixels and chosen baseline. */
-      readonly type: "addDepth";
+      readonly type: "addPriority";
       readonly itemId: string;
       /** Defaults to the lowest drawn visual row. */
       readonly baseY?: number;
     }
   | {
       /**
-       * Stand in the room: the item's derived depth takes the band of its
+       * Stand in the room: the item's derived priority takes the band of its
        * base row and a control-0 wall line runs along that base, both inside
-       * the item's depth block so they travel and regenerate with it.
+       * the item's priority block so they travel and regenerate with it.
        */
       readonly type: "standInRoom";
       readonly itemId: string;
@@ -226,7 +226,7 @@ export interface EditOptions {
 
 type Move = Extract<EditOperation, { type: "moveItem" }>;
 
-/** Translate each item in one pass, before regenerating derived depth. */
+/** Translate each item in one pass, before regenerating derived priority. */
 function moveItems(ctx: Context, moves: readonly Move[]): EditResult {
   const offsets = new Map<PictureItem, Move>();
   for (const move of moves) {
@@ -409,8 +409,8 @@ function setStepColor(
   if (item?.locked) {
     throw new EditRefusal(`line ${op.line} belongs to locked item '${item.id}'`);
   }
-  if (item?.depth && op.line > item.depth.openLine && op.line < item.depth.closeLine) {
-    throw new EditRefusal(`line ${op.line} is derived depth; recolour the item's art instead`);
+  if (item?.priority && op.line > item.priority.openLine && op.line < item.priority.closeLine) {
+    throw new EditRefusal(`line ${op.line} is derived priority; recolour the item's art instead`);
   }
   if (item) refuseCopiesOf(ctx, item, "recolouring a step of");
   const state = stateBefore(ctx, op.line);
@@ -443,9 +443,9 @@ function setItemColor(
   const body = bodyOf(ctx, item).map((line) => {
     if (
       plane === "visual" &&
-      item.depth &&
-      line.from! >= item.depth.openLine &&
-      line.from! <= item.depth.closeLine
+      item.priority &&
+      line.from! >= item.priority.openLine &&
+      line.from! <= item.priority.closeLine
     )
       return line;
     if (rawIncludes(line.text, PLANE_COMMANDS[plane])) {
@@ -647,7 +647,7 @@ function insertPlot(ctx: Context, op: Extract<EditOperation, { type: "insertPlot
   const bad = op.points.find(({ x, y }) => !onSurface(x, y));
   if (bad) throw new EditRefusal(`plot point ${bad.x},${bad.y} is off the surface`);
   if (stipple !== (op.seed !== undefined)) {
-    throw new EditRefusal("a stipple pen needs a seed, and only a stipple pen takes one");
+    throw new EditRefusal("a speckled pen needs a seed, and only a speckled pen takes one");
   }
   if (op.seed !== undefined && !(Number.isInteger(op.seed) && op.seed >= 0 && op.seed <= 0xef)) {
     throw new EditRefusal(`seed must be 0..239, got ${op.seed}`);
@@ -786,8 +786,7 @@ function elementParts(ctx: Context, item: PictureItem): Line[] {
     out.push(newLine(ctx, "# @end"));
     k = end + 1;
   }
-  if (runs < 2)
-    throw new EditRefusal(`'${item.id}' is one drawing element: there is nothing to ungroup`);
+  if (runs < 2) throw new EditRefusal(`'${item.id}' is one item: there is nothing to ungroup`);
   return out;
 }
 
@@ -826,19 +825,19 @@ function setItemMeta(
 
 function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditResult {
   switch (op.type) {
-    case "addDepth":
-      return addDepth(
+    case "addPriority":
+      return addPriority(
         ctx,
         op.itemId,
         op.baseY,
-        options?.priorityBase ?? findItem(ctx, op.itemId).depth?.priorityBase,
+        options?.priorityBase ?? findItem(ctx, op.itemId).priority?.priorityBase,
       );
     case "standInRoom":
       return standInRoom(
         ctx,
         op.itemId,
         op.baseY,
-        options?.priorityBase ?? findItem(ctx, op.itemId).depth?.priorityBase,
+        options?.priorityBase ?? findItem(ctx, op.itemId).priority?.priorityBase,
       );
     case "moveItem":
       return moveItems(ctx, [op]);
@@ -873,8 +872,8 @@ function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditR
   }
 }
 
-/** Regeneration and manual-depth conversion belong to the same atomic edit. */
-function maintainDepth(
+/** Regeneration and manual-priority conversion belong to the same atomic edit. */
+function maintainPriority(
   ctx: Context,
   ops: readonly EditOperation[],
   initial: EditResult,
@@ -890,24 +889,24 @@ function maintainDepth(
           ? ctx.document.items.find((item) => item.id === op.itemId)
           : undefined;
     if (
-      !oldItem?.depth ||
+      !oldItem?.priority ||
       !result.document.items.some(
         (item) => item.id === oldItem.id || (op.type === "duplicateItem" && item.id === op.newId),
       )
     )
       continue;
-    const depth = oldItem.depth;
+    const priority = oldItem.priority;
     const point = op.type === "setPoint" || op.type === "insertPoint" || op.type === "removePoint";
     const manual =
       ((op.type === "setItemColor" || op.type === "setStepColor") && op.plane === "priority") ||
       (point &&
-        ((op.line > depth.openLine && op.line < depth.closeLine) ||
+        ((op.line > priority.openLine && op.line < priority.closeLine) ||
           (stateBefore(ctx, op.line).visual === null &&
             stateBefore(ctx, op.line).priority !== null)));
     const target = op.type === "duplicateItem" ? op.newId : oldItem.id;
     if (manual) {
       const cleared = withContext(result.document, options, (next) =>
-        clearItemDepth(next, findItem(next, target)),
+        clearItemPriority(next, findItem(next, target)),
       );
       if ("error" in cleared) return cleared;
       result = cleared;
@@ -927,7 +926,12 @@ function maintainDepth(
             ? op.dy
             : 0;
       const regenerated = withContext(result.document, options, (next) =>
-        addDepth(next, target, depth.baseY + delta, options?.priorityBase ?? depth.priorityBase),
+        addPriority(
+          next,
+          target,
+          priority.baseY + delta,
+          options?.priorityBase ?? priority.priorityBase,
+        ),
       );
       if ("error" in regenerated) return regenerated;
       result = regenerated;
@@ -953,7 +957,7 @@ export function applyEdit(
   options?: EditOptions,
 ): EditResult {
   return withContext(document, options, (ctx) =>
-    maintainDepth(ctx, [op], dispatch(ctx, op, options), options),
+    maintainPriority(ctx, [op], dispatch(ctx, op, options), options),
   );
 }
 
@@ -971,7 +975,7 @@ export function applyEdits(
   if (ops.length === 0) return { document, changedLines: [] };
   if (ops.every((op): op is Move => op.type === "moveItem"))
     return withContext(document, options, (ctx) =>
-      maintainDepth(ctx, ops, moveItems(ctx, ops), options),
+      maintainPriority(ctx, ops, moveItems(ctx, ops), options),
     );
   let result: EditResult = { document, changedLines: [] };
   for (const op of ops) {

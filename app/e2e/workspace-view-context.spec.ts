@@ -10,9 +10,9 @@ test("VIEW context is reachable in Focus with room preview and game pacing", asy
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   const studio = await openWorkspaceView(page, 0, false);
-  await expect(studio.getByTestId("sprite-usage")).toBeVisible();
+  await expect(studio.getByTestId("view-usage")).toBeVisible();
   await studio.getByRole("button", { name: "Preview", exact: true }).click();
-  const preview = studio.getByTestId("sprite-preview");
+  const preview = studio.getByTestId("view-preview");
   await expect(preview).toBeVisible();
   await preview.scrollIntoViewIfNeeded();
   await expect(preview).toBeInViewport();
@@ -20,13 +20,11 @@ test("VIEW context is reachable in Focus with room preview and game pacing", asy
     "title",
     /hero changes pose every 6 game ticks/,
   );
-  await expect(studio.getByTestId("sprite-room-preview")).toBeVisible();
+  await expect(studio.getByTestId("view-room-preview")).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("view-context.png") });
 });
 
-test("a character sheet opens its staged candidate in the workspace VIEW editor", async ({
-  page,
-}) => {
+test("a cel sheet opens its staged changes in the workspace VIEW editor", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await isolateStorage(page);
   await page.goto("/");
@@ -58,15 +56,15 @@ test("a character sheet opens its staged candidate in the workspace VIEW editor"
   await upload.getByTestId("reference-attach").click();
   await expect(upload.getByTestId("reference-preview")).toBeVisible();
   await expect(upload.getByRole("button", { name: "Keep", exact: true })).toHaveCount(0);
-  const open = upload.getByTestId("reference-open-sprite");
+  const open = upload.getByTestId("reference-open-view");
   await expect(open).toBeVisible();
   await expect(open).toHaveText("Open VIEW editor");
   await open.click();
-  const studio = page.getByTestId("sprite-studio");
+  const studio = page.getByTestId("view-studio");
   await expect(studio).toBeVisible();
   const use = studio.getByRole("button", { name: "Use VIEW", exact: true });
   await expect(use).toBeVisible();
-  const bytes = await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]);
+  const bytes = await page.evaluate(() => [...window.__AGI_VIEW__!.bytes()]);
   expect(bytes.length).toBeGreaterThan(0);
   const original = openContainer(new Map(Object.entries(buildTutorial().files))).getResource(
     "view",

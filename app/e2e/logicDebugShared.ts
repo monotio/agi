@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { isolateStorage, savedGameCard } from "./engineProbe.ts";
 
 /**
- * Shared choreography for the Logic Studio debugger specs: seeding a stored
+ * Shared choreography for the LOGIC editor debugger specs: seeding a stored
  * project, opening Studio, driving the test dock and reading the preview's
  * composed frame. Each helper waits on the app's own published state — no
  * wall-clock sleeps.

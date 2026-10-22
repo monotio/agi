@@ -1,17 +1,17 @@
 /**
- * Where an actor may stand: the engine's placement rules for one baseline
+ * Where a screen object may stand: the engine's placement rules for one baseline
  * cell, and the mask of every cell that passes them. Navigation's static
- * planner and Room Studio's walkable overlay share this one implementation.
+ * planner and PICTURE editor's walkable overlay share this one implementation.
  *
  * The rules are the engine's own (src/runtime/engine.ts moveObject and
  * footprintAccepts): the cel stays on the picture and its baseline at least
- * one cel height down, an actor that observes the horizon stays below it,
+ * one cel height down, a screen object that observes the horizon stays below it,
  * and the footprint scan of controlCheck.ts accepts the baseline. Priority
  * 15 skips the scan. docs/fidelity.md: footprint-class-flags
  *
  * This is a static estimate, not a movement claim: it knows nothing of
- * object collisions, block rectangles, animation or script triggers. Only an
- * engine run says whether an actor gets somewhere.
+ * object collisions, block rectangles, animation or LOGIC triggers. Only an
+ * engine run says whether a screen object gets somewhere.
  */
 
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
@@ -25,11 +25,11 @@ export interface WalkableInput {
   egoWidth: number;
   /** Cel height: the baseline is at least this many rows minus one from the top. */
   egoHeight: number;
-  /** Control 1 blocks while the actor observes blocks. */
+  /** Control 1 blocks while the screen object observes blocks. */
   observeBlocks: boolean;
   /** obj.on.water / obj.on.land state; null for neither. */
   waterGate: ScreenObject["waterGate"];
-  /** The horizon an actor observing it stays below; null under ignore.horizon. */
+  /** The horizon a screen object observing it stays below; null under ignore.horizon. */
   horizon: number | null;
   /** Fixed priority 15: the engine skips the control scan and accepts any footprint. */
   bypassControl?: boolean;
@@ -44,13 +44,13 @@ export interface WalkableInput {
 /**
  * Why a baseline cell is refused, or "ok": off the picture, above the
  * horizon, a barrier (control 0), a conditional barrier (control 1), a
- * water-bound actor off water, a land-bound actor on all water, or both
+ * water-bound screen object off water, a land-bound screen object on all water, or both
  * gates at once.
  */
 export type StandVerdict =
   "ok" | "bounds" | "horizon" | "barrier" | "conditional" | "water" | "land" | "gates";
 
-/** The inclusive baseline range an actor's anchor can occupy: y >= minY, x <= maxX. */
+/** The inclusive baseline range a screen object's anchor can occupy: y >= minY, x <= maxX. */
 export function walkableBounds(input: Pick<WalkableInput, "egoWidth" | "egoHeight" | "horizon">): {
   minY: number;
   maxX: number;
@@ -61,7 +61,7 @@ export function walkableBounds(input: Pick<WalkableInput, "egoWidth" | "egoHeigh
   };
 }
 
-/** The engine's verdict on an actor standing with its left baseline cell at (x, y). */
+/** The engine's verdict on a screen object standing with its left baseline cell at (x, y). */
 export function standVerdict(input: WalkableInput, x: number, y: number): StandVerdict {
   const { minY, maxX } = walkableBounds(input);
   if (x < 0 || x > maxX || y > SCREEN_HEIGHT - 1 || y < input.egoHeight - 1) return "bounds";
@@ -77,7 +77,7 @@ export function standVerdict(input: WalkableInput, x: number, y: number): StandV
   return input.waterGate === "on" ? "water" : input.waterGate === "off" ? "land" : "gates";
 }
 
-/** 160x168: 1 where an actor with this footprint may stand with its baseline at that cell. */
+/** 160x168: 1 where a screen object with this footprint may stand with its baseline at that cell. */
 export function walkableMask(input: WalkableInput): Uint8Array {
   const mask = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
   const { minY, maxX } = walkableBounds(input);

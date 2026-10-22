@@ -7,7 +7,7 @@ import UiDialog from "../ui/UiDialog.vue";
 /**
  * The room's logic as text, read only: the annotated source when it is
  * trusted, else a disassembly. Native exits change here in words — the
- * assistant (Create’s agent) can edit the logic; Room Studio's door tools
+ * agent (Create’s agent) can edit the logic; PICTURE editor's door tools
  * only edit the rules they wrote. The line a door starts on is marked and
  * scrolled into view.
  */

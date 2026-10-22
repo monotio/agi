@@ -28,7 +28,7 @@ interface Case {
     expectedError?: string;
     /** Agent handover refusals are shown without aborting the conversation. */
     expectedVisibleError?: string;
-    /** The final assistant message, for turns that end without a change. */
+    /** The final agent message, for turns that end without a change. */
     expectedReply?: string;
     autoApprove?: boolean;
     expectedCommits?: number;

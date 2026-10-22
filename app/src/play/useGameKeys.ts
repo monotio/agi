@@ -1,13 +1,117 @@
 /**
  * The game's whole-page keyboard, routed in one place: the shell's own keys
- * first, then the Ask bubble, page controls, walkthrough and history
+ * first, then the Agent bubble, page controls, walkthrough and history
  * playback, and finally the game's prompts, modals, keys and input line.
  * App.vue listens on window; the play area supplies the input line and the
  * key actions it owns.
  */
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ModalKind } from "../engine/useEngine.ts";
-import { FUNCTION_KEYS, registeredKey, pcKey } from "./gameControls.ts";
+import { translatePlatformKey, type JoystickSample } from "../../../src/runtime/keys.ts";
+import { FUNCTION_KEYS } from "./gameControls.ts";
+
+/** Minimal subset of the W3C Gamepad object used by the platform joystick poller. */
+export interface GamepadInputLike {
+  readonly connected?: boolean;
+  readonly axes?: readonly number[];
+  readonly buttons?: readonly { readonly pressed: boolean }[];
+}
+
+/** Convert the browser's stick/D-pad snapshot without inventing native key events. */
+export function gamepadSample(pad: GamepadInputLike | null | undefined): JoystickSample | null {
+  if (!pad || pad.connected === false) return null;
+  const axis = (index: number): number => {
+    const value = pad.axes?.[index] ?? 0;
+    return Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0;
+  };
+  const up = Boolean(pad.buttons?.[12]?.pressed),
+    down = Boolean(pad.buttons?.[13]?.pressed);
+  const left = Boolean(pad.buttons?.[14]?.pressed),
+    right = Boolean(pad.buttons?.[15]?.pressed);
+  return {
+    x: left || right ? Number(right) - Number(left) : axis(0),
+    y: up || down ? Number(down) - Number(up) : axis(1),
+    button1: Boolean(pad.buttons?.[0]?.pressed),
+    button2: Boolean(pad.buttons?.[1]?.pressed),
+  };
+}
+
+/** Sample the first connected controller for boot and the mounted play surface. */
+export function connectedGamepad(): JoystickSample | null {
+  const pads = typeof navigator === "undefined" ? undefined : navigator.getGamepads?.();
+  return gamepadSample(pads ? Array.from(pads).find((p) => p && p.connected !== false) : null);
+}
+
+/**
+ * The controller's 60 Hz poll, sharing the keyboard's ownership rule: only
+ * while the game owns the page do its samples and fire buttons reach it.
+ * While a page control, sheet or dialog holds the keyboard the poll posts a
+ * neutral sample instead, so nothing held crosses the handoff and no stale
+ * press can fire late when the game takes the page back.
+ */
+export function createGamepadPoll(deps: {
+  /** The whole ownership gate: engine phase, readiness and who owns the page. */
+  gameOwnsPad(): boolean;
+  /** The live pad snapshot, or null when none answers. */
+  sample(): JoystickSample | null;
+  /** Post a pad sample (or neutral) to the game; the caller dedupes. */
+  send(sample: JoystickSample | null): void;
+  /** A blocking get.string/get.num prompt turns fire-button edges into words. */
+  prompt(): boolean;
+  /** Deliver a fire word (0x0101/0x0201) into the open prompt. */
+  promptKey(code: number): void;
+  /** "amiga" has one fire button; "iigs" fires on press, the rest on release. */
+  presentation(): string;
+}): () => void {
+  let buttons = [false, false];
+  // A button that crossed the handoff still held is stale until a poll sees
+  // it released: its press edge happened under the host control, so neither
+  // convention may fire it — not on return (IIgs) and not on its late release.
+  let stale = [false, false];
+  return () => {
+    if (!deps.gameOwnsPad()) {
+      buttons = [false, false];
+      stale = [true, true];
+      deps.send(null);
+      return;
+    }
+    const sample = deps.sample();
+    const next = [Boolean(sample?.button1), Boolean(sample?.button2)];
+    // A button held across the handoff stays stale until an owned poll sees
+    // it up — prompt or no prompt — and that release is not a fire edge.
+    for (let i = 0; i < 2; i++) {
+      if (!next[i]) stale[i] = false;
+      else if (stale[i]) next[i] = false;
+    }
+    if (deps.prompt()) {
+      deps.send(null);
+      // The Amiga gameport has one fire button (F-IN-17).
+      for (let i = 0; i < (deps.presentation() === "amiga" ? 1 : 2); i++) {
+        const pressed = next[i]!;
+        const wasPressed = buttons[i]!;
+        if (deps.presentation() === "iigs" ? pressed && !wasPressed : wasPressed && !pressed)
+          deps.promptKey(i === 0 ? 0x0101 : 0x0201);
+      }
+    } else deps.send(sample ? { ...sample, button1: next[0]!, button2: next[1]! } : null);
+    buttons = next;
+  };
+}
+
+/**
+ * The native key word for a physical key, or undefined when the browser keeps
+ * it. The Command key belongs to the browser (copy, paste, reload) unless the
+ * game binds the word it makes: no shipped game binds an Amiga-qualified word
+ * (docs/fidelity.md "Original input, menu and modal handling", F-IN-16).
+ */
+export function nativeGameKey(
+  ev: KeyboardEvent,
+  profile: string | null,
+  controls: readonly { readonly key: number }[],
+): number | undefined {
+  const key = translatePlatformKey(ev, profile);
+  if (key === undefined || !ev.metaKey) return key;
+  return controls.some((binding) => binding.key === key) ? key : undefined;
+}
 
 /** What the keyboard routing needs from PlayArea's exposed API. */
 export interface KeyTarget {
@@ -165,7 +269,7 @@ export function useGameKeys(deps: {
       state.waitingForKey ||
       (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
     ) {
-      const key = pcKey(ev);
+      const key = nativeGameKey(ev, state.profile, state.controls);
       if (key !== undefined) {
         ev.preventDefault();
         sendKey(key);
@@ -182,15 +286,23 @@ export function useGameKeys(deps: {
 
     if (area()?.movementKeyDown(ev)) return;
 
-    const shortcut = registeredKey(ev, state.controls);
-    if (shortcut !== undefined) {
+    // Bound keys, Keypad 5 (stop) and the native sound switch reach the game.
+    // Unbound keys keep their browser meaning (editing the command draft):
+    // the original's input phase ignores them (F-Parser-12).
+    const nativeKey = nativeGameKey(ev, state.profile, state.controls);
+    if (
+      nativeKey !== undefined &&
+      (nativeKey === 0xf500 ||
+        nativeKey === 0xff00 ||
+        state.controls.some((b) => b.key === nativeKey))
+    ) {
       ev.preventDefault();
-      area()?.triggerKey(shortcut);
+      area()?.triggerKey(nativeKey);
       return;
     }
 
     if (!state.inputEnabled) {
-      const code = pcKey(ev);
+      const code = nativeGameKey(ev, state.profile, state.controls);
       if (code !== undefined) {
         ev.preventDefault();
         sendKey(code);

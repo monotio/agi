@@ -41,7 +41,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           "Arrow keys or the numpad walk your hero; press the same direction again to stop. On a phone, the on-screen pad does the same.",
           "Everything else is typed, the way it was in the eighties: LOOK, GET LAMP, OPEN DOOR, TALK TO GUARD. Press Enter to send.",
-          "On the Amiga and Apple IIgs editions, a click on the screen walks the hero there, just like the originals.",
+          "On the Amiga and Apple IIgs editions, a click on the screen walks the hero there.",
         ],
         action: { kind: "controls", label: "Show this game's controls" },
       },
@@ -49,7 +49,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "stuck",
         title: "Stuck?",
         body: [
-          "Look at everything, then look again. Sierra hid a lot in the scenery.",
+          "Look at everything, then look again. Sierra hid a lot in the picture.",
           "Get a hint gives a nudge from the agent and leaves the game as it is. The map shows the rooms you have walked, and games with a recorded walkthrough can play it for you, spoilers included.",
         ],
         action: { kind: "hint", label: "Get a hint" },
@@ -76,8 +76,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "screen",
         title: "The screen",
         body: [
-          "AGI games drew 320 × 200 pixels, and a monitor of the day stretched them to fill a 4:3 screen, so each pixel stood a little taller than wide. Original 4:3 in Settings shows them that way; turn it off for square pixels. Either way the game itself is unchanged.",
-          "Game text uses this project's own 8 × 8 font in the originals' character grid. It draws English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank.",
+          "AGI games draw 320 × 200 pixels. Original proportions in Settings gives each pixel the shape the original monitor showed. Turn it off for square pixels. The game itself stays the same.",
+          "PC and Amiga text use this project's own 8 × 8 recreations of the original typefaces. They draw English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank. IIgs text uses the game's AGIFONT when your copy has one, otherwise the project's own font, which draws accented letters and Mac Roman symbols.",
         ],
       },
       {
@@ -150,7 +150,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "PICTURE editor",
         body: [
           VOCABULARY.picture.help,
-          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide characters. Press 1 or 2 to switch.",
+          "Choose PICTURE in the parts list. A picture has two layers, as Sierra named them. Visual is what players see. Priority is what stands in front, plus the walls, water, triggers and gates that guide actors. Press 1 or 2 to switch.",
           VOCABULARY.focus.help,
         ],
       },
@@ -163,13 +163,13 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-depth",
-        title: VOCABULARY.depth.label,
+        id: "studio-priority",
+        title: VOCABULARY.priority.label,
         body: [
-          VOCABULARY.depth.help,
-          VOCABULARY.depth.technical,
-          VOCABULARY.depthBand.help,
-          VOCABULARY.addDepth.help,
+          VOCABULARY.priority.help,
+          VOCABULARY.priority.technical,
+          VOCABULARY.priorityBand.help,
+          VOCABULARY.addPriority.help,
         ],
       },
       {
@@ -206,7 +206,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-ghost",
+        id: "studio-standIn",
         title: VOCABULARY.standIn.label,
         body: [
           VOCABULARY.standIn.help,
@@ -226,7 +226,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-ask",
+        id: "studio-agent",
         title: VOCABULARY.agent.label,
         body: [
           VOCABULARY.agent.help,
@@ -242,12 +242,12 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "studio-keep",
+        id: "studio-commit",
         title: VOCABULARY.saved.label,
         body: [VOCABULARY.saved.help, VOCABULARY.history.help, VOCABULARY.nameVersion.help],
       },
       {
-        id: "sprites-loops",
+        id: "view-loops",
         title: VOCABULARY.view.label,
         body: [
           VOCABULARY.view.help,
@@ -257,7 +257,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "sprites-tools",
+        id: "view-tools",
         title: "Drawing cels",
         body: [
           "Draw with the Pencil (B), Eraser (E), Fill (G), Line (L) and Rectangle (R) in any colour of the fixed palette. Select (M) moves, copies (Alt), flips (H) or deletes a region; the pipette (I) picks a colour. Recolour (C) swaps one colour for another in a cel, a loop or the whole view. On the focused canvas the arrow keys move a cursor and Space or Enter clicks where it stands.",
@@ -265,25 +265,25 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
-        id: "sprites-transparent",
+        id: "view-transparent",
         title: VOCABULARY.transparentColour.label,
         body: [VOCABULARY.transparentColour.help, VOCABULARY.background.help],
       },
       {
-        id: "sprites-mirror",
+        id: "view-mirror",
         title: VOCABULARY.mirrorLoop.label,
         body: [VOCABULARY.mirrorLoop.help, VOCABULARY.mirrorLoop.technical],
       },
       {
-        id: "sprites-feet",
+        id: "view-feet",
         title: VOCABULARY.feet.label,
         body: [
           VOCABULARY.feet.help,
-          "The Feet guide marks the bottom row of the cel. In room previews the cel against the room’s real Depth.",
+          "The Feet guide marks the bottom row of the cel. In room previews the cel against the room’s real Priority.",
         ],
       },
       {
-        id: "sprites-ask",
+        id: "views-agent",
         title: VOCABULARY.agent.label,
         body: [
           VOCABULARY.agent.help,
@@ -346,9 +346,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     topics: [
       {
         id: "authentic",
-        title: "Authentic by design",
+        title: "Compared with originals",
         body: [
-          "AGI IS HERE is an independent interpreter checked against the original Sierra interpreters on PC, Amiga and Apple IIgs, down to their timing quirks. The project's fidelity notes record the evidence, with addresses and hashes.",
+          "AGI IS HERE is an independent interpreter. Its behavior is checked against original Sierra interpreters on PC, Amiga and Apple IIgs, and against recorded runs in an emulator. The fidelity notes keep a coverage table of the evidence behind each part of a game on each machine, and the gaps that remain.",
         ],
       },
       {

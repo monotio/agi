@@ -1,17 +1,17 @@
 /**
- * The room's LOGIC as Room Studio's room tools (Priority lens) edits it: the annotated
+ * The room's LOGIC as PICTURE editor's room tools (Priority lens) edits it: the annotated
  * source (`// @rule` door and edge exit fragments), its assembled bytes and
  * the flag names its edits reserved, with an undo history, against the text
- * last kept (or opened). Every edit is one kernel rule edit
+ * last saved (or opened). Every edit is one kernel rule edit
  * (src/studio/rules/ruleEdit.ts applyRuleEdit), which proves the whole
  * logic still assembles; a refused edit changes nothing and says why.
  * Native logic the kernel cannot read is never edited here.
  *
- * Door boxes are stored in the frame of the picture as last kept: a box that
- * follows a picture item shows moved by that item's unkept translation, and
- * the Keep moves it for real (followPictureEdit), so the picture and logic
+ * Door boxes are stored in the frame of the picture as last saved: a box that
+ * follows a picture item shows moved by that item's unsaved translation, and
+ * the commit moves it for real (followPictureEdit), so the picture and logic
  * land together. `toStored` and `toShown` convert between the two frames.
- * The Keep moves the undo history into the new frame the same way, so an
+ * The commit moves the undo history into the new frame the same way, so an
  * undo past it puts a door back where it was.
  */
 
@@ -35,7 +35,7 @@ import { readRules, type RuleBox } from "../../../src/studio/rules/ruleModel.ts"
 
 export type Bindings = Readonly<Record<string, { kind: BindingKind; num: number }>>;
 
-/** The logic Studio opened on (or last kept): its annotated text and bytes. */
+/** The logic Studio opened on (or last saved): its annotated text and bytes. */
 export interface LogicDraftBase {
   readonly source: string;
   readonly bytes: Uint8Array;
@@ -47,7 +47,7 @@ interface LogicState extends LogicDraftBase {
 
 /**
  * The undo and redo steps, both ending nearest the present, and how many
- * steps a Keep has dropped from their far ends (the oldest undo steps, the
+ * steps a commit has dropped from their far ends (the oldest undo steps, the
  * farthest redo steps). One value, so the shared undo order sees a drop and
  * the shorter stacks in one change (useUndoOrder `dropped`).
  */
@@ -74,7 +74,7 @@ export interface Unfollowed {
   readonly art: string;
 }
 
-/** What a Keep says about doors that stopped following art. */
+/** What a commit says about doors that stopped following art. */
 export function unfollowedText(doors: readonly Unfollowed[]): string {
   const [one] = doors;
   if (!one) return "";
@@ -86,17 +86,17 @@ export function unfollowedText(doors: readonly Unfollowed[]): string {
 
 export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   const initial = toValue(options.base);
-  const kept = shallowRef<LogicDraftBase | null>(initial);
+  const saved = shallowRef<LogicDraftBase | null>(initial);
   const current = shallowRef<LogicState | null>(initial && { ...initial, label: "" });
   const stacks = shallowRef<LogicStacks>({ past: [], future: [], dropped: { past: 0, future: 0 } });
   /** Replace the stacks; the drop count carries over. */
   const setStacks = (past: readonly LogicState[], future: readonly LogicState[]): void => {
     stacks.value = { past, future, dropped: stacks.value.dropped };
   };
-  /** Flag names this Studio reserved (kept or not); a Keep stores them with the logic. */
+  /** Flag names this Studio reserved (saved or not); a commit stores them with the logic. */
   const reserved = shallowRef<Bindings>({});
-  /** How many undo steps the history held when the logic was last kept (or opened). */
-  const keptDepth = shallowRef(0);
+  /** How many undo steps the history held when the logic was last saved (or opened). */
+  const savedStepCount = shallowRef(0);
 
   watch(
     () => toValue(options.base),
@@ -110,11 +110,11 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
         // earlier draft advances the base without replacing later edits.
         if (
           current.value.source === base.source ||
-          (current.value.source !== kept.value?.source && acknowledged >= 0) ||
+          (current.value.source !== saved.value?.source && acknowledged >= 0) ||
           undone >= 0
         ) {
-          kept.value = base;
-          keptDepth.value =
+          saved.value = base;
+          savedStepCount.value =
             current.value.source === base.source
               ? past.length
               : undone >= 0
@@ -123,19 +123,19 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
           return;
         }
       }
-      kept.value = base;
+      saved.value = base;
       current.value = base && { ...base, label: "" };
       setStacks([], []);
-      keptDepth.value = 0;
+      savedStepCount.value = 0;
     },
   );
 
   const editable = computed(() => current.value !== null);
   const source = computed(() => current.value?.source ?? "");
   const bytes = computed(() => current.value?.bytes ?? null);
-  const dirty = computed(() => current.value?.source !== kept.value?.source);
+  const dirty = computed(() => current.value?.source !== saved.value?.source);
   const changes = computed(() =>
-    dirty.value ? Math.max(1, Math.abs(stacks.value.past.length - keptDepth.value)) : 0,
+    dirty.value ? Math.max(1, Math.abs(stacks.value.past.length - savedStepCount.value)) : 0,
   );
   const parsed = computed(() => parseLogicDocument(source.value));
   const document = computed<LogicDocument>(() => parsed.value.document);
@@ -178,10 +178,10 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
       try {
         const compiled = assembleAuthoredLogic(at, latest);
         state = { source: latest, bytes: compiled.payload, label: "" };
-        kept.value = state;
+        saved.value = state;
         current.value = state;
         setStacks([], []);
-        keptDepth.value = 0;
+        savedStepCount.value = 0;
       } catch {
         return { ok: false, error: "Fix the room’s LOGIC before changing its doors." };
       }
@@ -210,13 +210,13 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   }
 
   /**
-   * The logic a Keep writes for a picture going from `before` to `after`:
+   * The logic a commit writes for a picture going from `before` to `after`:
    * every door box that follows a moved item moves with it, and a door whose
    * item is gone from the picture stops following it (`unfollowed` names
    * them). A bound rule that cannot follow (native, or pushed off the
-   * picture) refuses the whole Keep.
+   * picture) refuses the whole commit.
    */
-  function forKeep(
+  function forCommit(
     before: PictureDocument,
     after: PictureDocument,
   ):
@@ -255,8 +255,8 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   }
 
   /**
-   * `state` moved into the frame of the picture kept as `after` (it was
-   * stored against `before`) by the follow the Keep made; null when the
+   * `state` moved into the frame of the picture saved as `after` (it was
+   * stored against `before`) by the follow the commit made; null when the
    * follow refuses it (a box pushed off the picture).
    */
   function rebased(
@@ -278,16 +278,16 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
 
   /**
    * The game now holds `logic`: it is the new base; the history stays.
-   * `frames`: the picture this Keep went from and to. Every undo and redo
+   * `frames`: the picture this commit went from and to. Every undo and redo
    * step moves into the new frame by the same follow; a step that cannot
    * follow is dropped with every step beyond it, since the history would
    * otherwise skip over it.
    */
-  function markKept(
+  function markSaved(
     logic: LogicDraftBase,
     frames?: { before: PictureDocument; after: PictureDocument },
   ): void {
-    kept.value = logic;
+    saved.value = logic;
     current.value = { source: logic.source, bytes: logic.bytes, label: current.value?.label ?? "" };
     const at = frames && session();
     if (frames && at) {
@@ -313,18 +313,18 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
         },
       };
     }
-    keptDepth.value = stacks.value.past.length;
+    savedStepCount.value = stacks.value.past.length;
   }
 
-  /** Back to the last kept logic. */
+  /** Back to the last saved logic. */
   function discard(): void {
-    current.value = kept.value && { ...kept.value, label: "" };
+    current.value = saved.value && { ...saved.value, label: "" };
     setStacks([], []);
-    keptDepth.value = 0;
+    savedStepCount.value = 0;
   }
 
   return {
-    kept,
+    saved,
     editable,
     source,
     bytes,
@@ -339,13 +339,13 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
     canRedo: computed(() => stacks.value.future.length > 0),
     past: computed(() => stacks.value.past.length),
     future: computed(() => stacks.value.future.length),
-    /** Steps a Keep dropped from the far ends so far (useUndoOrder `dropped`). */
+    /** Steps a commit dropped from the far ends so far (useUndoOrder `dropped`). */
     dropped: computed(() => stacks.value.dropped),
     apply,
     undo: () => step("undo"),
     redo: () => step("redo"),
-    forKeep,
-    markKept,
+    forCommit,
+    markSaved,
     discard,
   };
 }
@@ -353,28 +353,28 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
 export type RoomLogicDraft = ReturnType<typeof useRoomLogicDraft>;
 
 /**
- * A stored door box as the room tools show it: moved by its item's unkept
- * translation from the kept picture to the one on screen.
+ * A stored door box as the room tools show it: moved by its item's unsaved
+ * translation from the saved picture to the one on screen.
  */
 export function toShown(
   box: RuleBox,
   item: string | null,
-  kept: PictureDocument,
+  saved: PictureDocument,
   shown: PictureDocument,
 ): RuleBox {
-  const move = item === null ? null : itemTranslation(kept, shown, item);
+  const move = item === null ? null : itemTranslation(saved, shown, item);
   if (!move || (move.dx === 0 && move.dy === 0)) return box;
   return { x1: box.x1 + move.dx, y1: box.y1 + move.dy, x2: box.x2 + move.dx, y2: box.y2 + move.dy };
 }
 
-/** A box placed on screen, stored in the kept picture's frame (toShown's inverse). */
+/** A box placed on screen, stored in the saved picture's frame (toShown's inverse). */
 export function toStored(
   box: RuleBox,
   item: string | null,
-  kept: PictureDocument,
+  saved: PictureDocument,
   shown: PictureDocument,
 ): RuleBox {
-  const move = item === null ? null : itemTranslation(kept, shown, item);
+  const move = item === null ? null : itemTranslation(saved, shown, item);
   if (!move || (move.dx === 0 && move.dy === 0)) return box;
   return { x1: box.x1 - move.dx, y1: box.y1 - move.dy, x2: box.x2 - move.dx, y2: box.y2 - move.dy };
 }

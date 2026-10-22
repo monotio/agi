@@ -64,7 +64,7 @@ test("advanceReplay parked on a prompt holds the tick until the answer lands", (
   assert.equal(after[1]!.revision, 2);
 });
 
-test("a checkpoint snapshot restores the replay head and replays the gap identically", () => {
+test("a progress entry snapshot restores the replay head and replays the gap identically", () => {
   const container = countingGame();
   const { ctx, control } = workerHarness(container);
   ctx.boot.currentBootFiles = new Map(container.files);

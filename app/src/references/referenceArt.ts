@@ -14,7 +14,7 @@
  */
 import { type GameIdentity, gameIdentity } from "../../../src/gameIdentity.ts";
 import type { AgentToolImage } from "../../../src/agent/agentState.ts";
-import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
+import { buildView, type BuildViewInput, type ViewCapabilities } from "../../../src/view/view.ts";
 import {
   convertCharacterSheet,
   type CharacterSheetSpec,
@@ -50,7 +50,7 @@ interface ReferenceImage {
   readonly height: number;
 }
 
-/** A converted character sheet waiting on the player's keep/revise call. */
+/** A converted cel sheet waiting on the player's keep/revise call. */
 interface StagedView {
   /** The VIEW resource number it commits to on keep. */
   readonly num: number;
@@ -120,6 +120,7 @@ export function stageCharacterView(
   attachedAt: GameIdentity,
   sheets: { decoded: DecodedImage; facing: SheetFacing }[],
   spec: CharacterSheetSpec,
+  profile?: ViewCapabilities,
 ): StoredReference {
   const images: Partial<Record<SheetFacing, SheetBitmap>> = {};
   const entries: ReferenceImage[] = [];
@@ -127,7 +128,7 @@ export function stageCharacterView(
     images[facing] = decoded;
     entries.push(referenceImage(decoded, facing));
   }
-  const converted = convertCharacterSheet(images, spec);
+  const converted = convertCharacterSheet(images, spec, profile);
   return {
     id,
     kind: "character",
@@ -184,7 +185,7 @@ export function roomReference(
 }
 
 /**
- * A view's reference image as Studio's Ask attaches it: one image for the
+ * A view's reference image as the editor's agent attaches it: one image for the
  * character the view draws, stored as a character reference without a pose
  * manifest or staged VIEW (the shape a kept sheet already has, less its
  * manifest), so released project records read it unchanged.

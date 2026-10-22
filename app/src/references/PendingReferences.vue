@@ -18,7 +18,7 @@ defineProps<{ busy: boolean; room: number; allowAttach: boolean }>();
       v-if="allowAttach"
       icon="image"
       data-testid="agent-attach-reference"
-      title="Attach reference art for the agent: a room picture or a character sheet"
+      title="Attach reference art for the agent: a room picture or a sheet of cels"
       :disabled="busy"
       @click="openReferenceUpload(room || undefined)"
     >

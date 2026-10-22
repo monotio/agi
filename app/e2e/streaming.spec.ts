@@ -7,7 +7,7 @@ import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, textHook, enterPlayMode } from "./engineProbe.ts";
 
 for (const provider of ["openai", "anthropic"] as const) {
-  test(`${provider}: live tool preparation, streamed Ask text, Stop and Continue`, async ({
+  test(`${provider}: live tool preparation, streamed agent text, Stop and Continue`, async ({
     page,
   }) => {
     const requests: Record<string, unknown>[] = [];
@@ -82,7 +82,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       await page.getByTestId("btn-resume-cached").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(1);
       await enterPlayMode(page);
-      await page.getByTestId("menu-assistant").click();
+      await page.getByTestId("menu-agent").click();
       await configureAi(page, { provider, key: "test-placeholder" });
       await page.getByTestId("agent-message").fill("Where am I?");
       await page.getByTestId("agent-send").click();

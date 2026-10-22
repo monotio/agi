@@ -7,7 +7,7 @@ import { priorityForY } from "../../../src/runtime/priority.ts";
 import type { FillExplanation } from "../../../src/studio/pictureQuery.ts";
 import { explain } from "./studioTerms.ts";
 import { priorityMeaning } from "./studioView.ts";
-import type { PixelInfo, PlanePixel, SceneRow } from "./useStudioDocument.ts";
+import type { PixelInfo, PlanePixel, ItemRow } from "./useStudioDocument.ts";
 
 interface InspectorCommand {
   /** Timeline index. */
@@ -20,12 +20,12 @@ interface InspectorCommand {
  * The inspector: what the selection needs, and the rest under Details. On
  * top, the selection's name (editable while `rename` is given) and one line,
  * "Visual · locked"; then the Studio's editor (`editor` slot: the item's kind,
- * lock, art and depth, and its actions), then Ask (`assist`). Details, closed
+ * lock, art and priority, and its actions), then Agent (`agent`). Details, closed
  * by default and remembered per viewer, holds the expert read-outs: the
  * selection's steps (click one to scrub there), the pixel under the pointer
  * or clicked, with the step that last wrote each plane, whether a fill at the
- * marker reaches it, the colours and depth values an item draws, and what
- * the Studio adds (`more` slot: an item's points, several items' depth). A view's own panel (the room tools', the ghost's,
+ * marker reaches it, the colours and priority values an item draws, and what
+ * the Studio adds (`more` slot: an item's points, several items' priority). A view's own panel (the room tools', the standIn's,
  * a lesson's card) goes in the `lead` slot above it all, and `foot` says in
  * one line how the selection moves.
  */
@@ -45,14 +45,14 @@ const {
   parts = undefined,
   foot = "",
 } = defineProps<{
-  row: SceneRow | undefined;
+  row: ItemRow | undefined;
   commands: readonly InspectorCommand[];
   colours: readonly number[];
   priorities: readonly number[];
   pixel: PixelInfo | null;
   pinned: boolean;
   fill: FillExplanation | undefined;
-  /** The editor slot holds the item's own art and depth pickers: the read-only lists step aside. */
+  /** The editor slot holds the item's own art and priority pickers: the read-only lists step aside. */
   editing?: boolean;
   /** What the `more` slot adds to Details, for its closed row ("Points"). */
   more?: string;
@@ -67,7 +67,7 @@ const {
 }>();
 const emit = defineEmits<{ seek: [count: number]; select: [id: string] }>();
 
-const KIND_NAMES: Record<SceneRow["kind"], string> = {
+const KIND_NAMES: Record<ItemRow["kind"], string> = {
   art: "Visual",
   depth: "Priority",
   walk: "Walls",
@@ -136,7 +136,7 @@ function commitName(event: Event): void {
       <p class="inspector__sub" data-testid="inspector-subtitle">{{ summary }}</p>
     </header>
     <slot name="editor" />
-    <slot name="assist" />
+    <slot name="agent" />
 
     <UiDisclosure
       id="room-inspector"
@@ -232,9 +232,11 @@ function commitName(event: Event): void {
             ></i>
           </div>
         </section>
-        <section v-if="priorities.length > 0" class="inspector__sec" data-role="depths">
-          <h3 class="inspector__with">Depth values <UiExplain v-bind="explain('walk-lines')" /></h3>
-          <div class="inspector__prio" role="list" aria-label="Depth values">
+        <section v-if="priorities.length > 0" class="inspector__sec" data-role="priorities">
+          <h3 class="inspector__with">
+            Priority values <UiExplain v-bind="explain('walk-lines')" />
+          </h3>
+          <div class="inspector__prio" role="list" aria-label="Priority values">
             <i
               v-for="v in 16"
               :key="v"

@@ -57,7 +57,7 @@ function review(over: Partial<ProjectRemovalInput>) {
     authoring: authoring({}),
     references: undefined,
     drafts: [],
-    keptBindings: {},
+    savedBindings: {},
     profile,
     ...over,
   });

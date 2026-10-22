@@ -1286,7 +1286,7 @@ test("a deferred admission publishes MAIN without queuing a second source save",
   }
 });
 
-test("checkpoint preparation is ready during an outstanding document write", async () => {
+test("progress entry preparation is ready during an outstanding document write", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },
@@ -1360,7 +1360,7 @@ test("checkpoint preparation is ready during an outstanding document write", asy
   }
 });
 
-test("checkpoint preparation returns not ready before a future admission boundary", async () => {
+test("progress entry preparation returns not ready before a future admission boundary", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },

@@ -212,7 +212,7 @@ test(
 );
 
 test(
-  "dragging an item in the tutorial's Room Studio keeps frames and input responsive",
+  "dragging an item in the tutorial's PICTURE editor keeps frames and input responsive",
   PERF,
   async ({ page }) => {
     await playTutorial(page);
@@ -224,7 +224,16 @@ test(
     // The bust is painted over the finished room, so it moves without changing
     // another item's art: from its chest (sceneArt.ts) 30 px across the floor.
     const pane = page.locator(".studio-pane").last();
-    const box = (await pane.boundingBox())!;
+    // Focus refits the stage: the pane still moves and resizes while the new
+    // size reaches the zoom. Measure only once the box holds still across a frame.
+    let box = (await pane.boundingBox())!;
+    await expect(async () => {
+      await nextFrame(page);
+      const next = (await pane.boundingBox())!;
+      const prev = box;
+      box = next;
+      expect(next).toEqual(prev);
+    }).toPass({ timeout: 10_000 });
     const zoom = box.height / 168;
     const cell = (x: number, y: number): [number, number] => [
       box.x + (x + 0.5) * 2 * zoom,
@@ -247,12 +256,12 @@ test(
   },
 );
 
-test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ page }) => {
+test("pencil strokes in VIEW editor keep frames responsive", PERF, async ({ page }) => {
   await playTutorial(page);
   const studio = await openWorkspaceView(page, 0, false);
-  await studio.locator('.sprite-workspace-palette [data-colour="4"]').click();
+  await studio.locator('.view-workspace-palette [data-colour="4"]').click();
   await studio.locator('[data-loop="0"][data-cel="0"]').click();
-  const canvas = studio.getByTestId("sprite-canvas");
+  const canvas = studio.getByTestId("view-canvas");
   const width = Number(await canvas.getAttribute("data-width"));
   const height = Number(await canvas.getAttribute("data-height"));
   const commits = await historyCommits(page);
@@ -286,7 +295,7 @@ test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ pa
     await dragPerFrame(page, cell(...from), cell(...to), 20);
   }
   const sample = await endWindow(page);
-  report("sprite-pencil", sample);
+  report("view-pencil", sample);
   // Each stroke is one undo step.
   await workspaceSaved(page);
   expect(await historyCommits(page)).toBe(commits);

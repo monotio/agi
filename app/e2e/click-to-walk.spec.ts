@@ -28,10 +28,13 @@ function clickGame(repeatPlayerControl = false): Buffer {
     assembleLogic(
       `if (!isset(f200)) {
          set(f200);
+         configure.screen(1, 22, 0);
          load.pic(v250); draw.pic(v250); show.pic();
          animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
          assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
+         set.key(1, 4, 1);
        }
+       if (controller(c1)) { print("Hello"); }
        ${repeatPlayerControl ? "player.control();" : ""}
        return;`,
       { dictionary: new Map() },
@@ -185,4 +188,35 @@ test.describe(() => {
         .toEqual([118, 130]);
     });
   }
+});
+
+test("Amiga right double-click triggers 0x0401 and clicking inside the print window dismisses it @webkit-desktop", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.crtAmount", "0"));
+  await page.goto("/");
+  await bootClickGame(page, "amiga-right-dbl-and-win-click", "amiga-2.316");
+
+  const box = (await page.locator(".screen").boundingBox())!;
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  // Single right-click does not fire 0x0401.
+  await page.mouse.click(centerX, centerY, { button: "right" });
+  await waitForCycles(page, 2);
+  expect((await textHook(page)).modal).toBe(null);
+
+  // Double right-click fires 0x0401 -> controller(c1) -> print("Hello").
+  await page.mouse.click(centerX, centerY, { button: "right" });
+  await page.mouse.click(centerX, centerY, { button: "right" });
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+
+  // Clicking outside the window (y = 80..103) leaves it open.
+  await clickFramePixel(page, 161, 130);
+  await observe(page);
+  expect((await textHook(page)).modal).toBe("print");
+
+  // Clicking inside the window at (160, 88) dismisses it.
+  await clickFramePixel(page, 160, 88);
+  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
 });

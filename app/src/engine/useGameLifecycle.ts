@@ -1,3 +1,5 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
+import { connectedGamepad } from "../play/useGameKeys.ts";
 import { migrateAgentChats } from "../../../src/agent/chats.ts";
 /**
  * Game lifecycle: boot (fixture / authored / stub-agent), eject, shutdown,
@@ -46,13 +48,39 @@ import {
   ResourceCommitError,
 } from "../project/projectTransaction.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
-import type { ProfileId } from "../../../src/runtime/profile.ts";
+import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
+import { loadAppearance } from "../render/appearance.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import type { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { WorkerLink } from "./useWorkerLink.ts";
 import type { CachedGameData } from "../project/gameStorage.ts";
 import type { WorkerInbound } from "../worker/workerProtocol.ts";
 import { admitQualifiedOpening, type QualifiedGameOpening } from "./openingAdmission.ts";
+import {
+  AUTHORING_CONVENTIONS_VERSION,
+  isRecognizedOriginal,
+  effectiveProjectCompatibility,
+} from "../../../src/authoring/projectConventions.ts";
+
+/**
+ * The boot field that lets a library project's engine adopt the script
+ * buffer its LOGIC 0 declares on a live edit or a resume. Original releases,
+ * installed folders and fixtures boot without it (docs/fidelity.md,
+ * "Authored script buffer on live edits").
+ */
+function authoredScriptBuffer(project: CachedGameData | undefined): {
+  adoptDeclaredScriptSize?: true;
+  legacyRoomMemory?: true;
+} {
+  return project !== undefined && !isRecognizedOriginal(project.files, project.library?.source)
+    ? {
+        adoptDeclaredScriptSize: true,
+        ...(effectiveProjectCompatibility(project).legacyRoomMemory
+          ? { legacyRoomMemory: true as const }
+          : {}),
+      }
+    : {};
+}
 
 /**
  * Exit's refusal while this session's timeline is still owed to storage:
@@ -68,6 +96,8 @@ export class HistoryUnsavedError extends Error {
 
 export interface GameLifecycleOptions {
   readonly getAmigaRegion?: () => "ntsc" | "pal";
+  /** The player's PC display preference, read at each boot. */
+  readonly getPcDisplay?: () => PcDisplay;
   readonly state: EngineState;
   readonly hook: TextHook;
   readonly audio: AgiAudio | null;
@@ -88,6 +118,8 @@ export interface GameLifecycleOptions {
   readonly resetHistoryView: () => void;
   /** The screen's last picture belongs to the replaced or departed game. */
   readonly onScreenReset?: () => void;
+  readonly onAppearance?:
+    ((id: string | null, files?: ReadonlyMap<string, Uint8Array>) => void) | undefined;
   readonly flushProject?: () => Promise<void>;
   readonly pendingEditorChanges?: () => boolean;
   readonly getProjectMode?: () => "create" | "play";
@@ -196,8 +228,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.walkthrough.error = "";
     options.audio?.setPaused(false);
     state.paused = false;
+    options.onAppearance?.(null);
     state.profile = null;
     hook.profile = null;
+    state.pcDisplay = "ega";
+    state.amigaRegion = "ntsc";
+    hook.pcDisplay = "ega";
     state.textMode = false;
     state.modal = null;
     state.showObjView = null;
@@ -205,6 +241,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.inputEnabled = false;
     state.inputReady = false;
     state.holdToMove = false;
+    state.menuAvailable = false;
     state.waitingForKey = false;
     state.gameEdit = null;
     state.rows = [];
@@ -212,7 +249,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.soundPlaying = false;
     options.resetPauseOwners();
     options.resetHistoryView();
-    state.shake = false;
     link.clearShake();
     hook.modal = null;
     hook.textMode = false;
@@ -307,6 +343,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // lifetime: its writes refuse rather than mint a fabricated epoch.
     game.historyLifetime =
       progressTarget === null ? null : await readHistoryLifetime(progressTarget.locator);
+    await loadAppearance(
+      detectProfile(new Map(Object.entries(files)), match?.profile).id,
+      new Map(Object.entries(files)),
+    );
     return { game, profile: match?.profile };
   }
 
@@ -423,9 +463,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       booted = game;
       slotGame = game;
       options.audio?.useGameFiles(game.files);
+      options.onAppearance?.(
+        detectProfile(new Map(Object.entries(game.files)), profile).id,
+        new Map(Object.entries(game.files)),
+      );
       w.postMessage({
         type: "boot",
+        joystick: connectedGamepad(),
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        pcDisplay: options.getPcDisplay?.() ?? "ega",
         progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
@@ -451,6 +497,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         files: game.files,
         words: game.words,
         autosaveFiles: true,
+        ...authoredScriptBuffer(
+          game.authoredGame === undefined ? undefined : { ...game.authoredGame, files: game.files },
+        ),
         ...(profile !== undefined ? { profile } : {}),
         ...(resumeAdmission.status === "restore"
           ? {
@@ -550,9 +599,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.authoring?.resetSession();
       booted = prepared.game;
       options.audio?.useGameFiles(prepared.game.files);
+      options.onAppearance?.(
+        detectProfile(new Map(Object.entries(prepared.game.files)), prepared.profile).id,
+        new Map(Object.entries(prepared.game.files)),
+      );
       w.postMessage({
         type: "boot",
+        joystick: connectedGamepad(),
         amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+        pcDisplay: options.getPcDisplay?.() ?? "ega",
         progressMode: options.getProjectMode?.() ?? "play",
         ...(options.getProjectMode?.() === "create"
           ? {
@@ -790,6 +845,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     let authoredGame: CachedGameData = {
       projectId,
       templateId,
+      authoringConventions: { version: AUTHORING_CONVENTIONS_VERSION },
       title,
       authoredAt: new Date().toISOString(),
       provider: config.provider,
@@ -827,6 +883,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (authoredGame.chats.chats[0]) authoredGame.chats.chats[0].title = `Created ${title}`;
     const saved = await saveAuthoredGameCapture(projectId, {
       templateId,
+      authoringConventions: { version: AUTHORING_CONVENTIONS_VERSION },
       title,
       provider: config.provider,
       model: config.model,
@@ -853,6 +910,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       );
 
     await options.flushProject?.();
+    if (!isCurrent()) return;
+    await loadAppearance(
+      detectProfile(new Map(Object.entries(files))).id,
+      new Map(Object.entries(files)),
+    );
     if (!isCurrent()) return;
     await options.prepareRun?.();
     if (!isCurrent()) return;
@@ -897,9 +959,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
     const activeReplaySeed = options.getActiveReplaySeed();
     options.audio?.useGameFiles(files);
+    options.onAppearance?.(
+      detectProfile(new Map(Object.entries(files)), undefined).id,
+      new Map(Object.entries(files)),
+    );
     w.postMessage({
       type: "boot",
+      joystick: connectedGamepad(),
       amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+      pcDisplay: options.getPcDisplay?.() ?? "ega",
       progressMode: options.getProjectMode?.() ?? "play",
       projectMode: "create",
       sessionId: options.getSessionId(),
@@ -908,6 +976,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       words,
       autosaveFiles: true,
       authorRooms: true,
+      adoptDeclaredScriptSize: true,
       ...(activeReplaySeed !== null
         ? {
             replaySeed: activeReplaySeed,
@@ -1000,7 +1069,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       if (bootOptions?.useCached) {
         // Start the authoring stack's download while storage reads the world.
         if (getCachedGameMeta(projectId)?.roomGeneration) void loadAuthoring().catch(() => {});
-        const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
+        const loaded = await loadAuthoredGameWithHistoryLifetime(
+          projectId,
+          options.getProjectMode?.() === "create",
+        );
         // Superseded while storage answered: the newer flow owns the slot,
         // the session and the worker this boot would still spawn.
         if (!isCurrent()) return;
@@ -1082,6 +1154,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             return;
           }
           if (!isCurrent()) return;
+          await loadAppearance(
+            detectProfile(new Map(Object.entries(cached.files)), cached.library?.profile).id,
+            new Map(Object.entries(cached.files)),
+          );
+          if (!isCurrent()) return;
           await options.prepareRun?.();
           if (!isCurrent()) return;
           const openingAdmission = await admitQualifiedOpening(
@@ -1117,9 +1194,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           }
           const activeReplaySeed = options.getActiveReplaySeed();
           options.audio?.useGameFiles(cached.files);
+          options.onAppearance?.(
+            detectProfile(new Map(Object.entries(cached.files)), cached.library?.profile).id,
+            new Map(Object.entries(cached.files)),
+          );
           w.postMessage({
             type: "boot",
+            joystick: connectedGamepad(),
             amigaRegion: options.getAmigaRegion?.() ?? "ntsc",
+            pcDisplay: options.getPcDisplay?.() ?? "ega",
             progressMode: options.getProjectMode?.() ?? "play",
             ...(options.getProjectMode?.() === "create"
               ? {
@@ -1146,6 +1229,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             words: cached.words,
             autosaveFiles: true,
             authorRooms: Boolean(cached.roomGeneration),
+            ...authoredScriptBuffer(cached),
             ...(cached.library?.profile ? { profile: cached.library.profile } : {}),
             ...(resumeAdmission.status === "restore"
               ? {
@@ -1407,7 +1491,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const files = await link.query("exportFiles");
     // The binding captured before the storage and worker reads must still
     // be the running game's in full — a superseded boot owns the slot now,
-    // and a rebound target is not this export's: a Keep advancing the bound
+    // and a rebound target is not this export's: a commit advancing the bound
     // revision keeps the same owner object and saved-body locator, so the
     // logical project and full revision are compared beside the locator.
     // An unbound game (a removed saved body) compares equal on both sides
@@ -1423,7 +1507,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       throw new Error("The game changed during export. Try again.");
     // The download is the running game as it stands; storage is not written.
     // Every resource write already saved its files before installing them,
-    // so a running game that differs from the record is behind it (a Keep
+    // so a running game that differs from the record is behind it (a commit
     // it never loaded, a save from another tab), and writing its files back
     // would roll that newer save back.
     const words = files["WORDS.TOK"]

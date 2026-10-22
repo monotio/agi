@@ -53,7 +53,7 @@ test("a saved progress identity uses the complete stored native bytes", async ()
   assert.equal(target.identity.revision, actual);
 });
 
-test("a typed installed target refuses a checkpoint from earlier different bytes", () => {
+test("a typed installed target refuses a progress entry from earlier different bytes", () => {
   local.clear();
   const oldTarget = installedProgressTarget({ folder: "same-folder" }, "1".repeat(64));
   const currentTarget = installedProgressTarget({ folder: "same-folder" }, "2".repeat(64));
@@ -81,7 +81,7 @@ test("a typed installed target refuses a checkpoint from earlier different bytes
   assert.equal(readGameProgress(storage, currentTarget).autosave, null);
   // The original checkpoint stays readable at its own address, unerased.
   assert.deepEqual(readGameProgress(storage, oldTarget).autosave, record);
-  assert.deepEqual(local, before, "refusing an earlier checkpoint does not erase it");
+  assert.deepEqual(local, before, "refusing an earlier progress entry does not erase it");
 });
 
 test("target-only evidence stays with its project and a changed native revision", () => {

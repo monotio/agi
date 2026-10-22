@@ -1,5 +1,5 @@
 /**
- * The one logical <-> screen transform shared by the Room Studio canvas,
+ * The one logical <-> screen transform shared by the PICTURE editor canvas,
  * overlays and pointer input. A logical AGI pixel is `pixelAspect * zoom`
  * screen pixels wide and `zoom` tall; `offsetX`/`offsetY` place logical 0,0.
  */

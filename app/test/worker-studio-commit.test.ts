@@ -1,6 +1,6 @@
 import { scheduler as testScheduler } from "node:timers/promises";
 /**
- * Room Studio's and Sprite Studio's Keep, end to end over fake ports: the real authoring
+ * PICTURE editor's and VIEW editor's commit, end to end over fake ports: the real authoring
  * controller commits through the real worker link into the real worker
  * dispatch and Engine, against the IndexedDB fixture. Each case checks one
  * leg of the transaction — the install ack, the refusals that must leave
@@ -42,7 +42,7 @@ import type {
   WorkerPresentation,
 } from "../src/worker/workerProtocol.ts";
 import { studioCommitFailure, useStudioCommit } from "../src/studio/useStudioCommit.ts";
-import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
+import { useDraftCommit } from "../src/studio/useDraftCommit.ts";
 import { useAutosaveController } from "../src/saves/useAutosaveController.ts";
 import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
 import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
@@ -53,7 +53,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { openSprite } from "../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../src/view/viewDocument.ts";
 import { applyEdit } from "../../src/studio/editOperations.ts";
 import {
   parsePictureDocument,
@@ -63,7 +63,7 @@ import { placeEgo } from "../../src/runtime/playHere.ts";
 import { parseLogicDocument } from "../../src/studio/rules/logicDocument.ts";
 import { followPictureEdit } from "../../src/studio/rules/ruleBinding.ts";
 import { applyRuleEdit } from "../../src/studio/rules/ruleEdit.ts";
-import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
+import { applyViewEdit } from "../../src/studio/view/viewOperations.ts";
 import { viewSpec } from "../../src/view/celEdit.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { bytesToBase64 } from "../src/project/bytes.ts";
@@ -411,7 +411,7 @@ test("a stale base or an unusable source is refused before storage or the worker
     r.controller.commitPictureEdit({ ...edit, baseRevision: testRevision("before") }),
     (e) => e instanceof ResourceCommitError && e.code === "stale",
   );
-  // The stored project moved since boot (another tab kept an edit).
+  // The stored project moved since boot (another tab saved an edit).
   const moved = openContainer(new Map(Object.entries(files)));
   moved.putResource("picture", 2, compile(BLUE));
   assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(moved.files)), true);
@@ -441,10 +441,13 @@ test("a stale base or an unusable source is refused before storage or the worker
 
   // The composable words a stale refusal for the Studio.
   const failure = studioCommitFailure(new ResourceCommitError("stale", "moved"));
-  assert.equal(failure.message, "The game changed since you opened Studio. Reopen to continue.");
+  assert.equal(
+    failure.message,
+    "The game changed since you opened the editor. Reopen to continue.",
+  );
 });
 
-test("a Studio Keep refused as removed shows the transaction's words, not the generic stale text", () => {
+test("a Studio commit refused as removed shows the transaction's words, not the generic stale text", () => {
   const removed = "This game was removed in another tab. Reload to continue.";
   const worded = studioCommitFailure(
     new ResourceCommitError("stale", removed, { behindStorage: true, removed: true }),
@@ -453,7 +456,7 @@ test("a Studio Keep refused as removed shows the transaction's words, not the ge
   // Any other stale refusal keeps the Studio's own words, whatever its text says.
   assert.equal(
     studioCommitFailure(new ResourceCommitError("stale", removed, { behindStorage: true })).message,
-    "The game changed since you opened Studio. Reopen to continue.",
+    "The game changed since you opened the editor. Reopen to continue.",
   );
 });
 
@@ -481,18 +484,18 @@ test("an edit whose bytes and source already match commits nothing", async (t) =
 
   // Same bytes, new annotations: the source commits without a patch.
   const { commit, busy, lastError } = useStudioCommit(r.controller.commitPictureEdit);
-  const kept = await r.controller.commitPictureEdit({
+  const saved = await r.controller.commitPictureEdit({
     pictureNumber: 1,
     bytes: compile(RED),
     source: RED,
     baseRevision: revision,
   });
-  assert.equal(kept.status, "committed");
+  assert.equal(saved.status, "committed");
   const renamed = commit({
     pictureNumber: 1,
     bytes: compile(RED_RENAMED),
     source: RED_RENAMED,
-    baseRevision: kept.revision,
+    baseRevision: saved.revision,
   });
   assert.equal(busy.value, true);
   assert.equal((await renamed)?.status, "committed");
@@ -517,7 +520,7 @@ test("an edit whose bytes and source already match commits nothing", async (t) =
 });
 
 for (const origin of ["catalog", "installed"] as const) {
-  test(`the first Keep on a ${origin} game forks a remix and keeps the source intact`, async (t) => {
+  test(`the first commit on a ${origin} game forks a remix and keeps the source intact`, async (t) => {
     let projectId: ProjectId | null = null;
     let installedBoot: BootedGame | null = null;
     let r: Rig;
@@ -583,7 +586,7 @@ for (const origin of ["catalog", "installed"] as const) {
   });
 }
 
-test("a notes-only first Keep on a catalog game forks a remix and leaves the catalog entry as shipped", async (t) => {
+test("a notes-only first commit on a catalog game forks a remix and leaves the catalog entry as shipped", async (t) => {
   const { projectId, revision, r } = await authoredRig(t, "studio-catalog-notes", true);
   const shipped = (await loadAuthoredGame(projectId))!;
   // The same bytes as BLUE, now with an item annotation.
@@ -613,7 +616,7 @@ test("a notes-only first Keep on a catalog game forks a remix and leaves the cat
   assert.equal(original.authoringState, undefined);
 });
 
-test("a kept picture re-renders the room and lands on the tape as patch then authoring", async (t) => {
+test("a saved picture re-renders the room and lands on the tape as patch then authoring", async (t) => {
   const { projectId, revision, r } = await authoredRig(t, "studio-render");
   const author = AgentSession.fromAuthoredData(
     { provider: "stub", model: "offline-stub", apiKey: "" },
@@ -663,7 +666,7 @@ test("a kept picture re-renders the room and lands on the tape as patch then aut
   assert.equal(historySyncDigest(replayed.ctx.run.engine!), historySyncDigest(r.ctx.run.engine!));
 });
 
-test("Keep re-enters the room whose logic draws the picture, not the room of that number", async (t) => {
+test("commit re-enters the room whose logic draws the picture, not the room of that number", async (t) => {
   const { revision, r } = await authoredRig(t, "studio-pic7", false, 7);
   assert.equal(r.ctx.run.engine!.vars[0], 1);
   assert.equal(r.picturePixel(), 1, "room 1 shows PIC 7, blue");
@@ -750,42 +753,42 @@ test("a failed install after the save keeps storage as the source of truth", asy
   assert.equal(reloaded.picturePixel(), 4);
 });
 
-/** Studio's Keep over the real commit: a draft of `source` made on `revision`. */
+/** Studio's commit over the real commit: a draft of `source` made on `revision`. */
 function keeper(r: Rig, source: string, revision: ResourceRevision) {
   const draft = {
     dirty: ref(true),
     gesturing: ref(false),
-    kept: ref({ revision }),
+    saved: ref({ revision }),
     changes: ref(1),
     notesOnly: ref(false),
     compiled: ref({ bytes: compile(source) }),
     source: ref(source),
-    markKept: () => {},
+    markSaved: () => {},
   } as unknown as StudioDraft;
-  return useStudioKeep({
+  return useDraftCommit({
     draft,
-    keep: (baseRevision) =>
+    commit: (baseRevision) =>
       r.controller.commitPictureEdit(draftPictureEdit(draft, 1, baseRevision)),
   });
 }
 
-test("a Keep behind a project kept elsewhere reopens by reloading from storage", async (t) => {
-  const { projectId, revision, files, r } = await authoredRig(t, "studio-kept-elsewhere");
+test("a commit behind a project saved elsewhere reopens by reloading from storage", async (t) => {
+  const { projectId, revision, files, r } = await authoredRig(t, "studio-saved-elsewhere");
   // Studio opened on another revision of the running game: reopening on the
   // running game is enough, and nothing needs a reload.
   const behindGame = keeper(r, RED, testRevision("before"));
-  assert.equal(await behindGame.keep(), false);
+  assert.equal(await behindGame.commit(), false);
   assert.equal(behindGame.banner.value?.recovery, "reopen");
   assert.equal(behindGame.banner.value?.fromStorage, false);
 
-  // Another tab kept an edit: the stored project moved past the running game.
+  // Another tab saved an edit: the stored project moved past the running game.
   const elsewhere = openContainer(new Map(Object.entries(files)));
   elsewhere.putResource("picture", 1, compile(RED));
   assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(elsewhere.files)), true);
   const behindStorage = keeper(r, RED_RENAMED, revision);
-  assert.equal(await behindStorage.keep(), false);
+  assert.equal(await behindStorage.commit(), false);
   assert.deepEqual(behindStorage.banner.value, {
-    message: "The game changed since you opened Studio. Reopen to continue.",
+    message: "The game changed since you opened the editor. Reopen to continue.",
     recovery: "reopen",
     fromStorage: true,
   });
@@ -813,9 +816,9 @@ test("a Keep behind a project kept elsewhere reopens by reloading from storage",
   );
 });
 
-test("a Keep that loses the race to another tab's Keep says reopen from storage, not retry", async (t) => {
+test("a commit that loses the race to another tab's commit says reopen from storage, not retry", async (t) => {
   const files = gameFiles();
-  const projectId = testProjectId("studio-keep-race");
+  const projectId = testProjectId("studio-commit-race");
   const revision = await gameRevision(files);
   await saveAuthoredGame(projectId, {
     title: "Studio room",
@@ -825,7 +828,7 @@ test("a Keep that loses the race to another tab's Keep says reopen from storage,
     words: [],
   });
   t.after(() => clearCachedGame(projectId));
-  // The other tab's Keep lands after this Keep read the record and before
+  // The other tab's commit lands after this commit read the record and before
   // its conditional save: queued on the same project, it commits first.
   const green = compile(["vis 2", "fill 80,80", "end"].join("\n"));
   const elsewhere = openContainer(new Map(Object.entries(files)));
@@ -852,11 +855,11 @@ test("a Keep that loses the race to another tab's Keep says reopen from storage,
     },
   );
   const loser = keeper(r, RED, revision);
-  assert.equal(await loser.keep(), false);
+  assert.equal(await loser.commit(), false);
   assert.equal(await raced, true);
   // Retry would only refuse again: the one way on is the reload from storage.
   assert.deepEqual(loser.banner.value, {
-    message: "The game changed since you opened Studio. Reopen to continue.",
+    message: "The game changed since you opened the editor. Reopen to continue.",
     recovery: "reopen",
     fromStorage: true,
   });
@@ -865,7 +868,7 @@ test("a Keep that loses the race to another tab's Keep says reopen from storage,
   assert.deepEqual(storedPicture((await loadAuthoredGame(projectId))!.files), green);
 });
 
-test("a Keep on a project removed in another tab refuses as removed, with nothing written", async (t) => {
+test("a commit on a project removed in another tab refuses as removed, with nothing written", async (t) => {
   const { projectId, revision, r } = await authoredRig(t, "studio-removed-elsewhere");
   await clearCachedGame(projectId);
   const removed = (e: unknown) =>
@@ -875,19 +878,19 @@ test("a Keep on a project removed in another tab refuses as removed, with nothin
     e.removed &&
     e.message === PROJECT_REMOVED_MESSAGE;
   const edit = { pictureNumber: 1, bytes: compile(RED), source: RED, baseRevision: revision };
-  // Found by the Keep itself (nothing heard): the game is behind for good.
+  // Found by the commit itself (nothing heard): the game is behind for good.
   await assert.rejects(r.controller.commitPictureEdit(edit), removed);
   assert.equal(r.game().behindStorage, true);
   // Heard from the removing tab: refused before storage is read.
   r.game().removed = true;
   await assert.rejects(r.controller.commitPictureEdit(edit), removed);
   assert.equal(patches(r).length, 0);
-  assert.equal(await loadAuthoredGame(projectId), null, "the Keep never recreates the project");
+  assert.equal(await loadAuthoredGame(projectId), null, "the commit never recreates the project");
   // A stale refusal of a project that still exists is not a removal.
   assert.equal(new ResourceCommitError("stale", "x", { behindStorage: true }).removed, false);
 });
 
-test("a worker that never acks the patch fails the Keep as an install, after a bounded wait", async (t) => {
+test("a worker that never acks the patch fails the commit as an install, after a bounded wait", async (t) => {
   const timeouts: (number | undefined)[] = [];
   const projectId = testProjectId("studio-never-acks");
   const files = gameFiles();
@@ -922,9 +925,9 @@ test("a worker that never acks the patch fails the Keep as an install, after a b
     },
   );
   const keep = keeper(r, RED, revision);
-  const kept = keep.keep();
-  assert.equal(keep.status.value, "keeping");
-  assert.equal(await kept, false);
+  const saved = keep.commit();
+  assert.equal(keep.status.value, "saving");
+  assert.equal(await saved, false);
   assert.equal(timeouts.length, 1);
   assert.ok(
     timeouts[0] !== undefined && timeouts[0] >= 1000 && timeouts[0] <= 15_000,
@@ -972,17 +975,17 @@ function collectSegment(control: WorkerControl[]): HistorySegment {
   return segment;
 }
 
-// ---- Sprite Studio: the VIEW edit ----------------------------------------
+// ---- VIEW editor: the VIEW edit ----------------------------------------
 
 /** A 2x2 VIEW: loop 0 one cel, loop 1 its mirror. */
-function spriteView(pixels: readonly number[]): Uint8Array {
+function viewView(pixels: readonly number[]): Uint8Array {
   const cel = { width: 2, height: 2, transparentColor: 13, pixels };
   return buildView({ loops: [{ cels: [cel] }, { mirrorLoop: 0 }] }, DEFAULT_V2_PROFILE);
 }
-const VIEW_BEFORE = spriteView([1, 2, 13, 3]);
+const VIEW_BEFORE = viewView([1, 2, 13, 3]);
 
 /** Room 1 animates object 1 in VIEW 3; with `bake`, it also adds VIEW 3 to the picture. */
-function spriteFiles(bake: boolean): Record<string, Uint8Array> {
+function viewFiles(bake: boolean): Record<string, Uint8Array> {
   return Object.fromEntries(
     gameContainer(
       [
@@ -1005,16 +1008,16 @@ function spriteFiles(bake: boolean): Record<string, Uint8Array> {
 const storedView = (files: Record<string, Uint8Array>) =>
   openContainer(new Map(Object.entries(files))).getResource("view", 3);
 
-test("a kept view installs live and keeps its spec; only a room that bakes it re-enters", async (t) => {
+test("a saved view installs live and keeps its spec; only a room that bakes it re-enters", async (t) => {
   for (const bake of [false, true]) {
     const { projectId, revision, r } = await authoredRig(
       t,
-      `sprite-keep-${bake}`,
+      `view-keep-${bake}`,
       false,
       1,
-      spriteFiles(bake),
+      viewFiles(bake),
     );
-    const after = applySpriteEdit(openSprite(VIEW_BEFORE, DEFAULT_V2_PROFILE), {
+    const after = applyViewEdit(openViewDocument(VIEW_BEFORE, DEFAULT_V2_PROFILE), {
       type: "setPixels",
       loop: 1,
       cel: 0,
@@ -1052,16 +1055,16 @@ test("a kept view installs live and keeps its spec; only a room that bakes it re
 test("a view edit is refused as stale or invalid before storage or the worker", async (t) => {
   const { projectId, revision, r } = await authoredRig(
     t,
-    "sprite-refusals",
+    "view-refusals",
     false,
     1,
-    spriteFiles(false),
+    viewFiles(false),
   );
   const generation = (await loadAuthoredGame(projectId))!.generation;
   await assert.rejects(
     r.controller.commitViewEdit({
       viewNumber: 3,
-      bytes: spriteView([4, 4, 4, 4]),
+      bytes: viewView([4, 4, 4, 4]),
       baseRevision: testRevision("before"),
     }),
     (e) => e instanceof ResourceCommitError && e.code === "stale",
@@ -1078,15 +1081,15 @@ test("a view edit is refused as stale or invalid before storage or the worker", 
   assert.equal(patches(r).length, 0);
 });
 
-test("a staged candidate repaired in Sprite Studio keeps the repaired bytes and spends the offer", async (t) => {
+test("a staged changes repaired in VIEW editor keeps the repaired bytes and spends the offer", async (t) => {
   const { projectId, revision, r } = await authoredRig(
     t,
-    "sprite-staged",
+    "view-staged",
     false,
     1,
-    spriteFiles(false),
+    viewFiles(false),
   );
-  const candidate = spriteView([5, 5, 13, 5]);
+  const candidate = viewView([5, 5, 13, 5]);
   const stored = (await loadAuthoredGame(projectId))!;
   await saveAuthoredGame(projectId, {
     ...stored,
@@ -1110,22 +1113,22 @@ test("a staged candidate repaired in Sprite Studio keeps the repaired bytes and 
     ],
   });
   r.game().historyLifetime = await readHistoryLifetime(projectId);
-  const repaired = spriteView([5, 6, 13, 5]);
-  const result = await r.controller.keepStagedView("ref-staged", {
+  const repaired = viewView([5, 6, 13, 5]);
+  const result = await r.controller.commitStagedView("ref-staged", {
     bytes: repaired,
     baseRevision: revision,
   });
   assert.equal(result.status, "committed");
-  const kept = (await loadAuthoredGame(projectId))!;
-  assert.deepEqual(storedView(kept.files), repaired);
-  assert.equal(kept.references?.[0]?.staged, undefined);
-  const views = (kept.authoringState?.["sources"] as { views: [number, BuildViewInput][] }).views;
+  const saved = (await loadAuthoredGame(projectId))!;
+  assert.deepEqual(storedView(saved.files), repaired);
+  assert.equal(saved.references?.[0]?.staged, undefined);
+  const views = (saved.authoringState?.["sources"] as { views: [number, BuildViewInput][] }).views;
   assert.deepEqual(views, [[3, viewSpec(repaired, DEFAULT_V2_PROFILE)]]);
 });
 
-// ---- Room Studio: the combined picture + logic Keep ---------------------
+// ---- PICTURE editor: the combined picture + logic commit ---------------------
 
-/** PIC 1: a grey floor and a red doorway item Room Studio can move. */
+/** PIC 1: a grey floor and a red doorway item PICTURE editor can move. */
 const ROOM_PICTURE = [
   '# @item floor "Floor" art',
   "vis 8",
@@ -1227,7 +1230,7 @@ const storedSources = async (projectId: ProjectId) =>
     sources: { logics: [number, string][]; pictures: [number, string][] };
   };
 
-test("a combined Keep installs the picture and the logic, each acked, and the door follows the art", async (t) => {
+test("a combined commit installs the picture and the logic, each acked, and the door follows the art", async (t) => {
   const { projectId, revision, files, r } = await roomRig(t, "room-combined");
   const { pictureSource, logic } = movedDoorway(files);
   assert.ok(logic.ok);
@@ -1283,7 +1286,7 @@ test("a combined Keep installs the picture and the logic, each acked, and the do
   assert.equal(engine.vars[0], 2, "walking into the moved door box changes room");
 });
 
-test("a logic-only Keep stores the bindings its rules reserved and installs one patch", async (t) => {
+test("a logic-only commit stores the bindings its rules reserved and installs one patch", async (t) => {
   const { projectId, revision, files, r } = await roomRig(t, "room-logic-only");
   const session = roomSession(files);
   const edit = applyRuleEdit(
@@ -1333,7 +1336,7 @@ test("a logic-only Keep stores the bindings its rules reserved and installs one 
   assert.equal(engine.vars[0], 2);
 });
 
-test("a combined Keep is refused whole when stale or invalid, before storage or the worker", async (t) => {
+test("a combined commit is refused whole when stale or invalid, before storage or the worker", async (t) => {
   const { projectId, revision, files, r } = await roomRig(t, "room-refused");
   const { pictureSource, logic } = movedDoorway(files);
   assert.ok(logic.ok);
@@ -1419,7 +1422,7 @@ function refuseLogicPacks(t: TestContext, r: Rig): void {
   });
 }
 
-test("a combined Keep whose logic fails to install leaves the running game on the old picture and logic", async (t) => {
+test("a combined commit whose logic fails to install leaves the running game on the old picture and logic", async (t) => {
   const { projectId, revision, files, r } = await roomRig(t, "room-install-fails", {
     autosaveFiles: true,
   });
@@ -1447,7 +1450,7 @@ test("a combined Keep whose logic fails to install leaves the running game on th
   assert.deepEqual(live.getResource("logic", 1), storedLogic(files));
   assert.equal(await gameRevision(Object.fromEntries(live.files)), revision);
 
-  // The next autosave keeps the saved Keep: no half-new files reach storage.
+  // The next autosave keeps the saved commit: no half-new files reach storage.
   const generation = stored.generation;
   await autosaveNow(r, autosaves(r));
   const after = (await loadAuthoredGame(projectId))!;
@@ -1494,7 +1497,7 @@ test("after an install failure no autosave writes the running game's files, even
   assert.equal(late.game().revision, revision, "the booted revision did not move");
 });
 
-test("an autosave carrying files never writes over another tab's newer Keep, and says so once", async (t) => {
+test("an autosave carrying files never writes over another tab's newer commit, and says so once", async (t) => {
   const { projectId, files, r } = await roomRig(t, "room-autosave-behind", { autosaveFiles: true });
   // Another tab keeps an edit: storage moves past this tab's booted revision.
   const elsewhere = openContainer(new Map(Object.entries(files)));
@@ -1515,7 +1518,7 @@ test("an autosave carrying files never writes over another tab's newer Keep, and
     assert.ok(message.files, "the autosave carries this tab's files");
     const stored = (await loadAuthoredGame(projectId))!;
     assert.equal(stored.generation, newer.generation, "nothing was written");
-    assert.deepEqual(stored.files, newer.files, "the other tab's Keep stays");
+    assert.deepEqual(stored.files, newer.files, "the other tab's commit stays");
   }
   assert.equal(notices, 1, "the reload is offered once, not on every autosave");
   assert.equal(r.game().behindStorage, true);

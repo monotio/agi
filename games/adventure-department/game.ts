@@ -612,7 +612,7 @@ if (!isset(f5)) {
     if (equaln(v59, 0)) { set.cel(o1, 1); set(f35); random(2, 4, v59); }
   }
 }
-// The ledger stand has no depth yet (the Room Studio lesson): say so the first time the apprentice walks behind it.
+// The ledger stand has no priority yet (the PICTURE editor lesson): say so the first time the apprentice walks behind it.
 if (!isset(f38) && posn(o0, 33, 112, 49, 120)) { set(f38); print(37); }
 display(1, 1, 1);
 if (!isset(f32)) { display(2, 1, 8); set.string(s1, m30); }
@@ -670,7 +670,7 @@ if (equaln(v2, 4)) { new.room(2); }
 `,
 };
 
-/** The three rooms and the mural overlay, as annotated Room Studio sources. */
+/** The three rooms and the mural overlay, as annotated PICTURE sources. */
 export const TUTORIAL_PICTURE_SOURCES: Readonly<Record<number, string>> = TUTORIAL_PICTURES;
 
 export const TUTORIAL_VIEW_SOURCES: Readonly<Record<number, BuildViewInput>> = {
@@ -737,7 +737,7 @@ export function buildTutorial(): TutorialGame {
     "1": { title: "Picture Gallery", description: "Repair a vector mural.", exits: { east: 2 } },
     "2": {
       title: "Sprite Lab",
-      description: "Wake a sprite with conditional logic.",
+      description: "Wake the robot with a condition.",
       exits: { west: 1, east: 3 },
     },
     "3": {
@@ -753,7 +753,7 @@ export function buildTutorial(): TutorialGame {
   };
   authoring.world.quests = {
     repairs: {
-      description: "Repair the picture, sprite, and priority exhibits.",
+      description: "Repair the picture, view, and priority exhibits.",
       requires: [],
       completedFlag: "tutorial_complete",
     },
@@ -765,7 +765,7 @@ export function buildTutorial(): TutorialGame {
     title: "Adventure Department",
     roomGeneration: false,
     metadata: {
-      description: "Learn pictures, views and depth in a three-room tutorial.",
+      description: "Learn pictures, views and priority in a three-room museum.",
       author: "Monotio",
       license: "MIT",
     },

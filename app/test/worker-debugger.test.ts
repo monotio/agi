@@ -301,7 +301,7 @@ test("a host answer queues while stopped and applies once on resume", () => {
   assert.equal(h.ctx.run.engine!.vars[101], 9);
 });
 
-test("autosave and checkpoint refuse while the latch is held", () => {
+test("autosave and progress entry refuse while the latch is held", () => {
   const h = workerHarness(gameContainer(["return;"]));
   h.ctx.fns.tickEngine();
   const { epoch } = attach(h);

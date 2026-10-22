@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { frameTask } from "../../ui/frameTask.ts";
 import UiIcon from "../../ui/UiIcon.vue";
-import { computed, onMounted, useTemplateRef, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import type { SoundDocument, SoundEventDataInput } from "../../../../src/sound/document.ts";
 import {
   DRUM_SOUNDS,
@@ -13,7 +14,6 @@ import {
 } from "../../../../src/sound/sequencer.ts";
 import { PSG_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
-import { ref } from "vue";
 const props = defineProps<{
   readOnly?: boolean;
   document: SoundDocument;
@@ -69,6 +69,7 @@ const cursorTick = ref<number>();
 const live = ref("");
 let drag:
   | {
+      pointer: number;
       start: number;
       row: number;
       lane: number;
@@ -78,6 +79,9 @@ let drag:
       moving: boolean;
     }
   | undefined;
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
+
 function midi(note: TimedSoundEvent): number {
   return note.event.data.kind === "tone"
     ? Math.round(69 + 12 * Math.log2(PSG_BASE_FREQ / note.event.data.divisor / 440))
@@ -230,7 +234,7 @@ function pointerCell(
   };
 }
 function down(event: PointerEvent): void {
-  if (event.button !== 0 && event.button !== 2) return;
+  if (drag || (event.button !== 0 && event.button !== 2)) return;
   const cell = pointerCell(event);
   if (!cell) return;
   if (cell.row < pitchRows.value && props.voice === 3) return;
@@ -260,6 +264,7 @@ function down(event: PointerEvent): void {
   emit("voice", lane);
   emit("select", hit?.event.id);
   drag = {
+    pointer: event.pointerId,
     start: hit?.start ?? gridTick(cell.step, props.tempo, props.division),
     end: hit?.end ?? gridTick(cell.step + 1, props.tempo, props.division),
     row: cell.row,
@@ -272,12 +277,23 @@ function down(event: PointerEvent): void {
   describe(hit);
 }
 function move(event: PointerEvent): void {
-  if (!drag) return;
+  if (!drag || drag.pointer !== event.pointerId) return;
   const cell = pointerCell(event);
   if (!cell) return;
   if (Math.abs(cell.x - drag.originX) > 3) drag.moving = true;
-  if (drag.moving)
-    drag.end = Math.max(drag.start + 1, gridTick(cell.step + 1, props.tempo, props.division));
+  gestureFrame.schedule(() => {
+    if (!drag) return;
+    if (drag.moving)
+      drag.end = Math.max(drag.start + 1, gridTick(cell.step + 1, props.tempo, props.division));
+    draw();
+  });
+}
+function cancelDrag(event: PointerEvent): void {
+  if (!drag || drag.pointer !== event.pointerId) return;
+  gestureFrame.cancel();
+  drag = undefined;
+  const target = event.currentTarget as Element;
+  if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
   draw();
 }
 function data(row: number, lane: number): SoundEventDataInput {
@@ -290,6 +306,9 @@ function data(row: number, lane: number): SoundEventDataInput {
     : { kind: "tone", note: rowLabel(row), attenuation: 15 - props.volume };
 }
 function finish(event: PointerEvent): void {
+  if (!drag || drag.pointer !== event.pointerId) return;
+  move(event);
+  gestureFrame.flush();
   try {
     finishEdit(event);
   } catch (cause) {
@@ -482,10 +501,8 @@ onMounted(() => {
         @pointerdown="down"
         @pointermove="move"
         @pointerup="finish"
-        @pointercancel="
-          drag = undefined;
-          draw();
-        "
+        @pointercancel="cancelDrag"
+        @lostpointercapture="cancelDrag"
         @contextmenu.prevent
         @keydown="key"
       />
@@ -500,10 +517,8 @@ onMounted(() => {
       @pointerdown="down"
       @pointermove="move"
       @pointerup="finish"
-      @pointercancel="
-        drag = undefined;
-        draw();
-      "
+      @pointercancel="cancelDrag"
+      @lostpointercapture="cancelDrag"
       @contextmenu.prevent
       @keydown="key"
     />

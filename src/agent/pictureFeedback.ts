@@ -18,7 +18,8 @@
  * explicit dimensions so it can be checked against hand-computed tiny buffers.
  */
 
-import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import { encodePngRgb } from "../picture/png.ts";
+import { EGA_TABLE, type ColourTable } from "../runtime/colourTables.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 
 export interface SurfaceDims {
@@ -44,17 +45,19 @@ const CONTROL_OVERLAY_RGB: readonly (readonly [number, number, number])[] = [
 ];
 
 export const PICTURE_COMPARISON_LEGEND =
-  "Left: clean visual. Middle: raw priority/control in EGA colors (0 barrier, 1 conditional barrier, 2 trigger, 3 water, 4 open/far floor, 5..15 higher depth/occluders). Right: overlay (4 untinted; 5..15 50% EGA blend; controls highlighted as 0 light red, 1 white, 2 magenta, 3 cyan).";
+  "Left: clean visual. Middle: raw priority/control in the game's colours (0 barrier, 1 conditional barrier, 2 trigger, 3 water, 4 open/far floor, 5..15 higher priority bands). Right: overlay (4 untinted; 5..15 50% blend with the game colours; controls highlighted as 0 light red, 1 white, 2 magenta, 3 cyan).";
 
 /**
- * Three aligned native-aspect panels: clean visual, raw EGA priority/control,
- * and a semantic overlay. Priority 4 leaves the visual untouched; depth 5..15
- * is blended 50%, while controls 0..3 use fixed high-contrast colours.
+ * Three aligned native-aspect panels: clean visual, raw priority/control in
+ * the game's colours, and a semantic overlay. Priority 4 leaves the visual
+ * untouched; priority 5..15 is blended 50%, while controls 0..3 use fixed
+ * high-contrast colours.
  */
 export function pictureComparisonPng(
   visual: Uint8Array,
   priority: Uint8Array,
   dims: SurfaceDims = PICTURE_DIMS,
+  palette: ColourTable = EGA_TABLE,
 ): Uint8Array {
   const panelWidth = dims.width * 2;
   const outputWidth = panelWidth * 3;
@@ -75,9 +78,9 @@ export function pictureComparisonPng(
   for (let y = 0; y < dims.height; y++) {
     for (let x = 0; x < dims.width; x++) {
       const index = y * dims.width + x;
-      const visualRgb = EGA_RGB[visual[index]! & 0x0f]!;
+      const visualRgb = palette[visual[index]! & 0x0f]!;
       const priorityValue = priority[index]! & 0x0f;
-      const priorityRgb = EGA_RGB[priorityValue]!;
+      const priorityRgb = palette[priorityValue]!;
       let overlayRgb: readonly [number, number, number];
       if (priorityValue <= 3) overlayRgb = CONTROL_OVERLAY_RGB[priorityValue]!;
       else if (priorityValue === 4) overlayRgb = visualRgb;
@@ -146,7 +149,7 @@ function priorityExtents(priority: Uint8Array, dims: SurfaceDims): PriorityExten
   return extents;
 }
 
-/** Compact, exact spatial summary of collision controls and scenery depth. */
+/** Compact, exact spatial summary of collision controls and scenery priority. */
 export function formatPriorityDiagnostics(
   priority: Uint8Array,
   dims: SurfaceDims = PICTURE_DIMS,
@@ -167,17 +170,17 @@ export function formatPriorityDiagnostics(
     );
   return [
     `Display geometry: ${dims.width}x${dims.height} logical -> ${dims.width * 2}x${dims.height}; each x unit is 2 display pixels and each y unit is 1.`,
-    "Priority/control map (actor collision reads the full baseline/feet row):",
+    "Priority/control map (screen object collision reads the full baseline/feet row):",
     ...(controls.length > 0
       ? controls.map((line) => `- ${line}`)
       : [
           "- controls 0..3: absent. Ego can walk across every part of this picture, drawn walls and water included; draw barrier (0) lines along walls and furniture, and water (3) where it should swim or drown.",
         ]),
-    `- depth bands: ${bands.length > 0 ? bands.join("; ") : "absent"}`,
+    `- priority bands: ${bands.length > 0 ? bands.join("; ") : "absent"}`,
   ].join("\n");
 }
 
-interface ActorLayout {
+interface ScreenObjectLayout {
   name: string;
   x: number;
   y: number;
@@ -186,15 +189,15 @@ interface ActorLayout {
   priority: number;
 }
 
-/** `# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>`. */
-function parseActorLayouts(source: string): ActorLayout[] {
+/** Picture source diagnostic marker: `# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>`. */
+function parseScreenObjectLayouts(source: string): ScreenObjectLayout[] {
   const pattern =
     /^#\s*actor:\s*(\S+)\s+x(\d+)\s+y(\d+)\s+width(\d+)\s+height(\d+)\s+priority(\d+)/i;
-  const actors: ActorLayout[] = [];
+  const screenObjects: ScreenObjectLayout[] = [];
   for (const line of source.split(/\r?\n/)) {
     const match = pattern.exec(line.trim());
     if (!match) continue;
-    const actor = {
+    const screenObject = {
       name: match[1]!,
       x: Number(match[2]),
       y: Number(match[3]),
@@ -202,9 +205,10 @@ function parseActorLayouts(source: string): ActorLayout[] {
       height: Number(match[5]),
       priority: Number(match[6]),
     };
-    if (actor.width > 0 && actor.height > 0 && actor.priority <= 15) actors.push(actor);
+    if (screenObject.width > 0 && screenObject.height > 0 && screenObject.priority <= 15)
+      screenObjects.push(screenObject);
   }
-  return actors;
+  return screenObjects;
 }
 
 function ranges(values: readonly number[]): string {
@@ -230,33 +234,34 @@ function comparisonPriority(priority: Uint8Array, x: number, y: number, dims: Su
 }
 
 /**
- * Check declared actor scale against the scene plus collision and occlusion at
+ * Check declared screen object scale against the scene plus collision and occlusion at
  * that concrete placement. The declaration is a comment and never changes AGI bytes.
  */
-export function actorLayoutFeedback(
+export function screenObjectLayoutFeedback(
   source: string,
   priority: Uint8Array,
   dims: SurfaceDims = PICTURE_DIMS,
 ): string {
   const lines: string[] = [];
-  for (const actor of parseActorLayouts(source)) {
-    const x1 = actor.x + actor.width - 1;
-    const y0 = actor.y - actor.height + 1;
-    const inBounds = actor.x >= 0 && y0 >= 0 && x1 < dims.width && actor.y < dims.height;
+  for (const screenObject of parseScreenObjectLayouts(source)) {
+    const x1 = screenObject.x + screenObject.width - 1;
+    const y0 = screenObject.y - screenObject.height + 1;
+    const inBounds =
+      screenObject.x >= 0 && y0 >= 0 && x1 < dims.width && screenObject.y < dims.height;
     const baselineValues = new Set<number>();
     const controlXs: Record<string, number[]> = {};
-    for (let x = Math.max(0, actor.x); x <= Math.min(dims.width - 1, x1); x++) {
-      if (actor.y < 0 || actor.y >= dims.height) continue;
-      const value = priority[actor.y * dims.width + x]! & 0x0f;
+    for (let x = Math.max(0, screenObject.x); x <= Math.min(dims.width - 1, x1); x++) {
+      if (screenObject.y < 0 || screenObject.y >= dims.height) continue;
+      const value = priority[screenObject.y * dims.width + x]! & 0x0f;
       baselineValues.add(value);
       if (value <= 3) (controlXs[String(value)] ??= []).push(x);
     }
     let higher = 0;
     let sampled = 0;
-    for (let y = Math.max(0, y0); y <= Math.min(dims.height - 1, actor.y); y++) {
-      for (let x = Math.max(0, actor.x); x <= Math.min(dims.width - 1, x1); x++) {
+    for (let y = Math.max(0, y0); y <= Math.min(dims.height - 1, screenObject.y); y++) {
+      for (let x = Math.max(0, screenObject.x); x <= Math.min(dims.width - 1, x1); x++) {
         sampled++;
-        if (comparisonPriority(priority, x, y, dims) > actor.priority) higher++;
+        if (comparisonPriority(priority, x, y, dims) > screenObject.priority) higher++;
       }
     }
     const controls = Object.entries(controlXs)
@@ -264,7 +269,7 @@ export function actorLayoutFeedback(
       .join(", ");
     const values = [...baselineValues].sort((a, b) => a - b).join(", ");
     lines.push(
-      `- ${actor.name}: logical x${actor.x}-${x1} y${y0}-${actor.y} (${actor.width}x${actor.height}), display x${actor.x * 2}-${x1 * 2 + 1} y${y0}-${actor.y} (${actor.width * 2}x${actor.height}); priority ${actor.priority}; baseline values [${values}], controls [${controls}]; higher-priority scenery ${higher}/${sampled} cells${inBounds ? "" : "; OUT OF BOUNDS"}`,
+      `- ${screenObject.name}: logical x${screenObject.x}-${x1} y${y0}-${screenObject.y} (${screenObject.width}x${screenObject.height}), display x${screenObject.x * 2}-${x1 * 2 + 1} y${y0}-${screenObject.y} (${screenObject.width * 2}x${screenObject.height}); priority ${screenObject.priority}; baseline values [${values}], controls [${controls}]; higher-priority picture pixels ${higher}/${sampled} cells${inBounds ? "" : "; OUT OF BOUNDS"}`,
     );
   }
   return lines.join("\n");

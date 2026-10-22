@@ -1,6 +1,10 @@
 /** Accepted project captures recover interrupted storage acknowledgements. */
 import type { ProjectId } from "../../../src/gameIdentity.ts";
-import type { ProjectCommitRequest, ProjectCommitReceipt } from "./gameStorage.ts";
+import type {
+  AutomaticProjectWrite,
+  ProjectCommitRequest,
+  ProjectCommitReceipt,
+} from "./gameStorage.ts";
 import {
   encodeJournalValue,
   decodeJournalValue,
@@ -12,6 +16,8 @@ interface JournalEntry {
   request?: ProjectCommitRequest;
   capture?: ProjectJournalCapture;
   attempted: boolean;
+  /** Recomputable updates keep their deferral policy across interrupted acknowledgment. */
+  automatic?: boolean;
 }
 function entryIdentity(entry: JournalEntry): string {
   return entry.capture?.identity.commitId ?? entry.request!.commitId;
@@ -19,12 +25,25 @@ function entryIdentity(entry: JournalEntry): string {
 function readEntries(storage: Storage, key: string): JournalEntry[] {
   const raw = storage.getItem(key);
   if (raw === null) return [];
-  const journal = JSON.parse(raw) as { version: number; entries: unknown };
-  if (journal.version !== 1 && journal.version !== 2)
-    throw new Error("This pending project write version is not supported.");
-  const entries = decodeJournalValue(journal.entries) as JournalEntry[];
-  if (!Array.isArray(entries)) throw new Error("Invalid pending project writes.");
-  return entries;
+  try {
+    const journal = JSON.parse(raw) as { version: number; entries: unknown };
+    if (journal.version !== 1 && journal.version !== 2)
+      throw new Error("This pending project write version is not supported.");
+    const entries = decodeJournalValue(journal.entries) as JournalEntry[];
+    if (!Array.isArray(entries)) throw new Error("Invalid pending project writes.");
+    return entries;
+  } catch (cause) {
+    if (cause instanceof DOMException) throw cause;
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw Object.assign(
+      new Error(
+        /version.*not supported/.test(message)
+          ? message
+          : `Invalid pending project write: ${message}`,
+      ),
+      { name: "ProjectJournalDecodeError" },
+    );
+  }
 }
 const PREFIX = "monotio_agi.project-writes.";
 const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
@@ -65,7 +84,7 @@ interface RecoveryMarker {
 }
 const terminal: Record<string, RecoveryMarker> = {};
 
-/** Retained journals whose base differs from the live project version. */
+/** Retained journals that could not be recovered automatically. */
 export function readProjectSaveRecoveries(
   storage: Storage,
   project: ProjectId,
@@ -91,6 +110,29 @@ export function readProjectSaveRecoveries(
     }
   }
   return found;
+}
+
+/** Automatic writes must leave unresolved recovery bases available for the next open. */
+export function hasUnresolvedProjectSaveJournal(
+  storage: Storage,
+  project: ProjectId,
+  ownKey?: string,
+): boolean {
+  const retired = new Set(readProjectSaveRecoveries(storage, project).map(({ key }) => key));
+  for (let index = 0; index < storage.length; index++) {
+    const key = storage.key(index);
+    if (key !== ownKey && belongsToProject(key, project) && !retired.has(key)) return true;
+  }
+  return false;
+}
+
+/** Only deterministic refusals retire work; storage and module-load failures retry on open. */
+function lastingFailure(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    !(error instanceof DOMException) &&
+    ["ProjectJournalDecodeError", "ProjectJournalRefusalError"].includes(error.name)
+  );
 }
 
 const recovering = new Map<string, Promise<void>>();
@@ -180,7 +222,11 @@ export function markProjectSaveRecovery(storage: Storage, key: string, reason: s
     reason,
   };
   terminal[key] = marker;
-  storage.setItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`, JSON.stringify(marker));
+  try {
+    storage.setItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`, JSON.stringify(marker));
+  } catch {
+    // Keep the original journal and expose recovery on this page if storage is full.
+  }
   changed();
 }
 
@@ -188,8 +234,15 @@ export function markProjectSaveRecovery(storage: Storage, key: string, reason: s
 export function resumeProjectSaveJournals(
   storage: Storage,
   project: ProjectId,
-  write: (request: ProjectCommitRequest) => Promise<{ receipt: ProjectCommitReceipt }>,
-  rebuild?: (capture: ProjectJournalCapture) => Promise<{ receipt: ProjectCommitReceipt }>,
+  write: (
+    request: ProjectCommitRequest,
+    journalHash?: string,
+    automatic?: AutomaticProjectWrite,
+  ) => Promise<{ receipt: ProjectCommitReceipt } | undefined>,
+  rebuild?: (
+    capture: ProjectJournalCapture,
+    automatic?: AutomaticProjectWrite,
+  ) => Promise<{ receipt: ProjectCommitReceipt } | undefined>,
 ): Promise<void> | undefined {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
   if (!locks) return undefined;
@@ -224,11 +277,29 @@ export function resumeProjectSaveJournals(
           try {
             if (entry.capture !== undefined) {
               if (rebuild === undefined)
-                throw new Error("Project journal recovery is unavailable.");
-              previous = (await rebuild(entry.capture)).receipt;
-            } else previous = (await write(entry.request!)).receipt;
+                throw Object.assign(new Error("Project journal recovery is unavailable."), {
+                  name: "ProjectJournalRefusalError",
+                });
+              previous = (
+                await rebuild(entry.capture, entry.automatic ? { ownJournalKey: key } : undefined)
+              )?.receipt;
+            } else
+              previous = (
+                await write(
+                  entry.request!,
+                  undefined,
+                  entry.automatic ? { ownJournalKey: key } : undefined,
+                )
+              )?.receipt;
           } catch (error) {
-            if (error instanceof Error && error.name === "ProjectDeletedError") {
+            if (
+              error instanceof Error &&
+              (error.name === "ProjectDeletedError" ||
+                (entry.automatic && error.name === "ConcurrencyConflictError"))
+            ) {
+              // Another journal may have recovered first. An obsolete automatic
+              // update is recomputed on open, never a creator recovery conflict.
+              previous = undefined;
               const current = readEntries(storage, key);
               const index = current.findIndex(
                 (candidate) => entryIdentity(candidate) === entryIdentity(entry),
@@ -239,39 +310,27 @@ export function resumeProjectSaveJournals(
               entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
               continue;
             }
-            if (
+            // Keep failed work exactly as it was before this attempt, including
+            // any successor appended while recovery awaited the write.
+            const current = readEntries(storage, key);
+            const index = current.findIndex(
+              (candidate) => entryIdentity(candidate) === entryIdentity(entry),
+            );
+            if (index >= 0) current[index] = beforeAttempt;
+            writeProjectSaveJournal(storage, key, current);
+            const conflict =
               error instanceof Error &&
-              ["ConcurrencyConflictError", "ProjectExistsError"].includes(error.name)
-            ) {
-              const current = readEntries(storage, key);
-              const index = current.findIndex(
-                (candidate) => entryIdentity(candidate) === entryIdentity(entry),
+              ["ConcurrencyConflictError", "ProjectExistsError"].includes(error.name);
+            if (
+              lastingFailure(error) ||
+              (conflict && current.every((candidate) => observed.has(entryIdentity(candidate))))
+            )
+              markProjectSaveRecovery(
+                storage,
+                key,
+                error instanceof Error ? error.message : String(error),
               );
-              if (index >= 0) current[index] = beforeAttempt;
-              writeProjectSaveJournal(storage, key, current);
-              const raw = storage.getItem(key);
-              if (
-                raw !== null &&
-                current.every((candidate) => observed.has(entryIdentity(candidate)))
-              ) {
-                const marker: RecoveryMarker = {
-                  version: 1,
-                  hash: sha256Hex(new TextEncoder().encode(raw)),
-                  reason: error.message,
-                };
-                terminal[key] = marker;
-                try {
-                  storage.setItem(
-                    `${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`,
-                    JSON.stringify(marker),
-                  );
-                } catch {
-                  // Original bytes remain in the journal; this page can still surface recovery.
-                }
-              }
-              break;
-            }
-            throw error;
+            break;
           }
           const current = readEntries(storage, key);
           const index = current.findIndex(
@@ -281,7 +340,7 @@ export function resumeProjectSaveJournals(
           current.splice(index, 1);
           // Keep the successor's resolved base durable before dropping its predecessor.
           const successor = current[index];
-          if (successor && !successor.attempted) {
+          if (successor && !successor.attempted && previous !== undefined) {
             if (successor.capture !== undefined && entry.capture !== undefined) {
               const { hash: _hash, ...capture } = successor.capture;
               const next = {
@@ -305,7 +364,24 @@ export function resumeProjectSaveJournals(
           entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
         }
       };
-      await withUnownedJournal(key, recover);
+      await withUnownedJournal(key, async () => {
+        try {
+          await recover();
+        } catch (error) {
+          // Decoding, preparation and acknowledgement can fail too. A pending
+          // journal must never prevent reading the last saved project body.
+          try {
+            if (lastingFailure(error))
+              markProjectSaveRecovery(
+                storage,
+                key,
+                error instanceof Error ? error.message : String(error),
+              );
+          } catch {
+            // Storage itself may be unreadable; leave its bytes untouched.
+          }
+        }
+      });
     }
   })().finally(() => recovering.delete(project));
   recovering.set(project, run);

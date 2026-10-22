@@ -7,7 +7,7 @@
  * identifies every source by id/incarnation/revision; a stale or unknown
  * recipe is refused rather than silently reinterpreted.
  *
- * Per frame the recipe declares a source-space `region` (the eligible pixels,
+ * Per cel the recipe declares a source-space `region` (the eligible pixels,
  * also the scale numerator), an output canvas size in logical pixels (the
  * scale denominator) and two anchors. The canvas samples the source-space
  * window
@@ -41,14 +41,14 @@
 
 import type { AgiProfile } from "../runtime/profile.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
-import { mirrorPixels } from "./spriteDocument.ts";
+import { mirrorPixels } from "./viewDocument.ts";
 import {
   nearestEgaIndex,
   quantizeToEga,
   sheetViewInput,
-  type SheetFrame,
+  type SheetCel,
   type SheetLoopLayout,
-} from "./spritesheet.ts";
+} from "./sheet.ts";
 import { buildView, parseView, type BuildViewInput } from "./view.ts";
 
 /** The only algorithm this module implements; anything else is refused. */
@@ -91,7 +91,7 @@ export interface SourceRaster {
 }
 
 /** Positive-integer rectangle with half-open source-pixel edges. */
-interface FrameRegion {
+interface CelRegion {
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -110,12 +110,12 @@ interface ViewRecipeMask {
   };
 }
 
-export interface ViewRecipeFrame {
+export interface ViewRecipeCel {
   readonly id: string;
-  /** Which declared source this frame reads; matched against the supplied rasters. */
+  /** Which declared source this cel reads; matched against the supplied rasters. */
   readonly source: SourceIdentity;
   /** Half-open crop rect in oriented canonical source pixels; never clamped. */
-  readonly region: FrameRegion;
+  readonly region: CelRegion;
   /** Output canvas size in logical pixels; also the sampling denominator. */
   readonly outputWidth: number;
   readonly outputHeight: number;
@@ -133,7 +133,7 @@ export interface ViewRecipeFrame {
 export type ViewRecipeLoop =
   | {
       readonly id: string;
-      /** Frame ids in cel order; ids may repeat and may be shared across loops. */
+      /** Cel ids in cel order; ids may repeat and may be shared across loops. */
       readonly frameIds: readonly string[];
       readonly facing?: ViewFacing | undefined;
     }
@@ -158,8 +158,15 @@ export interface ViewPreparationRecipe {
   /** The sources this recipe reads; each must match a supplied raster exactly. */
   readonly sources: readonly SourceIdentity[];
   readonly palette: string;
+  /**
+   * The colours the game shows for indices 0..15 that sources were matched
+   * against. Absent means EGA, so recipes written before this field keep
+   * reproducing their exact bytes. Any other id needs its table passed to
+   * `prepareView` as data.
+   */
+  readonly paletteId?: string | undefined;
   readonly mask: ViewRecipeMask;
-  readonly frames: readonly ViewRecipeFrame[];
+  readonly frames: readonly ViewRecipeCel[];
   readonly loops: readonly ViewRecipeLoop[];
   /** Optional native VIEW description string (stored in the payload). */
   readonly description?: string | undefined;
@@ -170,7 +177,7 @@ interface CropLossCount {
   readonly transparent: number;
 }
 
-interface FrameDiagnostics {
+interface CelDiagnostics {
   /** Source-space window the canvas sampled (edges; left/right may be fractional). */
   readonly window: {
     readonly left: number;
@@ -199,10 +206,10 @@ interface FrameDiagnostics {
   };
 }
 
-interface PreparedFrame {
+interface PreparedCel {
   readonly id: string;
   readonly source: SourceIdentity;
-  readonly region: FrameRegion;
+  readonly region: CelRegion;
   readonly width: number;
   readonly height: number;
   /** Native baseline row of the cel: always `height - 1`. */
@@ -213,14 +220,14 @@ interface PreparedFrame {
   readonly mask: Uint8Array;
   /** EGA index the cel reserves for transparency; null when none is free. */
   readonly transparentIndex: number | null;
-  readonly diagnostics: FrameDiagnostics;
+  readonly diagnostics: CelDiagnostics;
 }
 
 interface PreparedViewLoop {
   readonly id: string;
   readonly facing: ViewFacing | null;
   readonly kind: "cels" | "mirror";
-  /** Frame ids in cel order (empty for mirror loops). */
+  /** Cel ids in cel order (empty for mirror loops). */
   readonly frameIds: readonly string[];
   /** Resolved earlier loop index for kind "mirror", else null. */
   readonly mirrorOf: number | null;
@@ -229,8 +236,8 @@ interface PreparedViewLoop {
 export interface PreparedView {
   readonly profileId: string;
   readonly algorithm: string;
-  /** Prepared frames in recipe order, keyed by their stable ids. */
-  readonly frames: readonly PreparedFrame[];
+  /** Prepared cels in recipe order, keyed by their stable ids. */
+  readonly cels: readonly PreparedCel[];
   readonly loops: readonly PreparedViewLoop[];
   /** The exact input `payload` was encoded from. */
   readonly input: BuildViewInput;
@@ -239,7 +246,7 @@ export interface PreparedView {
   readonly diagnostics: {
     readonly limits: typeof PREPARATION_LIMITS;
     readonly totals: {
-      readonly frames: number;
+      readonly preparedCels: number;
       readonly loops: number;
       readonly cels: number;
       readonly preparedPixels: number;
@@ -287,24 +294,24 @@ function samePixels(a: Uint8Array, b: Uint8Array | readonly number[]): boolean {
 /** A horizontally flipped copy — the explicit remedy offered when a native
  * mirror loop is not representable.
  * @public */
-export function flipSheetFrame(frame: SheetFrame): SheetFrame {
+export function flipSheetCel(cel: SheetCel): SheetCel {
   return {
-    width: frame.width,
-    height: frame.height,
-    pixels: mirrorPixels(frame.pixels, frame.width, frame.height),
-    mask: mirrorPixels(frame.mask, frame.width, frame.height),
+    width: cel.width,
+    height: cel.height,
+    pixels: mirrorPixels(cel.pixels, cel.width, cel.height),
+    mask: mirrorPixels(cel.mask, cel.width, cel.height),
   };
 }
 
-interface ResolvedFrame {
-  readonly spec: ViewRecipeFrame;
+interface ResolvedCel {
+  readonly spec: ViewRecipeCel;
   readonly raster: SourceRaster;
 }
 
 interface ResolvedLoop {
   readonly spec: ViewRecipeLoop;
-  /** Cel frame indexes into the frame table (content loops only). */
-  readonly frameIndexes: readonly number[];
+  /** Cel cel indexes into the cel table (content loops only). */
+  readonly celIndexes: readonly number[];
   /** Earlier loop index this loop aliases (mirror loops only). */
   readonly mirrorOf: number | null;
 }
@@ -314,7 +321,7 @@ const FACING_VALUES: readonly ViewFacing[] = ["right", "left", "down", "up"];
 /**
  * Prepare a native VIEW from canonical rasters and an explicit recipe.
  *
- * Throws RangeError naming the offending field or frame on any invalid input;
+ * Throws RangeError naming the offending field or cel on any invalid input;
  * all shape/coordinate/bounds failures are raised before any raster is
  * scanned or output buffer allocated.
  */
@@ -322,6 +329,8 @@ export function prepareView(
   rasters: readonly SourceRaster[],
   recipe: ViewPreparationRecipe,
   profile: AgiProfile,
+  /** Tables for the recipe's `paletteId` when it is not EGA, keyed by id. */
+  palettes: Readonly<Record<string, readonly (readonly [number, number, number])[]>> = {},
 ): PreparedView {
   // ---- Phase 1: recipe shape, pinned algorithms and static native bounds ----
   if (recipe === null || typeof recipe !== "object") fail("recipe must be an object");
@@ -342,6 +351,13 @@ export function prepareView(
   }
   if (recipe.palette !== "ega-weighted-243-v1") {
     fail(`unsupported palette "${String(recipe.palette)}" (expected "ega-weighted-243-v1")`);
+  }
+
+  let palette: readonly (readonly [number, number, number])[] | undefined;
+  if (recipe.paletteId !== undefined && recipe.paletteId !== "ega") {
+    palette = Object.hasOwn(palettes, recipe.paletteId) ? palettes[recipe.paletteId] : undefined;
+    if (palette === undefined || palette.length !== 16)
+      fail(`recipe.paletteId "${recipe.paletteId}" has no sixteen-colour table`);
   }
 
   const maskSpec = recipe.mask;
@@ -367,7 +383,7 @@ export function prepareView(
       fail("mask.key.rgb must be three integers 0..255");
     }
     keyColor = [rgb[0]!, rgb[1]!, rgb[2]!];
-    keyIndex = nearestEgaIndex(rgb[0]!, rgb[1]!, rgb[2]!);
+    keyIndex = nearestEgaIndex(rgb[0]!, rgb[1]!, rgb[2]!, palette);
   }
 
   if (!Array.isArray(recipe.sources)) fail("recipe.sources must be an array");
@@ -378,27 +394,27 @@ export function prepareView(
   if (!Array.isArray(recipe.frames) || recipe.frames.length === 0) {
     fail("recipe.frames must be a non-empty array");
   }
-  const frameIndexById = new Map<string, number>();
+  const celIndexById = new Map<string, number>();
   let preparedPixels = 0;
   let regionPixels = 0;
-  for (const [i, frame] of recipe.frames.entries()) {
-    const what = `frames[${i}]${typeof frame?.id === "string" ? ` "${frame.id}"` : ""}`;
-    if (frame === null || typeof frame !== "object") fail(`${what} must be an object`);
-    if (typeof frame.id !== "string" || frame.id.length === 0) {
+  for (const [i, cel] of recipe.frames.entries()) {
+    const what = `frames[${i}]${typeof cel?.id === "string" ? ` "${cel.id}"` : ""}`;
+    if (cel === null || typeof cel !== "object") fail(`${what} must be an object`);
+    if (typeof cel.id !== "string" || cel.id.length === 0) {
       fail(`${what}.id must be a non-empty string`);
     }
-    if (frameIndexById.has(frame.id)) fail(`duplicate frame id "${frame.id}"`);
-    frameIndexById.set(frame.id, i);
-    checkIdentity(frame.source, `${what}.source`);
-    const region = frame.region;
+    if (celIndexById.has(cel.id)) fail(`duplicate cel id "${cel.id}"`);
+    celIndexById.set(cel.id, i);
+    checkIdentity(cel.source, `${what}.source`);
+    const region = cel.region;
     if (region === null || typeof region !== "object") fail(`${what}.region must be an object`);
     checkInt(region.x, 0, Number.MAX_SAFE_INTEGER, `${what}.region.x`);
     checkInt(region.y, 0, Number.MAX_SAFE_INTEGER, `${what}.region.y`);
     checkInt(region.width, 1, Number.MAX_SAFE_INTEGER, `${what}.region.width`);
     checkInt(region.height, 1, Number.MAX_SAFE_INTEGER, `${what}.region.height`);
-    checkInt(frame.outputWidth, 1, SCREEN_WIDTH, `${what}.outputWidth`);
-    checkInt(frame.outputHeight, 1, SCREEN_HEIGHT, `${what}.outputHeight`);
-    const anchor = frame.sourceAnchor;
+    checkInt(cel.outputWidth, 1, SCREEN_WIDTH, `${what}.outputWidth`);
+    checkInt(cel.outputHeight, 1, SCREEN_HEIGHT, `${what}.outputHeight`);
+    const anchor = cel.sourceAnchor;
     if (anchor === null || typeof anchor !== "object") {
       fail(`${what}.sourceAnchor must be an object`);
     }
@@ -411,19 +427,17 @@ export function prepareView(
           `(got ${String(anchor.baselineEdgeY)})`,
       );
     }
-    checkInt(frame.outputAnchorX, 0, frame.outputWidth, `${what}.outputAnchorX`);
-    if (frame.sample !== "nearest-centre-v1") {
-      fail(
-        `${what}.sample "${String(frame.sample)}" is unsupported (expected "nearest-centre-v1")`,
-      );
+    checkInt(cel.outputAnchorX, 0, cel.outputWidth, `${what}.outputAnchorX`);
+    if (cel.sample !== "nearest-centre-v1") {
+      fail(`${what}.sample "${String(cel.sample)}" is unsupported (expected "nearest-centre-v1")`);
     }
-    if (typeof frame.allowCropBelowBaseline !== "boolean") {
+    if (typeof cel.allowCropBelowBaseline !== "boolean") {
       fail(`${what}.allowCropBelowBaseline must be an explicit boolean`);
     }
-    if (typeof frame.allowCropOutsideCanvas !== "boolean") {
+    if (typeof cel.allowCropOutsideCanvas !== "boolean") {
       fail(`${what}.allowCropOutsideCanvas must be an explicit boolean`);
     }
-    preparedPixels += frame.outputWidth * frame.outputHeight;
+    preparedPixels += cel.outputWidth * cel.outputHeight;
     regionPixels += region.width * region.height;
   }
   if (preparedPixels > PREPARATION_LIMITS.maxPreparedPixels) {
@@ -451,7 +465,7 @@ export function prepareView(
   const maxCels = packed ? 15 : 255;
   const loopIndexById = new Map<string, number>();
   const resolvedLoops: ResolvedLoop[] = [];
-  const referencedFrames = new Set<number>();
+  const referencedCels = new Set<number>();
   let celTotal = 0;
   for (const [i, loop] of recipe.loops.entries()) {
     const what = `loops[${i}]${typeof loop?.id === "string" ? ` "${loop.id}"` : ""}`;
@@ -464,12 +478,12 @@ export function prepareView(
     if (loop.facing !== undefined && !FACING_VALUES.includes(loop.facing)) {
       fail(`${what}.facing must be one of ${FACING_VALUES.join("/")} (got ${String(loop.facing)})`);
     }
-    const hasFrames = "frameIds" in loop && loop.frameIds !== undefined;
+    const hasCels = "frameIds" in loop && loop.frameIds !== undefined;
     const hasMirror = "mirrorOf" in loop && loop.mirrorOf !== undefined;
-    if (hasFrames === hasMirror) {
+    if (hasCels === hasMirror) {
       fail(`${what} must declare exactly one of frameIds or mirrorOf`);
     }
-    if (hasFrames) {
+    if (hasCels) {
       const frameIds = (loop as { frameIds: readonly string[] }).frameIds;
       if (!Array.isArray(frameIds) || frameIds.length === 0) {
         fail(`${what}.frameIds must be a non-empty array`);
@@ -480,16 +494,16 @@ export function prepareView(
         );
       }
       const indexes: number[] = [];
-      for (const frameId of frameIds) {
-        const index = frameIndexById.get(frameId);
+      for (const celId of frameIds) {
+        const index = celIndexById.get(celId);
         if (index === undefined) {
-          fail(`${what} references unknown frame id "${String(frameId)}"`);
+          fail(`${what} references unknown cel id "${String(celId)}"`);
         }
-        referencedFrames.add(index);
+        referencedCels.add(index);
         indexes.push(index);
       }
       celTotal += frameIds.length;
-      resolvedLoops.push({ spec: loop, frameIndexes: indexes, mirrorOf: null });
+      resolvedLoops.push({ spec: loop, celIndexes: indexes, mirrorOf: null });
     } else {
       const mirrorSpec = loop as { mirrorOf: string; explicitlyApproved: boolean };
       const mirrorOf = mirrorSpec.mirrorOf;
@@ -503,30 +517,9 @@ export function prepareView(
       if (target === undefined || target >= i) {
         fail(`${what}.mirrorOf "${String(mirrorOf)}" must name an earlier loop`);
       }
-      const targetLoop = resolvedLoops[target]!;
-      if (targetLoop.mirrorOf !== null) {
-        fail(
-          `${what} mirrors loop ${target} which is itself a mirror; the native format cannot ` +
-            `chain data blocks — reference the original loop or supply an explicit ` +
-            `pixel-flipped independent copy`,
-        );
-      }
-      if (packed) {
-        if (i > 3 || target > 3) {
-          fail(
-            `${what} mirrors loop ${target} at index ${i}; profile "${profile.id}" can only ` +
-              `encode mirrored loops for indices 0..3 — supply an explicit pixel-flipped ` +
-              `independent copy instead`,
-          );
-        }
-      } else if ((i & 7) === (target & 7)) {
-        fail(
-          `${what} mirrors loop ${target} at index ${i}; the format's orientation nibbles ` +
-            `are equal mod 8 so it would display unmirrored — supply an explicit ` +
-            `pixel-flipped independent copy instead`,
-        );
-      }
-      resolvedLoops.push({ spec: loop, frameIndexes: [], mirrorOf: target });
+      // buildView materializes the requested facing when the profile's
+      // mutable orientation field cannot share it stably (F-VIEWS-01).
+      resolvedLoops.push({ spec: loop, celIndexes: [], mirrorOf: target });
     }
   }
 
@@ -546,9 +539,9 @@ export function prepareView(
   let minPayloadBytes = 5 + recipe.loops.length * 2;
   for (const loop of resolvedLoops) {
     if (loop.mirrorOf !== null) continue;
-    let loopBytes = 1 + loop.frameIndexes.length * 2;
-    for (const frameIndex of loop.frameIndexes) {
-      loopBytes += 3 + recipe.frames[frameIndex]!.outputHeight;
+    let loopBytes = 1 + loop.celIndexes.length * 2;
+    for (const celIndex of loop.celIndexes) {
+      loopBytes += 3 + recipe.frames[celIndex]!.outputHeight;
     }
     minPayloadBytes += loopBytes;
   }
@@ -615,50 +608,50 @@ export function prepareView(
     }
   }
 
-  const resolvedFrames: ResolvedFrame[] = recipe.frames.map((frame, i) => {
-    const what = `frames[${i}] "${frame.id}"`;
-    if (!declaredSources.some((ref) => sameIdentity(ref, frame.source))) {
-      fail(`${what}.source ${identityKey(frame.source)} is not declared in recipe.sources`);
+  const resolvedCels: ResolvedCel[] = recipe.frames.map((cel, i) => {
+    const what = `frames[${i}] "${cel.id}"`;
+    if (!declaredSources.some((ref) => sameIdentity(ref, cel.source))) {
+      fail(`${what}.source ${identityKey(cel.source)} is not declared in recipe.sources`);
     }
-    const raster = rasterByIdentity.get(identityKey(frame.source));
+    const raster = rasterByIdentity.get(identityKey(cel.source));
     if (raster === undefined) {
       fail(
-        `${what}.source ${identityKey(frame.source)} does not match any supplied raster ` +
+        `${what}.source ${identityKey(cel.source)} does not match any supplied raster ` +
           `(stale or missing source — refusing to reinterpret)`,
       );
     }
-    const { region } = frame;
+    const { region } = cel;
     if (region.x + region.width > raster.width || region.y + region.height > raster.height) {
       fail(
         `${what}.region ${region.x},${region.y} ${region.width}x${region.height} extends past ` +
           `source ${raster.width}x${raster.height} (crops are never clamped)`,
       );
     }
-    if (frame.sourceAnchor.x > raster.width) {
-      fail(`${what}.sourceAnchor.x ${frame.sourceAnchor.x} is past source width ${raster.width}`);
+    if (cel.sourceAnchor.x > raster.width) {
+      fail(`${what}.sourceAnchor.x ${cel.sourceAnchor.x} is past source width ${raster.width}`);
     }
-    if (frame.sourceAnchor.baselineEdgeY > raster.height) {
+    if (cel.sourceAnchor.baselineEdgeY > raster.height) {
       fail(
-        `${what}.sourceAnchor.baselineEdgeY ${frame.sourceAnchor.baselineEdgeY} is past ` +
+        `${what}.sourceAnchor.baselineEdgeY ${cel.sourceAnchor.baselineEdgeY} is past ` +
           `source height ${raster.height}`,
       );
     }
-    return { spec: frame, raster };
+    return { spec: cel, raster };
   });
 
-  // ---- Phase 3: per-frame sampling, clip approval and quantisation ----
-  const frames: PreparedFrame[] = [];
-  const sheetFrames: SheetFrame[] = [];
-  for (const { spec: frame, raster } of resolvedFrames) {
-    const prepared = prepareFrame(frame, raster, alphaThreshold, keyIndex, keyColor);
-    if (referencedFrames.has(frameIndexById.get(frame.id)!) && prepared.transparentIndex === null) {
+  // ---- Phase 3: per-cel sampling, clip approval and quantisation ----
+  const cels: PreparedCel[] = [];
+  const sheetCels: SheetCel[] = [];
+  for (const { spec: cel, raster } of resolvedCels) {
+    const prepared = prepareCel(cel, raster, alphaThreshold, keyIndex, keyColor, palette);
+    if (referencedCels.has(celIndexById.get(cel.id)!) && prepared.transparentIndex === null) {
       fail(
-        `frame "${frame.id}" uses all 16 EGA colours in opaque pixels; no index remains ` +
+        `cel "${cel.id}" uses all 16 EGA colours in opaque pixels; no index remains ` +
           `for native transparency — a palette remap is required`,
       );
     }
-    frames.push(prepared);
-    sheetFrames.push({
+    cels.push(prepared);
+    sheetCels.push({
       width: prepared.width,
       height: prepared.height,
       pixels: prepared.pixels,
@@ -668,9 +661,9 @@ export function prepareView(
 
   // ---- Phase 4: pack through the shared helpers, then decode-verify ----
   const layoutLoops: SheetLoopLayout[] = resolvedLoops.map((loop) =>
-    loop.mirrorOf === null ? { frames: loop.frameIndexes } : { mirrorOf: loop.mirrorOf },
+    loop.mirrorOf === null ? { cels: loop.celIndexes } : { mirrorOf: loop.mirrorOf },
   );
-  const input = sheetViewInput(sheetFrames, {
+  const input = sheetViewInput(sheetCels, {
     loops: layoutLoops,
     ...(keyIndex !== null ? { preferTransparent: keyIndex } : {}),
     ...(recipe.description !== undefined ? { description: recipe.description } : {}),
@@ -693,14 +686,14 @@ export function prepareView(
   return {
     profileId: profile.id,
     algorithm: recipe.algorithm,
-    frames,
+    cels,
     loops,
     input,
     payload,
     diagnostics: {
       limits: { ...PREPARATION_LIMITS },
       totals: {
-        frames: frames.length,
+        preparedCels: cels.length,
         loops: recipe.loops.length,
         cels: celTotal,
         preparedPixels,
@@ -712,25 +705,26 @@ export function prepareView(
 }
 
 /**
- * Sample, clip-check and quantise one frame. The output canvas is ow x oh
+ * Sample, clip-check and quantise one cel. The output canvas is ow x oh
  * logical pixels; the sampled window is the source-space rect derived from
  * the anchors described in this file's header.
  */
-function prepareFrame(
-  frame: ViewRecipeFrame,
+function prepareCel(
+  cel: ViewRecipeCel,
   raster: SourceRaster,
   alphaThreshold: number,
   keyIndex: number | null,
   keyColor: readonly [number, number, number] | null,
-): PreparedFrame {
-  const { x: rx, y: ry, width: sw, height: sh } = frame.region;
-  const ow = frame.outputWidth;
-  const oh = frame.outputHeight;
-  const baseline = frame.sourceAnchor.baselineEdgeY;
+  palette: readonly (readonly [number, number, number])[] | undefined,
+): PreparedCel {
+  const { x: rx, y: ry, width: sw, height: sh } = cel.region;
+  const ow = cel.outputWidth;
+  const oh = cel.outputHeight;
+  const baseline = cel.sourceAnchor.baselineEdgeY;
   const wTop = baseline - sh;
   // W_left is rational: keep it as numerator over ow so every comparison and
   // sample is exact integer arithmetic.
-  const wLeftNum = ow * frame.sourceAnchor.x - frame.outputAnchorX * sw;
+  const wLeftNum = ow * cel.sourceAnchor.x - cel.outputAnchorX * sw;
   const wRightNum = wLeftNum + sw * ow;
 
   const rgba = raster.rgba;
@@ -738,7 +732,7 @@ function prepareFrame(
   const isOpaque = (offset: number): boolean =>
     rgba[offset + 3]! >= alphaThreshold &&
     (keyIndex === null ||
-      nearestEgaIndex(rgba[offset]!, rgba[offset + 1]!, rgba[offset + 2]!) !== keyIndex);
+      nearestEgaIndex(rgba[offset]!, rgba[offset + 1]!, rgba[offset + 2]!, palette) !== keyIndex);
 
   const belowBaseline: { opaque: number; transparent: number } = { opaque: 0, transparent: 0 };
   const outsideCanvas: { opaque: number; transparent: number } = { opaque: 0, transparent: 0 };
@@ -762,16 +756,16 @@ function prepareFrame(
       }
     }
   }
-  if (belowBaseline.opaque > 0 && !frame.allowCropBelowBaseline) {
+  if (belowBaseline.opaque > 0 && !cel.allowCropBelowBaseline) {
     fail(
-      `frame "${frame.id}": ${belowBaseline.opaque} opaque source pixel(s) sit below ` +
+      `cel "${cel.id}": ${belowBaseline.opaque} opaque source pixel(s) sit below ` +
         `baselineEdgeY ${baseline}; move the baseline or region, or set ` +
         `allowCropBelowBaseline to approve the crop`,
     );
   }
-  if (outsideCanvas.opaque > 0 && !frame.allowCropOutsideCanvas) {
+  if (outsideCanvas.opaque > 0 && !cel.allowCropOutsideCanvas) {
     fail(
-      `frame "${frame.id}": ${outsideCanvas.opaque} opaque source pixel(s) fall outside ` +
+      `cel "${cel.id}": ${outsideCanvas.opaque} opaque source pixel(s) fall outside ` +
         `the ${ow}x${oh} output canvas; adjust the region, anchors or output size, ` +
         `or set allowCropOutsideCanvas to approve the crop`,
     );
@@ -797,7 +791,7 @@ function prepareFrame(
 
   // Border-key detection is always off for this path: new imports erase only
   // by alpha plus an explicit key, never by the old quantizer's border guess.
-  const sheet = quantizeToEga(canvas, ow, oh, { alphaThreshold, keyColor });
+  const sheet = quantizeToEga(canvas, ow, oh, { alphaThreshold, keyColor, palette });
 
   // Padding is not source data: a threshold of 0 must not turn it into art.
   for (let i = 0; i < ow * oh; i++) {
@@ -835,9 +829,9 @@ function prepareFrame(
   }
 
   return {
-    id: frame.id,
-    source: { ...frame.source },
-    region: { ...frame.region },
+    id: cel.id,
+    source: { ...cel.source },
+    region: { ...cel.region },
     width: ow,
     height: oh,
     baseline: oh - 1,
@@ -915,7 +909,7 @@ function verifyEncoded(
         cel.height === want.height &&
         cel.transparentColor === want.transparent &&
         samePixels(cel.pixels, want.pixels);
-      if (!matches || (loop.mirrorOf !== null && !cel.mirrored)) {
+      if (!matches) {
         if (loop.mirrorOf !== null) {
           fail(
             `loop ${i} cannot be represented natively as a mirror of loop ${loop.mirrorOf} ` +

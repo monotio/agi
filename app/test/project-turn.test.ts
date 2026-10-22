@@ -64,7 +64,7 @@ for (const retry of [false, true])
     f.session.submit = async ({ proposal }) => {
       if (retry && attempts++ === 0) {
         f.save([entry("Echo", 5), entry("Change", 6), entry("Creator"), entry("During queue")]);
-        throw new Error("Project proposal is stale.");
+        throw new Error("Project changes are stale.");
       }
       f.apply(proposal);
       return { status: "committed", diagnostics: [] };

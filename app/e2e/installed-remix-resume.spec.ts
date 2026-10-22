@@ -54,13 +54,13 @@ for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] a
     await page.goto("/");
     await configureAi(page, { provider: "openai", key: "test-placeholder" });
     let requests = 0;
-    const sprite = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
+    const view = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
     const remixed =
       'if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();load.view(11);animate.obj(13);set.view(13,11);position(13,30,130);draw(13);accept.input();}display(4,2,"ALLIGATOR REMIX");return;';
     await page.route("**/api/openai/v1/responses", async (route) => {
       requests++;
       const calls = [
-        ["write_view", { num: 11, source: sprite }],
+        ["write_view", { num: 11, source: view }],
         ["write_logic", { room: 1, source: remixed }],
       ];
       await route.fulfill(
@@ -88,7 +88,7 @@ for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] a
     await page.getByTestId("boot-sample").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     if (attachedInPlay) {
-      await page.getByTestId("menu-assistant").click();
+      await page.getByTestId("menu-agent").click();
       const draft = page.getByTestId("agent-message");
       await expect(draft).toBeEnabled();
       await draft.fill("Sketch an alligator");
@@ -123,7 +123,7 @@ for (const handoff of ["new", "attached", "reversed", "replaced", "cancelled"] a
       await page.getByTestId("btn-exit").click();
       await page.getByTestId("boot-sample").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(1);
-      await page.getByTestId("menu-assistant").click();
+      await page.getByTestId("menu-agent").click();
       await expect(message).toBeEnabled();
       await message.fill("The new game owns this draft");
       await expect(send).toBeEnabled();

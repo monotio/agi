@@ -37,11 +37,11 @@ export function useOpenAgent() {
       blankAgentOpen.value = true;
       return;
     }
-    workspace.showPanel("assistant");
+    workspace.showPanel("agent");
     engine.state.powerUp.mode = "remix";
     engine.state.powerUp.open = true;
     void nextTick().then(() => {
-      document.querySelector<HTMLElement>(".assistant-host textarea")?.focus();
+      document.querySelector<HTMLElement>(".agent-host textarea")?.focus();
     });
   };
 }

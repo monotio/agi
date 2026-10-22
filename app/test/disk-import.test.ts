@@ -123,3 +123,16 @@ for (const edition of ["kq4", "mh2"]) {
     assert.ok(readGameFiles(files).files["WORDS.TOK"]);
   });
 }
+
+test("disk imports preserve optional AGIFONT beside the unchanged playable resources", () => {
+  const [first, second] = disks();
+  const font = Uint8Array.of(1, 2, 3);
+  const opened = readGameFiles(
+    new Map([
+      ["first.img", first],
+      ["second.img", second],
+      ["font.img", fatDisk(new Map([["AGIFONT", font]]))],
+    ]),
+  );
+  assert.deepEqual(opened.files["AGIFONT"], font);
+});

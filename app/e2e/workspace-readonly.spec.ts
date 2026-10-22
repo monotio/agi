@@ -64,15 +64,13 @@ for (const size of [
       await expect(note).toBeVisible();
       const before = await documents(page);
       if (kind === "picture" || kind === "view") {
-        const editor = page.locator(kind === "picture" ? ".studio" : ".sprite-studio");
-        const stage = editor.locator(
-          kind === "picture" ? ".studio__stage" : ".sprite-studio__stage",
-        );
+        const editor = page.locator(kind === "picture" ? ".studio" : ".view-studio");
+        const stage = editor.locator(kind === "picture" ? ".studio__stage" : ".view-studio__stage");
         await stage.focus();
         await expect(stage).toBeFocused();
         const bytes = await page.evaluate(
           (kind) => [
-            ...(kind === "picture" ? window.__AGI_STUDIO__! : window.__AGI_SPRITE__!).bytes(),
+            ...(kind === "picture" ? window.__AGI_STUDIO__! : window.__AGI_VIEW__!).bytes(),
           ],
           kind,
         );
@@ -83,7 +81,7 @@ for (const size of [
         expect(
           await page.evaluate(
             (kind) => [
-              ...(kind === "picture" ? window.__AGI_STUDIO__! : window.__AGI_SPRITE__!).bytes(),
+              ...(kind === "picture" ? window.__AGI_STUDIO__! : window.__AGI_VIEW__!).bytes(),
             ],
             kind,
           ),
@@ -99,11 +97,11 @@ for (const size of [
         if (kind === "view" && size.width === 1063) {
           const focus = page.getByTestId("workspace-focus");
           if ((await focus.getAttribute("aria-pressed")) === "true") await focus.click();
-          const details = editor.getByTestId("sprite-cel-details");
+          const details = editor.getByTestId("view-cel-details");
           await expect(details).toBeVisible();
           if ((await details.getAttribute("aria-expanded")) !== "true") await details.click();
           await expect(editor.getByLabel("Width in pixels")).toBeDisabled();
-          await expect(editor.getByTestId("sprite-transparent-colour")).toBeDisabled();
+          await expect(editor.getByTestId("view-transparent-colour")).toBeDisabled();
         }
       } else if (kind === "sound") {
         const editor = page.getByTestId("workspace-sound");

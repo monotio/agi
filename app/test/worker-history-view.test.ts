@@ -1,3 +1,7 @@
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => loadAppearance(id)));
+
 /**
  * The history transport's worker side: while the live session sits parked,
  * a scratch drive replays the recorded tape — seeks rebuild it from anchors,
@@ -7,7 +11,11 @@
  * session byte-identical: the scratch never touches it.
  */
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
+import { releasedSound, assertSoundContinuation } from "../../test/released-sound.ts";
 import { Engine } from "../../src/runtime/engine.ts";
+import { createDebugController } from "../src/worker/debugController.ts";
+import { installDebugController } from "../src/worker/debugLoader.ts";
 import { createHistoryView } from "../src/worker/historyView.ts";
 import { openHistoryDrive } from "../src/worker/historyDrive.ts";
 import { installProjectRestart } from "../src/worker/projectRestart.ts";
@@ -17,13 +25,15 @@ import {
   HISTORY_FORMAT_VERSION,
   historyBootSemantic,
   historyFingerprint,
+  stampBoot,
   historySyncDigest,
+  validateHistoryRecording,
   type HistoryAnchor,
   type HistoryBatch,
   type HistoryRecording,
   type HistorySegment,
 } from "../../src/agent/history.ts";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -34,6 +44,7 @@ import { sha256Hex } from "../../src/crypto.ts";
 import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { buildView } from "../../src/view/view.ts";
 import {
+  asReleasedHostImage,
   decodeHostImage,
   decodeSave,
   encodeHostImage,
@@ -475,9 +486,74 @@ test("a game paused before its first room draws is refused as still starting", (
   ctx.fns.stopTimers();
 });
 
+test("Undo on a text title screen names the text screen and leaves the game in place", () => {
+  const h = viewHarness(gameContainer(['text.screen(); display(2, 2, "Title screen"); return;']));
+  const { ctx, send, tick } = h;
+  tick(2);
+  send({ type: "pause", paused: true });
+  assert.equal(ctx.run.engine!.textModeActive, true);
+  const before = ctx.run.engine!.readState();
+  send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "text-mode");
+  assert.deepEqual(ctx.run.engine!.readState(), before, "the title screen stays in place");
+  ctx.fns.stopTimers();
+});
+
+for (const [cause, source, reason] of [
+  ["a prompt on a text screen", 'text.screen(); get.num("Number?", v80);', "prompt"],
+  ["a leave.window banner", 'set(f15); print("Banner");', "busy"],
+  ["a timed clock wait", "v49 = 20; v11 = 0; wait: if (v49 > v11) { goto wait; }", "busy"],
+  ["an instruction debugger stop", "", "busy"],
+] as const) {
+  test(`Undo names ${cause} without inventing an open prompt`, () => {
+    const h = viewHarness(
+      gameContainer([`v50 = 1; load.pic(v50); draw.pic(v50); show.pic(); ${source} return;`], (c) =>
+        c.putResource("picture", 1, PICTURE_1),
+      ),
+    );
+    const { ctx, send, tick } = h;
+    if (cause === "an instruction debugger stop") {
+      installDebugController(ctx, createDebugController(ctx));
+      send({ type: "debugAttach", id: 20 });
+      send({ type: "debugPause", id: 21, epoch: ctx.run.debugger.epoch });
+      assert.ok(ctx.run.engine!.executionStopInfo);
+    } else tick(2);
+    send({ type: "pause", paused: true });
+    assert.equal(ctx.run.engine!.hostInteractionPending, reason === "prompt");
+    send({ type: "historyRetain", id: 1 });
+    const reply = h.control.findLast((m) => m.type === "historyRetained");
+    assert.ok(reply?.type === "historyRetained");
+    assert.equal(reply.boot, null);
+    assert.equal(reply.reason, reason);
+    ctx.fns.stopTimers();
+  });
+}
+
+test("Undo during room preparation never claims that a prompt is open", () => {
+  const h = viewHarness(
+    gameContainer(
+      ["v50 = 1; load.pic(v50); draw.pic(v50); show.pic(); new.room(7); return;"],
+      (c) => c.putResource("picture", 1, PICTURE_1),
+    ),
+    { authorRooms: true },
+  );
+  h.tick(2);
+  assert.equal(h.ctx.run.engine!.hostInteraction?.kind, "room");
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 1 });
+  const reply = h.control.findLast((m) => m.type === "historyRetained");
+  assert.ok(reply?.type === "historyRetained");
+  assert.equal(reply.boot, null);
+  assert.equal(reply.reason, "busy");
+  h.ctx.fns.stopTimers();
+});
+
 // Player rule: rewinding never trades a restored checkpoint for the game's start. Paused before
 // its first cycle after the restore, the checkpoint is not keepable yet and the notice says so.
-test("a restored checkpoint paused before its first cycle keeps its position", () => {
+test("a restored progress entry paused before its first cycle keeps its position", () => {
   const game = gameContainer(
     [
       "increment(v41); if (v41 > 3) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
@@ -493,13 +569,13 @@ test("a restored checkpoint paused before its first cycle keeps its position", (
   const h = viewHarness(game, { restoreImage: bytesToBase64(checkpoint) });
   const { ctx, send } = h;
   send({ type: "pause", paused: true });
-  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint is live");
+  assert.equal(ctx.run.engine!.vars[41], 2, "the progress entry is live");
   send({ type: "historyRetain", id: 1 });
   const reply = h.control.findLast((m) => m.type === "historyRetained");
   assert.ok(reply?.type === "historyRetained");
   assert.equal(reply.boot, null);
   assert.equal(reply.reason, "starting");
-  assert.equal(ctx.run.engine!.vars[41], 2, "the checkpoint keeps its position");
+  assert.equal(ctx.run.engine!.vars[41], 2, "the progress entry keeps its position");
   ctx.fns.stopTimers();
 });
 
@@ -756,6 +832,43 @@ test("a click while viewing is transport traffic, never parked-engine input", ()
     "no click cause recorded while the transport owns the session",
   );
   send({ type: "historyViewEnd" });
+});
+
+test("Resume here on a CGA run continues on CGA and its new segment replays", () => {
+  // Player-visible rule: a rewound moment keeps the screen the run was played on.
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef, pcDisplay: "cga-rgb" });
+  const { ctx, send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  tick(6);
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  assert.equal(recording.segments[0]!.boot.pcDisplay, "cga-rgb");
+  const viewTick = Math.max(...recording.segments[0]!.sync.map((s) => s.tick)) - 1;
+  send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: viewTick });
+  const opened = finalView(h.control, 1);
+  assert.equal(opened.canResume, true, JSON.stringify(opened));
+  send({
+    type: "historyViewTake",
+    id: 2,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+    generation: opened.generation,
+  });
+  const taken = h.control.find((m) => m.type === "historyTaken");
+  assert.ok(taken?.type === "historyTaken" && taken.ok, JSON.stringify(taken));
+  assert.equal(ctx.run.engine!.pcDisplay, "cga-rgb");
+  send({ type: "pause", paused: false });
+  tick(3);
+  send({ type: "pause", paused: true });
+  const branch = collectSegments(h.control).at(-1)!;
+  assert.notEqual(branch.id, recording.segments[0]!.id);
+  assert.equal(branch.boot.pcDisplay, "cga-rgb");
+  const replay = replayHistorySegment(branch);
+  assert.equal(replay.error, null);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.ctx.run.engine!.pcDisplay, "cga-rgb");
 });
 
 test("Resume here adopts the viewed moment; Back to before restores the original", () => {
@@ -1355,7 +1468,7 @@ test("a start whose anchor mismatches the folded stream reports the error and cl
   send({ type: "historyViewEnd" });
 });
 
-test("a take carries the authoring checkpoint belonging to the adopted position", () => {
+test("a take carries the authoring progress entry belonging to the adopted position", () => {
   const h = viewHarness(viewGame(), { rngSeed: 0xbeef });
   const { send, tick } = h;
   tick(4);
@@ -1416,7 +1529,7 @@ test("a take carries the authoring checkpoint belonging to the adopted position"
   // Upstream of every checkpoint there is no snapshot — the host's
   // same-revision carry or a clean rebuild decides, never a stale future.
   const earliest = takeAt(3, checkpoints[0]!.tick - 1);
-  assert.equal(earliest.session, undefined, "no checkpoint upstream of the position");
+  assert.equal(earliest.session, undefined, "no progress entry upstream of the position");
 
   // At the uncheckpointed patch the tape cannot name the state belonging to
   // the adopted bytes — the older checkpoint is a different revision's and
@@ -1426,7 +1539,7 @@ test("a take carries the authoring checkpoint belonging to the adopted position"
   assert.equal(
     uncheckpointed.session,
     undefined,
-    "a mutation newer than the last checkpoint vetoes the stale snapshot",
+    "a mutation newer than the last progress entry vetoes the stale snapshot",
   );
 });
 
@@ -1756,3 +1869,205 @@ test("PAL boot fingerprints replay and reject a region switch", () => {
   h.send({ type: "historyViewStart", id: 3, recording: switched, segment: 0, tick: 0 });
   assert.match(finalView(h.control, 3).error!, /fingerprint/);
 });
+
+test("short recordings with no sync marks select startup semantics from the persisted recording version", () => {
+  const shortGame = gameContainer(
+    [
+      `if (v0 == 0) {
+         if (isset(f11)) { assignn(v40, 77); } else { assignn(v40, 11); }
+         new.room(1);
+       }
+       if (v0 > 0) { call.v(v0); }
+       return;`,
+      `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+    ],
+    (c) => populateViewResources(c),
+  );
+  const h = viewHarness(shortGame, { rngSeed: 0xbeef, profile: "2.936" });
+  h.tick(3);
+  h.send({ type: "pause", paused: true });
+  assert.equal(h.ctx.run.engine!.flags[11], 1);
+  assert.equal(h.ctx.run.engine!.vars[40], 77);
+
+  const rawRecording = asRecording(collectSegments(h.control));
+  rawRecording.segments[0]!.anchors = [];
+  rawRecording.segments[0]!.sync = [];
+  const currentRecording = validateHistoryRecording(rawRecording);
+  assert.equal(currentRecording.version, HISTORY_FORMAT_VERSION);
+  assert.equal(currentRecording.segments[0]!.sync.length, 0);
+
+  // Current short recording (version 3) replays with 2.936 ResetAll f11 = 1 -> v40 = 77.
+  h.send({ type: "historyViewStart", id: 1, recording: currentRecording, segment: 0, tick: 3 });
+  assert.equal(finalView(h.control, 1).error, null);
+  assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], 1);
+  assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], 77);
+  h.send({ type: "historyViewEnd" });
+
+  // Released short recordings (versions 1 and 2) with no sync marks replay with legacy f11 = 0 -> v40 = 11.
+  for (const [idx, releasedVersion] of [1, 2].entries()) {
+    const releasedRecording = validateHistoryRecording({
+      ...structuredClone(currentRecording),
+      version: releasedVersion,
+    });
+    assert.equal(releasedRecording.version, releasedVersion);
+    assert.equal(releasedRecording.segments[0]!.sync.length, 0);
+    h.send({
+      type: "historyViewStart",
+      id: 2 + idx,
+      recording: releasedRecording,
+      segment: 0,
+      tick: 3,
+    });
+    assert.equal(finalView(h.control, 2 + idx).error, null);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], 0);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], 11);
+    h.send({ type: "historyViewEnd" });
+  }
+
+  // An upgraded recording (version 3) whose earlier segments carry version 1 or 2 provenance
+  // replays those segments with legacy startup semantics and new segments with current semantics.
+  const baseSegment = currentRecording.segments[0]!;
+  const upgradedRecording = validateHistoryRecording({
+    ...structuredClone(currentRecording),
+    version: HISTORY_FORMAT_VERSION,
+    segments: [
+      { ...structuredClone(baseSegment), id: "s-v1", version: 1 },
+      { ...structuredClone(baseSegment), id: "s-v2", version: 2 },
+      { ...structuredClone(baseSegment), id: "s-v3" },
+    ],
+  });
+  for (const [segIdx, expected] of [
+    [0, { f11: 0, v40: 11 }],
+    [1, { f11: 0, v40: 11 }],
+    [2, { f11: 1, v40: 77 }],
+  ] as const) {
+    h.send({
+      type: "historyViewStart",
+      id: 10 + segIdx,
+      recording: upgradedRecording,
+      segment: segIdx,
+      tick: 3,
+    });
+    assert.equal(finalView(h.control, 10 + segIdx).error, null);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.flags[11], expected.f11);
+    assert.equal(h.ctx.view.drive!.ctx.run.engine!.vars[40], expected.v40);
+    h.send({ type: "historyViewEnd" });
+  }
+});
+
+test("released retained originals restore through historyViewRestore and still reject tampering", () => {
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef, profile: "2.936" });
+  h.send({ type: "debugWrite", id: 0, flags: [[6, 1]] });
+  h.tick(4);
+  h.ctx.run.engine!.vars[40] = 99;
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 1 });
+  const retained = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyRetained" }> =>
+      m.type === "historyRetained" && m.id === 1,
+  );
+  assert.ok(retained?.boot?.image !== undefined);
+
+  // Convert the retained boot to the released v1 host-image encoding and fingerprint.
+  const releasedImageBytes = asReleasedHostImage(base64ToBytes(retained.boot.image));
+  assert.ok(releasedImageBytes !== null);
+  assert.equal(releasedImageBytes[33], 1);
+  const releasedBoot = structuredClone(retained.boot);
+  releasedBoot.image = bytesToBase64(releasedImageBytes);
+  releasedBoot.fingerprint = historyFingerprint(historyBootSemantic(releasedBoot));
+
+  // Take an earlier history moment so we depart from the retained original.
+  const recording = asRecording(collectSegments(h.control));
+  h.send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: 1 });
+  const opened = finalView(h.control, 2);
+  h.send({
+    type: "historyViewTake",
+    id: 3,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  assert.equal(h.ctx.run.engine!.vars[40], 0);
+
+  // Tampered RNG or save payload on the released retained original must still be rejected.
+  const tamperedRng = structuredClone(releasedBoot);
+  tamperedRng.rng ^= 1;
+  h.send({ type: "historyViewRestore", id: 4, boot: tamperedRng, from: retained.from });
+  const rejectedRng = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 4,
+  );
+  assert.equal(rejectedRng?.ok, false);
+
+  const tamperedImg = structuredClone(releasedBoot);
+  const mutatedBytes = releasedImageBytes.slice();
+  const v40Offset = 38 + 31 + 2 + 7 + 40;
+  mutatedBytes[v40Offset] = mutatedBytes[v40Offset]! ^ 1;
+  tamperedImg.image = bytesToBase64(mutatedBytes);
+  h.send({ type: "historyViewRestore", id: 5, boot: tamperedImg, from: retained.from });
+  const rejectedImg = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 5,
+  );
+  assert.equal(rejectedImg?.ok, false);
+
+  // Forged fingerprint over non-canonical trailing byte in released image is rejected by adoptResumePoint.
+  const nonCanonicalImg = structuredClone(releasedBoot);
+  const paddedBytes = new Uint8Array(releasedImageBytes.length + 1);
+  paddedBytes.set(releasedImageBytes);
+  nonCanonicalImg.image = bytesToBase64(paddedBytes);
+  nonCanonicalImg.fingerprint = historyFingerprint(historyBootSemantic(nonCanonicalImg));
+  h.send({ type: "historyViewRestore", id: 6, boot: nonCanonicalImg, from: retained.from });
+  const rejectedForged = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 6,
+  );
+  assert.equal(rejectedForged?.ok, false);
+
+  // Untampered released retained original restores cleanly.
+  h.send({ type: "historyViewRestore", id: 7, boot: releasedBoot, from: retained.from });
+  const restored = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 7,
+  );
+  assert.deepEqual(restored, {
+    type: "historyViewRestored",
+    id: 7,
+    ok: true,
+    resourceSet: releasedBoot.resourceSet,
+  });
+  assert.equal(h.ctx.run.engine!.vars[40], 99);
+});
+
+for (const sound of [false, true]) {
+  test(`a retained released ${sound ? "sound" : "non-sound"} progress entry restores through historyViewRestore`, () => {
+    const tape = JSON.parse(
+      readFileSync(new URL("formats/history-1.2.2-paused-reenter.json", import.meta.url), "utf8"),
+    ) as { batches: HistoryBatch[] };
+    const [segment] = collectSegments(
+      tape.batches.map((batch) => ({ type: "historyBatch", epoch: 0, batch }) as WorkerControl),
+    );
+    // Retained boots wrap the captured checkpoint. Keep the real released image
+    // and replay, rather than recapturing them with the current Engine.
+    const boot = sound
+      ? releasedSound.captures[0]!.history.segments[0]!.boot
+      : stampBoot({ ...segment!.boot, ...segment!.anchors.at(-1)! });
+    assert.equal(boot.replay!.version, undefined);
+    assert.equal(boot.replay!.sound !== null, sound);
+    const before = structuredClone(boot);
+    const h = viewHarness(viewGame());
+    h.send({ type: "historyViewRestore", id: 1, boot, from: null });
+    const restored = h.control.find((m) => m.type === "historyViewRestored" && m.id === 1);
+    assert.deepEqual(restored, {
+      type: "historyViewRestored",
+      id: 1,
+      ok: true,
+      resourceSet: boot.resourceSet,
+    });
+    assert.equal(h.ctx.run.cycle.paused, true);
+    if (sound) assertSoundContinuation(h.ctx.run.engine!, "speaker-review");
+    else assert.deepEqual([h.ctx.run.engine!.vars[40], h.ctx.run.engine!.vars[41]], [2, 16]);
+    assert.deepEqual(boot, before, "restoring keeps the released record unchanged");
+  });
+}

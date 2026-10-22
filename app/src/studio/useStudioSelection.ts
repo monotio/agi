@@ -1,12 +1,12 @@
 /**
- * Hover and selection for the Room Studio. A row hovered in the Scene list
+ * Hover and selection for the PICTURE editor. A row hovered in the Items panel
  * wins over the canvas; otherwise the row that owns the hovered cell is
  * hovered, so each side highlights the other. Selection is explicit (a row
  * click, a canvas click or arrow-key stepping on the canvas) and is announced
  * in words.
  *
  * Several items can be selected and edited as one: Shift+click (canvas or
- * Scene list) adds an item or takes it away, a group row stands for all its
+ * Items panel) adds an item or takes it away, a group row stands for all its
  * members, a marquee adds the items inside it, and Shift+Alt+arrows grow or
  * shrink a run of neighbours from where it started. `itemIds` is what the
  * selection covers, in draw order; a single row (an item or a group) stays
@@ -15,13 +15,13 @@
 
 import { computed, ref, shallowRef, toValue, type MaybeRefOrGetter } from "vue";
 import type { ViewportPoint } from "../../../src/studio/viewport.ts";
-import type { SceneRow } from "./useStudioDocument.ts";
+import type { ItemRow } from "./useStudioDocument.ts";
 
 export interface StudioSelectionOptions {
-  /** The item rows the canvas arrows step through, in draw order (the Scene list as filtered). */
-  rows: MaybeRefOrGetter<readonly SceneRow[]>;
+  /** The item rows the canvas arrows step through, in draw order (the Items panel as filtered). */
+  rows: MaybeRefOrGetter<readonly ItemRow[]>;
   /** Every row and group, for lookups (selection survives a filter that hides it). */
-  allRows: MaybeRefOrGetter<readonly SceneRow[]>;
+  allRows: MaybeRefOrGetter<readonly ItemRow[]>;
   /** A group's member ids, or undefined for an item. */
   membersOf?: (id: string) => readonly string[] | undefined;
   /** The row owning a cell under the current lens, if any. */
@@ -34,9 +34,16 @@ export interface StudioSelectionOptions {
 const SEVERAL = "(selection)";
 
 /** "Green line · 7 points, art, 2 steps". */
-export function describeRow(row: Pick<SceneRow, "display" | "kind" | "entries">): string {
+export function describeRow(row: Pick<ItemRow, "display" | "kind" | "entries">): string {
   const n = row.entries.length;
-  const kind = row.kind === "loose" ? "not in an item" : row.kind;
+  const kind =
+    row.kind === "loose"
+      ? "not in an item"
+      : row.kind === "depth"
+        ? "priority"
+        : row.kind === "art"
+          ? "visual"
+          : row.kind;
   return `${row.display}, ${kind}, ${n} ${n === 1 ? "step" : "steps"}`;
 }
 
@@ -88,10 +95,10 @@ export function useStudioSelection({
   );
   const hoveredId = computed(() => listHover.value ?? canvasRowId.value);
   const inspectedCell = computed(() => canvasCell.value ?? pinnedCell.value);
-  const find = (id: string | undefined): SceneRow | undefined =>
+  const find = (id: string | undefined): ItemRow | undefined =>
     id === undefined ? undefined : toValue(allRows).find((row) => row.id === id);
   /** The selection as one row: the row itself, or for several items one that stands for them. */
-  const selectedRow = computed<SceneRow | undefined>(() => {
+  const selectedRow = computed<ItemRow | undefined>(() => {
     if (selectedIds.value.length <= 1) return find(selectedId.value);
     const parts = selectedIds.value.flatMap((id) => find(id) ?? []);
     const kinds = new Set(parts.map((row) => row.kind));
@@ -168,7 +175,7 @@ export function useStudioSelection({
    * Shift+Alt+arrow: grow or shrink a run of neighbouring items. A new run
    * starts at the selection's first item going forward or its last going
    * back; its far end moves one item per press, over the items the canvas
-   * arrows step through (the Scene list as filtered). False at either end.
+   * arrows step through (the Items panel as filtered). False at either end.
    */
   function extend(direction: 1 | -1): boolean {
     const list = toValue(rows)

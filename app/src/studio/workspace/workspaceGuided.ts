@@ -8,7 +8,7 @@ import { nextWordGroup } from "./wordGroups.ts";
 import {
   prepareGuidedAddRoom,
   prepareGuidedBoilerplate,
-  prepareGuidedPlaceHero,
+  prepareGuidedPlaceEgo,
   prepareGuidedRespondToCommand,
   prepareGuidedConnectDoor,
   prepareGuidedPlaySound,
@@ -18,7 +18,7 @@ import type { BoilerplatePart } from "../../../../src/authoring/boilerplateParts
 export type WorkspaceAction =
   | { kind: "add-room"; title: string }
   | { kind: "make-room"; key: string }
-  | { kind: "place-hero"; room: number; x: number; y: number; view: number }
+  | { kind: "place-ego"; room: number; x: number; y: number; view: number }
   | {
       kind: "response";
       room: number;
@@ -59,10 +59,10 @@ export function prepareWorkspaceAction(
         context,
         action.key.startsWith("picture:")
           ? { existingPicture: Number(action.key.slice(8)) }
-          : { heroView: Number(action.key.slice(5)) },
+          : { egoView: Number(action.key.slice(5)) },
       );
-    case "place-hero":
-      return prepareGuidedPlaceHero(context, action);
+    case "place-ego":
+      return prepareGuidedPlaceEgo(context, action);
     case "response": {
       const documents = { ...snapshot.documents() };
       const changes: Record<string, string | Uint8Array | null> = {};

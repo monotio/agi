@@ -1,3 +1,7 @@
+import { loadAppearance } from "../src/render/appearance.ts";
+// These synchronous state-machine tests begin after platform assets are ready.
+await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => loadAppearance(id)));
+
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { progressEntries } from "../src/saves/gameProgress.ts";
@@ -19,7 +23,7 @@ test("PAL session records timing, replays, resets and resumes with PAL", () => {
     "logic",
     0,
     assembleLogic(
-      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); overlay.pic(v50); show.pic(); } return;",
       { dictionary: new Map() },
     ).payload,
   );
@@ -110,7 +114,7 @@ test("a numbered PAL save restores the region and both session clocks", () => {
     "logic",
     0,
     assembleLogic(
-      "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); } if (isset(f208)) { reset(f208); restore.game(); } return;",
+      "if (isset(f5)) { assignn(v50,1); load.pic(v50); overlay.pic(v50); show.pic(); } if (isset(f208)) { reset(f208); restore.game(); } return;",
       { dictionary: new Map() },
     ).payload,
   );
@@ -143,6 +147,10 @@ test("a numbered PAL save restores the region and both session clocks", () => {
       { slot: 1, image: Buffer.from(image.subarray(0, 40)).toString("base64") },
     ]),
   });
+  // Enter picks the slot; the Amiga dialog then asks "About to restore the
+  // game" with Restore / Cancel, and a second Enter confirms.
+  onWorkerMessage(ctx, { type: "key", code: 13 });
+  ctx.fns.tickEngine();
   onWorkerMessage(ctx, { type: "key", code: 13 });
   ctx.fns.tickEngine();
   const restore = control.findLast((m) => m.type === "hostRequest" && m.op === "restore");

@@ -11,7 +11,7 @@ import { projectProgressTarget } from "../src/project/progressTarget.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 import { readGameSaves, writeGameSave } from "../src/saves/gameSaves.ts";
 
-test("a stale progress writer cannot overwrite the newest tab's physical checkpoint", () => {
+test("a stale progress writer cannot overwrite the newest tab's physical progress entry", () => {
   const target = projectProgressTarget(
     testProjectId("writer-game"),
     testRevision("writer"),

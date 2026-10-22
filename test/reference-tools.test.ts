@@ -78,7 +78,7 @@ function source(): ReferenceSource {
     art: [
       art(ID_A, halves(1024, 512), { note: "a harbour at dawn", attached: true }),
       art(ID_B, halves(200, 100), {
-        label: "Character sheet, right-facing row",
+        label: "Cel sheet, right-facing row",
         target: { kind: "view", num: 0 },
       }),
       art(ID_C, halves(64, 64), { target: { kind: "general" } }),
@@ -124,7 +124,7 @@ describe("manifest", () => {
     const lines = manifest.text.split("\n").filter((line) => line.startsWith("art-"));
     assert.deepEqual(lines, [
       'art-aaaaaaaaaa · Room plate · room 3 · 1024x512 · blue 50%, yellow 50% · attached to this request · note: "a harbour at dawn"',
-      "art-bbbbbbbbbb · Character sheet, right-facing row · view 0 · 200x100 · blue 50%, yellow 50%",
+      "art-bbbbbbbbbb · Cel sheet, right-facing row · view 0 · 200x100 · blue 50%, yellow 50%",
       "art-cccccccccc · Room plate · general · 64x64 · blue 50%, yellow 50%",
     ]);
     assertNoImageData(manifest.text);

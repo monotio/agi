@@ -1,3 +1,4 @@
+import { isJoystickSample, type JoystickSample } from "../runtime/keys.ts";
 /**
  * HistoryRecording — the versioned always-on session-history contract.
  *
@@ -31,10 +32,21 @@ import { PROFILES, type ProfileId } from "../runtime/profile.ts";
 import { readRngPolicy, type RngPolicy } from "../runtime/rng.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
-/** Current recording contract adds debugger boundaries and complete project admission events. */
-export const HISTORY_FORMAT_VERSION = 2;
+/**
+ * Version 3 adds the parked window's pixel frame (`saved.window`, admitted
+ * by `allowWindow` below), the `menu` and `joystick` causes and `pcDisplay`
+ * on boots and anchors — none of them expressible in a released version.
+ * Boots may also carry `adoptDeclaredScriptSize` (1.2.5, an optional field
+ * at the same version; absent replays as before).
+ * Version 2 added debugger boundaries and complete project admission
+ * events; version-2 tapes may carry sync marks in either form — the
+ * released combined `digest` or the split `state` + `text` digests — and
+ * new writers emit the split digests (an optional-field extension at the
+ * same version). Version 1 is the released contract.
+ */
+export const HISTORY_FORMAT_VERSION = 3;
 /** Released recordings remain unchanged on read; the next append upgrades the header. */
-export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, 2, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -81,11 +93,12 @@ export type HistoryEndReason =
  * The end reasons each recording version may carry. Version 1 is the
  * released contract — a version-1 record never admits "debugger", so the
  * released reader could not have silently carried a reason it cannot name.
- * Version 2 admits every released reason plus "debugger".
+ * Versions 2 and 3 admit every released reason plus "debugger".
  */
 const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
   1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
   2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
+  3: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
 };
 
 export type HistoryEventCause =
@@ -94,6 +107,15 @@ export type HistoryEventCause =
   | { kind: "release" }
   /** Pointer click in 320x200 screen pixels; only click-to-walk profiles consume it. */
   | { kind: "click"; x: number; y: number }
+  /** The Amiga menu strip: a button, pointer or tap event at a screen pixel (a sticky open is host access). */
+  | {
+      kind: "menu";
+      op: "open" | "move" | "release" | "tap" | "cancel";
+      x: number;
+      y: number;
+      sticky: boolean;
+    }
+  | { kind: "joystick"; sample: JoystickSample | null }
   | { kind: "input"; text: string }
   | { kind: "edit"; text: string }
   | { kind: "dismiss" }
@@ -185,9 +207,13 @@ export interface HistoryRoomMark {
 }
 
 /**
- * A cheap checksum of interpreter state at a stream position: vars, flags,
- * screen-object positions and the text surface, plus diagnostic fields.
- * Marks detect divergence; they do not prove equivalence.
+ * A cheap checksum of interpreter state at a stream position plus diagnostic
+ * fields. Marks detect divergence; they do not prove equivalence.
+ *
+ * Every mark carries the combined `digest` (FNV-1a over vars, flags, object
+ * positions and the 25 text rows) so version-2 recordings stay readable by
+ * released 1.2.4 readers. Current writers also emit the optional `state` and
+ * `text` digests as a pair; older files express them by omission.
  */
 export interface HistorySyncMark {
   seq: number;
@@ -195,6 +221,10 @@ export interface HistorySyncMark {
   cycle: number;
   /** FNV-1a over vars, flags, object positions and the 25 text rows. */
   digest: string;
+  /** Current writer extension: FNV-1a over vars, flags and object positions. */
+  state?: string;
+  /** Current writer extension: FNV-1a over the 25 text rows. */
+  text?: string;
   room: number;
   score: number;
   patchGeneration: number;
@@ -247,6 +277,7 @@ export interface HistoryAnchor {
   inputLines: string[];
   /** Pointer clicks not yet consumed by takePointerClicks; absent on older tapes. */
   clickQueue?: [number, number][];
+  joystick?: JoystickSample | null;
   /** Host-request serial, so replayed requests keep their answer pairing. */
   requestSerial: number;
   rng: number;
@@ -285,6 +316,15 @@ export interface HistoryBoot {
   profile?: ProfileId;
   /** Absent uses the released NTSC timing. */
   amigaRegion?: "ntsc" | "pal";
+  /** The PC display the segment ran on (src/runtime/display.ts); absent is EGA. */
+  pcDisplay?: "cga-rgb";
+  /**
+   * The segment's engine ran with the authored-project host option
+   * `adoptDeclaredScriptSize` (docs/fidelity.md, "Authored script buffer on
+   * live edits"); absent ran without it.
+   */
+  adoptDeclaredScriptSize?: true;
+  legacyRoomMemory?: true;
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -294,6 +334,7 @@ export interface HistoryBoot {
   directionQueue?: number[];
   inputLines?: string[];
   clickQueue?: [number, number][];
+  joystick?: JoystickSample | null;
   /** The RNG's 16-bit state word at this point (docs/fidelity.md, "Original RNG"). */
   rng: number;
   rngPolicy?: RngPolicy;
@@ -315,6 +356,8 @@ export interface HistoryBoot {
  */
 export interface HistorySegment {
   id: string;
+  /** Format version the segment was opened under when the enclosing recording header was later upgraded. */
+  version?: number;
   boot: HistoryBoot;
   anchors: HistoryAnchor[];
   events: HistoryEvent[];
@@ -379,12 +422,16 @@ export interface HistorySyncSource {
   modalKind: string | null;
 }
 
-export function historySyncDigest(engine: HistorySyncSource): string {
+function digestOf(feedAll: (feed: (v: number) => void) => void): string {
   let hash = 0x811c9dc5;
-  const feed = (v: number): void => {
+  feedAll((v: number): void => {
     hash = Math.imul(hash ^ (v & 0xffff), 0x01000193) >>> 0;
     hash = Math.imul(hash ^ (v >>> 16), 0x01000193) >>> 0;
-  };
+  });
+  return hash.toString(16).padStart(8, "0");
+}
+
+function feedState(engine: HistorySyncSource, feed: (v: number) => void): void {
   for (let i = 0; i < engine.vars.length; i++) feed(engine.vars[i]!);
   for (let i = 0; i < engine.flags.length; i++) feed(engine.flags[i]!);
   for (const o of engine.readObjects()) {
@@ -392,12 +439,27 @@ export function historySyncDigest(engine: HistorySyncSource): string {
     feed(o.x);
     feed(o.y);
   }
+}
+
+function feedText(engine: HistorySyncSource, feed: (v: number) => void): void {
   for (let row = 0; row < 25; row++) {
     const text = engine.textRow(row);
     for (let i = 0; i < text.length; i++) feed(text.charCodeAt(i));
     feed(0x10000);
   }
-  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * The released combined digest: FNV-1a over vars, flags, object positions
+ * and the 25 text rows. Version-2 tapes written before the split digests
+ * carry only this value; it is kept to read those tapes, never for replay
+ * gating.
+ */
+export function historySyncDigest(engine: HistorySyncSource): string {
+  return digestOf((feed) => {
+    feedState(engine, feed);
+    feedText(engine, feed);
+  });
 }
 
 export function computeSyncMark(
@@ -405,12 +467,14 @@ export function computeSyncMark(
   seq: number,
   tick: number,
   cycle: number,
-): HistorySyncMark {
+): HistorySyncMark & { state: string; text: string } {
   return {
     seq,
     tick,
     cycle,
     digest: historySyncDigest(engine),
+    state: digestOf((feed) => feedState(engine, feed)),
+    text: digestOf((feed) => feedText(engine, feed)),
     room: engine.vars[V_ROOM] ?? 0,
     score: engine.vars[V_SCORE] ?? 0,
     patchGeneration: engine.patchGeneration,
@@ -457,6 +521,9 @@ export interface HistoryFingerprint {
  */
 export interface HistorySemanticState {
   amigaRegion?: "ntsc" | "pal";
+  pcDisplay?: "cga-rgb";
+  adoptDeclaredScriptSize?: true;
+  legacyRoomMemory?: true;
   documentId?: string;
   authorRooms?: boolean;
   dictionary?: [string, number][];
@@ -467,6 +534,7 @@ export interface HistorySemanticState {
   directionQueue?: number[];
   inputLines?: string[];
   clickQueue?: [number, number][];
+  joystick?: JoystickSample | null;
   requestSerial: number;
   rng: number;
   rngPolicy?: RngPolicy;
@@ -499,6 +567,7 @@ export function historyAnchorSemantic(
   };
   if (anchor.rngPolicy !== undefined) out.rngPolicy = anchor.rngPolicy;
   if (anchor.clickQueue !== undefined) out.clickQueue = anchor.clickQueue;
+  if (anchor.joystick !== undefined) out.joystick = anchor.joystick;
   if (anchor.soundRemainder !== undefined) out.soundRemainder = anchor.soundRemainder;
   return out;
 }
@@ -517,6 +586,9 @@ export function historyBootSemantic(
   };
   if (boot.rngPolicy !== undefined) out.rngPolicy = boot.rngPolicy;
   if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
+  if (boot.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
+  if (boot.adoptDeclaredScriptSize === true) out.adoptDeclaredScriptSize = true;
+  if (boot.legacyRoomMemory === true) out.legacyRoomMemory = true;
   if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
   if (boot.replay !== undefined) out.replay = boot.replay;
@@ -525,6 +597,7 @@ export function historyBootSemantic(
   if (boot.directionQueue !== undefined) out.directionQueue = boot.directionQueue;
   if (boot.inputLines !== undefined) out.inputLines = boot.inputLines;
   if (boot.clickQueue !== undefined) out.clickQueue = boot.clickQueue;
+  if (boot.joystick !== undefined) out.joystick = boot.joystick;
   if (boot.clock !== undefined) out.clock = boot.clock;
   if (boot.soundRemainder !== undefined) out.soundRemainder = boot.soundRemainder;
   // Early PAL writers bound timing in replay state before adding the boot
@@ -647,6 +720,7 @@ function clickPairs(value: unknown, name: string): [number, number][] {
   });
 }
 
+// dictionary is the stored agent history record field.
 function dictionary(value: unknown): [string, number][] {
   if (!Array.isArray(value) || value.length > 65536) fail("dictionary must be a bounded list.");
   return value.map((entry) => {
@@ -778,12 +852,32 @@ function eventCause(
       return { kind: "direction", dir: int(value["dir"], "direction", 0xff) };
     case "release":
       return { kind: "release" };
+    case "joystick": {
+      const sample = value["sample"];
+      if (sample !== null && !isJoystickSample(sample)) fail("joystick sample is invalid.");
+      return { kind: "joystick", sample: sample === null ? null : { ...sample } };
+    }
     case "click":
       return {
         kind: "click",
         x: int(value["x"], "click x", 319),
         y: int(value["y"], "click y", 199),
       };
+    case "menu": {
+      const op = value["op"];
+      if (op !== "open" && op !== "move" && op !== "release" && op !== "tap" && op !== "cancel")
+        fail("menu op is invalid.");
+      // A sticky open starts off screen (-1, -1): no title is under a button.
+      const coordinate = (v: unknown, name: string, max: number) =>
+        v === -1 ? -1 : int(v, name, max);
+      return {
+        kind: "menu",
+        op,
+        x: coordinate(value["x"], "menu x", 319),
+        y: coordinate(value["y"], "menu y", 199),
+        sticky: value["sticky"] === true,
+      };
+    }
     case "input":
       return { kind: "input", text: text(value["text"], "input text", 1024) };
     case "edit":
@@ -929,16 +1023,27 @@ function syncMarks(value: unknown): HistorySyncMark[] {
   if (!Array.isArray(value) || value.length > 1_000_000) fail("sync marks must be a bounded list.");
   return value.map((m) => {
     if (!isObj(m)) fail("sync mark must be an object.");
-    return {
+    const hasState = m["state"] !== undefined;
+    const hasText = m["text"] !== undefined;
+    if (hasState !== hasText) fail("sync mark must carry both state and text digests or neither.");
+    // Key order preserves the released bytes on re-export.
+    const out: HistorySyncMark = {
       seq: int(m["seq"], "sync seq"),
       tick: int(m["tick"], "sync tick"),
       cycle: int(m["cycle"], "sync cycle"),
       digest: text(m["digest"], "sync digest", 64),
+      ...(hasState
+        ? {
+            state: text(m["state"], "sync state digest", 64),
+            text: text(m["text"], "sync text digest", 64),
+          }
+        : {}),
       room: int(m["room"], "sync room", 255),
       score: int(m["score"], "sync score", 0xffff),
       patchGeneration: int(m["patchGeneration"], "sync patchGeneration"),
       modal: m["modal"] === null ? null : text(m["modal"], "sync modal", 64),
     };
+    return out;
   });
 }
 
@@ -951,7 +1056,13 @@ function fingerprint(value: unknown): HistoryFingerprint {
   return { v, hash: text(value["hash"], "fingerprint hash", 64) };
 }
 
-function anchor(value: unknown): HistoryAnchor {
+function readJoystick(value: unknown): JoystickSample | null {
+  if (value === null) return null;
+  if (!isJoystickSample(value, 65535)) fail("joystick input is invalid.");
+  return { ...value };
+}
+
+function anchor(value: unknown, options?: { allowWindow?: boolean }): HistoryAnchor {
   if (!isObj(value)) fail("anchor must be an object.");
   const reason = value["reason"];
   if (!["boot", "room", "autosave", "flush", "pause", "resume"].includes(String(reason)))
@@ -964,8 +1075,10 @@ function anchor(value: unknown): HistoryAnchor {
     image: b64(value["image"], "anchor image"),
     replay: (() => {
       try {
-        return validateEngineReplayState(value["replay"]);
-      } catch {
+        return validateEngineReplayState(value["replay"], options);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("requires recording version 3"))
+          return fail(error.message);
         return fail("anchor.replay must be a valid engine replay state.");
       }
     })(),
@@ -975,6 +1088,7 @@ function anchor(value: unknown): HistoryAnchor {
     ...(value["clickQueue"] !== undefined
       ? { clickQueue: clickPairs(value["clickQueue"], "anchor clickQueue") }
       : {}),
+    ...(value["joystick"] !== undefined ? { joystick: readJoystick(value["joystick"]) } : {}),
     requestSerial: int(value["requestSerial"], "anchor requestSerial"),
     rng: int(value["rng"], "anchor rng", 0xffff),
     ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
@@ -1008,7 +1122,10 @@ function projectDocuments(value: unknown): HistoryProjectDocuments {
 }
 
 /** Validate a standalone boot record (a retained original carried over messages). */
-export function validateHistoryBoot(value: unknown): HistoryBoot {
+export function validateHistoryBoot(
+  value: unknown,
+  options?: { allowWindow?: boolean },
+): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
   if (
     value["amigaRegion"] !== undefined &&
@@ -1016,6 +1133,12 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
     value["amigaRegion"] !== "ntsc"
   )
     fail("boot region must be ntsc or pal.");
+  if (value["pcDisplay"] !== undefined && value["pcDisplay"] !== "cga-rgb")
+    fail("boot display must be cga-rgb.");
+  if (value["legacyRoomMemory"] !== undefined && value["legacyRoomMemory"] !== true)
+    fail("boot legacyRoomMemory must be true.");
+  if (value["adoptDeclaredScriptSize"] !== undefined && value["adoptDeclaredScriptSize"] !== true)
+    fail("boot adoptDeclaredScriptSize must be true.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
   const out: Omit<HistoryBoot, "fingerprint"> = {
@@ -1030,6 +1153,11 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
     ...(value["profile"] !== undefined ? { profile: profileId(value["profile"]) } : {}),
     ...(value["amigaRegion"] !== undefined
       ? { amigaRegion: value["amigaRegion"] as "ntsc" | "pal" }
+      : {}),
+    ...(value["pcDisplay"] === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
+    ...(value["legacyRoomMemory"] === true ? { legacyRoomMemory: true as const } : {}),
+    ...(value["adoptDeclaredScriptSize"] === true
+      ? { adoptDeclaredScriptSize: true as const }
       : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
     ...(value["rngPolicy"] !== undefined ? { rngPolicy: readRngPolicy(value["rngPolicy"]) } : {}),
@@ -1054,8 +1182,10 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (value["image"] !== undefined) out.image = b64(value["image"], "boot image");
   if (value["replay"] !== undefined) {
     try {
-      out.replay = validateEngineReplayState(value["replay"]);
-    } catch {
+      out.replay = validateEngineReplayState(value["replay"], options);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("requires recording version 3"))
+        fail(error.message);
       fail("boot.replay must be a valid engine replay state.");
     }
   }
@@ -1068,6 +1198,7 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
     out.inputLines = stringList(value["inputLines"], "boot inputLines");
   if (value["clickQueue"] !== undefined)
     out.clickQueue = clickPairs(value["clickQueue"], "boot clickQueue");
+  if (value["joystick"] !== undefined) out.joystick = readJoystick(value["joystick"]);
   if (value["clock"] !== undefined) out.clock = clock(value["clock"]);
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);
@@ -1084,6 +1215,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
   if (typeof version !== "number" || HISTORY_END_REASONS[version] === undefined)
     fail(`unsupported version ${String(version)}.`);
   const endReasons = HISTORY_END_REASONS[version]!;
+  const allowWindow = version >= 3;
   const segments = value["segments"];
   if (!Array.isArray(segments) || segments.length > 4096) fail("segments must be a bounded list.");
   const rawIdentity = value["identity"];
@@ -1106,13 +1238,21 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
     ...(value["dropped"] !== undefined ? { dropped: int(value["dropped"], "dropped") } : {}),
     segments: segments.map((s): HistorySegment => {
       if (!isObj(s)) fail("segment must be an object.");
-      if (version < 2 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
+      let segmentVersion: number | undefined;
+      if (s["version"] !== undefined) {
+        const sv = s["version"];
+        if (typeof sv !== "number" || HISTORY_END_REASONS[sv] === undefined || sv > version)
+          fail(`unsupported segment version ${String(sv)}.`);
+        segmentVersion = sv;
+      }
+      if ((segmentVersion ?? version) < 2 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
         fail("project documents require recording version 2.");
       const segment: HistorySegment = {
         id: text(s["id"], "segment id", 64),
-        boot: validateHistoryBoot(s["boot"]),
+        ...(segmentVersion !== undefined ? { version: segmentVersion } : {}),
+        boot: validateHistoryBoot(s["boot"], { allowWindow }),
         anchors: Array.isArray(s["anchors"])
-          ? s["anchors"].map(anchor)
+          ? s["anchors"].map((a) => anchor(a, { allowWindow }))
           : fail("anchors must be a list."),
         events: events(s["events"], endReasons, version),
         marks: roomMarks(s["marks"]),

@@ -10,8 +10,10 @@ const limits: Record<string, { polls: number; cycles: number; actions: number }>
   kq2: { polls: 127000, cycles: 18100, actions: 4600 },
   kq3: { polls: 260000, cycles: 34200, actions: 10600 },
   sq1: { polls: 143500, cycles: 19100, actions: 5100 },
-  sq2: { polls: 144400, cycles: 18900, actions: 4600 },
-  pq1: { polls: 401500, cycles: 39300, actions: 13400 },
+  // shake.screen holds the game for its full length (docs/fidelity.md
+  // "Original shake.screen and picture reveal"), adding 447 ticks to SQ2.
+  sq2: { polls: 144800, cycles: 18900, actions: 4600 },
+  pq1: { polls: 449000, cycles: 39700, actions: 13500 },
   lsl1: { polls: 146000, cycles: 16000, actions: 5600 },
   bc: { polls: 106000, cycles: 12350, actions: 2400 },
   mumg: { polls: 59100, cycles: 21800, actions: 1550 },
@@ -19,7 +21,7 @@ const limits: Record<string, { polls: number; cycles: number; actions: number }>
   mh1: { polls: 142500, cycles: 30000, actions: 6700 },
   mh2: { polls: 149100, cycles: 27900, actions: 5700 },
   gr1: { polls: 107000, cycles: 43400, actions: 8600 },
-  kq4: { polls: 151400, cycles: 70800, actions: 8600 },
+  kq4: { polls: 152000, cycles: 70800, actions: 8600 },
   // The 1.1 route walks up to Felix's counter before FIX PRIORITY.
   "adventure-department": { polls: 1680, cycles: 175, actions: 150 },
 };

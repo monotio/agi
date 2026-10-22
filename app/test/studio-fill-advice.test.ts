@@ -41,14 +41,14 @@ describe("a fill that would flood nothing", () => {
     });
   });
 
-  it("names depth in bands and control lines by what they do", () => {
+  it("names priority in bands and control lines by what they do", () => {
     assert.equal(spotName("visual", 10), "light green");
-    assert.equal(spotName("priority", 9), "depth band 9");
+    assert.equal(spotName("priority", 9), "priority band 9");
     assert.equal(spotName("priority", 0), "a Wall line");
     const why = { plane: "priority", x: 1, y: 1, value: 9, target: 4, line: 5 } as const;
     assert.equal(
       fillNotice({ ...why, fillable: false, message: "" }, null).detail,
-      "An AGI fill only spreads over uncoloured depth. The depth band 9 here was painted earlier by line 5, and the step that painted it is one the bucket cannot recolour.",
+      "An AGI fill only spreads over uncoloured priority. The priority band 9 here was painted earlier by line 5, and the step that painted it is one the bucket cannot recolour.",
     );
   });
 });

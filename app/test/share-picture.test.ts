@@ -94,15 +94,17 @@ test("the frame doubles each picture cell and leaves the strip black without a c
 
 test("the caption is drawn with the engine font, the wordmark's full stop in cyan", () => {
   const frame = composeFrame(plane(1), { room: "A", commands: 1, bytes: 9 });
-  // The engine font's "A" at the name's place (8,173), in white.
+  // The engine font's "A" at the name's place (8,173), in white: the PC BIOS
+  // graphics typeface the font table recreates (docs/fidelity.md "PC fonts
+  // and display adapters").
   const A = [
-    "..###...",
-    ".#...#..",
-    ".#...#..",
-    ".#####..",
-    ".#...#..",
-    ".#...#..",
-    ".#...#..",
+    "...###..",
+    "..##.##.",
+    ".##...##",
+    ".##...##",
+    ".#######",
+    ".##...##",
+    ".##...##",
     "........",
   ];
   const drawn = A.map((row, y) =>

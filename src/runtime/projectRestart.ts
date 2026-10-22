@@ -8,12 +8,17 @@ import {
   type PreviewUpdateCandidate,
 } from "./previewAdmission.ts";
 import { validateCompleteImage } from "./projectImageValidation.ts";
+import type { PcDisplay } from "./display.ts";
 
 export function prepareProjectRestart(
   candidate: PreviewUpdateCandidate,
   host: EngineHost,
   fallbackProfile: AgiProfile,
   previousFiles: ReadonlyMap<string, Uint8Array>,
+  /** The running session's PC display; a cold boot keeps the hardware. */
+  pcDisplay?: PcDisplay,
+  /** The running session's host option `adoptDeclaredScriptSize`; a cold boot keeps it. */
+  adoptDeclaredScriptSize = false,
 ): Engine {
   const files = canonicalizeCandidateFiles(candidate.files);
   const profile = detectProfileDecision(files, candidate.profile ?? fallbackProfile).profile;
@@ -29,5 +34,7 @@ export function prepareProjectRestart(
   const words = files.get("WORDS.TOK");
   return new Engine(container, host, words === undefined ? new Map() : stageDictionary(words), {
     profile,
+    ...(pcDisplay ? { pcDisplay } : {}),
+    ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize } : {}),
   });
 }

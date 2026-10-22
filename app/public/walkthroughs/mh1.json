@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "mh1",
     "revision": "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d"
@@ -29,7 +29,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 60476,
+  "elapsedMs": 70140,
   "virtualTicks": 141960,
   "cycles": 29847,
   "actions": [
@@ -26855,7 +26855,7 @@
       1,
       1,
       0,
-      0,
+      1,
       0,
       1,
       1,

@@ -50,7 +50,7 @@ for (const [width, height] of [
       page,
     }) => {
       await start(page);
-      await expect(page.getByTestId("room-studio")).toBeVisible();
+      await expect(page.getByTestId("picture-studio")).toBeVisible();
       await parts(page);
       await expect(page.getByTestId("part-picture:1")).toHaveText("PICTURE 1 · Room 1");
       await reviewShot(page, `parts-${width}`);
@@ -242,7 +242,7 @@ for (const [width, height] of [
       await dialog.getByRole("button", { name: "Delete", exact: true }).click();
       await expect(dialog).toBeHidden();
     });
-    test(`a committed edit requests one progress checkpoint${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
+    test(`a committed edit requests one progress entry${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,
     }) => {
       await start(page);
@@ -284,7 +284,7 @@ for (const [width, height] of [
           worker.postMessage = post;
         }
       });
-      expect(count, "one committed code change requests one fresh progress checkpoint").toBe(1);
+      expect(count, "one committed code change requests one fresh progress entry").toBe(1);
     });
     test(`Tests never block game edits: room deletion refreshes a stale tests preview${width === 390 ? " @phone" : " @webkit-desktop"}`, async ({
       page,

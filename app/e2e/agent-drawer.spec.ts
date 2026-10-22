@@ -511,7 +511,7 @@ test("the context chip follows selection and can be removed @webkit-desktop", as
 
   // PICTURE: the chip names the selected item (keyboard selection: the drawer covers the list).
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("Alt+ArrowDown");
   await expect(chip).toContainText("PICTURE 1 ·");

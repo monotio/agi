@@ -40,7 +40,7 @@ test("a save acknowledgement clears captured content, never newer typing", () =>
   draft.edit("logic:1", "C", draft.capture().version("logic:1"));
   draft.edit("logic:2", "Y", draft.capture().version("logic:2"));
   assert.throws(() => draft.assertCurrent(selected), /stale/i);
-  assert.equal(draft.acknowledgeKept(selected), true);
+  assert.equal(draft.acknowledgeSaved(selected), true);
   assert.deepEqual(draft.dirtyKeys(), ["logic:1", "logic:2"]);
   assert.equal(draft.capture().read("logic:1")!.content, "C");
   assert.equal(draft.select(["logic:2"]).documents()["logic:1"], "B");
@@ -52,12 +52,12 @@ test("selection and save acknowledgement are workspace-scoped and duplicate ACKs
   const right = new ProjectDraft({ "logic:1": "A" });
   left.edit("logic:1", "B", left.capture().version("logic:1"));
   const selected = left.select(["logic:1"]);
-  assert.throws(() => right.acknowledgeKept(selected), /workspace/i);
-  assert.throws(() => left.acknowledgeKept({ ...selected }), /workspace/i);
-  assert.equal(left.acknowledgeKept(selected), true);
+  assert.throws(() => right.acknowledgeSaved(selected), /workspace/i);
+  assert.throws(() => left.acknowledgeSaved({ ...selected }), /workspace/i);
+  assert.equal(left.acknowledgeSaved(selected), true);
   assert.deepEqual(left.dirtyKeys(), []);
   left.edit("logic:1", "C", left.capture().version("logic:1"));
-  assert.equal(left.acknowledgeKept(selected), true);
+  assert.equal(left.acknowledgeSaved(selected), true);
   assert.deepEqual(left.dirtyKeys(), ["logic:1"]);
 });
 
@@ -67,8 +67,8 @@ test("a superseded selection cannot replace the latest kept base", () => {
   const old = draft.select(["logic:1"]);
   draft.edit("logic:1", "C", draft.capture().version("logic:1"));
   const latest = draft.select(["logic:1"]);
-  assert.equal(draft.acknowledgeKept(latest), true);
-  assert.equal(draft.acknowledgeKept(old), false);
+  assert.equal(draft.acknowledgeSaved(latest), true);
+  assert.equal(draft.acknowledgeSaved(old), false);
   assert.deepEqual(draft.dirtyKeys(), []);
   assert.equal(draft.select([]).documents()["logic:1"], "C");
 });
@@ -85,7 +85,7 @@ test("undo of a kept group becomes a new coordinated draft and a deleted documen
   const selected = draft.select(["logic:1"]);
   assert.deepEqual(selected.keys, ["logic:1", "view:1", "words"]);
   assert.equal(selected.documents()["view:1"], undefined);
-  assert.equal(draft.acknowledgeKept(selected), true);
+  assert.equal(draft.acknowledgeSaved(selected), true);
   assert.deepEqual(draft.dirtyKeys(), []);
   draft.undo(transaction.id);
   assert.deepEqual(draft.select(["words"]).keys, ["logic:1", "view:1", "words"]);
@@ -143,7 +143,7 @@ test("selected build uses kept unrelated logic and leaves later typing dirty aft
   assert.equal(candidate.compiled.documents()["logic:1"], "return;");
   edit(input.draft, "view:1", view.replace("[1]", "[3]"));
   assert.throws(() => input.draft.assertCurrent(candidate.selection), /Stale/);
-  assert.equal(input.draft.acknowledgeKept(candidate.selection), true);
+  assert.equal(input.draft.acknowledgeSaved(candidate.selection), true);
   assert.deepEqual(input.draft.dirtyKeys(), ["logic:1", "view:1"]);
 });
 

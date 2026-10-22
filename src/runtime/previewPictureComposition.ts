@@ -4,7 +4,7 @@
  * The live `draw.pic`/`overlay.pic`/`add.to.pic` path records every surface
  * mutation as host replay evidence (the same pairs `autosaveImage` uses to
  * rebuild a detached screen). Preview admission reuses that evidence to
- * compose the would-be backdrop on a detached `PictureSurface`, so a changed
+ * compose the would-be background on a detached `PictureSurface`, so a changed
  * PIC payload can be validated and installed without calling live
  * `drawPicture`, `replaySequence` or a room reentry.
  *
@@ -29,7 +29,7 @@ export interface PictureCompositionOp {
 }
 
 /**
- * The current picture backdrop expressed as replay-derived ops. `ops` starts
+ * The current picture background expressed as replay-derived ops. `ops` starts
  * at the most recent draw (which resets the surface) followed by overlays in
  * recorded order. `complete` requires a recorded draw anchor and intact
  * evidence. Overflow (`HOST_REPLAY_LIMIT`) drops later pairs, so later

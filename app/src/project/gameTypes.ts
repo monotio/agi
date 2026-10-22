@@ -1,3 +1,4 @@
+import type { AuthoringConventions } from "../../../src/authoring/projectConventions.ts";
 import type { AgentChats } from "../../../src/agent/chats.ts";
 import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
@@ -6,7 +7,8 @@ import type { LibraryMetadata } from "./gameMetadata.ts";
 import type { StoredReference } from "../references/referenceArt.ts";
 import type { ScreenObjectState } from "../../../src/runtime/engine.ts";
 import { projectId } from "../../../src/gameIdentity.ts";
-import { cellChar } from "../../../src/runtime/textSurface.ts";
+import { cellChar, type GadgetLabel } from "../../../src/runtime/textSurface.ts";
+import type { NativeMenuChrome } from "../../../src/runtime/nativeMenu.ts";
 import { detectKnownGameByHashes } from "../../../src/games/knownGames.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { GameIdentity, ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
@@ -21,6 +23,7 @@ import type { ProgressTarget } from "./progressTarget.ts";
 export type { ProjectId, ResourceRevision };
 
 export interface CachedGameMeta {
+  authoringConventions?: AuthoringConventions | undefined;
   library?: LibraryMetadata | undefined;
   projectId: ProjectId;
   templateId?: string | undefined;
@@ -79,7 +82,7 @@ export interface BootedGame {
   readonly parent?: GameIdentity | undefined;
   authoredGame?: CachedGameData | undefined;
   /**
-   * The stored project holds a newer save than the running game: a Keep
+   * The stored project holds a newer save than the running game: a commit
    * saved but not installed, or a write from elsewhere. Nothing writes this
    * game's files to storage until it reloads from storage, which boots a
    * fresh BootedGame without the mark.
@@ -234,8 +237,16 @@ export interface Frame {
   priority: Uint8Array;
   /** 40x25 [char, attr] text cells. */
   text: Uint8Array;
+  /** Optional 320x200 sub-cell window border overlay. */
+  windowOverlay?: Uint8Array | undefined;
   /** Text row where picture row 0 is presented. */
   picRow: number;
+  /** The Amiga screen title while the status line shows; the Amiga look draws it as the title bar. */
+  statusBar?: string | null;
+  /** An open confirmation window's gadgets, whose labels the Amiga look draws off the grid. */
+  gadgets?: GadgetLabel[];
+  /** The open Amiga menu strip, drawn over the title bar by the Amiga look. */
+  menu?: NativeMenuChrome;
   /** Interpreter cycle this frame completed, when the worker reports it. */
   cycle?: number;
   /** Container patch revision at capture; part of the frame's identity. */
@@ -259,6 +270,12 @@ export interface Frame {
    * identifiable layer instead of unowned band-15 pixels.
    */
   preview?: Uint8Array;
+  /** The PC display when it is not the default EGA (src/runtime/display.ts). */
+  display?: "cga-rgb";
+  /** The running Amiga region when it is PAL. */
+  region?: "pal";
+  /** CGA only: 1 where a cel drew the pixel, for the driver's cel colours. */
+  cel?: Uint8Array;
 }
 
 /** Decodes 40x25 [char, attr] text buffer into 25 display rows. */

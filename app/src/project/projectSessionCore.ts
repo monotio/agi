@@ -1,3 +1,8 @@
+import {
+  AUTHORING_CONVENTIONS_VERSION,
+  projectConventions,
+  isLegacyAuthoredProject,
+} from "../../../src/authoring/projectConventions.ts";
 /** One editable model and immutable History for an opened project's lifetime. */
 import { migrateAgentChats, readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { sameNonTestDocuments } from "../../../src/authoring/projectTestsMerge.ts";
@@ -12,10 +17,8 @@ import {
   ProjectHistory,
   type ProjectHistoryAction,
 } from "../../../src/authoring/projectHistory.ts";
-import {
-  readProjectHistory,
-  writeProjectHistory,
-} from "../../../src/authoring/projectHistoryCodec.ts";
+import { readProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
+import { migrateScriptSize } from "../../../src/authoring/scriptSizeMigration.ts";
 import { projectCommitLibrary } from "./gameMetadata.ts";
 import { sameWorldGameContent, copyWorldLaunches } from "./projectWorld.ts";
 import { compileWorkingProjectImage } from "./projectWorkingImage.ts";
@@ -47,6 +50,7 @@ import type {
 import { createProjectAutosave } from "./projectAutosave.ts";
 import {
   claimProjectSaveJournal,
+  hasUnresolvedProjectSaveJournal,
   markProjectSaveRecovery,
   projectSaveJournalKey,
   writeProjectSaveJournal,
@@ -65,6 +69,8 @@ import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 interface SessionSave {
   readonly snapshot: ProjectSnapshot;
   readonly documentOnly?: boolean;
+  readonly automatic?: boolean;
+  skipped?: true;
   readonly data: ProjectCommitRequest["data"];
   request?: ProjectCommitRequest;
   attempted?: boolean;
@@ -215,9 +221,21 @@ function createSession(
 ) {
   const data = structuredClone(input.data);
   const openedProjectId = data.projectId;
+  function automaticWritesAllowed() {
+    try {
+      return (
+        typeof localStorage === "undefined" ||
+        !hasUnresolvedProjectSaveJournal(localStorage, openedProjectId, journalKey)
+      );
+    } catch {
+      // Unreadable storage cannot establish that recovery has no pending base.
+      return false;
+    }
+  }
   const openedAt = input.openedAt ?? Date.now();
   data.chats = migrateAgentChats(data);
-  const inspection = inspectEditableProject(data);
+  const updateDue = (data.authoringConventions?.version ?? 0) < 1;
+  const inspection = inspectEditableProject(data, updateDue);
   let sourceClaimBase = inspection.documents;
   const history = new ProjectHistory(
     sha256Hex,
@@ -225,12 +243,50 @@ function createSession(
       ? undefined
       : readProjectHistory(data.projectHistory, sha256Hex),
   );
-  const documents =
+  let openedDocuments =
     data.workspace === undefined
       ? inspection.documents
       : data.projectHistory === undefined
         ? { ...inspection.documents, ...readProjectWorkspace(data.workspace) }
         : readProjectWorkspace(data.workspace);
+  const conventions = projectConventions(data);
+  const scriptSizeMigration =
+    updateDue && isLegacyAuthoredProject(data)
+      ? migrateScriptSize(openedDocuments, data.files)
+      : null;
+  const viewRebuilds = inspection.viewRebuilds;
+  const updateChanges = [
+    ...(scriptSizeMigration === null
+      ? []
+      : [{ key: "logic:0", content: scriptSizeMigration["logic:0"]! }]),
+    ...Object.entries(viewRebuilds).map(([key, content]) => ({ key, content })),
+  ];
+  let updatePending = updateChanges.length > 0;
+  // Start with the stored native VIEWs so Undo restores their exact bytes.
+  // The author's source returns through the ordinary commit below.
+  if (Object.keys(viewRebuilds).length)
+    openedDocuments = {
+      ...openedDocuments,
+      ...Object.fromEntries(
+        Object.keys(viewRebuilds).map((key) => [key, inspection.documents[key]!]),
+      ),
+    };
+  // History owns accepted drafts even when diagnostics kept older runnable bytes.
+  // Unaccepted VIEW claims still stay inactive beside the native fallback.
+  const acceptedHistory = history.capture();
+  const acceptedDocuments = acceptedHistory.commits.find(
+    (commit) => commit.id === acceptedHistory.cursor,
+  )?.documents;
+  for (const key of Object.keys(inspection.rejectedSources)) {
+    const hash = acceptedDocuments?.[key];
+    const acceptedDraft =
+      typeof hash === "string" &&
+      sameProjectContent(openedDocuments[key], acceptedHistory.blobs[hash]);
+    if (/^view:\d+$/.test(key) && inspection.documents[key] instanceof Uint8Array && !acceptedDraft)
+      openedDocuments = { ...openedDocuments, [key]: inspection.documents[key]! };
+  }
+
+  const documents = openedDocuments;
   const build = compileWorkingProjectImage({
     files: data.files,
     documents,
@@ -251,6 +307,14 @@ function createSession(
       ),
       data.workspace,
     );
+  // A native-byte baseline keeps existing History immutable and makes Undo exact.
+  if (Object.keys(viewRebuilds).length && history.capture().cursor !== null)
+    history.record(documents, {
+      label: "Before update",
+      origin: "view",
+      author: "creator",
+      time: openedAt,
+    });
   if (history.capture().cursor === null) {
     const genesis = data.chats.chats.find((chat) => chat.title === `Created ${data.title}`);
     const result = genesis?.messages.findLast((message) => message.role === "assistant");
@@ -262,6 +326,7 @@ function createSession(
       ...(genesis && result ? { chatId: genesis.id, messageId: result.id } : {}),
     });
   }
+
   let pendingRestart: PendingProjectRestart | null = null;
   let pendingImage: ProjectDocumentsCompile | undefined;
   let pendingPreparedRoom = false;
@@ -305,6 +370,7 @@ function createSession(
         .some(
           (capture) =>
             !capture.acknowledged &&
+            !capture.skipped &&
             capture.snapshot.lastAdmissibleBuild!.identity.revision !== revision,
         )
     );
@@ -407,7 +473,7 @@ function createSession(
       if (typeof localStorage === "undefined") throw new Error("Browser storage is unavailable.");
       const entries = autosave
         .captures()
-        .filter((capture) => !capture.acknowledged)
+        .filter((capture) => !capture.acknowledged && !capture.skipped)
         .map((capture) => {
           if (capture.journal === undefined || !capture.attempted)
             capture.journal = captureProjectJournal({
@@ -421,7 +487,11 @@ function createSession(
                 .filter(({ index }) => index > operationBase && index <= capture.operation)
                 .map(({ operation }) => operation),
             });
-          return { capture: capture.journal, attempted: capture.attempted === true };
+          return {
+            capture: capture.journal,
+            attempted: capture.attempted === true,
+            ...(capture.automatic ? { automatic: true } : {}),
+          };
         });
       writeProjectSaveJournal(localStorage, journalKey, entries);
     } catch {
@@ -454,7 +524,7 @@ function createSession(
     addEventListener("pagehide", persistPending);
     document.addEventListener("visibilitychange", hiddenJournal);
   }
-  const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt>({
+  const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt | undefined>({
     current,
     write: async (capture) => {
       if (input.write === undefined && !(await releaseJournal.ready))
@@ -488,10 +558,23 @@ function createSession(
         persistPending();
       }
       return input.write === undefined
-        ? (await storage.commit(capture.request!, capture.journal?.hash)).receipt
+        ? (
+            await storage.commit(
+              capture.request!,
+              capture.journal?.hash,
+              capture.automatic ? { ownJournalKey: journalKey } : undefined,
+            )
+          )?.receipt
         : input.write(capture.request!);
     },
     saved: async (receipt, capture) => {
+      if (receipt === undefined) {
+        // Do not leave a skipped automatic write for recovery to replay later.
+        // Stored conventions stay pending, so the next open retries the update.
+        capture.skipped = true;
+        persistPending();
+        return;
+      }
       let previousKey: string | undefined;
       let releasePrevious: (() => void) | undefined;
       if (receipt.saved.projectId !== data.projectId) {
@@ -565,28 +648,51 @@ function createSession(
     nativeInstalled = false,
     save = true,
     documentOnly = false,
+    automatic = false,
   ) {
     const image = snapshot.lastAdmissibleBuild!;
-    const authoringState = updateAcceptedSourceClaims(
+    const acceptedState = updateAcceptedSourceClaims(
       data.authoringState,
       sourceClaimBase,
       image.documents(),
       inspection.profileId,
     );
+    const authoringState = acceptedState === undefined ? undefined : { ...acceptedState };
+    if (authoringState !== undefined) delete authoringState["pendingViewRebuilds"];
+    // Pending sources travel beside the native-byte workspace, which must still
+    // match its History cursor. Only the applied update activates these sources.
+    const pendingViewRebuilds = Object.fromEntries(
+      Object.entries({
+        ...inspection.rejectedSources,
+        ...(updatePending ? viewRebuilds : {}),
+      }).filter(
+        ([key, content]) =>
+          /^view:\d+$/.test(key) &&
+          typeof content === "string" &&
+          inspection.documents[key] instanceof Uint8Array &&
+          sameProjectContent(snapshot.read(key)?.content, inspection.documents[key]),
+      ),
+    );
+    const savedAuthoringState = Object.keys(pendingViewRebuilds).length
+      ? { ...authoringState, pendingViewRebuilds }
+      : authoringState;
     const next = {
       ...data,
-      ...(authoringState === undefined ? {} : { authoringState }),
+      ...(updatePending
+        ? {}
+        : { authoringConventions: { ...conventions, version: AUTHORING_CONVENTIONS_VERSION } }),
+      ...(savedAuthoringState === undefined ? {} : { authoringState: savedAuthoringState }),
       files: Object.fromEntries(image.files()),
       library: projectCommitLibrary(data.library, {
         revision: image.identity.revision,
         source: data.imported ? "zip" : "authored",
       }),
       workspace: writeProjectWorkspace(snapshot.documents()),
-      projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+      projectHistory: history.capturePortable(),
       ...(typeof image.documents()["world"] === "string"
         ? {
             authoringState: {
-              ...authoringState,
+              ...savedAuthoringState,
               authoring: {
                 ...(data.authoringState?.["authoring"] as Record<string, unknown> | undefined),
                 version: 1,
@@ -610,6 +716,7 @@ function createSession(
     autosave.enqueue({
       snapshot,
       documentOnly,
+      automatic,
       data: next,
       operation: operationSerial,
     });
@@ -636,11 +743,13 @@ function createSession(
     launch?: RoomLaunchRequest,
     reviewedRenumbering?: ReviewedRenumbering,
     beforeRenumber?: readonly ProjectChange[],
+    automatic = false,
   ) {
     await ready;
     beforeCommit?.();
     if (!current() || autosave.status().state === "conflict")
       throw new Error("Project session is closed for writes.");
+    let prospectiveHistory: ProjectHistory | undefined;
     const documentChanges = proposal.changes();
     const tests = proposal.documents()["tests"];
     if (
@@ -659,8 +768,8 @@ function createSession(
       // Documents about the game save and undo independently of its executable build.
       const application = model.issueApplication(proposal);
       if (action === undefined) {
-        const prospective = new ProjectHistory(sha256Hex, history.capture());
-        prospective.record(proposal.documents(), metadata);
+        prospectiveHistory = new ProjectHistory(sha256Hex, history.capture());
+        prospectiveHistory.record(proposal.documents(), metadata);
       }
       beforeCommit?.();
       const before = model.capture();
@@ -670,6 +779,7 @@ function createSession(
         { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
       );
       if (action !== undefined) history.accept(action);
+      else if (prospectiveHistory !== undefined) history.acceptRecorded(prospectiveHistory);
       else history.record(snapshot.documents(), metadata);
       recordOperation({
         kind: "edit",
@@ -682,7 +792,7 @@ function createSession(
           ? {}
           : { action: { direction: action.direction, target: action.target } }),
       });
-      captureSave(snapshot, undefined, false, true, true);
+      captureSave(snapshot, undefined, false, true, true, automatic);
       return { status: "committed" as const, diagnostics };
     }
     if (action !== undefined)
@@ -719,16 +829,20 @@ function createSession(
         // admitted edit waits. Its new body has its own generation counter.
         ((data.projectId === fence.projectId && expected.generation >= fence.generation) ||
           (fence.projectId === openedProjectId && data.projectId === forkId)),
-      preflight() {
+      preflight(preparedEdit) {
         beforeCommit?.();
         if (action === undefined) {
-          const prospective = new ProjectHistory(sha256Hex, history.capture());
+          prospectiveHistory = new ProjectHistory(sha256Hex, history.capture());
+          const prospective = prospectiveHistory;
           if (beforeNumberDocuments)
             prospective.record(beforeNumberDocuments, {
               ...metadata,
               label: "Edits before number change",
             });
-          prospective.record(proposal.documents(), metadata);
+          // Record the candidate as prepared: preparation may transform the
+          // proposal (for example pruning Launches of a removed room), and a
+          // history failure must refuse the edit before any admission attempt.
+          prospective.record(preparedEdit.proposal.documents(), metadata);
         }
       },
       admit: (compiled, documents) => {
@@ -794,15 +908,21 @@ function createSession(
       pendingPreparedRoom = pendingImage !== undefined && preparedRoom;
     }
     diagnostics = prepared.diagnostics;
-    if (action === undefined && beforeNumberDocuments)
-      history.record(beforeNumberDocuments, { ...metadata, label: "Edits before number change" });
     const before = model.capture();
     const snapshot = model.apply(prepared.application);
+    if (
+      updatePending &&
+      updateChanges.every(({ key, content }) =>
+        changes.some((change) => change.key === key && sameProjectContent(change.content, content)),
+      )
+    )
+      updatePending = false;
     partDrafts?.rebase(
       { documentId: before.documentId, world: before.read("world")?.content },
       { documentId: snapshot.documentId, world: snapshot.read("world")?.content },
     );
     if (action !== undefined) history.accept(action);
+    else if (prospectiveHistory !== undefined) history.acceptRecorded(prospectiveHistory);
     else history.record(snapshot.documents(), metadata);
     recordOperation({
       kind: "edit",
@@ -825,7 +945,7 @@ function createSession(
       checkpointPending = true;
       checkpointRevision = undefined;
     }
-    captureSave(snapshot, outcome, preparedRoom);
+    captureSave(snapshot, outcome, preparedRoom, true, false, automatic);
     if (pendingImage !== undefined) void retryAdmission();
     return {
       status:
@@ -958,6 +1078,7 @@ function createSession(
     return outcome;
   }
   const session = {
+    legacyRoomMemory: isLegacyAuthoredProject(data),
     model,
     history,
     ready,
@@ -1280,11 +1401,11 @@ function createSession(
     async flush() {
       if (!current() || writeBlock !== undefined)
         throw new Error(session.saveStatus().message || "Project session was closed.");
-      if (sourceClaimsNeedCapture)
+      if (sourceClaimsNeedCapture && automaticWritesAllowed())
         await schedule(async () => {
           if (!sourceClaimsNeedCapture) return;
           recordOperation({ kind: "capture" });
-          captureSave(model.capture());
+          captureSave(model.capture(), undefined, false, true, false, true);
         });
       let scheduled: Promise<unknown>;
       do {
@@ -1392,7 +1513,9 @@ function createSession(
               ? undefined
               : history.restore(model, operation.action.target, operation.metadata);
       if (operation.action !== undefined && action?.target !== operation.action.target)
-        throw new Error("Project journal History differs from its base.");
+        throw Object.assign(new Error("Project journal History differs from its base."), {
+          name: "ProjectJournalRefusalError",
+        });
       return apply(
         action?.proposal ??
           model.propose(model.capture(), operation.metadata.label, operation.changes),
@@ -1439,8 +1562,31 @@ function createSession(
       if (owners.get(data.projectId) === session) owners.delete(data.projectId);
     },
   };
+  // Both repairs share one admission and durable write. Refused writes leave
+  // the old bytes and conventions intact, so reopening retries the whole step.
+  // Journal recovery replays its recorded proposal instead of creating another.
+  if (updateChanges.length && input.workingDocumentId === undefined && automaticWritesAllowed())
+    void schedule(() =>
+      apply(
+        model.propose(model.capture(), PROJECT_UPDATE_LABEL, updateChanges),
+        { label: PROJECT_UPDATE_LABEL, origin: "logic", author: "creator", time: Date.now() },
+        undefined,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+      ),
+    ).catch(() => {
+      /* Save status reports failures; reopening retries the stored old bytes. */
+    });
   return session;
 }
+/** The History entry an older authored game receives once (CHANGELOG 1.2.5). */
+export const PROJECT_UPDATE_LABEL = "Updated for 1.2.5";
 export type ProjectSession = ReturnType<typeof openOwnedProjectSession>;
 
 /** Re-run the same preparation and History path before exposing any recovered project. */
@@ -1482,8 +1628,14 @@ export async function rebuildProjectJournal(
       (session.model.capture().lastAdmissibleBuild?.identity.buildId !== capture.identity.buildId ||
         session.model.capture().lastAdmissibleBuild?.documentId !== capture.image)
     )
-      throw new Error("Project journal could not rebuild its exact accepted image.");
-    if (rebuilt === undefined) throw new Error("Project journal has no accepted capture.");
+      throw Object.assign(
+        new Error("Project journal could not rebuild its exact accepted image."),
+        { name: "ProjectJournalRefusalError" },
+      );
+    if (rebuilt === undefined)
+      throw Object.assign(new Error("Project journal has no accepted capture."), {
+        name: "ProjectJournalRefusalError",
+      });
     const snapshot = session.model.capture();
     return journalCandidate(
       capture,

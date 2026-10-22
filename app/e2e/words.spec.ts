@@ -81,9 +81,10 @@ test("Words sentence, local playtest miss and Same as at 1440 @webkit-desktop", 
   await expect(move).toHaveCSS("opacity", "1");
   await sentence.focus();
   await editor.getByRole("button", { name: "Type it in the game ↵", exact: true }).click();
+  // The 30-column print window wraps this line after "sunny" (docs/fidelity.md F-text-01).
   await expect
     .poll(async () => (await textHook(page)).rows.join("\n"))
-    .toContain("You stand in a sunny clearing");
+    .toMatch(/You stand in a sunny\s+clearing/);
   await expect(page.getByTestId("player-sentence")).toHaveCount(0);
   await editor.getByRole("textbox", { name: "Find a word", exact: true }).fill("100");
   await expect(editor.locator(".meaning-row")).toHaveCount(1);

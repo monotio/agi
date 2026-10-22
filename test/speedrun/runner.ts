@@ -359,7 +359,7 @@ export class Speedrun {
       this.engine.soundTick();
       if (this.engine.modalKind !== null || this.engine.continuationPending) this.engine.tick();
       else {
-        if (this.clock.poll((this.ticks * 1000) / 60, this.engine.vars[10]!)) {
+        if (this.clock.poll((this.ticks * 1000) / 60, this.engine.pacingDelay)) {
           this.engine.tick();
           this.cycles++;
           this.navigationHeading = null;
@@ -389,6 +389,18 @@ export class Speedrun {
   dismiss(): void {
     for (let n = 0; this.engine.modalKind !== null || this.engine.continuationPending; n++) {
       assert.ok(n < 100, `Unsettled modal: ${this.state().text}`);
+      if (this.engine.modalKind === "shake" || this.engine.modalKind === "dissolve") {
+        // A shake or dissolve reads no keys and ends on the clock, as for a player.
+        for (
+          let t = 0;
+          this.engine.modalKind === "shake" || this.engine.modalKind === "dissolve";
+          t++
+        ) {
+          assert.ok(t < 60 * 600, "A shake outlasted ten minutes");
+          this.advance();
+        }
+        continue;
+      }
       if (this.engine.modalKind !== null) {
         if (this.dwellModals) {
           const dwellTicks = this.calculateModalDwellTicks();

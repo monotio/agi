@@ -379,7 +379,7 @@ test("a v1 import lands supported — no fork, and the first live append upgrade
   );
 });
 
-test("a v1 import of an unsettled staged candidate stays staged through the upgrade", async () => {
+test("a v1 import of an unsettled staged changes stays staged through the upgrade", async () => {
   const target = installedTarget("fmt-v1-import-staged");
   const key = target.locator;
   const staged: RetainedOriginal = {
@@ -422,7 +422,7 @@ test("a v1 import of an unsettled staged candidate stays staged through the upgr
   assert.deepEqual(
     exported?.staged?.map((s) => s.id),
     ["b-imp"],
-    "the staged candidate survived the upgrade",
+    "the staged changes survived the upgrade",
   );
 });
 
@@ -530,7 +530,7 @@ test("moving a v1 tape to an empty key preserves its stamp; merging onto one lif
   assert.ok((tape?.segments.length ?? 0) >= 2, "both tapes' segments merged");
 });
 
-test("the archive wrapper admits nested versions 1 and 2 and rejects the rest", () => {
+test("the archive wrapper admits nested versions 1 through 3 and rejects the rest", () => {
   const archive = (version: unknown) =>
     new TextEncoder().encode(
       JSON.stringify({
@@ -548,8 +548,9 @@ test("the archive wrapper admits nested versions 1 and 2 and rejects the rest", 
     );
   assert.equal(readHistoryArchive(archive(1)).recording.version, 1);
   assert.equal(readHistoryArchive(archive(2)).recording.version, 2);
-  assert.throws(() => readHistoryArchive(archive(3)), /unsupported version/);
+  assert.equal(readHistoryArchive(archive(3)).recording.version, 3);
   assert.throws(() => readHistoryArchive(archive(4)), /unsupported version/);
+  assert.throws(() => readHistoryArchive(archive(5)), /unsupported version/);
   assert.throws(() => readHistoryArchive(archive(0)), /unsupported version/);
   // The wrapper itself is unchanged — a v2 wrapper is still refused.
   assert.throws(

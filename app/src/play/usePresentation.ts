@@ -13,6 +13,13 @@ import {
   compositeFrame,
   type ScreenViewMode,
 } from "../render/composite.ts";
+import {
+  PC_APPEARANCE,
+  appearanceForProfile,
+  loadAppearance,
+  type Appearance,
+} from "../render/appearance.ts";
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import type { DebugViewMode } from "../inspector/debugView.ts";
 import type { Frame } from "../engine/useEngine.ts";
 
@@ -27,6 +34,18 @@ export function createPresentation() {
   let stage: AgiStage | null = null;
   let crtAmount = 1;
   const lastFrame = shallowRef<Frame | null>(null);
+  /** The running profile's colours, font and layout on the running display. */
+  let appearance: Appearance = PC_APPEARANCE;
+  /**
+   * The profile's own look as a ref, for Studio previews that repaint when a
+   * lazy platform look arrives. Studio shows the game's colours on every display.
+   */
+  const look = shallowRef<Appearance>(PC_APPEARANCE);
+  /** The PC display the running engine reports on its frames. */
+  let display: PcDisplay = "ega";
+  let profileFiles: ReadonlyMap<string, Uint8Array> | null = null;
+  /** The running game's profile id, null before one loads. */
+  const profileId = shallowRef<string | null>(null);
   /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
   const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
   /** Text-only composite feeding the exploded view's front plane. */
@@ -51,6 +70,10 @@ export function createPresentation() {
    * no-GPU fallback) and upload it to the GPU stage when one exists.
    */
   function renderFrameNow(frame: Frame, textOverride?: Uint8Array): void {
+    if ((frame.display ?? "ega") !== display) {
+      display = frame.display ?? "ega";
+      resolveLook();
+    }
     const mode = debugViewMode.value;
     // Explode composites normally — its GPU layers sample this texture and mask
     // against the priority buffer. With no stage it falls back to the flat
@@ -58,14 +81,23 @@ export function createPresentation() {
     const compositeMode: ScreenViewMode =
       mode === "explode" ? (stage ? "visual" : "priority") : mode;
     // Explode needs the text surface as its own texture: baked into the frame
-    // it would smear across every depth band a dialog happens to cover.
+    // it would smear across every priority band a dialog happens to cover.
     const exploded = mode === "explode" && stage !== null;
+    const look = {
+      appearance: shakeAppearance ?? appearance,
+      statusBar: frame.statusBar,
+      gadgets: frame.gadgets,
+      menu: frame.menu,
+    };
     compositeFrame(
       {
         visual: frame.visual,
         priority: frame.priority,
         text: textOverride ?? frame.text,
+        windowOverlay: frame.windowOverlay,
         picRow: frame.picRow,
+        celPixels: frame.cel,
+        ...look,
       },
       composed,
       compositeMode,
@@ -78,7 +110,9 @@ export function createPresentation() {
           visual: frame.visual,
           priority: frame.priority,
           text: textOverride ?? frame.text,
+          windowOverlay: frame.windowOverlay,
           picRow: frame.picRow,
+          ...look,
         },
         composedText,
         "visual",
@@ -88,11 +122,19 @@ export function createPresentation() {
       stage!.setTextLayer(composedText);
       stage!.setPriority(frame.priority, frame.picRow);
       // Exploded band layers sample the picture surface, not the composed
-      // frame — otherwise a sprite would punch a hole in its own wall.
+      // frame — otherwise a view would punch a hole in its own wall. They
+      // keep the game's colours during an IIgs shake; the debug view needs no
+      // flash.
       const picVisual = frame.picVisual ?? frame.visual;
       const picPriority = frame.picPriority ?? frame.priority;
       compositeFrame(
-        { visual: picVisual, priority: picPriority, text: frame.text, picRow: frame.picRow },
+        {
+          visual: picVisual,
+          priority: picPriority,
+          text: frame.text,
+          picRow: frame.picRow,
+          appearance,
+        },
         composedPic,
         "visual",
         0.5,
@@ -100,7 +142,7 @@ export function createPresentation() {
       );
       stage!.setPictureData(composedPic, picPriority);
       // An absent channel means unknown, not "as last frame": clear the mask
-      // so sprite layers and picking never use stale ownership.
+      // so view layers and picking never use stale ownership.
       stage!.setOwnershipData(frame.ownership ?? null);
       // Same contract for the show.obj preview: an absent mask means closed.
       stage!.setPreviewMask(frame.preview ?? null);
@@ -147,9 +189,72 @@ export function createPresentation() {
     }
   }
 
+  let shakeAppearance: Appearance | null = null;
+  /**
+   * The IIgs shake.screen replaces colour table 0 with sixteen 12-bit $0RGB
+   * colours each tick (src/runtime/shake.ts); null restores the game's palette.
+   */
+  function setPaletteOverride(palette: readonly number[] | null): void {
+    shakeAppearance =
+      palette === null
+        ? null
+        : {
+            ...appearance,
+            palette: palette.map((c) => [
+              ((c >> 8) & 15) * 17,
+              ((c >> 4) & 15) * 17,
+              (c & 15) * 17,
+            ]),
+          };
+    repaint();
+  }
+
   /** Re-composite the last frame after a dock view change. */
   function repaint(): void {
     if (lastFrame.value) renderFrameNow(lastFrame.value);
+  }
+
+  let profileRequest = 0;
+  /**
+   * Take the look of the current profile and display as far as it is loaded;
+   * when a lazy look arrives, repaint the last frame at once, paused or not.
+   * A later profile or display change cancels the earlier request.
+   */
+  function resolveLook(): void {
+    const request = ++profileRequest;
+    const id = profileId.value;
+    const files = profileFiles;
+    const wanted = display;
+    appearance = appearanceForProfile(id, files, wanted);
+    look.value = appearanceForProfile(id, files);
+    void Promise.all([loadAppearance(id, files, wanted), loadAppearance(id, files)])
+      .then(([next, own]) => {
+        if (request !== profileRequest) return;
+        look.value = own;
+        if (next === appearance) return;
+        appearance = next;
+        repaint();
+      })
+      .catch(() => {
+        // A failed chunk keeps the fallback look; the boot itself reports the
+        // failure, and the next resolveLook retries the dropped import.
+      });
+  }
+
+  /**
+   * Select this game's look immediately; repaint when a lazy platform look
+   * finishes loading. `pcDisplay` is the display the boot asks for, so its look
+   * loads with the game; frames then report the display the engine runs.
+   */
+  function setProfile(
+    id: string | null,
+    files?: ReadonlyMap<string, Uint8Array> | null,
+    pcDisplay: PcDisplay = "ega",
+  ): void {
+    profileId.value = id;
+    profileFiles = files ?? null;
+    display = pcDisplay;
+    resolveLook();
   }
 
   /** Re-composite with a text overlay (the live prompt echo). */
@@ -283,6 +388,12 @@ export function createPresentation() {
     get crtAmount(): number {
       return stage?.crtAmount ?? 0;
     },
+    get appearance(): Appearance {
+      return appearance;
+    },
+    setPaletteOverride,
+    look,
+    profileId,
     testMode,
     canvasEl,
     gpuCanvasEl,
@@ -294,6 +405,7 @@ export function createPresentation() {
     splitAt,
     present,
     repaint,
+    setProfile,
     presentWithText,
     setCrtAmount,
     setAttention,
@@ -314,6 +426,11 @@ const presentationKey: InjectionKey<Presentation> = Symbol("agi-presentation");
 
 export function providePresentation(presentation: Presentation): void {
   provide(presentationKey, presentation);
+}
+
+/** The presentation when App.vue provides one; Studio harnesses mount without it. */
+export function useOptionalPresentation(): Presentation | undefined {
+  return inject(presentationKey, undefined);
 }
 
 export function usePresentation(): Presentation {

@@ -106,7 +106,7 @@ function checkpoint(target: ProgressTarget, image: string): void {
     savedAt: 1,
     game: { installed: target.kind === "installed", identity: target.identity },
   });
-  assert.ok(written !== null, "the checkpoint wrote under the physical locator");
+  assert.ok(written !== null, "the progress entry wrote under the physical locator");
 }
 
 const checkpointAt = (target: ProgressTarget) => readGameProgress(localStorage, target).autosave;
@@ -394,7 +394,7 @@ test("a start-over superseded during the body bind clears and boots nothing", as
   assert.equal(checkpointAt(target)?.image, "kept-checkpoint");
 });
 
-test("a start-over still owner through the body bind clears its own checkpoint and boots", async (t) => {
+test("a start-over still owner through the body bind clears its own progress entry and boots", async (t) => {
   installLocalStorage(t);
   const id = testProjectId("kept-body-game");
   const files = { "WORDS.TOK": Uint8Array.of(0, 0) };
@@ -440,7 +440,7 @@ test("a start-over still owner through the body bind clears its own checkpoint a
   });
   assert.deepEqual(outcome, { status: "completed" });
   assert.equal(bootedProject, id);
-  assert.equal(checkpointAt(target), null, "its own checkpoint is gone");
+  assert.equal(checkpointAt(target), null, "its own progress entry is gone");
 });
 
 test("a start-over refused on a recreated body retracts its intent and shows no note", async (t) => {
@@ -501,7 +501,7 @@ test("a start-over refused on a recreated body retracts its intent and shows no 
   );
 });
 
-test("a start-over on a bound installed game clears its physical checkpoint and keeps its sibling's progress", async (t) => {
+test("a start-over on a bound installed game clears its physical progress entry and keeps its sibling's progress", async (t) => {
   installLocalStorage(t);
   const a = installedGame("alpha-saga");
   const b = installedGame("omega-saga");
@@ -526,7 +526,7 @@ test("a start-over on a bound installed game clears its physical checkpoint and 
   await r.startOver("alpha-saga", CONFIG);
   assert.deepEqual(r.calls, [`read:${targetOf(a).locator}`, "expect:true", "note"]);
   assert.deepEqual(r.boots, ["installed:alpha-saga"]);
-  assert.equal(checkpointAt(targetOf(a)), null, "its own physical checkpoint is gone");
+  assert.equal(checkpointAt(targetOf(a)), null, "its own physical progress entry is gone");
   assert.equal(
     r.autosave.readAutosave("alpha-saga")?.image,
     "alpha-legacy",
@@ -540,7 +540,7 @@ test("a start-over on a bound installed game clears its physical checkpoint and 
   assert.notEqual(r.game(), a, "a fresh game booted");
 });
 
-test("a start-over on a bound saved body reads its physical tape and keeps the sibling's checkpoint", async (t) => {
+test("a start-over on a bound saved body reads its physical tape and keeps the sibling's progress entry", async (t) => {
   installLocalStorage(t);
   const idA = testProjectId("saved-alpha");
   const idB = testProjectId("saved-omega");

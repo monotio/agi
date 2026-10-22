@@ -19,7 +19,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 for (const kind of ["starter", "boilerplate", "blank"] as const) {
-  test(`${kind} creation saves editable source with no assistant or running game`, async () => {
+  test(`${kind} creation saves editable source with no agent or running game`, async () => {
     const candidate = prepareLocalProject({ title: "  My adventure  ", kind });
     const before = candidate.data();
     assert.equal(await loadAuthoredGame(candidate.projectId), null, "preparation is unsaved");

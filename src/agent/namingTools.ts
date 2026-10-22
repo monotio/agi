@@ -31,7 +31,7 @@ export const NAMING_TOOL: ToolDefinition = {
   name: "propose_names",
   description: toolDescription(
     "propose_names",
-    "Propose a batch of names or renames for flags, variables, objects (oN), inventory items (iN), resources and messages (mN). Read LOGIC first. Each name needs exact evidence with LOGIC, line, role and nearby messages. Thin evidence means leave it unnamed. Message names also identify their LOGIC. Explicit rename is the old binding name. The batch joins project review and one Undo; compiled bytes stay identical.",
+    "Propose a batch of names or renames for flags, variables, objects (oN), objects (iN), resources and messages (mN). Read LOGIC first. Each name needs exact evidence with LOGIC, line, role and nearby messages. Thin evidence means leave it unnamed. Message names also identify their LOGIC. Explicit rename is the old binding name. The batch joins project review and one Undo; compiled bytes stay identical.",
   ),
   parameters: parameterDescriptions("propose_names", {
     type: "object",
@@ -289,7 +289,7 @@ export function proposeNames(input: {
           : inventory
             ? readInventoryObjects(inventory, input.profile)
             : [];
-      if (!items[proposal.id]) throw new Error("Choose an existing inventory item.");
+      if (!items[proposal.id]) throw new Error("Choose an existing object.");
     }
     if (proposal.rename !== null) {
       const old = original[proposal.rename];

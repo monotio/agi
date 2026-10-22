@@ -1,11 +1,11 @@
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { decodeHostImage, decodeSave } from "../../../src/runtime/persistence.ts";
+import { fingerprintMatchesRecorded } from "./releasedHostImage.ts";
 import { fnv1a32 } from "../../../src/runtime/hash.ts";
 import {
   HISTORY_FINGERPRINT_VERSION,
   historyBootSemantic,
-  historyFingerprint,
   stampBoot,
   type HistoryBoot,
 } from "../../../src/agent/history.ts";
@@ -129,15 +129,16 @@ export function adoptResumePoint(
       : new Map<string, number>()
     : new Map(boot.dictionary);
   const facade = detachedHost(ctx, boot.soundDevice);
-  let candidate = new Engine(
-    openContainer(files, profile ? { profile } : {}),
-    facade.host,
-    dictionary,
-    {
-      ...(profile ? { profile } : {}),
-      amigaRegion: boot.amigaRegion ?? "ntsc",
-    },
-  );
+  const container = openContainer(files, profile ? { profile } : {});
+  let candidate = new Engine(container, facade.host, dictionary, {
+    ...(profile ? { profile } : {}),
+    amigaRegion: boot.amigaRegion ?? "ntsc",
+    ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
+    adoptDeclaredScriptSize:
+      ctx.boot.adoptDeclaredScriptSize || boot.adoptDeclaredScriptSize === true,
+    legacyRoomMemory: ctx.boot.legacyRoomMemory || boot.legacyRoomMemory === true,
+  });
+
   if (options.currentFiles && boot.image !== undefined) {
     const state = decodeSave(decodeHostImage(base64ToBytes(boot.image)).image, candidate.profile);
     const after = openContainer(files, { profile: candidate.profile });
@@ -157,6 +158,7 @@ export function adoptResumePoint(
       openContainer(recordedFiles, { profile: candidate.profile }),
       facade.host,
       new Map(),
+      // Inventory comparison only; the recorded files' display does not matter.
       { profile: candidate.profile },
     );
     if (candidate.readState().inventory.length < old.readState().inventory.length)
@@ -201,15 +203,24 @@ export function adoptResumePoint(
   if (!options.currentFiles) {
     if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
       throw new Error(`History fingerprint ${boot.fingerprint.v} is unavailable.`);
-    const semantic = historyBootSemantic(boot);
+    const recordedSemantic = historyBootSemantic(boot);
+    const semantic = { ...recordedSemantic };
     if (semantic.image !== undefined) {
       const image = candidate.recordingImage();
-      if (!image) throw new Error("The saved moment needs a completed checkpoint.");
+      if (!image) throw new Error("The saved moment needs a completed progress entry.");
       semantic.image = bytesToBase64(image);
     }
     if (semantic.replay !== undefined) semantic.replay = candidate.captureReplayState();
     if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
-    if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
+    if (
+      !fingerprintMatchesRecorded(
+        semantic,
+        recordedSemantic,
+        boot.fingerprint,
+        candidate.profile,
+        (num) => container.getResource("sound", num),
+      )
+    )
       throw new Error("The saved moment could not be reproduced.");
   }
   const roomReentry =
@@ -228,7 +239,13 @@ export function adoptResumePoint(
         openContainer(recordedFiles, { profile: candidate.profile }),
         facade.host,
         dictionary,
-        { profile: candidate.profile, amigaRegion: boot.amigaRegion ?? "ntsc" },
+        {
+          profile: candidate.profile,
+          amigaRegion: boot.amigaRegion ?? "ntsc",
+          pcDisplay: candidate.pcDisplay,
+          adoptDeclaredScriptSize: candidate.adoptsDeclaredScriptSize,
+          legacyRoomMemory: candidate.legacyRoomMemory,
+        },
       );
       restoreOnto(candidate);
     }

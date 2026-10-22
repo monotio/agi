@@ -133,6 +133,15 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         ]);
       return clicks;
     },
+    sampleJoystick() {
+      const sample = ctx.run.input.joystick;
+      if (ctx.run.input.joystickObserved)
+        ctx.run.recording.recording?.tape.host([
+          "joystick",
+          sample === null ? null : { ...sample },
+        ]);
+      return sample;
+    },
     prepareRoom(room, from) {
       if (!ctx.boot.authorRooms || !ctx.run.engine) return true;
       const container = openContainer(ctx.run.engine.containerFiles, {
@@ -148,10 +157,6 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         state: ctx.run.engine.readState(),
         objects: ctx.run.engine.readObjects(),
       });
-    },
-    /** 0x6e shake.screen: cosmetic jitter on the main thread. */
-    shakeScreen(count) {
-      ctx.ports.presentation({ type: "shake", count });
     },
     /** 0x81/0xa2 show.obj: modal view popup (engine pauses on the open modal). */
     showObj(viewNum) {
@@ -199,9 +204,11 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     logText(text) {
       ctx.ports.presentation({ type: "log", text });
     },
-    /** 0x8d version: stored into a string slot by the engine. */
+    /** 0x8d version: modal WindowPrint banner (docs/fidelity.md F-OPCORE-07). */
     versionString() {
-      const value = ctx.run.engine ? `AGI ${ctx.run.engine.profile.id}` : "AGI IS HERE";
+      const value = ctx.run.engine
+        ? ctx.run.engine.defaultVersionBanner()
+        : "Adventure Game Interpreter\n      Version 2.936";
       ctx.run.recording.recording?.tape.host(["version", value]);
       return value;
     },

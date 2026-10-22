@@ -13,7 +13,7 @@ import type { StudioLens } from "./studioView.ts";
 /**
  * The tool rail on the canvas's left edge: select and point, the drawing
  * tools, the pipette, in the Priority lens the test walk and door tools, the
- * actor probe and the hand, each with its key, and under them the values
+ * Stand-in probe and the hand, each with its key, and under them the values
  * for new drawing or the current selection.
  *
  * The tools scroll inside the rail's column when it is shorter than they are
@@ -84,11 +84,11 @@ const WALK_GROUP: readonly RailTool[] = [
   { id: "door", icon: "exit", label: "Door box", doors: true },
   { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
-const groups = computed(() => (lens === "depth" ? [...GROUPS, WALK_GROUP] : GROUPS));
+const groups = computed(() => (lens === "priority" ? [...GROUPS, WALK_GROUP] : GROUPS));
 /** Why a tool is off, on its tooltip; its name and key while it is on. */
 const PAUSED = "Drawing pauses while the picture is read-only or an AI change is open";
 const NEEDS_LOGIC =
-  "Edit this room's scripted exits in LOGIC editor or tell the agent to change them";
+  "Edit this room's LOGICed exits in LOGIC editor or tell the agent to change them";
 const PROBE_NEEDS_VIEWS = "Stand-in · G · needs a character in the game";
 function toolTitle(entry: RailTool): string {
   if ((entry.draws || entry.doors) && frozen) return PAUSED;

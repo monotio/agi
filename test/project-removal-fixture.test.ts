@@ -42,7 +42,7 @@ for (const [name, logic, variable, offset] of [
         authoring: createAuthoringState(),
         references: undefined,
         drafts: [],
-        keptBindings: {},
+        savedBindings: {},
       });
       assert.ok(
         findings.some(

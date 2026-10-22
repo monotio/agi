@@ -2,13 +2,14 @@ import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 /**
  * The shared picture's frame: the authentic 320×200 screen, the 160×168
  * picture with each cell two pixels wide above a 32-row strip that carries
- * the caption card, all in the 16 EGA colours. The caption (the game and
+ * the caption card, all in the game's 16 colours. The caption (the game and
  * the room, the picture's size, the "AGI IS HERE." wordmark with its cyan
  * full stop) is drawn with the engine's own 8×8 font, as game text is. The
  * still is this frame at 2× as a PNG; renderClip.ts scales it for video.
  */
 
-import { encodePngPaletteRgbDeflated, EGA_RGB } from "../../../../src/picture/png.ts";
+import { encodePngPaletteRgbDeflated } from "../../../../src/picture/png.ts";
+import { EGA_TABLE, type ColourTable } from "../../../../src/runtime/colourTables.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../../src/types.ts";
 import { FONT } from "../../render/font8x8.ts";
 
@@ -143,13 +144,14 @@ export function frameToRgb(
   frame: Uint8Array,
   scale: number,
   channels: 3 | 4 = 3,
+  palette: ColourTable = EGA_TABLE,
 ): Uint8Array<ArrayBuffer> {
   const width = FRAME_WIDTH * scale;
   const out = new Uint8Array(width * FRAME_HEIGHT * scale * channels);
   for (let y = 0; y < FRAME_HEIGHT * scale; y++) {
     const source = Math.floor(y / scale) * FRAME_WIDTH;
     for (let x = 0; x < width; x++) {
-      const rgb = EGA_RGB[frame[source + Math.floor(x / scale)]! & 0x0f]!;
+      const rgb = palette[frame[source + Math.floor(x / scale)]! & 0x0f]!;
       const at = (y * width + x) * channels;
       out.set(rgb, at);
       if (channels === 4) out[at + 3] = 255;
@@ -165,8 +167,12 @@ async function deflate(raw: Uint8Array): Promise<Uint8Array> {
 }
 
 /** The still: the finished picture and its caption, 640×400, as a compressed indexed PNG. */
-export function stillPng(visual: Uint8Array, caption: ShareCaption): Promise<Uint8Array> {
-  const rgb = frameToRgb(composeFrame(visual, caption), STILL_SCALE);
+export function stillPng(
+  visual: Uint8Array,
+  caption: ShareCaption,
+  palette: ColourTable = EGA_TABLE,
+): Promise<Uint8Array> {
+  const rgb = frameToRgb(composeFrame(visual, caption), STILL_SCALE, 3, palette);
   return encodePngPaletteRgbDeflated(
     FRAME_WIDTH * STILL_SCALE,
     FRAME_HEIGHT * STILL_SCALE,

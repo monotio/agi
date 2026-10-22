@@ -81,7 +81,7 @@ export type { AutosaveRecord, AutosaveGame };
  * Storage holds another revision than the running project game: it is
  * marked behind, or the project index names a newer save. Only a reason to
  * skip this game's saves — the conditional file write and the cross-tab
- * notice decide `behindStorage`, since this tab's own Keep also passes
+ * notice decide `behindStorage`, since this tab's own commit also passes
  * through a moment where the index is ahead of the game it installs into.
  */
 export function storageMovedPast(game: BootedGame): boolean {
@@ -180,6 +180,7 @@ export interface AutosaveControllerContext {
   readonly state: {
     installedGames?: readonly InstalledGameDescriptor[] | null | undefined;
     resumed: boolean;
+    checkpointProblem?: string;
     leaving?: boolean;
   };
   readonly getBootedGame: () => BootedGame | null;
@@ -575,11 +576,11 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
    * booting fresh over the destination's checkpoint.
    */
   function settleResumeTimeout(pending: PendingResumeIntent): void {
-    pending.failure = "Resuming the saved checkpoint timed out.";
+    pending.failure = "Resuming the saved progress timed out.";
     pending.settle({ status: "timeout" });
     const admitted = pending.admittedTo;
     if (admitted !== undefined && ctx.getBootedGame() === admitted) {
-      ctx.retireFailedRecovery(admitted, "Resuming the saved checkpoint timed out.");
+      ctx.retireFailedRecovery(admitted, "Resuming the saved progress timed out.");
     }
   }
 
@@ -751,7 +752,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       }
       if (msg.files) {
         if (booted.installed) return false;
-        // Behind storage (a Keep saved but not installed, a newer write from
+        // Behind storage (a commit saved but not installed, a newer write from
         // elsewhere) the running game's files are older than the record:
         // nothing is written over it until the game reloads from storage.
         if (booted.behindStorage) return false;
@@ -783,7 +784,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         target = rebound;
       }
       // A checkpoint names the revision this game runs. Once storage holds
-      // another one (a Keep in another tab, which took its own checkpoint),
+      // another one (a commit in another tab, which took its own checkpoint),
       // this one could never resume and would bury that tab's: skip it.
       if (
         storageMovedPast(game) ||
@@ -821,6 +822,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         return false;
       const stored = writeAutosave(localStorage, target, record);
       if (!stored) {
+        ctx.state.checkpointProblem =
+          "Browser storage refused your progress. Free some space, then keep playing to try again.";
         ctx.logAgent("log", "autosave failed: browser storage rejected the save record");
         return false;
       }
@@ -852,6 +855,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         ctx.getRunScope?.() !== captured.run
       )
         return false;
+      ctx.state.checkpointProblem = "";
       ctx.onAutosaveStored?.(stored.cycle);
       lastAutosave = stored;
       lastAutosaveScope = {
@@ -997,7 +1001,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     // acknowledgement (however it arrived) is dead traffic.
     const owned = admitted !== undefined && ctx.getBootedGame() === admitted;
     if (owned && (admitted.removed || admitted.behindStorage)) {
-      handleRecoveryError("The saved checkpoint's project changed during recovery.");
+      handleRecoveryError("The saved progress's project changed during recovery.");
       return;
     }
     if (msg.ok) {
@@ -1023,13 +1027,13 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     // history or autosave messages can publish. The destination's
     // checkpoint, the resume pointer and every earlier source stay exactly
     // as they were; only the slot moves to the error surface.
-    const message = `The saved checkpoint could not be restored: ${String(msg.message)}`;
+    const message = `The saved progress could not be restored: ${String(msg.message)}`;
     pending.settle({ status: "failed", message });
     if (pendingResume === pending) pendingResume = null;
     ctx.retireFailedRecovery(admitted, message);
     ctx.logAgent(
       "log",
-      `Autosave restore failed (${String(msg.message)}); the checkpoint has been kept.`,
+      `Autosave restore failed (${String(msg.message)}); the progress entry has been kept.`,
     );
   }
 
@@ -1087,7 +1091,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         ? boot.game.installed && boot.game.folder === pending.folder
         : !boot.game.installed && boot.game.projectId === pending.project;
     if (!matches || pending.record.game.installed !== boot.game.installed)
-      return fail("The checkpoint's destination changed during opening.");
+      return fail("The progress entry's destination changed during opening.");
     if (pending.admittedTo !== undefined)
       return fail("This recovery operation already opened its destination.");
 
@@ -1118,10 +1122,10 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         profile,
       )?.autosave;
       if (checked === undefined || checked === null)
-        return fail("The checkpoint could not be read.");
+        return fail("The progress entry could not be read.");
       validated = checked;
     } catch (error) {
-      return fail(`The checkpoint could not be restored: ${String(error)}`);
+      return fail(`The progress entry could not be restored: ${String(error)}`);
     }
     if (!current()) return superseded();
 
@@ -1131,7 +1135,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       const live = await loadAuthoredGameWithHistoryLifetime(project).catch(() => null);
       if (!current()) return superseded();
       if (live === null || live.lifetime === null || live.lifetime !== boot.game.historyLifetime)
-        return fail("The stored copy changed during opening. Your checkpoint has been kept.");
+        return fail("The stored copy changed during opening. Your progress entry has been kept.");
       const latest = resourceRevisionBytes(live.data.files);
       if (
         latest.length !== native.length ||
@@ -1161,7 +1165,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       (pending.expectedLocator !== undefined && target.locator !== pending.expectedLocator) ||
       (pending.target !== undefined && target.identity.project !== pending.target.identity.project)
     )
-      return fail("The game's current copy differs from the checkpoint's destination.");
+      return fail("The game's current copy differs from the progress entry's destination.");
     if (!current()) return superseded();
     pending.admittedTo = boot.game;
     pending.target = target;
@@ -1272,7 +1276,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       // and never falls back to a legacy address.
       ctx.logAgent(
         "log",
-        `Autosave for "${key}" has no game to boot; the checkpoint stays stored.`,
+        `Autosave for "${key}" has no game to boot; the progress entry stays stored.`,
       );
       return false;
     }
@@ -1409,7 +1413,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     prepared = structuredClone(prepared);
     const refuse = (message: string): ResumeOutcome => ({ status: "refused", message });
     if (recoverySlotBusy())
-      return refuse("A game is still open; leave it before opening an earlier checkpoint.");
+      return refuse("A game is still open; leave it before opening an earlier progress entry.");
     const operation = beginResumeOperation();
     const target = prepared.target;
     if (target.kind === "installed") {
@@ -1424,7 +1428,9 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         served?.revision !== undefined &&
         served.revision !== target.identity.revision
       )
-        return refuse("The destination's served build changed since the checkpoint was prepared.");
+        return refuse(
+          "The destination's served build changed since the progress entry was prepared.",
+        );
       const pending = installResumeIntent({
         operation,
         record: prepared.record,
@@ -1442,14 +1448,15 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       return operation === resumeGeneration
         ? {
             status: "failed",
-            message: `The checkpoint's project could not be read: ${String(error)}`,
+            message: `The progress entry's project could not be read: ${String(error)}`,
           }
         : { status: "superseded" };
     }
     if (operation !== resumeGeneration) return { status: "superseded" };
-    if (recoverySlotBusy()) return refuse("A game opened while the checkpoint was being prepared.");
+    if (recoverySlotBusy())
+      return refuse("A game opened while the progress entry was being prepared.");
     if (loaded === null || loaded.lifetime !== target.bodyEpoch)
-      return refuse("The destination's stored copy changed since the checkpoint was prepared.");
+      return refuse("The destination's stored copy changed since the progress entry was prepared.");
     let revision: ResourceRevision;
     try {
       revision = await gameRevision(loaded.data.files);
@@ -1457,12 +1464,13 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       return operation === resumeGeneration
         ? {
             status: "failed",
-            message: `The checkpoint's files could not be checked: ${String(error)}`,
+            message: `The progress entry's files could not be checked: ${String(error)}`,
           }
         : { status: "superseded" };
     }
     if (operation !== resumeGeneration) return { status: "superseded" };
-    if (recoverySlotBusy()) return refuse("A game opened while the checkpoint was being prepared.");
+    if (recoverySlotBusy())
+      return refuse("A game opened while the progress entry was being prepared.");
     if (
       revision !== target.identity.revision ||
       revision !== prepared.record.game.identity.revision
@@ -1473,7 +1481,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       loaded.data.library?.profile,
     ).id;
     if (effective !== prepared.profile)
-      return refuse("The destination's interpreter changed since the checkpoint was prepared.");
+      return refuse("The destination's interpreter changed since the progress entry was prepared.");
     const pending = installResumeIntent({
       operation,
       record: prepared.record,
@@ -1534,7 +1542,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const record = raw === null ? null : parseAutosaveRecord(raw);
     if (raw !== null && (record === null || !autosaveMatches(record.game, locator))) {
       throw new Error(
-        `startOver: the value under "${locator}" is not a checkpoint this selection owns`,
+        `startOver: the value under "${locator}" is not a progress entry this selection owns`,
       );
     }
     // The pointer keys are read with readResumePointer's precedence but
@@ -1735,7 +1743,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
    * reached the live game. Nothing is flushed first — the running game's
    * checkpoint would name bytes storage no longer holds. The stored
    * checkpoint resumes only when it belongs to the live body's epoch and
-   * names the stored revision (another tab's Keep takes a fresh one);
+   * names the stored revision (another tab's commit takes a fresh one);
    * otherwise the game starts from the top rather than refusing the
    * mismatch. False when the running game is no stored project; a removed
    * one is marked so and told (`onRemoved`).
@@ -1782,6 +1790,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     lastAutosave = null;
     lastAutosaveScope = null;
     ctx.state.resumed = false;
+    ctx.state.checkpointProblem = "";
     if (resumeCaptionTimer !== null) {
       clearTimeout(resumeCaptionTimer);
       resumeCaptionTimer = null;

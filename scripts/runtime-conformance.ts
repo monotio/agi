@@ -104,7 +104,7 @@ export function runtimeResults(files: ReadonlyMap<string, Uint8Array>, input: un
         if (
           engine.modalKind !== null ||
           engine.continuationPending ||
-          clock.poll((tick * 1000) / 60, engine.vars[10]!)
+          clock.poll((tick * 1000) / 60, engine.pacingDelay)
         )
           engine.tick();
       }

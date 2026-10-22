@@ -58,7 +58,7 @@ async function importSoundGame(page: Page): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
-test("Ask presents a local WAV while the model receives only sound data and a timeline", async ({
+test("Agent presents a local WAV while the model receives only sound data and a timeline", async ({
   page,
 }) => {
   const requests: Record<string, unknown>[] = [];
@@ -132,7 +132,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
   await page.goto("/");
   await importSoundGame(page);
   await enterPlayMode(page);
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("agent-message").fill("Inspect sound 5 and let me hear it.");
   await page.getByTestId("agent-send").click();
@@ -231,7 +231,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   await preview.getByRole("button", { name: "Back to chat", exact: true }).click();
   await page.getByTestId("agent-panel-close").first().click();
-  await page.getByTestId("menu-assistant").click();
+  await page.getByTestId("menu-agent").click();
   await page
     .getByTestId("agent-result")
     .getByRole("button", { name: /Sound 5/i })

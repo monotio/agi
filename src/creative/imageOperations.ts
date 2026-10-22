@@ -5,7 +5,7 @@ import { sha256Hex } from "../crypto.ts";
 import type { ProjectChange, ProjectContent } from "../authoring/projectContent.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildView, parseView, type BuildViewInput } from "../view/view.ts";
-import { prepareView, type ViewRecipeFrame } from "../view/preparation.ts";
+import { prepareView, type ViewRecipeCel } from "../view/preparation.ts";
 import type { Rect } from "./catalog.ts";
 import {
   readImageReferences,
@@ -21,7 +21,7 @@ export {
 } from "./imageAttachments.ts";
 type Documents = Readonly<Record<string, ProjectContent>>;
 
-export interface ImageFrame {
+export interface ImageCel {
   readonly region: Rect;
   readonly width: number;
   readonly height: number;
@@ -122,8 +122,22 @@ export function detectImageBackground(
   const rgb = key.split(",").map(Number);
   return [rgb[0]!, rgb[1]!, rgb[2]!];
 }
+/** A game's colour table with the id a preparation recipe records for it. */
+export interface GamePaletteLook {
+  readonly id: string;
+  readonly table: readonly (readonly [number, number, number])[];
+}
+
+/** Optional inputs to {@link prepareImageCels} beyond the image, cels and profile. */
+export interface PrepareImageCelsOptions {
+  /** The prepared raster's identity; defaults to a hash of its pixels. */
+  readonly sourceId?: string | undefined;
+  /** The game's colour table and its identity; colours are matched to it. EGA when omitted. */
+  readonly look?: GamePaletteLook | undefined;
+}
+
 /** One scale for both axes, rounded to native cel pixels. */
-export function scaleImageFrame(region: Rect, requestedHeight: number) {
+export function scaleImageCel(region: Rect, requestedHeight: number) {
   const scale =
     Math.min(Math.max(1, Math.round(requestedHeight)), 168, (160 * region.height) / region.width) /
     region.height;
@@ -133,10 +147,10 @@ export function scaleImageFrame(region: Rect, requestedHeight: number) {
   };
 }
 /** Separate figures at empty column and row gaps, then box each region tightly. */
-export function suggestImageFrames(
+export function suggestImageCels(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
   count?: number,
-): readonly ImageFrame[] {
+): readonly ImageCel[] {
   const background = detectImageBackground(image);
   const foreground = new Uint8Array(image.width * image.height);
   for (let i = 0; i < foreground.length; i++) {
@@ -220,7 +234,7 @@ export function suggestImageFrames(
   let regions: Rect[];
   if (count !== undefined) {
     if (!Number.isInteger(count) || count < 1 || count > image.width)
-      throw new Error("Choose a frame count that fits the sheet.");
+      throw new Error("Choose a cel count that fits the sheet.");
     regions = Array.from({ length: count }, (_, i) => {
       const x = Math.floor((i * image.width) / count);
       return { ...whole, x, width: Math.floor(((i + 1) * image.width) / count) - x };
@@ -238,36 +252,39 @@ export function suggestImageFrames(
   }
   return regions.map((region) => ({
     region,
-    ...scaleImageFrame(region, Math.min(24, region.height)),
+    ...scaleImageCel(region, Math.min(24, region.height)),
     loop: 0,
   }));
 }
 export function prepareImageCels(
   image: ProjectImageInput,
-  frames: readonly ImageFrame[],
+  cels: readonly ImageCel[],
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
+  options?: PrepareImageCelsOptions,
 ) {
-  const identity = { id: sha256Hex(image.rgba), incarnation: "image", revision: 0 };
-  const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
-    id: `frame-${i}`,
+  const sourceId = options?.sourceId ?? sha256Hex(image.rgba);
+  const look = options?.look;
+  const identity = { id: sourceId, incarnation: "image", revision: 0 };
+  const preparedCels: ViewRecipeCel[] = cels.map((cel, i) => ({
+    id: `cel-${i}`,
     source: identity,
-    region: frame.region,
-    outputWidth: frame.width,
-    outputHeight: frame.height,
+    region: cel.region,
+    outputWidth: cel.width,
+    outputHeight: cel.height,
     sourceAnchor: {
-      x: frame.region.x,
-      baselineEdgeY: frame.region.y + frame.region.height,
+      x: cel.region.x,
+      baselineEdgeY: cel.region.y + cel.region.height,
     },
     outputAnchorX: 0,
     sample: "nearest-centre-v1",
     allowCropBelowBaseline: false,
     allowCropOutsideCanvas: false,
   }));
-  if (frames.some((f) => !Number.isInteger(f.loop) || f.loop < 0 || f.loop > 254))
+  if (cels.some((f) => !Number.isInteger(f.loop) || f.loop < 0 || f.loop > 254))
     throw new Error("Choose a loop from 0 to 254.");
-  const loops = [...new Set(frames.map((f) => f.loop))].sort((a, b) => a - b);
+  const loops = [...new Set(cels.map((f) => f.loop))].sort((a, b) => a - b);
   return prepareView(
     [{ identity, width: image.width, height: image.height, rgba: image.rgba }],
     {
@@ -277,28 +294,31 @@ export function prepareImageCels(
       algorithm: "manual-view-preparation-v1",
       sources: [identity],
       palette: "ega-weighted-243-v1",
+      ...(look && look.id !== "ega" ? { paletteId: look.id } : {}),
       mask: {
         alphaThreshold: transparent ? 128 : 0,
         key: !transparent || background === null ? null : { mode: "ega-index-v1", rgb: background },
       },
-      frames: preparedFrames,
+      frames: preparedCels,
       loops: loops.map((loop) => ({
         id: `loop-${loop}`,
-        frameIds: frames.flatMap((f, i) => (f.loop === loop ? [`frame-${i}`] : [])),
+        frameIds: cels.flatMap((f, i) => (f.loop === loop ? [`cel-${i}`] : [])),
       })),
     },
     profile,
+    look && look.id !== "ega" ? { [look.id]: look.table } : {},
   );
 }
-/** Append all selected frames and their attachment atomically, preserving existing cels. */
+/** Append all selected cels and their attachment atomically, preserving existing cels. */
 export function makeCelsChanges(
   documents: Documents,
   target: string,
   image: ProjectImageInput,
-  frames: readonly ImageFrame[],
+  cels: readonly ImageCel[],
   profile: AgiProfile,
   background = detectImageBackground(image),
   transparent = true,
+  look?: GamePaletteLook,
 ): readonly ProjectChange[] {
   if (!/^view:(0|[1-9]\d{0,2})$/.test(target) || Number(target.slice(5)) > 255)
     throw new Error("Choose a VIEW target.");
@@ -319,9 +339,9 @@ export function makeCelsChanges(
             })) ?? [],
           ...(parsed?.description ? { description: parsed.description } : {}),
         };
-  const prepared = prepareImageCels(image, frames, profile, background, transparent);
+  const prepared = prepareImageCels(image, cels, profile, background, transparent, { look });
   const loops = input.loops.map((loop) => ({ ...loop, cels: [...(loop.cels ?? [])] }));
-  const destinations = [...new Set(frames.map((f) => f.loop))].sort((a, b) => a - b);
+  const destinations = [...new Set(cels.map((f) => f.loop))].sort((a, b) => a - b);
   for (const [i, destination] of destinations.entries()) {
     while (loops.length <= destination) loops.push({ cels: [] });
     const loop = loops[destination]!;
@@ -351,10 +371,12 @@ export function makeCelsChanges(
   ];
 }
 
-/** Cover the native picture frame, preserving the source aspect at two display pixels per cell. */
+/** Cover the native picture cel, preserving the source aspect at two display pixels per cell. */
 export function prepareTracePixels(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
   transform: TraceTransform = { x: 0, y: 0, scale: 1 },
+  /** The game's colours for indices 0..15; EGA when omitted. */
+  palette?: readonly (readonly [number, number, number])[],
 ): Uint8Array {
   const factor = Math.max(320 / image.width, 168 / image.height) * transform.scale;
   const pixels = new Uint8Array(160 * 168 * 4);
@@ -367,13 +389,14 @@ export function prepareTracePixels(
         pixels.set(image.rgba.subarray(source, source + 4), (y * 160 + x) * 4);
       }
     }
-  return snapImageToEga(pixels);
+  return snapImageToEga(pixels, palette);
 }
 
 /** Rebuild a saved tracing underlay from its immutable decoded raster. */
 export function imageTraceUnderlay(
   documents: Documents,
   target: string,
+  palette?: readonly (readonly [number, number, number])[],
 ): { pixels: Uint8Array; opacity: number; behindArt: boolean; transform: TraceTransform } | null {
   const references = readImageReferences(documents),
     trace = references.traces[target];
@@ -387,7 +410,7 @@ export function imageTraceUnderlay(
       Math.max(320 / image.width, 168 / image.height),
   };
   return {
-    pixels: prepareTracePixels(image, transform),
+    pixels: prepareTracePixels(image, transform, palette),
     opacity: trace.opacity,
     behindArt: trace.behindArt ?? false,
     transform,

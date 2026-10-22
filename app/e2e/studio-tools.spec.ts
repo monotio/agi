@@ -20,7 +20,7 @@ import {
 import { expect, test } from "./test.ts";
 
 /**
- * Room Studio's tool rail, end to end on the real app: a stored project
+ * PICTURE editor's tool rail, end to end on the real app: a stored project
  * whose room 1 draws PIC 5, with one character VIEW for the actor probe.
  * Expected planes are decoded here with the engine's renderer from bytes
  * read out of the page and storage; cells are hand-placed in SOURCE.
@@ -44,7 +44,7 @@ const SOURCE = [
   "vis 6",
   "rect 44,92 116,104",
   "# @end",
-  '# @item occluder "Bench occluder" depth',
+  '# @item occluder "Bench priority" depth',
   "vis off",
   "pri 10",
   "polygon 40,90 119,90 126,98 119,105 40,105",
@@ -110,7 +110,7 @@ async function openStudio(page: Page): Promise<Locator> {
   await waitForCycles(page, 2);
   await enterCreateMode(page);
   await openWorkspacePicture(page, 1);
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
@@ -169,7 +169,7 @@ const order = (studio: Locator) =>
     .locator('[role="treeitem"][data-row]')
     .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-row")));
 
-test("a filled rect drawn in the Art lens keeps as those pixels and leaves priority alone", async ({
+test("a filled rect drawn in the Visual lens keeps as those pixels and leaves priority alone", async ({
   page,
 }) => {
   const studio = await openStudio(page);
@@ -177,7 +177,7 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
   // At the end the context row stays quiet and the transport says where shapes draw.
   await expect(page.getByTestId("studio-insert-at")).toHaveCount(0);
-  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench priority");
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
   await dragCells(page, [20, 120], [40, 140]);
@@ -338,19 +338,19 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await expect(context.getByTestId("studio-playhead-end")).toHaveAccessibleName("Back to the end");
   await context.getByTestId("studio-playhead-end").click();
   await expect(context.getByTestId("studio-insert-at")).toHaveCount(0);
-  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench occluder");
+  await expect(studio.getByTestId("scrubber-position")).toHaveText("Drawing after Bench priority");
 });
 
-test("G stands the ghost actor on the draft; dragged behind the occluder it reads Behind", async ({
+test("G stands the standIn actor on the draft; dragged behind the occluder it reads Behind", async ({
   page,
 }) => {
   const studio = await openStudio(page);
   await page.keyboard.press("g");
-  const ghost = studio.getByTestId("ghost-probe");
-  await expect(ghost).toBeVisible();
+  const standIn = studio.getByTestId("stand-in-probe");
+  await expect(standIn).toBeVisible();
   await expect(studio.getByTestId("studio-probe-toggle")).toHaveAttribute("aria-pressed", "true");
   // From its start (baseline 120, band 11: in front) up to baseline 97 (band 9).
-  const handle = studio.getByTestId("ghost-probe-handle");
+  const handle = studio.getByTestId("stand-in-probe-handle");
   const box = (await handle.boundingBox())!;
   const zoom = (await page.locator(".studio-pane").first().boundingBox())!.height / 168;
   const x = box.x + box.width / 2;
@@ -359,18 +359,20 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   await page.mouse.down();
   await page.mouse.move(x, y - 23 * zoom, { steps: 8 });
   await page.mouse.up();
-  await expect(ghost).toHaveAttribute("data-verdict", "behind");
-  await expect(studio.locator('[data-role="ghost-verdict"]')).toContainText(
-    "Behind Bench occluder",
+  await expect(standIn).toHaveAttribute("data-verdict", "behind");
+  await expect(studio.locator('[data-role="stand-in-verdict"]')).toContainText(
+    "Behind Bench priority",
   );
-  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → distance band 9");
-  // Dragging the ghost edited nothing.
+  await expect(studio.locator('[data-role="stand-in-band"]')).toContainText(
+    "y 97 → priority band 9",
+  );
+  // Dragging the standIn edited nothing.
   await workspaceUpdated(page);
   await page.keyboard.press("g");
-  await expect(ghost).toHaveCount(0);
+  await expect(standIn).toHaveCount(0);
 });
 
-/** A one-step Depth edit: the occluder one row down. */
+/** A one-step Priority edit: the occluder one row down. */
 async function nudgeOccluder(page: Page, studio: Locator) {
   await page.keyboard.press("2");
   await studio.locator('[data-row="occluder"]').click();

@@ -30,7 +30,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         ? createOpenAiConversation(config)
         : createAnthropicConversation(config);
     await conversation.sendUserMessage("Inspect the room.");
-    await conversation.sendUserMessage("Check the sprite.");
+    await conversation.sendUserMessage("Check the view.");
     assert.equal(requests.length, 2);
     for (const request of requests) {
       assert.deepEqual(

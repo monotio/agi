@@ -90,6 +90,7 @@ export interface PreparedRun {
       | "directionQueue"
       | "inputLines"
       | "clickQueue"
+      | "joystick"
       | "clock"
       | "soundRemainder"
     >;
@@ -161,7 +162,7 @@ export function replaceRun(ctx: WorkerContext, kind: ReplacementKind, prepared: 
   ctx.fns.stopTimers();
   resetRecording(ctx);
   ctx.previewVisitSerial++;
-  ctx.imageHeroPreview = undefined;
+  ctx.imageEgoPreview = undefined;
   ctx.imagePreviewEngine = undefined;
   ctx.imagePreviewSerial = (ctx.imagePreviewSerial ?? 0) + 1;
   const fresh = newRunSession(ctx.ports.now());
@@ -221,6 +222,8 @@ export function replaceRun(ctx: WorkerContext, kind: ReplacementKind, prepared: 
     run.input.deferredMovement = [...(boot.directionQueue ?? [])];
     run.input.inputBuffer = [...(boot.inputLines ?? [])];
     run.input.clickQueue = (boot.clickQueue ?? []).map(([x, y]) => [x, y]);
+    run.input.joystick = boot.joystick ?? null;
+    run.input.joystickObserved = boot.joystick !== undefined;
     const now = prepared.resume!.virtualNow ?? ctx.ports.now();
     if (prepared.resume!.virtualNow !== undefined && boot.clock)
       run.clocks.cycle.restore(boot.clock, now);

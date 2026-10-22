@@ -75,12 +75,15 @@ describe("sound playback clock and profiles", () => {
     assert.equal(early.tick(true, 0).complete, true);
   });
   it("emits early profile tone bytes and exact control-byte attenuation variants", () => {
+    // The Tandy +3 latch lift applies in every early-family build (kq2 2.411
+    // ConvertTDVolume 0x7D3C / lsl1 2.440 0x7E65): 0x94 → 0x97, then the
+    // nibble-clamped v23 adjustment (+2) lands at 0x99.
     const expected: [ProfileId, number[]][] = [
       ["2.089", [1, 0x23, 0x97]],
       ["2.230", [1, 0x23, 0x97]],
       ["2.272", [1, 0x23, 0x99]],
-      ["2.411", [1, 0x23, 0x96]],
-      ["2.440", [1, 0x23, 0x96]],
+      ["2.411", [1, 0x23, 0x99]],
+      ["2.440", [1, 0x23, 0x99]],
     ];
     for (const [profile, commands] of expected) {
       const sound = player(profile, 2);
@@ -182,12 +185,12 @@ describe("sound playback clock and profiles", () => {
       "noise control zero is audible, not a rest",
     );
   });
-  it("suppresses frequency divisor writes for rest notes where tone is zero", () => {
+  it("writes both zero tone bytes before the rest attenuation", () => {
     const data = payload(2, 0x9f);
     data[10] = 0;
     data[11] = 0;
     const sound = new SoundPlayback(detectProfile(new Map(), "2.936"), data, 1);
-    assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0x9f, 0xbf, 0xdf, 0xff]);
+    assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0, 0, 0x9f, 0xbf, 0xdf, 0xff]);
   });
 });
 
@@ -621,52 +624,109 @@ describe("amiga kq2 envelope (docs/fidelity.md, original Amiga sound player)", (
 
 describe("pc booter 2.001 row streams", () => {
   it("splits payload into zero-terminated rows, keeping empty and unterminated rows", () => {
-    assert.deepEqual(booterSoundRows(Uint8Array.of(0x80, 0x02, 0, 0, 0x9f, 0)), [
+    assert.deepEqual(booterSoundRows(Uint8Array.of(1, 0x80, 0x02, 0, 0, 0x9f, 0)), [
       [0x80, 0x02],
       [],
       [0x9f],
     ]);
-    assert.deepEqual(booterSoundRows(Uint8Array.of(0x80, 0x02)), [[0x80, 0x02]]);
+    assert.deepEqual(booterSoundRows(Uint8Array.of(1, 0x80, 0x02)), [[0x80, 0x02]]);
     assert.deepEqual(booterSoundRows(new Uint8Array(0)), []);
   });
 
-  it("emits one row per tick and completes at payload exhaustion", () => {
+  it("emits one row per period (1 here) and completes on the tick after the last row", () => {
     const profile = detectProfile(new Map(), "2.001");
-    const payload = Uint8Array.of(0x80, 0x02, 0, 0, 0x9f, 0);
+    const payload = Uint8Array.of(1, 0x80, 0x02, 0, 0, 0x9f, 0);
     const sound = new SoundPlayback(profile, payload, 1);
-    assert.equal(sound.durationTicks, 3);
+    assert.equal(sound.durationTicks, 4);
     assert.deepEqual(sound.tick(true, 0), {
       outputs: [{ kind: "psg", bytes: [0x80, 0x02] }],
       complete: false,
     });
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(true, 0), {
-      outputs: [
-        { kind: "psg", bytes: [0x9f] },
-        { kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] },
-      ],
+      outputs: [{ kind: "psg", bytes: [0x9f] }],
+      complete: false,
+    });
+    // The exhaustion check (0x7473) runs on the tick after the last row.
+    assert.deepEqual(sound.tick(true, 0), {
+      outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
       complete: true,
     });
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
   });
 
-  it("silences the chip immediately when sound is disabled", () => {
+  it("keeps the row stream advancing silently while sound is disabled", () => {
+    // Player-visible rule: toggling sound off does not end the tune — the
+    // done flag fires only when the payload runs out. The booter's flag-9
+    // gate sits inside the per-write chip routine (ddp-booter 2.001
+    // 0x75B3): the row cursor and duration countdown advance regardless
+    // (0x74B0/0x7482), and the done flag is set only from the exhaustion
+    // path (0x747C → 0x4B96).
     const profile = detectProfile(new Map(), "2.001");
-    const sound = new SoundPlayback(profile, Uint8Array.of(0x80, 0x02, 0, 0x9f, 0), 1);
+    const sound = new SoundPlayback(profile, Uint8Array.of(1, 0x80, 0x02, 0, 0x9f, 0), 1);
+    assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
+    assert.deepEqual(sound.tick(false, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(false, 0), {
       outputs: [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }],
       complete: true,
     });
   });
 
+  it("lifts any Tandy attenuation latch by 3 on 2.411 and 2.440 as well", () => {
+    // Player-visible rule: on a Tandy the quietest notes are audibly raised.
+    // ConvertTDVolume exists in every early-family build — on machType 2 any
+    // attenuation latch ((b & 0x90) == 0x90) whose low nibble is below 8
+    // gains 3 before the v23 clamp (kq2 2.411 0x7D3C / lsl1 2.440 0x7E65 /
+    // xmas 2.272 0x7680); it is not channel-2-only.
+    for (const id of ["2.411", "2.440"] as const) {
+      const quiet = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 2);
+      assert.equal(
+        bytes(quiet.tick(true, 0).outputs)[2],
+        0x97,
+        `${id}: channel-0 latch 0x94 lifts to 0x97`,
+      );
+      const other = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0xb4), 2);
+      assert.equal(
+        bytes(other.tick(true, 0).outputs)[2],
+        0xb7,
+        `${id}: a non-channel-0 latch 0xb4 lifts to 0xb7`,
+      );
+    }
+  });
+
+  it("F-SOUND-02: 2.411 and 2.440 add v23 to the low nibble in 8-bit arithmetic and clamp with signed jng", () => {
+    for (const id of ["2.411", "2.440"] as const) {
+      // Base 0x94 (nibble 4) + v23=20 -> sum=24 (16..127 clamps to 15) -> 0x90 | 0x0f = 0x9f.
+      const clamped = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 1);
+      assert.equal(bytes(clamped.tick(true, 20).outputs)[2], 0x9f, `${id}: 4+20 clamps to 0x9f`);
+
+      // Base 0x94 (nibble 4) + v23=0xc5 (197) -> sum=0xc9 (signed negative <= 15, kept as 0xc9) -> 0x90 | 0xc9 = 0xd9.
+      const bleed = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 1);
+      assert.equal(
+        bytes(bleed.tick(true, 0xc5).outputs)[2],
+        0xd9,
+        `${id}: 4+0xc5=0xc9 is negative in signed 8-bit so jng keeps 0xc9 and ORs into 0xd9`,
+      );
+
+      // Base 0x94 (nibble 4) + v23=0xfe (254) -> sum=2 (<= 15) -> 0x90 | 0x02 = 0x92.
+      const wrapped = new SoundPlayback(detectProfile(new Map(), id), payload(2, 0x94), 1);
+      assert.equal(
+        bytes(wrapped.tick(true, 0xfe).outputs)[2],
+        0x92,
+        `${id}: 4+0xfe wraps in 8-bit to 2 -> 0x92`,
+      );
+    }
+  });
+
   it("snapshots and restores the row position", () => {
     const profile = detectProfile(new Map(), "2.001");
-    const payload = Uint8Array.of(0x80, 0x02, 0, 0x84, 0, 0x9f, 0);
+    const payload = Uint8Array.of(1, 0x80, 0x02, 0, 0x84, 0, 0x9f, 0);
     const sound = new SoundPlayback(profile, payload, 1);
     sound.tick(true, 0);
     const restored = new SoundPlayback(profile, payload, 1);
     restored.restore(sound.snapshot());
     assert.deepEqual(bytes(restored.tick(true, 0).outputs), [0x84]);
+    assert.equal(restored.tick(true, 0).complete, false);
     assert.equal(restored.tick(true, 0).complete, true);
   });
 });
@@ -722,7 +782,7 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
             },
           ],
         ],
-        [9, [{ kind: "iigs", event: "note-off", voice: 0 }]],
+        [9, [{ kind: "iigs", event: "note-off", voice: 0, channel: 0, note: 64 }]],
         [16, [ALL_OFF]],
       ],
     );
@@ -757,7 +817,7 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
       [...byTick],
       [
         [1, [ALL_OFF, on(0, 0, 60, 127, -1), on(1, 0, 62, 127, -1)]],
-        [3, [{ kind: "iigs", event: "note-off", voice: 0 }]],
+        [3, [{ kind: "iigs", event: "note-off", voice: 0, channel: 0, note: 60 }]],
         [4, [{ kind: "iigs", event: "volume", channel: 1, volume: 80 }, on(2, 1, 64, 80, 10)]],
         [7, [ALL_OFF]],
       ],
@@ -905,7 +965,7 @@ describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
     // Ticks 6..9: the note-off arrives on tick 9, four heartbeats on.
     for (let t = 6; t < 9; t++) assert.deepEqual(restored.tick(true, 0).outputs, []);
     assert.deepEqual(restored.tick(true, 0).outputs, [
-      { kind: "iigs", event: "note-off", voice: 0 },
+      { kind: "iigs", event: "note-off", voice: 0, channel: 0, note: 64 },
     ]);
     assert.deepEqual(restored.stop(), [ALL_OFF]);
   });

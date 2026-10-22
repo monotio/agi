@@ -467,7 +467,7 @@ function readViewPreparation(value: unknown, label: string): ViewPreparationReci
     value,
     label,
     ["format", "version", "kind", "algorithm", "sources", "palette", "mask", "frames", "loops"],
-    ["description"],
+    ["description", "paletteId"],
   );
   if (record["format"] !== CREATIVE_RECIPE_FORMAT)
     unsupported(
@@ -613,6 +613,14 @@ function readViewPreparation(value: unknown, label: string): ViewPreparationReci
   const description = record["description"];
   if (description !== undefined && (typeof description !== "string" || description.length > 1024))
     invalid(`${label}.description must be a string of at most 1024 characters.`);
+  const paletteId =
+    record["paletteId"] === undefined
+      ? undefined
+      : boundedString(
+          record["paletteId"],
+          CREATIVE_LIMITS.maxAlgorithmLength,
+          `${label}.paletteId`,
+        );
   return {
     format: CREATIVE_RECIPE_FORMAT,
     version: 1,
@@ -620,6 +628,7 @@ function readViewPreparation(value: unknown, label: string): ViewPreparationReci
     algorithm,
     sources,
     palette,
+    ...(paletteId !== undefined ? { paletteId } : {}),
     mask: { alphaThreshold, key: parsedKey },
     frames,
     loops,

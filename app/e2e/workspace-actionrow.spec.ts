@@ -29,7 +29,7 @@ for (const [width, height] of [
         await expect(
           kind === "logic"
             ? page.getByTestId("workspace-logic-editor").locator(".monaco-editor")
-            : page.getByTestId("room-studio"),
+            : page.getByTestId("picture-studio"),
         ).toBeVisible();
         const row = page.getByTestId("workspace-context");
         await expect(row).toBeVisible();
@@ -120,7 +120,7 @@ for (const [width, height] of [
         await expect(row.getByTestId("debug-stop")).toBeVisible();
         if (kind === "picture") {
           await open(page, "part-room:1:picture:1");
-          await expect(page.getByTestId("room-studio")).toBeVisible();
+          await expect(page.getByTestId("picture-studio")).toBeVisible();
         }
         await expect(row.getByRole("group", { name: "Debug controls" })).toBeVisible();
         await expect(row.getByTestId("workspace-debug-status")).toContainText("Paused at");

@@ -61,9 +61,9 @@ export function resourceReferenceOperand(
 
 const HELP: Record<string, string> = {
   "set.priority":
-    "Sets a literal priority and already fixes object depth. release.priority restores automatic baseline depth.",
-  "set.priority.v": "Sets fixed object depth from a variable value.",
-  "release.priority": "Restores automatic depth from the object baseline.",
+    "Sets a literal priority and already fixes object priority. release.priority restores automatic baseline priority.",
+  "set.priority.v": "Sets fixed object priority from a variable value.",
+  "release.priority": "Restores automatic priority from the object baseline.",
   "get.priority": "Writes the object priority into the destination variable.",
   "cycle.time":
     "Sets animation cel interval AND resets its countdown from the variable value. Initialize once on room entry; 1 advances each logic cycle. Global v10 controls cycle pacing. This changes animation, not movement.",
@@ -79,7 +79,7 @@ const HELP: Record<string, string> = {
   "reverse.loop":
     "Plays backward to cel zero, stops cycling and sets the completion flag; installs an initial one-callback delay.",
   position:
-    "Places the left edge and bottom baseline at literal x,y; increasing sprite height extends upward.",
+    "Places the left edge and bottom baseline at literal x,y; increasing screen object height extends upward.",
   "position.v": "Places left edge and bottom baseline using x,y variable values.",
   "set.loop":
     "Selects a literal view loop and keeps the current cel when the loop has it; automatic direction selection may subsequently change the loop.",

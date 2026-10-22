@@ -1,5 +1,5 @@
 /**
- * A remix turn that adds a word and an inventory item reaches the running
+ * A remix turn that adds a word and an object reaches the running
  * game and its export: the metadata patch carries the vocabulary and the
  * object file, so a typed command works at once and a download keeps both.
  */

@@ -33,3 +33,23 @@ export function stageScreenWidth(
 ): number {
   return Math.floor(Math.max(0, Math.min(available, availableHeight * ratio)));
 }
+
+/**
+ * Active 320×200 image, separate from the monitor's blank border. NTSC/EGA
+ * pixels have width:height 5:6; PAL Amiga pixels 16:15. The Amiga opens a
+ * 200-line window even on a PAL display (docs/fidelity.md "Display geometry").
+ */
+export function displayAspect(
+  profile: string | null,
+  region: "ntsc" | "pal",
+  monitorShape: boolean,
+): number {
+  if (!monitorShape) return 8 / 5;
+  return profile?.startsWith("amiga-") && region === "pal" ? 128 / 75 : 4 / 3;
+}
+
+/** The `--game-ratio` and `--game-aspect` custom properties for one display aspect. */
+export function gameAspectStyle(ratio: number): Record<"--game-ratio" | "--game-aspect", string> {
+  const aspect = ratio === 8 / 5 ? "8 / 5" : ratio === 4 / 3 ? "4 / 3" : "128 / 75";
+  return { "--game-ratio": `calc(${aspect})`, "--game-aspect": aspect };
+}

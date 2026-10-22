@@ -27,9 +27,11 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -237,7 +239,7 @@ function readBrief(caseName: string): Brief | null {
 /**
  * Hand-authored starting-room checklist per case (heuristic keyword checks).
  * kinds: msg = regex over all room-logic message text; said = any word of the
- * group appears in a said() pattern; inv = inventory item name; exits = number
+ * group appears in a said() pattern; inv = object name; exits = number
  * of literal new.room targets from the start room; death = call(255) reachable
  * from a said() block in the start room; score = an addn(v3, N) award;
  * egoColor / picColor = EGA colour indices present in the ego view / picture.
@@ -340,7 +342,7 @@ const insnKey = (i: DecodedInsn): string =>
       ? `${i.name}(${(i.args ?? []).join(",")})`
       : i.kind;
 
-function analyzeLogic(
+export function analyzeLogic(
   num: number,
   payload: Uint8Array,
   synthDict: ReadonlyMap<string, number>,
@@ -469,6 +471,7 @@ interface PictureSummary {
   regionCount: number;
   priorityBandsUsed: number[];
   priorityBandCount: number;
+  /** Archived report.json metric key. */
   depthDrawnPct: number;
   controlPct: Record<string, number>;
   controlAnyPct: number;
@@ -512,7 +515,7 @@ function analyzePicture(
   const control: Record<string, number> = {};
   for (let c = 0; c < 4; c++) control[CONTROL_NAMES[c]!] = pct(hist[c]! / (W * H));
   const bands = hist.map((n, p) => (p >= 4 && n > 0 ? p : -1)).filter((p) => p >= 0);
-  const depthDrawn = sum(hist.slice(5)) / (W * H);
+  const priorityDrawn = sum(hist.slice(5)) / (W * H);
   const colors = new Array<number>(16).fill(0);
   for (const v of vis) colors[v & 15]!++;
   // Reachability: 4-neighbour flood from the ego baseline over cells the ego
@@ -598,7 +601,7 @@ function analyzePicture(
       regionCount: metrics.regionCount,
       priorityBandsUsed: bands,
       priorityBandCount: bands.length,
-      depthDrawnPct: pct(depthDrawn),
+      depthDrawnPct: pct(priorityDrawn),
       controlPct: control,
       controlAnyPct: pct(sum(hist.slice(0, 4)) / (W * H)),
       horizon,
@@ -818,6 +821,63 @@ function analyzeSession(ref: RunRef) {
   };
 }
 
+const templateWithoutScriptSize = (source: string) =>
+  source.replace(/^[ \t]*script\.size\(\d+\);\r?\n/m, "");
+const templateWithLegacyWordIndex = (source: string) =>
+  source.replace(
+    /word\.to\.string\(s11, (\d+)\);/g,
+    (_, idx: string) => `word.to.string(s11, ${Number(idx) + 1});`,
+  );
+/**
+ * Every logic 0 template revision a run may declare in its report, each
+ * expressed as adjustments to the current source. A future template change
+ * adds its revision here; reports that declare a hash none of these match
+ * compare against the current template, so an unrecognized revision counts
+ * as edited rather than passing as an unmodified old template.
+ */
+const LOGIC0_TEMPLATE_REVISIONS: readonly string[] = [
+  BASE_TEMPLATE_LOGIC0_SOURCE,
+  templateWithoutScriptSize(BASE_TEMPLATE_LOGIC0_SOURCE),
+  templateWithLegacyWordIndex(BASE_TEMPLATE_LOGIC0_SOURCE),
+  templateWithLegacyWordIndex(templateWithoutScriptSize(BASE_TEMPLATE_LOGIC0_SOURCE)),
+];
+
+/**
+ * The base template logic 0 source a run started from. A report written
+ * since `template.logic0Sha256` exists declares the seeded revision's hash
+ * exactly — a run whose model deleted `script.size` still declares the
+ * current template and counts as modified. Reports without the field are
+ * the committed 1.0.0 snapshot runs, whose template predates both
+ * adjustments; for them the revision is reconstructed from the run's own
+ * logic 0 payload so a later template change is not counted as a model
+ * edit:
+ * - Historical 1.0.0 runs started from the pre-F-Parser-09 template that
+ *   passed 1..11 to word.to.string.
+ * - Runs before the template set the script buffer in its boot block have no
+ *   `script.size` action at all.
+ */
+export function logic0TemplateSource(
+  logic0Payload: Uint8Array | null,
+  synthDict: ReadonlyMap<string, number>,
+  seededLogic0Sha256?: string,
+): string {
+  if (seededLogic0Sha256 !== undefined)
+    return (
+      LOGIC0_TEMPLATE_REVISIONS.find(
+        (source) => createHash("sha256").update(source).digest("hex") === seededLogic0Sha256,
+      ) ?? BASE_TEMPLATE_LOGIC0_SOURCE
+    );
+  const insns =
+    logic0Payload === null ? [] : decodeLogicInsns(logic0Payload, { dictionary: synthDict });
+  const action = (name: string) => insns.filter((i) => i.kind === "action" && i.name === name);
+  let source = BASE_TEMPLATE_LOGIC0_SOURCE;
+  if (action("word.to.string").some((i) => i.args?.[1] === 11))
+    source = templateWithLegacyWordIndex(source);
+  if (logic0Payload !== null && action("script.size").length === 0)
+    source = templateWithoutScriptSize(source);
+  return source;
+}
+
 // ---------------------------------------------------------------- per run
 /** The fields of a genesis run's report.json this matrix reads. */
 interface RunReport {
@@ -826,6 +886,8 @@ interface RunReport {
   effort?: string;
   effectiveEffort?: string | null;
   promptVariant?: string;
+  /** The template revision the run seeded, when the report declares it. */
+  template?: { logic0Sha256?: string };
   completion?: boolean;
   playtest?: { room?: number; simulation?: string; success?: boolean };
   usage?: { input?: number; cachedInput?: number; cacheWriteInput?: number; output?: number };
@@ -855,9 +917,10 @@ function analyzeRun(ref: RunRef, outCaseDir: string, brief: Brief | null) {
   const synthDict = new Map([...groups.keys()].map((id) => [`w${id}`, id]));
 
   // Template bytecode as it would be assembled against this run's dictionary.
+  const logic0Payload = container.getResource("logic", 0);
   const templateBytes = new Map<number, Uint8Array>();
   for (const [num, source] of [
-    [0, BASE_TEMPLATE_LOGIC0_SOURCE],
+    [0, logic0TemplateSource(logic0Payload, synthDict, report.template?.logic0Sha256)],
     [TEMPLATE_DEATH_LOGIC, BASE_TEMPLATE_DEATH_LOGIC_SOURCE],
   ] as const) {
     try {
@@ -1210,7 +1273,7 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
         "colours",
         "visual fill %",
         "bands used",
-        "depth-drawn % (pri 5-15)",
+        "priority-drawn % (pri 5-15)",
         "ctl0 %",
         "ctl1 %",
         "ctl2 %",
@@ -1355,9 +1418,9 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
   out.push(
     `- Most distinct said() patterns: ${richest.map((r) => `${short(r.lane)} ${r.logic.saidDistinctPatterns}`).join(", ")}.`,
   );
-  const depth = by((r) => r.pictures[0]?.depthDrawnPct ?? 0);
+  const priority = by((r) => r.pictures[0]?.depthDrawnPct ?? 0);
   out.push(
-    `- Depth-drawn priority area (pri 5-15): ${depth.map((r) => `${short(r.lane)} ${r.pictures[0]?.depthDrawnPct ?? 0}%`).join(", ")}.`,
+    `- Priority-drawn priority area (pri 5-15): ${priority.map((r) => `${short(r.lane)} ${r.pictures[0]?.depthDrawnPct ?? 0}%`).join(", ")}.`,
   );
   out.push(
     `- All runs passed the harness playtest: ${runs.every((r) => r.playtest?.success) ? "yes" : "no"}.`,
@@ -1368,46 +1431,52 @@ function caseMarkdown(caseName: string, runs: Run[], outDir: string): string {
 }
 
 // ---------------------------------------------------------------- main
-const [resultsDir, outDir] = process.argv.slice(2);
-if (!resultsDir || !outDir) {
-  console.error("usage: npm run eval:matrix -- <results-dir> <out-dir>");
-  process.exit(2);
-}
-mkdirSync(outDir, { recursive: true });
-const refs = discover(resultsDir);
-const byCase = new Map<string, Run[]>();
-for (const ref of refs) {
-  const caseDir = join(outDir, ref.case);
-  mkdirSync(caseDir, { recursive: true });
-  try {
-    const run = analyzeRun(ref, caseDir, readBrief(ref.case));
-    byCase.set(ref.case, [...(byCase.get(ref.case) ?? []), run]);
-    console.log(`analyzed ${ref.stem}`);
-  } catch (e) {
-    console.error(`FAILED ${ref.stem}: ${(e as Error).stack}`);
+function main(): void {
+  const [resultsDir, outDir] = process.argv.slice(2);
+  if (!resultsDir || !outDir) {
+    console.error("usage: npm run eval:matrix -- <results-dir> <out-dir>");
+    process.exit(2);
   }
+  mkdirSync(outDir, { recursive: true });
+  const refs = discover(resultsDir);
+  const byCase = new Map<string, Run[]>();
+  for (const ref of refs) {
+    const caseDir = join(outDir, ref.case);
+    mkdirSync(caseDir, { recursive: true });
+    try {
+      const run = analyzeRun(ref, caseDir, readBrief(ref.case));
+      byCase.set(ref.case, [...(byCase.get(ref.case) ?? []), run]);
+      console.log(`analyzed ${ref.stem}`);
+    } catch (e) {
+      console.error(`FAILED ${ref.stem}: ${(e as Error).stack}`);
+    }
+  }
+  const metrics = Object.fromEntries(
+    [...byCase].map(([c, runs]) => [
+      c,
+      Object.fromEntries(runs.map((r) => [`${r.lane}--${r.stem.split("--").pop()}`, r])),
+    ]),
+  );
+  writeFileSync(
+    join(outDir, "metrics.json"),
+    JSON.stringify({ resultsDir: basename(resultsDir), cases: metrics }, null, 1),
+  );
+  const md = [
+    "# Genesis quality/cost matrix",
+    "",
+    `Source: \`${resultsDir}\`. One row per completed run (report.json + resources). Regenerate with \`npm run eval:matrix -- <results-dir> <out-dir>\`.`,
+    "Measured columns come from report.json, events.json, transcript.json and the AGI files (parsed with the repo's own container/logic/picture/view/sound code). The brief checklist is a keyword heuristic. Judgment lives only in the optional hand-written `reading-<case>.md`.",
+    "",
+    "Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and called logics like 255). *said (distinct / groups)* = said() calls in room logics (distinct word-id patterns / distinct word groups). *cmds used* = distinct AGI actions + tests in room logics. *priority-drawn %* = picture cells whose priority is 5..15 (4 is the unpainted default). *ctlN %* = share of the 160x168 plane holding control value N (0 barrier, 1 conditional barrier, 2 trigger, 3 water). *reachable %* = flood fill from the ego start over footprints (ego cel width) that avoid control 0/1, rows at or below the horizon. *authored res.* = resources not byte-identical to the base template.",
+    "",
+    ...[...byCase].map(([c, runs]) => caseMarkdown(c, runs, outDir) + "\n"),
+  ].join("\n");
+  writeFileSync(join(outDir, "matrix.md"), md);
+  console.log(
+    `wrote ${join(outDir, "matrix.md")} and metrics.json (${refs.length} runs, ${byCase.size} cases)`,
+  );
 }
-const metrics = Object.fromEntries(
-  [...byCase].map(([c, runs]) => [
-    c,
-    Object.fromEntries(runs.map((r) => [`${r.lane}--${r.stem.split("--").pop()}`, r])),
-  ]),
-);
-writeFileSync(
-  join(outDir, "metrics.json"),
-  JSON.stringify({ resultsDir: basename(resultsDir), cases: metrics }, null, 1),
-);
-const md = [
-  "# Genesis quality/cost matrix",
-  "",
-  `Source: \`${resultsDir}\`. One row per completed run (report.json + resources). Regenerate with \`npm run eval:matrix -- <results-dir> <out-dir>\`.`,
-  "Measured columns come from report.json, events.json, transcript.json and the AGI files (parsed with the repo's own container/logic/picture/view/sound code). The brief checklist is a keyword heuristic. Judgment lives only in the optional hand-written `reading-<case>.md`.",
-  "",
-  "Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and called logics like 255). *said (distinct / groups)* = said() calls in room logics (distinct word-id patterns / distinct word groups). *cmds used* = distinct AGI actions + tests in room logics. *depth-drawn %* = picture cells whose priority is 5..15 (4 is the unpainted default). *ctlN %* = share of the 160x168 plane holding control value N (0 barrier, 1 conditional barrier, 2 trigger, 3 water). *reachable %* = flood fill from the ego start over footprints (ego cel width) that avoid control 0/1, rows at or below the horizon. *authored res.* = resources not byte-identical to the base template.",
-  "",
-  ...[...byCase].map(([c, runs]) => caseMarkdown(c, runs, outDir) + "\n"),
-].join("\n");
-writeFileSync(join(outDir, "matrix.md"), md);
-console.log(
-  `wrote ${join(outDir, "matrix.md")} and metrics.json (${refs.length} runs, ${byCase.size} cases)`,
-);
+
+// Run only as the CLI; tests import the analysers above.
+const entry = process.argv[1];
+if (entry && realpathSync(entry) === fileURLToPath(import.meta.url)) main();

@@ -1,3 +1,4 @@
+import type { PcDisplay } from "../../../src/runtime/display.ts";
 import { requireProjectId } from "../../../src/gameIdentity.ts";
 import type { createExecutionDebugLink } from "./executionDebugLink.ts";
 import type * as PlayerSentenceTools from "../project/playerSentences.ts";
@@ -27,11 +28,12 @@ import {
   useWalkthroughController,
   createInitialWalkthroughState,
 } from "../walkthrough/useWalkthroughController.ts";
-import { useInputController } from "../play/useInputController.ts";
+import { useInputController, type MenuOp } from "../play/useInputController.ts";
 import { useTestRecorder } from "../authoring/useTestRecorder.ts";
 import type { useAuthoringController } from "../authoring/useAuthoringController.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
+import { usePcDisplay } from "../settings/pcDisplay.ts";
 import type { AgiAudio, AudioMode } from "../audio/AgiAudio.ts";
 import {
   autosaveKey,
@@ -45,9 +47,9 @@ import { clearCachedGame } from "../project/gameStorage.ts";
 import { resolveProgressTarget } from "../project/progressBinding.ts";
 import { createProjectPublication } from "./projectPublication.ts";
 import {
+  adoptStoredProject,
   advanceAuthoring,
   ResourceCommitError,
-  requireSaved,
   STALE_SAVE_MESSAGE,
   PROJECT_REMOVED_MESSAGE,
   watchProjectWrites,
@@ -66,7 +68,7 @@ import { discoverInstalledGames } from "../library/gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
 import type { useHistoryController } from "../history/useHistoryController.ts";
 import type { useHistoryView } from "../history/useHistoryView.ts";
-import { freshHistoryView } from "./useEngineTypes.ts";
+import { freshHistoryView, modalWaitsOnClock } from "./useEngineTypes.ts";
 import { useStartOverNote } from "../history/useStartOverNote.ts";
 import type { TransportModel } from "../history/useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
@@ -112,6 +114,11 @@ export function useEngine(
     pendingEditorChanges?: () => boolean;
     /** A new engine replaced the game, or the game was left: drop its picture. */
     onScreenReset?: () => void;
+    onAppearance?: (
+      id: string | null,
+      files?: ReadonlyMap<string, Uint8Array>,
+      pcDisplay?: PcDisplay,
+    ) => void;
   },
 ) {
   let projectMode: "create" | "play" = "play";
@@ -128,6 +135,7 @@ export function useEngine(
   let projectOpenEpoch = 0;
   let audio: AgiAudio | null = null;
   const amigaSettings = useAmigaRegion();
+  const pcDisplaySettings = usePcDisplay();
 
   let audioLoading: Promise<AgiAudio> | undefined;
 
@@ -140,6 +148,7 @@ export function useEngine(
     inputEnabled: false,
     inputReady: false,
     holdToMove: false,
+    menuAvailable: false,
     waitingForKey: false,
     gameEdit: null,
     phase: "idle",
@@ -154,7 +163,9 @@ export function useEngine(
     profileKind: null,
     agentLog: [],
     omittedLogEntries: 0,
-    shake: false,
+    shake: null,
+    pcDisplay: "ega",
+    amigaRegion: "ntsc",
     prompt: null,
     soundPlaying: false,
     soundMuted: false,
@@ -173,6 +184,7 @@ export function useEngine(
       error: "",
     },
     resumed: false,
+    checkpointProblem: "",
     startOverNote: false,
     gameEnded: null,
     otherTab: false,
@@ -262,6 +274,7 @@ export function useEngine(
     profile: null,
     profileKind: null,
     paused: false,
+    pcDisplay: "ega",
     cycle: 0,
     frame: 0,
     autosave: -1,
@@ -294,6 +307,7 @@ export function useEngine(
     owner: crypto.randomUUID(),
     lock: withCheckpointLock,
     changed(lost) {
+      state.checkpointProblem = "";
       state.otherTab = lost;
       link.getWorker()?.postMessage({
         type: "playOwner",
@@ -326,7 +340,7 @@ export function useEngine(
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
-  const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
+  const { sendInput, sendEdit, sendDirection, sendKey, sendClick, sendMenu, sendJoystick } = input;
   const startOverNote = useStartOverNote(state);
 
   let executionDebug: ReturnType<typeof createExecutionDebugLink> | undefined;
@@ -376,10 +390,11 @@ export function useEngine(
 
   /**
    * Storage moved past the running game, found by a refused autosave or
-   * another tab's notice: the Assistant says so and offers Reload game, as a
+   * another tab's notice: the Agent says so and offers Reload game, as a
    * refused turn does, and the stage's note says it while it is closed.
    */
   function tellBehindStorage(): void {
+    state.checkpointProblem = "";
     projectSession?.stopWrites();
     autosaveController.handleRecoveryError(STALE_SAVE_MESSAGE);
     logAgent("error", STALE_SAVE_MESSAGE);
@@ -392,10 +407,11 @@ export function useEngine(
    * The running game's project was removed in another tab: nothing more is
    * stored for it (BootedGame.removed) and no reload brings it back. The
    * stage's one note says so with Download game and Back to games, and the
-   * Assistant says the same without a reload offer. The timeline it can
+   * Agent says the same without a reload offer. The timeline it can
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {
+    state.checkpointProblem = "";
     projectSession?.stopWrites("removed");
     autosaveController.handleRecoveryError(PROJECT_REMOVED_MESSAGE);
     logAgent("error", PROJECT_REMOVED_MESSAGE);
@@ -464,6 +480,7 @@ export function useEngine(
   };
   link.deps.playOwnershipRetained = () => {
     const active = progressOwnership.generation() !== undefined;
+    state.checkpointProblem = "";
     state.otherTab = !active;
     if (active) resumeEngine("otherTab");
     else pauseEngine("otherTab");
@@ -508,11 +525,13 @@ export function useEngine(
       .then(async ([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
         // A room can finish while these modules load. Open the confirmed
-        // stored body, including its files, source claims and generation.
-        if (!game.installed) {
-          const saved = await requireSaved(game, { authoring: true, message: STALE_SAVE_MESSAGE });
+        // stored body, including its files, source claims and generation. A
+        // session already open for this game opened on it and checks each
+        // write's generation, so a publish may still be saving: storage is
+        // not asked again.
+        if (!game.installed && !(projectSession && !projectSession.closed)) {
+          await adoptStoredProject(game, STALE_SAVE_MESSAGE);
           if (!current()) return;
-          game.authoredGame = saved.data;
         }
         const admission = createMainProjectAdmission({
           ...grant,
@@ -615,8 +634,26 @@ export function useEngine(
     game: BootedGame,
     worker: Worker | null,
   ): Promise<ProjectSession | null> {
+    if (!game.authoredGame)
+      throw new Error("The project is unavailable. Reopen the game to continue.");
+    if (
+      !game.installed &&
+      game.authoredGame.projectHistory === undefined &&
+      !(projectSession && !projectSession.closed)
+    ) {
+      try {
+        await adoptStoredProject(game, STALE_SAVE_MESSAGE);
+        if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+      } catch (error) {
+        if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return null;
+        if (error instanceof ResourceCommitError && error.behindStorage) {
+          if (error.removed) tellRemoved();
+          else tellBehindStorage();
+        }
+        throw error;
+      }
+    }
     const data = game.authoredGame;
-    if (!data) throw new Error("The project is unavailable. Reopen the game to continue.");
     const reply = await link.query("projectCreate", {
       progressMode: "play",
       ...(data.workspace ? { documents: data.workspace } : {}),
@@ -816,6 +853,7 @@ export function useEngine(
 
   const lifecycle = useGameLifecycle({
     getAmigaRegion: () => amigaSettings.region.value,
+    getPcDisplay: () => pcDisplaySettings.display.value,
     state,
     hook,
     get audio() {
@@ -840,6 +878,8 @@ export function useEngine(
       startOverNote.hide();
     },
     onScreenReset: () => engineOptions?.onScreenReset?.(),
+    onAppearance: (id, files) =>
+      engineOptions?.onAppearance?.(id, files, pcDisplaySettings.display.value),
     stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     pendingEditorChanges: () =>
       (engineOptions?.pendingEditorChanges?.() ?? false) ||
@@ -912,10 +952,16 @@ export function useEngine(
     state.installedGames = await discoverInstalledGames();
   }
 
-  /** Acknowledge the engine's open modal (click path); the worker resumes ticking. */
-  function dismissModal(): void {
-    if (state.modal === null) return;
-    link.getWorker()?.postMessage({ type: "dismissPrint" } satisfies WorkerInbound);
+  /**
+   * A tap on the engine's open modal; the worker resumes ticking. With the
+   * tap's screen pixel, an Amiga confirmation gadget under it is selected.
+   */
+  function dismissModal(point?: { x: number; y: number }): void {
+    // The original reads no input while it shakes the screen or dissolves a picture in.
+    if (state.modal === null || modalWaitsOnClock(state.modal)) return;
+    link
+      .getWorker()
+      ?.postMessage({ type: "dismissPrint", ...(point ?? {}) } satisfies WorkerInbound);
   }
 
   /** Player submitted (or cancelled) the blocking prompt modal. */
@@ -1051,8 +1097,9 @@ export function useEngine(
 
   /** Undo start over: back to where the earlier session ended. */
   async function undoStartOver(): Promise<boolean> {
-    startOverNote.hide();
-    return historyView!.undoStartOver();
+    const undone = await historyView!.undoStartOver();
+    if (undone) startOverNote.hide();
+    return undone;
   }
 
   const updateAiConfig = createAiConfigUpdater({
@@ -1226,6 +1273,7 @@ export function useEngine(
   ): Promise<boolean> {
     const prior = projectMode;
     if (mode === "create") {
+      state.checkpointProblem = "";
       state.entryProblem = "";
       state.returnNote = null;
     }
@@ -1354,6 +1402,40 @@ export function useEngine(
       if (projectSessionOpeningError !== undefined)
         return refuseOpening(projectSessionOpeningError);
       if (projectSession?.runToken !== openingRun) return false;
+    }
+    // The worker needs the saved cursor before granting a Play-booted game's
+    // first editing lane; opening the main-thread session happens afterwards.
+    // A session already open for this game opened from a confirmed record,
+    // and its writes are generation-checked: its first commit may still be
+    // saving, so storage is not asked again.
+    if (
+      !game.installed &&
+      game.authoredGame.projectHistory === undefined &&
+      !(projectSession && !projectSession.closed)
+    ) {
+      try {
+        await adoptStoredProject(game, STALE_SAVE_MESSAGE);
+        if (
+          change !== projectModeChange ||
+          projectMode !== mode ||
+          !retainGameOwner(projectSession, projectOpenEpoch) ||
+          link.getWorker() !== worker ||
+          state.phase !== "running"
+        )
+          return false;
+      } catch (cause) {
+        if (
+          change === projectModeChange &&
+          lifecycle.getBootedGame() === game &&
+          link.getWorker() === worker &&
+          cause instanceof ResourceCommitError &&
+          cause.behindStorage
+        ) {
+          if (cause.removed) tellRemoved();
+          else tellBehindStorage();
+        }
+        return refuseOpening(cause);
+      }
     }
     // A Play conversation can open the admission lane without entering Create.
     // Complete the requested worker transition even when that lane already exists.
@@ -1484,7 +1566,10 @@ export function useEngine(
         }
       }
     },
-    takePlayBack: () => progressOwnership.takeBack(),
+    takePlayBack: () => {
+      state.checkpointProblem = "";
+      return progressOwnership.takeBack();
+    },
     async getConversationAgent() {
       const controller = await loadAuthoringController();
       for (;;) {
@@ -1516,7 +1601,7 @@ export function useEngine(
     previewImageCels(bytes: Uint8Array | null, loops?: readonly number[]): void {
       if (projectSession)
         link.getWorker()?.postMessage({
-          type: "imageHeroPreview",
+          type: "imageEgoPreview",
           runToken: projectSession.runToken,
           bytes,
           ...(loops ? { loops } : {}),
@@ -1584,13 +1669,18 @@ export function useEngine(
       startOverNote.noteInput();
       sendDirection(dir, sessionId);
     },
-    sendKey: (code: number, sessionId?: number) => {
+    sendKey: (code: number, sessionId?: number, pointer?: boolean) => {
       startOverNote.noteInput();
-      sendKey(code, sessionId);
+      sendKey(code, sessionId, pointer);
     },
+    sendJoystick,
     sendClick: (x: number, y: number, sessionId?: number) => {
       startOverNote.noteInput();
       sendClick(x, y, sessionId);
+    },
+    sendMenu: (op: MenuOp, x: number, y: number, sticky?: boolean) => {
+      startOverNote.noteInput();
+      sendMenu(op, x, y, sticky);
     },
     dismissModal,
     submitPrompt,
@@ -1665,9 +1755,9 @@ export function useEngine(
     detachReference: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["detachReference"]>
     ) => (await loadAuthoringController()).detachReference(...args),
-    keepStagedView: async (
-      ...args: Parameters<ReturnType<typeof useAuthoringController>["keepStagedView"]>
-    ) => (await loadAuthoringController()).keepStagedView(...args),
+    commitStagedView: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["commitStagedView"]>
+    ) => (await loadAuthoringController()).commitStagedView(...args),
     commitPictureEdit: async (
       ...args: Parameters<ReturnType<typeof useAuthoringController>["commitPictureEdit"]>
     ) => (await loadAuthoringController()).commitPictureEdit(...args),
@@ -1726,7 +1816,7 @@ export function useEngine(
     playHere,
     visitRoom,
     launchRoom,
-    /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
+    /** The live screen objects (ego first when animated): PICTURE editor's walkable estimate. */
     readObjects: () => link.query("objects"),
     debugEventsSince: async (
       ...args: Parameters<ReturnType<typeof useEngineDebug>["debugEventsSince"]>

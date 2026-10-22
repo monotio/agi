@@ -46,6 +46,7 @@ function restoreChecker(
   return (label, image) => {
     if (!engine) {
       const words = files["WORDS.TOK"];
+      // A restore check validates bytes; the display cannot change the answer.
       engine = new Engine(
         openContainer(new Map(Object.entries(files)), profile ? { profile } : {}),
         RESTORE_CHECK_HOST,

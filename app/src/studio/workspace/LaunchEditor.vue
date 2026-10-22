@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef, watch, watchEffect, nextTick } from "vue";
+import { frameTask } from "../../ui/frameTask.ts";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+  watchEffect,
+} from "vue";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { EngineStateReport } from "../../../../src/runtime/engine.ts";
 import { newLaunchId, type Launch, type RoomLaunches } from "../../../../src/authoring/launches.ts";
@@ -8,7 +18,7 @@ import { roomEntryProblem } from "../../../../src/runtime/roomEntry.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectBindings.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
-import { EGA_PALETTE } from "../../render/palette.ts";
+import { paletteCss, useGamePalette } from "../../render/useGamePalette.ts";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
@@ -279,7 +289,7 @@ function addSeed(): void {
   commitLaunch({ ...activeLaunch.value, seed: 58235 });
 }
 
-function addHero(): void {
+function addEgo(): void {
   if (!activeLaunch.value) return;
   const x = props.livePreview.state?.egoX ?? 80;
   const y = props.livePreview.state?.egoY ?? 120;
@@ -382,7 +392,7 @@ function setSeedValue(event: Event): void {
   commitLaunch({ ...activeLaunch.value, seed });
 }
 
-function setHeroX(event: Event): void {
+function setEgoX(event: Event): void {
   const x = Math.max(0, Math.min(159, Number((event.target as HTMLInputElement).value)));
   if (!activeLaunch.value?.hero) return;
   commitLaunch({
@@ -391,7 +401,7 @@ function setHeroX(event: Event): void {
   });
 }
 
-function setHeroY(event: Event): void {
+function setEgoY(event: Event): void {
   const y = Math.max(0, Math.min(167, Number((event.target as HTMLInputElement).value)));
   if (!activeLaunch.value?.hero) return;
   commitLaunch({
@@ -402,10 +412,16 @@ function setHeroY(event: Event): void {
 
 // ---- Canvas rendering for hero position ----------------------------------
 
-const heroCanvas = useTemplateRef("heroCanvas");
+const egoCanvas = useTemplateRef("egoCanvas");
+const egoDraft = shallowRef<{ x: number; y: number }>();
+const egoFrame = frameTask();
+let egoPointer: number | undefined;
+let egoLaunch: string | undefined;
+onBeforeUnmount(egoFrame.cancel);
+const palette = useGamePalette();
 
-function renderHeroStage(): void {
-  const canvasEl = heroCanvas.value;
+function renderEgoStage(): void {
+  const canvasEl = egoCanvas.value;
   if (!canvasEl) return;
   const ctx = canvasEl.getContext("2d");
   if (!ctx) return;
@@ -417,7 +433,7 @@ function renderHeroStage(): void {
     for (let y = 0; y < 168; y++) {
       for (let x = 0; x < 160; x++) {
         const color = surface.visual[y * 160 + x] ?? 0;
-        const rgba = EGA_PALETTE[color] ?? [0, 0, 0];
+        const rgba = palette.value[color] ?? [0, 0, 0];
         const offset = (y * 160 + x) * 4;
         imgData.data[offset] = rgba[0]!;
         imgData.data[offset + 1] = rgba[1]!;
@@ -427,17 +443,17 @@ function renderHeroStage(): void {
     }
     ctx.putImageData(imgData, 0, 0);
   } else {
-    ctx.fillStyle = `rgb(${EGA_PALETTE[0]!.join(" ")})`;
+    ctx.fillStyle = paletteCss(palette.value, 0);
     ctx.fillRect(0, 0, 160, 168);
   }
 
   // Draw hero crosshair marker
-  const hero = activeLaunch.value?.hero;
-  if (hero) {
-    const hx = Math.max(0, Math.min(159, hero.x));
-    const hy = Math.max(0, Math.min(167, hero.y));
+  const ego = egoDraft.value ?? activeLaunch.value?.hero;
+  if (ego) {
+    const hx = Math.max(0, Math.min(159, ego.x));
+    const hy = Math.max(0, Math.min(167, ego.y));
 
-    ctx.strokeStyle = `rgb(${EGA_PALETTE[14]!.join(" ")})`;
+    ctx.strokeStyle = paletteCss(palette.value, 14);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(hx, hy, 4, 0, 2 * Math.PI);
@@ -454,24 +470,51 @@ function renderHeroStage(): void {
 
 watchEffect(() => {
   if (activeLaunch.value?.hero) {
-    renderHeroStage();
+    renderEgoStage();
   }
 });
 
-function handleCanvasDrag(event: MouseEvent): void {
-  if (event.buttons !== 1 && event.type !== "click") return;
-  const canvasEl = heroCanvas.value;
-  if (!canvasEl || !activeLaunch.value?.hero) return;
-  const rect = canvasEl.getBoundingClientRect();
-  const rawX = Math.round(((event.clientX - rect.left) / rect.width) * 160);
-  const rawY = Math.round(((event.clientY - rect.top) / rect.height) * 168);
-  const x = Math.max(0, Math.min(159, rawX));
-  const y = Math.max(0, Math.min(167, rawY));
-  commitLaunch({
-    ...activeLaunch.value,
-    hero: { x, y },
+function egoPoint(event: PointerEvent) {
+  const rect = egoCanvas.value!.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(159, Math.round(((event.clientX - rect.left) / rect.width) * 160))),
+    y: Math.max(0, Math.min(167, Math.round(((event.clientY - rect.top) / rect.height) * 168))),
+  };
+}
+function egoDown(event: PointerEvent): void {
+  if (props.readOnly || event.button !== 0 || egoPointer !== undefined || !activeLaunch.value?.hero)
+    return;
+  egoLaunch = activeLaunch.value.id;
+  egoPointer = event.pointerId;
+  egoCanvas.value!.setPointerCapture(event.pointerId);
+  egoDraft.value = egoPoint(event);
+}
+function egoMove(event: PointerEvent): void {
+  if (egoPointer !== event.pointerId) return;
+  const point = egoPoint(event);
+  egoFrame.schedule(() => {
+    egoDraft.value = point;
   });
 }
+function egoUp(event: PointerEvent): void {
+  if (egoPointer !== event.pointerId) return;
+  egoFrame.cancel();
+  const ego = egoPoint(event);
+  egoPointer = undefined;
+  egoDraft.value = undefined;
+  if (!props.readOnly && activeLaunch.value && activeLaunch.value.id === egoLaunch)
+    commitLaunch({ ...activeLaunch.value, hero: ego });
+  egoLaunch = undefined;
+  egoCanvas.value?.releasePointerCapture(event.pointerId);
+}
+function egoCancel(event?: PointerEvent): void {
+  if (event && egoPointer !== event.pointerId) return;
+  egoLaunch = undefined;
+  egoFrame.cancel();
+  egoPointer = undefined;
+  egoDraft.value = undefined;
+}
+watch([() => activeLaunch.value?.id, () => props.readOnly], () => egoCancel());
 </script>
 
 <template>
@@ -836,14 +879,14 @@ function handleCanvasDrag(event: MouseEvent): void {
         <!-- Hero position row -->
         <div
           v-if="activeLaunch.hero"
-          class="launch-row launch-row--hero"
+          class="launch-row launch-row--ego"
           data-testid="launch-row-hero"
         >
           <div class="launch-row__label">
             <strong>Hero position</strong>
           </div>
-          <div class="launch-row__controls launch-row__controls--hero">
-            <div class="launch-hero-inputs">
+          <div class="launch-row__controls launch-row__controls--ego">
+            <div class="launch-ego-inputs">
               <label>
                 <span>X</span>
                 <input
@@ -852,9 +895,9 @@ function handleCanvasDrag(event: MouseEvent): void {
                   max="159"
                   class="launch-coord-input"
                   aria-label="Hero X position"
-                  :value="activeLaunch.hero.x"
+                  :value="egoDraft?.x ?? activeLaunch.hero.x"
                   :disabled="readOnly"
-                  @change="setHeroX"
+                  @change="setEgoX"
                 />
               </label>
               <label>
@@ -865,22 +908,24 @@ function handleCanvasDrag(event: MouseEvent): void {
                   max="167"
                   class="launch-coord-input"
                   aria-label="Hero Y position"
-                  :value="activeLaunch.hero.y"
+                  :value="egoDraft?.y ?? activeLaunch.hero.y"
                   :disabled="readOnly"
-                  @change="setHeroY"
+                  @change="setEgoY"
                 />
               </label>
             </div>
             <div class="launch-canvas-wrapper">
               <canvas
-                ref="heroCanvas"
+                ref="egoCanvas"
                 width="160"
                 height="168"
                 class="launch-canvas"
                 aria-label="Room picture hero position"
-                @mousedown="handleCanvasDrag"
-                @mousemove="handleCanvasDrag"
-                @click="handleCanvasDrag"
+                @pointerdown="egoDown"
+                @pointermove="egoMove"
+                @pointerup="egoUp"
+                @pointercancel="egoCancel"
+                @lostpointercapture="egoCancel"
               ></canvas>
             </div>
           </div>
@@ -888,7 +933,7 @@ function handleCanvasDrag(event: MouseEvent): void {
             icon="trash"
             size="sm"
             label="Remove hero position row"
-            data-testid="launch-remove-hero"
+            data-testid="launch-remove-ego"
             :disabled="readOnly"
             :title="readOnly ? 'Project is read-only' : 'Remove hero position row'"
             @click="removeRow('hero')"
@@ -946,7 +991,7 @@ function handleCanvasDrag(event: MouseEvent): void {
             role="menuitem"
             :disabled="Boolean(activeLaunch.hero)"
             :title="activeLaunch.hero ? 'Hero position is already set' : ''"
-            @click="addHero"
+            @click="addEgo"
           >
             Hero position
           </button>
@@ -1143,7 +1188,7 @@ function handleCanvasDrag(event: MouseEvent): void {
   border-radius: var(--radius-sm);
 }
 
-.launch-row--hero {
+.launch-row--ego {
   align-items: flex-start;
 }
 
@@ -1171,7 +1216,7 @@ function handleCanvasDrag(event: MouseEvent): void {
   flex: 1;
 }
 
-.launch-row__controls--hero {
+.launch-row__controls--ego {
   flex-direction: column;
   align-items: flex-start;
 }
@@ -1197,12 +1242,12 @@ function handleCanvasDrag(event: MouseEvent): void {
   margin-left: var(--space-1);
 }
 
-.launch-hero-inputs {
+.launch-ego-inputs {
   display: flex;
   gap: var(--space-4);
 }
 
-.launch-hero-inputs label {
+.launch-ego-inputs label {
   display: inline-flex;
   align-items: center;
   font: var(--weight-medium) var(--text-xs) var(--font-sans);
@@ -1220,6 +1265,7 @@ function handleCanvasDrag(event: MouseEvent): void {
 }
 
 .launch-canvas {
+  touch-action: none;
   display: block;
   width: 320px;
   height: 336px;

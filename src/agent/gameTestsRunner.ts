@@ -92,6 +92,7 @@ function createCommandProbe(session: AgentSessionState) {
       return taken;
     },
   };
+  // Game tests check game logic, which runs the same on the default EGA display.
   const engine = new Engine(container, host, dictionary, { profile: session.profile });
   engine.tick();
   return (command: string): string | null => {
@@ -117,7 +118,7 @@ function missingReference(session: AgentSessionState, test: GameTest): string | 
     probe ??= createCommandProbe(session);
     const unknown = probe(String(step["command"]));
     if (unknown !== null)
-      return `Word ${JSON.stringify(unknown)} is missing from the dictionary. Add this word before running the test.`;
+      return `Word ${JSON.stringify(unknown)} is missing from WORDS. Add this word before running the test.`;
   }
   const inventory = readInventoryObjects(session.getFiles().get("OBJECT"), session.profile);
   for (const id of (test.expect?.["carriedItems"] as number[] | undefined) ?? [])

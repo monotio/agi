@@ -1,0 +1,180 @@
+{
+  "fixture": "pq1",
+  "profile": "2.917",
+  "machine": "t1000sx",
+  "media": [
+    {
+      "slot": "-flop1",
+      "path": "../../.local/mame-diff/boot720.img"
+    },
+    {
+      "slot": "-flop2",
+      "path": "../../.local/mame-diff/pq1-720.img"
+    }
+  ],
+  "crop": {
+    "x": 0,
+    "y": 0,
+    "width": 320,
+    "height": 200
+  },
+  "seconds": 236,
+  "steps": [
+    {
+      "at": 185,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 18000
+      }
+    },
+    {
+      "at": 210,
+      "capture": "hall",
+      "engine": {
+        "room": 6,
+        "modal": null,
+        "maxMs": 120000
+      }
+    },
+    {
+      "at": 211,
+      "key": "Up",
+      "fields": ["Cursor Up"]
+    },
+    {
+      "at": 217,
+      "key": "Right",
+      "fields": ["Cursor Right"],
+      "engine": {
+        "advanceMs": 6000
+      }
+    },
+    {
+      "at": 217.5,
+      "capture": "walk-1",
+      "engine": {
+        "advanceMs": 300
+      }
+    },
+    {
+      "at": 218.0,
+      "capture": "walk-2",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 218.5,
+      "capture": "walk-3",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 219.0,
+      "capture": "walk-4",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 219.5,
+      "capture": "walk-5",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 220.0,
+      "capture": "walk-6",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 220.5,
+      "capture": "walk-7",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 221.0,
+      "capture": "walk-8",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 224,
+      "capture": "russ",
+      "engine": {
+        "modal": "print",
+        "maxMs": 10000
+      }
+    },
+    {
+      "at": 226,
+      "key": "Enter"
+    },
+    {
+      "at": 227,
+      "key": "Left",
+      "fields": ["Cursor Left"],
+      "engine": {
+        "advanceMs": 1000,
+        "modal": null
+      }
+    },
+    {
+      "at": 227.5,
+      "capture": "mirror-1",
+      "engine": {
+        "advanceMs": 400
+      }
+    },
+    {
+      "at": 228.0,
+      "capture": "mirror-2",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 228.5,
+      "capture": "mirror-3",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 229.0,
+      "capture": "mirror-4",
+      "engine": {
+        "advanceMs": 500
+      }
+    },
+    {
+      "at": 230,
+      "key": "Left",
+      "fields": ["Cursor Left"],
+      "engine": {
+        "advanceMs": 1000
+      }
+    },
+    {
+      "at": 232,
+      "capture": "stopped",
+      "engine": {
+        "advanceMs": 2000
+      }
+    }
+  ],
+  "args": ["-isa_fdc:fdc_xt:fdc:1", "35dd"],
+  "boot": [
+    {
+      "at": 120,
+      "text": "{ESC}"
+    }
+  ]
+}

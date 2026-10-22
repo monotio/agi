@@ -81,7 +81,7 @@ export async function saveTests(
         throw new Error(`${reason}. Try saving the test again.`);
       }
     } catch (error) {
-      if (attempt === 0 && error instanceof Error && error.message === "Project proposal is stale.")
+      if (attempt === 0 && error instanceof Error && error.message === "Project changes are stale.")
         continue;
       throw error;
     }

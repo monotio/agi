@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef } from "vue";
+import { frameTask } from "../ui/frameTask.ts";
+import { computed, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { DrawStop } from "./useStudioReadout.ts";
 
@@ -26,6 +27,10 @@ const playhead = defineModel<number>({ required: true });
 const places = computed(() => [...stops.map((stop) => stop.index), total]);
 const track = useTemplateRef("track");
 const dragging = ref(false);
+
+let pointer: number | undefined;
+const gestureFrame = frameTask();
+onBeforeUnmount(gestureFrame.cancel);
 
 function clamp(k: number): number {
   return Math.min(total, Math.max(0, Math.round(k)));
@@ -60,17 +65,25 @@ function fromPointer(event: PointerEvent): void {
   seek(((event.clientX - rect.left) / rect.width) * total);
 }
 function onPointerDown(event: PointerEvent): void {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || pointer !== undefined) return;
+  pointer = event.pointerId;
   dragging.value = true;
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   fromPointer(event);
 }
 function onPointerMove(event: PointerEvent): void {
-  if (dragging.value) fromPointer(event);
+  if (pointer === event.pointerId) gestureFrame.schedule(() => fromPointer(event));
 }
 function onPointerUp(event: PointerEvent): void {
+  if (pointer !== event.pointerId) return;
+  if (event.type === "pointerup") {
+    gestureFrame.cancel();
+    if (dragging.value) fromPointer(event);
+  } else gestureFrame.cancel();
   dragging.value = false;
-  (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  pointer = undefined;
+  const target = event.currentTarget as HTMLElement;
+  if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
 }
 const KEYS: Record<string, number> = {
   ArrowLeft: -1,
@@ -138,6 +151,7 @@ function onKeydown(event: KeyboardEvent): void {
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
+      @lostpointercapture="onPointerUp"
       @keydown="onKeydown"
     >
       <svg

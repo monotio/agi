@@ -64,7 +64,7 @@ const STUB: LlmConfig = { provider: "stub", apiKey: "", model: "offline-stub" };
 /** Two installations' shared vocabulary spelling, as released storage knew it. */
 const SHARED_HASH = "sharedhash-sharedhash";
 
-// Room Studio's red picture and its same-bytes rename (the source-only edit).
+// PICTURE editor's red picture and its same-bytes rename (the source-only edit).
 const BLUE = ["vis 1", "fill 80,80", "end"].join("\n");
 const NAMED_BLUE = ['# @item sky "Sky" art', "vis 1", "fill 80,80", "# @end", "end"].join("\n");
 const RED = ["vis 4", "fill 80,80", "end"].join("\n");
@@ -217,7 +217,7 @@ test("a Unicode-folder installation's remix names the minted parent and binds th
   });
 });
 
-test("a remix of an installed edition keeps the original's physical checkpoint untouched", async (t) => {
+test("a remix of an installed edition keeps the original's physical progress entry untouched", async (t) => {
   const files = testFiles();
   const source = await installedGame("ember-tale", files);
   const target = source.progressTarget!;
@@ -297,7 +297,7 @@ test("installed editions sharing a vocabulary hash read and write conversations 
   });
 });
 
-test("a native Keep on an installed edition reads and writes under the locator, and forks to a bound owner", async (t) => {
+test("a native commit on an installed edition reads and writes under the locator, and forks to a bound owner", async (t) => {
   const files = testFiles(compile(BLUE));
   const gameA = await installedGame("Ember ünï Tale", files);
   const locatorA = gameA.progressTarget!.locator;
@@ -316,7 +316,7 @@ test("a native Keep on an installed edition reads and writes under the locator, 
   });
 
   const rig = controllerRig(gameA);
-  // Byte-changing Keep: the fork carries the locator's discussion, not the
+  // Byte-changing commit: the fork carries the locator's discussion, not the
   // shared-hash decoy's, and the adopted owner binds the saved body's epoch.
   const kept = await rig.controller.commitPictureEdit({
     pictureNumber: 1,
@@ -339,7 +339,7 @@ test("a native Keep on an installed edition reads and writes under the locator, 
   assert.equal(owner.progressTarget?.identity.revision, kept.revision);
   assert.deepEqual(rig.clearedAutosaves, []);
 
-  // Source-only Keep on another installation: the record under its locator
+  // Source-only commit on another installation: the record under its locator
   // takes the new authoring content; the shared-hash record is untouched.
   const gameB = await installedGame("ember-tale", files);
   const locatorB = gameB.progressTarget!.locator;
@@ -365,7 +365,7 @@ test("a native Keep on an installed edition reads and writes under the locator, 
   );
 });
 
-test("a Keep on an installation with no physical binding refuses rather than fall back", async () => {
+test("a commit on an installation with no physical binding refuses rather than fall back", async () => {
   const files = testFiles(compile(BLUE));
   const unbound: BootedGame = {
     installed: true,
@@ -505,7 +505,7 @@ test("a saved project's export returns its body-epoch binding; a removed body ex
   assert.equal(abandoned.data.projectId, projectId);
 });
 
-test("an export racing an in-place Keep refuses rather than pair new files with a stale binding", async (t) => {
+test("an export racing an in-place commit refuses rather than pair new files with a stale binding", async (t) => {
   const files = testFiles(compile(BLUE));
   const projectId = testProjectId("export-keep-race");
   assert.equal(
@@ -532,7 +532,7 @@ test("an export racing an in-place Keep refuses rather than pair new files with 
   const captured = game.progressTarget!;
   const rig = controllerRig(game);
   // The export's worker query is the controlled await: it resolves only
-  // after the real in-place Keep below has rebound the same owner.
+  // after the real in-place commit below has rebound the same owner.
   let release!: () => void;
   let reached!: () => void;
   const waiting = new Promise<void>((resolve) => {
@@ -557,7 +557,7 @@ test("an export racing an in-place Keep refuses rather than pair new files with 
   const exporting = lifecycle.exportCurrentGame();
   await waiting;
 
-  // A real native Keep on the same saved owner: the same BootedGame object
+  // A real native commit on the same saved owner: the same BootedGame object
   // and the same body-epoch locator, under a new bound revision.
   const committed = await rig.controller.commitPictureEdit({
     pictureNumber: 1,
@@ -566,7 +566,7 @@ test("an export racing an in-place Keep refuses rather than pair new files with 
     baseRevision: game.revision,
   });
   assert.equal(committed.status, "committed");
-  assert.equal(rig.current(), game, "the Keep updates the same saved owner object");
+  assert.equal(rig.current(), game, "the commit updates the same saved owner object");
   assert.equal(game.progressTarget!.locator, captured.locator, "the body epoch keeps its locator");
   assert.notEqual(game.progressTarget!.identity.revision, captured.identity.revision);
   release();

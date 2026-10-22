@@ -1,5 +1,5 @@
 /**
- * Coordinate rewriting of single picture source lines for Room Studio edits.
+ * Coordinate rewriting of single picture source lines for PICTURE editor edits.
  * Tokens are replaced one for one, so whitespace and comments survive. Every
  * rewritten coordinate is checked against the surface; nothing is clamped.
  */

@@ -717,7 +717,7 @@ function fixture(
   });
   return { session, agent, sent, resumed, documents, projectId, saved: () => savedData! };
 }
-test("one coordinated review selects resources, records a chat checkpoint and undoes all admitted changes", async () => {
+test("one coordinated review selects resources, records a chat progress entry and undoes all admitted changes", async () => {
   const { session, agent, documents } = fixture();
   await agent.send("Add a welcome sign");
   assert.equal(session.history.capture().commits.length, 1);
@@ -964,7 +964,7 @@ test("model switch continues with a summary handoff and keeps thinking blocks aw
   session.dispose();
 });
 
-test("whole-game tools stage Add depth and deduplicated notes in one project commit", async () => {
+test("whole-game tools stage Add priority and deduplicated notes in one project commit", async () => {
   const { session } = fixture();
   const picture = '# @item tree "Tree" art\nvis 2\nrect 20,20 30,30\nfill 25,25\n# @end\nend\n';
   await session.submit({
@@ -1005,7 +1005,7 @@ test("whole-game tools stage Add depth and deduplicated notes in one project com
               toolCalls: [
                 {
                   id: "depth",
-                  name: "add_depth",
+                  name: "add_priority",
                   input: {
                     num: 1,
                     itemId: "tree",
@@ -1021,7 +1021,7 @@ test("whole-game tools stage Add depth and deduplicated notes in one project com
                 },
               ],
             };
-          return { text: "Added depth.", toolCalls: [] };
+          return { text: "Added priority.", toolCalls: [] };
         },
         getTranscript() {
           return [];
@@ -1029,7 +1029,7 @@ test("whole-game tools stage Add depth and deduplicated notes in one project com
       };
     },
   });
-  await agent.send("Add depth to the tree");
+  await agent.send("Add priority to the tree");
   assert.deepEqual(
     agent
       .pending()!
@@ -1340,7 +1340,7 @@ test("Ask stores a formatted reply with raw context and keeps ordinary follow-up
   session.dispose();
 });
 
-test("approval keeps its checkpoint when project observers refresh the review", async () => {
+test("approval keeps its progress entry when project observers refresh the review", async () => {
   const { session, agent } = fixture();
   await agent.send("Add sign");
   let refreshed = false;
@@ -2396,7 +2396,7 @@ test("background work retains image spend and a new person request starts a fres
 });
 
 test("selected art tools use the workspace review and one Undo", async () => {
-  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -2414,7 +2414,7 @@ test("selected art tools use the workspace review and one Undo", async () => {
   });
   await agent.send(
     "bad: make this bridge walkable",
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.",
   );
   assert.equal(agent.pending()?.changes().length, 1);
   assert.equal(agent.pending()?.changes()[0]?.key, "picture:1");
@@ -2439,7 +2439,7 @@ test("evidence naming batches all binding kinds for review with byte-preserving 
         content:
           'set(old_name); if (isset(old_name)) { print(m1); } set.view(o1, 1); get(i0); return; #message 1 "A brass key"',
       },
-      { key: "view:1", content: (await import("../../test/studioAssistFixtures.ts")).DOT_EGO },
+      { key: "view:1", content: (await import("../../test/studioAgentFixtures.ts")).DOT_EGO },
       { key: "inventory", content: '[{"name":"Key","startingRoom":1}]' },
     ]),
     label: "Named code",
@@ -2531,7 +2531,7 @@ test("evidence naming batches all binding kinds for review with byte-preserving 
 });
 
 test("read-only agent inspects selected art and withdraw clears every pending edit", async () => {
-  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -2542,7 +2542,7 @@ test("read-only agent inspects selected art and withdraw clears every pending ed
     author: "creator",
   });
   const context =
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.";
   const agent = createWorkspaceAgent({
     session,
     profileId: "2.936",
@@ -2559,7 +2559,7 @@ test("read-only agent inspects selected art and withdraw clears every pending ed
 });
 
 test("selection context carries the live horizon and actor probe", async () => {
-  const { BRIDGE_SOURCE, DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE, DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -2585,7 +2585,7 @@ test("selection context carries the live horizon and actor probe", async () => {
   });
   await agent.ask(
     "impossible: change the selection",
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.",
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.",
   );
   const result = agent
     .current()
@@ -2602,12 +2602,12 @@ test("selection context carries the live horizon and actor probe", async () => {
     })
     .find((entry) => entry.result?.details?.["selectionArea"])?.result?.details;
   assert.equal((result?.["walkable"] as { overall: number })?.overall, 55 * 160 - 356);
-  assert.equal((result?.["roomContext"] as { ghost?: { x: number } })?.ghost?.x, 64);
+  assert.equal((result?.["roomContext"] as { standIn?: { x: number } })?.standIn?.x, 64);
   session.dispose();
 });
 
 test("selected VIEW edits share review, preserve other cels and Undo", async () => {
-  const { ROBOT_VIEW } = await import("../../test/studioAssistFixtures.ts");
+  const { ROBOT_VIEW } = await import("../../test/studioAgentFixtures.ts");
   const { parseView } = await import("../../src/view/view.ts");
   const { session } = fixture();
   await session.submit({
@@ -2644,7 +2644,7 @@ test("selected VIEW edits share review, preserve other cels and Undo", async () 
 });
 
 test("selected art carries reference handles and thumbnails once, then reuses the transcript", async () => {
-  const { BRIDGE_SOURCE } = await import("../../test/studioAssistFixtures.ts");
+  const { BRIDGE_SOURCE } = await import("../../test/studioAgentFixtures.ts");
   const { session } = fixture();
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Bridge", [
@@ -2675,7 +2675,7 @@ test("selected art carries reference handles and thumbnails once, then reuses th
     }),
   });
   const context =
-    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: depth.";
+    "Current room 1\nSelection: PICTURE 1 · Bridge\nSelected item ids: bridge. Lens: priority.";
   await agent.send("Match the reference", context);
   assert.match(
     agent.current().messages.at(-1)!.text,
@@ -3056,7 +3056,7 @@ for (const restore of [false, true]) {
                 origin: "guided",
                 author: "creator",
               });
-              throw new Error("Project proposal is stale.");
+              throw new Error("Project changes are stale.");
             }
             return submit(edit);
           };
@@ -3162,7 +3162,7 @@ test("An Agent turn that commits nothing has no Undo message and cannot undo a c
     assert.equal(
       submissions,
       0,
-      "a no-op Agent sends no document write whose receipt can acquire a creator checkpoint",
+      "a no-op Agent sends no document write whose receipt can acquire a creator progress entry",
     );
     assert.equal(session.history.capture().cursor, before);
     const message = session
@@ -3394,7 +3394,7 @@ for (const request of ["a red finish", "a test change the creator asked for"] as
     const { session } = fixture();
     const document = (tests: readonly unknown[]) =>
       JSON.stringify({ format: "monotio.agi.tests.v2", tests });
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     const openDoor = { name: "Open door", room: 1, steps: [], expect: { score: 99 } };
     await session.submit({
       proposal: session.model.propose(session.model.capture(), "Creator tests", [
@@ -3840,7 +3840,7 @@ const scoreRoom = (score: number) =>
 for (const fixes of [true, false])
   test(`Agent handover tests the pending proposal: ${fixes ? "a proposed fix passes" : "a proposed regression stays red without aborting the conversation"}`, async () => {
     const { session } = fixture();
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     await session.submit({
       proposal: session.model.propose(session.model.capture(), "Creator test", [
         {
@@ -3943,7 +3943,7 @@ for (const fixes of [true, false])
 
 test("Auto-approve commits a game proposal with red tests; only finish testReasons explain failures", async () => {
   const { session } = fixture();
-  const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+  const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
   await session.submit({
     proposal: session.model.propose(session.model.capture(), "Creator test", [
       {
@@ -4016,7 +4016,7 @@ test("Auto-approve commits a game proposal with red tests; only finish testReaso
 for (const creatorAction of ["partial approval", "save a red test"] as const)
   test(`Creator actions never rerun the Agent finish check: ${creatorAction}`, async () => {
     const { session } = fixture();
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     const document = (names: readonly string[]) =>
       JSON.stringify({
         format: "monotio.agi.tests.v2",
@@ -4169,7 +4169,7 @@ test("Only the creator edits existing tests: Auto-approve reviews a changed orig
 for (const outcome of ["named red", "unnamed red", "green", "formatted unnamed red"] as const)
   test(`Questions keep their answer without a handover: ${outcome}`, async () => {
     const { session } = fixture();
-    const { DOT_EGO } = await import("../../test/studioAssistFixtures.ts");
+    const { DOT_EGO } = await import("../../test/studioAgentFixtures.ts");
     await session.submit({
       proposal: session.model.propose(session.model.capture(), "Creator test", [
         {

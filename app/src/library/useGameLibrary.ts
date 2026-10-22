@@ -976,7 +976,7 @@ export function createGameLibrary(
   }
 
   const latestVersion = shallowRef<ProgressTarget>();
-  const latestVersionAtHero = shallowRef(false);
+  const latestVersionAtIntro = shallowRef(false);
   function dismissLatestVersion(): void {
     latestVersion.value = undefined;
     state.error = "";
@@ -984,8 +984,8 @@ export function createGameLibrary(
   }
   function offerLatestVersion(target: ProgressTarget, cause?: string): void {
     if (target.kind !== "project") return;
-    latestVersionAtHero.value =
-      typeof document !== "undefined" && !!document.activeElement?.closest(".hero");
+    latestVersionAtIntro.value =
+      typeof document !== "undefined" && !!document.activeElement?.closest(".intro");
     latestVersion.value = target;
     state.phase = "error";
     state.error = cause?.includes("Start the latest version?")
@@ -1165,21 +1165,30 @@ export function createGameLibrary(
     title: string,
     source: "zip" | "folder",
   ): Promise<{ stored: ImportStorageReport | null; copy: boolean; title: string }> {
-    const opening = await (await import("./gamePreview.ts")).previewGame(game, game.profile);
+    const { addLibraryGame, OpeningCompatibilityChangedError } = await import("./gameLibrary.ts");
     const before = new Map(
       savedGames.value.map((entry) => [entry.projectId, entry.library?.revision]),
     );
     let stored: ImportStorageReport | null = null;
-    const importedProjectId = await (
-      await import("./gameLibrary.ts")
-    ).addLibraryGame(
-      game,
-      game.title ?? title,
-      source,
-      opening,
-      undefined,
-      (report) => (stored = report),
-    );
+    let importedProjectId: ProjectId;
+    for (;;) {
+      const opening = await (
+        await import("./gamePreview.ts")
+      ).previewGame(game, game.profile, source);
+      try {
+        importedProjectId = await addLibraryGame(
+          game,
+          game.title ?? title,
+          source,
+          opening,
+          undefined,
+          (report) => (stored = report),
+        );
+        break;
+      } catch (error) {
+        if (!(error instanceof OpeningCompatibilityChangedError)) throw error;
+      }
+    }
     refreshLibrary(importedProjectId);
     const entry = getCachedGameMeta(importedProjectId);
     if (entry)
@@ -1244,14 +1253,14 @@ export function createGameLibrary(
       numbers.length === 1
         ? `save slot ${numbers[0]}`
         : `save slots ${listed(numbers.map(String))}`;
-    const keptSlots = slotsIn(stored?.slots ?? []);
+    const savedSlots = slotsIn(stored?.slots ?? []);
     const refusedSlots = slotsIn(stored?.failedSlots ?? []);
     const unknownSlots = slots.filter(
-      (slot) => !keptSlots.includes(slot) && !refusedSlots.includes(slot),
+      (slot) => !savedSlots.includes(slot) && !refusedSlots.includes(slot),
     );
     if (game.progress?.autosave)
       (stored?.autosave ? kept : stored ? refused : unconfirmed).push("saved progress");
-    if (keptSlots.length) kept.push(saves(keptSlots));
+    if (savedSlots.length) kept.push(saves(savedSlots));
     if (refusedSlots.length) refused.push(saves(refusedSlots));
     if (unknownSlots.length) unconfirmed.push(saves(unknownSlots));
     if (game.map) (stored?.map ? kept : refused).push("map");
@@ -1399,7 +1408,7 @@ export function createGameLibrary(
       catalogGames.set(id, game);
       catalogOpenings.value[id] = await (
         await import("./gamePreview.ts")
-      ).previewGame(game, game.profile);
+      ).previewGame(game, game.profile, "catalog");
     } catch (error) {
       catalogGames.delete(id);
       catalogErrors.value[id] = String(error).replace(/^Error: /, "");
@@ -1468,7 +1477,7 @@ export function createGameLibrary(
       if (!game) throw new Error("This game is missing from your library. Import it again.");
       const opening = await (
         await import("./gamePreview.ts")
-      ).previewGame(game, game.library?.profile);
+      ).previewGame(game, game.library?.profile, "stored");
       const revision = game.library?.revision ?? (await gameRevision(game.files));
       if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
         throw new Error("The game changed while its opening was being checked. Try again.");
@@ -1862,7 +1871,7 @@ export function createGameLibrary(
     onClearSavedGame,
     onPlayLibraryGame,
     latestVersion,
-    latestVersionAtHero,
+    latestVersionAtIntro,
     dismissLatestVersion,
     startLatestVersion,
     onStartLibraryGameOver,

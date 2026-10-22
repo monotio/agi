@@ -228,9 +228,9 @@ function heroes(): Uint8Array {
     ...cast.flatMap((c) => [c.loops[0]!, c.loops[2]!].flat().map((cel) => cel.height)),
   );
   const column = 2 * cellW + 32;
-  const [top, spriteH, labelH] = [12, tallest * sy, 48];
+  const [top, viewH, labelH] = [12, tallest * sy, 48];
   const width = cast.length * column + 16;
-  const height = top + spriteH + 12 + labelH;
+  const height = top + viewH + 12 + labelH;
   const frameCount = Math.max(
     ...cast.map((c) => c.loops[0]!.length),
     ...cast.map((c) => c.loops[2]!.length),
@@ -244,7 +244,7 @@ function heroes(): Uint8Array {
         const cels = member.loops[loop]!;
         const cel = cels[frame % cels.length]!;
         const x0 = left + side * (cellW + 16) + Math.floor((cellW - cel.width * sx) / 2);
-        const y0 = top + spriteH - cel.height * sy;
+        const y0 = top + viewH - cel.height * sy;
         for (let y = 0; y < cel.height; y++)
           for (let x = 0; x < cel.width; x++) {
             const colour = cel.pixels[y * cel.width + x]!;
@@ -254,17 +254,17 @@ function heroes(): Uint8Array {
                 canvas.set(x0 + x * sx + dx, y0 + y * sy + dy, EGA_RGB[colour]!);
           }
       });
-      for (let x = left - 4; x < left + column - 12; x++) canvas.set(x, top + spriteH + 2, GREY);
-      canvas.centred(member.label, left - 8, column, top + spriteH + 12, 2, WHITE);
-      canvas.centred(member.effort, left - 8, column, top + spriteH + 32, 2, GREY);
+      for (let x = left - 4; x < left + column - 12; x++) canvas.set(x, top + viewH + 2, GREY);
+      canvas.centred(member.label, left - 8, column, top + viewH + 12, 2, WHITE);
+      canvas.centred(member.effort, left - 8, column, top + viewH + 32, 2, GREY);
     });
     frames.push(canvas.rgb);
   }
   return apng(width, height, frames, 200);
 }
 
-/** One room as the player sees it, beside the depth and walkability the game keeps. */
-function depth(): Uint8Array {
+/** One room as the player sees it, beside the priority and walkability the game keeps. */
+function priority(): Uint8Array {
   const base = join(SNAPSHOT, "matrix/knights-trial/anthropic-claude-opus-5-5-lean-high");
   const visual = read(`${base}-visual.png`);
   const walk = read(`${base}-walk.png`);
@@ -287,7 +287,7 @@ function depth(): Uint8Array {
 const outputs: Record<string, Uint8Array> = {
   "genesis-castles.png": castles(),
   "genesis-heroes.png": heroes(),
-  "genesis-depth.png": depth(),
+  "genesis-priority.png": priority(),
 };
 for (const [name, bytes] of Object.entries(outputs)) {
   writeFileSync(join(OUT, name), bytes);

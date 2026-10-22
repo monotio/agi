@@ -13,7 +13,7 @@ import { rngDraw, takeSequenceWord } from "../runtime/rng.ts";
  */
 
 /** The direction-key table is protocol data owned by src/runtime/keys.ts. */
-export { DIRECTION_KEYS } from "../runtime/keys.ts";
+export { DIRECTION_KEYS, directionForDelta } from "../runtime/keys.ts";
 
 /**
  * Repeatable random input, never a chosen result for an individual game
@@ -29,14 +29,6 @@ export function randomSource(seed: number, version: 1 | 2 = 2): () => number {
     state = draw.state;
     return draw.byte;
   };
-}
-
-/** The compass direction (1..8) for a unit step (dx, dy); 0 when there is no step. */
-export function directionForDelta(dx: number, dy: number): number {
-  if (dx === 0 && dy === 0) return 0;
-  if (dx === 0) return dy < 0 ? 1 : 5;
-  if (dx > 0) return dy < 0 ? 2 : dy === 0 ? 3 : 4;
-  return dy < 0 ? 8 : dy === 0 ? 7 : 6;
 }
 
 /** Every step kind a stored game test or playtest scenario can perform. */

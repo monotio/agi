@@ -13,7 +13,7 @@ import type { Locator } from "@playwright/test";
 
 /** The Visual canvas's colour at logical cell x, y: what the editor shows there. */
 function artPixel(studio: Locator, x: number, y: number): Promise<number[]> {
-  return studio.locator('[data-layer="art"] canvas').evaluate(
+  return studio.locator('[data-layer="visual"] canvas').evaluate(
     (element, [x, y]) => {
       const canvas = element as HTMLCanvasElement;
       const at = (n: number, size: number, of: number) => Math.floor((size * (n + 0.5)) / of);
@@ -34,7 +34,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:8:picture:8");
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible();
   const slider = studio.getByRole("slider", { name: "Views", exact: true });
   await expect(slider).toBeVisible();
@@ -64,7 +64,7 @@ test("Views are static at 0, 50 and 100; dragging drafts LOGIC and Update places
   await expect(figure).toBeVisible();
   await expect(figure).toHaveAttribute("data-x", "60");
   await expect(figure).toHaveAttribute("data-y", "140");
-  const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
+  const pane = (await studio.locator('.studio-pane[data-layer="visual"]').boundingBox())!;
   // Grip the centre of a cell inside the figure, in whole pixels: WebKit drops
   // a pointer's fraction, which at a zoom below 100% can land in the next cell.
   const px = (col: number) => Math.round(pane.x + ((col + 0.5) * pane.width) / 160);
@@ -154,9 +154,9 @@ test("computed placements move a preview, and game motion never paints the pictu
   await open(page, "part-room:8:picture:8");
   await expect(page.getByTestId("workspace-update")).toBeVisible();
   await page.getByTestId("workspace-update").click();
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
-  const canvas = studio.locator('.studio-pane[data-layer="art"] canvas');
+  const canvas = studio.locator('.studio-pane[data-layer="visual"] canvas');
   await expect(canvas).toBeVisible();
   const pixels = await canvas.evaluate((el) => {
     const c = el as HTMLCanvasElement;
@@ -192,7 +192,7 @@ test("computed placements move a preview, and game motion never paints the pictu
     animations: "disabled",
   });
   const source = await workspaceDocument(page, "logic:8");
-  const pane = (await studio.locator('.studio-pane[data-layer="art"]').boundingBox())!;
+  const pane = (await studio.locator('.studio-pane[data-layer="visual"]').boundingBox())!;
   const px = (col: number) => Math.round(pane.x + ((col + 0.5) * pane.width) / 160);
   const py = Math.round(pane.y + (138.5 * pane.height) / 168);
   await page.mouse.move(px(60), py);
@@ -226,7 +226,7 @@ test("an unfinished bindings draft leaves the picture available", async ({ page 
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:8:picture:8");
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
   const slider = studio.getByRole("slider", { name: "Views", exact: true });
   await expect(slider).toBeVisible();
@@ -257,7 +257,7 @@ for (const size of [
     await page.setViewportSize(size);
     await start(page);
     await open(page, "part-room:8:picture:8");
-    const studio = page.getByTestId("room-studio").filter({ visible: true });
+    const studio = page.getByTestId("picture-studio").filter({ visible: true });
     await expect(studio).toBeVisible();
     const slider = studio.getByRole("slider", { name: "Views", exact: true });
     await expect(slider).toBeVisible();
@@ -292,7 +292,7 @@ for (const size of [
     await page.setViewportSize(size);
     await start(page);
     await open(page, "part-room:1:picture:1");
-    const studio = page.getByTestId("room-studio").filter({ visible: true });
+    const studio = page.getByTestId("picture-studio").filter({ visible: true });
     await expect(studio).toBeVisible();
     const take = async (name: string) => {
       await page.screenshot({
@@ -314,7 +314,7 @@ for (const size of [
       expect(picture.y).toBeGreaterThan(game.y);
       expect(picture.width).toBeCloseTo(game.width, 0);
       const side = studio.locator(".studio__side");
-      const items = side.locator(".scene-list");
+      const items = side.locator(".item-list");
       await expect(items).toBeVisible();
       const sidebar = (await side.boundingBox())!;
       const list = (await items.boundingBox())!;
@@ -439,7 +439,7 @@ test("picture-only editor sits beside the game with a Views slider", async ({ pa
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:1:picture:1");
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible();
   await expect(studio.locator(".play-area")).toHaveCount(0);
   await expect(studio).not.toHaveClass(/is-live-game/);
@@ -453,9 +453,9 @@ test("the picture fits its 1063px side panel @webkit-desktop", async ({ page }) 
   await page.setViewportSize({ width: 1063, height: 815 });
   await start(page);
   await open(page, "part-room:1:picture:1");
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("picture-studio");
   await expect(studio).toBeVisible();
-  const canvas = studio.locator('.studio-pane[data-layer="art"]');
+  const canvas = studio.locator('.studio-pane[data-layer="visual"]');
   await expect(canvas).toBeVisible();
   expect((await canvas.boundingBox())!.width).toBeLessThanOrEqual(
     (await studio.locator(".studio__frame").boundingBox())!.width,
@@ -509,7 +509,7 @@ test("phone Edit and Playtest alternate the picture and game; Update plays @phon
   await page.setViewportSize({ width: 390, height: 844 });
   await start(page);
   await open(page, "part-room:1:picture:1");
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   const play = page.getByRole("button", { name: "Game", exact: true });
   await expect(play).toBeVisible();
   await play.click();

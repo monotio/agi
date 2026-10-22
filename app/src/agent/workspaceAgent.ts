@@ -22,7 +22,7 @@ import {
   type UnifiedConversation,
 } from "./llmClient.ts";
 import { providerFailureDetail } from "./providerFailure.ts";
-import { createProjectAssistDriver, PROJECT_ASSIST_TOOLS } from "./projectAssistTools.ts";
+import { createProjectAgentDriver, PROJECT_AGENT_TOOLS } from "./projectAgentTools.ts";
 import {
   ASK_TOOLS,
   finishAfterFailures,
@@ -54,8 +54,9 @@ import { sha256Hex } from "../../../src/crypto.ts";
 import { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
 import { validateToolArguments } from "../../../src/agent/schemaValidate.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
-import type { ImageFrame } from "../../../src/creative/imageOperations.ts";
+import type { ImageCel } from "../../../src/creative/imageOperations.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
+import { colourIdForProfile, colourTableForProfile } from "../../../src/runtime/colourTables.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { disassemblePicture } from "../../../src/picture/source.ts";
@@ -679,7 +680,7 @@ export function createWorkspaceAgent(options: Options) {
           if (
             attempt === 0 &&
             error instanceof Error &&
-            error.message === "Project proposal is stale."
+            error.message === "Project changes are stale."
           )
             continue;
           throw error;
@@ -791,7 +792,7 @@ export function createWorkspaceAgent(options: Options) {
       : workspaceSelection(context, base.documents(), PROFILES[profileId]!, scene);
     function projectDriver() {
       if (readOnly)
-        return createProjectAssistDriver({
+        return createProjectAgentDriver({
           base,
           profileId,
           get diagnostics() {
@@ -800,7 +801,7 @@ export function createWorkspaceAgent(options: Options) {
           documents: () => base.documents(),
         });
       const captured = editWorkspace();
-      return createProjectAssistDriver({
+      return createProjectAgentDriver({
         ...captured,
         propose(label, changes) {
           const coordinated =
@@ -1168,7 +1169,7 @@ export function createWorkspaceAgent(options: Options) {
               if (problems.length) throw new Error(problems.join(" "));
               const waiting = call.name === "finish" ? finishAfterFailures(failed) : undefined;
               if (waiting) throw new Error(waiting);
-              if (readOnly && PROJECT_ASSIST_TOOLS.some((tool) => tool.name === call.name)) {
+              if (readOnly && PROJECT_AGENT_TOOLS.some((tool) => tool.name === call.name)) {
                 if (call.name === "read_document" && call.input["key"] === "world")
                   throw new Error(
                     "Creator intent is unavailable in Ask. Inspect game resources instead.",
@@ -1319,9 +1320,15 @@ export function createWorkspaceAgent(options: Options) {
                         target,
                         image,
                         call.input["frames"] === null
-                          ? operations.suggestImageFrames(image)
-                          : (call.input["frames"] as ImageFrame[]),
+                          ? operations.suggestImageCels(image)
+                          : (call.input["frames"] as ImageCel[]),
                         PROFILES[profileId]!,
+                        undefined,
+                        undefined,
+                        {
+                          id: colourIdForProfile(PROFILES[profileId]!),
+                          table: colourTableForProfile(PROFILES[profileId]!),
+                        },
                       );
                 for (const change of changes) combined.set(change.key, change);
                 // Validate before publishing any staged state. Later tools read
@@ -1343,7 +1350,7 @@ export function createWorkspaceAgent(options: Options) {
                 staged = undefined;
                 driver = projectDriver();
                 result = { success: true, message: "Image changes staged for review." };
-              } else if (PROJECT_ASSIST_TOOLS.some((tool) => tool.name === call.name)) {
+              } else if (PROJECT_AGENT_TOOLS.some((tool) => tool.name === call.name)) {
                 result = driver.execute(call.name, call.input);
                 if (result.success && call.name === "propose_changes")
                   for (const change of call.input["changes"] as ProjectChange[])
@@ -1603,7 +1610,7 @@ export function createWorkspaceAgent(options: Options) {
           desired.set(change.key, change.content);
         }
       } catch {
-        // Tool results retain validation failures when the staged candidate cannot compile.
+        // Tool results retain validation failures when the staged changes cannot compile.
       }
       for (const change of prepared.values()) {
         touched.add(change.key);

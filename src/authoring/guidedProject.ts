@@ -16,14 +16,14 @@
  * the shape the edit replaces; anything else refuses with the affected range,
  * leaving custom code untouched. Emitted code is ordinary AGI source —
  * `said()`, `print()`, `posn()`/`new.room()`, `load.sound()`/`sound()` — that
- * Logic Studio edits freely afterward. Guided metadata lives only in the
+ * LOGIC editor edits freely afterward. Guided metadata lives only in the
  * existing words/bindings/world documents and `// @rule` annotations; there is
  * no second serialized game model.
  */
 import { systemOperand } from "../logic/systemNames.ts";
 import { openContainer } from "../container/container.ts";
 import { AssemblerError } from "../logic/assembler.ts";
-import { quoteLogicString } from "../logic/disassembler.ts";
+import { quoteLogicString } from "../logic/quote.ts";
 import { matchDictionaryPhrase, parseWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture } from "../picture/renderer.ts";
 import { compilePictureSource } from "../picture/source.ts";
@@ -91,7 +91,7 @@ import {
 
 export type GuidedOperationKind =
   | "add-room"
-  | "place-hero"
+  | "place-ego"
   | "respond-to-command"
   | "connect-door"
   | "play-sound"
@@ -221,7 +221,7 @@ interface GuidedImage {
   readonly words: WordEntry[];
   readonly dictionary: ReadonlyMap<string, number>;
   readonly profile: AgiProfile;
-  readonly keptContainer: GameContainer;
+  readonly savedContainer: GameContainer;
 }
 
 function readJson(text: string): unknown {
@@ -301,7 +301,7 @@ function consult(
       "words",
     );
   }
-  const keptContainer = openContainer(
+  const savedContainer = openContainer(
     new Map(Object.entries(ctx.files).map(([name, bytes]) => [name, new Uint8Array(bytes)])),
     { profile },
   );
@@ -313,7 +313,7 @@ function consult(
     words,
     dictionary: new Map(words.map((entry) => [entry.word, entry.id])),
     profile,
-    keptContainer,
+    savedContainer,
   };
 }
 
@@ -336,13 +336,13 @@ function occupiedResourceIds(img: GuidedImage, kind: "logic" | "picture" | "view
     if (binding.kind === kind) used.add(binding.num);
   for (let num = 0; num < 256; num++) {
     try {
-      if (img.keptContainer.getResource(kind, num)) used.add(num);
+      if (img.savedContainer.getResource(kind, num)) used.add(num);
     } catch {
       used.add(num);
     }
   }
   const analysis = inspectProjectReferences({
-    container: img.keptContainer,
+    container: img.savedContainer,
     profile: img.profile,
     bindings: img.bindings,
   });
@@ -648,7 +648,7 @@ function allocateState(
       );
   }
   const context = {
-    container: img.keptContainer,
+    container: img.savedContainer,
     profile: img.profile,
     dictionary: img.dictionary,
     bindings: inFlight,
@@ -953,7 +953,7 @@ function viewOf(img: GuidedImage, num: number): AgiView | null {
     if (typeof doc === "string")
       return parseView(buildView(readJson(doc) as BuildViewInput, img.profile), img.profile);
     if (doc instanceof Uint8Array) return parseView(doc, img.profile);
-    const payload = img.keptContainer.getResource("view", num);
+    const payload = img.savedContainer.getResource("view", num);
     return payload ? parseView(payload, img.profile) : null;
   } catch {
     return null;
@@ -989,7 +989,7 @@ function pictureSurface(img: GuidedImage, num: number): Uint8Array | null {
     if (doc instanceof Uint8Array) payload = doc;
     else if (typeof doc === "string")
       payload = compilePictureSource(doc, { profile: img.profile }).bytes;
-    else payload = img.keptContainer.getResource("picture", num);
+    else payload = img.savedContainer.getResource("picture", num);
     if (!payload) return null;
     const surface = createPictureSurface();
     renderPicture(payload, surface, { profile: img.profile });
@@ -1304,7 +1304,7 @@ export interface GuidedAddRoomInput {
   readonly title?: string;
   readonly description?: string;
   /** An existing view to place as the hero (number or view binding name). */
-  readonly heroView?: number | string;
+  readonly egoView?: number | string;
   readonly spawn?: { readonly x: number; readonly y: number; readonly horizon?: number };
 }
 
@@ -1354,15 +1354,15 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     bindings[name] = { kind: bindingKind, num };
   }
 
-  let heroView: number | null = null;
-  let heroRef = "";
-  if (input.heroView !== undefined) {
-    const ref = resourceRef(env, input.heroView, "view");
+  let egoView: number | null = null;
+  let egoRef = "";
+  if (input.egoView !== undefined) {
+    const ref = resourceRef(env, input.egoView, "view");
     if (!("num" in ref)) return ref;
-    heroView = ref.num;
-    heroRef = ref.text;
-    if (env.documents[`view:${heroView}`] === undefined)
-      return refuse(kind, label, "missing", `VIEW ${heroView} does not exist.`, `view:${heroView}`);
+    egoView = ref.num;
+    egoRef = ref.text;
+    if (env.documents[`view:${egoView}`] === undefined)
+      return refuse(kind, label, "missing", `VIEW ${egoView} does not exist.`, `view:${egoView}`);
   }
 
   const spawn = input.spawn ?? { x: 80, y: 140 };
@@ -1375,16 +1375,16 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
     );
   const horizon = spawn.horizon ?? 36;
 
-  if (heroView !== null) {
-    const view = viewOf(env, heroView);
+  if (egoView !== null) {
+    const view = viewOf(env, egoView);
     const foot = view && footprint(view);
     if (!view || !foot)
       return refuse(
         kind,
         label,
         "missing",
-        `VIEW ${heroView} has no drawable cel.`,
-        `view:${heroView}`,
+        `VIEW ${egoView} has no drawable cel.`,
+        `view:${egoView}`,
       );
     if (spawn.x + foot.width > 160 || spawn.y < foot.height - 1 || spawn.y <= horizon)
       return refuse(
@@ -1414,21 +1414,21 @@ export function prepareGuidedAddRoom(ctx: GuidedContext, input: GuidedAddRoomInp
   const picRef = input.pictureName !== undefined ? input.pictureName : String(pictureId);
   const lines: string[] = [
     `// ${roomTitle} — an empty room. The ${systemOperand("flag", 5, bindings)} block runs once on room entry: draw`,
-    `// the picture${heroView !== null ? ", place ego, then hand control to the player" : ""}.`,
+    `// the picture${egoView !== null ? ", place ego, then hand control to the player" : ""}.`,
     `if (isset(${systemOperand("flag", 5, bindings)})) {`,
     `  assignn(${picVarName}, ${picRef});`,
     `  load.pic(${picVarName});`,
     `  draw.pic(${picVarName});`,
     `  show.pic();`,
   ];
-  if (heroView !== null) {
+  if (egoView !== null) {
     lines.push(
       `  set.horizon(${horizon});`,
       `  animate.obj(o0);`,
-      `  load.view(${heroRef});`,
-      `  set.view(o0, ${heroRef});`,
+      `  load.view(${egoRef});`,
+      `  set.view(o0, ${egoRef});`,
     );
-    const view = viewOf(env, heroView)!;
+    const view = viewOf(env, egoView)!;
     if (view.loops.length > 2) lines.push(`  set.loop(o0, 2);`);
     lines.push(`  position(o0, ${spawn.x}, ${spawn.y});`, `  draw(o0);`, `  player.control();`);
   }
@@ -1557,7 +1557,7 @@ export function prepareGuidedBoilerplate(
 
 // ---------- 2. Place hero ----------
 
-export interface GuidedPlaceHeroInput {
+export interface GuidedPlaceEgoInput {
   /** The room LOGIC number whose entry block places ego. */
   readonly room: number;
   /** A new existing view (number or view binding name); omit to keep it. */
@@ -1566,11 +1566,11 @@ export interface GuidedPlaceHeroInput {
   readonly y?: number;
 }
 
-export function prepareGuidedPlaceHero(
+export function prepareGuidedPlaceEgo(
   ctx: GuidedContext,
-  input: GuidedPlaceHeroInput,
+  input: GuidedPlaceEgoInput,
 ): GuidedOutcome {
-  const kind: GuidedOperationKind = "place-hero";
+  const kind: GuidedOperationKind = "place-ego";
   const label = "Place hero";
   const consulted = consult(ctx, kind, label);
   if ("code" in consulted) return consulted;

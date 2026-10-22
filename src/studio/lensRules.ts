@@ -1,6 +1,6 @@
 /**
- * Room Studio lens rules, shared by the creator's own edits
- * (app/src/studio/studioLocks.ts) and AI proposals (assistScope.ts) so both
+ * PICTURE editor lens rules, shared by the creator's own edits
+ * (app/src/studio/studioLocks.ts) and AI proposals (agentScope.ts) so both
  * pass the same validators. Each lens locks the plane it is not about:
  * Visual locks the priority plane, Priority locks the visual plane.
  * Unlocking is explicit and lasts for the Studio session. The locks guard
@@ -12,7 +12,7 @@ import type { EditOperation } from "./editOperations.ts";
 import { pictureItemAtLine, type PictureDocument } from "./pictureDocument.ts";
 import type { PicturePlane } from "./pictureQuery.ts";
 
-export type StudioLens = "art" | "depth";
+export type StudioLens = "visual" | "priority";
 
 /** What the creator unlocked for this Studio session. */
 export interface LensUnlocks {
@@ -25,21 +25,21 @@ export interface LensUnlocks {
 export const NO_UNLOCKS: LensUnlocks = { visual: false, priority: false };
 const ALL_UNLOCKS: LensUnlocks = { visual: true, priority: true };
 
-/** Operations that intentionally change whole items, including derived depth. */
+/** Operations that intentionally change whole items, including derived priority. */
 export const WHOLE_ITEM_OPERATIONS: readonly string[] = [
   "moveItem",
   "duplicateItem",
   "deleteItem",
-  "addDepth",
+  "addPriority",
   "standInRoom",
 ];
 
 /**
  * Whole items move whole: an edit that only moves, copies or deletes whole
  * items carries every plane they draw (the visual and the priority plane's
- * depth and control lines) in any lens, so no lens lock refuses it. The
+ * priority and control lines) in any lens, so no lens lock refuses it. The
  * locks guard painting and editing within a plane: new shapes, fills,
- * colours, depth values and points. The unlocks an edit is checked under,
+ * colours, priority values and points. The unlocks an edit is checked under,
  * `wholeItems` saying whether it only takes whole items.
  */
 export function editUnlocks(unlocks: LensUnlocks, wholeItems: boolean): LensUnlocks {
@@ -47,7 +47,7 @@ export function editUnlocks(unlocks: LensUnlocks, wholeItems: boolean): LensUnlo
 }
 
 /**
- * Unlock depth accompanying an item's art reshape. Manual priority painting
+ * Unlock priority accompanying an item's art reshape. Manual priority painting
  * keeps the lens's ordinary locks; art keeps its lock under Priority.
  * Hosts can use this in place of the whole-item boolean for edit batches.
  */
@@ -62,7 +62,8 @@ export function editOperationUnlocks(
     if (WHOLE_ITEM_OPERATIONS.includes(op.type)) return true;
     if (op.type === "setItemColor") {
       return (
-        op.plane === "visual" && document.items.some((item) => item.id === op.itemId && item.depth)
+        op.plane === "visual" &&
+        document.items.some((item) => item.id === op.itemId && item.priority)
       );
     }
     if (op.type === "setStepColor" && op.plane !== "visual") return false;
@@ -75,7 +76,8 @@ export function editOperationUnlocks(
       return false;
     const item = pictureItemAtLine(document, op.line);
     return (
-      item?.depth !== undefined && (op.line < item.depth.openLine || op.line > item.depth.closeLine)
+      item?.priority !== undefined &&
+      (op.line < item.priority.openLine || op.line > item.priority.closeLine)
     );
   });
   return derived ? { ...unlocks, priority: true } : unlocks;
@@ -83,6 +85,6 @@ export function editOperationUnlocks(
 
 /** The planes `lens` keeps locked, less those unlocked. */
 export function lockedPlanes(lens: StudioLens, unlocks: LensUnlocks): PicturePlane[] {
-  if (lens === "art") return unlocks.priority ? [] : ["priority"];
+  if (lens === "visual") return unlocks.priority ? [] : ["priority"];
   return unlocks.visual ? [] : ["visual"];
 }

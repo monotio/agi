@@ -13,6 +13,9 @@ export function configureSessionTiming(ctx: WorkerContext): void {
   const timing = ctx.run.engine?.timing;
   if (!timing) return;
   ctx.boot.amigaRegion = ctx.run.engine!.amigaRegion;
+  ctx.boot.pcDisplay = ctx.run.engine!.pcDisplay;
+  ctx.boot.adoptDeclaredScriptSize = ctx.run.engine!.adoptsDeclaredScriptSize;
+  ctx.boot.legacyRoomMemory = ctx.run.engine!.legacyRoomMemory;
   if (ctx.run.clocks.sound.hz !== timing.soundHz)
     ctx.run.clocks.sound = new SoundClock(ctx.ports.now(), timing.soundHz);
   if (ctx.run.clocks.cycle.incrementMs !== timing.timerIncrementMs)

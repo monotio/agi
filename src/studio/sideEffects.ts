@@ -1,8 +1,8 @@
 /**
- * The side effects of a Room Studio edit: cells of OTHER items' output that
+ * The side effects of a PICTURE editor edit: cells of OTHER items' output that
  * change though their commands do not, as when a fill pours differently
  * around a moved outline. The creator's own edits (app/src/studio/studioLocks.ts)
- * and AI proposals (assistScope.ts) report them instead of refusing them;
+ * and AI proposals (agentScope.ts) report them instead of refusing them;
  * the caller says which changed cells count (those outside the edited
  * items, or outside a proposal's licence). Each cell is put down to the
  * item whose output changed there: of the items that drew it before and
@@ -19,7 +19,7 @@ const PLANES: readonly PicturePlane[] = ["visual", "priority"];
 /** The fill command's opcode. */
 const FILL_OPCODE = 0xf8;
 
-/** The creator's planes: art (visual), depth (priority 4–15) and walk lines (priority 0–3). */
+/** The creator's planes: art (visual), priority (priority 4–15) and walk lines (priority 0–3). */
 type SideEffectPlane = "art" | "depth" | "walk";
 
 /** The creator's name for a side effect's plane. */
@@ -52,7 +52,7 @@ interface SideEffectItem {
 export interface SideEffectReport {
   /** The items that change, most cells first. */
   readonly items: readonly SideEffectItem[];
-  /** Per item and plane, in the items' order, then art, depth, walk. */
+  /** Per item and plane, in the items' order, then art, priority, walk. */
   readonly effects: readonly SideEffect[];
   /** Distinct cells that change, on any plane. */
   readonly cells: number;
@@ -60,7 +60,7 @@ export interface SideEffectReport {
   readonly mask: Uint8Array;
 }
 
-/** The label of cells drawn by commands outside every item: the Scene list's name. */
+/** The label of cells drawn by commands outside every item: the Items panel's name. */
 const LOOSE_LABEL = "Loose steps";
 /** The label of cells no command drew. */
 const BLANK_LABEL = "Blank area";

@@ -1,7 +1,7 @@
 /**
  * Loads the AI authoring stack (authoringStack.ts) on demand. A player who
  * never uses AI never downloads it; the shell prefetches it in idle time when
- * the player shows intent — opening Create or the Ask drawer, or booting a
+ * the player shows intent — opening Create or the Agent drawer, or booting a
  * created game that writes its rooms as they are reached.
  */
 import type * as AuthoringStack from "./authoringStack.ts";

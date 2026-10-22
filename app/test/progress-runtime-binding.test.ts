@@ -225,7 +225,7 @@ test("a target-only boot writes nothing after its body was deleted and recreated
   assert.equal(direct, "stale", "the captured epoch is the conditional expectation");
 });
 
-test("two installed folders sharing one hash keep their checkpoint pictures independent", async (t) => {
+test("two installed folders sharing one hash keep their progress entry pictures independent", async (t) => {
   installLocalStorageMock(t);
   const sharedHash = "a".repeat(64);
   const revision = testRevision("shared-rev");
@@ -481,10 +481,10 @@ test("a project pointer's old epoch cannot resume a deleted-and-recreated body",
   assert.equal(
     localStorage.getItem(autosaveKey(locator)),
     storedBytes,
-    "the stale checkpoint's bytes are kept exactly, never erased or adopted",
+    "the stale progress entry's bytes are kept exactly, never erased or adopted",
   );
   assert.deepEqual(readAutosave(locator), record, "the stored record is untouched");
-  assert.equal(lastGameKey(), locator, "the pointer still names the checkpoint it selected");
+  assert.equal(lastGameKey(), locator, "the pointer still names the progress entry it selected");
   assert.equal(bootedProjectId, null);
 });
 
@@ -642,11 +642,11 @@ test("a resume validated before the boot is checked again against the bound targ
     "the dead incarnation's resume refuses",
   );
   assert.equal(bootedProjectId, id, "the boot itself ran");
-  assert.equal(restoredImage, "", "the dead incarnation's checkpoint is dropped, not restored");
+  assert.equal(restoredImage, "", "the dead incarnation's progress entry is dropped, not restored");
   assert.equal(running, null, "an aborted admission installs no candidate");
   assert.equal(
     localStorage.getItem(autosaveKey(target.locator)),
     storedBytes,
-    "the old epoch's checkpoint bytes are kept exactly",
+    "the old epoch's progress entry bytes are kept exactly",
   );
 });

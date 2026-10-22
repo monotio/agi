@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { prepareGuidedPlaceHero, type GuidedContext } from "../src/authoring/guidedProject.ts";
+import { prepareGuidedPlaceEgo, type GuidedContext } from "../src/authoring/guidedProject.ts";
 import { readProjectDocuments } from "../src/authoring/projectDocuments.ts";
 import { ProjectDraft } from "../src/authoring/projectDraft.ts";
 import { compileProjectSelection } from "../src/authoring/projectSelection.ts";
@@ -87,7 +87,7 @@ test("Place hero installs an existing drawn VIEW into an actor-free room as one 
   const before = draft.capture();
   const roomBefore = before.read("logic:1")!.content;
   const viewBefore = before.read("view:7")!.content;
-  const operation = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+  const operation = prepareGuidedPlaceEgo(ctx, { room: 1, view: 7, x: 100, y: 120 });
   assert.equal(draft.capture().revision, before.revision, "preparing leaves the draft untouched");
   assert.ok(
     operation.ok,
@@ -145,7 +145,7 @@ test("partial hand-written hero setup stays intact when guided placement refuses
   const partial = original.replace("  accept.input();", "  set.view(o0, 7);\n  accept.input();");
   draft.edit("logic:1", partial, base.version("logic:1"));
   const before = draft.capture();
-  const operation = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+  const operation = prepareGuidedPlaceEgo(ctx, { room: 1, view: 7, x: 100, y: 120 });
   assert.equal(operation.ok, false);
   if (!operation.ok) assert.equal(operation.code, "custom-code");
   assert.equal(draft.capture().revision, before.revision);
@@ -168,7 +168,7 @@ for (const statement of [
     );
     draft.edit("logic:1", source, base.version("logic:1"));
     const before = draft.capture();
-    const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+    const outcome = prepareGuidedPlaceEgo(ctx, { room: 1, view: 7, x: 100, y: 120 });
     assert.equal(outcome.ok, false);
     if (!outcome.ok) assert.equal(outcome.code, "custom-code");
     assert.equal(draft.capture().revision, before.revision);
@@ -184,7 +184,7 @@ for (const [x, y] of [
     const { ctx, draft } = boilerplateWorkspace();
     installExistingView(draft);
     const before = draft.capture();
-    const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x, y });
+    const outcome = prepareGuidedPlaceEgo(ctx, { room: 1, view: 7, x, y });
     assert.equal(outcome.ok, false);
     if (!outcome.ok) assert.equal(outcome.code, "invalid-input");
     assert.equal(draft.capture().revision, before.revision);
@@ -197,7 +197,7 @@ test("actor-free placement validates the current PICTURE walk barrier", () => {
   const base = draft.capture();
   draft.edit("picture:1", "pri 0\nfill 0,0\nend\n", base.version("picture:1"));
   const before = draft.capture();
-  const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+  const outcome = prepareGuidedPlaceEgo(ctx, { room: 1, view: 7, x: 100, y: 120 });
   assert.equal(outcome.ok, false);
   if (!outcome.ok) {
     assert.equal(outcome.code, "invalid-input");
@@ -219,7 +219,7 @@ test("actor-free placement asks for a drawn cel instead of installing a transpar
       },
     ]),
   );
-  const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+  const outcome = prepareGuidedPlaceEgo(ctx, { room: 1, view: 7, x: 100, y: 120 });
   assert.equal(outcome.ok, false);
   if (!outcome.ok) assert.equal(outcome.code, "missing");
 });

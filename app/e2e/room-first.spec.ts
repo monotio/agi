@@ -59,7 +59,7 @@ test.describe("touch room naming", () => {
       await page.getByTestId("empty-add-room").click();
       const rename = page.getByTestId("room-rename-input");
       await expect(rename).toBeVisible();
-      await expect(page.getByTestId("room-studio")).toBeVisible();
+      await expect(page.getByTestId("picture-studio")).toBeVisible();
       await expect(rename).toBeFocused();
       expect(
         await rename.evaluate((input) => [

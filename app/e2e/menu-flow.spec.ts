@@ -16,13 +16,13 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("first visit has one route per action and aligned sections @phone", async ({ page }) => {
-  const hero = page.locator(".hero");
+  const hero = page.locator(".intro");
   await expect(hero).toBeVisible();
   await expect(hero.getByRole("button").nth(0)).toBeVisible();
   await expect(hero.getByRole("button").nth(1)).toBeVisible();
   await expect(hero.getByRole("button")).toHaveText(["Play the tutorial", "Make a new game"]);
-  await expect(hero.locator(".hero-line")).toBeVisible();
-  await expect(hero.locator(".hero-line")).toHaveText(
+  await expect(hero.locator(".intro-line")).toBeVisible();
+  await expect(hero.locator(".intro-line")).toHaveText(
     "Play Sierra-style adventures and build your own.",
   );
   for (const [width, height] of [
@@ -31,9 +31,9 @@ test("first visit has one route per action and aligned sections @phone", async (
     [390, 844],
   ] as const) {
     await page.setViewportSize({ width, height });
-    await expect(hero.locator(".hero-line")).toBeVisible();
+    await expect(hero.locator(".intro-line")).toBeVisible();
     await page.screenshot({
-      path: test.info().outputPath(`home-hero-${width}.png`),
+      path: test.info().outputPath(`home-intro-${width}.png`),
       animations: "disabled",
     });
   }

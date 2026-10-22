@@ -1,3 +1,4 @@
+import { AUTHORING_CONVENTIONS_VERSION } from "../../../src/authoring/projectConventions.ts";
 import { createAuthoringState } from "../../../src/authoring/authoringState.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { writeProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
@@ -6,7 +7,7 @@ import { requireProjectId, requireResourceRevision } from "../../../src/gameIden
 import { commitProject, type ProjectCommitRequest } from "./gameStorage.ts";
 
 /**
- * Prepare a local editable project without a worker or assistant.
+ * Prepare a local editable project without a worker or agent.
  * Blank has no LOGIC 0: the app must show the workspace empty state instead
  * of starting the engine. isPlayableProject checks the boot resource. Preparation
  * owns the seed and validates its complete document image before any storage
@@ -55,6 +56,7 @@ export function prepareLocalProject(input: { readonly title: string; readonly ki
       .map((key) => ({ key, version: 0 })),
     data: {
       title,
+      authoringConventions: { version: AUTHORING_CONVENTIONS_VERSION },
       templateId: seed.seed.templateId,
       roomGeneration: false,
       files: Object.fromEntries(compiled.files()),

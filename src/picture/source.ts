@@ -710,7 +710,7 @@ Surface is 160 wide (x 0..159) by 168 tall (y 0..167); y grows downward. The sur
   end                      end of picture
 
 Draw the visual pass far to near with enclosed outlines and fills. Then draw only intentional priority/control
-shapes: pri 0/1 barriers, 2 triggers, 3 water, and 5..15 scenery that should occlude a sprite. Leave ordinary
+shapes: pri 0/1 barriers, 2 triggers, 3 water, and 5..15 scenery that should occlude a view. Leave ordinary
 walkable floor at pri 4; shape higher-priority regions to visible scenery instead of drawing floor stripes.
 `;
 

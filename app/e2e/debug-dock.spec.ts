@@ -121,7 +121,7 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   );
   const pick = page.getByTestId("dbg-pick");
   await expect(pick).toBeVisible();
-  await expect(pick).toContainText("Object 0");
+  await expect(pick).toContainText("Actor 0");
   await expect(pick).toContainText("VIEW 0");
 
   // State tab: v42 was written by logic → shows 7; flag 42 shows set.
@@ -183,7 +183,7 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   // Mask-aware picking: a tap raycasts the layer stack, so the latched
   // pick names the band that rendered the pixel — not the nearest quad.
   // The canvas centre is sky (picture band 4): the nearer text quad is
-  // transparent there and every sprite quad masks out without an owner,
+  // transparent there and every view quad masks out without an owner,
   // so the pick must fall through to the band-4 wall.
   const overlay3d = (await page.getByTestId("dbg-overlay").boundingBox())!;
   await page.mouse.click(overlay3d.x + overlay3d.width / 2, overlay3d.y + overlay3d.height / 2);
@@ -276,7 +276,7 @@ test("show.obj renders as its own layer in flat and exploded views, then restore
   // 152..167 → displayed 152..167 x 160..175), light red over the cyan sky.
   await expect.poll(async () => probePixel(160, 168)).toEqual([0xff, 0x55, 0x55, 255]);
 
-  // A flat pick on the cel reports the pixel honestly: no sprite owns it.
+  // A flat pick on the cel reports the pixel honestly: no view owns it.
   await page.getByTestId("dbg-tab-screen").click();
   await page.getByTestId("dbg-inspect-toggle").check();
   const overlay = page.getByTestId("dbg-overlay");
@@ -294,7 +294,7 @@ test("show.obj renders as its own layer in flat and exploded views, then restore
 
   // Reopen over the live scene: wait for the state poll to observe the reset
   // flag so the click writes a SET, then explode. The preview is its own
-  // layer floating in front of the sprite bands, and the pick names it.
+  // layer floating in front of the view bands, and the pick names it.
   await page.getByTestId("dbg-tab-state").click();
   await expect(page.getByTestId("dbg-flags").locator("button").nth(43)).toHaveText("·");
   await page.getByTestId("dbg-flags").locator("button").nth(43).click();

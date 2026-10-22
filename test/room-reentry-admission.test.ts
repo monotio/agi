@@ -11,7 +11,9 @@ const MAIN =
 const ROOM = `if (isset(f5)) {
   assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic();
   load.view(1); animate.obj(o0); set.view(o0,1); position(o0,40,100); draw(o0); stop.motion(o0);
-  add.to.pic(1,0,0,80,100,0,0);
+  // Margin 4 omits the control box; margin 0 on a 2px-wide cel wraps the
+  // top-row LOOP across the priority surface (docs/fidelity.md, F-VIEWS-12).
+  add.to.pic(1,0,0,80,100,0,4);
 }
 if (v81 == 1) { get(0); assignn(v81,0); }
 if (v82 == 1) { position(o0,60,120); assignn(v82,0); }

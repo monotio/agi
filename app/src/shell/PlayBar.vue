@@ -21,6 +21,7 @@ import { useOptionalCommands } from "./commands/commandContext.ts";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { gameShortcuts } from "../play/gameControls.ts";
+import { modalWaitsOnClock } from "../engine/useEngineTypes.ts";
 import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
@@ -102,7 +103,7 @@ const saveShortcuts = computed(() =>
 const shortcutsBlocked = computed(
   () =>
     state.paused ||
-    state.modal !== null ||
+    (state.modal !== null && !modalWaitsOnClock(state.modal)) ||
     state.prompt !== null ||
     state.textMode ||
     state.walkthrough.active ||

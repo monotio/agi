@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
+import { sha256Hex } from "../../src/crypto.ts";
+import {
+  projectSaveJournalKey,
+  writeProjectSaveJournal,
+} from "../src/project/projectSaveJournal.ts";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import * as storage from "../src/project/gameStorage.ts";
@@ -10,6 +16,10 @@ let cacheFails = false;
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
+    get length() {
+      return cache.size;
+    },
+    key: (index: number) => [...cache.keys()][index] ?? null,
     getItem: (key: string) => cache.get(key) ?? null,
     setItem(key: string, value: string) {
       if (cacheFails) throw new Error("cache quota");
@@ -213,4 +223,84 @@ test("receipt content distinguishes negative zero and rejects unsupported metada
     /unsupported value/i,
   );
   assert.equal(records.has(unsupported.projectId), false);
+});
+
+test("automatic publication yields to pending edits while creator writes and receipt retries keep their authority", async () => {
+  const input = request("automatic-publication");
+  const first = await storage.commitProject(input);
+  const next = {
+    ...input,
+    commitId: "second",
+    expected: first.receipt.saved,
+    data: { ...input.data, title: "Updated" },
+  };
+  const ownJournalKey = projectSaveJournalKey(input.projectId, "automatic");
+  const pending = projectSaveJournalKey(input.projectId, "creator");
+  writeProjectSaveJournal(localStorage, ownJournalKey, [{ request: next, attempted: true }]);
+  // Its own journal never blocks a new automatic publication.
+  const ownOnly = await storage.commitProject(next, undefined, { ownJournalKey });
+  assert.equal(ownOnly?.receipt.saved.generation, 2);
+  const third = { ...next, commitId: "third", expected: ownOnly!.receipt.saved };
+  writeProjectSaveJournal(localStorage, pending, [{ request: third, attempted: false }]);
+  const before = new Map(records);
+  const raw = localStorage.getItem(pending);
+  assert.equal(await storage.commitProject(third, undefined, { ownJournalKey }), undefined);
+  assert.deepEqual(
+    [...records],
+    [...before],
+    "deferral writes no body, receipt or History records",
+  );
+  assert.equal(localStorage.getItem(pending), raw);
+  const creator = await storage.commitProject(third);
+  assert.equal(creator.receipt.saved.generation, 3);
+  // The matching durable receipt wins even while another page has pending edits.
+  assert.deepEqual(
+    (await storage.commitProject(third, undefined, { ownJournalKey }))?.receipt,
+    creator.receipt,
+  );
+  localStorage.removeItem(ownJournalKey);
+  localStorage.removeItem(pending);
+});
+
+test("automatic publication checks pending edits after the transaction's deferred History reads", async () => {
+  const input = request("automatic-history-read");
+  const history = new ProjectHistory(sha256Hex);
+  history.record(
+    { "logic:1": "return;" },
+    { label: "Opened", origin: "logic", author: "creator", time: 1 },
+  );
+  const first = await storage.commitProject({
+    ...input,
+    data: { ...input.data, projectHistory: history.capturePortable() },
+  });
+  history.record(
+    { "logic:1": 'print("Garden"); return;' },
+    { label: "Edit", origin: "logic", author: "creator", time: 2 },
+  );
+  const next = {
+    ...input,
+    commitId: "second",
+    expected: first.receipt.saved,
+    data: { ...input.data, projectHistory: history.capturePortable() },
+  };
+  const ownJournalKey = projectSaveJournalKey(input.projectId, "automatic");
+  const pending = projectSaveJournalKey(input.projectId, "creator");
+  const before = new Map(records);
+  const get = records.get;
+  let published = false;
+  records.get = function (key) {
+    if (typeof key === "string" && key.startsWith(`project-history/${input.projectId}/blobs/`)) {
+      published = true;
+      writeProjectSaveJournal(localStorage, pending, [{ request: next, attempted: false }]);
+    }
+    return get.call(this, key);
+  };
+  try {
+    assert.equal(await storage.commitProject(next, undefined, { ownJournalKey }), undefined);
+    assert.equal(published, true, "the journal arrived after the initial admission callback");
+  } finally {
+    records.get = get;
+    localStorage.removeItem(pending);
+  }
+  assert.deepEqual([...records], [...before]);
 });

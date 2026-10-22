@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { throttleTask } from "../../ui/frameTask.ts";
 import { numberedLabel } from "../../../../src/logic/numberedLabels.ts";
 import UiIcon from "../../ui/UiIcon.vue";
 import {
@@ -21,11 +22,11 @@ import {
   readImageReferences,
   readProjectImage,
   makeCelsChanges,
-  suggestImageFrames,
+  suggestImageCels,
   prepareImageCels,
   detectImageBackground,
   type ProjectImageInput,
-  type ImageFrame,
+  type ImageCel,
 } from "../../../../src/creative/imageOperations.ts";
 import type { ProjectSession } from "../../project/projectSession.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
@@ -33,13 +34,13 @@ import { decodeCreativeImage } from "../../references/creativeImageDecode.ts";
 import type { createImageGenerationMount } from "./imageGenerationMount.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useShellBridge } from "../../shell/shellBridge.ts";
-import { openSprite } from "../../../../src/view/spriteDocument.ts";
+import { openViewDocument } from "../../../../src/view/viewDocument.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import { buildView } from "../../../../src/view/view.ts";
-import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
-import { EGA_PALETTE } from "../../render/palette.ts";
+import { nearestEgaIndex } from "../../../../src/view/sheet.ts";
+import { paletteCss, useGamePalette, useGamePaletteLook } from "../../render/useGamePalette.ts";
 import { presentTrace, previewTrace } from "./tracePresentation.ts";
-import ImageFrameSheet from "./ImageFrameSheet.vue";
+import ImageCelSheet from "./ImageCelSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiSwitch from "../../ui/UiSwitch.vue";
 const props = defineProps<{
@@ -56,7 +57,7 @@ const CreativeGenerate = defineAsyncComponent(() => import("./CreativeGenerate.v
 const engine = useEngineApi();
 const bridge = useShellBridge();
 const image = shallowRef<ProjectImageInput>();
-const frames = ref<ImageFrame[]>([]);
+const cels = ref<ImageCel[]>([]);
 const opacity = ref(0.4);
 const behindArt = ref(false);
 const transform = ref<TraceTransform>({ x: 0, y: 0, scale: 1 });
@@ -83,8 +84,8 @@ watch(
     }
     const observer = new ResizeObserver(fit);
     observer.observe(target);
-    const frame = target.closest(".workspace-editor");
-    if (frame) observer.observe(frame);
+    const cel = target.closest(".workspace-editor");
+    if (cel) observer.observe(cel);
     if (target.offsetParent) observer.observe(target.offsetParent);
     window.addEventListener("resize", fit);
     fit();
@@ -97,6 +98,8 @@ watch(
 );
 const mirrors = shallowRef<readonly (number | null)[]>([]);
 const loopHeights = shallowRef<readonly number[]>([]);
+const palette = useGamePalette();
+const gameLook = useGamePaletteLook();
 const background = shallowRef<readonly [number, number, number] | null>(null);
 const replaceOpen = ref(false);
 const colourOpen = ref(false);
@@ -132,7 +135,7 @@ const name = computed(() => {
 const backgroundName = computed(() =>
   background.value === null
     ? "Background is see-through"
-    : `${colourNames[nearestEgaIndex(...background.value)]} is see-through`,
+    : `${colourNames[nearestEgaIndex(...background.value, palette.value)]} is see-through`,
 );
 const sourceUrl = computed(() => {
   if (!image.value) return "";
@@ -149,12 +152,12 @@ watch(
   () => {
     const content = props.session.workingSnapshot().read(props.target)?.content;
     if (!isPicture.value && content !== undefined) {
-      const sprite = openSprite(
+      const view = openViewDocument(
         typeof content === "string" ? buildView(JSON.parse(content), props.profile) : content,
         props.profile,
       );
-      mirrors.value = sprite.loops.map((loop) => loop.alias);
-      loopHeights.value = sprite.loops.map((loop) => loop.cels[0]?.height ?? 24);
+      mirrors.value = view.loops.map((loop) => loop.alias);
+      loopHeights.value = view.loops.map((loop) => loop.cels[0]?.height ?? 24);
     }
   },
   { immediate: true },
@@ -215,7 +218,7 @@ async function commit(changes: Parameters<typeof props.session.model.propose>[2]
   if (!currentProject()) throw new Error("Open this project again to use the image.");
   const result = await props.session.stage(changes);
   if (!["draft", "committed", "restartRequired"].includes(result.status))
-    throw new Error("The image could not be added. Check the frames and try again.");
+    throw new Error("The image could not be added. Check the cels and try again.");
   emit("changed");
 }
 async function useImage(value: ProjectImageInput) {
@@ -242,7 +245,7 @@ async function useImage(value: ProjectImageInput) {
   } else {
     background.value = detectImageBackground(value);
     backgroundTransparent.value = true;
-    frames.value = [...suggestImageFrames(value)];
+    cels.value = [...suggestImageCels(value)];
   }
   generateOpen.value = false;
 }
@@ -303,10 +306,11 @@ function adjustTrace(next: TraceTransform, release: boolean) {
   previewPlacement();
   if (release) changeTrace("Trace position");
 }
+watch(palette, () => previewPlacement());
 function previewPlacement() {
   if (!image.value || !isPicture.value) return;
   presentTrace(props.session, props.target, {
-    pixels: prepareTracePixels(image.value, transform.value),
+    pixels: prepareTracePixels(image.value, transform.value, palette.value),
     opacity: opacity.value,
     behindArt: behindArt.value,
     transform: transform.value,
@@ -347,20 +351,7 @@ function changeTrace(label: string) {
       error.value = "The trace settings could not be saved. Move the slider again to retry.";
   });
 }
-const prepared = computed(() => {
-  if (!image.value || isPicture.value) return null;
-  try {
-    return prepareImageCels(
-      image.value,
-      frames.value,
-      props.profile,
-      background.value,
-      backgroundTransparent.value,
-    );
-  } catch {
-    return null;
-  }
-});
+const prepared = shallowRef<ReturnType<typeof prepareImageCels> | null>(null);
 async function addCels() {
   if (!image.value) return;
   busy.value = true;
@@ -372,43 +363,45 @@ async function addCels() {
         props.session.workingSnapshot().documents(),
         props.target,
         image.value,
-        frames.value,
+        cels.value,
         props.profile,
         background.value,
         backgroundTransparent.value,
+        gameLook.value,
       ),
       "Make cels from an image",
     );
-    status.value = `Added ${frames.value.length} cels`;
+    status.value = `Added ${cels.value.length} cels`;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
     busy.value = false;
   }
 }
+const livePreview = throttleTask(150);
 function stopPreview() {
+  livePreview.reset();
   if (previewing.value) engine.previewImageCels(null);
   previewing.value = false;
+}
+function postPreview() {
+  if (!previewing.value) return;
+  if (!prepared.value) return stopPreview();
+  engine.previewImageCels(
+    prepared.value.payload,
+    [...new Set(cels.value.map((cel) => cel.loop))].sort((a, b) => a - b),
+  );
 }
 function preview() {
   if (previewing.value) stopPreview();
   else if (prepared.value) {
-    engine.previewImageCels(
-      prepared.value.payload,
-      [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
-    );
     previewing.value = true;
+    livePreview.schedule(postPreview);
   }
 }
 watch(prepared, () => {
-  if (previewing.value) {
-    if (prepared.value)
-      engine.previewImageCels(
-        prepared.value.payload,
-        [...new Set(frames.value.map((frame) => frame.loop))].sort((a, b) => a - b),
-      );
-    else stopPreview();
-  }
+  if (!prepared.value) return stopPreview();
+  if (previewing.value) livePreview.schedule(postPreview);
 });
 watch(
   () => props.active,
@@ -488,7 +481,11 @@ onBeforeUnmount(() => {
           @click="colourOpen = !colourOpen"
           >Colour<i
             class="image-source__swatch"
-            :style="{ background: background ? `rgb(${background.join(' ')})` : 'transparent' }"
+            :style="{
+              background: background
+                ? paletteCss(palette, nearestEgaIndex(...background, palette))
+                : 'transparent',
+            }"
           ></i
         ></UiButton>
         <div
@@ -498,11 +495,11 @@ onBeforeUnmount(() => {
           aria-label="See-through colour"
         >
           <button
-            v-for="(colour, index) in EGA_PALETTE"
+            v-for="(colour, index) in palette"
             :key="index"
             type="button"
             :aria-label="colourNames[index]"
-            :style="{ background: `rgb(${colour.join(' ')})` }"
+            :style="{ background: paletteCss(palette, index) }"
             @click="
               background = colour;
               colourOpen = false;
@@ -555,9 +552,10 @@ onBeforeUnmount(() => {
       <UiButton size="sm" aria-label="Reset trace" @click="resetTrace">Reset</UiButton>
     </template>
     <template v-if="image && !isPicture">
-      <ImageFrameSheet
+      <ImageCelSheet
         v-show="!generateOpen"
-        v-model="frames"
+        v-model="cels"
+        @prepared="prepared = $event"
         :image="image"
         :profile="profile"
         :mirrors="mirrors"
@@ -569,8 +567,8 @@ onBeforeUnmount(() => {
         <template #preview>
           <UiButton
             size="sm"
-            :disabled="!prepared || !frames.length"
-            :title="prepared ? '' : 'Adjust the frames first'"
+            :disabled="!prepared || !cels.length"
+            :title="prepared ? '' : 'Adjust the cels first'"
             data-testid="image-preview-hero"
             @click="preview"
             >{{ previewing ? "Stop preview" : "Preview on hero" }}</UiButton
@@ -580,15 +578,15 @@ onBeforeUnmount(() => {
           <UiButton
             size="sm"
             variant="primary"
-            :disabled="!prepared || !frames.length || busy"
-            :title="prepared ? '' : 'Adjust the frames first'"
+            :disabled="!prepared || !cels.length || busy"
+            :title="prepared ? '' : 'Adjust the cels first'"
             data-testid="image-add-cels"
             @click="addCels"
-            >Add {{ frames.length }} cels</UiButton
+            >Add {{ cels.length }} cels</UiButton
           >
         </template>
-      </ImageFrameSheet>
-      <p v-if="!prepared" role="alert">Adjust the frames to fit the image and cel size.</p>
+      </ImageCelSheet>
+      <p v-if="!prepared" role="alert">Adjust the cels to fit the image and cel size.</p>
     </template>
     <p v-if="status" role="status" data-testid="image-status">{{ status }}</p>
   </section>
@@ -655,7 +653,7 @@ onBeforeUnmount(() => {
   max-height: 100%;
   overflow: auto;
 }
-.image-reference--cels :deep(.frame-editor) {
+.image-reference--cels :deep(.cel-editor) {
   flex: 1;
   min-height: min-content;
   padding: var(--space-1);

@@ -14,7 +14,7 @@ import {
 } from "../src/studio/studioLocks.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
 import { editedItems } from "../src/studio/useStudioDraft.ts";
-import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAssistFixtures.ts";
+import { ISLAND_MOVE, ISLAND_SOURCE } from "../../test/studioAgentFixtures.ts";
 
 const profile = DEFAULT_V2_PROFILE;
 const at = (x: number, y: number): number => y * 160 + x;
@@ -38,13 +38,13 @@ function check(
 
 const messages = (verdict: StudioCheck): string[] => verdict.violations.map((v) => v.message);
 
-/** The art frame every scene below is drawn in: a black outline, no depth. */
+/** The art frame every scene below is drawn in: a black outline, no priority. */
 const FRAME = ['# @item frame "Frame" art', "vis 0", "pri off", "rect 10,10 60,60", "# @end"];
 /** The frame's inside, 11..59 on both axes. */
 const INSIDE = 49 * 49;
 
 describe("an edit that changes another object's output reports it as a side effect", () => {
-  // QA repro: a mixed floor fill (art 6, depth 9) and an art patch filling
+  // QA repro: a mixed floor fill (art 6, priority 9) and an art patch filling
   // the same white area after it, which draws nothing.
   const floorAndPatch = [
     ...FRAME,
@@ -61,11 +61,11 @@ describe("an edit that changes another object's output reports it as a side effe
     "end",
   ];
 
-  it("moves an outline another item's fill pours around, naming that fill (Art)", () => {
+  it("moves an outline another item's fill pours around, naming that fill (Visual)", () => {
     // Refused before: the island moved 8 right re-pours the grass.
     const lines = ISLAND_SOURCE.trimEnd().split("\n");
     const op = { type: "moveItem", itemId: "island", dx: ISLAND_MOVE.dx, dy: 0 } as const;
-    const { before, after, verdict } = check(lines, op, "art");
+    const { before, after, verdict } = check(lines, op, "visual");
     assert.deepEqual(verdict, { ok: true, violations: [] });
     const report = studioSideEffects(before, after, ["island"]);
     assert.deepEqual(report?.items, [
@@ -82,13 +82,16 @@ describe("an edit that changes another object's output reports it as a side effe
 
   it("reports an art fill moved before a mixed fill it pre-empts (Priority lens)", () => {
     const op = { type: "reorderItem", itemId: "patch", toIndex: 1 } as const;
-    const depth = check(floorAndPatch, op, "depth");
-    // The art is identical; the floor's depth is gone.
-    assert.deepEqual(depth.after.visual, depth.before.visual);
-    assert.deepEqual([depth.before.priority[at(30, 30)], depth.after.priority[at(30, 30)]], [9, 4]);
-    assert.equal(depth.verdict.ok, true);
+    const priority = check(floorAndPatch, op, "priority");
+    // The art is identical; the floor's priority is gone.
+    assert.deepEqual(priority.after.visual, priority.before.visual);
     assert.deepEqual(
-      studioSideEffects(depth.before, depth.after, ["patch"])?.effects.map((e) => [
+      [priority.before.priority[at(30, 30)], priority.after.priority[at(30, 30)]],
+      [9, 4],
+    );
+    assert.equal(priority.verdict.ok, true);
+    assert.deepEqual(
+      studioSideEffects(priority.before, priority.after, ["patch"])?.effects.map((e) => [
         e.label,
         e.plane,
         e.count,
@@ -101,7 +104,7 @@ describe("an edit that changes another object's output reports it as a side effe
 
   // Fuzz counterexamples kq1 PIC 1, kq1 PIC 37 and gr1 PIC 50, reduced: an
   // art line drawn after a mixed fill, moved before it, keeps the fill (and
-  // its depth) off the line's cells.
+  // its priority) off the line's cells.
   const floorAndCrack = [
     ...FRAME,
     '# @item floor "Floor" mixed', //       6
@@ -117,10 +120,10 @@ describe("an edit that changes another object's output reports it as a side effe
     "end",
   ];
 
-  it("reports an art line moved in front of a mixed fill, in the lenses that allow depth", () => {
+  it("reports an art line moved in front of a mixed fill, in the lenses that allow priority", () => {
     const op = { type: "reorderItem", itemId: "crack", toIndex: 1 } as const;
-    for (const lens of ["depth", "art"] as const) {
-      const unlocks = lens === "art" ? { ...NO_UNLOCKS, priority: true } : NO_UNLOCKS;
+    for (const lens of ["priority", "visual"] as const) {
+      const unlocks = lens === "visual" ? { ...NO_UNLOCKS, priority: true } : NO_UNLOCKS;
       const { before, after, verdict } = check(floorAndCrack, op, lens, unlocks);
       assert.deepEqual(after.visual, before.visual);
       assert.deepEqual([before.priority[at(25, 40)], after.priority[at(25, 40)]], [13, 4]);
@@ -133,7 +136,7 @@ describe("an edit that changes another object's output reports it as a side effe
     }
   });
 
-  it("reports deleting an outline a later mixed fill stopped at, on both planes (Art, depth unlocked)", () => {
+  it("reports deleting an outline a later mixed fill stopped at, on both planes (Visual, priority unlocked)", () => {
     const outlined = [
       ...FRAME,
       '# @item wall "Wall" art', //          6
@@ -150,11 +153,11 @@ describe("an edit that changes another object's output reports it as a side effe
     ];
     const unlocked = { ...NO_UNLOCKS, priority: true };
     const deleted = { type: "deleteItem", itemId: "wall" } as const;
-    const { before, after, verdict } = check(outlined, deleted, "art", unlocked);
+    const { before, after, verdict } = check(outlined, deleted, "visual", unlocked);
     assert.equal(verdict.ok, true);
     // The floor now floods the room below the wall, rows 41..59 (19 x 49 =
-    // 931). The wall's own row was its art (a footprint), not its depth: it
-    // drew none, so the floor's depth there (49 more) is a side effect too.
+    // 931). The wall's own row was its art (a footprint), not its priority: it
+    // drew none, so the floor's priority there (49 more) is a side effect too.
     const report = studioSideEffects(before, after, ["wall"]);
     assert.deepEqual(
       report?.effects.map((e) => [e.label, e.plane, e.count, e.bbox]),
@@ -171,7 +174,7 @@ describe("an edit that changes another object's output reports it as a side effe
     const { before, after } = check(
       floorAndPatch,
       { type: "moveItem", itemId: "frame", dx: 0, dy: 0 },
-      "art",
+      "visual",
     );
     assert.equal(studioSideEffects(before, after, ["frame"]), null);
   });
@@ -193,8 +196,8 @@ describe("refusalText", () => {
       "# @end",
       "end",
     ];
-    // Art: moving the frame moves the floor's depth, on a plane the lens locks.
-    const art = check(scene, { type: "moveItem", itemId: "frame", dx: 0, dy: -1 }, "art");
+    // Visual: moving the frame moves the floor's priority, on a plane the lens locks.
+    const art = check(scene, { type: "moveItem", itemId: "frame", dx: 0, dy: -1 }, "visual");
     assert.deepEqual(
       art.verdict.violations.map((v) => v.rule),
       ["locked-plane"],
@@ -202,11 +205,11 @@ describe("refusalText", () => {
     assert.equal(refusalText(art.verdict).message, "Priority is locked in the Visual lens.");
   });
 
-  it("keeps the Visual lens lock: painting depth on a visual item is refused", () => {
+  it("keeps the Visual lens lock: painting priority on a visual item is refused", () => {
     const painted = check(
       FRAME.concat("end"),
       { type: "setItemColor", itemId: "frame", plane: "priority", value: 9 },
-      "art",
+      "visual",
     ).verdict;
     assert.deepEqual(messages(painted), ["Priority is locked in the Visual lens."]);
     assert.equal(painted.violations[0]!.rule, "locked-plane");

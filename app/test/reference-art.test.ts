@@ -15,10 +15,12 @@ import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchi
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildView, parseView } from "../../src/view/view.ts";
+import { buildView, parseView, selectViewCel } from "../../src/view/view.ts";
 import { openAiToolContent, anthropicToolContent } from "../../src/agent/toolTransport.ts";
 import { base64ToBytes } from "../src/project/bytes.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
+
+import { PROFILES } from "../../src/runtime/profile.ts";
 
 const IDENTITY = { project: testProjectId("demo"), revision: testRevision("rev-a") };
 const MOVED = { project: testProjectId("demo"), revision: testRevision("rev-b") };
@@ -230,3 +232,31 @@ test("reference JPEG and WebP bytes retain their MIME in both provider requests"
     assert.equal(anthropic?.source.data, "/9j/");
   }
 });
+
+for (const id of ["2.001", "2.411", "2.936", "2.230"] as const) {
+  test(`${id}: character upload stages the selected profile's mirrored facing`, () => {
+    const decoded = decodedSheet();
+    // Three logical columns: red, blue, green. Two source pixels per column.
+    for (let y = 2; y < 12; y++)
+      for (let x = 0; x < 64; x++) {
+        const local = x % 16;
+        if (local >= 7 && local < 11)
+          decoded.rgba.set(local < 9 ? [0, 0, 255, 255] : [0, 255, 0, 255], (y * 64 + x) * 4);
+      }
+    const profile = PROFILES[id];
+    const reference = stageCharacterView(
+      "profile-sheet",
+      1,
+      "",
+      IDENTITY,
+      [{ decoded, facing: "right" }],
+      { poses: 4, celHeight: 10, symmetric: true },
+      profile,
+    );
+    const payload = base64ToBytes(reference.staged!.payload);
+    const parsed = parseView(payload, profile);
+    assert.deepEqual([...selectViewCel(parsed, 0, 0)!.pixels.slice(0, 3)], [4, 1, 2]);
+    assert.deepEqual([...selectViewCel(parsed, 1, 0)!.pixels.slice(0, 3)], [2, 1, 4]);
+    assert.deepEqual(payload, buildView(reference.staged!.input, profile));
+  });
+}

@@ -62,7 +62,12 @@ export function prepareRoomLaunch(
     openContainer(files, { profile }),
     facade.host,
     files.get("WORDS.TOK") ? stageDictionary(files.get("WORDS.TOK")!) : new Map(),
-    { profile },
+    {
+      profile,
+      pcDisplay: prior.pcDisplay,
+      adoptDeclaredScriptSize: prior.adoptsDeclaredScriptSize,
+      legacyRoomMemory: prior.legacyRoomMemory,
+    },
   );
   if (request.beginning) replacement.flags[9] = 1;
   const inventory = replacement.readState().inventory;

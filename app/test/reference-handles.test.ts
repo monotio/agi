@@ -178,7 +178,7 @@ test("a remix turn with three references sends manifests and one strip, and view
   const request = JSON.stringify(first.input);
   for (const id of ids) assert.match(request, new RegExp(`${id} · `), `manifest line for ${id}`);
   assert.match(request, /Room plate · room 3 · 640x400 · blue 50%, light cyan 50% · attached/);
-  assert.match(request, /Character sheet, right-facing row · view 0 · 64x12/);
+  assert.match(request, /Cel sheet, right-facing row · view 0 · 64x12/);
   // No full image: only the contact strip, three 64-pixel tiles and a 4-pixel gutter.
   assert.deepEqual(imageSizes(first.input), [{ width: 3 * 64 + 4 * 4, height: 64 + 2 * 4 }]);
   assert.ok(first.tool_choice!.tools.some((tool) => tool.name === "read_reference_image"));
@@ -320,7 +320,7 @@ test("stored references keep their handles through storage, and the pose row is 
     "ids come from the stored bytes, not the record",
   );
   const hero = source.art[2]!;
-  assert.equal(hero.label, "Character sheet, right-facing row");
+  assert.equal(hero.label, "Cel sheet, right-facing row");
   assert.deepEqual(hero.target, { kind: "view", num: 0 });
   assert.equal(hero.attached, true);
   assert.equal(source.art[0]!.attached, false);

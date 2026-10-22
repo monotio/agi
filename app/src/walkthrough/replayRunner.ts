@@ -5,7 +5,7 @@
  * synthetic key state across sessions. Time advances as recorded virtual
  * ticks; the runner only paces, pauses and observes.
  */
-import { DIRECTION_KEYS } from "../../../src/agent/gameTestSteps.ts";
+import { DIRECTION_KEYS } from "../../../src/runtime/keys.ts";
 import type {
   ReplayAction,
   ReplayBatchOptions,
@@ -417,7 +417,7 @@ export async function runReplayBatch(
         case "checkpoint": {
           checkAborted();
           const obs = driver.latest;
-          if (!obs) throw new Error("No observation at checkpoint");
+          if (!obs) throw new Error("No observation at walkthrough marker");
           const actual = {
             room: obs.state.room,
             score: obs.state.vars[3] ?? 0,

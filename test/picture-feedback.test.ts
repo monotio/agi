@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inflateSync } from "node:zlib";
 import {
-  actorLayoutFeedback,
+  screenObjectLayoutFeedback,
   colourGrid,
   editReport,
   formatPriorityDiagnostics,
@@ -133,7 +133,7 @@ describe("picture feedback: authentic scene geometry", () => {
     assert.deepEqual(pixel(34), [85, 255, 255]);
   });
 
-  it("summarises exact control and depth extents without losing thin barriers", () => {
+  it("summarises exact control and priority extents without losing thin barriers", () => {
     const priority = surface([
       [4, 4, 4, 4],
       [5, 5, 5, 5],
@@ -143,7 +143,7 @@ describe("picture feedback: authentic scene geometry", () => {
     const text = formatPriorityDiagnostics(priority, { width: 4, height: 4 });
     assert.match(text, /0 barrier: 2 cells in 1 component, x0-1 y2-2/);
     assert.match(text, /3 water: 2 cells in 1 component, x0-1 y3-3/);
-    assert.match(text, /depth bands: 4 x0-3 y0-0 \(4\); 5 x0-3 y1-1 \(4\); 8 x2-3 y2-3 \(4\)/);
+    assert.match(text, /priority bands: 4 x0-3 y0-0 \(4\); 5 x0-3 y1-1 \(4\); 8 x2-3 y2-3 \(4\)/);
   });
 
   it("checks a declared actor's displayed proportions, baseline controls, and occlusion", () => {
@@ -153,13 +153,17 @@ describe("picture feedback: authentic scene geometry", () => {
       [4, 4, 9, 4],
       [4, 0, 7, 4],
     ]);
-    const text = actorLayoutFeedback("# actor: ego x1 y3 width2 height3 priority7", priority, {
-      width: 4,
-      height: 4,
-    });
+    const text = screenObjectLayoutFeedback(
+      "# actor: ego x1 y3 width2 height3 priority7",
+      priority,
+      {
+        width: 4,
+        height: 4,
+      },
+    );
     assert.equal(
       text,
-      "- ego: logical x1-2 y1-3 (2x3), display x2-5 y1-3 (4x3); priority 7; baseline values [0, 7], controls [0@x1]; higher-priority scenery 2/6 cells",
+      "- ego: logical x1-2 y1-3 (2x3), display x2-5 y1-3 (4x3); priority 7; baseline values [0, 7], controls [0@x1]; higher-priority picture pixels 2/6 cells",
     );
   });
 });

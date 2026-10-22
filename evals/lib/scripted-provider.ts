@@ -288,7 +288,7 @@ export function installScriptedProvider(provider: ScriptProvider): ScriptedProvi
         : consumeOpenAi(items, seen, script);
     const result = await turn;
     // The client appends its own response before the next request: one
-    // assistant message, or one reasoning item plus one per text and call.
+    // agent message, or one reasoning item plus one per text and call.
     seen =
       items.length +
       (provider === "anthropic" ? 1 : 1 + (result.text ? 1 : 0) + result.toolCalls.length);

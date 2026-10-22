@@ -12,7 +12,7 @@ test("PICTURE and VIEW prompts wrap intent in their Sierra EGA instructions", ()
     `${SIERRA_IMAGE_STYLE.picture}\n\nDraw this: A forest`,
   );
   assert.equal(imageStylePrompt("view", "A fox", false), "A fox");
-  assert.match(SIERRA_IMAGE_STYLE.view, /transparent/);
+  assert.match(SIERRA_IMAGE_STYLE.view, /VIEW cel.*transparent/);
 });
 test("cheap image scores distinguish clean flat EGA shapes from off-palette speckles", () => {
   const flat = new Uint8Array(4 * 4 * 4);

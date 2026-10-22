@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { frameTask } from "../ui/frameTask.ts";
 import { useProjectLabels } from "../shell/useProjectLabels.ts";
 import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.ts";
 /**
@@ -15,7 +16,7 @@ import { numberedLabel, numberedSlot } from "../../../src/logic/numberedLabels.t
  * compact form opens zoomed out to fit the dock, and its Expand button opens
  * the window over it.
  */
-import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import {
@@ -129,7 +130,16 @@ function fitGraph(): void {
   setZoom(fitZoom());
 }
 
+const wheelFrame = frameTask();
+const nodeFrame = frameTask();
+let wheelZoom: number | undefined;
+onBeforeUnmount(() => {
+  wheelFrame.cancel();
+  nodeFrame.cancel();
+});
 function setZoom(next: number, clientX?: number, clientY?: number): void {
+  wheelFrame.cancel();
+  wheelZoom = undefined;
   followLive = false;
   const el = graphScroll.value;
   const z = Math.min(3, Math.max(0.15, next));
@@ -155,26 +165,45 @@ function onGraphWheel(ev: WheelEvent): void {
   followLive = false; // any wheel is the user taking the viewport
   if (!ev.ctrlKey && !ev.metaKey) return;
   ev.preventDefault();
-  setZoom(zoom.value * (ev.deltaY < 0 ? 1.2 : 1 / 1.2), ev.clientX, ev.clientY);
+  wheelZoom = Math.min(
+    3,
+    Math.max(0.15, (wheelZoom ?? zoom.value) * (ev.deltaY < 0 ? 1.2 : 1 / 1.2)),
+  );
+  wheelFrame.schedule(() => setZoom(wheelZoom!, ev.clientX, ev.clientY));
 }
 
-let panning: { x: number; y: number; left: number; top: number; moved: number } | null = null;
+let panning: {
+  pointer: number;
+  x: number;
+  y: number;
+  left: number;
+  top: number;
+  moved: number;
+} | null = null;
 const panningActive = ref(false);
 
 function onBgPointerDown(ev: PointerEvent): void {
+  if (panning || ev.button !== 0) return;
   followLive = false;
   if (ev.pointerType === "touch") return; // native touch scrolling already pans
   if ((ev.target as Element).closest(".map-node")) return;
   const el = graphScroll.value;
   if (!el) return;
-  panning = { x: ev.clientX, y: ev.clientY, left: el.scrollLeft, top: el.scrollTop, moved: 0 };
+  panning = {
+    pointer: ev.pointerId,
+    x: ev.clientX,
+    y: ev.clientY,
+    left: el.scrollLeft,
+    top: el.scrollTop,
+    moved: 0,
+  };
   panningActive.value = true;
   (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
 }
 
 function onBgPointerMove(ev: PointerEvent): void {
   const el = graphScroll.value;
-  if (!panning || !el) return;
+  if (!panning || !el || panning.pointer !== ev.pointerId) return;
   if ((ev.buttons & 1) === 0) {
     // Released outside the window: the captured pointerup never arrived.
     panning = null;
@@ -188,9 +217,10 @@ function onBgPointerMove(ev: PointerEvent): void {
   el.scrollTop = panning.top - dy;
 }
 
-function onBgPointerUp(): void {
+function onBgPointerUp(ev: PointerEvent): void {
+  if (!panning || panning.pointer !== ev.pointerId) return;
   // A press that never moved is a click on empty space: dismiss the detail.
-  if (panning && panning.moved < 5) map.select(undefined);
+  if (ev.type === "pointerup" && panning.moved < 5) map.select(undefined);
   panning = null;
   panningActive.value = false;
 }
@@ -265,8 +295,26 @@ const roomsInView = computed(
     ),
 );
 
-const { onNodePointerDown, onNodePointerMove, onNodePointerUp, onNodeKeydown } = useNodeDrag({
-  map,
+const {
+  onNodePointerDown,
+  onNodePointerMove,
+  onNodePointerUp,
+  onNodePointerCancel,
+  onNodeKeydown,
+} = useNodeDrag({
+  map: {
+    previewNode(room, x, y) {
+      nodeFrame.schedule(() => map.previewNode(room, x, y));
+    },
+    moveNode(room, x, y) {
+      nodeFrame.cancel();
+      map.moveNode(room, x, y);
+    },
+  },
+  cancelPreview(room, x, y) {
+    nodeFrame.cancel();
+    map.previewNode(room, x, y);
+  },
   positionOf: (room) => positioned.value.get(room),
   takeViewport: () => {
     followLive = false;
@@ -359,6 +407,7 @@ defineExpose({ selectRoom });
         @pointermove="onBgPointerMove"
         @pointerup="onBgPointerUp"
         @pointercancel="onBgPointerUp"
+        @lostpointercapture="onBgPointerUp"
       >
         <defs>
           <!-- Marker children do not inherit the referencing path's stroke,
@@ -429,6 +478,8 @@ defineExpose({ selectRoom });
           @pointerdown="onNodePointerDown($event, node.room)"
           @pointermove="onNodePointerMove"
           @pointerup="onNodePointerUp($event, node.room)"
+          @pointercancel="onNodePointerCancel"
+          @lostpointercapture="onNodePointerCancel"
         >
           <rect class="node-box" :width="NODE_W" :height="NODE_H" rx="7" />
           <image

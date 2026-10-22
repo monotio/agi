@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "identity": {
     "project": "kq1",
     "revision": "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a"
@@ -25,8 +25,8 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 1155,
-  "virtualTicks": 109408,
+  "elapsedMs": 1199,
+  "virtualTicks": 109531,
   "cycles": 15811,
   "actions": [
     {
@@ -7663,7 +7663,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 289
+      "ticks": 353
     },
     {
       "kind": "key",
@@ -7671,7 +7671,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 140
+      "ticks": 139
     },
     {
       "kind": "checkpoint",
@@ -9207,7 +9207,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1580
+      "ticks": 1612
     },
     {
       "kind": "key",
@@ -9215,7 +9215,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 122
+      "ticks": 120
     },
     {
       "kind": "checkpoint",
@@ -9511,7 +9511,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 228
+      "ticks": 260
     },
     {
       "kind": "key",
@@ -9519,7 +9519,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 230
+      "ticks": 228
     },
     {
       "kind": "key",
@@ -10909,7 +10909,7 @@
       255,
       0,
       2,
-      23,
+      25,
       30,
       0,
       0,
@@ -11167,7 +11167,7 @@
       1,
       1,
       0,
-      0,
+      1,
       0,
       0,
       1,

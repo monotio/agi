@@ -10,7 +10,7 @@ import { defineAsyncComponent, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
-import HomeHero from "./HomeHero.vue";
+import HomeIntro from "./HomeIntro.vue";
 import UnsupportedProject from "./UnsupportedProject.vue";
 import type { UnsupportedStoredProject } from "../project/gameStorage.ts";
 import { emptyProject } from "./emptyProjectRoute.ts";
@@ -89,7 +89,7 @@ function onDrop(event: DragEvent): void {
       data-testid="unsupported-project-route"
     />
     <EmptyProjectStage v-if="emptyProject" :project="emptyProject" />
-    <HomeHero v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
+    <HomeIntro v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
     <div
       v-if="state.phase === 'error' && !emptyProject && !latestVersion"
       class="error-banner"

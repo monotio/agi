@@ -918,7 +918,7 @@ test("genesis and orientation prompts require a stored test per puzzle", () => {
     game: "kq1",
     profile: "2.917",
     room: 1,
-    sceneBrief: "logic 1",
+    roomBrief: "logic 1",
   });
   assert.match(orientation, /write_game_tests/);
   assert.match(orientation, /run_game_tests/);
@@ -1438,7 +1438,7 @@ test("Tests never block game edits: malformed tests remain visible in a successf
   assert.match(String(verdict.details?.["testsVerdict"]), /valid JSON/);
 });
 
-test("Write tests first: recorded setup names missing resources and ignores unrelated item locations", () => {
+test("Write tests first: recorded setup names missing resources and ignores unrelated object locations", () => {
   const state = world();
   state.objectPayload = buildObjectFile([
     { name: "key", startingRoom: 1 },

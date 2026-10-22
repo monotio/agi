@@ -11,7 +11,7 @@ import type { ProjectId } from "../../src/gameIdentity.ts";
 import {
   openEditableProject,
   type EditableCandidate,
-  type EditableKeepResult,
+  type EditableCommitResult,
   type EditableSavedIdentity,
 } from "../src/project/editableProject.ts";
 import * as storage from "../src/project/gameStorage.ts";
@@ -79,7 +79,7 @@ test("a blank project opens, keeps a source edit and reopens it byte-exact, with
   editSource(ws, "logic:1", ROOM1_REDRAW);
   const candidate = ws.buildSelected(["logic:1"]);
   assert.ok(candidate.keys.includes("logic:1"));
-  const kept: EditableKeepResult = await ws.keepCandidate(candidate);
+  const kept: EditableCommitResult = await ws.commitCandidate(candidate);
   assert.equal(kept.kind, "savedOnly");
   assert.equal(kept.commitId, candidate.commitId);
   assert.equal(kept.saved.generation, base.generation + 1);
@@ -97,7 +97,7 @@ test("a blank project opens, keeps a source edit and reopens it byte-exact, with
   );
 });
 
-test("a picture-only Keep excludes an unrelated malformed logic draft", async () => {
+test("a picture-only commit excludes an unrelated malformed logic draft", async () => {
   const projectId = await seedProject("ws-picture-only");
   const ws = await openEditableProject(projectId);
   const original = ws.draft.capture().read("logic:1")!.content;
@@ -108,7 +108,7 @@ test("a picture-only Keep excludes an unrelated malformed logic draft", async ()
   const candidate = ws.buildSelected(["picture:1"]);
   assert.ok(candidate.keys.includes("picture:1"));
   assert.equal(candidate.keys.includes("logic:1"), false);
-  await ws.keepCandidate(candidate);
+  await ws.commitCandidate(candidate);
 
   const data = await storedBody(projectId);
   const documents = readProjectWorkspace(data.workspace);
@@ -127,7 +127,7 @@ test("a vocabulary edit pulls the needing source into the kept closure", async (
 
   editSource(ws, "words", '[["look",100]]');
   editSource(ws, "logic:1", said("look"));
-  await ws.keepCandidate(ws.buildSelected(["words", "logic:1"]));
+  await ws.commitCandidate(ws.buildSelected(["words", "logic:1"]));
 
   editSource(ws, "words", '[["unlock",100]]');
   editSource(ws, "logic:1", said("unlock"));
@@ -136,7 +136,7 @@ test("a vocabulary edit pulls the needing source into the kept closure", async (
     candidate.keys.includes("logic:1"),
     "the kept source cannot compile without the draft repair, so the closure pulls it",
   );
-  await ws.keepCandidate(candidate);
+  await ws.commitCandidate(candidate);
 
   const data = await storedBody(projectId);
   assert.deepEqual(data.words, [["unlock", 100]]);
@@ -175,7 +175,7 @@ test("a kept music document stores the authored tempo and reopening recovers it"
   ws.draft.edit("sound:9", sound, snapshot.version("sound:9"));
   const music = '{"9":{"revision":"21-12345678","tempo":120}}';
   editSource(ws, "music", music);
-  await ws.keepCandidate(ws.buildSelected(["music", "sound:9"]));
+  await ws.commitCandidate(ws.buildSelected(["music", "sound:9"]));
 
   const data = await storedBody(projectId);
   const authoring = data.authoringState!["authoring"] as {
@@ -188,7 +188,7 @@ test("a kept music document stores the authored tempo and reopening recovers it"
   assert.equal(reopened.draft.capture().read("music")!.content, music);
 });
 
-test("legacy authored music hydrates as a document and survives an unrelated Keep", async () => {
+test("legacy authored music hydrates as a document and survives an unrelated commit", async () => {
   const projectId = await seedProject("ws-music-legacy", "boilerplate", (data) => {
     (data.authoringState!["authoring"] as { music?: Record<string, unknown> }).music = {
       "9": { revision: "21-abcdef12", tempo: 90 },
@@ -198,7 +198,7 @@ test("legacy authored music hydrates as a document and survives an unrelated Kee
   const ws = await openEditableProject(projectId);
   assert.equal(ws.draft.capture().read("music")!.content, musicDoc);
   editSource(ws, "logic:1", ROOM1_REDRAW);
-  await ws.keepCandidate(ws.buildSelected(["logic:1"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:1"]));
   const data = await storedBody(projectId);
   const authoring = data.authoringState!["authoring"] as {
     music?: Record<string, { tempo: number }>;
@@ -208,7 +208,7 @@ test("legacy authored music hydrates as a document and survives an unrelated Kee
   assert.equal(reopened.draft.capture().read("music")!.content, musicDoc);
 });
 
-test("a source-only Keep advances authoring identity and leaves the playable revision", async () => {
+test("a source-only commit advances authoring identity and leaves the playable revision", async () => {
   const projectId = await seedProject("ws-source-only");
   const ws = await openEditableProject(projectId);
   const base = ws.savedIdentity();
@@ -217,7 +217,7 @@ test("a source-only Keep advances authoring identity and leaves the playable rev
   const commented = `${original}// an authoring note\n`;
 
   ws.draft.edit("logic:1", commented, snapshot.version("logic:1"));
-  const kept = await ws.keepCandidate(ws.buildSelected(["logic:1"]));
+  const kept = await ws.commitCandidate(ws.buildSelected(["logic:1"]));
   assert.equal(kept.saved.revision, base.revision);
   assert.equal(kept.saved.generation, base.generation + 1);
   assert.notEqual(kept.saved.authoring, base.authoring);
@@ -227,7 +227,7 @@ test("a source-only Keep advances authoring identity and leaves the playable rev
   assert.equal(readProjectWorkspace(data.workspace)["logic:1"], commented);
 });
 
-test("a storage-waiting Keep still lets newer typing through and leaves it dirty", async () => {
+test("a storage-waiting commit still lets newer typing through and leaves it dirty", async () => {
   const projectId = await seedProject("ws-inflight-typing");
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", ROOM1_REDRAW);
@@ -238,7 +238,7 @@ test("a storage-waiting Keep still lets newer typing through and leaves it dirty
     release = resolve;
   });
   const blocker = storage.serializeWrite(projectId, () => gate);
-  const keeping = ws.keepCandidate(candidate);
+  const keeping = ws.commitCandidate(candidate);
   editSource(ws, "logic:1", ROOM1_ALT);
   release();
   await blocker;
@@ -256,7 +256,7 @@ test("a candidate goes stale when the draft or kept base moves on", async () => 
   editSource(ws, "logic:1", ROOM1_REDRAW);
   const candidate = ws.buildSelected(["logic:1"]);
   editSource(ws, "logic:1", ROOM1_ALT);
-  await assert.rejects(ws.keepCandidate(candidate), /stale|moved/i);
+  await assert.rejects(ws.commitCandidate(candidate), /stale|moved/i);
 });
 
 test("a forged or foreign candidate holds no authority", async () => {
@@ -266,11 +266,11 @@ test("a forged or foreign candidate holds no authority", async () => {
     commitId: "forged-commit",
     keys: Object.freeze([]),
   } as unknown as EditableCandidate;
-  await assert.rejects(ws.keepCandidate(forged), /another workspace|authority|candidate/i);
+  await assert.rejects(ws.commitCandidate(forged), /another workspace|authority|candidate/i);
 
   const other = await openEditableProject(projectId);
   const foreign = other.buildSelected(["logic:1"]);
-  await assert.rejects(ws.keepCandidate(foreign), /another workspace|authority|candidate/i);
+  await assert.rejects(ws.commitCandidate(foreign), /another workspace|authority|candidate/i);
 });
 
 test("simultaneous candidates cannot publish competing bases", async () => {
@@ -281,7 +281,7 @@ test("simultaneous candidates cannot publish competing bases", async () => {
   const second = ws.buildSelected(["logic:1"]);
   assert.notEqual(first.commitId, second.commitId);
 
-  const results = await Promise.allSettled([ws.keepCandidate(first), ws.keepCandidate(second)]);
+  const results = await Promise.allSettled([ws.commitCandidate(first), ws.commitCandidate(second)]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   const rejected = results.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -294,11 +294,11 @@ test("a second open workspace conflicts through the durable check", async () => 
   const first = await openEditableProject(projectId);
   const second = await openEditableProject(projectId);
   editSource(first, "logic:1", ROOM1_REDRAW);
-  await first.keepCandidate(first.buildSelected(["logic:1"]));
+  await first.commitCandidate(first.buildSelected(["logic:1"]));
 
   editSource(second, "picture:1", PICTURE_LINE);
   await assert.rejects(
-    second.keepCandidate(second.buildSelected(["picture:1"])),
+    second.commitCandidate(second.buildSelected(["picture:1"])),
     /modified|removed|replaced/i,
   );
   const data = await storedBody(projectId);
@@ -315,7 +315,7 @@ test("a workspace opened before deletion and recreation refuses its stale lifeti
   await storage.clearCachedGame(projectId);
   assert.equal(await storage.saveAuthoredGame(projectId, body), true);
 
-  await assert.rejects(ws.keepCandidate(candidate), /removed|replaced|lifetime/i);
+  await assert.rejects(ws.commitCandidate(candidate), /removed|replaced|lifetime/i);
 });
 
 test("a failed storage write retries the same candidate and receipt, then replays without regressing", async () => {
@@ -332,16 +332,16 @@ test("a failed storage write retries the same candidate and receipt, then replay
     return realSet(key, value);
   };
   try {
-    await assert.rejects(ws.keepCandidate(candidate), /quota/);
+    await assert.rejects(ws.commitCandidate(candidate), /quota/);
     const unchanged = await storedBody(projectId);
     assert.equal(unchanged.generation, 1);
     assert.equal(readProjectWorkspace(unchanged.workspace)["logic:1"], original);
     fail = false;
-    const retry = await ws.keepCandidate(candidate);
+    const retry = await ws.commitCandidate(candidate);
     assert.equal(retry.commitId, candidate.commitId);
     assert.equal(retry.saved.generation, 2);
 
-    const replay = await ws.keepCandidate(candidate);
+    const replay = await ws.commitCandidate(candidate);
     assert.deepEqual(replay.saved, retry.saved);
     assert.equal((await storedBody(projectId)).generation, 2);
   } finally {
@@ -354,12 +354,12 @@ test("replaying a finished candidate returns its receipt without rolling a newer
   const ws = await openEditableProject(projectId);
   editSource(ws, "logic:1", ROOM1_REDRAW);
   const first = ws.buildSelected(["logic:1"]);
-  const firstKeep = await ws.keepCandidate(first);
+  const firstKeep = await ws.commitCandidate(first);
 
   editSource(ws, "logic:1", ROOM1_ALT);
-  const secondKeep = await ws.keepCandidate(ws.buildSelected(["logic:1"]));
+  const secondKeep = await ws.commitCandidate(ws.buildSelected(["logic:1"]));
 
-  const replay = await ws.keepCandidate(first);
+  const replay = await ws.commitCandidate(first);
   assert.equal(replay.commitId, first.commitId);
   assert.equal(replay.saved.generation, firstKeep.saved.generation);
   assert.equal(ws.savedIdentity().generation, secondKeep.saved.generation);
@@ -401,7 +401,7 @@ test("a pending portable recovery draft is carried through every saved body", as
   const ws = await openEditableProject(projectId);
   assert.deepEqual(ws.storedData().recoveryDraft, recovery);
   editSource(ws, "logic:1", ROOM1_REDRAW);
-  await ws.keepCandidate(ws.buildSelected(["logic:1"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:1"]));
   assert.deepEqual((await storedBody(projectId)).recoveryDraft, recovery);
 });
 
@@ -416,18 +416,21 @@ test("tests and references documents pass through unchanged but refuse edits and
   });
   const ws = await openEditableProject(projectId);
   editSource(ws, "tests", "[]");
-  await assert.rejects(ws.keepCandidate(ws.buildSelected(["tests"])), /tests|metadata|preserved/i);
+  await assert.rejects(
+    ws.commitCandidate(ws.buildSelected(["tests"])),
+    /tests|metadata|preserved/i,
+  );
   const snapshot = ws.draft.capture();
   ws.draft.edit("references", null, snapshot.version("references"));
   await assert.rejects(
-    ws.keepCandidate(ws.buildSelected(["references"])),
+    ws.commitCandidate(ws.buildSelected(["references"])),
     /references|metadata|preserved/i,
   );
 
-  // The unchanged documents ride along with an unrelated Keep byte-exact.
+  // The unchanged documents ride along with an unrelated commit byte-exact.
   const current = ws.draft.capture();
   ws.draft.edit("logic:1", ROOM1_REDRAW, current.version("logic:1"));
-  await ws.keepCandidate(ws.buildSelected(["logic:1"]));
+  await ws.commitCandidate(ws.buildSelected(["logic:1"]));
   const data = await storedBody(projectId);
   const documents = readProjectWorkspace(data.workspace);
   assert.equal(documents["tests"], '[{"name":"smoke"}]');
@@ -438,7 +441,7 @@ test("world and bindings documents validate into the stored authoring state", as
   const projectId = await seedProject("ws-world");
   const ws = await openEditableProject(projectId);
   editSource(ws, "world", "{not json");
-  await assert.rejects(ws.keepCandidate(ws.buildSelected(["world"])), /world/i);
+  await assert.rejects(ws.commitCandidate(ws.buildSelected(["world"])), /world/i);
 
   const world = {
     rooms: { "1": { title: "Start", description: "A start.", exits: {} } },
@@ -447,7 +450,7 @@ test("world and bindings documents validate into the stored authoring state", as
   };
   const snapshot = ws.draft.capture();
   ws.draft.edit("world", JSON.stringify(world), snapshot.version("world"));
-  await ws.keepCandidate(ws.buildSelected(["world"]));
+  await ws.commitCandidate(ws.buildSelected(["world"]));
   const data = await storedBody(projectId);
   const authoring = data.authoringState!["authoring"] as {
     world: { rooms: Record<string, { title: string }> };
@@ -463,7 +466,7 @@ test("a byte-only view document drops its stale source claim", async () => {
   assert.ok(viewBytes);
   const snapshot = ws.draft.capture();
   ws.draft.edit("view:0", new Uint8Array(viewBytes), snapshot.version("view:0"));
-  await ws.keepCandidate(ws.buildSelected(["view:0"]));
+  await ws.commitCandidate(ws.buildSelected(["view:0"]));
 
   const data = await storedBody(projectId);
   const sources = data.authoringState!["sources"] as { views: [number, unknown][] };
@@ -475,14 +478,14 @@ test("a byte-only view document drops its stale source claim", async () => {
   assert.ok(openContainer(new Map(Object.entries(data.files))).getResource("view", 0) !== null);
 });
 
-test("removing a kept resource is refused at Keep", async () => {
+test("removing a kept resource is refused at commit", async () => {
   const projectId = await seedProject("ws-removal");
   const ws = await openEditableProject(projectId);
   const snapshot = ws.draft.capture();
   ws.draft.edit("picture:1", null, snapshot.version("picture:1"));
   const candidate = ws.buildSelected(["picture:1"]);
   assert.ok(candidate.removedResources.includes("picture:1"));
-  await assert.rejects(ws.keepCandidate(candidate), /removes|removal/i);
+  await assert.rejects(ws.commitCandidate(candidate), /removes|removal/i);
 });
 
 test("a manual project refuses a missing static room; an explicit generation policy narrows it", async () => {
@@ -496,7 +499,7 @@ test("a manual project refuses a missing static room; an explicit generation pol
       (entry) => entry.code === "missing-resource" && entry.severity === "error",
     ),
   );
-  await assert.rejects(manualWs.keepCandidate(blocked), /absent|missing|reference/i);
+  await assert.rejects(manualWs.commitCandidate(blocked), /absent|missing|reference/i);
   assert.equal(readProjectWorkspace((await storedBody(manual)).workspace)["logic:1"], original);
 
   const generated = await seedProject("ws-room-generated", "boilerplate", (data) => {
@@ -509,7 +512,7 @@ test("a manual project refuses a missing static room; an explicit generation pol
     allowed.diagnostics.some((entry) => entry.code === "missing-resource"),
     false,
   );
-  await generatedWs.keepCandidate(allowed);
+  await generatedWs.commitCandidate(allowed);
   assert.equal(
     readProjectWorkspace((await storedBody(generated)).workspace)["logic:1"],
     "new.room(9);\nreturn;",
@@ -518,5 +521,36 @@ test("a manual project refuses a missing static room; an explicit generation pol
   // The same policy still refuses any other missing resource.
   editSource(generatedWs, "logic:1", "new.room(9);\nload.view(9);\nreturn;");
   const missingView = generatedWs.buildSelected(["logic:1"]);
-  await assert.rejects(generatedWs.keepCandidate(missingView), /absent|missing|reference/i);
+  await assert.rejects(generatedWs.commitCandidate(missingView), /absent|missing|reference/i);
+});
+
+test("successive Keeps append History and retain every earlier version", async () => {
+  const { ProjectHistory } = await import("../../src/authoring/projectHistory.ts");
+  const { readProjectHistory, writeProjectHistory } =
+    await import("../../src/authoring/projectHistoryCodec.ts");
+  const { sha256Hex } = await import("../../src/crypto.ts");
+  let initial: string | null = null;
+  const id = await seedProject("kept-history", "boilerplate", (data) => {
+    const history = new ProjectHistory(sha256Hex);
+    initial = history.record(readProjectWorkspace(data.workspace), {
+      label: "Start",
+      origin: "template",
+      author: "creator",
+      time: 0,
+    })!.id;
+    data.projectHistory = writeProjectHistory(history.capture(), sha256Hex);
+  });
+  const ws = await openEditableProject(id);
+  for (const source of [ROOM1_REDRAW, ROOM1_ALT]) {
+    editSource(ws, "logic:1", source);
+    await ws.commitCandidate(ws.buildSelected(["logic:1"]));
+  }
+  const saved = await storedBody(id);
+  const state = readProjectHistory(saved.projectHistory, sha256Hex);
+  assert.equal(state.commits.length, 3);
+  assert.equal(state.commits[0]!.id, initial);
+  assert.equal(state.commits[1]!.parent, initial);
+  assert.equal(state.commits[2]!.parent, state.commits[1]!.id);
+  assert.equal(state.blobs[state.commits[1]!.documents["logic:1"]!], ROOM1_REDRAW);
+  assert.equal(state.blobs[state.commits[2]!.documents["logic:1"]!], ROOM1_ALT);
 });

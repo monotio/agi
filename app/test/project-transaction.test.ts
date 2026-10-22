@@ -18,6 +18,7 @@ import {
   type PowerUpUiState,
 } from "../src/authoring/useAuthoringController.ts";
 import {
+  adoptStoredProject,
   openDraft,
   ResourceCommitError,
   watchProjectWrites,
@@ -108,7 +109,7 @@ function powerUp(): PowerUpUiState {
 
 /**
  * One tab: the project booted from its stored record and, when `warm`, a
- * session hydrated from it, the assistant closed again.
+ * session hydrated from it, the agent closed again.
  */
 async function openTab(projectId: ProjectId, files: Record<string, Uint8Array>, warm = true) {
   const game: BootedGame = {
@@ -320,7 +321,7 @@ test("a tab that hears another tab's authoring edit is stale for authoring at on
 
 test("a Studio draft keeps against the authoring it opened on, even after a session hydrates newer", async (t) => {
   const { projectId, files, revision } = await storeProject(t, "two-tab-draft");
-  // B opens Room Studio on the sky with no session live: the booted record's text.
+  // B opens PICTURE editor on the sky with no session live: the booted record's text.
   const b = await openTab(projectId, files, false);
   const opened = { revision: b.game.revision, authoring: openDraft(b.game) };
   // A renames the sky; then B's first AI request hydrates a session from storage.
@@ -329,7 +330,7 @@ test("a Studio draft keeps against the authoring it opened on, even after a sess
   await b.controller.openPowerUp(STUB);
   b.controller.closePowerUp();
 
-  // B's draft, made on the old text, locks the sky: Keep must not drop A's label.
+  // B's draft, made on the old text, locks the sky: commit must not drop A's label.
   await assert.rejects(
     b.controller.commitPictureEdit({
       pictureNumber: 1,
@@ -375,4 +376,67 @@ test("a Studio draft's own Keeps move its base on, and a write elsewhere in the 
     (error) =>
       error instanceof ResourceCommitError && error.code === "stale" && !error.behindStorage,
   );
+});
+
+/** A Play-booted tab on the stored starter: no History loaded, no session open. */
+async function bootForPlay(projectId: ProjectId, files: Record<string, Uint8Array>) {
+  const authoredGame = (await loadAuthoredGame(projectId))!;
+  assert.equal(authoredGame.projectHistory, undefined, "a fresh starter has no History yet");
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Two tabs",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+    historyLifetime: await readHistoryLifetime(projectId),
+    authoredGame,
+  };
+  return game;
+}
+
+function roomFiles(roomLogic: string): Record<string, Uint8Array> {
+  return Object.fromEntries(
+    gameContainer(["if (equaln(v0,0)) { new.room(1); } call.v(v0); return;", roomLogic], (c) =>
+      c.putResource("picture", 1, PICTURE),
+    ).files,
+  );
+}
+
+for (const edit of ["room", "document"] as const) {
+  test(`entering Create while this tab's first ${edit} edit is still saving never reports another tab`, async (t) => {
+    const { projectId, files } = await storeProject(t, `own-${edit}-publish-during-create`);
+    const game = await bootForPlay(projectId, files);
+    const nextFiles = edit === "room" ? roomFiles("return;") : files;
+    const nextRevision = await gameRevision(nextFiles);
+
+    // Create starts: its storage check is in flight when this tab's session
+    // publishes its first commit, whose storage write has not landed yet.
+    const entering = adoptStoredProject(game, STALE_SAVE_MESSAGE);
+    await Promise.resolve();
+    const published = { ...game.authoredGame!, title: "Renamed", files: nextFiles };
+    game.revision = nextRevision;
+    game.files = nextFiles;
+    game.authoredGame = published;
+
+    await entering;
+    assert.equal(game.behindStorage, undefined, "no 'Changed in another tab'");
+    assert.equal(game.authoredGame, published, "the running game keeps its own newer record");
+  });
+}
+
+test("entering Create after another tab saved the starter reports it and keeps the running record", async (t) => {
+  const { projectId, files } = await storeProject(t, "foreign-write-before-create");
+  const game = await bootForPlay(projectId, files);
+  const booted = game.authoredGame;
+  const stored = (await loadAuthoredGame(projectId))!;
+  await saveAuthoredGame(projectId, { ...stored, files: roomFiles("return;") });
+
+  await assert.rejects(
+    adoptStoredProject(game, STALE_SAVE_MESSAGE),
+    (error) =>
+      error instanceof ResourceCommitError && error.code === "stale" && error.behindStorage,
+  );
+  assert.equal(game.behindStorage, true, "the tab says 'Changed in another tab'");
+  assert.equal(game.authoredGame, booted);
 });

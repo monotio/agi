@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "private": true,
   "workspaces": [
@@ -79,24 +79,24 @@
     }
   },
   "devDependencies": {
-    "@ast-grep/cli": "0.50.0",
+    "@ast-grep/cli": "0.51.0",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
     "@types/node": "^26.6.5",
-    "dependency-cruiser": "^18.5.0",
-    "eslint": "^10.12.0",
+    "dependency-cruiser": "^18.7.0",
+    "eslint": "^10.13.0",
     "eslint-plugin-vue": "^10.11.1",
     "globals": "^17.13.0",
-    "knip": "^6.41.0",
+    "knip": "^6.42.1",
     "npm-run-all2": "^9.0.3",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.1",
+    "typescript-eslint": "^8.72.0",
     "vscode-languageserver": "10.1.2",
     "vscode-languageserver-protocol": "3.18.4",
     "vue-eslint-parser": "^10.4.1"
   },
   "allowScripts": {
-    "@ast-grep/cli@0.50.0": true
+    "@ast-grep/cli@0.51.0": true
   }
 }

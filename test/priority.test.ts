@@ -212,14 +212,18 @@ test("engine loads packed 2.230 VIEW headers", () => {
   );
 });
 
-test("frame observation preserves shared sprite orientation selected by bytecode", () => {
+test("nonpacked shared views mirror at blitting after loop selections and remain stable on frame observation", () => {
   const engine = game(`
     load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100);
     draw(o0); stop.cycling(o0); fix.loop(o0);
     set.loop(o0, 1); set.loop(o0, 2);
     return;
   `);
-  // Three loop aliases:0→1 mirrors the shared row,1→2 mirrors it back.
+  // docs/fidelity.md F-VIEWS-01: on 2.936, overlay InsertObj calls
+  // MirrorCell; SetLoop/SetCel do not. These three aliases
+  // start at orientation 0 with row [1, 2]. Selecting 1 then 2 without an
+  // intervening blit leaves that row untouched until InsertObj reverses it
+  // once to [2, 1] for loop 2. Frame reads preserve the composed result.
   engine.patchResources([
     {
       kind: "view",
@@ -233,7 +237,7 @@ test("frame observation preserves shared sprite orientation selected by bytecode
   for (let i = 0; i < 2; i++) {
     assert.deepEqual(
       Array.from(engine.getFrame().visual.slice(100 * 160 + 20, 100 * 160 + 22)),
-      [1, 2],
+      [2, 1],
     );
   }
 });
@@ -250,7 +254,7 @@ test("distance uses cel centers and early profiles wrap overflow", () => {
     "2.089",
   );
   engine.tick();
-  assert.equal(engine.vars[60], 69, "(158 + 167) modulo 256");
+  assert.equal(engine.vars[60], 32, "(158 + 130) modulo 256 after 2.089 horizon placement at Y37");
   const differentWidths = game(`${objects} distance(o0, o1, v60); return;`);
   differentWidths.patchResources([
     {
@@ -334,7 +338,7 @@ test("v3 extension dispatch consumes its profile operands and saves the menu gat
   assert.equal(early.vars[62], 17);
 });
 
-// The pure band function the engine and the Room Studio's band guides share,
+// The pure band function the engine and the PICTURE editor's band guides share,
 // hand-computed from 5 + floor((y - base) * 10 / (168 - base)).
 test("priorityForY maps the default base 48 to bands 4..14", () => {
   assert.equal(priorityForY(47), 4); // above the base
@@ -351,4 +355,118 @@ test("priorityForY follows a non-default base", () => {
   assert.equal(priorityForY(113, 60), 9); // 5 + floor(530 / 108)
   assert.equal(priorityForY(114, 60), 10); // 5 + floor(540 / 108)
   assert.equal(priorityForY(167, 60), 14); // 5 + floor(1070 / 108)
+});
+
+test("MakeObjList PriToY uses (pri - 5) * 12 + 48 before set.pri.base, 168 on 2.936/3.002.086 table mode, and downward pri_tbl scan on 3.002.102/149 table mode", () => {
+  // docs/fidelity.md F-VIEWS-06. o0 has fixed priority 9 at (20, 96); o1 sits at
+  // y = 97 with its band priority 9 (rows 96..107). Both paint at priority 9, so
+  // the later draw wins their overlap at (20, 96). Default table: PriToY(9) =
+  // (9 - 5) * 12 + 48 = 96 sorts before o1's baseline 97, so o1's color 2 wins.
+  const defaultMode = game(
+    `${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 9); return;`,
+    "2.936",
+  );
+  defaultMode.tick();
+  assert.equal(
+    defaultMode.getFrame().visual[96 * 160 + 20],
+    2,
+    "default mode: PriToY(9)=96 sorts before baseline y=97",
+  );
+
+  // On 2.936 and 3.002.086 after set.pri.base(48), default_pri_flag == 0 and PriToY starts
+  // at y = 168 (DS:[pri_tbl + 168] == 0 < 9), returning 168. Now o0 (key 168) draws AFTER
+  // o1 (key 97), so o0's color (1) wins the equal-priority overlap at (20, 96)!
+  const tableMode2936 = game(
+    `set.pri.base(48); ${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 9); return;`,
+    "2.936",
+  );
+  tableMode2936.tick();
+  assert.equal(
+    tableMode2936.getFrame().visual[96 * 160 + 20],
+    1,
+    "2.936 table mode: PriToY(9)=168 sorts after baseline y=97",
+  );
+
+  // On 3.002.149 after set.pri.base(48), PriToY starts at y = 167 and decrements while
+  // pri_tbl[y] >= 9, returning y = 95. So o0 (key 95) draws BEFORE o1 (key 97), and o1 (2) wins!
+  const tableMode3149 = game(
+    `set.pri.base(48); ${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 9); return;`,
+    "3.002.149",
+  );
+  tableMode3149.tick();
+  assert.equal(
+    tableMode3149.getFrame().visual[96 * 160 + 20],
+    2,
+    "3.002.149 table mode: PriToY(9)=95 sorts before baseline y=97",
+  );
+});
+
+test("InsertObj runs MirrorCell per object during frame composition so two objects sharing a mirrored view draw in their own loop orientations", () => {
+  const engine = game(`
+    load.view(1);
+    animate.obj(o0); set.view(o0, 1); position(o0, 10, 100); fix.loop(o0); set.loop(o0, 0); draw(o0); stop.cycling(o0);
+    animate.obj(o1); set.view(o1, 1); position(o1, 30, 100); fix.loop(o1); set.loop(o1, 1); draw(o1); stop.cycling(o1);
+    return;
+  `);
+  engine.patchResources([
+    {
+      kind: "view",
+      num: 1,
+      payload: new Uint8Array([0, 0, 2, 0, 0, 9, 0, 9, 0, 1, 3, 0, 2, 1, 0x80, 0x11, 0x21, 0]),
+    },
+  ]);
+  engine.tick();
+  const frame = engine.getFrame();
+  assert.deepEqual(
+    Array.from(frame.visual.slice(100 * 160 + 10, 100 * 160 + 12)),
+    [1, 2],
+    "o0 at loop 0 draws unmirrored [1, 2]",
+  );
+  assert.deepEqual(
+    Array.from(frame.visual.slice(100 * 160 + 30, 100 * 160 + 32)),
+    [2, 1],
+    "o1 at loop 1 draws mirrored [2, 1]",
+  );
+});
+
+test("PriToY's closed form is a signed word, so fixed priority 0 draws before every baseline", () => {
+  // docs/fidelity.md F-VIEWS-06: PriToY returns (0 - 5) * 12 + 48 = -12 as a
+  // 16-bit word and MakeObjList picks the smallest key with a signed compare.
+  // Picture 0 fills the priority channel with control value 2 (signal) and
+  // draws control 0 along row 167, so every scan ends holding 0 (the PC rule,
+  // F-VIEWS-07) and both objects paint all their pixels: draw order alone
+  // decides the overlap at (20, 96).
+  const engine = game(
+    `load.pic(v0); draw.pic(v0); show.pic(); ${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 0); return;`,
+    "2.917",
+  );
+  engine.patchResources([
+    {
+      kind: "picture",
+      num: 0,
+      payload: Uint8Array.of(0xf2, 2, 0xf8, 0, 0, 0xf2, 0, 0xf6, 0, 167, 159, 167, 0xff),
+    },
+  ]);
+  engine.tick();
+  const frame = engine.getFrame();
+  assert.equal(frame.priority[96 * 160 + 20], 2, "the control value survives both paints");
+  assert.equal(frame.visual[95 * 160 + 20], 1, "o0 paints at fixed priority 0");
+  assert.equal(frame.visual[96 * 160 + 20], 2, "o0 (key -12) draws before o1 (key 97)");
+});
+
+test("a restored replay state keeps set.pri.base's PriToY even at base 48", () => {
+  // set.pri.base(48) rebuilds a table equal to the default one, yet PriToY
+  // leaves the closed form (docs/fidelity.md F-VIEWS-06): on 2.936 o0's fixed
+  // priority 9 keys 168 and draws after o1 (baseline 97), so o0's color 1 wins.
+  const source = `if (!isset(f200)) { set(f200); set.pri.base(48); ${objects} position(o0, 20, 96); position(o1, 20, 97); set.priority(o0, 9); } return;`;
+  const live = game(source, "2.936");
+  live.tick();
+  assert.equal(live.getFrame().visual[96 * 160 + 20], 1);
+  const image = live.recordingImage()!;
+  const replay = JSON.parse(JSON.stringify(live.captureReplayState()));
+  const restored = game(source, "2.936");
+  restored.restoreImage(image);
+  restored.restoreReplayState(replay);
+  restored.tick();
+  assert.equal(restored.getFrame().visual[96 * 160 + 20], 1);
 });

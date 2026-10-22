@@ -89,8 +89,8 @@ export function changedResources(
  * A room turn may create the room and revise already-built resources — other
  * rooms' logic, shared views and sounds, the vocabulary — in the same staged
  * transaction. The triggers that keep it coherent: nothing may be removed or
- * corrupted (changedResources throws), existing vocabulary IDs stay bound, and
- * inventory items keep their names and starting rooms.
+ * corrupted (changedResources throws), existing word group ids stay bound, and
+ * objects keep their names and starting rooms.
  */
 export function validateRoomCandidate(
   original: AgentSessionState,
@@ -100,7 +100,7 @@ export function validateRoomCandidate(
   changedResources(before, candidate);
   for (const [word, id] of original.sources.words)
     if (candidate.sources.words.get(word) !== id)
-      throw new Error("Room preparation must preserve existing vocabulary IDs.");
+      throw new Error("Room preparation must preserve existing word group ids.");
   const objects = candidate.getFiles().get("OBJECT");
   if (objects) validateRoomInventory(original.getFiles().get("OBJECT"), objects, candidate.profile);
   else if (original.getFiles().has("OBJECT"))

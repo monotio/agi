@@ -105,7 +105,7 @@ function localImage(game: InstalledGameDescriptor) {
 
 function catalogImage(entry: GameCatalogEntry) {
   const src = catalogOpenings.value[entry.id]?.preview ?? entry.preview;
-  return src ? { src, alt: `${entry.title} opening scene`, kind: "opening" as const } : undefined;
+  return src ? { src, alt: `${entry.title} opening room`, kind: "opening" as const } : undefined;
 }
 </script>
 <template>

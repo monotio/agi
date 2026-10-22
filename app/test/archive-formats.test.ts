@@ -26,7 +26,7 @@ import { migrateAgentChats } from "../../src/agent/chats.ts";
 import {
   traceImageChanges,
   makeCelsChanges,
-  suggestImageFrames,
+  suggestImageCels,
 } from "../../src/creative/imageOperations.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
@@ -60,7 +60,7 @@ function member(zip: Uint8Array, name: string): string {
   assert.fail(`${name} is not in the archive`);
 }
 
-test("a 1.0 Game download reads back as the game it was", async () => {
+test("a 1.0 Game download preserves every released field while re-export adds optional conventions", async () => {
   const zip = fixture("game-v1.zip");
   const game = await readGameZip(zip);
   assert.equal(game.title, "Adventure Department");
@@ -80,7 +80,7 @@ test("a 1.0 Game download reads back as the game it was", async () => {
     "VOL.0",
     "WORDS.TOK",
   ]);
-  // The writer still produces the same GAME.JSON for the same game.
+  // New exports add conventions while retaining every released field.
   const again = buildPublicGameZip({
     files: game.files,
     title: game.title!,
@@ -93,7 +93,9 @@ test("a 1.0 Game download reads back as the game it was", async () => {
       validation: { status: "unverified", message: "" },
     },
   });
-  assert.equal(member(again, "GAME.JSON"), member(zip, "GAME.JSON"));
+  const { authoringConventions, ...metadata } = JSON.parse(member(again, "GAME.JSON"));
+  assert.deepEqual(authoringConventions, { version: 0 });
+  assert.deepEqual(metadata, JSON.parse(member(zip, "GAME.JSON")));
 });
 
 test("the released 1.1.0 tutorial's Game download reads back as the game it was", async () => {
@@ -217,7 +219,7 @@ test("version 1 optional chats, notes, images, native art and History round trip
     documents,
     "view:255",
     image,
-    suggestImageFrames(image, 2),
+    suggestImageCels(image, 2),
     PROFILES["2.936"]!,
   ))
     documents[change.key] = change.content!;

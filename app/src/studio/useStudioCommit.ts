@@ -1,9 +1,9 @@
 /**
- * A Studio's Keep: commits one edit — Room Studio's PIC bytes and the
- * annotated source that compiles to them, Sprite Studio's VIEW bytes —
+ * A Studio's commit: commits one edit — PICTURE editor's PIC bytes and the
+ * annotated source that compiles to them, VIEW editor's VIEW bytes —
  * through the engine's resource transaction (useAuthoringController's
- * commitPictureEdit, commitViewEdit, keepStagedView), and exposes the state
- * the Keep button needs. The transaction itself is all-or-nothing up to the
+ * commitPictureEdit, commitViewEdit, commitStagedView), and exposes the state
+ * the commit button needs. The transaction itself is all-or-nothing up to the
  * durable save; see commitResourceEdit for the steps and recovery.
  */
 import { readonly, ref, shallowRef } from "vue";
@@ -16,7 +16,7 @@ import type { ResourceCommitResult } from "../project/resourceCommit.ts";
 
 export type { ResourceCommitResult };
 
-/** The last Keep's failure, worded for the Studio's error line. */
+/** The last commit's failure, worded for the Studio's error line. */
 export interface StudioCommitFailure {
   /** "unexpected" is a failure outside the transaction's typed refusals. */
   readonly code: ResourceCommitErrorCode | "unexpected";
@@ -37,7 +37,7 @@ export function studioCommitFailure(error: unknown): StudioCommitFailure {
       // A removed project cannot be reopened: the transaction's own words say so.
       message: error.removed
         ? error.message
-        : "The game changed since you opened Studio. Reopen to continue.",
+        : "The game changed since you opened the editor. Reopen to continue.",
       behindStorage: error.behindStorage,
     };
   return { code: error.code, message: error.message, projectId: error.projectId };
@@ -45,7 +45,7 @@ export function studioCommitFailure(error: unknown): StudioCommitFailure {
 
 /**
  * `commit` resolves to the transaction's result, or null when it refused or
- * failed (`lastError` says why) or another Keep is still running.
+ * failed (`lastError` says why) or another commit is still running.
  */
 export function useStudioCommit<E>(commitEdit: (edit: E) => Promise<ResourceCommitResult>) {
   const busy = ref(false);

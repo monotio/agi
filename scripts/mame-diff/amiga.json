@@ -1,0 +1,112 @@
+{
+  "fixture": "sq2-amiga",
+  "profile": "amiga-2.202",
+  "machine": "a500n",
+  "bios": "kick13",
+  "media": [
+    {
+      "slot": "-flop1",
+      "sha256": "e46084876466879600fbde240a512dcd23b10e23058c680151d7f0e608dee4c4"
+    }
+  ],
+  "crop": {
+    "x": 74,
+    "y": 46,
+    "width": 640,
+    "height": 400
+  },
+  "seconds": 190,
+  "steps": [
+    {
+      "at": 50,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 20000
+      }
+    },
+    {
+      "at": 65,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 1000
+      }
+    },
+    {
+      "at": 80,
+      "capture": "orbital",
+      "engine": {
+        "text": "Orbital Station 4",
+        "modal": "print",
+        "maxMs": 20000
+      }
+    },
+    {
+      "at": 85,
+      "key": "Enter"
+    },
+    {
+      "at": 100,
+      "capture": "chapter",
+      "engine": {
+        "text": "As we begin",
+        "modal": "print"
+      }
+    },
+    {
+      "at": 105,
+      "key": "Enter"
+    },
+    {
+      "at": 120,
+      "capture": "beep",
+      "engine": {
+        "text": "A beep emanates",
+        "modal": "print"
+      }
+    },
+    {
+      "at": 125,
+      "key": "Enter"
+    },
+    {
+      "at": 140,
+      "capture": "message",
+      "engine": {
+        "text": "The broom floats",
+        "modal": "print"
+      }
+    },
+    {
+      "at": 145,
+      "key": "Enter"
+    },
+    {
+      "at": 160,
+      "capture": "opening",
+      "engine": {
+        "advanceMs": 1000,
+        "modal": null
+      }
+    },
+    {
+      "at": 165,
+      "key": "F9",
+      "fields": ["F9"]
+    },
+    {
+      "at": 175,
+      "capture": "restart",
+      "engine": {
+        "advanceMs": 200,
+        "text": "Restart",
+        "modal": "print"
+      }
+    }
+  ],
+  "boot": [
+    {
+      "at": 35,
+      "text": "{ENTER}"
+    }
+  ]
+}

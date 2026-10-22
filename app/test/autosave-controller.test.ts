@@ -212,6 +212,49 @@ test("readAutosave, clearAutosave, and lastGameKey manage localStorage entries",
   }
 });
 
+test("Play names rejected progress entry storage and offers a next step until progress is saved", async (t) => {
+  installLocalStorageMock(t);
+  const game: BootedGame = {
+    installed: true,
+    title: "Checkpoint proof",
+    revision: testRevision("checkpoint-proof"),
+    files: {},
+    words: [],
+    folder: "checkpoint-proof",
+  };
+  const state = { resumed: false, checkpointProblem: "" };
+  const stored: number[] = [];
+  const controller = useAutosaveController({
+    state,
+    getBootedGame: () => game,
+    getWorker: () => null,
+    onAutosaveStored: (cycle) => stored.push(cycle),
+    logAgent: () => {},
+    isInstalledGame: () => true,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+    retireFailedRecovery: () => {},
+  });
+  const write = localStorage.setItem;
+  localStorage.setItem = () => {
+    throw new Error("quota");
+  };
+  controller.handleAutosave({ image: "first", cycle: 1, room: 1 });
+  await controller.getAutosaveWrite();
+  assert.equal(
+    state.checkpointProblem,
+    "Browser storage refused your progress. Free some space, then keep playing to try again.",
+  );
+  assert.deepEqual(stored, [], "a rejected progress entry is never reported as saved");
+  assert.equal(controller.lastAutosaveRecord(), null);
+  localStorage.setItem = write;
+  controller.handleAutosave({ image: "second", cycle: 2, room: 1 });
+  await controller.getAutosaveWrite();
+  assert.equal(state.checkpointProblem, "", "a successful progress entry clears the notice");
+  assert.deepEqual(stored, [2]);
+});
+
 test("useAutosaveController stores autosave and notifies lifecycle callbacks", async (t) => {
   installLocalStorageMock(t);
   let storedCycle: number | null = null;
@@ -297,7 +340,7 @@ test("useAutosaveController stores autosave and notifies lifecycle callbacks", a
     });
     await controller.getAutosaveWrite();
 
-    assert.equal(logs.length, 0, "routine checkpoint storage stays out of creator activity");
+    assert.equal(logs.length, 0, "routine progress entry storage stays out of creator activity");
     assert.equal(storedCycle, 42);
     const last = controller.lastAutosaveRecord();
     assert.notEqual(last, null);
@@ -354,10 +397,10 @@ test("useAutosaveController stores autosave and notifies lifecycle callbacks", a
       message: "corrupt save",
     });
     assert.equal(await failing, false);
-    assert.ok(logs.some((l) => l.includes("the checkpoint has been kept")));
+    assert.ok(logs.some((l) => l.includes("the progress entry has been kept")));
     assert.deepEqual(
       retired.map(({ message }) => message),
-      ["The saved checkpoint could not be restored: corrupt save"],
+      ["The saved progress could not be restored: corrupt save"],
     );
   } finally {
     await clearAutosave("kq1");
@@ -485,7 +528,7 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
   }
 });
 
-test("reloading from storage resumes only a checkpoint of the stored bytes, else starts from the top", async (t) => {
+test("reloading from storage resumes only a progress entry of the stored bytes, else starts from the top", async (t) => {
   const id = testProjectId("reload-from-storage");
   // Hooks run in order: the record goes while the store is still installed.
   t.after(() => clearCachedGame(id));
@@ -565,7 +608,7 @@ test("reloading from storage resumes only a checkpoint of the stored bytes, else
   // the stored game starts from the top instead of refusing the mismatch.
   await checkpoint(before, "this-tab");
   assert.equal(await controller.reloadFromStorage(config), true);
-  // The other tab's Keep took a checkpoint of the stored bytes under the
+  // The other tab's commit took a checkpoint of the stored bytes under the
   // live epoch's locator: that owned physical record resumes.
   assert.notEqual(
     writeAutosave(localStorage, storedTarget, {
@@ -581,7 +624,7 @@ test("reloading from storage resumes only a checkpoint of the stored bytes, else
       },
     }),
     null,
-    "an owned checkpoint under the live epoch's locator",
+    "an owned progress entry under the live epoch's locator",
   );
   const secondReload = controller.reloadFromStorage(config);
   // The armed resume reports only the worker's own restored:true.
@@ -595,7 +638,7 @@ test("reloading from storage resumes only a checkpoint of the stored bytes, else
   assert.equal(boots.length, 2);
 });
 
-test("a tab behind storage never writes its checkpoint over the newer save's", async (t) => {
+test("a tab behind storage never writes its progress entry over the newer save's", async (t) => {
   const id = testProjectId("checkpoint-behind-storage");
   t.after(() => clearCachedGame(id));
   installLocalStorageMock(t);
@@ -654,7 +697,7 @@ test("a tab behind storage never writes its checkpoint over the newer save's", a
   // A game on the stored revision checkpoints as before.
   const current: BootedGame = { ...running, revision: await gameRevision(after), files: after };
   const onStored = useAutosaveController(context(current));
-  // Unless it is marked behind (a removed-and-recreated project, a Keep
+  // Unless it is marked behind (a removed-and-recreated project, a commit
   // that never installed): then nothing writes until it reloads.
   current.behindStorage = true;
   onStored.handleAutosave({ image: "marked", cycle: 91, room: 3 });
@@ -666,7 +709,7 @@ test("a tab behind storage never writes its checkpoint over the newer save's", a
   assert.equal(stored, 1);
 });
 
-test("a tab running a removed project never brings its checkpoint back, and a reload says why", async (t) => {
+test("a tab running a removed project never brings its progress entry back, and a reload says why", async (t) => {
   const id = testProjectId("checkpoint-removed-elsewhere");
   t.after(() => clearCachedGame(id));
   installLocalStorageMock(t);
@@ -711,7 +754,7 @@ test("a tab running a removed project never brings its checkpoint back, and a re
   await clearAutosave(locator);
   controller.handleAutosave({ image: "after", cycle: 20, room: 1 });
   assert.equal(await controller.getAutosaveWrite(), false);
-  assert.equal(readAutosave(locator), null, "the removed project's checkpoint stays gone");
+  assert.equal(readAutosave(locator), null, "the removed project's progress entry stays gone");
   assert.equal(lastGameKey(), null, "Home is pointed at nothing");
   assert.equal(game.removed, true);
   assert.equal(removed, 1);
@@ -889,7 +932,7 @@ test("resetScreen preserves pending resume record while full reset clears it", a
   assert.equal(emptyState.status, "none");
 });
 
-test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable, and saved accurately", async (t) => {
+test("flushAutosaveDetailed reports not_progress entryable, timeout, already_durable, and saved accurately", async (t) => {
   installLocalStorageMock(t);
   const postedMessages: unknown[] = [];
   const fakeWorker = {
@@ -1015,7 +1058,7 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
 
   const write = localStorage.setItem;
   localStorage.setItem = () => {
-    throw new Error("Injected checkpoint write failure");
+    throw new Error("Injected progress entry write failure");
   };
   try {
     controller.handleAutosave({ image: "opening", cycle: 56, room: 2 });
@@ -1078,7 +1121,7 @@ test("an autosave without a preview keeps the card's previous picture", async (t
   }
 });
 
-test("an owned project checkpoint waits for session saving and never republishes resource files", async (t) => {
+test("an owned project progress entry waits for session saving and never republishes resource files", async (t) => {
   const id = testProjectId("session-checkpoint");
   t.after(() => clearCachedGame(id));
   installLocalStorageMock(t);
@@ -1117,7 +1160,7 @@ test("an owned project checkpoint waits for session saving and never republishes
     },
   });
   controller.handleAutosave({ image: "owned-state", cycle: 10, room: 1, files: rig.files });
-  await waitUntil(() => prepared, "checkpoint preparation did not start");
+  await waitUntil(() => prepared, "progress entry preparation did not start");
   assert.equal(prepared, true);
   assert.equal(readAutosave(id), null);
   release!();
@@ -1132,7 +1175,7 @@ test("an owned project checkpoint waits for session saving and never republishes
   );
 });
 
-test("a queued checkpoint cannot adopt a revision installed while its save waits", async (t) => {
+test("a queued progress entry cannot adopt a revision installed while its save waits", async (t) => {
   const id = testProjectId("checkpoint-revision-fence");
   t.after(() => clearCachedGame(id));
   installLocalStorageMock(t);
@@ -1185,7 +1228,7 @@ test("a queued checkpoint cannot adopt a revision installed while its save waits
   assert.equal(controller.lastAutosaveRecord(), null);
 });
 
-test("a checkpoint finishing after a new image lands does not acknowledge the old cycle", async (t) => {
+test("a progress entry finishing after a new image lands does not acknowledge the old cycle", async (t) => {
   installLocalStorageMock(t);
   const id = testProjectId("checkpoint-revision-race");
   const files = { "VOL.0": Uint8Array.of(1) };
@@ -1222,12 +1265,12 @@ test("a checkpoint finishing after a new image lands does not acknowledge the ol
     setItem(key, raw);
     if (key.startsWith("monotio_agi.autosave.")) game.revision = testRevision("next-image");
   };
-  controller.handleAutosave({ image: "old checkpoint", revision, cycle: 90, room: 1 });
+  controller.handleAutosave({ image: "old progress entry", revision, cycle: 90, room: 1 });
   assert.equal(await controller.getAutosaveWrite(), false);
   assert.deepEqual(acknowledged, []);
 });
 
-test("an older running checkpoint is refused after the document owner moves during storage", async (t) => {
+test("an older running progress entry is refused after the document owner moves during storage", async (t) => {
   installLocalStorageMock(t);
   const id = testProjectId("checkpoint-document-race");
   const files = { "VOL.0": Uint8Array.of(1) };
@@ -1271,7 +1314,7 @@ test("an older running checkpoint is refused after the document owner moves duri
   assert.equal(stored?.game.identity.revision, game.revision);
 });
 
-test("a not-ready checkpoint is distinct from a storage failure", async (t) => {
+test("a not-ready progress entry is distinct from a storage failure", async (t) => {
   installLocalStorageMock(t);
   const posted: { id: number }[] = [];
   const game: BootedGame = {
@@ -1306,7 +1349,7 @@ test("a not-ready checkpoint is distinct from a storage failure", async (t) => {
   assert.equal(controller.lastAutosaveRecord(), null);
 });
 
-test("a second ownership check reports not ready after storing the checkpoint", async (t) => {
+test("a second ownership check reports not ready after storing the progress entry", async (t) => {
   installLocalStorageMock(t);
   const id = testProjectId("checkpoint-second-not-ready");
   const files = { "VOL.0": Uint8Array.of(1) };
@@ -1348,7 +1391,7 @@ test("a second ownership check reports not ready after storing the checkpoint", 
   assert.equal(controller.lastAutosaveRecord(), null);
 });
 
-test("a checkpoint queued behind its publication lock cannot write after its run changes", async (t) => {
+test("a progress entry queued behind its publication lock cannot write after its run changes", async (t) => {
   installLocalStorageMock(t);
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   t.after(() => {

@@ -154,10 +154,15 @@ export function renderPicture(
   };
 
   /**
-   * Normative integer line rasterization. The start point is already plotted;
-   * this plots `major` further points including the endpoint. The error
-   * accumulators are modulo-256 and must not be widened.
+   * Integer line rasterization. The start point is already plotted; this plots
+   * `major` further points including the endpoint. On PC builds (`drawline`),
+   * the error accumulators are 8-bit registers (`al`/`ah`) that wrap modulo 256
+   * when `error + delta >= 256`; on Amiga (68000 `add.w`/`cmp.w`/`sub.w`) and
+   * Apple IIgs (65816 16-bit `adc`/`sbc`), they are 16-bit words
+   * (`docs/fidelity.md`, `F-picture-09`).
    */
+  const errorMask = profile.presentation === "pc" ? 0xff : 0xffff;
+  const relativeYClamp = profile.presentation === "amiga" ? 159 : 167;
   const drawLine = (x0: number, y0: number, x1: number, y1: number): void => {
     const dx = Math.abs(x1 - x0);
     const dy = Math.abs(y1 - y0);
@@ -178,14 +183,14 @@ export function renderPicture(
     let x = x0;
     let y = y0;
     for (let i = 0; i < major; i++) {
-      yerror = (yerror + dy) & 0xff;
+      yerror = (yerror + dy) & errorMask;
       if (yerror >= major) {
-        yerror = (yerror - major) & 0xff;
+        yerror = (yerror - major) & errorMask;
         y += ystep;
       }
-      xerror = (xerror + dx) & 0xff;
+      xerror = (xerror + dx) & errorMask;
       if (xerror >= major) {
-        xerror = (xerror - major) & 0xff;
+        xerror = (xerror - major) & errorMask;
         x += xstep;
       }
       plot(x, y);
@@ -404,9 +409,12 @@ export function renderPicture(
           if (b < 0) break;
           const dxMag = (b & 0x70) >> 4;
           const dyMag = b & 0x07;
-          // Addition/subtraction modulo 256, then upper clamp (wrap-then-clamp).
+          // Addition/subtraction modulo 256, then the clamps: x past 159 is
+          // 159; y past 167 is 167 on PC and IIgs, 159 on Amiga, while rows
+          // 160..167 stay put everywhere (docs/fidelity.md F-picture-09).
           const nx = Math.min((cx + ((b & 0x80) !== 0 ? -dxMag : dxMag)) & 0xff, 159);
-          const ny = Math.min((cy + ((b & 0x08) !== 0 ? -dyMag : dyMag)) & 0xff, 167);
+          const wrappedY = (cy + ((b & 0x08) !== 0 ? -dyMag : dyMag)) & 0xff;
+          const ny = wrappedY > 167 ? relativeYClamp : wrappedY;
           drawLine(cx, cy, nx, ny);
           cx = nx;
           cy = ny;

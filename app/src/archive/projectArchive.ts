@@ -1,3 +1,7 @@
+import {
+  readAuthoringConventions,
+  type AuthoringConventions,
+} from "../../../src/authoring/projectConventions.ts";
 import { readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { hydrateImageAttachments } from "./projectImageArchive.ts";
 import {
@@ -46,6 +50,7 @@ export { validateTranscript } from "./projectArchiveShared.ts";
 export { continuationTranscript } from "./projectConversation.ts";
 
 export interface ProjectContext {
+  authoringConventions?: AuthoringConventions | undefined;
   chats?: AgentChats | undefined;
   provider?: string | undefined;
   model?: string | undefined;
@@ -72,7 +77,18 @@ export interface ProjectSoundContext {
 }
 
 export function buildPublicGameZip(
-  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
+  data: Pick<
+    CachedGameData,
+    | "files"
+    | "title"
+    | "roomGeneration"
+    | "library"
+    | "authoringConventions"
+    | "templateId"
+    | "provider"
+    | "sessionId"
+    | "imported"
+  >,
 ): Uint8Array<ArrayBuffer> {
   return finishArchive(gameEntries(data));
 }
@@ -212,6 +228,7 @@ export function readProjectContext(
   knownFields(envelope, [
     "format",
     "version",
+    "authoringConventions",
     "provider",
     "model",
     "sessionId",
@@ -224,7 +241,7 @@ export function readProjectContext(
     "projectHistory",
     "chats",
   ]);
-  const hasAssistant = [
+  const hasConversation = [
     "provider",
     "model",
     "sessionId",
@@ -235,14 +252,14 @@ export function readProjectContext(
     ...envelope,
     authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
   };
-  if (hasAssistant && raw.conversation?.formatVersion !== 1)
+  if (hasConversation && raw.conversation?.formatVersion !== 1)
     throw new Error("This project conversation version is not supported.");
   if (
-    hasAssistant &&
+    hasConversation &&
     (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
   )
     throw new Error("Invalid project model metadata.");
-  if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
+  if (hasConversation) knownFields(raw.conversation, ["formatVersion", "messages"]);
   if (raw.references !== undefined && !Array.isArray(raw.references))
     throw new Error("Invalid project reference field.");
   if (
@@ -361,7 +378,7 @@ export function readProjectContext(
     }
   }
 
-  if (hasAssistant) scanRaw(raw.conversation.messages);
+  if (hasConversation) scanRaw(raw.conversation.messages);
   scanRaw(raw.authoringState);
   if (raw.conversationHistory) {
     scanRaw(raw.conversationHistory);
@@ -398,7 +415,7 @@ export function readProjectContext(
     }
     return value;
   }
-  const transcript = hasAssistant
+  const transcript = hasConversation
     ? validateTranscript(restore(raw.conversation.messages), raw.provider)
     : undefined;
   const authoringState = restore(raw.authoringState);
@@ -498,7 +515,7 @@ export function readProjectContext(
       })
     : undefined;
   return {
-    ...(hasAssistant
+    ...(hasConversation
       ? {
           provider: raw.provider,
           model: raw.model,
@@ -509,6 +526,7 @@ export function readProjectContext(
           conversationHistory,
         }
       : {}),
+    authoringConventions: readAuthoringConventions(envelope.authoringConventions),
     authoringState: authoringState as Record<string, unknown>,
     ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
     ...(chats !== undefined ? { chats } : {}),

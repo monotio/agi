@@ -60,15 +60,15 @@ test("opening pictures leaves play in place; Play enters and Back restores the p
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-room:1:picture:1");
-  await expect(page.getByTestId("room-studio")).toBeVisible();
-  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).not.toHaveClass(/is-live-game/);
   const before = await textHook(page);
   await open(page, "part-room:8:picture:8");
   await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   await expect(page.getByTestId("workspace-room")).toContainText("Room 8");
   await expect(page.locator(".play-area:visible")).toHaveCount(1);
-  await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
+  await expect(page.getByTestId("picture-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
   await page.getByRole("button", { name: "Back to Home", exact: true }).click();
@@ -96,8 +96,8 @@ test("switching Play and Create follows the running room without moving it", asy
   await input.press("Enter");
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("radio", { name: "Create", exact: true }).click();
-  await expect(page.getByTestId("room-studio").filter({ visible: true })).toBeVisible();
-  await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
+  await expect(page.getByTestId("picture-studio").filter({ visible: true })).toBeVisible();
+  await expect(page.getByTestId("picture-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -150,7 +150,7 @@ test("a late room visit reply preserves the captured Play room and selected edit
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.evaluate(() => (window as unknown as { releaseRoomVisit(): void }).releaseRoomVisit());
   await page.getByRole("radio", { name: "Create", exact: true }).click();
-  await expect(page.getByTestId("room-studio").filter({ visible: true })).toBeVisible();
+  await expect(page.getByTestId("picture-studio").filter({ visible: true })).toBeVisible();
   await expect(page.getByTestId("workspace-visit")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByTestId("project-tab-picture:8")).toBeVisible();
@@ -168,7 +168,7 @@ test("room changes during Create keep the selected picture editor open", async (
   await input.fill("look");
   await input.press("Enter");
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  const studio = page.getByTestId("picture-studio").filter({ visible: true });
   await expect(studio).toBeVisible();
   await expect(studio).not.toHaveClass(/is-live-game/);
   await expect(page.getByRole("tab", { selected: true })).toHaveText("PICTURE 8");
@@ -179,7 +179,7 @@ test("phone VIEW editing keeps a usable drawing canvas @phone", async ({ page })
   await start(page);
   for (const view of [8, 9]) {
     await open(page, `part-view:${view}`);
-    const canvas = page.getByTestId("sprite-stage").filter({ visible: true });
+    const canvas = page.getByTestId("view-stage").filter({ visible: true });
     await expect(canvas).toBeVisible();
     expect((await canvas.boundingBox())!.width).toBeGreaterThan(200);
   }
@@ -230,7 +230,7 @@ for (const dynamic of [false, true]) {
       if (result.status !== "committed") throw new Error(result.status);
     }, dynamic);
     await open(page, "part-view:0");
-    await expect(page.getByTestId("sprite-studio")).toBeVisible();
+    await expect(page.getByTestId("view-studio")).toBeVisible();
     await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
     await expect(page.locator(".play-area:visible")).toBeVisible();
     await expect.poll(async () => (await textHook(page)).paused).toBe(false);
@@ -239,7 +239,7 @@ for (const dynamic of [false, true]) {
 }
 
 // An unused VIEW checks the running room for a short while after it opens, then stops reading,
-// so a sprite left open does not keep the game and Create busy.
+// so a view left open does not keep the game and Create busy.
 test("an unused VIEW stops checking the running room after a few heartbeats", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
@@ -312,7 +312,7 @@ test("a shared PICTURE opens the room chosen in Parts", async ({ page }) => {
     });
   });
   await open(page, "part-room:1:picture:1");
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   await open(page, "part-room:8:picture:1");
   await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
@@ -335,7 +335,7 @@ test("unused picture becomes a room in one Undo step @webkit-desktop", async ({ 
   await open(page, "part-room:2:picture:9");
   await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
+  await expect(page.getByTestId("picture-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
   await page.getByTestId("workspace-undo").click();
@@ -360,7 +360,7 @@ test("unused picture becomes a room in one Undo step @webkit-desktop", async ({ 
   await open(page, "part-room:2:picture:9");
   await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await expect(page.getByTestId("room-studio").filter({ visible: true })).not.toHaveClass(
+  await expect(page.getByTestId("picture-studio").filter({ visible: true })).not.toHaveClass(
     /is-live-game/,
   );
   await page.getByTestId("workspace-undo").click();
@@ -380,7 +380,7 @@ test("Play enters a VIEW's room and unused VIEW can become a room", async ({ pag
   await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
   await open(page, "part-view:8");
-  await expect(page.getByTestId("sprite-studio")).toBeVisible();
+  await expect(page.getByTestId("view-studio")).toBeVisible();
   await playRoom(page);
   await expect.poll(async () => (await textHook(page)).room).toBe(8);
   await open(page, "part-view:9");
@@ -512,7 +512,7 @@ for (const size of [
     await start(page);
     await shot(page, "stage");
     await open(page, "part-room:1:picture:1");
-    await expect(page.getByTestId("room-studio")).toBeVisible();
+    await expect(page.getByTestId("picture-studio")).toBeVisible();
     await shot(page, "picture");
     await open(page, "part-room:8:picture:8");
     expect((await textHook(page)).room).toBe(1);
@@ -543,7 +543,7 @@ for (const size of [
     await page.getByRole("button", { name: "Back to Home", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await open(page, "part-view:8");
-    await expect(page.getByTestId("sprite-studio").filter({ visible: true })).toBeVisible();
+    await expect(page.getByTestId("view-studio").filter({ visible: true })).toBeVisible();
     await playRoom(page);
     await expect.poll(async () => (await textHook(page)).room).toBe(8);
     await shot(page, "view");
@@ -626,7 +626,7 @@ test("draft room logic counts in picture usage check", async ({ page }) => {
 
   // Room 2 was added in draft (staged). Open its picture (picture 2).
   await open(page, "part-room:2:picture:2");
-  await expect(page.getByTestId("room-studio")).toBeVisible();
+  await expect(page.getByTestId("picture-studio")).toBeVisible();
   // Draft LOGIC 2 loads PICTURE 2, so PICTURE 2 must not be treated as unused.
   await expect(page.getByTestId("workspace-unused")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("draft-room-picture-used-1440.png") });

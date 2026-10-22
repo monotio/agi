@@ -1,3 +1,4 @@
+import type * as ProjectSaveJournalModule from "../src/project/projectSaveJournal.ts";
 import { installWebLocksFixture } from "./webLocksFixture.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -11,11 +12,12 @@ import {
 import {
   clearProjectSaveJournals,
   projectSaveJournalKey,
+  readProjectSaveRecoveries,
   resumeProjectSaveJournals,
   writeProjectSaveJournal,
 } from "../src/project/projectSaveJournal.ts";
 
-installIndexedDbFixture();
+const records = installIndexedDbFixture();
 installWebLocksFixture();
 const values = new Map<string, string>();
 const cache = {
@@ -57,14 +59,10 @@ test("an interrupted receipt and its newer capture replay once in order with exa
     { request: first, attempted: true },
     { request: next, attempted: false },
   ]);
-  await assert.rejects(
-    async () =>
-      resumeProjectSaveJournals(cache, first.projectId, async (input) => {
-        await commitProject(input);
-        throw new Error("Page closed before receipt");
-      }),
-    /Page closed/,
-  );
+  await resumeProjectSaveJournals(cache, first.projectId, async (input) => {
+    await commitProject(input);
+    throw new Error("Page closed before receipt");
+  });
   const saved = await loadAuthoredGame(first.projectId);
   assert.equal(saved!.generation, 2);
   assert.equal(saved!.title, "Redo");
@@ -91,13 +89,14 @@ test("a stale journal preserves its work and opens the newer project without ove
   assert.equal(cache.getItem(key), raw);
 });
 
-test("an unknown journal version is refused without changing its bytes", async () => {
+test("an unknown journal version leaves the saved game readable and its bytes unchanged", async () => {
   const input = request("journal-future");
   await commitProject(input);
   const key = projectSaveJournalKey(input.projectId, "future");
   const raw = '{"version":999,"entries":[]}';
   cache.setItem(key, raw);
-  await assert.rejects(loadAuthoredGame(input.projectId), /version is not supported/);
+  assert.equal((await loadAuthoredGame(input.projectId))!.title, input.data.title);
+  assert.equal(readProjectSaveRecoveries(cache, input.projectId)[0]?.raw, raw);
   assert.equal(cache.getItem(key), raw);
 });
 
@@ -350,4 +349,114 @@ test("deletion acknowledgement preserves an unobserved successor entry", async (
   assert.deepEqual(decodeJournalValue(JSON.parse(remaining).entries), [
     { request: successor, attempted: false },
   ]);
+});
+
+test("a rebuild refusal opens the last save and keeps edits without retrying", async () => {
+  const input = request("journal-unrecoverable");
+  await commitProject(input);
+  const key = projectSaveJournalKey(input.projectId, "ended");
+  writeProjectSaveJournal(cache, key, [
+    {
+      request: { ...input, commitId: "unsaved", data: { ...input.data, title: "Unsaved title" } },
+      attempted: false,
+    },
+  ]);
+  const raw = cache.getItem(key);
+  let attempts = 0;
+  const fail = async () => {
+    attempts++;
+    throw Object.assign(new Error("Injected rebuild refusal"), {
+      name: "ProjectJournalRefusalError",
+    });
+  };
+  await resumeProjectSaveJournals(cache, input.projectId, fail);
+  assert.equal((await loadAuthoredGame(input.projectId))!.title, input.data.title);
+  // Another page has a fresh module and must also honor the durable marker.
+  const path = "../src/project/projectSaveJournal.ts?unrecoverable-second-tab";
+  const secondTab = (await import(path)) as typeof ProjectSaveJournalModule;
+  await secondTab.resumeProjectSaveJournals(cache, input.projectId, fail);
+  assert.equal((await loadAuthoredGame(input.projectId))!.title, input.data.title);
+  assert.equal(attempts, 1);
+  assert.equal(cache.getItem(key), raw);
+  assert.equal(readProjectSaveRecoveries(cache, input.projectId)[0]?.raw, raw);
+});
+
+test("a rebuild refusal retains an appended successor and is not retried", async () => {
+  const first = request("journal-unrecoverable-append");
+  await commitProject(first);
+  const next = { ...first, commitId: "successor", data: { ...first.data, title: "New work" } };
+  const key = projectSaveJournalKey(first.projectId, "writer");
+  writeProjectSaveJournal(cache, key, [{ request: first, attempted: false }]);
+  let attempts = 0;
+  const fail = async () => {
+    attempts++;
+    writeProjectSaveJournal(cache, key, [
+      { request: first, attempted: true },
+      { request: next, attempted: false },
+    ]);
+    throw Object.assign(new Error("Rebuild refused with a newer capture waiting"), {
+      name: "ProjectJournalRefusalError",
+    });
+  };
+  await resumeProjectSaveJournals(cache, first.projectId, fail);
+  const raw = cache.getItem(key)!;
+  const module = "../src/project/projectSaveJournal.ts?failed-append-second-tab";
+  const other = (await import(module)) as typeof ProjectSaveJournalModule;
+  await other.resumeProjectSaveJournals(cache, first.projectId, fail);
+  assert.equal(attempts, 1);
+  assert.equal(readProjectSaveRecoveries(cache, first.projectId)[0]?.raw, raw);
+  assert.match(raw, /New work/);
+  assert.equal((await loadAuthoredGame(first.projectId))!.title, first.data.title);
+});
+
+for (const failure of [
+  new DOMException("Storage is full", "QuotaExceededError"),
+  new DOMException("Storage aborted", "AbortError"),
+  new DOMException("Storage is unavailable", "InvalidStateError"),
+  new TypeError("Failed to fetch dynamically imported module"),
+  new Error("Unclassified failure"),
+]) {
+  test(`${failure.name}: opening retries pending edits after a temporary recovery failure`, async () => {
+    const input = request(`journal-retry-${failure.name}`);
+    const saved = (await commitProject(input)).receipt.saved;
+    const pending = {
+      ...input,
+      expected: saved,
+      commitId: "pending",
+      data: { ...input.data, title: "Recovered" },
+    };
+    const key = projectSaveJournalKey(input.projectId, "retry");
+    writeProjectSaveJournal(cache, key, [{ request: pending, attempted: false }]);
+    const raw = cache.getItem(key);
+    let attempts = 0;
+    await resumeProjectSaveJournals(cache, input.projectId, async () => {
+      attempts++;
+      throw failure;
+    });
+    assert.equal(cache.getItem(key), raw);
+    assert.deepEqual(readProjectSaveRecoveries(cache, input.projectId), []);
+    // A fresh page must retry rather than honor a lasting failure marker.
+    const path = `../src/project/projectSaveJournal.ts?retry-${failure.name}-${attempts}`;
+    const reopened = (await import(path)) as typeof ProjectSaveJournalModule;
+    await reopened.resumeProjectSaveJournals(cache, input.projectId, async (request) => {
+      attempts++;
+      return commitProject(request);
+    });
+    assert.equal(attempts, 2);
+    assert.equal((await loadAuthoredGame(input.projectId))!.title, "Recovered");
+    assert.equal(cache.getItem(key), null);
+  });
+}
+
+test("an unsupported commit receipt keeps the last save readable and marks its pending edits", async () => {
+  const input = request("journal-future-receipt");
+  await commitProject(input);
+  const receiptKey = `commit/${input.projectId}/${input.commitId}`;
+  records.set(receiptKey, { ...(records.get(receiptKey) as object), version: 999 });
+  const key = projectSaveJournalKey(input.projectId, "future-receipt");
+  writeProjectSaveJournal(cache, key, [{ request: input, attempted: true }]);
+  const raw = cache.getItem(key);
+  assert.equal((await loadAuthoredGame(input.projectId))!.title, input.data.title);
+  assert.equal(readProjectSaveRecoveries(cache, input.projectId)[0]?.raw, raw);
+  assert.equal(cache.getItem(key), raw);
 });

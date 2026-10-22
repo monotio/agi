@@ -336,7 +336,7 @@ describe("rule edits", () => {
       assert.deepEqual(applyRuleEdit(document, op, session), {
         ok: false,
         error:
-          "Rule 'odd' is written directly in the room's script, which the door editor cannot read. Change it in the script text.",
+          "Rule 'odd' is written directly in the room's LOGIC, which the door editor cannot read. Change it in the LOGIC text.",
       });
     }
     assert.equal(serializeLogicDocument(document), source);

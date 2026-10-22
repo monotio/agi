@@ -1,0 +1,252 @@
+{
+  "fixture": "sq2-iigs",
+  "profile": "iigs-1.014",
+  "machine": "apple2gsr1",
+  "media": [
+    {
+      "slot": "-flop3",
+      "sha256": "b0f08338a2ccb8706097c62b40e537ba53fe9d22c7d8dfeedeebae6ec271b553"
+    },
+    {
+      "slot": "-flop4",
+      "sha256": "6c3b701e0983ecdf709450a8563b93bf016e55c4bd589a4339835ebfa9210596"
+    }
+  ],
+  "crop": {
+    "x": 32,
+    "y": 16,
+    "width": 640,
+    "height": 200
+  },
+  "seconds": 296,
+  "seed": 2,
+  "steps": [
+    {
+      "at": 150,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 20000
+      },
+      "fields": ["Return"]
+    },
+    {
+      "at": 165,
+      "key": "Enter",
+      "engine": {
+        "advanceMs": 1000
+      },
+      "fields": ["Return"]
+    },
+    {
+      "at": 180,
+      "capture": "orbital",
+      "engine": {
+        "text": "Orbital Station 4",
+        "maxMs": 20000
+      }
+    },
+    {
+      "at": 185,
+      "key": "Enter",
+      "fields": ["Return"]
+    },
+    {
+      "at": 200,
+      "capture": "chapter",
+      "engine": {
+        "text": "As we begin"
+      }
+    },
+    {
+      "at": 205,
+      "key": "Enter",
+      "fields": ["Return"]
+    },
+    {
+      "at": 220,
+      "capture": "beep",
+      "engine": {
+        "text": "A beep emanates"
+      }
+    },
+    {
+      "at": 225,
+      "key": "Enter",
+      "fields": ["Return"],
+      "engine": {
+        "advanceMs": 5000
+      }
+    },
+    {
+      "at": 240,
+      "capture": "message",
+      "engine": {
+        "text": "The broom floats"
+      }
+    },
+    {
+      "at": 245,
+      "key": "Enter",
+      "fields": ["Return"]
+    },
+    {
+      "at": 260,
+      "capture": "opening",
+      "engine": {
+        "advanceMs": 1000,
+        "modal": null
+      }
+    },
+    {
+      "at": 261,
+      "key": "Left",
+      "fields": ["Left Arrow"]
+    },
+    {
+      "at": 262.5,
+      "capture": "walk-1",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 264.0,
+      "capture": "walk-2",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 265.5,
+      "capture": "walk-3",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 267.0,
+      "capture": "walk-4",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 268.5,
+      "capture": "walk-5",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 270.0,
+      "capture": "walk-6",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 271.5,
+      "capture": "walk-7",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 273.0,
+      "capture": "walk-8",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 274.5,
+      "capture": "walk-9",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 276.0,
+      "capture": "walk-10",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 277.5,
+      "capture": "walk-11",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 279.0,
+      "capture": "walk-12",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 280.5,
+      "capture": "walk-13",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 282.0,
+      "capture": "walk-14",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 283.5,
+      "capture": "walk-15",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 285.0,
+      "capture": "walk-16",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 286.5,
+      "capture": "walk-17",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 288.0,
+      "capture": "walk-18",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 289.5,
+      "capture": "walk-19",
+      "engine": {
+        "advanceMs": 1500
+      }
+    },
+    {
+      "at": 291.0,
+      "capture": "walk-20",
+      "engine": {
+        "advanceMs": 1500
+      }
+    }
+  ],
+  "boot": [
+    {
+      "at": 135,
+      "text": "{ENTER}"
+    }
+  ]
+}
