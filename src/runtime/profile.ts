@@ -854,7 +854,9 @@ const BASE_EARLY: AgiProfile = {
   inventorySelector: false,
   showPictureClearsF15: false,
   printConsumesF15: false,
-  timedPrintClearsV21: false,
+  // 2.089..2.272 print through the shared message routine, which zeroes v21
+  // on its timed exit (docs/fidelity.md "Print handler output modes").
+  timedPrintClearsV21: true,
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   restartPromptBypassedByF16: false,
@@ -962,6 +964,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     frameTiming: "booter-int1c",
     restartCancelsLine: false,
     confirmPromptModes: "none",
+    timedPrintClearsV21: false,
     // The booter dispatch is bounded at 0x90, below the later 2.089 bound.
     // docs/fidelity.md: PC booter action 0x8f (max.drawn.objects).
     maxAction: 0x90,

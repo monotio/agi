@@ -925,11 +925,7 @@ test("every shipped profile carries its binary-verified authenticity fields", ()
     );
     assert.equal(profile.soundStopsBeforeFault, true, `${id}.soundStopsBeforeFault`);
     assert.equal(profile.printConsumesF15, !earlyGroup.has(id), `${id}.printConsumesF15`);
-    assert.equal(
-      profile.timedPrintClearsV21,
-      !earlyGroup.has(id) || id === "amiga-2.082",
-      `${id}.timedPrintClearsV21`,
-    );
+    assert.equal(profile.timedPrintClearsV21, id !== "2.001", `${id}.timedPrintClearsV21`);
     assert.equal(profile.showPictureClearsF15, !earlyGroup.has(id), `${id}.showPictureClearsF15`);
     const expectedStatusLineGate =
       id === "amiga-2.176" || id === "amiga-2.202"

@@ -23,6 +23,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - A restart or quit prompt that appears while a timed message is pending
   accepts when the time runs out or on Enter or Esc, and with the game's
   leave-window flag set it accepts at once, as the originals do.
+- On PC interpreters 2.089 to 2.272, a timed message clears its timer
+  variable when it closes, as the original does.
 
 ## [1.2.5] - 2026-10-20
 

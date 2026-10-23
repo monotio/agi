@@ -2220,6 +2220,9 @@ KQ4's keyless intro re-arms f15 for every window and reaches interactive play wi
 
 | Interpreter build     | f15 reset | v21 clear |
 | --------------------- | --------- | --------- |
+| 2.089                 | —         | 0x1c24    |
+| 2.230                 | —         | 0x1b66    |
+| 2.272                 | —         | 0x1c02    |
 | 2.411                 | 0x1cb9    | 0x1d2d    |
 | 2.440                 | 0x1ccf    | 0x1d43    |
 | 2.917 / 2.936         | 0x1d0c    | 0x1d80    |
@@ -2229,8 +2232,11 @@ KQ4's keyless intro re-arms f15 for every window and reaches interactive play wi
 
 The 3.002.149 fixture versions and shared handler ranges are compared in
 [mh2-profile.test.ts](../test/mh2-profile.test.ts). At 0x1f94, the call through 0x7804/0x7828 clears
-f15. Both timeout and key acknowledgement reach the v21 clear at 0x2008. Profiles 2.089, 2.230 and
-2.272 retain f15 and v21; their print handlers have not been verified for these side effects.
+f15. Both timeout and key acknowledgement reach the v21 clear at 0x2008. `print` on 2.089
+(`0x1ade` → `0x1ba9`), 2.230 (`0x1a20` → `0x1aeb`) and 2.272 (`0x1abc` → `0x1b87`) calls the same
+shared routine, which zeroes v21 on its timed exit (fact, static; the decoded images in
+[Original restart state boundary](#original-restart-state-boundary)); that routine has no f15
+test. The engine's f15 handling on these three builds and on 2.001 is not yet established.
 
 **Tests:** [mh2-profile.test.ts](../test/mh2-profile.test.ts),
 [message-modes.test.ts](../test/message-modes.test.ts),

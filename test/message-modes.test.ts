@@ -148,8 +148,10 @@ for (const profile of ["2.936", "3.002.149"] as const) {
 }
 
 for (const profile of ["2.001", "2.089"] as const) {
-  test(`${profile}: prints retain f15 and timed windows retain v21`, () => {
-    // PC 2.001 and 2.089 preserve both f15 and v21 across print and window closure.
+  test(`${profile}: prints retain f15; a timed window keeps v21 on 2.001 and clears it on 2.089`, () => {
+    // PC 2.001 and 2.089 preserve f15 across print. 2.089's message routine
+    // zeroes v21 on its timed exit (0x1c24, docs/fidelity.md "Print handler
+    // output modes"); 2.001's print handler is not verified.
     const e = game('set(f15);print("First.");print("Second.");increment(v200);return;', profile);
     e.tick();
     assert.equal(e.modalKind, null, "both prints stay non-blocking while f15 is kept");
@@ -166,7 +168,7 @@ for (const profile of ["2.001", "2.089"] as const) {
     assert.equal(timed.modalKind, "print");
     timed.advanceClock(1000);
     assert.equal(timed.modalKind, null, "the timed window still closes on its own");
-    assert.equal(timed.vars[21], 2, "v21 is kept in 2.001 and 2.089");
+    assert.equal(timed.vars[21], profile === "2.001" ? 2 : 0, "v21 after the timed window");
     timed.tick();
     assert.equal(timed.vars[200], 1);
   });
