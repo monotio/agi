@@ -2539,3 +2539,88 @@ describe('the restart state boundary (docs/fidelity.md "Original restart state b
     assert.equal(engine.displayBase, 1, "the picture top is kept");
   });
 });
+
+describe('the restore tail (docs/fidelity.md "Persistence verdicts", F-persistence-03)', () => {
+  function boot(source: string, profile: keyof typeof PROFILES = "2.936") {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    container.putResource("picture", 1, PICTURE);
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    return { engine, host };
+  }
+
+  const SOURCE = `
+    if (!isset(f200)) {
+      set(f200);
+      assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+      accept.input();
+    }
+    if (isset(f201)) { reset(f201); save.game(); }
+    if (isset(f202)) { reset(f202); restore.game(); }
+    if (isset(f203)) { reset(f203); echo.line(); }
+    return;
+  `;
+
+  test("after Restore the picture is on screen and History can take a checkpoint at once", () => {
+    // The reconstruction ends by showing the picture buffer (GR1 0x6d46 ->
+    // 0x576f), so the restored room counts as shown before any show.pic.
+    const { engine } = boot(SOURCE);
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    assert.equal(engine.readState().pictureShown, true);
+  });
+
+  test("Restore keeps the last command for echo.line", () => {
+    // The echo buffer (GR1 DS:0xdef) lies outside the save blocks and no
+    // writer runs on the restore path; CancelLine empties only the edit line.
+    const { engine, host } = boot(SOURCE);
+    host.inputQueue.push("look");
+    engine.tick();
+    engine.flags[201] = 1;
+    engine.tick();
+    host.inputQueue.push("jump");
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    assert.equal(engine.inputEdit, "", "the edit line is empty after restore");
+    engine.flags[203] = 1;
+    engine.tick();
+    assert.equal(engine.inputEdit, "jump", "echo.line retypes the last command");
+  });
+
+  test("on 3.002.086 the menu opens after a restore", () => {
+    // Player-visible rule: KQ4's menu works after Restore. The 3.002.086
+    // state block has no menu-gate word, so the live gate survives the
+    // restore (docs/fidelity.md "PC state and objects").
+    const { engine } = boot(
+      `
+      if (!isset(f200)) {
+        set(f200);
+        set.menu("File"); set.menu.item("Save", 1); submit.menu(); set(f14);
+      }
+      if (isset(f201)) { reset(f201); save.game(); }
+      if (isset(f202)) { reset(f202); restore.game(); }
+      if (isset(f204)) { reset(f204); menu.input(); }
+      return;
+    `,
+      "3.002.086",
+    );
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    engine.flags[204] = 1;
+    engine.tick();
+    engine.tick();
+    assert.equal(engine.modalKind, "menu");
+  });
+});

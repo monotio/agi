@@ -15,6 +15,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   script buffer keeps its size, the last command can still be echoed, the
   Amiga picture top stays where the game put it, and Amiga games from 2.310
   on keep their maximum score.
+- After Restore, the last command can still be echoed, the King's Quest IV
+  menu opens again, and History can take a checkpoint at once.
+- Apple IIgs games list their own saves in the Restore window.
 
 ## [1.2.5] - 2026-10-20
 

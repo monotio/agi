@@ -109,10 +109,12 @@ import {
   encodeHostImage,
   encodeSave,
   newObjectRecord,
+  block1CarriesGates,
   block1Layout,
   layoutStringTotal,
   newSaveState,
   resumeOffsetFor,
+  signatureBlock,
   type LogicResumeRecord,
   type ReplayPair,
   type SaveObjectRecord,
@@ -3887,6 +3889,7 @@ export class Engine {
           displayBase: this.displayBaseRow,
           gameId: this.signature,
           cursor: this.inputPrompt.charCodeAt(0) || 0x5f,
+          signatureBlock: signatureBlock(this.profile),
         },
       ),
     };
@@ -5071,7 +5074,11 @@ export class Engine {
         ? AUTHORED_SCRIPT_BUFFER_PAIRS
         : this.profile.defaultScriptBufferPairs);
     this.replayCheckpoint = s.replayCheckpoint;
-    this.menuInteractionGate = s.menuGate;
+    // Layouts without the gate words (3.002.086 and earlier, Amiga, IIgs)
+    // leave the live gates alone: the original's block 1 does not reach them
+    // (docs/fidelity.md "PC state and objects").
+    const gates = block1CarriesGates(this.profile);
+    if (gates) this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
     for (const entry of s.keyMap) {
       if (entry.rawKey !== 0 || entry.status !== 0) this.keymap.set(entry.rawKey, entry.status);
@@ -5085,7 +5092,7 @@ export class Engine {
     this.statusEnabled = s.statusEnabled !== 0;
     this.statusRow = s.statusRow;
     this.displayBaseRow = s.displayBaseRow;
-    this.keyReleaseGate = s.releaseGate;
+    if (gates) this.keyReleaseGate = s.releaseGate;
     for (let num = 0; num < this.objects.length; num++) {
       const o = this.objects[num]!;
       applyObjectRecord(o, s.objects[num]);
@@ -5117,8 +5124,10 @@ export class Engine {
     this.parsedWordTexts = [];
     this.parserCount = 0;
     this.lastInputLine = "";
+    // The reconstruction ends in CancelLine; the echo buffer lies outside the
+    // save blocks and survives (docs/fidelity.md "Persistence verdicts",
+    // F-persistence-03).
     this.editLine = "";
-    this.acceptedLine = "";
     this.controllers.fill(0);
     if (this.profile.originalRestartRestore) {
       // The authentic restore tail clears controllers explicitly, rewrites the
@@ -5146,6 +5155,9 @@ export class Engine {
     // 2. Reset transient caches and replay the saved sequence.
     this.replaySequence(s.logicResume, sequence, screen !== null);
     if (screen === null) {
+      // The reconstruction ends by showing the picture buffer. A host restore
+      // keeps its own bookkeeping: an undrawn checkpoint stays undrawn.
+      this.pictureShown = true;
       this.flags[F_RESTORED] = 1;
       // The game's own restore.game ends in EnableAllItems; a host restore
       // reinstates the recorded menu afterwards.

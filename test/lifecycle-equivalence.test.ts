@@ -174,13 +174,7 @@ const EDITIONS: Edition[] = [
   }),
   catalogued("mh2-amiga", { reach: (run) => mh2Opening(new Mh2(run)) }),
   // Apple IIgs
-  catalogued("sq2-iigs", {
-    reach: playable,
-    restoreBlocked:
-      "the restore selector lists no IIgs save: unexplained. It looks for the game signature " +
-      "at the start of block 1, where the IIgs image holds its 0x38-byte globals, so it shows " +
-      '"No saved games for this game."',
-  }),
+  catalogued("sq2-iigs", { reach: playable }),
 ];
 
 // Installed editions outside the catalog (other interpreter builds) play the
@@ -642,28 +636,6 @@ interface Pending {
   readonly bug: string;
 }
 
-const MENU_EDITIONS = [
-  "kq1",
-  "kq2",
-  "kq3",
-  "kq4",
-  "sq1",
-  "sq2",
-  "pq1",
-  "lsl1",
-  "gr1",
-  "bc",
-  "ddp",
-  "mh1",
-  "mh2",
-  "sq1-amiga",
-  "kq2-amiga",
-  "sq2-amiga",
-  "pq1-amiga",
-  "mh2-amiga",
-  "sq2-iigs",
-];
-
 const UNCATALOGUED_2089 = "uncatalogued 2.089 edition (WORDS.TOK 775bfe3c9f51)";
 
 const PENDING: readonly Pending[] = [
@@ -691,6 +663,7 @@ const PENDING: readonly Pending[] = [
       "kq2-amiga",
       "sq2-amiga",
       "pq1-amiga",
+      "sq2-iigs",
       UNCATALOGUED_2089,
     ],
     bug:
@@ -723,26 +696,6 @@ const PENDING: readonly Pending[] = [
       "save.game writes zero loop and cel counts for an object whose view is no longer " +
       "loaded, where the original copies the raw record; restore's view rebinding fills them " +
       "again: unexplained.",
-  },
-  {
-    phase: "restore",
-    field: /^host\.pictureShown$/,
-    editions: [
-      ...MENU_EDITIONS.filter((edition) => edition !== "ddp" && edition !== "sq2-iigs"),
-      "mumg",
-      UNCATALOGUED_2089,
-    ],
-    bug:
-      "after a restore the engine counts the picture as not shown, though the restored " +
-      "picture is on screen, until the game's next show.pic: unexplained.",
-  },
-  {
-    phase: "restore",
-    field: /^menuProbe$/,
-    editions: ["kq4"],
-    bug:
-      "after a restore on 3.002.086 no menu opens: that save layout has no menu-gate word, and " +
-      "the restore sets the gate to 0: unexplained.",
   },
 ];
 

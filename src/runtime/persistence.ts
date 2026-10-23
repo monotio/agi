@@ -445,6 +445,24 @@ function block1Offsets(layout: PcBlock1Layout): Block1Offsets {
   };
 }
 
+/**
+ * Whether the profile's state block carries the menu-gate and key-release
+ * gate words (PC 3.002.102 and later). On every other layout a restore
+ * leaves the live gates alone.
+ */
+export function block1CarriesGates(profile: AgiProfile): boolean {
+  const layout = BLOCK1_LAYOUTS[profile.id];
+  return layout.kind === "pc" && layout.gates;
+}
+
+/**
+ * The save block that opens with the game signature: block 2 on the Apple
+ * IIgs, after its ~globals lead block, block 1 elsewhere.
+ */
+export function signatureBlock(profile: AgiProfile): 1 | 2 {
+  return BLOCK1_LAYOUTS[profile.id].kind === "iigs" ? 2 : 1;
+}
+
 /** Block-1 layout the selected profile serializes. */
 export function block1Layout(profile: AgiProfile): Block1Layout {
   const layout = BLOCK1_LAYOUTS[profile.id];
@@ -2014,12 +2032,23 @@ export function saveFileName(signature: string, slot: number): string {
 }
 
 /**
- * Restore-candidate validation: read the 31-byte header, skip the first block
- * length, and compare the first seven state bytes with the active signature
- * (spec "Save names and signatures").
+ * Restore-candidate validation: read the 31-byte header, skip to the block
+ * that carries the signature, and compare its first seven bytes with the
+ * active signature (spec "Save names and signatures"). Block 1 carries it on
+ * PC and Amiga; the Apple IIgs image holds its ~globals lead block first, so
+ * its signature opens block 2, after the lead block's big-endian length
+ * (docs/fidelity.md "Game signature across restore").
  */
-export function saveSignatureMatches(bytes: Uint8Array, signature: Uint8Array): boolean {
-  const at = SAVE_DESCRIPTION_BYTES + 2;
+export function saveSignatureMatches(
+  bytes: Uint8Array,
+  signature: Uint8Array,
+  signatureBlock: 1 | 2 = 1,
+): boolean {
+  let at = SAVE_DESCRIPTION_BYTES + 2;
+  if (signatureBlock === 2) {
+    if (bytes.length < at) return false;
+    at += u16be(bytes, SAVE_DESCRIPTION_BYTES) + 2;
+  }
   if (bytes.length < at + SIGNATURE_BYTES) return false;
   for (let i = 0; i < SIGNATURE_BYTES; i++) {
     if (bytes[at + i] !== signature[i]) return false;

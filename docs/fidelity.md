@@ -3340,6 +3340,10 @@ view byte +7; reference word +8; loop/count bytes +0xa/+0xb; reference +0xc; cel
 bytes +0xe/+0xf; reference words +0x10/+0x12/+0x14; previous x/y +0x16/+0x18;
 width/height +0x1a/+0x1c; step-size/cycle-time/cycle-count/direction/motion/cycle/priority
 bytes +0x1e..0x24; flag word +0x25; four parameter bytes +0x27..0x2a.
+A restore reads the menu-gate and key-gate words back only on the layouts that carry them
+(3.002.102 and later); on every other layout the live gates survive, as they do in the
+original, whose block 1 does not reach them (`block1CarriesGates`). KQ4 3.002.086's menu
+therefore opens after a restore.
 Native motion numbers normal/wander/follow/move are 0/1/2/3; cycle numbers forward/
 end-of-loop/reverse-loop/reverse-cycle are 0/1/2/3. Object flag meanings are in the
 [original flag table](#startup-and-reconstruction-execution); the new boundary converts
@@ -3574,14 +3578,20 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   `2.001..2.440`, Amiga `2.082..2.333`, and IIgs `1.014`** have no post-read
   `v20`/`v22`/`v26`/`f11` rewrite (`restoreRewritesMachineState: false`),
   preserving those four values from the save file's `VARS`/`FLAGS` blocks. All
-  builds run reconstruction, `ClearControl`, and (`2.089+`, Amiga, IIgs)
+  builds run reconstruction, which ends with EraseCur, CancelLine, showing the
+  picture buffer, the status line and the input row (GR1 `0x6d40` → `0x3ad9`,
+  `0x6d43` → `0x3a29`, `0x6d46` → `0x576f`, then `0x380f` and `0x3b66`; Amiga
+  2.202 h156+0x28e..0x2b2), so the edit line empties while the echo buffer,
+  which lies outside the save blocks, survives; then `ClearControl`, and (`2.089+`, Amiga, IIgs)
   `Set(12)` (`f12 = 1`), then CloseHandles (`2.230+`, Amiga, IIgs) and
   EnableAllItems (PC `2.411+`, Amiga, IIgs; [Original menu across restart and
   restore](#original-menu-across-restart-and-restore)); `f2`/`f4`/`v19` are not touched — `f2`/`f4` are cleared
   at every main-cycle top (e.g. kq3 `0x161`/`0x16B`). Engine: the authentic
   restore tail clears controllers, applies the per-profile machine-state
   rewrite when `restoreRewritesMachineState` is true, sets `f12` and enables
-  every menu item, leaving
+  every menu item, counts the restored picture as shown (host restores keep
+  their recorded value), empties the edit line
+  and keeps the echo line, leaving
   `f2`/`f4` to the next cycle top and never writing `v19`; host-image restores
   (history, autosave) always keep the recorded machine vars intact.
 - **F-persistence-04 (fact; engine matches).** Timer across persistence
@@ -3715,7 +3725,11 @@ readers restore the region `set.game.id` writes
 
 **Engine contract.** `applyRestore` reinstates the signature from the image's
 first seven block-1 bytes, up to the first NUL, for `restore.game` and host
-resumes alike; the engine selector keeps the strict filter. The engine compares
+resumes alike; the engine selector keeps the strict filter. It reads the
+signature from the block that carries it: block 1 on PC and Amiga, block 2 on
+the Apple IIgs, whose image holds the 0x38-byte ~globals lead block first
+([Bounds, objects and the save image](#bounds-objects-and-the-save-image-fact)),
+so an IIgs game lists its own saves and no PC image. The engine compares
 all seven bytes where the original stops at the NUL; the two agree on every
 image the engine writes, since it zero-pads the area. App storage keys saves by
 game and slot, not by the signature-stemmed name, so a save written under a
