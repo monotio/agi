@@ -11,6 +11,10 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   Restore every menu item is enabled until the game disables it again.
 - Apple IIgs games ask "Restart the game?" with Restart and Cancel, as the
   original does.
+- Restart keeps what the original keeps: the status line stays on, the
+  script buffer keeps its size, the last command can still be echoed, the
+  Amiga picture top stays where the game put it, and Amiga games from 2.310
+  on keep their maximum score.
 
 ## [1.2.5] - 2026-10-20
 

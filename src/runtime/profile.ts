@@ -670,6 +670,18 @@ export interface AgiProfile {
    */
   readonly originalRestartRestore: boolean;
   /**
+   * The accepted restart cancels the partly typed input line (CancelLine):
+   * false on 2.001, whose restart branch has no CancelLine call, true on
+   * every other build (docs/fidelity.md "Original restart state boundary").
+   */
+  readonly restartCancelsLine: boolean;
+  /**
+   * The accepted restart puts v7 (the maximum score) back after ResetAll:
+   * true on Amiga 2.310, 2.316 and 2.333 (h63+0x50 save, h63+0xc2 restore),
+   * false elsewhere (docs/fidelity.md "Original restart state boundary").
+   */
+  readonly restartKeepsMaxScore: boolean;
+  /**
    * Whether the authentic RestoreGame tail rewrites v20, v26, v22 and
    * conditional f11 after reading the save blocks: true in PC 2.903..3.002.149
    * and false in PC 2.001..2.440, Amiga 2.082..2.333, and IIgs 1.014, where
@@ -793,6 +805,8 @@ const BASE_2936: AgiProfile = {
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
   originalRestartRestore: true,
+  restartCancelsLine: true,
+  restartKeepsMaxScore: false,
   restoreRewritesMachineState: true,
   defaultScriptBufferPairs: 50,
   scriptSizeResetsSequence: true,
@@ -915,6 +929,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   // Fields not listed here were checked against the handlers and match the
   // base; docs/fidelity.md "Amiga profile fields verified from the handlers".
   restoreRewritesMachineState: false,
+  restartKeepsMaxScore: true,
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
   heapDiagnosticExtraLine: false,
@@ -932,6 +947,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_EARLY,
     id: "2.001",
     frameTiming: "booter-int1c",
+    restartCancelsLine: false,
     // The booter dispatch is bounded at 0x90, below the later 2.089 bound.
     // docs/fidelity.md: PC booter action 0x8f (max.drawn.objects).
     maxAction: 0x90,

@@ -2400,3 +2400,142 @@ describe("restart.game CancelLine ordering across PC, Amiga and IIgs profiles", 
     }
   });
 });
+
+describe('the restart state boundary (docs/fidelity.md "Original restart state boundary")', () => {
+  class RestartHost extends RecordingHost {
+    keys: number[] = [];
+    waitKey(): number {
+      return 0x0d;
+    }
+    override takeKeys(): number[] {
+      return this.keys.splice(0);
+    }
+  }
+
+  function boot(source: string, profile: keyof typeof PROFILES = "2.936") {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    const host = new RestartHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    return { engine, host };
+  }
+
+  test("restart keeps the status line, the script buffer size and the last command for echo", () => {
+    // Player-visible rule: Restart keeps the game's settings the original
+    // leaves alone. The accepted restart writes no status-enable word, no
+    // script capacity and no echo buffer (GR1 DS:0x3f9, DS:0x141, DS:0xdef),
+    // and ResetAll sets player control to 1 (GR1 DS:0x139).
+    const { engine, host } = boot(`
+      if (!isset(f200)) {
+        set(f200);
+        if (!isset(f6)) { script.size(30); status.line.on(); accept.input(); program.control(); }
+        set(f16);
+      }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      if (isset(f202)) { reset(f202); echo.line(); }
+      return;
+    `);
+    host.inputQueue.push("look");
+    engine.tick();
+    const resets = engine.runResetSerial;
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.notEqual(engine.runResetSerial, resets, "the restart was accepted");
+    const save = decodeSave(engine.serialize(), engine.profile);
+    assert.equal(save.replayCapacity, 30, "the script buffer keeps its size");
+    assert.equal(save.statusEnabled, 1, "the status line stays on");
+    assert.equal(save.directionCoupling, 1, "player control is back on");
+    assert.match(engine.textRow(save.statusRow), /Score:0/, "the status line shows");
+    engine.flags[202] = 1;
+    engine.tick();
+    assert.equal(engine.inputEdit, "look", "echo.line retypes the last command");
+  });
+
+  test("logic 0 resumes at its scan start after a restart", () => {
+    // The cache reset keeps logic 0's node, scan-start word included
+    // (GR1 0x1305 truncates after the head; set.scan.start writes +6).
+    const { engine } = boot(`
+      if (isset(f6)) { assignn(v121, 1); }
+      if (!isset(f200)) { set(f200); set(f16); }
+      if (isset(f210)) { reset(f210); set.scan.start(); }
+      if (isset(f6)) { assignn(v123, 1); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `);
+    engine.flags[210] = 1;
+    engine.tick();
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.vars[123], 1, "the restarted pass ran from the scan start");
+    assert.equal(engine.vars[121], 0, "the code before the scan start did not run");
+  });
+
+  test("2.001 keeps a partly typed line across an accepted restart", () => {
+    // The 2.001 restart branch has no CancelLine (0x2176..0x21e7).
+    const source = `
+      if (!isset(f200)) { set(f200); accept.input(); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `;
+    for (const [profile, kept] of [
+      ["2.001", "ab"],
+      ["2.089", ""],
+    ] as const) {
+      const { engine, host } = boot(source, profile);
+      host.keys.push(0x61, 0x62);
+      engine.tick();
+      const resets = engine.runResetSerial;
+      engine.flags[201] = 1;
+      engine.tick();
+      assert.notEqual(engine.runResetSerial, resets, `${profile}: the restart was accepted`);
+      assert.equal(engine.inputEdit, kept, `${profile}: the typed line after restart`);
+    }
+  });
+
+  test("Amiga 2.310, 2.316 and 2.333 keep the maximum score v7 across restart", () => {
+    // 2.31x saves v7 before ResetAll and puts it back (h63+0x50 / +0xc2);
+    // 2.082..2.202 zero it with the other variables.
+    const source = `
+      if (!isset(f200)) { set(f200); if (!isset(f6)) { assignn(v7, 77); } set(f16); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `;
+    for (const [profile, v7] of [
+      ["amiga-2.310", 77],
+      ["amiga-2.316", 77],
+      ["amiga-2.333", 77],
+      ["amiga-2.202", 0],
+      ["2.936", 0],
+    ] as const) {
+      const { engine } = boot(source, profile);
+      engine.flags[201] = 1;
+      engine.tick();
+      assert.equal(engine.flags[200], 1, `${profile}: the restarted pass ran`);
+      assert.equal(engine.vars[7], v7, `${profile}: v7 after restart`);
+    }
+  });
+
+  test("Amiga restart keeps the picture top configure.screen set", () => {
+    // The configure.screen row words (2.202 +0x404..+0x409) are not in the
+    // restart's write set.
+    const { engine } = boot(
+      `
+      if (!isset(f200)) { set(f200); if (!isset(f6)) { configure.screen(1, 22, 0); } set(f16); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `,
+      "amiga-2.202",
+    );
+    assert.equal(engine.displayBase, 1);
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.flags[200], 1, "the restarted pass ran");
+    assert.equal(engine.displayBase, 1, "the picture top is kept");
+  });
+});

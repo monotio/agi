@@ -501,7 +501,9 @@ successful restore or restart sets f12 or f6 and restarts logic 0 in the same
 cycle, abandoning the old script position. Restart keeps the random stream and
 the sound preference. Restart and restore both keep the game's menu, which is
 not part of a save, and both leave every menu item enabled; the game disables
-items again itself. The game signature that `set.game.id` sets names the save
+items again itself. Restart clears variables, flags, controllers and objects
+but keeps the status line, text mode, the script buffer size, key mappings and
+strings, and the last command for echo. The game signature that `set.game.id` sets names the save
 files and is part of the first block, so a restore brings it back; the save
 selector lists only files carrying the running game's signature.
 
@@ -514,6 +516,7 @@ as an ordinary message window.
 [Original save and restart audit](#original-save-and-restart-audit),
 [Startup and reconstruction execution](#startup-and-reconstruction-execution),
 [Original menu across restart and restore](#original-menu-across-restart-and-restore),
+[Original restart state boundary](#original-restart-state-boundary),
 [Game signature across restore](#game-signature-across-restore)
 and [Restore error window](#restore-error-window).
 
@@ -3126,6 +3129,84 @@ first. Test: [menu.test.ts](../test/menu.test.ts),
 **Not established.** Full-machine execution; the menu's on-screen redraw
 after the enable (the strip is drawn only when the menu opens).
 
+### Original restart state boundary
+
+**Evidence class:** routine execution (Unicorn 2.1.4) of the complete
+accepted `restart.game` branch, from the handler entry read off each
+build's action table (slot `0x80`) to its `ret`, in all fifteen PC builds
+with each build's own `AGIDATA.OVL` as the data segment (2.001: the
+booter's data record) and a write hook over the whole address space; only
+the confirmation, the OBJECT loader and the cursor glyph writer were
+intercepted. All six Amiga builds executed the same way under the 68000
+model (the prompt, the OBJECT loader and decrypt, the input-row character
+drawer and the 2.31x title-bar redraw stubbed). IIgs `1.014` static.
+Executables as in [Original menu across restart and
+restore](#original-menu-across-restart-and-restore), plus 2.001 DDP
+`424da51a6c161cca…`, 2.089 SQ1 `e31e5e8611c81d58…`, 2.230 `875547deb3d83b7e…`
+and 2.272 `a0c26b5dee86b676…` (decoded).
+
+**Facts.** Every build's accepted restart returns 0 (the bytecode
+continuation is abandoned) and writes only: vars, flags, the timer dword,
+player control := 1, last picture := 0 and block enabled := 0 in the state
+block, the object table and inventory pointers, the controllers, the cache
+heads (the logic list truncated after its head node), the heap pointer and
+v8, f6, f9 by the saved preference, and the cursor word. No write lands
+outside the data segment on PC: no video memory and no picture buffer. It
+writes none of: horizon, block rectangle coordinates, script capacity and
+active count, the script checkpoint, key map, strings, text colours and
+attribute, input enable and row, prompt character, status enable and row,
+picture base and bottom rows, menu gate and key gate (3.002.102+),
+text-mode byte, priority base and table, `open.dialogue` state, echo
+buffer, event queue, window state, trace-active state, and the logic-0
+cache node, whose scan-start word (`+6`, written by `set.scan.start`, GR1
+`0x154a`) therefore survives. 2.001 has no CancelLine call
+(`0x2176..0x21e7`), so a partly typed line survives its restart. Amiga
+2.310, 2.316 and 2.333 save v7 before ResetAll and put it back after
+(`h63+0x50`, `+0xc2`; executed: v7 = 77 before and after), then redraw the
+title-bar status (`h63+0xcc` → `h82+0x42c`); 2.082, 2.176, 2.202 and the
+IIgs zero v7 with the other variables. The Amiga `configure.screen` row
+words (2.202 `+0x404..+0x409`) are not written.
+
+| Build                | Restart entry | ResetAll       | Prompt routine |
+| -------------------- | ------------- | -------------- | -------------- |
+| 2.001                | `0x2176`      | `0x106d`       | `0x1b15`       |
+| 2.089                | `0x22ab`      | `0x0ed6`       | `0x1ba9`       |
+| 2.230                | `0x21ed`      | `0x0e50`       | `0x1aeb`       |
+| 2.272                | `0x2289`      | `0x0e7c`       | `0x1b87`       |
+| 2.411                | `0x241f`      | `0x0f6a`       | `0x1c95`       |
+| 2.439                | `0x242d`      | `0x0f6a`       | `0x1ca3`       |
+| 2.440                | `0x2435`      | `0x0f72`       | `0x1cab`       |
+| 2.903                | `0x246b`      | `0x0fa0`       | `0x1ce1`       |
+| 2.915                | `0x2470`      | `0x0fa5`       | `0x1ce6`       |
+| 2.917, 2.936         | `0x2472`      | `0x0fa5`       | `0x1ce8`       |
+| 3.002.086            | `0x272b`      | `0x11e4`       | `0x1fa1`       |
+| 3.002.102, 3.002.107 | `0x2741`      | `0x11fa`       | `0x1fb7`       |
+| 3.002.149            | `0x26e0`      | `0x11b3`       | `0x1f70`       |
+| Amiga 2.082          | `h45+0x000`   | `h23+0x74`     | `h40+0x150`    |
+| Amiga 2.176, 2.202   | `h63+0x000`   | `h33+0x7a`     | `h57+0x150`    |
+| Amiga 2.310, 2.316   | `h63+0x000`   | `h33+0x7a`     | `h57+0x150`    |
+| Amiga 2.333          | `h63+0x000`   | `h33+0x8e`     | `h57+0x150`    |
+| IIgs 1.014           | `seg2+0x0311` | `initseg+0x69` | `seg2+0x2239`  |
+
+**Engine contract.** `restart()` writes the same set: it keeps the script
+capacity, text mode, the status line, the echo line, horizon, priority base
+and table, the key-release gate, the input width and the Amiga picture top,
+keeps logic 0 and its scan start across the cache reset, and sets player
+control. Profile fields:
+
+| Field                  | Value                                               | Evidence                                    |
+| ---------------------- | --------------------------------------------------- | ------------------------------------------- |
+| `restartCancelsLine`   | false on `2.001`, true on every other build         | the 2.001 restart branch has no CancelLine  |
+| `restartKeepsMaxScore` | true on `amiga-2.310`, `amiga-2.316`, `amiga-2.333` | v7 saved at `h63+0x50`, restored at `+0xc2` |
+
+The engine still empties the script's active pairs and checkpoint, the
+event queue and the block rectangle, and stops tracing; the original keeps
+the first two until the restarted game's `new.room` resets them and leaves
+the others to `new.room` or the save image, so a player sees no difference.
+
+**Not established.** Full-machine execution; the trace-active state; the
+2.001 `max.drawn.objects` storage address.
+
 ### Original save-file interoperability
 
 **Evidence class:** execution of original save writers and block readers with controlled,
@@ -3460,7 +3541,10 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   (e.g. `2.089` `0x22d1`, `2.936` `0x24a8`, `3.002.149` `0x2721`, Amiga `2.082`
   `h45+0x052`, `2.176..2.333` `h63+0x064`, IIgs `1.014` `seg2+0x0242`), so
   declining `restart.game` leaves `INLINE` (`editLine`) and the typed command
-  row intact across all twenty profiles. For cursor visibility, all builds
+  row intact across all twenty profiles. PC `2.001` has no `CancelLine` call at
+  all (`0x2176..0x21e7`), so its accepted restart keeps a partly typed line
+  too (`restartCancelsLine: false`; [Original restart state
+  boundary](#original-restart-state-boundary)). For cursor visibility, all builds
   call `EraseCur` before the prompt; PC `3.002.086..3.002.149` save
   `CursorState()` to `[bp-6]` before `EraseCur` and at the tail call `WriteCur`
   if `[bp-2] != 0 || [bp-6] != 0`, whereas PC `2.089..2.936`, Amiga
@@ -5220,6 +5304,7 @@ behavior were confirmed independently at the addresses given (**fact**):
 | 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                                                           |
 | all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)                                               |
 | all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)                                             |
+| 2.310, 2.316, 2.333  | `restartKeepsMaxScore`       | true                                  | RestartGame saves v7 before ResetAll and puts it back (h63+0x50, h63+0xc2); [Original restart state boundary](#original-restart-state-boundary)              |
 
 Fields whose slot is above a build's dispatch bound (see the table above)
 never run there: `menuInteractionGate`, `releaseGateAction`,

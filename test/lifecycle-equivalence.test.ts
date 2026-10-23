@@ -668,15 +668,6 @@ const UNCATALOGUED_2089 = "uncatalogued 2.089 edition (WORDS.TOK 775bfe3c9f51)";
 
 const PENDING: readonly Pending[] = [
   {
-    phase: "restart",
-    field: /^save\.replayCapacity$/,
-    editions: ["kq3", "kq4", "pq1", "lsl1", "bc", "pq1-amiga"],
-    bug:
-      "restart keeps the script buffer size: unexplained. These games call script.size only " +
-      "while f6 is clear; restart() puts the capacity back to the profile default, so a later " +
-      "room can overflow it.",
-  },
-  {
     phase: "restore",
     field: /^objectPriority$/,
     when: (difference) => {

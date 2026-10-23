@@ -1241,7 +1241,7 @@ export class Engine {
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
     this.strings = Array.from({ length: layoutStringTotal(bank) }, () => "");
-    this.applyResetAllDefaults();
+    this.applyResetAllDefaults(true);
     // Original game-state startup defaults; hosts may apply sound preference.
     // docs/fidelity.md: Original save and restart audit.
     this.flags[F_SOUND_ENABLED] = 1;
@@ -9495,24 +9495,35 @@ export class Engine {
     this.sounds.clear();
     this.host.stopSound?.();
 
+    // Amiga 2.310..2.333 put the maximum score back after ResetAll
+    // (docs/fidelity.md "Original restart state boundary").
+    const maxScore = this.vars[7]!;
     this.vars.fill(0);
     this.flags.fill(0);
-    this.applyResetAllDefaults();
+    this.applyResetAllDefaults(false);
+    if (this.profile.restartKeepsMaxScore) this.vars[7] = maxScore;
     this.controllers.fill(0);
+    // The cache reset truncates the logic list after its head: logic 0 and
+    // its scan start survive (docs/fidelity.md "Original restart state
+    // boundary").
+    const globalLogic = this.logics.get(0);
+    const globalScanStart = this.scanStart.get(0);
     this.logics.clear();
     this.pictures.clear();
     this.pictureOrder.length = 0;
     this.views.clear();
     this.viewOrder.length = 0;
     this.scanStart.clear();
+    if (globalLogic) {
+      this.logics.set(0, globalLogic);
+      if (globalScanStart !== undefined) this.scanStart.set(0, globalScanStart);
+    }
     this.replay.length = 0;
     this.hostReplay.length = 0;
     this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
     this.replayRecording = true;
-    this.scriptCapacity = this.legacyRoomMemory
-      ? AUTHORED_SCRIPT_BUFFER_PAIRS
-      : this.profile.defaultScriptBufferPairs;
+    // The script capacity and its buffer stay as the game sized them.
     this.maximumReplayPairs = 0;
     // The menu, its submitted state, its current heading and item and the
     // menu request survive; set.menu returns at once once submitted, so the
@@ -9529,28 +9540,27 @@ export class Engine {
     this.initInventory();
     this.modals.length = 0;
     this.persistentWindow = null;
-    this.textMode = false;
-    this.statusEnabled = false;
     this.statusRefreshRequested = false;
     // Input acceptance survives: ResetAll clears only vars/flags/controllers/
     // object records, while the accepted restart branch runs CancelLine and
     // redraws the marker (docs/fidelity.md "Persistence verdicts",
-    // F-persistence-01, F-persistence-02).
+    // F-persistence-01, F-persistence-02). Text mode, the status line, the
+    // echo line, horizon, priority base, key-release gate and input width
+    // are outside the restart's write set (docs/fidelity.md "Original
+    // restart state boundary"); new.room sets the horizon itself.
     if (!this.profile.originalRestartRestore) this.inputAccepted = false;
-    this.editLine = "";
-    this.acceptedLine = "";
+    if (this.profile.restartCancelsLine) this.editLine = "";
+    // ResetAll's middle section: player control, last picture, block enable.
+    this.directionCoupling = 1;
     this.blockRect = null;
-    this.horizon = 36;
-    this.priorityBase = 48;
-    this.defaultPriTable = true;
     this.lastPicture = 0;
-    this.keyReleaseGate = 0;
     this.inputQueue.clear();
-    this.inputWidthCap = null;
     this.surface.reset();
     this.stampMask.fill(0);
     this.pictureShown = false;
     this.text.clear();
+    // The status line stays on across restart; it shows again at once.
+    this.drawStatus();
     this.presentationDirty = true;
     // The two timing accumulators.
     this.timerTicks = 0;
@@ -9577,24 +9587,25 @@ export class Engine {
 
   /**
    * Apply the binary's ResetAll variable and flag writes shared by cold
-   * startup and accepted restart (docs/fidelity.md "Persistence
+   * startup (`cold`) and accepted restart (docs/fidelity.md "Persistence
    * verdicts", F-OPCORE-04-adjacent).
    */
-  private applyResetAllDefaults(): void {
+  private applyResetAllDefaults(cold: boolean): void {
     const id = this.profile.id;
     const isAmiga = this.profile.windowFrameGeometry === "amiga";
     const isIIgs = this.profile.windowFrameGeometry === "iigs";
-    if (!this.restartPending) {
+    if (cold) {
       this.joyEnabled = isAmiga;
       this.joyInitPending = false;
+      // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to
+      // 0, which also gates status.line.on/off until configure.screen sets a
+      // nonzero picture top (docs/fidelity.md "Amiga screen, font and
+      // pointer"). Restart keeps a configured top on every build
+      // (docs/fidelity.md "Original restart state boundary").
+      if (printWindowLayout(this.profile).displayBase === 0) this.displayBaseRow = 0;
     }
     this.joyCalibratingModalSerial = null;
     this.lastJoyDir = 0;
-    // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to 0,
-    // which also gates status.line.on/off until configure.screen sets a
-    // nonzero picture top (docs/fidelity.md "Amiga screen, font and pointer").
-    // Other builds boot at row 1 and keep a configured top across a restart.
-    if (printWindowLayout(this.profile).displayBase === 0) this.displayBaseRow = 0;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[20] = isAmiga ? 5 : isIIgs ? 7 : 0;
     if (id === "2.001") {
