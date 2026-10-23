@@ -9,6 +9,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 - After Restart, the game's menu is still there, and after Restart or
   Restore every menu item is enabled until the game disables it again.
+- Apple IIgs games ask "Restart the game?" with Restart and Cancel, as the
+  original does.
 
 ## [1.2.5] - 2026-10-20
 

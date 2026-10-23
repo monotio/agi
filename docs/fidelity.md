@@ -137,7 +137,8 @@ Planned for a later release:
 - the IBM PC BIOS 8 × 8 design for EGA and CGA (the recreated font is the
   [Tandy 1000 SX design](#pc-fonts-and-display-adapters))
 - the Apple IIgs
-  [native menus and the Standard File window](#apple-iigs-presentation)
+  [native menus and the Standard File window](#apple-iigs-presentation), and
+  the buttons of its [restart dialog](#persistence-verdicts)
 - resumable checkpoints taken while a native menu is open
 - the `.SAV` panel
 - a disk-prompt setting (the originals'
@@ -3505,28 +3506,34 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   sub-tick remainder word. Accepted restart zeroes both words (0x24DB);
   restore reloads the dword wholesale inside block 1 and leaves it untouched.
 - **F-persistence-05 (fact; engine matches).** Restart/quit prompts (PC
-  `2.001..3.002.149`, Amiga `2.082..2.333`, IIgs `1.014`): on PC and IIgs
-  (`main+0x02d0` → `seg2+0x2239`), restart = `"Press ENTER to restart\nthe
-game.\n\nPress ESC to continue\nthis game."` (e.g. kq3 `DS+0xADB`, IIgs
-  `seg2+0x604c`), and quit (`2.272+`, IIgs; PC `2.001..2.230` `0x0265` exit
-  immediately with no operand via `exitAlwaysImmediate: true`) = `"Press ENTER
-to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`, IIgs
-  `main+0x2299`). Both text prompts use `WindowPrint` with height/width 0
-  (auto-size) and `WaitAcAb`, and `quit(1)` skips the prompt on every build with
-  an operand. On Amiga `2.082..2.333`, `restart.game` (`2.082` `h45+0x000`,
-  `2.176..2.333` `h63+0x000`) passes `"Restart the game?"` (`2.082` `h35+0x2d`,
-  `2.176..2.333` `h49+0x2d`) with Intuition gadget labels `"Restart"`/`"Cancel"`
-  (`h46+0x00`/`+0x08`, `h64+0x00`/`+0x08`) to `WindowPrint` (`h40+0x150` /
-  `h57+0x150`), and `quit` (`2.082` `h2+0x18e`, `2.176`/`2.202` `h2+0x1c2`,
-  `2.310..2.333` `h2+0x1ce`) passes `"Quit the game, or continue?"` (`h3+0x00`)
-  with gadget labels `"Quit"`/`"Continue"` (`h3+0x25`/`+0x2a`); no Amiga binary
-  contains `"Do you want to quit?"`. Engine: `confirmSessionAction` renders
-  `"Restart the game?\n\nRestart    Cancel"` and
-  `"Quit the game, or continue?\n\nQuit               Continue"` on Amiga
-  profiles (`windowFrameGeometry === "amiga"`) and the PC/IIgs Enter/Escape
-  confirmation strings on all other profiles, with Enter accepting and Escape
-  cancelling across all profiles (fields `originalRestartRestore` and
-  `exitAlwaysImmediate`).
+  `2.001..3.002.149`, Amiga `2.082..2.333`, IIgs `1.014`): on PC, restart =
+  `"Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."`
+  (e.g. kq3 `DS+0xADB`), and quit (`2.272+`, IIgs; PC `2.001..2.230` `0x0265`
+  exit immediately with no operand via `exitAlwaysImmediate: true`) =
+  `"Press ENTER to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`,
+  IIgs `main+0x2299`, ~arrays+0x10db, through `main+0x02d0` →
+  `seg2+0x2239`). Both PC text prompts use `WindowPrint` with height/width 0
+  (auto-size) and `WaitAcAb`, and `quit(1)` skips the prompt on every build
+  with an operand. On Amiga `2.082..2.333`, `restart.game` (`2.082`
+  `h45+0x000`, `2.176..2.333` `h63+0x000`) passes `"Restart the game?"`
+  (`2.082` `h35+0x2d`, `2.176..2.333` `h49+0x2d`) with Intuition gadget labels
+  `"Restart"`/`"Cancel"` (`h46+0x00`/`+0x08`, `h64+0x00`/`+0x08`) to
+  `WindowPrint` (`h40+0x150` / `h57+0x150`), and `quit` (`2.082` `h2+0x18e`,
+  `2.176`/`2.202` `h2+0x1c2`, `2.310..2.333` `h2+0x1ce`) passes `"Quit the
+game, or continue?"` (`h3+0x00`) with gadget labels `"Quit"`/`"Continue"`
+  (`h3+0x25`/`+0x2a`); no Amiga binary contains `"Do you want to quit?"`. On
+  IIgs `1.014` (`SQ2.SYS16` `e1a2788f92cb7622…`), `restart.game`
+  (`seg2+0x0311`) passes three far pointers to the dialog routine
+  `seg2+0x2239` (`seg2+0x0336..0x0348`): ~arrays+0x1271 `"Restart the game?"`
+  and the labels ~arrays+0x1496 `"Restart"` and ~arrays+0x149e `"Cancel"`; the
+  binary holds no `"Press ENTER to restart"` string. Engine:
+  `confirmSessionAction` renders `"Restart the game?\n\n\nRestart    Cancel"`
+  on Amiga and IIgs profiles (`windowFrameGeometry` `"amiga"` or `"iigs"`),
+  `"Quit the game, or continue?\n\n\nQuit               Continue"` on Amiga
+  profiles, and the PC Enter/Escape strings otherwise, with Enter accepting
+  and Escape cancelling across all profiles (fields `originalRestartRestore`
+  and `exitAlwaysImmediate`). The IIgs dialog's button geometry is not
+  established, so its labels are plain text with no click targets.
 - **F-persistence-05-gadgets (fact; engine matches the rectangles).** Amiga
   WindowPrint gadget geometry, read off all six executables (`Sierra` 2.082
   `80c6b0c4912a4ca5…` h40 `9f9e04710ff4e18c…`; `KQ2` 2.176

@@ -520,10 +520,11 @@ const AMIGA_CONFIRM_GADGETS: Record<
 };
 
 /**
- * The Amiga confirmation window's text. WindowPrint adds three rows to the
- * message when it has gadget labels and draws the gadgets in that space; the
- * engine's cell surface carries the labels on the last of those rows, which
- * the 12 px gadget boxes overlap most (F-persistence-05).
+ * The Amiga confirmation window's text, also the IIgs restart prompt's.
+ * WindowPrint adds three rows to the message when it has gadget labels and
+ * draws the gadgets in that space; the engine's cell surface carries the
+ * labels on the last of those rows, which the 12 px gadget boxes overlap most
+ * (F-persistence-05).
  */
 function amigaConfirmText(action: "restart" | "quit"): string {
   const g = AMIGA_CONFIRM_GADGETS[action];
@@ -3459,10 +3460,14 @@ export class Engine {
       this.cursorErased = true;
       this.drawInputRow();
     }
+    // The Apple IIgs restart passes the Amiga's prompt and labels to its own
+    // dialog routine; its gadget geometry is unverified, so the labels are
+    // plain text there (F-persistence-05).
+    const iigs = this.profile.windowFrameGeometry === "iigs";
     this.emitPrint(
       action === "restart"
         ? original
-          ? amiga
+          ? amiga || iigs
             ? amigaConfirmText("restart")
             : "Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."
           : "Restart the game?\nENTER: yes   ESC: continue"

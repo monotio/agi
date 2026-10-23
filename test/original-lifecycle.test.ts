@@ -578,3 +578,62 @@ test("F-persistence-05: Amiga confirmation gadgets are selectable at their label
         assert.equal(quit.confirmGadgetAt(x, y), null, `${id} quit has no gadget at ${x},${y}`);
   }
 });
+
+test("F-persistence-05: the IIgs restart prompt asks Restart the game? with Restart and Cancel; Enter restarts and Esc continues", () => {
+  // Player-visible rule: the Apple IIgs build asks "Restart the game?" with
+  // Restart and Cancel, as its binary does (seg2+0x0348 -> seg2+0x2239 with
+  // ~arrays+0x1271/0x1496/0x149e), not the PC text; its quit prompt keeps
+  // the PC wording.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (isset(f6)) { assignn(v90, 1); return; }
+       if (equaln(v80, 1)) { restart.game(); assignn(v81, 1); return; }
+       if (equaln(v80, 2)) { quit(0); assignn(v82, 1); return; }
+       return;`,
+      { dictionary: new Map(), profile: PROFILES["iigs-1.014"] },
+    ).payload,
+  );
+  const open = (action: 1 | 2): Engine => {
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+        waitKey() {
+          throw new HostWait();
+        },
+      },
+      new Map(),
+      { profile: "iigs-1.014" },
+    );
+    engine.vars[80] = action;
+    engine.tick();
+    assert.equal(engine.modalKind, "print");
+    return engine;
+  };
+  const screen = (engine: Engine) =>
+    Array.from({ length: 25 }, (_, r) => engine.textRow(r)).join("\n");
+
+  const declined = open(1);
+  assert.match(screen(declined), /Restart the game\?/);
+  assert.match(screen(declined), /Restart +Cancel/);
+  assert.doesNotMatch(screen(declined), /Press ENTER/);
+  declined.deliverHostAnswer(27);
+  declined.tick();
+  assert.equal(declined.vars[90], 0, "Esc keeps the game");
+  assert.equal(declined.vars[81], 1, "Esc continues after restart.game");
+
+  const accepted = open(1);
+  accepted.deliverHostAnswer(13);
+  accepted.tick();
+  assert.equal(accepted.vars[90], 1, "Enter restarts");
+  assert.equal(accepted.vars[81], 0);
+
+  assert.match(screen(open(2)), /Press ENTER to quit\.\s+Press ESC to keep playing\./);
+});
