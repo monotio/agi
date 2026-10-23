@@ -682,6 +682,17 @@ export interface AgiProfile {
    */
   readonly restartKeepsMaxScore: boolean;
   /**
+   * Message modes the restart and quit confirmations honor; both call the
+   * shared message routine print uses. "timed": a nonzero v21 accepts the
+   * prompt when its v21 half-seconds pass or on Enter or Esc, dropping other
+   * keys, and zeroes v21. "timed-and-f15" also accepts at once while f15 is
+   * set, clearing f15 and leaving the window open. "none" on 2.001; "timed"
+   * on 2.089..2.272 and Amiga 2.082; "timed-and-f15" on PC 2.411+, Amiga
+   * 2.176+ and the IIgs (docs/fidelity.md "Persistence verdicts",
+   * F-persistence-prompt-modes).
+   */
+  readonly confirmPromptModes: "none" | "timed" | "timed-and-f15";
+  /**
    * Whether the authentic RestoreGame tail rewrites v20, v26, v22 and
    * conditional f11 after reading the save blocks: true in PC 2.903..3.002.149
    * and false in PC 2.001..2.440, Amiga 2.082..2.333, and IIgs 1.014, where
@@ -807,6 +818,7 @@ const BASE_2936: AgiProfile = {
   originalRestartRestore: true,
   restartCancelsLine: true,
   restartKeepsMaxScore: false,
+  confirmPromptModes: "timed-and-f15",
   restoreRewritesMachineState: true,
   defaultScriptBufferPairs: 50,
   scriptSizeResetsSequence: true,
@@ -846,6 +858,7 @@ const BASE_EARLY: AgiProfile = {
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   restartPromptBypassedByF16: false,
+  confirmPromptModes: "timed",
   restoreRewritesMachineState: false,
   heapDiagnosticExtraLine: false,
   sound: "early-2.089",
@@ -948,6 +961,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     id: "2.001",
     frameTiming: "booter-int1c",
     restartCancelsLine: false,
+    confirmPromptModes: "none",
     // The booter dispatch is bounded at 0x90, below the later 2.089 bound.
     // docs/fidelity.md: PC booter action 0x8f (max.drawn.objects).
     maxAction: 0x90,
@@ -1131,6 +1145,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_EARLY,
     ...AMIGA_INVENTORY,
     id: "amiga-2.176",
+    confirmPromptModes: "timed-and-f15",
     maxAction: 0xa9,
     clickMove: "amiga",
     motionCounters: "word",

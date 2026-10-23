@@ -237,3 +237,56 @@ test("2.936: the PC prompt has no gadgets; clicks are dropped, a tap cancels, ke
   assert.equal(esc.engine().vars[81], 1, "Escape cancels the restart");
   assert.equal(esc.engine().inputEdit, "look");
 });
+
+// Player rule: a restart prompt reached while a timed message is pending (v21)
+// accepts when its time runs out, with no key (docs/fidelity.md "Persistence
+// verdicts", F-persistence-prompt-modes); a History replay reaches the same
+// restart from the recorded clock.
+test("2.936: a timed restart prompt accepts when its time runs out, live and in a History replay", () => {
+  const container = gameContainer([
+    `if (isset(f6)) { assignn(v90, 1); return; }
+     if (!isset(f200)) { set(f200); set.key(0, 59, 1); }
+     if (controller(c1)) { assignn(v21, 2); restart.game(); assignn(v81, 1); return; }
+     return;`,
+  ]);
+  const control: WorkerControl[] = [];
+  const presentation: WorkerPresentation[] = [];
+  let now = 0;
+  const ctx: WorkerContext = createWorkerContext({
+    control: (message) => control.push(message),
+    presentation: (message) => presentation.push(message),
+    now: () => now,
+  });
+  ctx.host = createEngineHost(ctx);
+  const send = (msg: WorkerInbound): void => onWorkerMessage(ctx, msg);
+  send({ type: "boot", profile: "2.936", files: Object.fromEntries(container.files), words: [] });
+  ctx.fns.stopTimers();
+  const tick = (n: number): void => {
+    for (let i = 0; i < n; i++) {
+      now += 1000 / 60;
+      ctx.fns.hostTick();
+    }
+  };
+  const engine = () => ctx.run.engine!;
+  tick(1);
+  send({ type: "key", code: F1 });
+  tick(1);
+  assert.equal(engine().modalKind, "print", "the prompt shows");
+  assert.equal(ctx.run.input.keyWaiting, true, "the page shows the key wait");
+  tick(30);
+  assert.equal(engine().vars[90], 0, "half the time: still waiting");
+  tick(40);
+  assert.equal(engine().vars[90], 1, "the timeout restarted the game");
+  assert.equal(engine().vars[81], 0, "the old pass never resumed");
+  assert.equal(engine().modalKind, null);
+  assert.equal(ctx.run.input.keyWaiting, false, "the page no longer waits for a key");
+  tick(2);
+  send({ type: "pause", paused: true });
+  const [segment] = collectSegments(control);
+  assert.ok(segment);
+  const outcome = replayHistorySegment(segment);
+  assert.equal(outcome.error, null);
+  assert.equal(outcome.diverged, null, "every sync mark held");
+  assert.equal(outcome.ctx.run.engine!.vars[90], 1, "the replay restarted on the same clock");
+  ctx.fns.stopTimers();
+});

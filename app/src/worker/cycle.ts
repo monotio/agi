@@ -219,6 +219,10 @@ export function createCycle(ctx: WorkerContext) {
         // post-logic tail — tickEngine counted that completion and the poll
         // reports it; anything less still reports no cycle.
         const completed = tickEngine();
+        // A timed restart or quit prompt resolves on the clock, with no key:
+        // the page stops showing the key wait.
+        if (ctx.run.input.keyWaiting && !engine.awaitingKey && !engine.hostInteractionPending)
+          ctx.fns.setKeyWaiting(false);
         ctx.fns.noteTransition();
         ctx.fns.flushTraceBatch();
         ctx.fns.postFrame();

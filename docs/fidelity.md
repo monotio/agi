@@ -3172,7 +3172,8 @@ cache node, whose scan-start word (`+6`, written by `set.scan.start`, GR1
 (`h63+0x50`, `+0xc2`; executed: v7 = 77 before and after), then redraw the
 title-bar status (`h63+0xcc` → `h82+0x42c`); 2.082, 2.176, 2.202 and the
 IIgs zero v7 with the other variables. The Amiga `configure.screen` row
-words (2.202 `+0x404..+0x409`) are not written.
+words (2.202 `+0x404..+0x409`) are not written. The prompt is the shared message routine, so
+f15 and v21 apply to it ([F-persistence-prompt-modes](#persistence-verdicts)).
 
 | Build                | Restart entry | ResetAll       | Prompt routine |
 | -------------------- | ------------- | -------------- | -------------- |
@@ -3201,10 +3202,11 @@ and table, the key-release gate, the input width and the Amiga picture top,
 keeps logic 0 and its scan start across the cache reset, and sets player
 control. Profile fields:
 
-| Field                  | Value                                               | Evidence                                    |
-| ---------------------- | --------------------------------------------------- | ------------------------------------------- |
-| `restartCancelsLine`   | false on `2.001`, true on every other build         | the 2.001 restart branch has no CancelLine  |
-| `restartKeepsMaxScore` | true on `amiga-2.310`, `amiga-2.316`, `amiga-2.333` | v7 saved at `h63+0x50`, restored at `+0xc2` |
+| Field                  | Value                                                                                             | Evidence                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `restartCancelsLine`   | false on `2.001`, true on every other build                                                       | the 2.001 restart branch has no CancelLine          |
+| `confirmPromptModes`   | `none` on `2.001`; `timed` on `2.089`, `2.230`, `2.272`, `amiga-2.082`; `timed-and-f15` elsewhere | [F-persistence-prompt-modes](#persistence-verdicts) |
+| `restartKeepsMaxScore` | true on `amiga-2.310`, `amiga-2.316`, `amiga-2.333`                                               | v7 saved at `h63+0x50`, restored at `+0xc2`         |
 
 The engine still empties the script's active pairs and checkpoint, the
 event queue and the block rectangle, and stops tracing; the original keeps
@@ -3632,9 +3634,43 @@ game, or continue?"` (`h3+0x00`) with gadget labels `"Quit"`/`"Continue"`
   on Amiga and IIgs profiles (`windowFrameGeometry` `"amiga"` or `"iigs"`),
   `"Quit the game, or continue?\n\n\nQuit               Continue"` on Amiga
   profiles, and the PC Enter/Escape strings otherwise, with Enter accepting
-  and Escape cancelling across all profiles (fields `originalRestartRestore`
-  and `exitAlwaysImmediate`). The IIgs dialog's button geometry is not
+  and Escape cancelling across all profiles while neither f15 nor v21 applies
+  (F-persistence-prompt-modes; fields `originalRestartRestore`,
+  `exitAlwaysImmediate` and `confirmPromptModes`). The IIgs dialog's button geometry is not
   established, so its labels are plain text with no click targets.
+- **F-persistence-prompt-modes (fact; engine matches).** The restart and quit
+  confirmations call the shared message routine `print` uses, so f15 and v21
+  apply to them. Calls: PC restart `2.001` `0x218d → 0x1b15`, `2.089`
+  `0x22c2 → 0x1ba9`, `2.230` `0x2204 → 0x1aeb`, `2.272` `0x22a0 → 0x1b87`,
+  `2.411` `0x2436 → 0x1c95`, `2.936` `0x2499 → 0x1ce8`, `3.002.149`
+  `0x270d → 0x1f70`; quit (`2.272+`) calls the same routine, for example
+  `2.411` `0x0263`, `2.936` `0x0296`, `3.002.149` `0x028f`. Amiga: restart
+  h63+0x3a (`2.082` h45+0x26) and quit h2+0x1ba / +0x1ee / +0x1fa → WindowPrint
+  h57+0x150 (`2.082` h40+0x150). IIgs `1.014`: restart seg2+0x0348 and quit
+  main+0x0309 → seg2+0x2239. **f15** (PC `2.411..3.002.149`, Amiga
+  `2.176..2.333`, IIgs): if f15 is set, the routine clears it and returns
+  accept at once, leaving the window open (`2.411` `0x1cab..0x1cc6`, GR1
+  `0x1f86..0x1fa1`, Amiga h57+0x184..0x1b8, IIgs seg2+0x2275..0x22a5); 2.31x
+  also sets h59+0xc and the IIgs `$1590`. PC `2.001..2.272` and Amiga `2.082`
+  have no f15 test. **v21** (every build except PC `2.001`): if v21 ≠ 0, the
+  routine waits until `timer + v21 × 10` or until its accept/abort poll
+  returns Enter (1) or Esc (0), then returns accept either way and sets
+  v21 := 0 (`2.089` `0x1c24`, `2.411` `0x1d2d`, `3.002.149` `0x2008`; Amiga
+  h57+0x204 / +0x20c, `2.082` h40+0x1cc; IIgs seg2+0x2340). Other keys are
+  dequeued and dropped (`3.002.149` `0x4744`). **v21 = 0**: the routine blocks
+  until Enter (accept) or Esc (cancel); on Amiga the first gadget
+  (`"Restart"`, GadgetID 2) posts Enter and the second (`"Cancel"`, ID 3)
+  posts Esc (h106+0x158..0x1a8; `2.082` h78+0x148..0x192). Every handler
+  accepts on a result of 1; quit with operand 1 skips the prompt. Not
+  established: the IIgs button path (inference from the Amiga: Enter and
+  Esc), full-machine runs. Engine: field `confirmPromptModes` (`"none"` on
+  `2.001`, `"timed"` on `2.089..2.272` and Amiga `2.082`, `"timed-and-f15"`
+  elsewhere). With f15 set, `confirmSessionAction` opens the prompt as the
+  persistent window, clears f15 and accepts. With v21 set it parks a timed
+  confirmation whose window closes after v21 half-seconds, as a timed print
+  does; the close answers Enter, Enter or Esc accept early, other keys are
+  dropped, and v21 is zeroed. Tests: [original-lifecycle.test.ts](../test/original-lifecycle.test.ts),
+  [worker-confirm-gadgets.test.ts](../app/test/worker-confirm-gadgets.test.ts).
 - **F-persistence-05-gadgets (fact; engine matches the rectangles).** Amiga
   WindowPrint gadget geometry, read off all six executables (`Sierra` 2.082
   `80c6b0c4912a4ca5…` h40 `9f9e04710ff4e18c…`; `KQ2` 2.176
@@ -5325,6 +5361,7 @@ behavior were confirmed independently at the addresses given (**fact**):
 | 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                                                           |
 | all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)                                               |
 | all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)                                             |
+| 2.082, 2.176+        | `confirmPromptModes`         | `timed`, `timed-and-f15`              | WindowPrint tests v21 on every build (h40+0x17a, h57+0x1b2) and f15 from 2.176 (h57+0x184); [F-persistence-prompt-modes](#persistence-verdicts)              |
 | 2.310, 2.316, 2.333  | `restartKeepsMaxScore`       | true                                  | RestartGame saves v7 before ResetAll and puts it back (h63+0x50, h63+0xc2); [Original restart state boundary](#original-restart-state-boundary)              |
 
 Fields whose slot is above a build's dispatch bound (see the table above)

@@ -642,6 +642,11 @@ export type PendingInteraction =
       action: "restart" | "quit";
       /** Serial of the window emitPrint pushed; closed on apply if still open. */
       modalSerial: number;
+      /**
+       * A v21 timed prompt: Enter or Esc accepts, other keys are dropped, and
+       * the window's timeout accepts (F-persistence-prompt-modes).
+       */
+      timed?: true;
     }
   | {
       /** prepareRoom during newRoom — the room transition continues on apply. */
@@ -2778,7 +2783,14 @@ export class Engine {
       // (docs/fidelity.md "Original input, menu and modal handling", F-IN-04).
       key = normalizeKeyWord(key, this.profile.presentation);
       const byte = key & 0xff;
-      if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
+      // The timed wait ends early on Enter or Esc only, and accepts either way.
+      if (pending.timed) {
+        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE) {
+          this.pendingInteraction = null;
+          this.applyConfirm(pending, true);
+          return;
+        }
+      } else if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
         this.pendingInteraction = null;
         this.applyConfirm(pending, byte === AGI_KEY.ENTER);
         return;
@@ -2795,15 +2807,22 @@ export class Engine {
     // The window closes if it is still open; a key that drained through the
     // modal path while the request was in flight may have closed it already.
     if (this.modal?.serial === pending.modalSerial) this.closeModal();
+    // The timed exit zeroes v21 on every build that has it.
+    if (pending.timed) this.vars[21] = 0;
     if (!accepted) return;
-    if (pending.action === "restart") {
+    this.acceptSessionAction(pending.action);
+  }
+
+  /** The accepted restart or quit: restart in place, or end the game. */
+  private acceptSessionAction(action: "restart" | "quit"): never {
+    if (action === "restart") {
       this.restart();
     } else {
       this.stopSound();
       this.terminated = true;
       this.host.quit?.();
     }
-    throw new ContinuationAbort(pending.action === "restart");
+    throw new ContinuationAbort(action === "restart");
   }
 
   /**
@@ -3466,6 +3485,14 @@ export class Engine {
     // dialog routine; its gadget geometry is unverified, so the labels are
     // plain text there (F-persistence-05).
     const iigs = this.profile.windowFrameGeometry === "iigs";
+    // The prompt is the shared message routine: with f15 set it opens the
+    // window, clears f15 and accepts at once, leaving the window open; with a
+    // nonzero v21 it waits that many half-seconds for Enter or Esc and accepts
+    // either way (docs/fidelity.md "Persistence verdicts",
+    // F-persistence-prompt-modes).
+    const modes = this.profile.confirmPromptModes;
+    const persistent = modes === "timed-and-f15" && this.flags[15] !== 0;
+    const timed = !persistent && modes !== "none" && this.vars[21] !== 0;
     this.emitPrint(
       action === "restart"
         ? original
@@ -3479,13 +3506,20 @@ export class Engine {
             : "Press ENTER to quit.\nPress ESC to keep playing."
           : "Quit the game?\nENTER: yes   ESC: continue",
       undefined,
-      true,
+      !persistent,
+      false,
+      timed,
     );
-    if (original && amiga && this.modal?.kind === "print" && this.modal.saved.window) {
+    const shown = persistent
+      ? this.persistentWindow
+      : this.modal?.kind === "print"
+        ? this.modal.saved
+        : null;
+    if (original && amiga && shown?.window) {
       // The gadget fills go into the window overlay, which every restamp
       // (restore, replay, checkpoint) redraws; the label cells carry front
       // pen 15 on their gadget's pen (F-persistence-05-gadgets).
-      const win = this.modal.saved.window;
+      const win = shown.window;
       const g = AMIGA_CONFIRM_GADGETS[action];
       const row = win.textTop + win.textRows - 1;
       this.text.write(row, win.textLeft, g.accept, attr(15, 2));
@@ -3493,11 +3527,16 @@ export class Engine {
       win.gadgets = amigaConfirmGadgets(win, action).map(({ answer: _answer, ...fill }) => fill);
       stampWindowOverlayOnly(this.text, win, false);
     }
+    if (persistent) {
+      this.flags[15] = 0;
+      this.acceptSessionAction(action);
+    }
     const pending: PendingInteraction = {
       kind: "confirm",
       next,
       action,
       modalSerial: this.modal?.serial ?? 0,
+      ...(timed ? { timed: true as const } : {}),
     };
     try {
       this.confirmWaitLoop(pending);
@@ -5391,7 +5430,19 @@ export class Engine {
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {
         modal.remainingMs -= milliseconds;
-        if (modal.remainingMs <= 1e-7) this.closeModal();
+        if (modal.remainingMs <= 1e-7) {
+          this.closeModal();
+          // A timed restart or quit prompt accepts when its time runs out;
+          // the next tick applies the answer (F-persistence-prompt-modes).
+          const pending = this.pendingInteraction;
+          if (
+            pending?.kind === "confirm" &&
+            pending.timed &&
+            pending.modalSerial === modal.serial &&
+            this.pendingAnswer === undefined
+          )
+            this.pendingAnswer = AGI_KEY.ENTER;
+        }
       }
       if (modal.kind === "shake") this.advanceShake(milliseconds);
       if (modal.kind === "dissolve") this.advanceDissolve(modal, milliseconds);

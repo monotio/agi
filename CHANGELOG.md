@@ -20,6 +20,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Apple IIgs games list their own saves in the Restore window.
 - Saves record each object's priority and loop and cel counts as the original
   writes them, so an object restores with the priority it had.
+- A restart or quit prompt that appears while a timed message is pending
+  accepts when the time runs out or on Enter or Esc, and with the game's
+  leave-window flag set it accepts at once, as the originals do.
 
 ## [1.2.5] - 2026-10-20
 

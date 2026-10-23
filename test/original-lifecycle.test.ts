@@ -637,3 +637,146 @@ test("F-persistence-05: the IIgs restart prompt asks Restart the game? with Rest
 
   assert.match(screen(open(2)), /Press ENTER to quit\.\s+Press ESC to keep playing\./);
 });
+
+/**
+ * Player-visible rule: a restart or quit prompt reached while a timed message
+ * is pending (v21) accepts when its time runs out or on Enter or Esc, and
+ * with the leave-window flag (f15) set it accepts at once. The prompts call
+ * the shared message routine print uses (docs/fidelity.md "Persistence
+ * verdicts", F-persistence-prompt-modes).
+ */
+function promptGame(id: keyof typeof PROFILES) {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (isset(f6)) { assignn(v90, 1); return; }
+       if (equaln(v80, 1)) { restart.game(); assignn(v81, 1); return; }
+       ${PROFILES[id].exitOperandBytes === 0 ? "" : "if (equaln(v80, 2)) { quit(0); assignn(v82, 1); return; }"}
+       return;`,
+      { dictionary: new Map(), profile: PROFILES[id] },
+    ).payload,
+  );
+  let waits = 0;
+  const engine = new Engine(
+    container,
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+      waitKey() {
+        waits++;
+        throw new HostWait();
+      },
+    },
+    new Map(),
+    { profile: id },
+  );
+  return {
+    engine,
+    waits: () => waits,
+    ask(action: 1 | 2, { v21 = 0, f15 = false } = {}) {
+      engine.vars[21] = v21;
+      engine.flags[15] = f15 ? 1 : 0;
+      engine.vars[80] = action;
+      engine.tick();
+    },
+    answer(key: number) {
+      engine.deliverHostAnswer(key);
+      engine.tick();
+    },
+    restarted: () => engine.vars[90] === 1,
+  };
+}
+
+test("F-persistence-prompt-modes: a timed restart prompt accepts on Enter, Esc or the timeout and drops other keys", () => {
+  for (const id of [
+    "2.089",
+    "2.936",
+    "3.002.149",
+    "amiga-2.082",
+    "amiga-2.316",
+    "iigs-1.014",
+  ] as const) {
+    const esc = promptGame(id);
+    esc.ask(1, { v21: 4 });
+    assert.equal(esc.engine.modalKind, "print", `${id}: the prompt shows`);
+    esc.answer(0x61);
+    assert.equal(esc.restarted(), false, `${id}: another key is dropped`);
+    assert.equal(esc.engine.awaitingKey, true, `${id}: the prompt still waits`);
+    esc.answer(0x1b);
+    assert.equal(esc.restarted(), true, `${id}: Esc accepts a timed prompt`);
+
+    const timeout = promptGame(id);
+    timeout.ask(1, { v21: 4 });
+    timeout.engine.advanceClock(1900);
+    timeout.engine.tick();
+    assert.equal(timeout.restarted(), false, `${id}: still waiting before two seconds`);
+    timeout.engine.advanceClock(200);
+    timeout.engine.tick();
+    assert.equal(timeout.restarted(), true, `${id}: v21 half-seconds accept the prompt`);
+    assert.equal(timeout.engine.awaitingKey, false);
+  }
+});
+
+test("F-persistence-prompt-modes: with f15 set the prompt accepts at once on PC 2.411+, Amiga 2.176+ and IIgs", () => {
+  for (const id of [
+    "2.411",
+    "2.936",
+    "3.002.149",
+    "amiga-2.176",
+    "amiga-2.333",
+    "iigs-1.014",
+  ] as const) {
+    const game = promptGame(id);
+    game.ask(1, { f15: true });
+    assert.equal(game.restarted(), true, `${id}: restarted without a key`);
+    assert.equal(game.waits(), 0, `${id}: no key wait`);
+  }
+  for (const id of ["2.001", "2.089", "2.272", "amiga-2.082"] as const) {
+    const game = promptGame(id);
+    game.ask(1, { f15: true });
+    assert.equal(game.restarted(), false, `${id}: the prompt waits`);
+    assert.equal(game.engine.awaitingKey, true, `${id}: for its key`);
+    game.answer(0x1b);
+    assert.equal(game.restarted(), false, `${id}: Esc declines`);
+    assert.equal(game.engine.vars[81], 1, `${id}: the game continues`);
+  }
+});
+
+test("F-persistence-prompt-modes: 2.001 has no timed prompt; Esc declines it whatever v21 is", () => {
+  const game = promptGame("2.001");
+  game.ask(1, { v21: 4 });
+  game.engine.advanceClock(5000);
+  game.engine.tick();
+  assert.equal(game.restarted(), false, "the timeout does not accept");
+  game.answer(0x1b);
+  assert.equal(game.restarted(), false);
+  assert.equal(game.engine.vars[81], 1);
+});
+
+test("F-persistence-prompt-modes: the quit prompt shares the modes", () => {
+  const timed = promptGame("2.936");
+  timed.ask(2, { v21: 2 });
+  timed.answer(0x1b);
+  assert.equal(timed.engine.readState().terminated, true, "Esc accepts a timed quit prompt");
+
+  const expired = promptGame("2.272");
+  expired.ask(2, { v21: 2 });
+  expired.engine.advanceClock(1100);
+  expired.engine.tick();
+  assert.equal(expired.engine.readState().terminated, true, "the timeout quits");
+
+  const persistent = promptGame("amiga-2.202");
+  persistent.ask(2, { f15: true });
+  assert.equal(persistent.engine.readState().terminated, true, "f15 quits at once");
+
+  const plain = promptGame("2.936");
+  plain.ask(2);
+  plain.answer(0x1b);
+  assert.equal(plain.engine.readState().terminated, false, "Esc declines an untimed quit prompt");
+  assert.equal(plain.engine.vars[82], 1);
+});
