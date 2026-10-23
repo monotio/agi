@@ -33,8 +33,11 @@ import {
   selectViewCel,
   readViewCel,
   celForBlitting,
+  captureViewLoopState,
   drawCel,
+  restoreViewLoopState,
   type AgiView,
+  type ViewLoopState,
 } from "../view/view.ts";
 import { cgaRgbViewPayload, effectivePcDisplay, MONITOR_TYPE, type PcDisplay } from "./display.ts";
 import {
@@ -4575,12 +4578,32 @@ export class Engine {
       // The shared parameter bank already rides the image's object records;
       // only the automatic-band priority lives outside them.
       objectExtras: this.objects.map(({ priority }) => ({ priority })),
-      viewCache: { loaded: [...this.views.keys()], order: [...this.viewOrder] },
+      viewCache: this.viewCacheState(),
       gameSignature: this.signature,
       sound,
       patchGeneration: this.patchGen,
       continuation,
     };
+  }
+
+  /**
+   * The view cache a host recording carries; on packed 2.230 also each
+   * loaded view's loop orientation, which SetLoop alone changes
+   * (docs/fidelity.md F-VIEWS-01).
+   */
+  private viewCacheState(): EngineReplayState["viewCache"] {
+    const cache: EngineReplayState["viewCache"] = {
+      loaded: [...this.views.keys()],
+      order: [...this.viewOrder],
+    };
+    if (!this.profile.packedViewLoopHeader || this.views.size === 0) return cache;
+    const loops: Record<string, ViewLoopState[]> = {};
+    for (const [num, view] of this.views) {
+      const state = captureViewLoopState(view);
+      if (state) loops[String(num)] = state;
+    }
+    cache.loops = loops;
+    return cache;
   }
 
   /** Restore host-only recording state after restoreImage; authentic save semantics stay unchanged. */
@@ -4652,6 +4675,24 @@ export class Engine {
     this.views.clear();
     for (const [num, view] of views) this.views.set(num, view);
     this.viewOrder.splice(0, this.viewOrder.length, ...state.viewCache.order);
+    // The fresh parses hold the file's packed orientation. Put the recorded
+    // one back; a recording made before 1.2.6 rebinds each object's loop in
+    // object order instead, which reproduces a single alias but not a longer
+    // selection history (docs/fidelity.md F-VIEWS-01).
+    if (this.profile.packedViewLoopHeader) {
+      const loops = state.viewCache.loops;
+      if (loops) {
+        for (const [num, view] of views) {
+          const recorded = loops[String(num)];
+          if (recorded) restoreViewLoopState(view, recorded);
+        }
+      } else {
+        for (const o of this.objects) {
+          const view = o.active ? views.get(o.view) : undefined;
+          if (view) selectViewCel(view, o.loop, o.cel);
+        }
+      }
+    }
     this.signature = state.gameSignature;
     this.soundPlayback = sound;
     this.playingSound = state.sound?.num ?? null;

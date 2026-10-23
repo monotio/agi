@@ -4835,6 +4835,16 @@ addresses come from the earlier pass and were not re-verified.
   loop 1 now give the same first nonpacked blit when no blit intervenes. Native repeated blits
   outside the orientation mask still toggle, as the recorded native contract requires.
 
+  **Host recordings.** An authentic restore rebinds each object's packed loop from the save
+  image, so its facing follows the original. A host restore (History, autosave, recordings)
+  re-parses every recorded view, which resets the packed headers to the file's orientation, so
+  the engine records each loaded packed view's loop orientation, mirror bit and mirrored state
+  in the replay state (`viewCache.loops`, packed `2.230` only) and puts it back. A recording made
+  before 1.2.6 has none: the restore selects each active object's loop and cel in object order,
+  which reproduces a single alias but not a longer selection history, and its fingerprint is
+  checked without the field. Tests: [view-mirror-boundary.test.ts](../test/view-mirror-boundary.test.ts),
+  [worker-view-orientation.test.ts](../app/test/worker-view-orientation.test.ts).
+
   **Authoring translation.** The builder and Screen object Studio carry the same packed-header and
   mirror-mask capabilities as the reader. An authored mirror becomes independent reversed
   cels when either loop index lies outside the stable native range, the profile has no

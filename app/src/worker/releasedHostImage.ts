@@ -56,8 +56,26 @@ export function fingerprintMatchesRecorded(
   getSound: (num: number) => Uint8Array | null,
 ): boolean {
   if (historyFingerprint(recorded).hash !== expected.hash) return false;
+  restored = withoutUnrecordedViewLoops(restored, recorded);
   if (fingerprintMatchesReleased(restored, expected)) return true;
   if (recorded.replay === undefined) return false;
   const replay = migrateRecordedReplayState(recorded.replay, profile, getSound);
   return fingerprintMatchesReleased(restored, historyFingerprint({ ...recorded, replay }));
+}
+
+/**
+ * A replay state recorded before 1.2.6 carries no packed view orientation
+ * (`viewCache.loops`, docs/fidelity.md F-VIEWS-01), and its fingerprint
+ * covers the view cache without it: compare the restored state the same way.
+ */
+function withoutUnrecordedViewLoops(
+  restored: HistorySemanticState,
+  recorded: HistorySemanticState,
+): HistorySemanticState {
+  type Cache = { viewCache?: { loops?: unknown } };
+  const restoredCache = (restored.replay as Cache | undefined)?.viewCache;
+  const recordedCache = (recorded.replay as Cache | undefined)?.viewCache;
+  if (restoredCache?.loops === undefined || recordedCache?.loops !== undefined) return restored;
+  const { loops: _loops, ...viewCache } = restoredCache;
+  return { ...restored, replay: { ...(restored.replay as object), viewCache } };
 }

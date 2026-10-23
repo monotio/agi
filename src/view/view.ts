@@ -458,6 +458,54 @@ export function parseView(
   return view;
 }
 
+/**
+ * One loop's packed orientation state in a host recording: the header's
+ * orientation field (`o`) and mirror bit (`m`), and whether its pixels are
+ * mirrored from the file's rows (`x`) (docs/fidelity.md F-VIEWS-01).
+ */
+export interface ViewLoopState {
+  o: number;
+  m: boolean;
+  x: boolean;
+}
+
+/**
+ * The packed view's per-loop orientation state, by loop index, or null for a
+ * view without packed loop headers, whose cels orient at every blit.
+ */
+export function captureViewLoopState(view: AgiView): ViewLoopState[] | null {
+  const loaded = loadedViews.get(view);
+  if (!loaded?.packed) return null;
+  return loaded.loops.map((loop) => ({
+    o: loop.orientation,
+    m: loop.mirrorable,
+    x: loop.cels[0]?.cel.mirrored ?? false,
+  }));
+}
+
+/**
+ * Put a recorded packed orientation state back on a freshly parsed view.
+ * Aliased loops share one loaded loop and shared cels mirror once.
+ */
+export function restoreViewLoopState(view: AgiView, state: readonly ViewLoopState[]): void {
+  const loaded = loadedViews.get(view);
+  if (!loaded?.packed) return;
+  const seenLoops = new Set<LoadedLoop>();
+  const seenCels = new Set<ViewCel>();
+  loaded.loops.forEach((loop, index) => {
+    const recorded = state[index];
+    if (!recorded || seenLoops.has(loop)) return;
+    seenLoops.add(loop);
+    loop.orientation = recorded.o;
+    loop.mirrorable = recorded.m;
+    for (const { cel } of loop.cels) {
+      if (seenCels.has(cel)) continue;
+      seenCels.add(cel);
+      if (cel.mirrored !== recorded.x) mirrorPixels(cel);
+    }
+  });
+}
+
 /** Read the current shared row image without triggering an orientation change. */
 export function readViewCel(view: AgiView, loop: number, cel: number): ViewCel | undefined {
   const loaded = loadedViews.get(view);

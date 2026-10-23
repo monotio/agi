@@ -27,6 +27,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   variable when it closes, as the original does.
 - Restart no longer blanks the screen: the old room, its text and the status
   line stay until the restarted game draws.
+- On PC interpreter 2.230, jumping back in History keeps which way an actor
+  faces.
 
 ## [1.2.5] - 2026-10-20
 

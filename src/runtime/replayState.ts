@@ -1,6 +1,7 @@
 /** Host recording state deliberately excluded from authentic save.game images. */
 import type { InputEvent } from "./inputQueue.ts";
 import type { WindowFrameGeometry, WindowOverlay, GadgetFill } from "./textSurface.ts";
+import type { ViewLoopState } from "../view/view.ts";
 
 /**
  * A modal's covered cells, serialized. `cells` are the row-major [char, attr]
@@ -184,8 +185,15 @@ export interface EngineReplayState {
   menuHeading: number;
   menuRequested: boolean;
   objectExtras: { priority: number }[];
-  /** Exact decoded-view residency and allocation order at a harness boundary. */
-  viewCache: { loaded: number[]; order: number[] };
+  /**
+   * Exact decoded-view residency and allocation order at a harness boundary.
+   * `loops` carries each loaded packed view's loop orientation by view
+   * number (packed 2.230 only; docs/fidelity.md F-VIEWS-01). Absent in
+   * recordings made before 1.2.6: the restore rebinds each object's loop
+   * instead, which reproduces a single alias but not a longer selection
+   * history.
+   */
+  viewCache: { loaded: number[]; order: number[]; loops?: Record<string, ViewLoopState[]> };
   gameSignature: string;
   sound: { num: number; doneFlag: number; playback: PlaybackState } | null;
   /** Live-patch counter — harness session state, not save-file state. */
@@ -548,7 +556,13 @@ export function validateEngineReplayState(
   });
   if (controllers.length !== 256 || objectExtras.length !== 256)
     throw new Error("Replay state requires all controllers and objects.");
-  const cache = record(s["viewCache"], ["loaded", "order"]);
+  const cacheValue = s["viewCache"] as Record<string, unknown> | undefined;
+  const cache = record(
+    cacheValue,
+    cacheValue && Object.hasOwn(cacheValue, "loops")
+      ? ["loaded", "order", "loops"]
+      : ["loaded", "order"],
+  );
   const loaded = array(cache["loaded"], 256, (v) => number(v, 0, 255));
   const order = array(cache["order"], 256, (v) => number(v, 0, 255));
   if (
@@ -557,7 +571,24 @@ export function validateEngineReplayState(
     loaded.some((id) => !order.includes(id))
   )
     throw new Error("Replay state view cache is inconsistent.");
-  const viewCache = { loaded, order };
+  const viewCache: EngineReplayState["viewCache"] = { loaded, order };
+  if (cache["loops"] !== undefined) {
+    const loopsValue = cache["loops"];
+    if (!loopsValue || typeof loopsValue !== "object" || Array.isArray(loopsValue))
+      throw new Error("Replay state view loops must be an object.");
+    const loops: Record<string, ViewLoopState[]> = {};
+    for (const [key, value] of Object.entries(loopsValue)) {
+      if (!loaded.includes(Number(key)) || String(Number(key)) !== key)
+        throw new Error("Replay state view loops name a view that is not loaded.");
+      loops[key] = array(value, 256, (v) => {
+        const l = record(v, ["o", "m", "x"]);
+        if (typeof l["m"] !== "boolean" || typeof l["x"] !== "boolean")
+          throw new Error("Replay state view loop flags must be booleans.");
+        return { o: number(l["o"], 0, 3), m: l["m"], x: l["x"] };
+      });
+    }
+    viewCache.loops = loops;
+  }
   const gameSignature = text(s["gameSignature"]);
   if (gameSignature.length > 7) throw new Error("Replay state game signature is too long.");
   let sound: EngineReplayState["sound"] = null;
