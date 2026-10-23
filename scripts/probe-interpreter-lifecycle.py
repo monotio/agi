@@ -28,6 +28,8 @@ PROFILES = {
         "pairs": 0x153e, "frames": 0x7ea, "description": 0x1aaf,
         "save": (0x2a9f, 0x2b47), "restore": (0x2856, 0x28c7),
         "restart": 0x26e0, "resource_loader": 0x3459, "resource_size": 0xd31,
+        # StopSnd, CursorState, EraseCur, CancelLine, CloseHandles,
+        # EnableAllItems (game-visible: every menu item enabled).
         "peripheral": [0x5467, 0x3b00, 0x3ad9, 0x3a29, 0x341c, 0x9648],
         "reconstruct": 0x6b94, "replay_gate": 0x1544,
         "restore_return": 0x2941,
@@ -41,6 +43,8 @@ PROFILES = {
         "main_calls": {0x115c: "startup", 0x6574: "input", 0x38ce: "events",
                        0x654: "motion before logic", 0x81f4: "trace",
                        0x380f: "status", 0x55c: "motion after logic"},
+        # Machine setup, load directories, set.text.attribute(15, 0), redraw
+        # input row, joystick check and event-queue reset, load logic.
         "startup_peripheral": [0x850b, 0x44de, 0x7b09, 0x3b66, 0x46be, 0x13a8],
         "erase_rendering": [0x6db5, 0x6d9e, 0x457, 0x598f],
         "reconstruction_calls": {
@@ -50,10 +54,10 @@ PROFILES = {
             0x5359: "load sound", 0x4d2a: "draw picture", 0x2fcc: "add to picture",
             0x4e29: "discard picture", 0x4171: "discard view", 0x4d96: "overlay picture",
             0x3bdd: "lookup view", 0x3d4b: "bind view", 0x0c54: "draw object",
-            0x6ebc: "stop update", 0x3ad9: "presentation 1", 0x3a29: "presentation 2",
-            0x576f: "presentation 3", 0x380f: "status", 0x3b66: "input",
+            0x6ebc: "stop update", 0x3ad9: "erase cursor", 0x3a29: "cancel line",
+            0x576f: "show picture buffer", 0x380f: "status", 0x3b66: "redraw input row",
             0x60e0: "close save handle", 0x341c: "close resource handles",
-            0x9648: "restore selector presentation",
+            0x9648: "enable all menu items",
         },
     },
     "11dce8acb65eda6b4a28e90f8c50019c96c445918d19763d57bd503ede549a79": {
@@ -63,6 +67,8 @@ PROFILES = {
         "pairs": 0x1707, "frames": 0x985, "description": 0x1c6c,
         "save": (0x27fb, 0x28a3), "restore": (0x25d6, 0x2647),
         "restart": 0x2472, "resource_loader": 0x3113, "resource_size": 0xf1a,
+        # StopSnd, EraseCur, CancelLine, CloseHandles, EnableAllItems
+        # (game-visible: every menu item enabled), WriteCur.
         "peripheral": [0x5234, 0x382e, 0x3726, 0x30d6, 0x930e, 0x37f7],
         "reconstruct": 0x681c, "replay_gate": 0x170d,
         "restore_return": 0x26af,
@@ -76,6 +82,8 @@ PROFILES = {
         "main_calls": {0x0f4e: "startup", 0x61f2: "input", 0x357c: "events",
                        0x644: "motion before logic", 0x7ee0: "trace",
                        0x34bd: "status", 0x563: "motion after logic"},
+        # Machine setup, load directories, set.text.attribute(15, 0), redraw
+        # input row, joystick check and event-queue reset, load logic.
         "startup_peripheral": [0x81f7, 0x4305, 0x77d5, 0x38d7, 0x4473, 0x119a],
         "erase_rendering": [0x6a3d, 0x6a26, 0x45e, 0x5762],
         "reconstruction_calls": {
@@ -85,10 +93,10 @@ PROFILES = {
             0x5126: "load sound", 0x4acf: "draw picture", 0x2d52: "add to picture",
             0x4bce: "discard picture", 0x3f0d: "discard view", 0x4b3b: "overlay picture",
             0x3979: "lookup view", 0x3ae7: "bind view", 0x0a06: "draw object",
-            0x6b44: "stop update", 0x382e: "presentation 1", 0x3726: "presentation 2",
-            0x5546: "presentation 3", 0x34bd: "status", 0x38d7: "input",
+            0x6b44: "stop update", 0x382e: "erase cursor", 0x3726: "cancel line",
+            0x5546: "show picture buffer", 0x34bd: "status", 0x38d7: "redraw input row",
             0x5d52: "close save handle", 0x30d6: "close resource handles",
-            0x930e: "restore selector presentation",
+            0x930e: "enable all menu items",
         },
     },
 }

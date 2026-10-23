@@ -1052,16 +1052,15 @@ xmas-dos-2.230 AGI.EXE       875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de133224
 xmas-dos-2.230 AGIDATA.OVL   33a327736deb611df48d0d3232c1958b00af1b1cae5fba45ed3aadf88871af8a
 xmas-dos-2.272 AGI.EXE       a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a
 xmas-dos-2.272 AGIDATA.OVL   2e2a695a4da7d545c52ea0c01556d198b6d0c3f7eba19e6cbc2b65642616ec40
-kq2-dos-2.411 AGIDATA.OVL    44ff0a357fa1c764e1b187aa3abcc25433b982e12ba8f735bf510fd5bb7991aa
+kq2-dos-2.411 AGIDATA.OVL    1201f66b68f7f6e4ec24abadee5e6fe2d4390315cc56605d8b0b1e7828c96631
 lsl1-dos-2.440 AGI decoded   c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676
-lsl1-dos-2.440 AGIDATA.OVL   b9999fd6f49e8a7f5cb6fd5f8ca8948853cd2565134e699b6a839524c64fb093
-pq1 AGI (MZ, 2.903, 37664B)  db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7
-pq1 START.EXE (6160B stub)   6105828191e90d111a14a44149a3a8a359ef9eb4a8fdbe11f0fb4446f435d05a
+lsl1-dos-2.440 AGIDATA.OVL   5b696520d68d6b843711184a63c85cc313818e08cd0afc0452225a97939483a4
+pq1 START.EXE (MZ, 2.903, 39424B)  db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7
 pq1 AGIDATA.OVL              df46a3f13c360045b2d355e97bfad6cb6e1df77ee614fed7b4b1f89778425db3
 kq1-dos-2.917 AGIDATA.OVL    f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383
 kq3-dos-2.936 AGIDATA.OVL    b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9
-kq4-dos-3.002.086 AGIDATA    0bc3db5c56c8e0f18757007ce7b703d3ef97b4bc2f5fa82a5967f17226d615c0
-demopac4-3.002.102 AGIDATA   f05c83c5be50793b2ef8c6b21a35c867121e9d0ba566f9cb3601980d012071a8
+kq4-dos-3.002.086 AGIDATA    9738d643dd284d622cee7ee9897a4578ab27d376487ef38ed835c14dcf88d733
+demopac4-3.002.102 AGIDATA   1251a5365d5c74232bfb8b01819f85c31ff25c9cd358e942e349a055bc588ea1
 mh1-dos-3.002.107 AGIDATA    bb22a87cd215ed52154d49754493e0eb2f6be5688411d8f3b7ac17c417ddae1f
 gr1-dos-3.002.149 AGIDATA    914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804
 ```
@@ -3018,8 +3017,12 @@ reset execute. No reseed occurs in this measured reset path, including when
 RNG is zero. The two builds passed 24 combined save/restore and restart cases.
 
 Restart peripheral intercepts are SQ2 `0x5234,0x382e,0x3726,0x30d6,0x930e,0x37f7`
-and GR1 `0x5467,0x3b00,0x3ad9,0x3a29,0x341c,0x9648`; synthetic resource-loading
-intercepts are SQ2 0x3113 and GR1 0x3459. The
+and GR1 `0x5467,0x3b00,0x3ad9,0x3a29,0x341c,0x9648`: StopSnd, CursorState (GR1
+only), EraseCur, CancelLine, CloseHandles, EnableAllItems and WriteCur (SQ2
+only); synthetic resource-loading intercepts are SQ2 0x3113 and GR1 0x3459.
+EnableAllItems is game-visible state, not presentation: because the probe
+stubbed it, its restart cases never observed the menu
+([Original menu across restart and restore](#original-menu-across-restart-and-restore)). The
 [reconstruction and startup execution](#startup-and-reconstruction-execution)
 extends this boundary in these two builds; it does not establish other profiles
 or full-machine startup.
@@ -3560,15 +3563,16 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   the boot-time data image initializes them.
 - **F-persistence-02 (fact; engine diverges on PC/IIgs).** Restart prompt
   cursor and `CancelLine` ordering (PC `RestartGame`: `2.001` `0x2176`,
-  `2.089` `0x22ab`, `2.230` `0x21ed`, `2.272` `0x2289`, `2.411` `0x2366`,
-  `2.439` `0x236c`, `2.440` `0x2374`, `2.903` `0x246d`, `2.915`/`2.917`/`2.936`
-  `0x2472`, `3.002.086` `0x272b`, `3.002.102`/`3.002.107` `0x2741`,
-  `3.002.149` `0x26e0`; Amiga: `2.082` `h45+0x000`, `2.176..2.333`
-  `h63+0x000`; IIgs `1.014` `seg2+0x01e8`): in every binary, `CancelLine` is
+  `2.089` `0x22ab`, `2.230` `0x21ed`, `2.272` `0x2289`, `2.411` `0x241f`,
+  `2.439` `0x242d`, `2.440` `0x2435`, `2.903` `0x246b`, `2.915` `0x2470`,
+  `2.917`/`2.936` `0x2472`, `3.002.086` `0x272b`, `3.002.102`/`3.002.107`
+  `0x2741`, `3.002.149` `0x26e0`, each from its build's action table at
+  `DS:0x61b` slot `0x80`; Amiga: `2.082` `h45+0x000`, `2.176..2.333`
+  `h63+0x000`; IIgs `1.014` `seg2+0x0311`): in every binary, `CancelLine` is
   never called before the confirmation prompt or on the cancelled branch; it
   runs only on the accepted branch after `WaitAcAb != 0` or the `f16` bypass
   (e.g. `2.089` `0x22d1`, `2.936` `0x24a8`, `3.002.149` `0x2721`, Amiga `2.082`
-  `h45+0x052`, `2.176..2.333` `h63+0x064`, IIgs `1.014` `seg2+0x0242`), so
+  `h45+0x052`, `2.176..2.333` `h63+0x064`, IIgs `1.014` `seg2+0x035d`), so
   declining `restart.game` leaves `INLINE` (`editLine`) and the typed command
   row intact across all twenty profiles. PC `2.001` has no `CancelLine` call at
   all (`0x2176..0x21e7`), so its accepted restart keeps a partly typed line
@@ -3590,9 +3594,11 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   `2.440` `0x24d3..0x259e`, `2.903` `0x2642..0x2692`, `2.915` `0x2647..0x2697`,
   `2.917`/`2.936` `0x2647..0x2699`, `3.002.086` `0x2912..0x2976`,
   `3.002.102`/`3.002.107` `0x2928..0x298c`, `3.002.149` `0x28c7..0x292b`;
-  Amiga: `2.082` `h47+0x000..0x290`, `2.176`/`2.202` `h65+0x000..0x288`,
-  `2.310`/`2.316` `h65+0x000..0x2a8`, `2.333` `h65+0x000..0x294`; IIgs `1.014`
-  `savegameseg+0x036e..0x04a8`): after reading the save blocks and closing the
+  Amiga: `2.082` `h47+0x000..0x290`, `2.176`/`2.202` `h66+0x000..0x288`,
+  `2.310`/`2.316` `h66+0x000..0x2a8`, `2.333` `h66+0x000..0x294` (on
+  `2.176..2.333` `h65` is an empty hunk at `h66`'s base); IIgs `1.014`
+  `restore.game` `seg2+0x0000..0x0272`, tail `seg2+0x01bc..0x0272`, from the
+  action table at ~arrays+0x3fe slot `0x7e`): after reading the save blocks and closing the
   file, **PC `2.903..3.002.149`** (`2.903` `0x264a..0x2674`, `2.915`
   `0x264f..0x2679`, `2.917`/`2.936` `0x2651..0x267b`, `3.002.086`
   `0x292e..0x2958`, `3.002.102`/`3.002.107` `0x2944..0x296e`, `3.002.149`
@@ -7222,7 +7228,7 @@ Values that change behavior, confirmed at the addresses given (**fact**):
 | `inputLineEditCap`            | `iigs-39`               | `EditLine` (`seg2+0x16f8..0x1726`): `min(var[24], 39 - strlen(s0) - (cursor != 0))`                                          |
 | `keypadWordsNormalized`       | false                   | `ButtonToChar` (`eventseg+0x351..0x39d`) maps `0x0101..0x0401 -> 0x0d` without PC keypad scan words                          |
 | `playerControlMotionClear`    | `on-control-transition` | `player.control` (`motionseg+0x02b2`): `lda $011d; bne ret` skips clearing ego motion `+0x38` when `$011d` is already 1      |
-| `restoreRewritesMachineState` | false                   | `RestoreGame` (`savegameseg+0x036e..0x04a2`) writes `f12 = 1` without touching `v20`, `v22`, `v26`, or `f11`                 |
+| `restoreRewritesMachineState` | false                   | `restore.game` (`seg2+0x0000..0x0272`, tail `seg2+0x01bc..`) writes `f12 = 1` without touching `v20`, `v22`, `v26`, or `f11` |
 
 `timedPrintClearsV21` stays true: the timed wait (`seg2+0x22a8`, v21 at
 `$0302f3`) zeroes v21 as it closes (`seg2+0x2340`). `menuInteractionGate`
@@ -7250,7 +7256,7 @@ false, `targetMotionDeferred` false, `inventorySelector` true,
 (`statusseg+0x07a1..0x0861`),
 `parserStopsAtTenthWord` true (`main+0x1f35`), `originalInputCapacity` true
 (`seg2+0x16f8..0x1726`), `originalRestartRestore` true
-(`seg2+0x01e8`, `savegameseg+0x036e`), and `soundStopsBeforeFault` true
+(`restart.game` `seg2+0x0311`, `restore.game` `seg2+0x0000`), and `soundStopsBeforeFault` true
 (`soundseg+0x004a`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.
 
