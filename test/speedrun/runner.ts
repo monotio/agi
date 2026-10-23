@@ -124,6 +124,8 @@ export class Speedrun {
       /** Explicit assembled fixture, also used for independent retained branches. */
       fixture?: GameFixture;
       profile?: Engine["profile"];
+      /** Host services that replace the driver's own, such as save storage. */
+      host?: Partial<EngineHost>;
     } = {},
   ) {
     this.seed = seed;
@@ -194,6 +196,7 @@ export class Speedrun {
         this.rngState = draw.state;
         return draw.byte;
       },
+      ...load.host,
     };
     this.engine = new Engine(container, host, dict, {
       profile: load.profile ?? detectProfile(files),
