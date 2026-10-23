@@ -1488,6 +1488,7 @@ describe("restart", () => {
     engine.tick();
     assert.equal(engine.vars[100], 42);
     assert.equal(engine.flags[9], 1);
+    const shown = engine.getFrame();
 
     host.inputQueue.push("mutate");
     engine.tick();
@@ -1503,9 +1504,11 @@ describe("restart", () => {
     const replay = (engine as unknown as { replay: unknown[] }).replay;
     assert.equal(replay.length, 0, "the replay sequence is cleared");
     assert.deepEqual(engine.readObjects(), [], "no object is still animated");
-    // The picture surface is back to its startup fill (visual 15, priority 4).
-    assert.deepEqual([...new Set(engine.surface.visual)], [15]);
-    assert.deepEqual([...new Set(engine.surface.priority)], [4]);
+    // The screen is kept until the game draws: the picture and the cel the
+    // interpreter blitted into it stay; the priority plane stays the
+    // picture's (docs/fidelity.md "Original restart state boundary").
+    assert.deepEqual(Array.from(engine.getFrame().visual), Array.from(shown.visual));
+    assert.deepEqual(Array.from(engine.surface.priority), Array.from(shown.priority));
   });
 
   test("2.411 never bypasses the prompt, so restart.game leaves state alone", () => {
@@ -2677,5 +2680,96 @@ describe("save object records as the original copies them", () => {
     engine.flags[203] = 1;
     engine.tick();
     assert.equal(engine.screenObjects[1]!.priority, band, "the priority survives the restore");
+  });
+});
+
+describe('restart keeps the screen (docs/fidelity.md "Original restart state boundary")', () => {
+  // Player-visible rule: Restart does not blank the screen; the old room
+  // stays until the new one appears. The accepted restart writes no video
+  // memory or picture buffer on any build.
+  const SOURCE = `
+    if (isset(f210)) { reset(f210); assignn(v51, 2); load.pic(v51); draw.pic(v51); show.pic(); }
+    if (isset(f6)) { set(f200); return; }
+    if (!isset(f200)) {
+      set(f200);
+      assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+      display(5, 0, "UNDER");
+      load.view(3); animate.obj(o1); set.view(o1, 3); position(o1, 0, 39); draw(o1);
+      display(10, 0, "HELLO");
+      status.line.on();
+      set(f16);
+    }
+    if (isset(f201)) { reset(f201); restart.game(); }
+    return;
+  `;
+
+  function boot(profile: keyof typeof PROFILES = "2.936") {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(SOURCE, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    container.putResource("picture", 1, PICTURE);
+    container.putResource("picture", 2, OTHER_PICTURE);
+    container.putResource("view", 3, VIEW_CEL);
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    for (let t = 0; t < 40 && engine.modalKind !== null; t++) {
+      engine.advanceClock(100);
+      engine.tick();
+    }
+    return engine;
+  }
+
+  test("the picture, the cels on it and the text stay until the restarted game draws", () => {
+    const engine = boot();
+    const shown = Array.from(engine.getFrame().visual);
+    const celPixels = Array.from(engine.getCelPixels());
+    assert.ok(celPixels.includes(1), "the cel is on screen");
+    assert.match(engine.textRow(10), /^HELLO/);
+    const resets = engine.runResetSerial;
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.notEqual(engine.runResetSerial, resets, "the restart was accepted");
+    assert.deepEqual(engine.readObjects(), [], "the objects were reset");
+    assert.deepEqual(Array.from(engine.getFrame().visual), shown, "the frame is unchanged");
+    assert.deepEqual(Array.from(engine.getCelPixels()), celPixels, "the cel keeps its cel colours");
+    assert.match(engine.textRow(10), /^HELLO/, "text stays");
+    assert.match(engine.textRow(0), /Score:0/, "the status line stays");
+    // The restarted game draws its room: the kept screen goes.
+    engine.flags[210] = 1;
+    engine.tick();
+    assert.notDeepEqual(Array.from(engine.getFrame().visual), shown);
+    assert.ok(!engine.getCelPixels().includes(1), "no stamp survives draw.pic");
+  });
+
+  test("text a cel was drawn over stays hidden; text written after it stays on top", () => {
+    const engine = boot();
+    // VIEW_CEL is 3 pixels wide at (0, 39): picture row 39 is text row 5
+    // (display base 1, 8 pixel rows each), columns 0 and 1.
+    assert.equal(engine.textRow(5).slice(0, 5), "UNDER");
+    const before = engine.getPresentation().text.slice();
+    assert.equal(before[5 * 40 * 2], 0, "the cel hides the text it was drawn over");
+    assert.notEqual(before[(5 * 40 + 2) * 2], 0, "beside the cel the text shows");
+    engine.flags[201] = 1;
+    engine.tick();
+    const after = engine.getPresentation().text;
+    for (let cell = 5 * 40; cell < 5 * 40 + 5; cell++)
+      assert.equal(after[cell * 2], before[cell * 2], `cell ${cell} looks the same`);
+    assert.match(engine.textRow(10), /^HELLO/);
+  });
+
+  test("amiga-2.202: the first picture after a restart dissolves from the kept screen", () => {
+    const engine = boot("amiga-2.202");
+    const shown = Array.from(engine.getFrame().visual);
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[210] = 1;
+    engine.tick();
+    assert.equal(engine.modalKind, "dissolve");
+    assert.deepEqual(Array.from(engine.getFrame().visual), shown, "the dissolve starts from it");
   });
 });

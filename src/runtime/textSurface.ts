@@ -355,6 +355,26 @@ export class TextSurface {
     if (changed) this.dirty++;
   }
 
+  /**
+   * Drop the two window-overlay pixels over a 160x168 picture pixel that were
+   * written at or before `stamp`: a cel drawn after them covers them, and
+   * window pixels written later stay on top.
+   */
+  dropPicturePixelOverlayUpTo(pixel: number, baseRow: number, stamp: number): void {
+    if (!this.hasOverlay) return;
+    const oIdx = baseRow * 8 * OVERLAY_WIDTH + pixel * 2;
+    let changed = false;
+    for (const idx of [oIdx, oIdx + 1]) {
+      if (idx < 0 || idx >= this.overlay.length) continue;
+      if (this.overlay[idx] !== 0 && this.overlayWritten[idx]! <= stamp) {
+        this.overlay[idx] = 0;
+        this.overlayWritten[idx] = 0;
+        changed = true;
+      }
+    }
+    if (changed) this.dirty++;
+  }
+
   /** Drop the two 320x200 window-overlay or title-fill pixels covered by a painted 160x168 picture pixel. */
   dropPicturePixelOverlay(pixel: number, baseRow: number, stamp?: number): void {
     if (!this.hasOverlay && !this.hasTitleFill) return;

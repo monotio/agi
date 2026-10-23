@@ -780,3 +780,43 @@ test("F-persistence-prompt-modes: the quit prompt shares the modes", () => {
   assert.equal(plain.engine.readState().terminated, false, "Esc declines an untimed quit prompt");
   assert.equal(plain.engine.vars[82], 1);
 });
+
+test("F-persistence-prompt-modes: with f15 set the restart prompt window stays on screen until the next print", () => {
+  // The f15 path returns accept without closing the window, and the restart
+  // writes no screen (docs/fidelity.md "Original restart state boundary").
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (isset(f6)) { assignn(v90, 1); return; }
+       if (equaln(v80, 1)) { set(f15); restart.game(); return; }
+       if (isset(f201)) { reset(f201); print("Next."); }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const engine = new Engine(
+    container,
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+      waitKey() {
+        throw new HostWait();
+      },
+    },
+    new Map(),
+  );
+  const screen = () => Array.from({ length: 25 }, (_, r) => engine.textRow(r)).join("\n");
+  engine.vars[80] = 1;
+  engine.tick();
+  assert.equal(engine.vars[90], 1, "restarted at once");
+  assert.equal(engine.flags[15], 0, "f15 was consumed");
+  assert.match(screen(), /Press ENTER to restart/, "the prompt window stays");
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.doesNotMatch(screen(), /Press ENTER to restart/, "the next print closed it");
+});

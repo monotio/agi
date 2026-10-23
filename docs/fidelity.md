@@ -502,8 +502,9 @@ cycle, abandoning the old script position. Restart keeps the random stream and
 the sound preference. Restart and restore both keep the game's menu, which is
 not part of a save, and both leave every menu item enabled; the game disables
 items again itself. Restart clears variables, flags, controllers and objects
-but keeps the status line, text mode, the script buffer size, key mappings and
-strings, and the last command for echo. The game signature that `set.game.id` sets names the save
+but leaves the screen, the status line, text mode, the script buffer size, key
+mappings and strings, and the last command for echo as they were; the old room
+stays on screen until the restarted game draws. The game signature that `set.game.id` sets names the save
 files and is part of the first block, so a restore brings it back; the save
 selector lists only files carrying the running game's signature.
 
@@ -3214,6 +3215,15 @@ control. Profile fields:
 | `confirmPromptModes`   | `none` on `2.001`; `timed` on `2.089`, `2.230`, `2.272`, `amiga-2.082`; `timed-and-f15` elsewhere | [F-persistence-prompt-modes](#persistence-verdicts) |
 | `restartKeepsMaxScore` | true on `amiga-2.310`, `amiga-2.316`, `amiga-2.333`                                               | v7 saved at `h63+0x50`, restored at `+0xc2`         |
 
+No write lands on the screen, so the engine keeps the shown frame: the cels
+on screen become part of the picture surface, counted as stamps like
+`add.to.pic`'s (CGA cel colours included), the text and window pixels a cel
+was drawn over go with it, and text written later stays on top. The status
+line redraws with the reset score, the input row shows the cancelled line,
+and a persistent window stays open. The first picture after the restart
+dissolves from the kept screen on Amiga and IIgs. The priority plane is not
+rewritten (the restarted game draws a picture before any depth test needs it),
+and the engine takes no History checkpoint until the restarted game draws.
 The engine still empties the script's active pairs and checkpoint, the
 event queue and the block rectangle, and stops tracing; the original keeps
 the first two until the restarted game's `new.room` resets them and leaves

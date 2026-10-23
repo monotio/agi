@@ -34,7 +34,7 @@ function confirmGame(): Buffer {
          configure.screen(1, 22, 0);
          load.pic(v250); draw.pic(v250); show.pic();
          set.key(0, 59, 1); set.key(0, 60, 2);
-         if (isset(f6)) { display(2, 0, "RESTARTED"); } else { display(2, 0, "READY"); }
+         if (isset(f6)) { display(2, 0, "RESTARTED"); display(3, 0, "         "); } else { display(2, 0, "READY"); }
        }
        if (controller(c1)) { restart.game(); display(3, 0, "CANCELLED"); }
        if (controller(c2)) { quit(0); display(3, 0, "CONTINUED"); }

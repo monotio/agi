@@ -25,6 +25,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   leave-window flag set it accepts at once, as the originals do.
 - On PC interpreters 2.089 to 2.272, a timed message clears its timer
   variable when it closes, as the original does.
+- Restart no longer blanks the screen: the old room, its text and the status
+  line stay until the restarted game draws.
 
 ## [1.2.5] - 2026-10-20
 

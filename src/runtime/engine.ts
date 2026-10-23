@@ -9561,6 +9561,11 @@ export class Engine {
     // unwinds: the reset-phase and re-entered logic observations already
     // belong to the new run.
     this.runResets++;
+    // The restart writes no screen: what shows now stays until the
+    // restarted game draws (docs/fidelity.md "Original restart state
+    // boundary").
+    while (this.modal) this.closeModal();
+    this.keepShownScreen();
     this.pendingLogic = null;
     this.pendingInteraction = null;
     this.cursorErased = false;
@@ -9618,8 +9623,8 @@ export class Engine {
     this.maxDrawnObjectsCount = null;
     this.inventoryMetaCache = null;
     this.initInventory();
-    this.modals.length = 0;
-    this.persistentWindow = null;
+    // A persistent window stays open: the f16 bypass closes nothing, and
+    // with f15 set the prompt window itself stays (F-persistence-prompt-modes).
     this.statusRefreshRequested = false;
     // Input acceptance survives: ResetAll clears only vars/flags/controllers/
     // object records, while the accepted restart branch runs CancelLine and
@@ -9629,17 +9634,19 @@ export class Engine {
     // are outside the restart's write set (docs/fidelity.md "Original
     // restart state boundary"); new.room sets the horizon itself.
     if (!this.profile.originalRestartRestore) this.inputAccepted = false;
-    if (this.profile.restartCancelsLine) this.editLine = "";
+    if (this.profile.restartCancelsLine) {
+      // CancelLine erases the typed line on screen; WriteCur shows the cursor.
+      this.editLine = "";
+      if (!this.textMode) this.drawInputRow();
+    }
     // ResetAll's middle section: player control, last picture, block enable.
     this.directionCoupling = 1;
     this.blockRect = null;
     this.lastPicture = 0;
     this.inputQueue.clear();
-    this.surface.reset();
-    this.stampMask.fill(0);
+    // Host bookkeeping: no checkpoint until the restarted game draws.
     this.pictureShown = false;
-    this.text.clear();
-    // The status line stays on across restart; it shows again at once.
+    // The status line stays on across restart and shows the reset score.
     this.drawStatus();
     this.presentationDirty = true;
     // The two timing accumulators.
@@ -9653,6 +9660,34 @@ export class Engine {
     this.trace.setActive(false);
     if (this.trace.logic !== null) this.loadLogic(this.trace.logic);
     this.enableAllMenuItems();
+  }
+
+  /**
+   * Keep the shown frame across a restart. The interpreters blit cels into
+   * the picture buffer, which the restart leaves alone; the engine composes
+   * cels at presentation time, so the cels on screen become part of the
+   * picture surface, counted as stamps like add.to.pic's (their CGA colours
+   * stay the cel table's). Text and window pixels a cel was drawn over go
+   * with it, as the composition hides them; text written later stays on top.
+   * The priority plane is not rewritten: the restarted game draws a picture
+   * before any depth test needs it.
+   */
+  private keepShownScreen(): void {
+    this.ensurePresentationCurrent();
+    const ownership = this.scratchOwnership;
+    const covered = new Set<number>();
+    for (let pixel = 0; pixel < ownership.length; pixel++) {
+      const owner = ownership[pixel]!;
+      if (owner === 0) continue;
+      this.surface.visual[pixel] = this.cachedVisual[pixel]!;
+      this.stampMask[pixel] = 1;
+      const drawSeq = this.objects[owner - 1]!.drawSeq;
+      const cell = this.textCellUnder(pixel);
+      if (cell >= 0 && this.text.written[cell]! <= drawSeq) covered.add(cell);
+      this.text.dropPicturePixelOverlayUpTo(pixel, this.displayBaseRow, drawSeq);
+    }
+    this.text.dropCells(covered);
+    this.presentationDirty = true;
   }
 
   /**
