@@ -4009,13 +4009,16 @@ export class Engine {
     return true;
   }
 
+  /**
+   * submit.menu has no submitted guard: running it again puts the current
+   * heading and every heading's current item back to the first (GR1
+   * 0x960b..0x9618; docs/fidelity.md "Original menu across restart and
+   * restore"). The heading list itself is fixed once submitted.
+   */
   private finalizeMenu(): void {
-    if (this.menuFinalized) return;
+    if (!this.menuFinalized) for (const h of this.menu) h.enabled = h.items.length > 0;
     this.menuFinalized = true;
-    for (const h of this.menu) {
-      h.enabled = h.items.length > 0;
-      h.current = 0;
-    }
+    for (const h of this.menu) h.current = 0;
     this.menuHeading = Math.max(
       0,
       this.menu.findIndex((h) => h.enabled),
@@ -5137,7 +5140,12 @@ export class Engine {
 
     // 2. Reset transient caches and replay the saved sequence.
     this.replaySequence(s.logicResume, sequence, screen !== null);
-    if (screen === null) this.flags[F_RESTORED] = 1;
+    if (screen === null) {
+      this.flags[F_RESTORED] = 1;
+      // The game's own restore.game ends in EnableAllItems; a host restore
+      // reinstates the recorded menu afterwards.
+      this.enableAllMenuItems();
+    }
 
     // 3. Rebind object views and refresh picture, objects, status and input.
     this.rebindObjectViews(screen !== null);
@@ -9501,10 +9509,10 @@ export class Engine {
       ? AUTHORED_SCRIPT_BUFFER_PAIRS
       : this.profile.defaultScriptBufferPairs;
     this.maximumReplayPairs = 0;
-    this.menu = [];
-    this.menuFinalized = false;
-    this.menuHeading = 0;
-    this.menuRequested = false;
+    // The menu, its submitted state, its current heading and item and the
+    // menu request survive; set.menu returns at once once submitted, so the
+    // game's own menu code adds nothing (docs/fidelity.md "Original menu
+    // across restart and restore").
     this.pendingController = null;
     this.parsedWords = [];
     this.parsedWordTexts = [];
@@ -9549,6 +9557,17 @@ export class Engine {
     this.restartPending = true;
     this.trace.setActive(false);
     if (this.trace.logic !== null) this.loadLogic(this.trace.logic);
+    this.enableAllMenuItems();
+  }
+
+  /**
+   * EnableAllItems, run by the accepted restart and the successful restore
+   * tail: every item of every heading that has items is enabled, headings
+   * untouched (docs/fidelity.md "Original menu across restart and restore").
+   */
+  private enableAllMenuItems(): void {
+    if (this.profile.menuActions !== "full") return;
+    for (const heading of this.menu) for (const item of heading.items) item.enabled = true;
   }
 
   /**

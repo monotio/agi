@@ -265,3 +265,160 @@ test("a gated menu request pends and opens when allow.menu re-enables it", () =>
   engine.tick();
   assert.equal(engine.modalKind, "menu", "the pending request opens once ungated");
 });
+
+// ---------- restart and restore (docs/fidelity.md "Original menu across restart and restore") ----------
+
+/**
+ * Builds and submits the menu only while f6 is clear, the way the shipped
+ * games guard their one-time setup, and disables one item. The rest of the
+ * boot block runs on every boot, restart included.
+ */
+const RESTART_MENU_GAME = `
+  if (!isset(f200)) {
+    set(f200);
+    if (!isset(f6)) {
+      set.menu("File");
+      set.menu.item("Save", 1);
+      set.menu.item("Quit", 2);
+      set.menu("Empty");
+      set.menu("Game");
+      set.menu.item("Look", 3);
+      submit.menu();
+      disable.item(2);
+    }
+    set(f14);
+    set(f16);
+  }
+  if (isset(f201)) { reset(f201); menu.input(); }
+  if (isset(f203)) { reset(f203); restart.game(); }
+  if (isset(f204)) { reset(f204); save.game(); }
+  if (isset(f205)) { reset(f205); disable.item(1); disable.item(3); }
+  if (isset(f206)) { reset(f206); restore.game(); }
+  if (isset(f207)) { reset(f207); submit.menu(); }
+  if (isset(f12)) { assignn(v110, 1); }
+  return;
+`;
+
+class SaveHost extends Host {
+  saved: Uint8Array | null = null;
+  saveGame(bytes: Uint8Array): void {
+    this.saved = bytes.slice();
+  }
+  restoreGame(): Uint8Array | null {
+    return this.saved;
+  }
+}
+
+function bootRestartMenu(profile?: "2.272" | "2.936"): { engine: Engine; host: SaveHost } {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    // 2.272 has no menu.input action; its other menu actions are stubs.
+    assembleLogic(
+      profile === "2.272"
+        ? RESTART_MENU_GAME.replace("if (isset(f201)) { reset(f201); menu.input(); }", "")
+        : RESTART_MENU_GAME,
+      {
+        dictionary: DICT,
+        ...(profile ? { profile: PROFILES[profile] } : {}),
+      },
+    ).payload,
+  );
+  const host = new SaveHost();
+  const engine = new Engine(container, host, DICT, profile ? { profile } : undefined);
+  engine.tick();
+  return { engine, host };
+}
+
+const enabledItems = (engine: Engine) =>
+  engine.readMenuState().headings.map((h) => h.items.map((item) => item.enabled));
+
+test("after a restart the game's menu is still there and every item is enabled", () => {
+  // Player-visible rule: a game that builds its menu only on the cold boot
+  // still has it after Restart, with every item enabled until the game
+  // disables one again (PC 2.411..3.002.149, Amiga, IIgs: the accepted
+  // restart keeps the strip and runs EnableAllItems, GR1 0x276c -> 0x9648).
+  const { engine } = bootRestartMenu();
+  assert.deepEqual(enabledItems(engine), [[true, false], [], [true]]);
+  const before = engine.readMenuState();
+  const resets = engine.runResetSerial;
+  engine.flags[203] = 1;
+  engine.tick();
+  assert.notEqual(engine.runResetSerial, resets, "the restart was accepted");
+  const after = engine.readMenuState();
+  assert.equal(after.finalized, true, "the menu stays submitted");
+  assert.deepEqual(
+    after.headings.map((h) => [h.title, h.enabled, h.items.map((item) => item.text)]),
+    before.headings.map((h) => [h.title, h.enabled, h.items.map((item) => item.text)]),
+    "the same headings and items, in order",
+  );
+  assert.deepEqual(enabledItems(engine), [[true, true], [], [true]], "every item enabled");
+  assert.equal(after.heading, before.heading, "the current heading is kept");
+  openMenu(engine);
+  assert.equal(engine.modalKind, "menu", "the menu opens after the restart");
+  assert.match(engine.textRow(0), /File Empty Game/);
+});
+
+test("a game that submits its menu again after a restart starts it at the first heading", () => {
+  // submit.menu has no submitted guard: re-running it puts the current
+  // heading and item back to the first (GR1 0x960b..0x9618).
+  const { engine, host } = bootRestartMenu();
+  openMenu(engine);
+  engine.modalNavigate(3); // Game
+  engine.modalNavigate(7); // back to File, then down to Quit
+  engine.modalNavigate(5);
+  host.keys.push(0x1b);
+  engine.tick();
+  const open = engine.readMenuState();
+  assert.equal(open.headings[0]!.current, 1, "Quit was current when the menu closed");
+  engine.flags[203] = 1;
+  engine.tick();
+  assert.equal(engine.readMenuState().headings[0]!.current, 1, "restart keeps the current item");
+  engine.flags[207] = 1;
+  engine.tick();
+  const resubmitted = engine.readMenuState();
+  assert.equal(resubmitted.heading, 0);
+  assert.deepEqual(
+    resubmitted.headings.map((h) => h.current),
+    [0, 0, 0],
+  );
+});
+
+test("after a restore every menu item is enabled and f12 is set", () => {
+  // Player-visible rule: items the game disabled come back enabled after a
+  // successful restore; the save holds no item states and the restore tail
+  // runs EnableAllItems (GR1 0x2925 -> 0x9648).
+  const { engine, host } = bootRestartMenu();
+  engine.flags[204] = 1;
+  engine.tick();
+  assert.ok(host.saved, "the game saved");
+  engine.flags[205] = 1;
+  engine.tick();
+  assert.deepEqual(enabledItems(engine), [[false, false], [], [false]]);
+  engine.flags[206] = 1;
+  engine.tick();
+  assert.deepEqual(enabledItems(engine), [[true, true], [], [true]]);
+  assert.equal(engine.readMenuState().finalized, true);
+  assert.equal(engine.vars[110], 1, "the restored pass saw f12");
+});
+
+test("a host restore keeps the recorded menu item states", () => {
+  // History and autosave restore the recorded menu; only the game's own
+  // restore.game re-enables the items.
+  const { engine } = bootRestartMenu();
+  const image = engine.recordingImage(true);
+  assert.ok(image);
+  const menus = engine.readMenuState();
+  engine.restoreImage(image);
+  assert.equal(engine.restoreMenuState(menus), true);
+  assert.deepEqual(enabledItems(engine), [[true, false], [], [true]]);
+});
+
+test("2.272 builds no menu, so a restart has none to keep", () => {
+  const { engine } = bootRestartMenu("2.272");
+  engine.flags[203] = 1;
+  engine.tick();
+  assert.deepEqual(engine.readMenuState().headings, []);
+  assert.equal(engine.readMenuState().finalized, false);
+});

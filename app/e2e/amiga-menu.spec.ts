@@ -24,6 +24,8 @@ const FILE_TITLE = { x: 70, y: 4 };
 const RESTORE_ITEM = { x: 70, y: 25 };
 const RESTART_ITEM = { x: 70, y: 44 };
 const OUTSIDE = { x: 200, y: 150 };
+/** The restart confirmation's Restart gadget (x 88..151, y 91..102; confirm-gadgets.spec.ts). */
+const RESTART_GADGET = { x: 119, y: 96 };
 /** The slot window's Cancel gadget (x 240..295, y 147..158). */
 const SAVE_CANCEL = { x: 267, y: 152 };
 
@@ -38,24 +40,26 @@ function menuGame(): Buffer {
          configure.screen(1, 22, 0);
          load.pic(v250); draw.pic(v250); show.pic();
          set.game.id("sq2");
-         set.menu("Sierra");
-         set.menu.item("About SQ2", 21);
-         set.menu.item("Help     ", 2);
-         set.menu("File");
-         set.menu.item("Save     <F5>", 3);
-         set.menu.item("Restore  <F7>", 5);
-         set.menu.item("-------------", 20);
-         set.menu.item("Restart  <F9>", 7);
-         submit.menu();
-         disable.item(20);
+         if (!isset(f6)) {
+           set.menu("Sierra");
+           set.menu.item("About SQ2", 21);
+           set.menu.item("Help     ", 2);
+           set.menu("File");
+           set.menu.item("Save     <F5>", 3);
+           set.menu.item("Restore  <F7>", 5);
+           set.menu.item("-------------", 20);
+           set.menu.item("Restart  <F9>", 7);
+           submit.menu();
+           disable.item(20);
+         }
          set(f14);
          status.line.on();
          set.key(0, 59, 3); set.key(0, 60, 9);
-         display(2, 0, "READY");
+         if (isset(f6)) { display(2, 0, "RESTARTED"); } else { display(2, 0, "READY"); }
        }
        if (controller(c3)) { save.game(); display(3, 0, "SAVE DONE"); }
        if (controller(c5)) { display(3, 0, "RESTORE PICKED"); }
-       if (controller(c7)) { display(3, 0, "RESTART PICKED"); }
+       if (controller(c7)) { restart.game(); }
        if (controller(c9)) { reset(f14); display(4, 0, "MENU OFF"); }
        return;`,
       { dictionary: new Map() },
@@ -178,6 +182,36 @@ test("holding the right mouse button opens the strip, the released item acts, an
   );
   expect(contextMenus.length).toBeGreaterThan(0);
   expect(contextMenus.every((prevented) => prevented)).toBe(true);
+});
+
+test("restart from the strip keeps the strip", async ({ page }) => {
+  // Player-visible rule: after Restart the game's menu is still there. The
+  // game builds its strip only while f6 is clear; the original keeps it
+  // across the accepted restart and enables every item (docs/fidelity.md
+  // "Original menu across restart and restore").
+  await bootMenuGame(page, "amiga-menu-restart");
+  const title = await framePoint(page, FILE_TITLE.x, FILE_TITLE.y);
+  await page.mouse.move(title.x, title.y);
+  await page.mouse.down({ button: "right" });
+  await expect.poll(() => modal(page)).toBe("menu");
+  const restart = await framePoint(page, RESTART_ITEM.x, RESTART_ITEM.y);
+  await page.mouse.move(restart.x, restart.y, { steps: 4 });
+  await page.mouse.up({ button: "right" });
+  await expect.poll(() => modal(page)).toBe("print");
+  await expect.poll(() => row(page, 9)).toContain("Restart the game?");
+  const gadget = await framePoint(page, RESTART_GADGET.x, RESTART_GADGET.y);
+  await page.mouse.click(gadget.x, gadget.y);
+  await expect.poll(() => row(page, 2)).toContain("RESTARTED");
+  await expect.poll(() => modal(page)).toBeNull();
+  await waitForCycles(page, 2);
+  await page.mouse.move(title.x, title.y);
+  await page.mouse.down({ button: "right" });
+  await expect.poll(() => modal(page)).toBe("menu");
+  const restore = await framePoint(page, RESTORE_ITEM.x, RESTORE_ITEM.y);
+  await page.mouse.move(restore.x, restore.y, { steps: 4 });
+  await page.mouse.up({ button: "right" });
+  await expect.poll(() => modal(page)).toBeNull();
+  await expect.poll(() => row(page, 3)).toContain("RESTORE PICKED");
 });
 
 test("releasing off the strip cancels, and the strip stays shut once the game clears f14", async ({
@@ -329,10 +363,10 @@ test.describe(() => {
     await page.screenshot({ path: test.info().outputPath("menu-390.png") });
     // No second Menu button while the strip is open.
     await expect(pad.getByTestId("touch-menu")).toHaveCount(0);
-    const item = await framePoint(page, RESTART_ITEM.x, RESTART_ITEM.y);
+    const item = await framePoint(page, RESTORE_ITEM.x, RESTORE_ITEM.y);
     await page.touchscreen.tap(item.x, item.y);
     await expect.poll(() => modal(page)).toBeNull();
-    await expect.poll(() => row(page, 3)).toContain("RESTART PICKED");
+    await expect.poll(() => row(page, 3)).toContain("RESTORE PICKED");
     // A tap beside the strip cancels; Esc on the pad cancels too.
     await pad.getByTestId("touch-menu").tap();
     await expect.poll(() => modal(page)).toBe("menu");

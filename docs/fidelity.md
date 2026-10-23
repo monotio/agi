@@ -113,7 +113,7 @@ below.
 | Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font [recreates the Tandy 1000 SX BIOS design pixel for pixel](#text-beyond-ascii); IBM-BIOS machines draw a different design, not yet recreated | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
 | Palette and display adapters  | [binary-decoded](#pc-fonts-and-display-adapters) (the DOS overlays' dispatch verified; the 2.001 booter's adapter census is open; not every adapter offered)                                                  | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
 | Screen geometry               | [binary-decoded](#original-window-and-status-line-text)                                                                                                                                                       | binary-decoded, [MAME cross-checked](#amiga-screen-font-and-pointer)                                                            | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
-| Menus                         | [binary-decoded](#original-input-menu-and-modal-handling) (interaction; layout from the specification)                                                                                                        | binary-decoded, [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                                                 | binary-decoded, [MAME cross-checked](#apple-iigs-presentation); native menus not yet reproduced                                                                    |
+| Menus                         | [binary-decoded](#original-input-menu-and-modal-handling) (interaction; layout from the specification); [kept across restart and restore](#original-menu-across-restart-and-restore)                          | binary-decoded, [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                                                 | binary-decoded, [MAME cross-checked](#apple-iigs-presentation); native menus not yet reproduced                                                                    |
 | Save and restore dialogs      | [binary-decoded](#original-save-and-restart-audit) (files, timing and keys; selector from the specification)                                                                                                  | binary-decoded, [MAME cross-checked](#original-amiga-save-and-restore-dialogs)                                                  | binary-decoded, [MAME cross-checked](#original-save-file-interoperability); the Standard File window not yet reproduced                                            |
 | Keyboard                      | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                                                                     | [binary-decoded](#original-input-menu-and-modal-handling)                                                                       | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                          |
 | Mouse and touch               | [binary-decoded](#original-click-to-walk) (no pointer input)                                                                                                                                                  | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                      | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#apple-iigs-presentation); the original pointer stays divergent                                    |
@@ -498,7 +498,9 @@ random-number state is not among them. Restoring reads the blocks back, replays
 the resource-loading history, and resumes loaded logic at saved offsets. A
 successful restore or restart sets f12 or f6 and restarts logic 0 in the same
 cycle, abandoning the old script position. Restart keeps the random stream and
-the sound preference. The game signature that `set.game.id` sets names the save
+the sound preference. Restart and restore both keep the game's menu, which is
+not part of a save, and both leave every menu item enabled; the game disables
+items again itself. The game signature that `set.game.id` sets names the save
 files and is part of the first block, so a restore brings it back; the save
 selector lists only files carrying the running game's signature.
 
@@ -510,6 +512,7 @@ as an ordinary message window.
 **Evidence:**
 [Original save and restart audit](#original-save-and-restart-audit),
 [Startup and reconstruction execution](#startup-and-reconstruction-execution),
+[Original menu across restart and restore](#original-menu-across-restart-and-restore),
 [Game signature across restore](#game-signature-across-restore)
 and [Restore error window](#restore-error-window).
 
@@ -3034,6 +3037,94 @@ python scripts/probe-interpreter-lifecycle.py /tmp/agi-fixed-sq2.bin
 python scripts/probe-interpreter-lifecycle.py games/gr1/AGI
 ```
 
+### Original menu across restart and restore
+
+**Evidence class:** routine execution (Unicorn 2.1.4) of the complete
+accepted `restart.game` branch in all fifteen PC builds and all six Amiga
+builds, and of the successful restore tail in the eleven PC builds with
+menus, each with the build's own data segment and a write hook on the whole
+address space; the Amiga menu routine executed on a synthetic strip;
+static disassembly of the menu constructors in every build and of the IIgs
+`1.014` paths (`SQ2.SYS16` `e1a2788f92cb7622…`, no Toolbox code executed).
+Executables: KQ2 2.411 `d99938d6622ef185…`, BC 2.439 `e717bfe1059eff8c…`,
+LSL1 2.440 `c70e2f327eaad8db…`, PQ1 2.903 `db97accc32e48bac…`, MUMG 2.915
+`6ee9d44b87e11dd3…`, KQ1 2.917 `bf53a4f98e32a7fe…`, KQ3 2.936
+`4b50c681c224326e…`, KQ4 3.002.086 `b9b27b403015bb18…`, DEMOPAC4 3.002.102
+`7cf6eac9d5bbfbd9…`, MH1 3.002.107 `ed8b58d354e10b06…`, GR1 3.002.149
+`12a52b728b1b1f8d…` (decoded load modules); Amiga 2.082 `80c6b0c4912a4ca5…`,
+2.176 `62b17ac8049a982e…`, 2.202 `557215fbbf431193…`, 2.310
+`72ddbb3ecda804b8…`, 2.316 `7bfa2f36616923a4…`, 2.333 `5ce3b163bd32ee02…`.
+
+**Facts.** The accepted restart branch and the successful restore tail
+each call one routine that enables every item of every heading that has
+items. On PC it walks the heading ring from the strip head and, for each
+heading whose `+0xa` word is nonzero, writes 1 to the `+0xa` word of each of
+its items (GR1 `0x9648`). The heading word marks a heading with items:
+`set.menu` writes 1 and `set.menu`/`submit.menu` write 0 to a heading left
+without items (GR1 `0x94a0..0x94a6`, `0x95fd..0x9603`); PC AGI has no
+heading enable, and the routine writes no heading word. Neither path writes
+the strip head, the submitted flag, the current heading and item, or the
+menu-request latch: each of the strip head and the submitted flag has one
+writer in the whole executable, in `set.menu` and `submit.menu`. The menu
+lives in heap below the mark that `submit.menu` sets (MarkHeap, GR1
+`0x168c`), and the restart's heap reset (GR1 `0x169b`) returns to that mark.
+`set.menu` and `set.menu.item` return at once while the submitted flag is 1
+(GR1 `0x9473`, `0x952d`), so a game that runs its menu code again adds
+nothing. `submit.menu` has no such guard: running it again puts the current
+heading and item back to the first (GR1 `0x960b..0x9618`, static). The
+routine runs only on acceptance and after all save blocks were read; a
+declined prompt, an open failure and a short read jump past it.
+
+| Build                     | Enable all items | Restart call  | Restore call  | Strip head  | Submitted   |
+| ------------------------- | ---------------- | ------------- | ------------- | ----------- | ----------- |
+| 2.411                     | `0x8d63`         | `0x2495`      | `0x2600`      | DS `0x1ac1` | DS `0x1abf` |
+| 2.439                     | `0x8e84`         | `0x24b3`      | `0x261e`      | DS `0x1b6e` | DS `0x1b6c` |
+| 2.440                     | `0x8e8c`         | `0x24bb`      | `0x2626`      | DS `0x1b6e` | DS `0x1b6c` |
+| 2.903                     | `0x9234`         | `0x24f1`      | `0x268c`      | DS `0x1d00` | DS `0x1cfe` |
+| 2.915                     | `0x9233`         | `0x24f6`      | `0x2691`      | DS `0x1d22` | DS `0x1d20` |
+| 2.917                     | `0x9247`         | `0x24f8`      | `0x2693`      | DS `0x1d22` | DS `0x1d20` |
+| 2.936                     | `0x930e`         | `0x24f8`      | `0x2693`      | DS `0x1d2c` | DS `0x1d2a` |
+| 3.002.086                 | `0x974f`         | `0x27b7`      | `0x2970`      | DS `0x1daa` | DS `0x1da8` |
+| 3.002.102                 | `0x9775`         | `0x27cd`      | `0x2986`      | DS `0x1dba` | DS `0x1db8` |
+| 3.002.107                 | `0x97b1`         | `0x27cd`      | `0x2986`      | DS `0x1dbc` | DS `0x1dba` |
+| 3.002.149                 | `0x9648`         | `0x276c`      | `0x2925`      | DS `0x1b71` | DS `0x1b6f` |
+| Amiga 2.082               | `h159+0x300`     | `h45+0x9e`    | `h47+0x1a6`   | `h160+0`    | `h160+0x16` |
+| Amiga 2.176               | `h221+0x2ba`     | `h63+0xb2`    | `h66+0x1b0`   | `h222+0`    | `h223+0x16` |
+| Amiga 2.202               | `h221+0x2e8`     | `h63+0xb2`    | `h66+0x1b0`   | `h223+0`    | `h223+0x16` |
+| Amiga 2.310, 2.316, 2.333 | `h221+0x2e8`     | `h63+0xbc`    | `h66+0x1de`   | `h223+0`    | `h223+0x16` |
+| IIgs 1.014                | `seg3+0x1319`    | `seg2+0x03a2` | `seg2+0x0215` | `$00a4`     | `$00a2`     |
+
+With a planted three-heading menu (one heading without items, two items
+disabled) every PC build ends both paths with all items enabled and the
+heading words, strip head and submitted flag unchanged. The Amiga routine
+calls Intuition `OnMenu` (LVO −192) once per item with `menu & 0x1f |
+item << 5` and subitem 0, the number `enable.item` passes; on the synthetic
+strip each build made exactly one call per item and none for the headings.
+The Amiga menu records come from `AllocRemember`, outside the AGI heap the
+restart rewinds. The IIgs routine calls Toolbox `$300F` (EnableMItem) with
+`id | 0x100` per item and makes no EnableMenu or DrawMenuBar call; its menu
+records come from the C allocator (main+0x2dad), outside the interpreter
+heap. PC 2.001, 2.089 and 2.230 have no menu, and 2.272's menu actions
+build none; their restart branches have no menu call. No save image holds
+item states on any platform.
+
+**Inference.** Intuition's `OnMenu` with subitem 0 on an item without
+subitems enables the item; either way the effect equals `enable.item` on
+every item.
+
+**Engine contract.** On an accepted restart the engine keeps the menu, its
+submitted state, its current heading and item and the menu request, and
+enables every item (`menuActions: "full"`). The game's own `restore.game`
+enables every item after the blocks are read. Host restores (History,
+autosave) restore the recorded menu exactly. Running `submit.menu` again
+puts the current heading and every heading's current item back to the
+first. Test: [menu.test.ts](../test/menu.test.ts),
+[native-menu.test.ts](../test/native-menu.test.ts) and
+[lifecycle-equivalence.test.ts](../test/lifecycle-equivalence.test.ts).
+
+**Not established.** Full-machine execution; the menu's on-screen redraw
+after the enable (the strip is drawn only when the menu opens).
+
 ### Original save-file interoperability
 
 **Evidence class:** execution of original save writers and block readers with controlled,
@@ -3399,10 +3490,13 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   `v20`/`v22`/`v26`/`f11` rewrite (`restoreRewritesMachineState: false`),
   preserving those four values from the save file's `VARS`/`FLAGS` blocks. All
   builds run reconstruction, `ClearControl`, and (`2.089+`, Amiga, IIgs)
-  `Set(12)` (`f12 = 1`); `f2`/`f4`/`v19` are not touched — `f2`/`f4` are cleared
+  `Set(12)` (`f12 = 1`), then CloseHandles (`2.230+`, Amiga, IIgs) and
+  EnableAllItems (PC `2.411+`, Amiga, IIgs; [Original menu across restart and
+  restore](#original-menu-across-restart-and-restore)); `f2`/`f4`/`v19` are not touched — `f2`/`f4` are cleared
   at every main-cycle top (e.g. kq3 `0x161`/`0x16B`). Engine: the authentic
   restore tail clears controllers, applies the per-profile machine-state
-  rewrite when `restoreRewritesMachineState` is true, and sets `f12`, leaving
+  rewrite when `restoreRewritesMachineState` is true, sets `f12` and enables
+  every menu item, leaving
   `f2`/`f4` to the next cycle top and never writing `v19`; host-image restores
   (history, autosave) always keep the recorded machine vars intact.
 - **F-persistence-04 (fact; engine matches).** Timer across persistence

@@ -353,3 +353,59 @@ test("chrome ops name every pen and glyph run the compositor paints", () => {
   assert.equal(chrome.pulldown!.highlighted, 0);
   assert.equal(chrome.pulldown!.items[2]!.enabled, false);
 });
+
+test("after a restart the Amiga strip still opens with every item enabled", () => {
+  // Player-visible rule: Restart keeps the game's menu. The game builds its
+  // strip only while f6 is clear and sets f14 on every boot (ResetAll
+  // clears it); the accepted restart keeps the strip and OnMenus every
+  // item (2.202 h63+0xb2 -> h221+0x2e8; docs/fidelity.md "Original menu
+  // across restart and restore").
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+      configure.screen(1, 22, 0);
+      if (!isset(f200)) {
+        set(f200);
+        load.pic(v250); overlay.pic(v250); show.pic();
+        if (!isset(f6)) {
+          set.menu("File");
+          set.menu.item("Save", 3);
+          set.menu.item("-----", 20);
+          set.menu.item("Restart", 7);
+          submit.menu();
+          disable.item(20);
+        }
+        set(f14);
+        set(f16);
+      }
+      if (controller(7)) { restart.game(); }
+      return;
+    `,
+      { dictionary: DICT },
+    ).payload,
+  );
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  const engine = new Engine(container, new Host(), DICT, { profile: PROFILES["amiga-2.202"] });
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.nativeMenuAvailable, true);
+  const resets = engine.runResetSerial;
+  // Tap Restart (File's third item) on the sticky strip.
+  assert.equal(engine.nativeMenuOpen(0, 0, true), true);
+  const restart = intuitionPulldown(engine.readMenuState().headings, 0)!.items[2]!;
+  engine.nativeMenuTap(restart.x0 + 1, restart.y0 + 1);
+  engine.tick();
+  engine.tick();
+  assert.notEqual(engine.runResetSerial, resets, "the restart was accepted");
+  engine.tick();
+  assert.equal(engine.nativeMenuAvailable, true, "the strip is still there");
+  assert.equal(engine.nativeMenuOpen(0, 0, true), true);
+  assert.equal(engine.modalKind, "menu");
+  assert.deepEqual(
+    intuitionPulldown(engine.readMenuState().headings, 0)!.items.map((item) => item.enabled),
+    [true, true, true],
+  );
+});

@@ -482,6 +482,8 @@ interface Context {
   readonly departure: string | null;
   /** Restore: the state inside the game's save.game, as the image holds it. */
   readonly saved: Snapshot | null;
+  /** Restart: the restarted run's snapshot at the playable point. */
+  readonly after?: Snapshot;
 }
 
 /** The restarted run first departed from the cold one at the game's own test of f6. */
@@ -519,7 +521,53 @@ interface Allowed {
   readonly cite: string;
 }
 
+/**
+ * The two JSON values agree except for menu item enabled words that went
+ * from false to true: `headings[].items[]` in the menu, `menuItems[]` in the
+ * controls. Heading words never change.
+ */
+function onlyItemsEnabled(difference: Difference): boolean {
+  const same = (a: unknown, b: unknown, inItems: boolean): boolean => {
+    if (Array.isArray(a) && Array.isArray(b))
+      return a.length === b.length && a.every((value, n) => same(value, b[n], inItems));
+    if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+      const x = a as Record<string, unknown>;
+      const y = b as Record<string, unknown>;
+      const keys = [...new Set([...Object.keys(x), ...Object.keys(y)])];
+      return keys.every((key) =>
+        inItems && key === "enabled" && x[key] === false && y[key] === true
+          ? true
+          : same(x[key], y[key], key === "items" || key === "menuItems"),
+      );
+    }
+    return a === b;
+  };
+  return same(JSON.parse(difference.before), JSON.parse(difference.after), false);
+}
+
 const ALLOWED: readonly Allowed[] = [
+  ...(["restart", "restore"] as const).map((phase) => ({
+    phase,
+    field: /^(menu|controls)$/,
+    when: (_context: Context, difference: Difference) => onlyItemsEnabled(difference),
+    why:
+      "The accepted restart and the successful restore both enable every menu item; the game " +
+      "disables items again itself.",
+    cite: 'docs/fidelity.md "Original menu across restart and restore"',
+  })),
+  {
+    phase: "restart",
+    field: /^menuProbe$/,
+    when: (context, difference) =>
+      departsAtF6(context) &&
+      context.after?.["f14"] === "0" &&
+      difference.after === "no menu opens",
+    why:
+      "The strip survives the restart, but on Amiga 2.176..2.333 it opens only while f14 is " +
+      "set, and ResetAll clears f14 with the other flags. A game that sets f14 only on its cold " +
+      "route (MH2) has no strip after a restart in the original either.",
+    cite: 'docs/fidelity.md "Original native menu dispatch"',
+  },
   {
     phase: "restart",
     field: /^(save\.timerTicks|v1[1-6])$/,
@@ -619,15 +667,6 @@ const MENU_EDITIONS = [
 const UNCATALOGUED_2089 = "uncatalogued 2.089 edition (WORDS.TOK 775bfe3c9f51)";
 
 const PENDING: readonly Pending[] = [
-  {
-    phase: "restart",
-    field: /^(menu|controls|menuProbe)$/,
-    editions: MENU_EDITIONS,
-    bug:
-      "restart keeps the menu: pending engine fix. restart() empties the menu, and these " +
-      "games build it only while f6 is clear, so after a restart no menu opens and the keys " +
-      "lose their menu items.",
-  },
   {
     phase: "restart",
     field: /^save\.replayCapacity$/,
@@ -851,7 +890,14 @@ for (const edition of EDITIONS) {
             `${coldSteps} and ${restartedSteps} instructions; departure ${departed ?? "none"}`,
         );
         report(
-          { phase: "restart", edition: edition.label, profile, departure: departed, saved: null },
+          {
+            phase: "restart",
+            edition: edition.label,
+            profile,
+            departure: departed,
+            saved: null,
+            after,
+          },
           [["at the playable point", before, after]],
         );
       },

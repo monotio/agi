@@ -3,6 +3,13 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.2.6] - 2026-10-23
+
+### Fixed
+
+- After Restart, the game's menu is still there, and after Restart or
+  Restore every menu item is enabled until the game disables it again.
+
 ## [1.2.5] - 2026-10-20
 
 ### Added
