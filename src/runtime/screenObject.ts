@@ -26,6 +26,14 @@ export interface ScreenObject {
   /** Cel dimensions, refreshed on view/loop/cel selection. */
   width: number;
   height: number;
+  /**
+   * The view's loop count and the loop's cel count as the object record
+   * carries them, refreshed on view/loop/cel selection and kept after the
+   * view is discarded; save.game copies them like width and height
+   * (docs/fidelity.md "PC state and objects"). Behavior reads the live view.
+   */
+  loopCount: number;
+  celCount: number;
   stepSize: number;
   stepTime: number;
   stepCount: number;
@@ -83,6 +91,8 @@ export function newScreenObject(): ScreenObject {
     // disabled. docs/fidelity.md: Startup and reconstruction.
     width: 0,
     height: 0,
+    loopCount: 0,
+    celCount: 0,
     stepSize: 0,
     stepTime: 0,
     stepCount: 0,
@@ -185,6 +195,8 @@ export function applyObjectRecord(o: ScreenObject, record: SaveObjectRecord | un
   o.prevY = record.prevY;
   o.width = record.width;
   o.height = record.height;
+  o.loopCount = record.loopCount;
+  o.celCount = record.celCount;
   o.stepSize = record.stepSize;
   o.cycleTime = record.cycleTime;
   o.cycleCount = record.cycleCount;

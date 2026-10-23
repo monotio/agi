@@ -21,6 +21,7 @@ import { createContainer, openContainer } from "../src/container/container.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
+import { decodeOriginalSav, exportOriginalSav } from "../src/runtime/savFile.ts";
 import { findFixture, fixtureSkip } from "./fixtures.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -2622,5 +2623,59 @@ describe('the restore tail (docs/fidelity.md "Persistence verdicts", F-persisten
     engine.tick();
     engine.tick();
     assert.equal(engine.modalKind, "menu");
+  });
+});
+
+describe("save object records as the original copies them", () => {
+  test("a save made after an object's view was unloaded restores the object as the original would", () => {
+    // Player-visible rule: block 2 copies the raw object records; the
+    // priority byte holds the last computed band priority of an object
+    // without a fixed priority, and the loop and cel counts written when the
+    // view and loop were bound stay after the view is discarded
+    // (docs/fidelity.md "PC state and objects": +0x24, +0xa/+0xb, +0xe/+0xf).
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+        if (!isset(f200)) {
+          set(f200);
+          load.view(3);
+          animate.obj(o1);
+          set.view(o1, 3);
+          position(o1, 40, 120);
+          draw(o1);
+        }
+        if (isset(f201)) { reset(f201); discard.view(3); }
+        if (isset(f202)) { reset(f202); save.game(); }
+        if (isset(f203)) { reset(f203); restore.game(); }
+        return;
+      `,
+        { dictionary: DICT },
+      ).payload,
+    );
+    container.putResource("view", 3, VIEW_CEL);
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT);
+    host.engine = engine;
+    engine.tick();
+    engine.tick();
+    const band = engine.screenObjects[1]!.priority;
+    assert.ok(band > 4, "the object has a computed band priority");
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    const record = decodeSave(host.saved!, engine.profile).objects[1]!;
+    assert.deepEqual(
+      { priority: record.priority, loopCount: record.loopCount, celCount: record.celCount },
+      { priority: band, loopCount: 1, celCount: 1 },
+    );
+    const exported = decodeOriginalSav(exportOriginalSav(engine), engine.profile).objects[1]!;
+    assert.equal(exported.priority, band, "an exported .SAV carries the same record");
+    engine.flags[203] = 1;
+    engine.tick();
+    assert.equal(engine.screenObjects[1]!.priority, band, "the priority survives the restore");
   });
 });

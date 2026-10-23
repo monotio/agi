@@ -636,68 +636,7 @@ interface Pending {
   readonly bug: string;
 }
 
-const UNCATALOGUED_2089 = "uncatalogued 2.089 edition (WORDS.TOK 775bfe3c9f51)";
-
-const PENDING: readonly Pending[] = [
-  {
-    phase: "restore",
-    field: /^objectPriority$/,
-    when: (difference) => {
-      const before = JSON.parse(difference.before) as number[];
-      const after = JSON.parse(difference.after) as number[];
-      return after.every((value, n) => value === before[n] || value === 0);
-    },
-    editions: [
-      "kq1",
-      "kq2",
-      "kq3",
-      "kq4",
-      "sq1",
-      "sq2",
-      "pq1",
-      "lsl1",
-      "gr1",
-      "bc",
-      "mumg",
-      "sq1-amiga",
-      "kq2-amiga",
-      "sq2-amiga",
-      "pq1-amiga",
-      "sq2-iigs",
-      UNCATALOGUED_2089,
-    ],
-    bug:
-      "save.game writes 0 as the priority of an object without a fixed priority, where the " +
-      'original copies the raw record (docs/fidelity.md "PC state and objects"); after a ' +
-      "restore such an object reports priority 0 until it moves: unexplained.",
-  },
-  {
-    phase: "restore",
-    field: /^object\d+$/,
-    // The Amiga record holds the two counts as words at 0x12 and 0x1a.
-    when: (difference) =>
-      recordKeys(difference).every((key) =>
-        /^(loopCount|celCount|raw\[0x(12|13|1a|1b)\])$/.test(key),
-      ),
-    editions: [
-      "kq2",
-      "kq3",
-      "kq4",
-      "pq1",
-      "gr1",
-      "mumg",
-      "mh1",
-      "mh2",
-      "kq2-amiga",
-      "pq1-amiga",
-      "mh2-amiga",
-    ],
-    bug:
-      "save.game writes zero loop and cel counts for an object whose view is no longer " +
-      "loaded, where the original copies the raw record; restore's view rebinding fills them " +
-      "again: unexplained.",
-  },
-];
+const PENDING: readonly Pending[] = [];
 
 /** One difference for a failure message; an object record shows only its changed keys. */
 function explain(difference: Difference): string {

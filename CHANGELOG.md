@@ -18,6 +18,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - After Restore, the last command can still be echoed, the King's Quest IV
   menu opens again, and History can take a checkpoint at once.
 - Apple IIgs games list their own saves in the Restore window.
+- Saves record each object's priority and loop and cel counts as the original
+  writes them, so an object restores with the priority it had.
 
 ## [1.2.5] - 2026-10-20
 

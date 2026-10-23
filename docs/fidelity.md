@@ -3029,7 +3029,14 @@ consume→save→consume→restore→consume against the current stream, and res
 at RNG zero followed by a random call: restart consumes no BIOS input; the
 subsequent call consumes exactly one. f9/f6 and timing-word behavior are
 protected through record→seek→resume. Original save block 2 copies raw object
-records; the parameter bank uses the offsets proven in the
+records, so the engine writes each object's last computed band priority, fixed
+or not, and the loop and cel counts its view and loop binding stored, which
+stay after the view is discarded (`ScreenObject.loopCount`/`celCount`), in
+`save.game` images and exported `.SAV` files alike. Host images (History,
+autosave, recordings) keep their released record convention, priority only
+when fixed and counts from the loaded view, so recorded images and their
+fingerprints keep their bytes; the live priority rides in the host envelope.
+The parameter bank uses the offsets proven in the
 [motion audit](#original-motion-and-animation-audit). The released image codec retains private flag packing; the separate
 [original-file API](#original-save-file-interoperability) converts it and verifies
 controlled writer/reader interoperability. Bit 0x8000 still has no established

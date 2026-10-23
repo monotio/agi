@@ -8,13 +8,29 @@ import {
   decodeHostImage,
   decodeSave,
   encodeHostImage,
+  encodeSave,
 } from "../src/runtime/persistence.ts";
+import type { AgiProfile } from "../src/runtime/profile.ts";
+
+/**
+ * A save image with each object record's priority and loop and cel counts
+ * zeroed. Host images keep their released record convention for those three
+ * bytes (priority only when fixed, counts from the loaded view) while
+ * save.game copies the raw records (docs/fidelity.md "Original save and
+ * restart audit"); every other byte is the same encoder's.
+ */
+function withoutRecordCounts(image: Uint8Array, profile: AgiProfile): number[] {
+  const state = decodeSave(image, profile);
+  for (const record of state.objects) record.priority = record.loopCount = record.celCount = 0;
+  return Array.from(encodeSave(state, profile));
+}
 
 /**
  * The host-initiated autosave image.
  *
  * Two claims are worth a test and neither is provable from the app: the save
- * image inside an autosave is the SAME bytes save.game writes (a different
+ * image inside an autosave is the SAME bytes save.game writes, apart from the
+ * object records' host convention for priority and counts (a different
  * encoder would restore into a subtly different game), and the snapshot is refused at
  * the moments where the save file cannot describe what the player is looking
  * at — an open message window, full-screen text mode, and the gap before a
@@ -135,9 +151,14 @@ test("an autosave carries the save image byte-identical to what save.game writes
   assert.equal(host.saved.length, 1, "save.game ran once");
   assert.ok(host.snapshotAtSave, "the autosave was taken");
   // The host envelope wraps the authentic image with the screen sequence the
-  // resume rebuilds the room from; the image itself is what save.game wrote.
+  // resume rebuilds the room from; the image itself is what save.game wrote,
+  // apart from the object records' host convention.
   const { image: autosave, screen } = decodeHostImage(host.snapshotAtSave);
-  assert.deepEqual(Array.from(autosave), Array.from(host.saved[0]!), "same bytes");
+  assert.deepEqual(
+    withoutRecordCounts(autosave, engine.profile),
+    withoutRecordCounts(host.saved[0]!, engine.profile),
+    "same bytes",
+  );
   assert.ok(screen && screen.length > 0, "the screen sequence rides along");
 
   // Hand-checked envelope (spec "Save-file envelope", profile 2.936): a
@@ -426,8 +447,8 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   assert.ok(autosave);
   const { image, screen } = decodeHostImage(autosave);
   assert.deepEqual(
-    Array.from(image),
-    Array.from(authentic),
+    withoutRecordCounts(image, engine.profile),
+    withoutRecordCounts(authentic, engine.profile),
     "the envelope carries save.game's image",
   );
   // load.pic(1) and draw.pic(1), the pairs f7 kept out of the game's sequence
@@ -454,7 +475,10 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   // The next autosave still rebuilds the room: the sequence became the shadow.
   const again = decodeHostImage(fresh.autosaveImage()!);
   assert.deepEqual(again.screen, screen);
-  assert.deepEqual(Array.from(again.image), Array.from(fresh.serialize()));
+  assert.deepEqual(
+    withoutRecordCounts(again.image, fresh.profile),
+    withoutRecordCounts(fresh.serialize(), fresh.profile),
+  );
 
   // A bare save image (an autosave stored before the envelope) still restores,
   // with the game's own sequence as the only screen there is.

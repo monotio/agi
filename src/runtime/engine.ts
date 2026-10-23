@@ -1745,7 +1745,7 @@ export class Engine {
       // made that continuation unsnapshotable. Keep the room's replay witness.
       if (this.hostReplayOverflow) return false;
       const image = encodeHostImage(
-        this.serialize(),
+        this.serialize(true),
         this.hostReplay,
         undefined,
         null,
@@ -4324,7 +4324,15 @@ export class Engine {
    * locations; block 4 the resource replay sequence; block 5 the loaded-logic
    * resume records.
    */
-  serialize(): Uint8Array {
+  /**
+   * The save.game image. `hostImage` writes the object records the way host
+   * images (History, autosave, recordings, room launches) always have —
+   * priority only when fixed, loop and cel counts from the loaded view — so
+   * recorded host images and their fingerprints keep their bytes; the live
+   * priority rides in the host envelope. Authentic saves copy the records as
+   * the original does (docs/fidelity.md "Original save and restart audit").
+   */
+  serialize(hostImage = false): Uint8Array {
     const state = newSaveState(this.profile);
     state.description = this.saveDescription;
     for (let i = 0; i < this.signature.length && i < 7; i++) {
@@ -4371,7 +4379,7 @@ export class Engine {
     const meta = this.inventoryMetadata();
     state.objects = [];
     for (let num = 0; num < meta.objectRecords; num++) {
-      state.objects.push(this.objectRecord(num));
+      state.objects.push(this.objectRecord(num, hostImage));
     }
     state.inventory = Uint8Array.from(meta.payload);
     for (let item = 0; item < meta.entryCount; item++) {
@@ -4388,7 +4396,7 @@ export class Engine {
   }
 
   /** Block-2 record for one drawable object. */
-  private objectRecord(num: number): SaveObjectRecord {
+  private objectRecord(num: number, hostImage = false): SaveObjectRecord {
     const o = this.objects[num]!;
     const record = newObjectRecord();
     record.stepTime = o.stepTime;
@@ -4398,9 +4406,9 @@ export class Engine {
     record.y = o.y;
     record.view = o.view;
     record.loop = o.loop;
-    record.loopCount = this.views.get(o.view)?.loops.length ?? 0;
+    record.loopCount = hostImage ? (this.views.get(o.view)?.loops.length ?? 0) : o.loopCount;
     record.cel = o.cel;
-    record.celCount = this.celCount(o);
+    record.celCount = hostImage ? this.celCount(o) : o.celCount;
     record.prevX = o.prevX;
     record.prevY = o.prevY;
     record.width = o.width;
@@ -4411,7 +4419,9 @@ export class Engine {
     record.direction = o.direction;
     record.motionMode = o.motionMode;
     record.cycleMode = o.cycleMode;
-    record.priority = o.fixedPriority ? o.priority : 0;
+    // Block 2 copies the raw record: an unfixed object's byte holds its last
+    // computed band priority (docs/fidelity.md "PC state and objects").
+    record.priority = hostImage && !o.fixedPriority ? 0 : o.priority;
     record.state = packObjectState(o);
     record.motionParams = motionParams(o);
     return record;
@@ -4423,7 +4433,7 @@ export class Engine {
     if (!snapshot) return null;
     const { image, screen, presentation, continuation } = decodeHostImage(snapshot);
     const state = decodeSave(image, this.profile);
-    state.objects = this.objects.map((_, num) => this.objectRecord(num));
+    state.objects = this.objects.map((_, num) => this.objectRecord(num, true));
     return encodeHostImage(
       encodeSave(state, this.profile),
       screen ?? [],
@@ -4448,9 +4458,9 @@ export class Engine {
     if (this.pendingInteraction !== null && this.pendingInteraction.kind !== "key")
       throw new Error("Finish the game's question, then launch this room");
     if (this.hostReplayOverflow) throw new Error("Choose From the beginning to launch this game");
-    const state = decodeSave(this.serialize(), this.profile);
+    const state = decodeSave(this.serialize(true), this.profile);
     if (this.soundDoneFlag !== null) state.flags[this.soundDoneFlag] = 1;
-    state.objects = this.objects.map((_, num) => this.objectRecord(num));
+    state.objects = this.objects.map((_, num) => this.objectRecord(num, true));
     state.replay = [];
     state.replayActive = state.replayCheckpoint = 0;
     state.logicResume = state.logicResume.filter(
@@ -4904,7 +4914,7 @@ export class Engine {
     // overflowed cannot rebuild it.
     if (this.hostReplayOverflow) return null;
     return encodeHostImage(
-      this.serialize(),
+      this.serialize(true),
       this.hostReplay,
       {
         ...(this.joystickState() ? { joystick: this.joystickState()! } : {}),
@@ -5096,6 +5106,9 @@ export class Engine {
     for (let num = 0; num < this.objects.length; num++) {
       const o = this.objects[num]!;
       applyObjectRecord(o, s.objects[num]);
+      // A host image's record counts follow the loaded view, not the
+      // binding; the view rebinding below refills them for every bound object.
+      if (screen !== null) o.loopCount = o.celCount = 0;
       // Original restore rebuilds drawn followers with a fresh retry delay.
       // Host history carries an exact saved boundary instead (fidelity.md,
       // "Original save and restart audit").
@@ -6722,6 +6735,10 @@ export class Engine {
   private updateCelSize(obj: ScreenObject, clipPosition = true): void {
     const view = this.views.get(obj.view);
     const cel = view && readViewCel(view, obj.loop, obj.cel);
+    if (view) {
+      obj.loopCount = view.loops.length;
+      obj.celCount = view.loops[obj.loop]?.cels.length ?? 0;
+    }
     if (cel) {
       obj.width = cel.width;
       obj.height = cel.height;
