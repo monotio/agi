@@ -682,14 +682,15 @@ export interface AgiProfile {
    */
   readonly restartKeepsMaxScore: boolean;
   /**
-   * Message modes the restart and quit confirmations honor; both call the
-   * shared message routine print uses. "timed": a nonzero v21 accepts the
-   * prompt when its v21 half-seconds pass or on Enter or Esc, dropping other
+   * Message modes PC print and the restart and quit confirmations honor;
+   * both confirmations call the shared message routine print uses.
+   * "timed": a nonzero v21 closes the message and accepts a confirmation
+   * when its v21 half-seconds pass or on Enter or Esc, dropping other
    * keys, and zeroes v21. "timed-and-f15" also accepts at once while f15 is
    * set, clearing f15 and leaving the window open. "none" on 2.001; "timed"
    * on 2.089..2.272 and Amiga 2.082; "timed-and-f15" on PC 2.411+, Amiga
    * 2.176+ and the IIgs (docs/fidelity.md "Persistence verdicts",
-   * F-persistence-prompt-modes).
+   * F-persistence-prompt-modes; "Print handler output modes").
    */
   readonly confirmPromptModes: "none" | "timed" | "timed-and-f15";
   /**

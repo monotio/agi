@@ -147,31 +147,65 @@ for (const profile of ["2.936", "3.002.149"] as const) {
   });
 }
 
-for (const profile of ["2.001", "2.089"] as const) {
-  test(`${profile}: prints retain f15; a timed window keeps v21 on 2.001 and clears it on 2.089`, () => {
-    // PC 2.001 and 2.089 preserve f15 across print. 2.089's message routine
-    // zeroes v21 on its timed exit (0x1c24, docs/fidelity.md "Print handler
-    // output modes"); 2.001's print handler is not verified.
-    const e = game('set(f15);print("First.");print("Second.");increment(v200);return;', profile);
-    e.tick();
-    assert.equal(e.modalKind, null, "both prints stay non-blocking while f15 is kept");
-    assert.equal(e.flags[15], 1);
-    assert.equal(e.vars[200], 1, "logic ran straight through both prints");
-    assert.ok(
-      Array.from({ length: 25 }, (_, row) => e.textRow(row))
-        .join(" ")
-        .includes("Second."),
-    );
+for (const profile of ["2.001", "2.089", "2.230", "2.272"] as const) {
+  const prints = ['print("Message.")', "print.v(v50)"];
+  if (profile !== "2.001") prints.push('print.at("Message.",2,3,20)', "print.at.v(v50,2,3,20)");
+  for (const print of prints) {
+    // Variable forms use the message registered by the skipped literal print.
+    const source = `assignn(v50,1);if(isset(f250)){print("Message.");}${print};increment(v200);return;`;
+    test(`${profile}: ${print} waits for a key even when the game sets f15`, () => {
+      const e = game(`set(f15);${source}`, profile);
+      e.tick();
+      assert.equal(e.modalKind, "print");
+      assert.equal(e.vars[200], 0, "the message parks the game");
+      assert.ok(
+        Array.from({ length: 25 }, (_, row) => e.textRow(row))
+          .join(" ")
+          .includes("Message."),
+      );
+      e.modalKey(32);
+      e.advanceClock(2000);
+      assert.equal(e.modalKind, "print", "Space and elapsed time leave the message open");
+      e.modalKey(13);
+      e.tick();
+      assert.equal(e.vars[200], 1);
+      assert.equal(e.flags[15], 1, "print preserves f15");
+    });
 
-    const timed = game('assignn(v21,2);print("A moment.");increment(v200);return;', profile);
-    timed.tick();
-    assert.equal(timed.modalKind, "print");
-    timed.advanceClock(1000);
-    assert.equal(timed.modalKind, null, "the timed window still closes on its own");
-    assert.equal(timed.vars[21], profile === "2.001" ? 2 : 0, "v21 after the timed window");
-    timed.tick();
-    assert.equal(timed.vars[200], 1);
-  });
+    if (profile === "2.001") {
+      test(`${profile}: ${print} waits beyond v21's nominal timeout and preserves it after Esc`, () => {
+        const e = game(`assignn(v21,2);${source}`, profile);
+        e.tick();
+        e.advanceClock(2000);
+        assert.equal(e.modalKind, "print");
+        assert.equal(e.vars[200], 0);
+        e.modalKey(27);
+        e.tick();
+        assert.equal(e.vars[200], 1);
+        assert.equal(e.vars[21], 2);
+      });
+    } else {
+      for (const close of ["timeout", "Enter", "Esc"] as const) {
+        test(`${profile}: ${print} with f15 and v21 waits until ${close}, then clears the timer`, () => {
+          const e = game(`set(f15);assignn(v21,2);${source}`, profile);
+          e.tick();
+          assert.equal(e.modalKind, "print");
+          assert.equal(e.vars[200], 0);
+          e.modalKey(32);
+          e.advanceClock(999);
+          assert.equal(e.modalKind, "print", "Space does not end the timed wait");
+          assert.equal(e.vars[21], 2);
+          if (close === "timeout") e.advanceClock(1);
+          else e.modalKey(close === "Enter" ? 13 : 27);
+          assert.equal(e.modalKind, null);
+          assert.equal(e.vars[21], 0);
+          assert.equal(e.flags[15], 1);
+          e.tick();
+          assert.equal(e.vars[200], 1, "the game resumes after the message closes");
+        });
+      }
+    }
+  }
 }
 
 test("amiga-2.082: prints retain f15 while timed windows clear v21", () => {
@@ -199,9 +233,15 @@ for (const profile of ["2.001", "2.089", "amiga-2.082", "2.936", "3.002.149"] as
       profile,
     );
     e.tick();
+    if (profile === "2.001" || profile === "2.089") {
+      assert.equal(e.modalKind, "print");
+      e.modalKey(13);
+      e.tick();
+    }
     assert.equal(e.vars[200], 1);
-    const retainsWindow = profile === "2.001" || profile === "2.089" || profile === "amiga-2.082";
-    assert.equal(e.flags[15], retainsWindow ? 1 : 0);
+    const retainsF15 = profile === "2.001" || profile === "2.089" || profile === "amiga-2.082";
+    const retainsWindow = profile === "amiga-2.082";
+    assert.equal(e.flags[15], retainsF15 ? 1 : 0);
     assert.equal(
       Array.from({ length: 25 }, (_, row) => e.textRow(row))
         .join(" ")

@@ -7,6 +7,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
+- On PC interpreters 2.001 to 2.272, messages wait even when the game sets
+  its leave-window flag. On 2.001, messages also wait for a key when the
+  game sets a message timer, as the original does.
 - After Restart, the game's menu is still there, and after Restart or
   Restore every menu item is enabled until the game disables it again.
 - Apple IIgs games ask "Restart the game?" with Restart and Cancel, as the

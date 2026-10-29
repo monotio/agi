@@ -2208,8 +2208,9 @@ newlines.
 
 ### Print handler output modes
 
-A print that opens a non-blocking window (f15 set) consumes f15 as it returns, so the next print
-blocks again (profile flag `printConsumesF15`). A timed print (v21 half-seconds) zeroes v21 when its
+On builds supporting f15 output mode, a print that opens a non-blocking window (f15 set)
+consumes f15 as it returns on later PC builds, so the next print blocks again
+(profile flag `printConsumesF15`). A timed print (v21 half-seconds) zeroes v21 when its
 window closes, by timeout or key (profile flag `timedPrintClearsV21`).
 
 KQ4's keyless intro re-arms f15 for every window and reaches interactive play without a keypress.
@@ -2220,6 +2221,7 @@ KQ4's keyless intro re-arms f15 for every window and reaches interactive play wi
 
 | Interpreter build     | f15 reset | v21 clear |
 | --------------------- | --------- | --------- |
+| 2.001                 | —         | —         |
 | 2.089                 | —         | 0x1c24    |
 | 2.230                 | —         | 0x1b66    |
 | 2.272                 | —         | 0x1c02    |
@@ -2237,12 +2239,41 @@ f15. Both timeout and key acknowledgement reach the v21 clear at 0x2008. `print`
 shared routine, which zeroes v21 on its timed exit (fact, static; the decoded images in
 [Original restart state boundary](#original-restart-state-boundary)).
 
-**Early f15 behavior (fact; engine diverges).** The shared routines at `0x1ba9` (2.089),
-`0x1aeb` (2.230) and `0x1b87` (2.272) have no f15 test, so f15 never makes a print
-non-blocking on those builds. The engine still leaves their print windows non-blocking
-while retaining f15; [message-modes.test.ts](../test/message-modes.test.ts) pins that
-current behavior. Matching these originals remains outstanding. Print f15 behavior on
-2.001 is not established.
+**F-text-print-modes-early (fact; engine matches).** Ordinary `print` and `print.v`
+on PC `2.001` call the shared message routine at `0x1b15` (calls at `0x1ade`
+and `0x1b09`). It opens the window, unconditionally waits at `0x40a9`, closes
+at `0x1b38 → 0x1c6d`, and returns. It tests neither f15 nor v21 and clears
+neither. `print.at` and `print.at.v` are beyond this build's action bound.
+On `2.089`, `2.230` and `2.272`, all four print actions reach the shared
+message routine at `0x1ba9`, `0x1aeb` and `0x1b87`; the positioned helpers
+call it at `0x1b91`, `0x1ad3` and `0x1b6f`. None tests f15. These three
+routines test v21 at `0x1bbf`, `0x1b01` and `0x1b9d`, wait for the timer at
+DS `0x129:0x12b` to reach its initial value plus v21 × 10, or for Enter or
+Esc, then zero v21 at `0x1c24`, `0x1b66` and `0x1c02` and close the window.
+The poll returns −1 for other keys, which are dequeued and discarded.
+Native type-1 key words `0x0101`/`0x0301` map to Enter and
+`0x0201`/`0x0401` to Esc before polling (`0x3ea6`, `0x3e2a`, `0x3e88`).
+These numeric aliases do not establish which physical devices produce them.
+
+Static reading and 672 bounded original-code executions cover the ordinary
+handlers, shared wait, event reader, accept/abort normalizer and dequeue,
+with synthetic message lookup, graphics calls, input flush, events and
+clock ticks. f15 `{0,1}`, v21 `{0,4}`, and twelve input cases confirm that
+f15 never skips the wait, 2.001 ignores v21, and all three timed builds
+zero v21 on timeout and both acknowledgement keys. These runs do not test
+drawing, hardware timing or long-timer wraparound. Executable SHA-256: `2.001`
+`424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`,
+`2.089` `e31e5e8611c81d58ba2a8fcc63ecdf7ded767814324c66dfd73b6452f7199cb4`,
+`2.230` `875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de1332245df9f60ff4570`,
+`2.272` `a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a`;
+see [Verified inputs](#verified-inputs). Code addresses are MZ load-module offsets.
+
+Engine: PC ordinary print shares the `confirmPromptModes` gate with
+confirmations: `"none"` on 2.001 and `"timed"` on 2.089/2.230/2.272.
+`printConsumesF15` stays false on all four; `timedPrintClearsV21` stays false
+on 2.001 and true on the other three. Amiga 2.082 ordinary print keeps its
+separate f15 path. These mode choices follow the original control flow;
+the bounded executions alone would not prove indefinite waiting.
 
 **Tests:** [mh2-profile.test.ts](../test/mh2-profile.test.ts),
 [message-modes.test.ts](../test/message-modes.test.ts),
