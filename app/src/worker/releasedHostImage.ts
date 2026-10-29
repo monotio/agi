@@ -4,6 +4,7 @@
  * checkpoint against its stored fingerprint and released replay semantics.
  */
 import { migrateRecordedReplayState } from "../../../src/runtime/recordingState.ts";
+import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { asReleasedHostImage, hostImageVersion } from "../../../src/runtime/persistence.ts";
 import {
@@ -57,6 +58,15 @@ export function fingerprintMatchesRecorded(
 ): boolean {
   if (historyFingerprint(recorded).hash !== expected.hash) return false;
   restored = withoutUnrecordedViewLoops(restored, recorded);
+  if (restored.replay !== undefined && recorded.replay !== undefined) {
+    // Older checkpoints did not record these gates. Compare only the fields
+    // their fingerprint covered, after authenticating the stored state above.
+    const replay = { ...(restored.replay as EngineReplayState) };
+    const recordedReplay = recorded.replay as EngineReplayState;
+    if (recordedReplay.menuGate === undefined) delete replay.menuGate;
+    if (recordedReplay.releaseGate === undefined) delete replay.releaseGate;
+    restored = { ...restored, replay };
+  }
   if (fingerprintMatchesReleased(restored, expected)) return true;
   if (recorded.replay === undefined) return false;
   const replay = migrateRecordedReplayState(recorded.replay, profile, getSound);
@@ -75,6 +85,8 @@ function withoutUnrecordedViewLoops(
   type Cache = { viewCache?: { loops?: unknown } };
   const restoredCache = (restored.replay as Cache | undefined)?.viewCache;
   const recordedCache = (recorded.replay as Cache | undefined)?.viewCache;
+  // Restoring a recorded loop state always recaptures it, so only the new
+  // optional field can be absent from the recorded side.
   if (restoredCache?.loops === undefined || recordedCache?.loops !== undefined) return restored;
   const { loops: _loops, ...viewCache } = restoredCache;
   return { ...restored, replay: { ...(restored.replay as object), viewCache } };

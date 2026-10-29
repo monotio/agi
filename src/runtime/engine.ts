@@ -4574,6 +4574,8 @@ export class Engine {
       menuFinalized: this.menuFinalized,
       menuHeading: this.menuHeading,
       menuRequested: this.menuRequested,
+      menuGate: this.menuInteractionGate,
+      releaseGate: this.keyReleaseGate,
       // The shared parameter bank already rides the image's object records;
       // only the automatic-band priority lives outside them.
       objectExtras: this.objects.map(({ priority }) => ({ priority })),
@@ -4667,6 +4669,8 @@ export class Engine {
     this.menuFinalized = state.menuFinalized;
     this.menuHeading = state.menuHeading;
     this.menuRequested = state.menuRequested;
+    if (state.menuGate !== undefined) this.menuInteractionGate = state.menuGate;
+    if (state.releaseGate !== undefined) this.keyReleaseGate = state.releaseGate;
     for (let i = 0; i < this.objects.length; i++)
       Object.assign(this.objects[i]!, state.objectExtras[i]!);
     // Authentic restore rebinds object references and may load a discarded view.

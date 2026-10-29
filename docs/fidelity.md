@@ -3368,10 +3368,13 @@ view byte +7; reference word +8; loop/count bytes +0xa/+0xb; reference +0xc; cel
 bytes +0xe/+0xf; reference words +0x10/+0x12/+0x14; previous x/y +0x16/+0x18;
 width/height +0x1a/+0x1c; step-size/cycle-time/cycle-count/direction/motion/cycle/priority
 bytes +0x1e..0x24; flag word +0x25; four parameter bytes +0x27..0x2a.
-A restore reads the menu-gate and key-gate words back only on the layouts that carry them
+A game's restore reads the menu-gate and key-gate words back only on the layouts that carry them
 (3.002.102 and later); on every other layout the live gates survive, as they do in the
 original, whose block 1 does not reach them (`block1CarriesGates`). KQ4 3.002.086's menu
-therefore opens after a restore.
+therefore keeps its live menu setting after the game's restore. Host restores (History,
+autosave and Play from Create) carry both gates in optional replay-state fields `menuGate`
+and `releaseGate`, including on layouts without gate words. Older recordings omit them
+and keep the values left by image restoration; their stored fingerprints remain unchanged.
 Native motion numbers normal/wander/follow/move are 0/1/2/3; cycle numbers forward/
 end-of-loop/reverse-loop/reverse-cycle are 0/1/2/3. Object flag meanings are in the
 [original flag table](#startup-and-reconstruction-execution); the new boundary converts
