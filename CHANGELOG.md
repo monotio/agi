@@ -7,6 +7,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
+- Downloaded pending edits can be restored with Add game → ZIP file to the unchanged original
+  project, with Undo history. The discard dialog keeps its actions together on desktop.
 - On PC interpreters 2.001 to 2.272, messages wait even when the game sets
   its leave-window flag. On 2.001, messages also wait for a key when the
   game sets a message timer, as the original does.

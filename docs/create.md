@@ -46,6 +46,13 @@ Create works best on a larger screen. Games play on phones too.
 Edits save automatically as drafts. **Draft saved** confirms that pending edits are stored in this
 browser, and dots mark the parts waiting for an update.
 
+If pending edits cannot be restored automatically, **Download pending edits** keeps a copy before
+**Discard edits** removes them from this browser. To put the download back, choose
+**Add game → ZIP file** on Home and pick `agi-unsaved-edits.zip`. The edits return to their original
+project and keep their Undo history. The project must have the same saved version: a changed,
+removed or reimported project cannot receive them. Keep the file if the app asks for the unchanged
+original project.
+
 **Update and restart** applies all changed parts together as one Undo step and runs the open room's
 entry LOGIC. Until then the game keeps running your last update. A source error keeps the game on
 its last working build, and **Saved** confirms the updated project.

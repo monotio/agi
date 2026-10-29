@@ -1284,8 +1284,16 @@ export function createGameLibrary(
       if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
       const bytes = new Uint8Array(await file.arrayBuffer());
       // The archive reader loads with the import action, not with the shelf.
-      const { readGameZip } = await import("../archive/gameZip.ts");
-      const game = await readGameZip(bytes);
+      const { readZipEntries, readGameFiles } = await import("../archive/gameZip.ts");
+      const entries = await readZipEntries(bytes);
+      const { restoreProjectEdits } = await import("../project/projectEditsRestore.ts");
+      const restored = await restoreProjectEdits(entries);
+      if (restored !== null) {
+        refreshLibrary(restored);
+        importNotice.value = `Pending edits restored to ${getCachedGameMeta(restored)?.title ?? "the original project"}. Open Create to continue editing.`;
+        return;
+      }
+      const game = await readGameFiles(entries);
       const name = file.name.replace(/\.zip$/i, "");
       const staged = await stageLibraryGame(game, name, "zip");
       importNotice.value = importedNotice(game, staged);

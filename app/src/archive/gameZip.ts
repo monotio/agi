@@ -52,6 +52,11 @@ export interface OpenedGame {
 }
 
 export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
+  return readGameFiles(await readZipEntries(bytes));
+}
+
+/** Validate and unpack the shared game and pending-edits ZIP transport. */
+export async function readZipEntries(bytes: Uint8Array): Promise<Map<string, Uint8Array>> {
   if (bytes.length < 22 || bytes.length > MAX_GAME_ZIP_BYTES)
     throw new Error("Choose a valid game ZIP smaller than 128 MB.");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -160,7 +165,7 @@ export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
     entries.set(key, data);
   }
   if (at !== directoryStart + directorySize) throw new Error("Invalid ZIP directory size.");
-  return readGameFiles(entries);
+  return entries;
 }
 
 /** Disk media contribute the same playable file vocabulary as folder imports.
