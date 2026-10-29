@@ -91,17 +91,15 @@ async function download(entries = recoveries.value): Promise<void> {
 <template>
   <div v-if="recoveries.length" data-testid="pending-edit-recovery" role="status">
     <p v-for="notice in notices" :key="notice">{{ notice }}</p>
-    <p>Download pending edits to keep a copy.</p>
+    <p>
+      Download pending edits to keep a copy. Add the ZIP on Home to restore it to the unchanged
+      original project.
+    </p>
     <p v-if="error" role="alert">{{ error }}</p>
     <UiButton size="sm" @click="download()">Download pending edits</UiButton>
     <UiButton size="sm" @click="askDiscard">Discard edits</UiButton>
   </div>
-  <UiDialog
-    v-model:open="discardOpen"
-    title="Discard edits?"
-    size="sm"
-    data-testid="discard-edits-dialog"
-  >
+  <UiDialog v-model:open="discardOpen" title="Discard edits?" data-testid="discard-edits-dialog">
     <p>
       These pending edits will be removed from this browser. They may be your only copy. This cannot
       be undone.
