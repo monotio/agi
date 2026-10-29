@@ -39,8 +39,9 @@ import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
  * Boots may also carry `adoptDeclaredScriptSize` (1.2.5, an optional field
  * at the same version; absent replays as before).
  * `replayBehavior` (1.2.6) selects execution rules; omission keeps 1.2.5
- * behavior without changing released state or fingerprints. No version bump
- * is needed: the old meaning is represented by omission.
+ * behavior without changing released state or fingerprints. Resume here
+ * starts a new segment with 1.2.6 rules and preserves the captured state.
+ * No version bump is needed: the old meaning is represented by omission.
  * Version 2 added debugger boundaries and complete project admission
  * events; version-2 tapes may carry sync marks in either form — the
  * released combined `digest` or the split `state` + `text` digests — and
@@ -321,7 +322,7 @@ export interface HistoryBoot {
   amigaRegion?: "ntsc" | "pal";
   /** The PC display the segment ran on (src/runtime/display.ts); absent is EGA. */
   pcDisplay?: "cga-rgb";
-  /** Execution rules of this session; omission means the released 1.2.5 rules. */
+  /** Execution rules of this recorded segment; omission means the released 1.2.5 rules. */
   replayBehavior?: "1.2.5" | "1.2.6";
   /**
    * The segment's engine ran with the authored-project host option

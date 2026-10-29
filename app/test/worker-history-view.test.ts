@@ -11,6 +11,7 @@ await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => load
  * session byte-identical: the scratch never touches it.
  */
 import { test } from "node:test";
+import { releasedRestartHarness, takeReleasedRestart } from "./released-history.ts";
 import { readFileSync } from "node:fs";
 import { releasedSound, assertSoundContinuation } from "../../test/released-sound.ts";
 import { Engine } from "../../src/runtime/engine.ts";
@@ -2158,7 +2159,7 @@ test("older History recordings without gate fields still replay and reject damag
   );
 });
 
-test("a released 1.2.5 History restart plays through and Resume here adopts its behavior", () => {
+test("a released 1.2.5 History restart replays unchanged and Resume here starts 1.2.6", () => {
   // Frozen from the released 1.2.5 worker's full module tree at 31dc3dfb.
   // The synthetic game's boot resources and all recorded marks remain original.
   const segments = JSON.parse(
@@ -2183,6 +2184,10 @@ test("a released 1.2.5 History restart plays through and Resume here adopts its 
   const opened = finalView(h.control, 1);
   assert.equal(opened.diverged, null);
   assert.equal(opened.canResume, true);
+  const viewedEngine = h.ctx.view.drive!.ctx.run.engine!;
+  assert.equal(viewedEngine.replayBehavior, "1.2.5", "the old part uses its recorded rules");
+  const viewedImage = viewedEngine.recordingImage();
+  const viewedReplay = viewedEngine.captureReplayState();
   h.send({
     type: "historyViewTake",
     id: 2,
@@ -2193,15 +2198,25 @@ test("a released 1.2.5 History restart plays through and Resume here adopts its 
   });
   const taken = h.control.find((m) => m.type === "historyTaken" && m.id === 2);
   assert.ok(taken?.type === "historyTaken" && taken.ok);
-  assert.equal(h.ctx.run.engine!.replayBehavior, "1.2.5");
+  assert.deepEqual(
+    h.ctx.run.engine!.recordingImage(),
+    viewedImage,
+    "takeover keeps the built state",
+  );
+  assert.deepEqual(
+    h.ctx.run.engine!.captureReplayState(),
+    viewedReplay,
+    "takeover keeps the continuation",
+  );
+  assert.equal(h.ctx.run.engine!.replayBehavior, "1.2.6");
   h.send({ type: "pause", paused: false });
   h.tick(20);
   h.send({ type: "pause", paused: true });
   const resumed = collectSegments(h.control).at(-1)!;
   assert.equal(
     resumed.boot.replayBehavior,
-    "1.2.5",
-    "the resumed recording keeps its execution rules",
+    "1.2.6",
+    "the resumed recording starts with the current execution rules",
   );
   const continued = replayHistorySegment(resumed);
   assert.equal(continued.error, null);
@@ -2246,4 +2261,31 @@ test("new History segments stamp the 1.2.6 behavior and retain the screen across
   assert.equal(decodeSave(replay.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled, 1);
   replay.ctx.fns.stopTimers();
   h.ctx.fns.stopTimers();
+});
+
+test("Resume here uses the same 1.2.6 restart rules before and after autosave and reopen", (t) => {
+  const uninterrupted = releasedRestartHarness(t);
+  takeReleasedRestart(uninterrupted);
+  uninterrupted.send({ type: "flush", id: 3 });
+  const saved = uninterrupted.presentation.findLast((message) => message.type === "autosave");
+  assert.ok(saved?.type === "autosave");
+  const reopened = releasedRestartHarness(t, {
+    restoreImage: saved.image,
+    restoreMenus: saved.menus,
+    ...(saved.rng ? { restoreRng: saved.rng } : {}),
+  });
+  assert.ok(reopened.control.some((message) => message.type === "restored" && message.ok));
+  for (const run of [uninterrupted, reopened]) {
+    run.send({ type: "key", code: 0x3b00 });
+    run.tick(150);
+    run.send({ type: "pause", paused: true });
+  }
+  const status = (run: typeof uninterrupted) =>
+    decodeSave(run.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled;
+  assert.equal(status(uninterrupted), status(reopened), "reopening keeps the restart behavior");
+  for (const run of [uninterrupted, reopened]) {
+    assert.equal(status(run), 1, "the status line survives restart under 1.2.6");
+    assert.equal(run.ctx.run.engine!.replayBehavior, "1.2.6");
+    assert.equal(collectSegments(run.control).at(-1)!.boot.replayBehavior, "1.2.6");
+  }
 });
