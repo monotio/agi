@@ -11,7 +11,11 @@ await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => load
  * session byte-identical: the scratch never touches it.
  */
 import { test } from "node:test";
-import { releasedRestartHarness, takeReleasedRestart } from "./released-history.ts";
+import {
+  releasedRestartHarness,
+  takeReleasedRestart,
+  restoreReleasedRestart,
+} from "./released-history.ts";
 import { readFileSync } from "node:fs";
 import { releasedSound, assertSoundContinuation } from "../../test/released-sound.ts";
 import { Engine } from "../../src/runtime/engine.ts";
@@ -2288,4 +2292,43 @@ test("Resume here uses the same 1.2.6 restart rules before and after autosave an
     assert.equal(run.ctx.run.engine!.replayBehavior, "1.2.6");
     assert.equal(collectSegments(run.control).at(-1)!.boot.replayBehavior, "1.2.6");
   }
+});
+
+test("Undo rewind of a noncold released original uses current restart rules across autosave and reopen", (t) => {
+  const live = releasedRestartHarness(t);
+  const before = structuredClone(live.segments);
+  const boot = restoreReleasedRestart(live);
+  assert.equal(live.ctx.run.engine!.replayBehavior, "1.2.6");
+  live.send({ type: "flush", id: 21 });
+  const saved = live.presentation.findLast((message) => message.type === "autosave");
+  assert.ok(saved?.type === "autosave");
+  const reopened = releasedRestartHarness(t, {
+    restoreImage: saved.image,
+    restoreMenus: saved.menus,
+    ...(saved.rng ? { restoreRng: saved.rng } : {}),
+  });
+  assert.ok(reopened.control.some((message) => message.type === "restored" && message.ok));
+  for (const run of [live, reopened]) {
+    run.send({ type: "key", code: 0x3b00 });
+    run.tick(150);
+    run.send({ type: "pause", paused: true });
+    assert.equal(
+      decodeSave(run.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled,
+      1,
+      "the status line survives the next restart",
+    );
+    assert.equal(collectSegments(run.control).at(-1)!.boot.replayBehavior, "1.2.6");
+  }
+  const replay = replayHistorySegment(live.segments[0]!);
+  t.after(() => replay.ctx.fns.stopTimers());
+  assert.equal(replay.error, null);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.ctx.run.engine!.replayBehavior, "1.2.5");
+  assert.equal(
+    decodeSave(replay.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled,
+    0,
+    "historical playback keeps the released restart result",
+  );
+  assert.equal(boot.replayBehavior, undefined);
+  assert.deepEqual(live.segments, before, "historical playback preserves the released recording");
 });

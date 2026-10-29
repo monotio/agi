@@ -1,5 +1,9 @@
 import { waitUntil } from "./async.ts";
-import { releasedRestartHarness, takeReleasedRestart } from "./released-history.ts";
+import {
+  releasedRestartHarness,
+  takeReleasedRestart,
+  restoreReleasedRestart,
+} from "./released-history.ts";
 import { collectSegments } from "./worker-ctx.ts";
 import { decodeSave } from "../../src/runtime/persistence.ts";
 /**
@@ -1372,55 +1376,58 @@ for (const scenario of ["removed stored owner", "blocked stored owner"] as const
   });
 }
 
-test("a project checkpoint export and reimport keep a resumed History session on 1.2.6", async (t) => {
-  installLocalStorage(t);
-  const { downloads } = installDownloads(t);
-  const live = releasedRestartHarness(t);
-  takeReleasedRestart(live);
-  // Project downloads include the authored dictionary overlay, even when empty.
-  const files = { ...live.files, "WORDS.TOK": buildWordsTok([]) };
-  const target = installedProgressTarget(
-    { folder: "games/released-restart" },
-    computeResourceRevision(files),
-  );
-  assert.ok(target !== null);
-  live.send({ type: "historyRecover", id: 3 });
-  const recovery = live.control.findLast((message) => message.type === "historyRecovery");
-  assert.ok(recovery?.type === "historyRecovery" && recovery.boot?.image);
-  const { engine } = liveEngine({
-    files,
-    image: recovery.boot.image,
-    target,
-    installed: { folder: "games/released-restart" },
-    bootProfile: "2.936",
+for (const route of ["Resume here", "Undo rewind"] as const) {
+  test(`a project checkpoint export and reimport keep ${route} on 1.2.6`, async (t) => {
+    installLocalStorage(t);
+    const { downloads } = installDownloads(t);
+    const live = releasedRestartHarness(t);
+    if (route === "Resume here") takeReleasedRestart(live);
+    else restoreReleasedRestart(live);
+    // Project downloads include the authored dictionary overlay, even when empty.
+    const files = { ...live.files, "WORDS.TOK": buildWordsTok([]) };
+    const target = installedProgressTarget(
+      { folder: "games/released-restart" },
+      computeResourceRevision(files),
+    );
+    assert.ok(target !== null);
+    live.send({ type: "historyRecover", id: 3 });
+    const recovery = live.control.findLast((message) => message.type === "historyRecovery");
+    assert.ok(recovery?.type === "historyRecovery" && recovery.boot?.image);
+    const { engine } = liveEngine({
+      files,
+      image: recovery.boot.image,
+      target,
+      installed: { folder: "games/released-restart" },
+      bootProfile: "2.936",
+    });
+    // The library's real checkpoint writer consumes the actual resumed worker reply.
+    engine.recoverHistory = async () => recovery;
+    const lib = library(engine);
+    await lib.onExportAgiZip(true, true);
+    assert.equal(downloads.length, 1);
+    const opened = await readGameZip(await downloads[0]!.bytes());
+    const checkpoint = opened.progress?.autosave;
+    assert.ok(checkpoint, "the project archive carries its live checkpoint");
+    const reopened = releasedRestartHarness(t, {
+      files: opened.files,
+      ...(opened.profile ? { profile: opened.profile } : {}),
+      restoreImage: checkpoint.image,
+      ...(checkpoint.menus ? { restoreMenus: checkpoint.menus } : {}),
+      ...(checkpoint.rng ? { restoreRng: checkpoint.rng } : {}),
+    });
+    assert.ok(reopened.control.some((message) => message.type === "restored" && message.ok));
+    for (const run of [live, reopened]) {
+      run.send({ type: "key", code: 0x3b00 });
+      run.tick(150);
+      run.send({ type: "pause", paused: true });
+    }
+    const status = (run: typeof live) =>
+      decodeSave(run.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled;
+    assert.equal(status(live), status(reopened), "the imported checkpoint keeps the restart rules");
+    for (const run of [live, reopened]) {
+      assert.equal(status(run), 1, "the status line survives restart under 1.2.6");
+      assert.equal(run.ctx.run.engine!.replayBehavior, "1.2.6");
+      assert.equal(collectSegments(run.control).at(-1)!.boot.replayBehavior, "1.2.6");
+    }
   });
-  // The library's real checkpoint writer consumes the actual resumed worker reply.
-  engine.recoverHistory = async () => recovery;
-  const lib = library(engine);
-  await lib.onExportAgiZip(true, true);
-  assert.equal(downloads.length, 1);
-  const opened = await readGameZip(await downloads[0]!.bytes());
-  const checkpoint = opened.progress?.autosave;
-  assert.ok(checkpoint, "the project archive carries its live checkpoint");
-  const reopened = releasedRestartHarness(t, {
-    files: opened.files,
-    ...(opened.profile ? { profile: opened.profile } : {}),
-    restoreImage: checkpoint.image,
-    ...(checkpoint.menus ? { restoreMenus: checkpoint.menus } : {}),
-    ...(checkpoint.rng ? { restoreRng: checkpoint.rng } : {}),
-  });
-  assert.ok(reopened.control.some((message) => message.type === "restored" && message.ok));
-  for (const run of [live, reopened]) {
-    run.send({ type: "key", code: 0x3b00 });
-    run.tick(150);
-    run.send({ type: "pause", paused: true });
-  }
-  const status = (run: typeof live) =>
-    decodeSave(run.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled;
-  assert.equal(status(live), status(reopened), "the imported checkpoint keeps the restart rules");
-  for (const run of [live, reopened]) {
-    assert.equal(status(run), 1, "the status line survives restart under 1.2.6");
-    assert.equal(run.ctx.run.engine!.replayBehavior, "1.2.6");
-    assert.equal(collectSegments(run.control).at(-1)!.boot.replayBehavior, "1.2.6");
-  }
-});
+}

@@ -224,6 +224,30 @@ export function adoptResumePoint(
     )
       throw new Error("The saved moment could not be reproduced.");
   }
+  // Reconstruction and authentication above use the recording's rules and
+  // fingerprint. Every adoption starts live execution under current rules
+  // (docs/fidelity.md "Original restart state boundary"). Recapture the built
+  // state before crossing that boundary, so released omissions are normalized
+  // by the recorded engine, never by changing the retained boot's meaning.
+  if (candidate.replayBehavior !== "1.2.6") {
+    const image = boot.image === undefined ? null : candidate.recordingImage(true);
+    if (boot.image !== undefined && image === null)
+      throw new Error("The saved moment needs a completed progress entry.");
+    const replay = candidate.captureReplayState(true);
+    const menus = candidate.readMenuState();
+    candidate = new Engine(container, facade.host, dictionary, {
+      profile: candidate.profile,
+      replayBehavior: "1.2.6",
+      amigaRegion: candidate.amigaRegion,
+      pcDisplay: candidate.pcDisplay,
+      adoptDeclaredScriptSize: candidate.adoptsDeclaredScriptSize,
+      legacyRoomMemory: candidate.legacyRoomMemory,
+    });
+    if (image) candidate.restoreImage(image, { preservePresentation: true });
+    else candidate.flags[9] = 1;
+    candidate.restoreMenuState(menus);
+    candidate.restoreReplayState(replay);
+  }
   const roomReentry =
     options.freshEntry === true ||
     (options.returnToPlay === true &&
