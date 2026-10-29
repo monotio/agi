@@ -88,6 +88,85 @@ function gameWith(body: string) {
   return container;
 }
 
+for (const capture of ["autosave", "recording", "authoring"] as const) {
+  test(`${capture}: a post-restart load cannot authorize a checkpoint that loses the retained picture`, () => {
+    const container = createContainer();
+    container.putResource("picture", 1, PICTURE_1);
+    container.putResource("picture", 2, Uint8Array.of(0xf0, 2, 0xf8, 0, 0, 0xff));
+    container.putResource("view", 3, Uint8Array.of(0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0, 0x51, 0));
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+      if (isset(f6)) {
+        load.view(3);
+        print("A new adventure awaits");
+        assignn(v50, 2); load.pic(v50); draw.pic(v50); show.pic();
+        print("The replacement room");
+        return;
+      }
+      if (equaln(v80, 1)) { set(f16); restart.game(); }
+      if (!isset(f200)) {
+        set(f200); assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+        load.view(3); animate.obj(o1); set.view(o1, 3); position(o1, 73, 91); draw(o1);
+      }
+      return;
+    `,
+        { dictionary: new Map() },
+      ).payload,
+    );
+    const engineHost = new SuspendingHost();
+    const engine = new Engine(container, engineHost, new Map());
+    const imageOf = () =>
+      capture === "autosave"
+        ? engine.autosaveImage()
+        : engine.recordingImage(capture === "authoring");
+    const checkPixels = (image: Uint8Array) => {
+      const fresh = new Engine(container, new SuspendingHost(), new Map());
+      fresh.restoreImage(image, { preservePresentation: true });
+      assert.deepEqual(
+        fresh.getFrame().visual,
+        engine.getFrame().visual,
+        "all picture pixels survive",
+      );
+      assert.deepEqual(fresh.textCells, engine.textCells, "all text cells survive");
+      if (capture !== "autosave") {
+        fresh.restoreReplayState(engine.captureReplayState(capture === "authoring"));
+        assert.deepEqual(
+          fresh.getFrame().visual,
+          engine.getFrame().visual,
+          "recorded picture pixels survive",
+        );
+        assert.deepEqual(fresh.textCells, engine.textCells, "recorded text survives");
+      }
+    };
+    engine.tick();
+    engine.vars[80] = 1;
+    engine.tick();
+    assert.equal(engine.modalKind, "print");
+    assert.equal(engine.getFrame().visual[20 * 160 + 30], 1, "the blue room remains visible");
+    assert.equal(
+      engine.getFrame().visual[91 * 160 + 73],
+      5,
+      "the old actor remains on the picture",
+    );
+    // Capturing the retained display is allowed only if it can be restored
+    // exactly. Deferring until a replacement draw is also safe.
+    const retained = imageOf();
+    if (retained) checkPixels(retained);
+    else assert.throws(() => engine.captureReplayState(capture === "authoring"), /resumable/);
+
+    engineHost.keys.push(13);
+    engine.tick();
+    assert.equal(engine.modalKind, "print");
+    assert.equal(engine.getFrame().visual[20 * 160 + 30], 2);
+    const replacement = imageOf();
+    assert.ok(replacement, "the first fully reconstructable replacement is capturable");
+    checkPixels(replacement);
+  });
+}
+
 test("autosave while a print window is up round-trips the window and the pass", () => {
   const container = gameWith(`increment(v60);\nprint(1);\nassignn(v101, 7);`);
   const engine = new Engine(container, new SuspendingHost(), new Map());

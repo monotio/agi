@@ -33,11 +33,11 @@ import {
   selectViewCel,
   readViewCel,
   celForBlitting,
-  captureViewLoopState,
+  captureViewState,
   drawCel,
-  restoreViewLoopState,
+  restoreViewState,
   type AgiView,
-  type ViewLoopState,
+  type PackedViewState,
 } from "../view/view.ts";
 import { cgaRgbViewPayload, effectivePcDisplay, MONITOR_TYPE, type PcDisplay } from "./display.ts";
 import {
@@ -897,6 +897,8 @@ export class Engine {
    */
   private conditionReplayUntil = -1;
   private pictureShown = false;
+  /** The host replay can rebuild the surface, including any retained display. */
+  private hostScreenRecorded = true;
   /**
    * The Amiga/IIgs show.pic mode flag (`h117+0x12`, IIgs `$1608`): zero at
    * load and after draw.pic, so show.pic dissolves; overlay.pic sets it and
@@ -4620,9 +4622,9 @@ export class Engine {
       order: [...this.viewOrder],
     };
     if (!this.profile.packedViewLoopHeader || this.views.size === 0) return cache;
-    const loops: Record<string, ViewLoopState[]> = {};
+    const loops: Record<string, PackedViewState> = {};
     for (const [num, view] of this.views) {
-      const state = captureViewLoopState(view);
+      const state = captureViewState(view);
       if (state) loops[String(num)] = state;
     }
     cache.loops = loops;
@@ -4709,7 +4711,7 @@ export class Engine {
       if (loops) {
         for (const [num, view] of views) {
           const recorded = loops[String(num)];
-          if (recorded) restoreViewLoopState(view, recorded);
+          if (recorded) restoreViewState(view, recorded);
         }
       } else {
         for (const o of this.objects) {
@@ -5005,7 +5007,7 @@ export class Engine {
       if (this.pendingInteraction !== null) return null;
       if (this.modal !== null || this.persistentWindow !== null) return null;
     }
-    if (this.textMode) return null;
+    if (this.textMode || !this.hostScreenRecorded) return null;
     // Nothing to resume before the first room has drawn. The shadow record
     // is the witness rather than the game's replay: a game that blocks the
     // script buffer (f7, the demo pack does) records no replay pairs at all,
@@ -5337,6 +5339,7 @@ export class Engine {
     this.surface.reset();
     this.stampMask.fill(0);
     this.pictureShown = false;
+    this.hostScreenRecorded = true;
 
     const recording = this.replayRecording;
     this.replayRecording = false;
@@ -9447,6 +9450,7 @@ export class Engine {
     this.surface.reset();
     this.stampMask.fill(0);
     renderPicture(this.picturePayload(num), this.surface, { profile: this.profile });
+    this.hostScreenRecorded = true;
     this.text.clearPictureTitleFill(this.displayBaseRow);
     this.pictureShown = false;
     this.pictureRevealInstant = false;
@@ -9674,6 +9678,9 @@ export class Engine {
     this.replay.length = 0;
     this.hostReplay.length = 0;
     this.hostReplayOverflow = false;
+    // keepShownScreen also bakes screen objects into the surface. Neither the cleared
+    // replay nor later resource loads can reconstruct those retained pixels.
+    this.hostScreenRecorded = this.replayBehavior === "1.2.5";
     this.replayCheckpoint = 0;
     this.replayRecording = true;
     // The script capacity and its buffer stay as the game sized them.

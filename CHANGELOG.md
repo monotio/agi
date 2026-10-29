@@ -35,8 +35,10 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   variable when it closes, as the original does.
 - Restart no longer blanks the screen: the old room, its text and the status
   line stay until the restarted game draws.
+  Autosave and History wait for a replacement picture before capturing that
+  retained screen, including when the game loads resources or opens a message.
 - On PC interpreter 2.230, jumping back in History keeps which way an actor
-  faces.
+  faces, including VIEW loops that share only some cels.
 
 ## [1.2.5] - 2026-10-20
 
