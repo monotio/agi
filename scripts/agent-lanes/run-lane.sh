@@ -9,7 +9,7 @@ usage="Usage: npm run lane:run -- [--wait] [--rerun] <name> <preset> <brief.md> 
   Presets: $presets
   <brief.md> must be a readable file under <primary>/.local/ (AGI_LANE_NOTES_DIR overrides the notes root, default <primary>/.local/agent-lanes).
   <worktree> defaults to <lanes>/<name> (AGI_LANES_DIR, default ~/repos/agi-wt), which must be on branch lane/<name>.
-  An explicit <worktree> may be any directory on any branch. One live lane per worktree.
+  An explicit <worktree> may be any directory on any branch. One live run per lane name.
   Log: <notes>/reports/<name>.log (refused if it exists; --rerun archives stopped runs). Pid: <notes>/pids/<name>.pid.
   --wait blocks until the agent exits and returns its status."
 
@@ -92,6 +92,24 @@ live() {
   return 0
 }
 
+# mkdir claims the lane before any check/archive/write. A killed launcher may
+# leave a claim: refuse it explicitly rather than risk reclaiming a new owner.
+lock=$pids/$name.launch
+if ! mkdir "$lock" 2> /dev/null; then
+  owner=$(cat "$lock/owner" 2> /dev/null || true)
+  if [ -n "$owner" ] && ! kill -0 "$owner" 2> /dev/null; then
+    fail "Stale lane launch claim: $lock (verify no launcher is running, then remove this directory)."
+  fi
+  fail "Lane launch already claimed: $name ($lock)."
+fi
+release_claim() {
+  rm -f "$lock/owner"
+  rmdir "$lock"
+}
+trap release_claim 0
+trap 'exit 1' HUP INT TERM
+printf '%s\n' "$$" > "$lock/owner"
+
 if [ -e "$log" ] && [ "$rerun" -ne 1 ]; then
   fail "Lane log already exists: $log (archive it or pass --rerun)."
 fi
@@ -138,7 +156,7 @@ case "$preset" in
 esac
 
 rm -f "$identity_file" "$exit_file"
-: > "$log"
+(set -C; : > "$log") || fail "Lane log already exists: $log"
 printf '%s\n' "$worktree" > "$worktree_file"
 nohup sh -c '
   identity_file=$1
@@ -154,6 +172,8 @@ nohup sh -c '
 ' lane-agent "$identity_file" "$exit_file" "$worktree" "$@" < /dev/null >> "$log" 2>&1 &
 pid=$!
 printf '%s\n' "$pid" > "$pid_file"
+release_claim
+trap - 0 HUP INT TERM
 printf 'PID %s; log %s\n' "$pid" "$log"
 if [ "$wait_for_exit" -eq 1 ]; then
   status=0
