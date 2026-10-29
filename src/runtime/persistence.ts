@@ -2031,6 +2031,28 @@ export function saveFileName(signature: string, slot: number): string {
   return `${signature}SG.${slot}`;
 }
 
+// A selector may receive saves from any supported layout in the same directory.
+// Bound its transport by the furthest signature, including the IIgs lead block.
+const SAVE_CANDIDATE_BYTES =
+  SAVE_DESCRIPTION_BYTES +
+  2 +
+  SIGNATURE_BYTES +
+  Math.max(
+    ...Object.values(BLOCK1_LAYOUTS).map((layout) =>
+      layout.kind === "iigs" ? layout.lead + 2 : 0,
+    ),
+  );
+
+/**
+ * The bounded description/signature prefix for every supported save layout.
+ * The selector still checks the candidate's encoded lengths: a malformed lead
+ * cannot enlarge this prefix or move its signature beyond the layout bound.
+ * Restore fetches the complete image only after selection.
+ */
+export function saveCandidatePrefix(bytes: Uint8Array): Uint8Array {
+  return bytes.slice(0, SAVE_CANDIDATE_BYTES);
+}
+
 /**
  * Restore-candidate validation: read the 31-byte header, skip to the block
  * that carries the signature, and compare its first seven bytes with the

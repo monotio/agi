@@ -1,3 +1,5 @@
+import { saveCandidatePrefix } from "../../../src/runtime/persistence.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import { readGameSaves, readGameSaveRecord, writeGameSave } from "./gameSaves.ts";
 import { resolveProgressTarget } from "../project/progressBinding.ts";
@@ -75,11 +77,16 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
       try {
         const slots = readActiveSlots();
         // Only the description/signature header is needed for the selector.
-        // Full images are fetched on restore, keeping the SAB reply bounded.
+        // Full images are fetched on restore, keeping the reply bounded.
         return JSON.stringify(
           Object.entries(slots).flatMap(([slot, image]) => {
             try {
-              return [{ slot: Number(slot), image: btoa(atob(image).slice(0, 40)) }];
+              return [
+                {
+                  slot: Number(slot),
+                  image: bytesToBase64(saveCandidatePrefix(base64ToBytes(image))),
+                },
+              ];
             } catch {
               return [];
             }
