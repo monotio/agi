@@ -319,6 +319,11 @@ in a context the test opens. Each is checked once, just before it closes, while 
 worker can still answer.
 The production suites in `app/production/` reuse some of these specs against a built app,
 which has no test hooks, so the check has nothing to read there and passes.
+`npm --prefix app run e2e:production` runs the functional production checks in either browser
+and excludes `@perf`. `npm --prefix app run e2e:production:perf` runs the production Update
+measurements in Chromium on one worker. Run it alone after the other suites; CI runs it
+sequentially after the development performance checks in their isolated job, using the built
+site artifact. Both performance runs retain timing trends on successful runs.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.

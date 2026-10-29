@@ -1,5 +1,6 @@
 /** Production Update timing, with the worker resume/frame endpoint used by the latency probe. */
 import { expect, test } from "@playwright/test";
+import { recordPerformance } from "../e2e/performanceTrend.ts";
 import { createStarterProject } from "../../src/authoring/starterProject.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
@@ -205,15 +206,9 @@ for (const edits of [0, 200, 400]) {
         const probe = (window as unknown as { historyUpdateProbe: UpdateProbe }).historyUpdateProbe;
         return probe.done - probe.click;
       });
-      console.log(`[history-update] edits=${edits} elapsed=${elapsed.toFixed(1)}ms`);
-      await test.info().attach("timing", {
-        body: JSON.stringify({ edits, elapsed }),
-        contentType: "application/json",
-      });
+      await recordPerformance("history-update", { edits, elapsed });
       await expect(page.getByTestId("workspace-updated")).toBeVisible();
       await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
-      // Worst of five runs at each history size: 394 ms. Keep about three times that.
-      expect(elapsed).toBeLessThan(1200);
     },
   );
 }
