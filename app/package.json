@@ -17,7 +17,8 @@
     "e2e:webkit-desktop": "playwright test --config playwright.webkit.config.ts --project=desktop-webkit",
     "e2e:phone": "playwright test --config playwright.webkit.config.ts --project=iphone-webkit",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && vue-tsc --noEmit -p tsconfig.worker.json",
-    "e2e:production": "playwright test --config playwright.production.config.ts",
+    "e2e:production": "playwright test --config playwright.production.config.ts --grep-invert @perf",
+    "e2e:production:perf": "playwright test --config playwright.production.config.ts --browser=chromium --grep @perf --workers=1",
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {

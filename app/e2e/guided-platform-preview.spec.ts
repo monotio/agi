@@ -14,7 +14,7 @@ import { buildView } from "../../src/view/view.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 import { buildZip } from "../src/archive/zip.ts";
 
-test.use({ keepDetectedProfileOption: false });
+test.use({ keepDetectedProfileOption: false, deviceScaleFactor: 1 });
 
 const BOOT_SCRIPT =
   "if (!isset(f200)) { set(f200); load.pic(v0); draw.pic(v0); show.pic(); new.room(1); } return;";
@@ -79,21 +79,47 @@ async function openMessagePreview(page: Page): Promise<Locator> {
   return preview;
 }
 
-// First bright pixel row of the preview's letterboxed 320x200 frame, scaled
-// back to frame pixels.
+// Read a 1:1 bitmap for exact AGI coordinates, then restore the responsive size
+// for the ordinary page screenshots. AgiStage resizes its backing store to CSS.
 async function messageFillTop(preview: Locator): Promise<number> {
-  const shot = await preview.screenshot();
-  const { rgba, width: w, height: h } = decodePng(shot);
-  const scale = h / 200;
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      if (rgba[i]! > 200 && rgba[i + 1]! > 200 && rgba[i + 2]! > 200) return Math.round(y / scale);
-    }
-  return -1;
+  const style = await preview.getAttribute("style");
+  await preview.evaluate((element) => {
+    Object.assign((element as HTMLElement).style, {
+      width: "320px",
+      height: "200px",
+      maxWidth: "none",
+    });
+  });
+  try {
+    const canvas = preview.locator("canvas:visible");
+    await expect
+      .poll(() =>
+        canvas.evaluate((el) => [
+          (el as HTMLCanvasElement).width,
+          (el as HTMLCanvasElement).height,
+        ]),
+      )
+      .toEqual([320, 200]);
+    const url = await canvas.evaluate((el) => (el as HTMLCanvasElement).toDataURL("image/png"));
+    const { rgba, width, height } = decodePng(Buffer.from(url.split(",")[1]!, "base64"));
+    expect([width, height]).toEqual([320, 200]);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4;
+        if (rgba[i]! > 200 && rgba[i + 1]! > 200 && rgba[i + 2]! > 200) return y;
+      }
+    return -1;
+  } finally {
+    await preview.evaluate((element, previous) => {
+      if (previous === null) element.removeAttribute("style");
+      else element.setAttribute("style", previous);
+    }, style);
+  }
 }
 
-test("Amiga placement preview and message preview use the game's own look", async ({ page }) => {
+test("Amiga placement preview and message preview use the game's own look @webkit-desktop", async ({
+  page,
+}) => {
   const desktop = { width: 1063, height: 815 };
   await page.setViewportSize(desktop);
   await startAmiga(page);
@@ -148,7 +174,7 @@ test("Amiga placement preview and message preview use the game's own look", asyn
   }
 });
 
-test("the message preview places the window at the game's configured picture row", async ({
+test("the message preview places the window at the game's configured picture row @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1063, height: 815 });

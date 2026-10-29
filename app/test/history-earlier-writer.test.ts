@@ -39,6 +39,11 @@ function boot(region: "ntsc" | "pal") {
   );
   engine.amigaRegion = region;
   engine.tick();
+  // Reconstruct the fields the earlier writer captured, before host input
+  // gates joined replay state in 1.2.6. Keep its pinned fingerprints below.
+  const replay = engine.captureReplayState();
+  delete replay.menuGate;
+  delete replay.releaseGate;
   return stampBoot({
     files: {},
     dictionary: [],
@@ -49,7 +54,7 @@ function boot(region: "ntsc" | "pal") {
     soundDevice: 1,
     resourceSet: "early-pal",
     requestSerial: 0,
-    replay: engine.captureReplayState(),
+    replay,
   });
 }
 

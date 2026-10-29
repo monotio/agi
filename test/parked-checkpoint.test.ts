@@ -316,7 +316,7 @@ test("a malformed continuation is rejected without mutating the engine", () => {
   assert.deepEqual(engine.serialize(), before, "rejection left the state untouched");
 });
 
-test("2.089 persistent window partially erased by view keeps identical border pixels across checkpoint then show.pic", () => {
+test("2.411 persistent window partially erased by view restores identical border pixels before show.pic closes it", () => {
   const container = createContainer();
   container.putResource("picture", 1, PICTURE_1);
   // 1x1 opaque cel (color 2, transparent 15) so position(o1, 72, 76) covers 320x200 pixels
@@ -352,10 +352,12 @@ test("2.089 persistent window partially erased by view keeps identical border pi
 
   // Uninterrupted run: park on have.key, then deliver key and run show.pic().
   const liveHost = new SuspendingHost();
-  const live = new Engine(container, liveHost, new Map(), { profile: "2.089" });
+  const live = new Engine(container, liveHost, new Map(), { profile: "2.411" });
   live.tick();
   assert.equal(live.awaitingKey, true);
   assert.equal(live.getPresentation().windowOverlay[84 * 320 + 144], 0);
+  assert.equal(live.getPresentation().windowOverlay[84 * 320 + 145], 0);
+  assert.equal(live.getPresentation().windowOverlay[84 * 320 + 146], 5);
   const checkpointImage = live.autosaveImage()!;
   assert.notEqual(checkpointImage, null);
   const recordingImage = live.recordingImage()!;
@@ -367,21 +369,23 @@ test("2.089 persistent window partially erased by view keeps identical border pi
   assert.equal(live.vars[102], 9);
 
   // Restored from host autosave checkpoint, then resumed into show.pic().
-  const fromAutosave = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.089" });
+  const fromAutosave = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.411" });
   fromAutosave.restoreImage(checkpointImage);
   assert.equal(fromAutosave.getPresentation().windowOverlay[84 * 320 + 144], 0);
+  assert.equal(fromAutosave.getPresentation().windowOverlay[84 * 320 + 145], 0);
+  assert.equal(fromAutosave.getPresentation().windowOverlay[84 * 320 + 146], 5);
   fromAutosave.deliverHostAnswer(0x20);
   fromAutosave.tick();
   assert.equal(fromAutosave.vars[102], 9);
-  // Hand-computed overlay pixels at 320x200 after show.pic:
-  // (144, 84) was under the erased view so it stays transparent (0);
-  // (146, 84) is the adjacent red top border bar pixel (5 = EGA 4 + 1) and stays red.
+  // 2.411 supports persistent print; show.pic then closes the entire window
+  // (docs/fidelity.md "Print handler output modes"). Both the erased
+  // (144, 84) and adjacent red border (146, 84) are transparent afterwards.
   const liveOverlay = live.getPresentation().windowOverlay;
   const autoOverlay = fromAutosave.getPresentation().windowOverlay;
   assert.equal(liveOverlay[84 * 320 + 144], 0);
-  assert.equal(liveOverlay[84 * 320 + 146], 5);
+  assert.equal(liveOverlay[84 * 320 + 146], 0);
   assert.equal(autoOverlay[84 * 320 + 144], 0);
-  assert.equal(autoOverlay[84 * 320 + 146], 5);
+  assert.equal(autoOverlay[84 * 320 + 146], 0);
   assert.deepEqual(
     fromAutosave.getFrame().visual,
     live.getFrame().visual,
@@ -394,15 +398,18 @@ test("2.089 persistent window partially erased by view keeps identical border pi
   );
 
   // Restored from recording image + replay state, then resumed into show.pic().
-  const fromReplay = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.089" });
+  const fromReplay = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.411" });
   fromReplay.restoreImage(recordingImage);
   fromReplay.restoreReplayState(checkpointReplay);
   assert.equal(fromReplay.getPresentation().windowOverlay[84 * 320 + 144], 0);
+  assert.equal(fromReplay.getPresentation().windowOverlay[84 * 320 + 145], 0);
+  assert.equal(fromReplay.getPresentation().windowOverlay[84 * 320 + 146], 5);
   fromReplay.deliverHostAnswer(0x20);
   fromReplay.tick();
+  assert.equal(fromReplay.vars[102], 9);
   const replayOverlay = fromReplay.getPresentation().windowOverlay;
   assert.equal(replayOverlay[84 * 320 + 144], 0);
-  assert.equal(replayOverlay[84 * 320 + 146], 5);
+  assert.equal(replayOverlay[84 * 320 + 146], 0);
   assert.deepEqual(
     fromReplay.getFrame().visual,
     live.getFrame().visual,
@@ -415,7 +422,7 @@ test("2.089 persistent window partially erased by view keeps identical border pi
   );
 });
 
-test("2.089 add.to.pic clears window-border overlay only on painted pixels, keeping adjacent (146,84) red", () => {
+test("2.411 add.to.pic clears window-border overlay only on painted pixels, keeping adjacent (146,84) red", () => {
   const container = createContainer();
   container.putResource("picture", 1, PICTURE_1);
   // 1x1 opaque cel (color 2, transparent 15).
@@ -445,7 +452,7 @@ test("2.089 add.to.pic clears window-border overlay only on painted pixels, keep
     ).payload,
   );
 
-  const engine = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.089" });
+  const engine = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.411" });
   engine.tick();
   const overlay = engine.getPresentation().windowOverlay;
   // Picture pixel (72, 76) covers 320x200 screen pixels (144, 84) and (145, 84) only.
