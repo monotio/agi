@@ -1,3 +1,5 @@
+import { recordPerformance } from "./performanceTrend.ts";
+import { DEADLINES } from "./deadlines.ts";
 import { test, expect } from "./test.ts";
 import { start, open } from "./pictureWorkspaceShared.ts";
 import { installPointerFrameMeasurement, measurePointerFrames } from "./gesturePerf.ts";
@@ -41,7 +43,7 @@ test("fast strokes on a large cel keep every pixel within a frame @perf", async 
   );
   await open(page, "part-view:8");
   const canvas = page.getByTestId("view-canvas");
-  await expect(canvas).toHaveAttribute("data-width", "160");
+  await expect(canvas).toHaveAttribute("data-width", "160", { timeout: DEADLINES.editor });
   await canvas.scrollIntoViewIfNeeded();
   const rect = (await canvas.boundingBox())!;
   const point = (x: number, y: number) => ({
@@ -54,9 +56,11 @@ test("fast strokes on a large cel keep every pixel within a frame @perf", async 
     Array.from({ length: 8 }, (_, i) => point(row % 2 ? 145 - i * 20 : 5 + i * 20, 2 + row)),
   );
   const samples = await canvas.evaluate(measurePointerFrames, batches);
-  console.log("view stroke timings ms", JSON.stringify(samples));
-  // Handler + frame effects peaked at 4 ms in Linux WebKit; allow three times that cost.
-  expect(Math.max(...samples)).toBeLessThan(12);
+  await recordPerformance("pointer-frames", { workMs: samples.map((sample) => sample.workMs) });
+  expect(
+    samples.map((sample) => sample.callbacks),
+    "one callback for each burst of moves",
+  ).toEqual(Array.from({ length: 12 }, () => 1));
   const end = point(145, 13);
   await canvas.dispatchEvent("pointerup", { pointerId: 1, clientX: end.x, clientY: end.y });
   await page.mouse.up();

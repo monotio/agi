@@ -1,3 +1,5 @@
+import { recordPerformance } from "./performanceTrend.ts";
+import { DEADLINES } from "./deadlines.ts";
 import { expect, test } from "./test.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { loadGame } from "../../test/game-fixture.ts";
@@ -80,7 +82,9 @@ for (const activity of ["map", "Create"] as const) {
       } else await enterCreateMode(page);
       const surface = page.getByTestId(activity === "map" ? "world-map" : "parts-list");
       await expect(surface).toBeVisible();
-      await expect(surface).toHaveAttribute("data-analysis", "resolved");
+      await expect(surface).toHaveAttribute("data-analysis", "resolved", {
+        timeout: DEADLINES.analysis,
+      });
       const probe = await page.evaluate(async () => {
         for (let n = 0; n < 2; n++) await new Promise(requestAnimationFrame);
         return (window as unknown as { __ROOM_SCAN__: ScanProbe }).__ROOM_SCAN__;
@@ -93,7 +97,11 @@ for (const activity of ["map", "Create"] as const) {
           (event) => event.at >= task.start && event.at < task.start + task.duration,
         ),
       );
-      expect(scanTasks, "main-thread scan dispatch/reply tasks over 50 ms").toEqual([]);
+      await recordPerformance(`room-scan-${activity.toLowerCase()}`, {
+        literalMs: probe.events[1]!.elapsed,
+        resolvedMs: probe.events[2]!.elapsed,
+        scanLongTasks: scanTasks.length,
+      });
       expect(probe.frames - firstFrame).toBeGreaterThan(1);
       console.log(
         `[room-scan] ${activity} literal=${probe.events[1]!.elapsed.toFixed(1)}ms resolved=${probe.events[2]!.elapsed.toFixed(1)}ms scanLongTasks=${scanTasks.length}`,

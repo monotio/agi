@@ -1,4 +1,6 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { expect } from "./test.ts";
+import { DEADLINES } from "./deadlines.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 
@@ -83,7 +85,7 @@ export async function textHook(page: Page): Promise<TextHook> {
 /** The async play surface has mounted and owns the player's keyboard. */
 export async function waitForGameInput(page: Page): Promise<void> {
   const command = page.getByRole("textbox", { name: "Game command", exact: true });
-  await expect(command).toBeVisible();
+  await expect(command).toBeVisible({ timeout: DEADLINES.project });
   await expect(command).toBeEnabled();
   await expect(command).toBeFocused();
   await expect.poll(async () => page.evaluate(() => window.__AGI_STATE__?.inputReady)).toBe(true);
@@ -208,7 +210,7 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
  * VIEW editor, Monaco). Under a loaded suite that can sit far past the default
  * expect budget, so a wait that covers a first load spends this budget instead.
  */
-export const FIRST_LOAD_BUDGET_MS = 30_000;
+export const FIRST_LOAD_BUDGET_MS = DEADLINES.project;
 
 /**
  * Wait until the engine reports `room`. `coldBoot` spends the first-load
@@ -595,7 +597,7 @@ export async function openWorkspacePicture(
   )
     await page.getByTestId("workspace-focus").click();
   const studio = page.getByTestId("picture-studio").filter({ visible: true });
-  await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
+  await expect(studio).toBeVisible({ timeout: DEADLINES.editor });
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   return studio;
 }
@@ -617,7 +619,7 @@ export async function openWorkspaceView(
   )
     await page.getByTestId("workspace-focus").click();
   const studio = page.getByTestId("view-studio").filter({ visible: true });
-  await expect(studio).toBeVisible({ timeout: FIRST_LOAD_BUDGET_MS });
+  await expect(studio).toBeVisible({ timeout: DEADLINES.editor });
   await studio.getByTestId("view-stage").focus();
   return studio;
 }
@@ -649,7 +651,7 @@ export async function workspaceSaved(page: Page): Promise<void> {
             ? status.message
             : status?.state;
         }),
-      { intervals: [100] },
+      { intervals: [100], timeout: DEADLINES.save },
     )
     .toBe("saved");
   await expect(page.getByTestId("workspace-saved")).toBeVisible();
@@ -678,7 +680,7 @@ export async function workspaceUpdated(page: Page, keyboard = false): Promise<vo
     if (keyboard) await page.keyboard.press("ControlOrMeta+Enter");
     else await update.click();
     await workspaceSaved(page);
-    await expect(page.getByTestId("workspace-updated")).toBeVisible();
+    await expect(page.getByTestId("workspace-updated")).toBeVisible({ timeout: DEADLINES.save });
     await previousFocus.evaluate((element) => {
       if (element instanceof HTMLElement && element.isConnected) element.focus();
     });

@@ -29,7 +29,7 @@ export async function measurePointerFrames(
   batches: { x: number; y: number }[][],
 ) {
   const state = (window as unknown as MeasuredWindow).__pointerFrameMeasure;
-  const samples: number[] = [];
+  const samples: { workMs: number; callbacks: number }[] = [];
   // Settle the initial press before measuring moves.
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   for (const points of batches) {
@@ -58,7 +58,7 @@ export async function measurePointerFrames(
       throw new Error(
         `The pointer's animation-frame work was not measured (${sample.work} ms in handlers)`,
       );
-    samples.push(sample.work);
+    samples.push({ workMs: sample.work, callbacks: sample.frames });
   }
   return samples;
 }

@@ -1,0 +1,76 @@
+id: no-elapsed-performance-assertion
+snapshots:
+  "expect(Date.now() - start, 'boot ms').toBeLessThan(1000);":
+    labels:
+    - source: expect(Date.now() - start, 'boot ms').toBeLessThan(1000)
+      style: primary
+      start: 0
+      end: 56
+    - source: Date.now()
+      style: secondary
+      start: 7
+      end: 17
+  expect(Math.max(...samples)).toBeLessThan(6);:
+    labels:
+    - source: expect(Math.max(...samples)).toBeLessThan(6)
+      style: primary
+      start: 0
+      end: 44
+    - source: samples
+      style: secondary
+      start: 19
+      end: 26
+    - source: Math.max(...samples)
+      style: secondary
+      start: 7
+      end: 27
+  expect(performance.now() - start).toBeLessThan(50);:
+    labels:
+    - source: expect(performance.now() - start).toBeLessThan(50)
+      style: primary
+      start: 0
+      end: 50
+    - source: performance.now()
+      style: secondary
+      start: 7
+      end: 24
+  "expect(performance.now() - start, 'edit ms').toBeLessThanOrEqual(50);":
+    labels:
+    - source: expect(performance.now() - start, 'edit ms').toBeLessThanOrEqual(50)
+      style: primary
+      start: 0
+      end: 68
+    - source: performance.now()
+      style: secondary
+      start: 7
+      end: 24
+  expect(result.checkedMs).toBeLessThan(450);:
+    labels:
+    - source: expect(result.checkedMs).toBeLessThan(450)
+      style: primary
+      start: 0
+      end: 42
+    - source: checkedMs
+      style: secondary
+      start: 14
+      end: 23
+  "expect(result.frameP95, 'frames').toBeLessThan(50);":
+    labels:
+    - source: expect(result.frameP95, 'frames').toBeLessThan(50)
+      style: primary
+      start: 0
+      end: 50
+    - source: frameP95
+      style: secondary
+      start: 14
+      end: 22
+  expect(warmMs).toBeLessThan(2000);:
+    labels:
+    - source: expect(warmMs).toBeLessThan(2000)
+      style: primary
+      start: 0
+      end: 33
+    - source: warmMs
+      style: secondary
+      start: 7
+      end: 13
