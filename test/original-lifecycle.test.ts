@@ -820,3 +820,18 @@ test("F-persistence-prompt-modes: with f15 set the restart prompt window stays o
   engine.tick();
   assert.doesNotMatch(screen(), /Press ENTER to restart/, "the next print closed it");
 });
+
+test("F-persistence-prompt-modes: expiry accepts even when a dropped key arrived before the next tick", () => {
+  for (const id of ["2.936", "amiga-2.316", "iigs-1.014"] as const) {
+    for (const action of [1, 2] as const) {
+      const game = promptGame(id);
+      game.ask(action, { v21: 2 });
+      game.engine.deliverHostAnswer(0x61);
+      game.engine.advanceClock(1100);
+      game.engine.tick();
+      assert.equal(game.engine.modalKind, null, `${id}: the timed window closed`);
+      assert.equal(game.engine.awaitingKey, false, `${id}: no invisible key wait`);
+      assert.equal(action === 1 ? game.restarted() : game.engine.readState().terminated, true);
+    }
+  }
+});

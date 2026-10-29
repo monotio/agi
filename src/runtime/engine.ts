@@ -4365,9 +4365,8 @@ export class Engine {
    * records; block 3 the game's runtime inventory payload carrying live item
    * locations; block 4 the resource replay sequence; block 5 the loaded-logic
    * resume records.
-   */
-  /**
-   * The save.game image. `hostImage` writes the object records the way host
+   *
+   * `hostImage` writes the object records the way host
    * images (History, autosave, recordings, room launches) always have —
    * priority only when fixed, loop and cel counts from the loaded view — so
    * recorded host images and their fingerprints keep their bytes; the live
@@ -5475,13 +5474,9 @@ export class Engine {
           this.closeModal();
           // A timed restart or quit prompt accepts when its time runs out;
           // the next tick applies the answer (F-persistence-prompt-modes).
+          // Expiry also replaces a delivered key the timed wait would drop.
           const pending = this.pendingInteraction;
-          if (
-            pending?.kind === "confirm" &&
-            pending.timed &&
-            pending.modalSerial === modal.serial &&
-            this.pendingAnswer === undefined
-          )
+          if (pending?.kind === "confirm" && pending.timed && pending.modalSerial === modal.serial)
             this.pendingAnswer = AGI_KEY.ENTER;
         }
       }
@@ -9592,8 +9587,9 @@ export class Engine {
   /**
    * Accepted restart (spec "Restart"): stop sound and erase active input;
    * preserve the prior value of f9 across the reset; clear transient
-   * allocation, resource, replay, menu, object, parser and display state to
-   * startup-compatible values; rerun initial object/inventory setup; set f6;
+   * allocation, resource, replay, object and parser state to startup-compatible
+   * values; keep the menu and display state and enable every menu item;
+   * rerun initial object/inventory setup; set f6;
    * and clear the engine's timing accumulators. The caller aborts the current
    * logic continuation.
    */

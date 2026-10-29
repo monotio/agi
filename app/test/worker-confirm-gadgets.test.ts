@@ -290,3 +290,36 @@ test("2.936: a timed restart prompt accepts when its time runs out, live and in 
   assert.equal(outcome.ctx.run.engine!.vars[90], 1, "the replay restarted on the same clock");
   ctx.fns.stopTimers();
 });
+
+test("2.936: a timed confirmation expiring after key delivery clears the page wait at any tick entry", () => {
+  for (const action of [1, 2] as const) {
+    const s = confirmSession("2.936");
+    s.engine().vars[21] = 2;
+    s.open(action);
+    assert.equal(s.ctx.run.input.keyWaiting, true);
+    // Delivery and clock are separate engine boundaries; the worker's resumed
+    // tick must publish completion even when it runs outside a host poll.
+    s.engine().deliverHostAnswer(0x61);
+    s.engine().advanceClock(1100);
+    s.ctx.fns.tickEngine();
+    assert.equal(s.engine().awaitingKey, false, "expiry never leaves an invisible key wait");
+    assert.equal(s.ctx.run.input.keyWaiting, false, "the page stops waiting at the resumed tick");
+    assert.equal(action === 1 ? s.engine().vars[90] === 1 : s.quitPosted(), true);
+  }
+});
+
+test("amiga-2.316: Cancel and Continue accept a timed confirmation", () => {
+  for (const action of [1, 2] as const) {
+    const s = confirmSession("amiga-2.316");
+    s.engine().vars[21] = 2;
+    s.open(action);
+    s.send({ type: "click", ...(action === 1 ? CANCEL : CONTINUE) });
+    assert.equal(
+      action === 1 ? s.engine().vars[90] === 1 : s.quitPosted(),
+      true,
+      "the timed shared message routine accepts the gadget's Escape answer",
+    );
+    assert.equal(s.engine().awaitingKey, false);
+    assert.equal(s.ctx.run.input.keyWaiting, false);
+  }
+});

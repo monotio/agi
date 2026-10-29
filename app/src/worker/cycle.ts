@@ -32,6 +32,10 @@ export function createCycle(ctx: WorkerContext) {
     if (ctx.fns.debugStoppedHeld()) return false;
     const armedSerial = engine.executionControlActive ? engine.completedCycleSerial : null;
     run();
+    // Timed confirmations can finish at any resumed tick entry, including
+    // host answers and queued input outside the host poll.
+    if (ctx.run.input.keyWaiting && !engine.awaitingKey && !engine.hostInteractionPending)
+      ctx.fns.setKeyWaiting(false);
     observeSentence(
       ctx,
       undefined,
@@ -219,10 +223,6 @@ export function createCycle(ctx: WorkerContext) {
         // post-logic tail — tickEngine counted that completion and the poll
         // reports it; anything less still reports no cycle.
         const completed = tickEngine();
-        // A timed restart or quit prompt resolves on the clock, with no key:
-        // the page stops showing the key wait.
-        if (ctx.run.input.keyWaiting && !engine.awaitingKey && !engine.hostInteractionPending)
-          ctx.fns.setKeyWaiting(false);
         ctx.fns.noteTransition();
         ctx.fns.flushTraceBatch();
         ctx.fns.postFrame();
