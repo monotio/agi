@@ -1,167 +1,384 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
-  mkdtempSync,
+  chmodSync,
+  existsSync,
   mkdirSync,
+  mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
-  watchFile,
-  unwatchFile,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 
-const scripts = fileURLToPath(new URL("../scripts/agent-lanes/", import.meta.url));
+const scripts =
+  process.env["AGI_TEST_LANE_SCRIPTS"] ??
+  fileURLToPath(new URL("../scripts/agent-lanes/", import.meta.url));
+const root = fileURLToPath(new URL("../", import.meta.url));
 
-test("lane contributors can pass the complete brief as a prompt argument with owner approval", () => {
-  const docs = readFileSync(new URL("../docs/agent-lanes.md", import.meta.url), "utf8");
-  const command = docs.match(/^export AGI_AGENT_CMD='(agy .+)'$/m)?.[1];
-  assert.ok(command, "the lane guide includes an argument-based CLI example");
-  assert.match(docs, /owner must approve running this command unsandboxed/);
-  const brief = 'Implement the fix.\nPreserve "quotes", $variables and $(literal text).\n';
-  const output = execFileSync(
-    "sh",
-    ["-c", `agy() { printf '%s\\0' "$@"; }\n${command.replace("<model>", "example-model")}`],
-    { input: brief, encoding: "utf8" },
-  );
-  assert.deepEqual(output.split("\0"), [
-    "--model",
-    "example-model",
-    "--dangerously-skip-permissions",
-    "--output-format",
-    "json",
-    "-p",
-    brief.trimEnd(),
-    "",
-  ]);
+let sandbox = "";
+let bin = "";
+let repo = "";
+let lanes = "";
+let argv = "";
+let hold = "";
+
+const env = (extra: Record<string, string> = {}) => ({
+  ...process.env,
+  PATH: `${bin}:${process.env["PATH"]}`,
+  AGI_LANES_DIR: lanes,
+  FAKE_ARGV_FILE: argv,
+  FAKE_HOLD_FILE: hold,
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+  ...extra,
 });
 
-test("lane scripts create an isolated branch with the local game fixtures, install the workspaces once and wait for the agent", async () => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "agi lanes ")));
-  try {
-    const repo = join(directory, "repo");
-    const lanes = join(directory, "lanes");
-    const bin = join(directory, "bin");
-    mkdirSync(repo);
-    mkdirSync(bin);
-    const installs = join(directory, "installs.txt");
-    writeFileSync(
-      join(bin, "npm"),
-      '#!/bin/sh\nprintf "%s:%s\\n" "$PWD" "$*" >> "$INSTALL_LOG"\n',
-      { mode: 0o755 },
-    );
-    const env = {
-      ...process.env,
-      PATH: `${bin}:${process.env["PATH"]}`,
-      INSTALL_LOG: installs,
-      AGI_LANES_DIR: "../lanes",
-      AGI_AGENT_CMD: "cat > out.txt; echo done",
-    };
-    const git = (...args: string[]) =>
-      execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
-    git("init", "-b", "base");
-    mkdirSync(join(repo, "games", "local-fixture"), { recursive: true });
-    writeFileSync(join(repo, ".gitignore"), "games/*\n!games/README.md\n");
-    writeFileSync(join(repo, "games", "README.md"), "Fixtures\n");
-    writeFileSync(join(repo, "games", "local-fixture", "WORDS.TOK"), "words\n");
-    writeFileSync(join(repo, "games", ".DS_Store"), "");
-    git("add", ".gitignore", "games/README.md");
-    git(
-      "-c",
-      "user.name=Test",
-      "-c",
-      "user.email=test@example.invalid",
-      "commit",
-      "--allow-empty",
-      "-m",
-      "Initial",
-    );
-    const run = (script: string, ...args: string[]) =>
-      execFileSync(join(scripts, script), args, { cwd: repo, encoding: "utf8", env });
+function git(...args: string[]): string {
+  return execFileSync("git", args, { cwd: repo, encoding: "utf8", env: env() }).trim();
+}
 
-    const worktree = join(lanes, "example");
-    assert.equal(run("new-lane.sh", "example").trim(), worktree);
-    assert.equal(
-      execFileSync("git", ["branch", "--show-current"], { cwd: worktree, encoding: "utf8" }).trim(),
-      "lane/example",
-    );
-    assert.match(git("worktree", "list", "--porcelain"), /branch refs\/heads\/lane\/example/);
-    assert.equal(readFileSync(installs, "utf8"), `${worktree}:ci\n`);
-    // A lane runs the contributor's local game fixtures, which git leaves out of the worktree.
-    assert.equal(
-      realpathSync(join(worktree, "games", "local-fixture")),
-      join(repo, "games", "local-fixture"),
-    );
-    assert.throws(() => readFileSync(join(worktree, "games", ".DS_Store")), { code: "ENOENT" });
-    assert.throws(() => run("new-lane.sh", "example"), /branch already exists/);
-    mkdirSync(join(lanes, "occupied"));
-    assert.throws(() => run("new-lane.sh", "occupied"), /directory already exists/);
-    assert.throws(() => run("new-lane.sh", "../escape"), /Invalid lane name/);
+function runLane(args: string[], extra: Record<string, string> = {}): SpawnSyncReturns<string> {
+  return spawnSync("sh", [join(scripts, "run-lane.sh"), ...args], {
+    cwd: repo,
+    encoding: "utf8",
+    env: env(extra),
+  });
+}
 
-    const brief = join(directory, "brief.md");
-    writeFileSync(brief, "Implement the assigned change.\n");
-    run("run-lane.sh", "--wait", "example", brief);
-    assert.equal(readFileSync(join(worktree, "out.txt"), "utf8"), readFileSync(brief, "utf8"));
-    assert.equal(readFileSync(join(lanes, "logs", "example.log"), "utf8"), "done\n\nexit 0\n");
-    const pid = readFileSync(join(lanes, "logs", "example.pid"), "utf8").trim();
-    assert.match(pid, /^[1-9][0-9]*$/);
-    assert.throws(() => process.kill(Number(pid), 0), { code: "ESRCH" });
-    assert.throws(() => run("run-lane.sh", "--wait", "example", brief), /log already exists/);
+const brief = () => join(repo, ".local", "agent-lanes", "briefs", "b.md");
+const notes = () => join(repo, ".local", "agent-lanes");
 
-    const failure = run("new-lane.sh", "failure").trim();
-    assert.throws(
-      () =>
-        execFileSync(join(scripts, "run-lane.sh"), ["--wait", "failure", brief, failure], {
-          cwd: repo,
-          env: { ...env, AGI_AGENT_CMD: "cat > failed.txt; echo failed >&2; exit 7" },
-        }),
-      { status: 7 },
-    );
-    assert.equal(readFileSync(join(lanes, "logs", "failure.log"), "utf8"), "failed\n\nexit 7\n");
+// A fake agent CLI records its argv, then the directory it ran in. With a hold file it stays
+// alive until the file is removed, with a deadline so a failed test cannot hang.
+function fake(name: string): void {
+  const file = join(bin, name);
+  writeFileSync(
+    file,
+    [
+      "#!/bin/sh",
+      'for a in "$@"; do printf "%s\\n" "$a"; done > "$FAKE_ARGV_FILE"',
+      'pwd -P >> "$FAKE_ARGV_FILE"',
+      'n=0; while [ -e "$FAKE_HOLD_FILE" ] && [ "$n" -lt 150 ]; do sleep 0.2; n=$((n+1)); done',
+      'printf "agent output\\n"',
+      'exit "${FAKE_EXIT:-0}"',
+      "",
+    ].join("\n"),
+  );
+  chmodSync(file, 0o755);
+}
 
-    const explicit = join(lanes, "explicit");
-    assert.equal(run("new-lane.sh", "explicit", "base").trim(), explicit);
-    assert.equal(
-      execFileSync("git", ["rev-parse", "HEAD"], { cwd: explicit, encoding: "utf8" }),
-      git("rev-parse", "base"),
-    );
+before(() => {
+  sandbox = realpathSync(mkdtempSync(join(tmpdir(), "agi lanes ")));
+  bin = join(sandbox, "bin");
+  mkdirSync(bin);
+  for (const name of ["codex", "devin", "agy", "omp"]) fake(name);
+  argv = join(sandbox, "argv.txt");
+  hold = join(sandbox, "hold");
+});
 
-    const server = createServer();
-    const connection = new Promise<Socket>((resolve) => server.once("connection", resolve));
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    assert.ok(address && typeof address === "object");
-    execFileSync(join(scripts, "run-lane.sh"), ["explicit", brief, explicit], {
-      cwd: repo,
-      env: {
-        ...env,
-        AGENT_PORT: String(address.port),
-        AGI_AGENT_CMD: `cat > out.txt; node -e 'const socket = require("node:net").connect(Number(process.env.AGENT_PORT), "127.0.0.1"); socket.on("data", () => { console.log("done"); socket.end(); });'`,
-      },
-    });
-    const backgroundPid = Number(readFileSync(join(lanes, "logs", "explicit.pid"), "utf8"));
-    process.kill(backgroundPid, 0);
-    const backgroundLog = join(lanes, "logs", "explicit.log");
-    const completed = new Promise<void>((resolve) => {
-      watchFile(backgroundLog, { interval: 20 }, () => {
-        if (readFileSync(backgroundLog, "utf8").endsWith("exit 0\n")) {
-          unwatchFile(backgroundLog);
-          resolve();
-        }
-      });
-    });
-    const socket = await connection;
-    socket.end("release\n");
-    await completed;
-    server.close();
-    assert.equal(readFileSync(join(explicit, "out.txt"), "utf8"), readFileSync(brief, "utf8"));
-    assert.equal(readFileSync(backgroundLog, "utf8"), "done\n\nexit 0\n");
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
+after(() => rmSync(sandbox, { recursive: true, force: true }));
+
+beforeEach(() => {
+  repo = join(sandbox, "repo");
+  lanes = join(sandbox, "lanes");
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(lanes, { recursive: true, force: true });
+  rmSync(argv, { force: true });
+  rmSync(hold, { force: true });
+  mkdirSync(repo);
+  git("init", "-q", "-b", "main");
+  git(
+    "-c",
+    "user.name=T",
+    "-c",
+    "user.email=t@example.invalid",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "Initial",
+  );
+  mkdirSync(join(notes(), "briefs"), { recursive: true });
+  writeFileSync(brief(), "Implement the assigned change.\n");
+});
+
+const prompt = () => `Read and follow the brief at ${brief()} exactly.`;
+const recorded = () => readFileSync(argv, "utf8").split("\n").slice(0, -1);
+
+test("each preset starts its fixed command with the brief path as the prompt, in the worktree", () => {
+  const codex = (model: string, effort: string) => [
+    "exec",
+    "-m",
+    model,
+    "-c",
+    `model_reasoning_effort="${effort}"`,
+    "--dangerously-bypass-approvals-and-sandbox",
+    "-C",
+    repo,
+    prompt(),
+    repo,
+  ];
+  const cases: Record<string, string[]> = {
+    "sol-low": codex("gpt-6.1-sol", "low"),
+    "sol-medium": codex("gpt-6.1-sol", "medium"),
+    "sol-high": codex("gpt-6.1-sol", "high"),
+    "astra-high": codex("gpt-6-astra", "high"),
+    "swe2-high": [
+      "-p",
+      prompt(),
+      "--model",
+      "swe-2-high",
+      "--permission-mode",
+      "dangerous",
+      "--respect-workspace-trust",
+      "false",
+      repo,
+    ],
+    "argon-high": [
+      "-p",
+      prompt(),
+      "--model",
+      "gemini-4-argon-high",
+      "--dangerously-skip-permissions",
+      "--output-format",
+      "json",
+      "--add-dir",
+      join(repo, ".local"),
+      "--add-dir",
+      repo,
+      repo,
+    ],
+    "kimi-high": [
+      "-p",
+      "--model",
+      "kimi-code/k3.1-pro",
+      "--thinking",
+      "high",
+      "--no-session",
+      "--cwd",
+      repo,
+      "--add-dir",
+      join(repo, ".local"),
+      prompt(),
+      repo,
+    ],
+  };
+  for (const [preset, expected] of Object.entries(cases)) {
+    const result = runLane(["--wait", `lane-${preset}`, preset, brief(), repo]);
+    assert.equal(result.status, 0, `${preset}: ${result.stderr}`);
+    assert.deepEqual(recorded(), expected, preset);
+    const log = readFileSync(join(notes(), "reports", `lane-${preset}.log`), "utf8");
+    assert.equal(log, "agent output\n\nexit 0\n");
+    assert.equal(readFileSync(join(notes(), "pids", `lane-${preset}.exit`), "utf8"), "0\n");
   }
+});
+
+test("an unknown preset and free-form commands are refused", () => {
+  const result = runLane(["a", "gpt-9", brief(), repo]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown preset: gpt-9/);
+  // Other Devin models bill API spend, so only swe2-high exists.
+  assert.match(runLane(["a", "swe2-low", brief(), repo]).stderr, /Unknown preset/);
+  const usage = runLane(["a", "sol-high"]);
+  assert.equal(usage.status, 2);
+  assert.match(usage.stderr, /Usage: npm run lane:run/);
+  assert.equal(existsSync(argv), false);
+});
+
+test("a brief outside .local is refused", () => {
+  const outside = join(sandbox, "outside.md");
+  writeFileSync(outside, "brief\n");
+  const result = runLane(["a", "sol-high", outside, repo]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Brief must be under/);
+  writeFileSync(join(repo, "tracked.md"), "brief\n");
+  assert.match(
+    runLane(["a", "sol-high", join(repo, "tracked.md"), repo]).stderr,
+    /Brief must be under/,
+  );
+  assert.equal(existsSync(argv), false);
+});
+
+test("an explicit worktree is accepted on any branch, the main checkout included, and a default lane worktree needs lane/<name>", () => {
+  assert.equal(git("branch", "--show-current"), "main");
+  assert.equal(runLane(["--wait", "main-lane", "sol-high", brief(), repo]).status, 0);
+  assert.equal(recorded().at(-1), repo);
+  // Without a worktree argument the lane must live in <lanes>/<name> on lane/<name>.
+  mkdirSync(lanes);
+  assert.match(runLane(["other", "sol-high", brief()]).stderr, /Worktree directory missing/);
+  git("worktree", "add", "-q", "-b", "wrong", join(lanes, "other"));
+  assert.match(runLane(["other", "sol-high", brief()]).stderr, /Expected branch lane\/other/);
+  git("worktree", "add", "-q", "-b", "lane/fine", join(lanes, "fine"));
+  assert.equal(runLane(["--wait", "fine", "sol-high", brief()]).status, 0);
+  assert.equal(recorded().at(-1), join(lanes, "fine"));
+});
+
+test("a second lane on a worktree with a live lane is refused until the first ends", () => {
+  writeFileSync(hold, "");
+  const first = runLane(["first", "sol-high", brief(), repo]);
+  assert.equal(first.status, 0, first.stderr);
+  const pid = Number(readFileSync(join(notes(), "pids", "first.pid"), "utf8"));
+  process.kill(pid, 0);
+  const second = runLane(["second", "astra-high", brief(), repo]);
+  assert.equal(second.status, 1);
+  assert.match(second.stderr, /Lane first is still running in .*one writer per checkout/);
+  assert.equal(existsSync(join(notes(), "reports", "second.log")), false);
+  // A different checkout is not blocked by it.
+  mkdirSync(join(sandbox, "elsewhere"), { recursive: true });
+  assert.equal(
+    runLane(["--wait", "third", "sol-high", brief(), join(sandbox, "elsewhere")], {
+      FAKE_HOLD_FILE: join(sandbox, "no-hold"),
+    }).status,
+    0,
+  );
+  rmSync(hold);
+  for (let i = 0; i < 100 && !existsSync(join(notes(), "pids", "first.exit")); i++) {
+    spawnSync("sleep", ["0.1"]);
+  }
+  assert.equal(runLane(["--wait", "second", "astra-high", brief(), repo]).status, 0);
+});
+
+test("--rerun archives the stopped run's log, pid, identity, exit and worktree files", () => {
+  assert.equal(runLane(["--wait", "again", "sol-high", brief(), repo]).status, 0);
+  const refused = runLane(["--wait", "again", "sol-high", brief(), repo]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /Lane log already exists/);
+  const failing = runLane(["--wait", "--rerun", "again", "sol-high", brief(), repo], {
+    FAKE_EXIT: "7",
+  });
+  assert.equal(failing.status, 7);
+  const reports = readdirSync(join(notes(), "reports")).sort();
+  assert.equal(reports.length, 2, reports.join());
+  const archived = reports.find((file) => file !== "again.log");
+  assert.match(archived ?? "", /^again\.\d{8}T\d{6}Z\.log$/);
+  assert.equal(
+    readFileSync(join(notes(), "reports", archived ?? ""), "utf8"),
+    "agent output\n\nexit 0\n",
+  );
+  assert.equal(
+    readFileSync(join(notes(), "reports", "again.log"), "utf8"),
+    "agent output\n\nexit 7\n",
+  );
+  const pids = readdirSync(join(notes(), "pids"));
+  for (const kind of ["pid", "identity", "exit", "worktree"]) {
+    assert.equal(
+      pids.filter((file) => file.endsWith(`.${kind}`)).length,
+      2,
+      `${kind}: ${pids.join()}`,
+    );
+  }
+  assert.equal(readFileSync(join(notes(), "pids", "again.exit"), "utf8"), "7\n");
+});
+
+test("PATH loses node_modules/.bin so the lane runs the operator's own agent CLI", () => {
+  const shadow = join(sandbox, "node_modules", ".bin");
+  mkdirSync(shadow, { recursive: true });
+  writeFileSync(join(shadow, "codex"), '#!/bin/sh\necho shadow > "$FAKE_ARGV_FILE"\n', {
+    mode: 0o755,
+  });
+  const result = runLane(["--wait", "path", "sol-high", brief(), repo], {
+    PATH: `${shadow}:${bin}:${process.env["PATH"]}`,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(recorded()[0], "exec");
+});
+
+test("lane:status shows pid, state and last log line for running, exited and stale lanes", () => {
+  assert.equal(runLane(["--wait", "done", "swe2-high", brief(), join(sandbox)]).status, 0);
+  writeFileSync(hold, "");
+  assert.equal(runLane(["running", "sol-high", brief(), repo]).status, 0);
+  // A lane whose process vanished without an exit file.
+  const reports = join(notes(), "reports");
+  const pids = join(notes(), "pids");
+  writeFileSync(join(reports, "gone.log"), "Working on it\n");
+  writeFileSync(join(pids, "gone.pid"), "999999\n");
+  writeFileSync(join(pids, "gone.identity"), "Thu Jan  1 00:00:00 1970 codex\n");
+  const livePid = readFileSync(join(pids, "running.pid"), "utf8").trim();
+  try {
+    const output = execFileSync("node", [join(scripts, "status.mjs")], {
+      cwd: repo,
+      encoding: "utf8",
+      env: env(),
+    });
+    const rows = Object.fromEntries(
+      output
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const [name = "", pid = "", state = "", last = ""] = line.split("\t");
+          return [name, { pid, state, last }];
+        }),
+    );
+    assert.deepEqual(rows["running"], {
+      pid: `pid ${livePid}`,
+      state: "running",
+      last: "(no log output)",
+    });
+    assert.deepEqual(rows["done"]?.state, "exited 0");
+    assert.equal(rows["done"]?.last, "agent output");
+    assert.deepEqual(rows["gone"], { pid: "pid 999999", state: "stale", last: "Working on it" });
+  } finally {
+    rmSync(hold);
+  }
+});
+
+test("new-lane.sh still creates an isolated branch with the local game fixtures and one install", () => {
+  mkdirSync(join(repo, "games", "local-fixture"), { recursive: true });
+  writeFileSync(join(repo, ".gitignore"), "games/*\n!games/README.md\n.local\n");
+  writeFileSync(join(repo, "games", "README.md"), "Fixtures\n");
+  writeFileSync(join(repo, "games", "local-fixture", "WORDS.TOK"), "words\n");
+  git("add", ".gitignore", "games/README.md");
+  git(
+    "-c",
+    "user.name=T",
+    "-c",
+    "user.email=t@example.invalid",
+    "commit",
+    "-q",
+    "-m",
+    "Ignore fixtures",
+  );
+  const installs = join(sandbox, "installs.txt");
+  rmSync(installs, { force: true });
+  writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "%s:%s\\n" "$PWD" "$*" >> "$INSTALL_LOG"\n', {
+    mode: 0o755,
+  });
+  const run = (...args: string[]) =>
+    execFileSync(join(scripts, "new-lane.sh"), args, {
+      cwd: repo,
+      encoding: "utf8",
+      env: env({ INSTALL_LOG: installs }),
+    });
+  const worktree = join(lanes, "example");
+  assert.equal(run("example").trim(), worktree);
+  assert.equal(
+    execFileSync("git", ["branch", "--show-current"], { cwd: worktree, encoding: "utf8" }).trim(),
+    "lane/example",
+  );
+  assert.equal(readFileSync(installs, "utf8"), `${worktree}:ci\n`);
+  assert.equal(
+    realpathSync(join(worktree, "games", "local-fixture")),
+    join(repo, "games", "local-fixture"),
+  );
+  assert.throws(() => run("example"), /branch already exists/);
+  assert.throws(() => run("../escape"), /Invalid lane name/);
+});
+
+test("the lane guide and CLAUDE.md describe presets, with no free-form agent command", () => {
+  const docs = readFileSync(join(root, "docs", "agent-lanes.md"), "utf8");
+  const claude = readFileSync(join(root, "CLAUDE.md"), "utf8");
+  for (const text of [docs, claude]) assert.doesNotMatch(text, /AGI_AGENT_CMD/);
+  for (const heading of ["Model roster", "Escalation ladder", "Standard brief", "Every lane"]) {
+    assert.match(docs, new RegExp(`^#+ ${heading}`, "m"), heading);
+  }
+  for (const preset of ["sol-high", "astra-high", "swe2-high", "argon-high", "kimi-high"]) {
+    assert.ok(docs.includes(`\`${preset}\``), preset);
+  }
+  assert.match(docs, /pgrep -fl devin/);
 });
