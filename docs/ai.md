@@ -71,6 +71,17 @@ Play conversations save alongside the game without editing its resources. If a s
 answer stays visible and **Retry save** retries storage without another AI request. Result previews
 stay available in earlier messages, and older results show the version they captured.
 
+When handing over game changes, the agent runs all stored [game tests](create.md#tests)
+against its proposed game. Its reply opens with the test status, naming any
+failing tests, and gives a reason for each failure, including tests that already
+failed before the task and tests you wrote. With no tests, it omits the status.
+A missing reason prevents handover; explained failures go to review as usual.
+
+The agent is instructed to fix the game or explain a failing test. It must not
+weaken an expectation or delete a test just to make it pass. If you ask it to
+change or delete tests, those edits appear separately in review. Every existing
+test it changes or deletes needs its own reason before handover.
+
 Long conversations compact their request context and keep the full transcript. The provider's prompt
 cache reuses earlier context at its lower cache-read price.
 

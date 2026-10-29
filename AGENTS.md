@@ -69,7 +69,8 @@ paid model or image APIs, or taking actions outside the repository that change o
 
 Before a release candidate is accepted, answer every automated review thread against the code. Then
 review the whole change once for failure paths, a second tab, and closing before a write commits;
-reviews of one push at a time miss properties of the whole system.
+reviews of one push at a time miss properties of the whole system. Audit the play experience with
+original and fan games before release.
 
 ## Authenticity
 
@@ -96,9 +97,10 @@ reviews of one push at a time miss properties of the whole system.
   per platform.
 - Where the specification is silent or builds disagree, the original interpreter in a contributor's
   local `games/*` fixtures is the reference. Record each finding in `docs/fidelity.md` with build,
-  binary hash, addresses and conclusion, and keep facts apart from inference. Code comments cite the
-  entry rather than repeating offsets. Another interpreter's implementation, or agreement with our
-  own replay, is not evidence of original behavior.
+  binary hash, addresses and conclusion. Separate direct evidence, supported equivalence and
+  remaining uncertainty; never present an unprobed assumption as fidelity. Documented hardware
+  limits are allowed. Code comments cite the entry rather than repeating offsets. Another
+  interpreter's implementation, or agreement with our own replay, is not evidence of original behavior.
 - Authoring may change any room or shared resource to evolve a story. Validate and commit the
   complete change transactionally against the intended resource revision, including references and
   vocabulary and inventory bindings. Keep IDs that are still referenced, and apply changes at a safe
@@ -111,7 +113,8 @@ reviews of one push at a time miss properties of the whole system.
 Version 1.0 is the first public archive baseline. Released saves and exports stay readable, and
 readers reject unknown versions without rewriting bytes. Compatibility runs one way: the site always
 serves the latest release, so a newer release reads every older file, and an older release never
-needs to read a newer one.
+needs to read a newer one. Choose the simplest migration that keeps released files loading and
+real recovery paths working.
 
 - `app/test/archive-formats.test.ts` must keep reading the released archives in `app/test/formats/`;
   never regenerate them.
@@ -158,7 +161,10 @@ rule.
 Use `Record` for static string-keyed tables, and `Map` or `Set` only for dynamic or non-string keys.
 A one-expression wrapper function needs a public contract to justify its name. Name editor features
 with vendor-neutral terms: code intelligence, completion, signature help, hover documentation.
-Names follow the glossary in `src/vocabulary.ts`: one term per concept in copy, technical prose and code; `FORMAT_LITERALS` lists the stored spellings it leaves alone.
+Names follow the glossary in `src/vocabulary.ts`: one term per concept and one concept per term
+across filenames, identifiers, comments, tests, docs and copy, based on actual AGI usage. Follow the
+glossary rather than banning words. Git holds rename history; omit "formerly" notes. Keep stored
+and wire formats and deep links compatible; `FORMAT_LITERALS` lists preserved stored spellings.
 
 Pointer drags, moves, resizes and wheel gestures stay smooth. A handler records the latest pointer
 state and applies it at most once per animation frame. Expensive work waits until the gesture ends
@@ -253,15 +259,23 @@ to game files, disk images or ROMs, and keep these images out of the repository.
 - The orchestrator stays thin: it plans, writes briefs, reviews diffs, integrates and runs the
   final gate. Implementation, sweeping edits and long logs go to lanes and subagents, which return
   a short verdict.
-- Default to what a first-time player expects, and make the full fix. Ask the owner only about a
+- A plan-only request ends with the plan and handoff brief. Start implementation when the current
+  request authorizes it.
+- Default to what a first-time player expects, and make the full fix. Prefer the principled fix
+  over a workaround, and remove debris as part of the change. Ask the owner only about a
   genuine product trade-off that the code and the player's expectations cannot settle. There is
   no time pressure unless the owner says so.
 - Review the design before writing code for deep or cross-cutting changes (engine, worker, saves,
   shared UX): an independent reviewer reads the plan first, then reviews the whole change once
   before the pull request.
-- Reproduce a QA finding in the environment its reader uses (same server, stored data and AI
-  settings) and attach a screenshot before reporting it.
+- Read and verify the documented QA setup before starting tools or delegating. Fix setup mistakes
+  within the authorized scope; report genuine missing prerequisites and exactly what remains
+  untested. Reproduce a QA finding in the environment its reader uses (same server, stored data and
+  AI settings) and attach a screenshot before reporting it. Check visual and UX quality with
+  screenshots of the real app.
 - Before showing a mockup or asking for a scope decision, explain the proposal in plain words: the
   problem, who it serves, where it came from, its cost and its benefit.
-- Keep README.md and CONTRIBUTING.md consistent with shipped behavior. Add a Markdown file only for
-  a reader the existing documents do not serve.
+- Treat README.md, CONTRIBUTING.md and the architecture docs as product, and keep them consistent
+  with shipped behavior. Keep the agent harness (evals, gates and lanes) visible and legible, and
+  the project easy to fork and build on. Add a Markdown file only for a reader the existing
+  documents do not serve.

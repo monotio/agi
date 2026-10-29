@@ -829,18 +829,13 @@ A missing static path is not evidence of an interpreter defect.
 
 ## Recorded game tests
 
-A game test is a project document about the game. Saving, editing or deleting a
-test uses project history, Undo and autosave, and sends nothing to the running
-game's worker. Test writes leave game admission and pending updates unchanged.
-
-Write tests first: rooms, words and objects may be named before they exist.
-Saving checks the tests document's structure. Running checks game references and
-reports missing resources by name.
-
-Tests never block a game edit. Deleting a room offers **Also delete tests that
-use this room**, checked by default. Clear it to keep the tests; those tests
-will fail when run. A recorded setup's object locations do not make its
-test use those rooms. The room and optional test deletions share one Undo.
+[Tests in Create](create.md#tests) explains writing tests before the game and
+deleting rooms with their tests. Test writes use project history, Undo and
+autosave, send nothing to the running game's worker, and leave game admission
+and pending updates unchanged. Saving checks document structure; running checks
+game references and reports missing resources by name. A recorded setup's object
+locations do not make its test use those rooms. The room and optional test
+deletions share one Undo.
 
 Recorded game tests store a host snapshot and a bounded operation tape in
 `TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
@@ -850,16 +845,12 @@ this contract, including project export/import. Successful authoring mutations
 rerun affected tests conservatively; the verdict reports any tests not run.
 Stored tests travel only in project archives.
 
-The Agent may finish while tests are red when it gives every failing test a
-reason, and every existing test it changed or deleted too. The reply opens with
-`N tests fail: name, name` or `All N tests pass.` and lists each `test: reason`;
-review shows the same lines. The check runs the tests as Apply would leave them,
-including the Agent's proposed test changes. A turn that hands over no documents
-gets no test check. The Agent never weakens or deletes a test on its own. A test
-change the creator asks for appears in review as its own line with the old and
-new room, steps and checks, and it needs the creator's Apply even with
-Auto-approve on; new tests may apply automatically. None of this blocks the
-creator's own edits.
+[Agent handover](ai.md#working-with-the-agent) describes test status, failure
+reasons and review. The check runs tests as Apply would leave them, including
+proposed test changes; a turn that hands over no documents gets no test check.
+Review lists changed tests with their old and new room, steps and checks. Those
+edits need the creator's Apply even with Auto-approve on; new tests may apply
+automatically.
 
 `read_game_tests` lists compact summaries or pages of editable JSON definitions;
 opaque snapshots and replay tapes stay out of model responses. Merge edits

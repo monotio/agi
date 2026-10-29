@@ -160,6 +160,17 @@ Edits save to History and play the next time the game uses the sound.
 WORDS groups words by meaning, tests sentences with the game's parser and keeps a local list of
 commands that missed during playtests. OBJECTS has a table editor for the inventory.
 
+### Tests
+
+**Tests** stores checks about your game as project documents, separate from the
+running game. Write a test before building its room or adding its words: it saves,
+and running it reports what is missing. A failing test never blocks a game edit.
+You choose when to change or delete it.
+
+Deleting a room asks for confirmation with **Also delete tests that use this room**
+checked by default. Clear it to keep those tests; they will fail when run until
+the room exists again.
+
 ## Debugging
 
 The debugger has Variables, Watch, Call stack and Breakpoints panels. The top action runs the
