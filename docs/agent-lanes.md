@@ -143,6 +143,8 @@ Every brief points here. A lane:
    failures and uncertainties.
 6. Backs every claim in the report with a tool result from its own session, and
    reports unverified work as unverified.
+7. Starts no other lane or agent unless the brief says so; reviews and extra lanes
+   are the orchestrator's choice, because they spend the owner's quota.
 
 Steps 3 and 4 apply to implementation lanes.
 
