@@ -132,6 +132,7 @@ export function adoptResumePoint(
   const container = openContainer(files, profile ? { profile } : {});
   let candidate = new Engine(container, facade.host, dictionary, {
     ...(profile ? { profile } : {}),
+    replayBehavior: boot.replayBehavior ?? "1.2.5",
     amigaRegion: boot.amigaRegion ?? "ntsc",
     ...(boot.pcDisplay ? { pcDisplay: boot.pcDisplay } : {}),
     adoptDeclaredScriptSize:
@@ -244,6 +245,7 @@ export function adoptResumePoint(
           amigaRegion: boot.amigaRegion ?? "ntsc",
           pcDisplay: candidate.pcDisplay,
           adoptDeclaredScriptSize: candidate.adoptsDeclaredScriptSize,
+          replayBehavior: candidate.replayBehavior,
           legacyRoomMemory: candidate.legacyRoomMemory,
         },
       );

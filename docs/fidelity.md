@@ -3185,6 +3185,15 @@ after the enable (the strip is drawn only when the menu opens).
 
 ### Original restart state boundary
 
+History segments written before 1.2.6 keep the released 1.2.5 execution rules
+for restart, restore, confirmation prompts and early-PC print modes. New sessions
+use the fidelity below. The optional History boot field `replayBehavior` records
+that choice, including after Resume here; omission means 1.2.5. The engine carries
+one session option through replacement engines. Released marks, checkpoint bytes
+and fingerprints remain unchanged. This extends the existing History version by
+an optional field, following the authored script-buffer precedent, rather than
+changing the meaning of an older recording.
+
 **Evidence class:** routine execution (Unicorn 2.1.4) of the complete
 accepted `restart.game` branch, from the handler entry read off each
 build's action table (slot `0x80`) to its `ret`, in all fifteen PC builds

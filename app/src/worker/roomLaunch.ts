@@ -66,6 +66,7 @@ export function prepareRoomLaunch(
       profile,
       pcDisplay: prior.pcDisplay,
       adoptDeclaredScriptSize: prior.adoptsDeclaredScriptSize,
+      replayBehavior: prior.replayBehavior,
       legacyRoomMemory: prior.legacyRoomMemory,
     },
   );

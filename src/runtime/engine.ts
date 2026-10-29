@@ -923,6 +923,8 @@ export class Engine {
    * edits"). Never set for an original release.
    */
   readonly adoptsDeclaredScriptSize: boolean;
+  /** Released History sessions keep the execution rules their writer used. */
+  readonly replayBehavior: "1.2.5" | "1.2.6";
   /** Durable legacy project policy, independent of editable boot conventions. */
   readonly legacyRoomMemory: boolean;
   private maximumReplayPairs = 0;
@@ -1207,6 +1209,7 @@ export class Engine {
        * "Authored script buffer on live edits").
        */
       adoptDeclaredScriptSize?: boolean;
+      replayBehavior?: "1.2.5" | "1.2.6";
       /** Pre-1.2.5 authored allocation, independent of boot code and later declarations. */
       legacyRoomMemory?: boolean;
     },
@@ -1215,6 +1218,7 @@ export class Engine {
     this.host = host;
     this.dictionary = dictionary;
     this.adoptsDeclaredScriptSize = options?.adoptDeclaredScriptSize === true;
+    this.replayBehavior = options?.replayBehavior ?? "1.2.6";
     this.legacyRoomMemory = options?.legacyRoomMemory === true;
     if (
       options?.instructionBudget !== undefined &&
@@ -1774,6 +1778,7 @@ export class Engine {
           amigaRegion: this.amigaRegion,
           pcDisplay: this.pcDisplay,
           adoptDeclaredScriptSize: this.adoptsDeclaredScriptSize,
+          replayBehavior: this.replayBehavior,
           legacyRoomMemory: this.legacyRoomMemory,
         },
       );
@@ -3333,7 +3338,14 @@ export class Engine {
     if (m.serial === this.joyCalibratingModalSerial) this.joyCalibratingModalSerial = null;
     // A timed print zeroes v21 when its window closes, by timeout or key.
     // docs/fidelity.md: print-handler-output-modes
-    if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
+    if (
+      m.kind === "print" &&
+      m.remainingMs !== null &&
+      (this.replayBehavior === "1.2.5"
+        ? !["2.001", "2.089", "2.230", "2.272"].includes(this.profile.id) &&
+          this.profile.timedPrintClearsV21
+        : this.profile.timedPrintClearsV21)
+    )
       this.vars[21] = 0;
     if (m.kind === "print" || m.kind === "showObj") this.text.clearWindowOverlay();
     if (m.kind === "dissolve") this.presentationDirty = true;
@@ -3384,7 +3396,11 @@ export class Engine {
     // Amiga 2.082 ordinary print retains its separate f15 path.
     // docs/fidelity.md: Print handler output modes (F-text-print-modes-early).
     const modes =
-      this.profile.presentation === "pc" ? this.profile.confirmPromptModes : "timed-and-f15";
+      this.replayBehavior === "1.2.5"
+        ? "timed-and-f15"
+        : this.profile.presentation === "pc"
+          ? this.profile.confirmPromptModes
+          : "timed-and-f15";
     if (!forceAcknowledgement && modes === "timed-and-f15" && this.flags[15] !== 0) {
       // A print that opens a non-blocking window consumes f15 as it returns.
       // docs/fidelity.md: print-handler-output-modes
@@ -3492,13 +3508,13 @@ export class Engine {
     // The Apple IIgs restart passes the Amiga's prompt and labels to its own
     // dialog routine; its gadget geometry is unverified, so the labels are
     // plain text there (F-persistence-05).
-    const iigs = this.profile.windowFrameGeometry === "iigs";
+    const iigs = this.replayBehavior !== "1.2.5" && this.profile.windowFrameGeometry === "iigs";
     // The prompt is the shared message routine: with f15 set it opens the
     // window, clears f15 and accepts at once, leaving the window open; with a
     // nonzero v21 it waits that many half-seconds for Enter or Esc and accepts
     // either way (docs/fidelity.md "Persistence verdicts",
     // F-persistence-prompt-modes).
-    const modes = this.profile.confirmPromptModes;
+    const modes = this.replayBehavior === "1.2.5" ? "none" : this.profile.confirmPromptModes;
     const persistent = modes === "timed-and-f15" && this.flags[15] !== 0;
     const timed = !persistent && modes !== "none" && this.vars[21] !== 0;
     this.emitPrint(
@@ -4071,6 +4087,7 @@ export class Engine {
    * restore"). The heading list itself is fixed once submitted.
    */
   private finalizeMenu(): void {
+    if (this.replayBehavior === "1.2.5" && this.menuFinalized) return;
     if (!this.menuFinalized) for (const h of this.menu) h.enabled = h.items.length > 0;
     this.menuFinalized = true;
     for (const h of this.menu) h.current = 0;
@@ -5061,6 +5078,7 @@ export class Engine {
         profile: this.profile,
         pcDisplay: this.pcDisplay,
         adoptDeclaredScriptSize: this.adoptsDeclaredScriptSize,
+        replayBehavior: this.replayBehavior,
         legacyRoomMemory: this.legacyRoomMemory,
       },
     );
@@ -5175,7 +5193,7 @@ export class Engine {
     // Layouts without the gate words (3.002.086 and earlier, Amiga, IIgs)
     // leave the live gates alone: the original's block 1 does not reach them
     // (docs/fidelity.md "PC state and objects").
-    const gates = block1CarriesGates(this.profile);
+    const gates = this.replayBehavior === "1.2.5" || block1CarriesGates(this.profile);
     if (gates) this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
     for (const entry of s.keyMap) {
@@ -5229,6 +5247,7 @@ export class Engine {
     // save blocks and survives (docs/fidelity.md "Persistence verdicts",
     // F-persistence-03).
     this.editLine = "";
+    if (this.replayBehavior === "1.2.5") this.acceptedLine = "";
     this.controllers.fill(0);
     if (this.profile.originalRestartRestore) {
       // The authentic restore tail clears controllers explicitly, rewrites the
@@ -5258,11 +5277,11 @@ export class Engine {
     if (screen === null) {
       // The reconstruction ends by showing the picture buffer. A host restore
       // keeps its own bookkeeping: an undrawn checkpoint stays undrawn.
-      this.pictureShown = true;
+      if (this.replayBehavior !== "1.2.5") this.pictureShown = true;
       this.flags[F_RESTORED] = 1;
       // The game's own restore.game ends in EnableAllItems; a host restore
       // reinstates the recorded menu afterwards.
-      this.enableAllMenuItems();
+      if (this.replayBehavior !== "1.2.5") this.enableAllMenuItems();
     }
 
     // 3. Rebind object views and refresh picture, objects, status and input.
@@ -9610,8 +9629,10 @@ export class Engine {
     // The restart writes no screen: what shows now stays until the
     // restarted game draws (docs/fidelity.md "Original restart state
     // boundary").
-    while (this.modal) this.closeModal();
-    this.keepShownScreen();
+    if (this.replayBehavior !== "1.2.5") {
+      while (this.modal) this.closeModal();
+      this.keepShownScreen();
+    }
     this.pendingLogic = null;
     this.pendingInteraction = null;
     this.cursorErased = false;
@@ -9632,7 +9653,8 @@ export class Engine {
     this.vars.fill(0);
     this.flags.fill(0);
     this.applyResetAllDefaults(false);
-    if (this.profile.restartKeepsMaxScore) this.vars[7] = maxScore;
+    if (this.replayBehavior !== "1.2.5" && this.profile.restartKeepsMaxScore)
+      this.vars[7] = maxScore;
     this.controllers.fill(0);
     // The cache reset truncates the logic list after its head: logic 0 and
     // its scan start survive (docs/fidelity.md "Original restart state
@@ -9645,7 +9667,7 @@ export class Engine {
     this.views.clear();
     this.viewOrder.length = 0;
     this.scanStart.clear();
-    if (globalLogic) {
+    if (this.replayBehavior !== "1.2.5" && globalLogic) {
       this.logics.set(0, globalLogic);
       if (globalScanStart !== undefined) this.scanStart.set(0, globalScanStart);
     }
@@ -9656,6 +9678,31 @@ export class Engine {
     this.replayRecording = true;
     // The script capacity and its buffer stay as the game sized them.
     this.maximumReplayPairs = 0;
+    if (this.replayBehavior === "1.2.5") {
+      // History recorded these reset writes before the restart fidelity correction.
+      // docs/fidelity.md: Original restart state boundary.
+      this.scriptCapacity = this.legacyRoomMemory
+        ? AUTHORED_SCRIPT_BUFFER_PAIRS
+        : this.profile.defaultScriptBufferPairs;
+      this.menu = [];
+      this.menuFinalized = false;
+      this.menuHeading = 0;
+      this.menuRequested = false;
+      this.modals.length = 0;
+      this.persistentWindow = null;
+      this.textMode = false;
+      this.statusEnabled = false;
+      this.editLine = "";
+      this.acceptedLine = "";
+      this.horizon = 36;
+      this.priorityBase = 48;
+      this.defaultPriTable = true;
+      this.keyReleaseGate = 0;
+      this.inputWidthCap = null;
+      this.surface.reset();
+      this.stampMask.fill(0);
+      this.text.clear();
+    }
     // The menu, its submitted state, its current heading and item and the
     // menu request survive; set.menu returns at once once submitted, so the
     // game's own menu code adds nothing (docs/fidelity.md "Original menu
@@ -9680,13 +9727,13 @@ export class Engine {
     // are outside the restart's write set (docs/fidelity.md "Original
     // restart state boundary"); new.room sets the horizon itself.
     if (!this.profile.originalRestartRestore) this.inputAccepted = false;
-    if (this.profile.restartCancelsLine) {
+    if (this.replayBehavior !== "1.2.5" && this.profile.restartCancelsLine) {
       // CancelLine erases the typed line on screen; WriteCur shows the cursor.
       this.editLine = "";
       if (!this.textMode) this.drawInputRow();
     }
     // ResetAll's middle section: player control, last picture, block enable.
-    this.directionCoupling = 1;
+    if (this.replayBehavior !== "1.2.5") this.directionCoupling = 1;
     this.blockRect = null;
     this.lastPicture = 0;
     this.inputQueue.clear();
@@ -9705,7 +9752,7 @@ export class Engine {
     this.restartPending = true;
     this.trace.setActive(false);
     if (this.trace.logic !== null) this.loadLogic(this.trace.logic);
-    this.enableAllMenuItems();
+    if (this.replayBehavior !== "1.2.5") this.enableAllMenuItems();
   }
 
   /**
@@ -9755,7 +9802,7 @@ export class Engine {
     const id = this.profile.id;
     const isAmiga = this.profile.windowFrameGeometry === "amiga";
     const isIIgs = this.profile.windowFrameGeometry === "iigs";
-    if (cold) {
+    if (cold || (this.replayBehavior === "1.2.5" && !this.restartPending)) {
       this.joyEnabled = isAmiga;
       this.joyInitPending = false;
       // The Amiga state-hunk load image initializes $f8a2 (displayBaseRow) to
@@ -9763,8 +9810,12 @@ export class Engine {
       // nonzero picture top (docs/fidelity.md "Amiga screen, font and
       // pointer"). Restart keeps a configured top on every build
       // (docs/fidelity.md "Original restart state boundary").
-      if (printWindowLayout(this.profile).displayBase === 0) this.displayBaseRow = 0;
     }
+    if (
+      (cold || this.replayBehavior === "1.2.5") &&
+      printWindowLayout(this.profile).displayBase === 0
+    )
+      this.displayBaseRow = 0;
     this.joyCalibratingModalSerial = null;
     this.lastJoyDir = 0;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;

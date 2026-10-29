@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -381,4 +381,65 @@ test("the lane guide and CLAUDE.md describe presets, with no free-form agent com
     assert.ok(docs.includes(`\`${preset}\``), preset);
   }
   assert.match(docs, /pgrep -fl devin/);
+});
+
+test("simultaneous launches of one lane name admit exactly one agent", async () => {
+  // Pause both old runners after their live/log checks. With atomic admission
+  // only the winner reaches this bounded barrier.
+  const barrier = join(sandbox, "barrier");
+  mkdirSync(barrier);
+  const systemGrep = execFileSync("which", ["grep"], { encoding: "utf8" }).trim();
+  const grep = join(bin, "grep");
+  writeFileSync(
+    grep,
+    `#!/bin/sh
+  touch "${barrier}/$$"
+  n=0
+  while [ "$(ls "${barrier}" | wc -l)" -lt 2 ] && [ "$n" -lt 20 ]; do sleep 0.05; n=$((n+1)); done
+  exec "${systemGrep}" "$@"
+`,
+  );
+  chmodSync(grep, 0o755);
+  const launch = (rerun: boolean) =>
+    new Promise<number | null>((resolve, reject) => {
+      const child = spawn(
+        "sh",
+        [
+          join(scripts, "run-lane.sh"),
+          "--wait",
+          ...(rerun ? ["--rerun"] : []),
+          "race",
+          "sol-high",
+          brief(),
+          repo,
+        ],
+        {
+          cwd: repo,
+          env: env(),
+          stdio: "ignore",
+          timeout: 10_000,
+        },
+      );
+      child.on("error", reject);
+      child.on("exit", resolve);
+    });
+  try {
+    const lock = join(notes(), "pids", "race.launch");
+    for (const rerun of [false, true]) {
+      for (const file of readdirSync(barrier)) rmSync(join(barrier, file));
+      assert.deepEqual((await Promise.all([launch(rerun), launch(rerun)])).sort(), [0, 1]);
+      assert.equal(
+        readFileSync(join(notes(), "reports", "race.log"), "utf8"),
+        "agent output\n\nexit 0\n",
+      );
+      assert.equal(existsSync(lock), false, "startup releases its claim after publishing metadata");
+    }
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), "2147483647\n");
+    const stale = runLane(["--rerun", "race", "sol-high", brief(), repo]);
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /Stale lane launch claim/);
+  } finally {
+    rmSync(grep);
+  }
 });

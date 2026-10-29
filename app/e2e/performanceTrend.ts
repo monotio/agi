@@ -1,6 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import { test } from "./test.ts";
 
+let reportedMissingBaseline = false;
+
 /** Keep timing evidence on successful runs as well as failures; timings never gate a run. */
 export async function recordPerformance(
   name: string,
@@ -12,8 +14,10 @@ export async function recordPerformance(
   await writeFile(path, JSON.stringify(sample, null, 2));
   await info.attach(`performance-${name}`, { path, contentType: "application/json" });
   console.log(`[performance trend] ${JSON.stringify(sample)}`);
-  if (process.env["CI"])
-    console.warn(
-      `::warning title=Performance trend::${name}: timing recorded without a same-job main baseline; compare artifacts before judging a regression.`,
+  if (!reportedMissingBaseline) {
+    console.info(
+      "[performance trend] No same-job main baseline; samples are retained without a regression comparison.",
     );
+    reportedMissingBaseline = true;
+  }
 }

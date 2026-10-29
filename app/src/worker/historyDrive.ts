@@ -185,6 +185,7 @@ function captureSemanticState(
     soundDevice: ctx.boot.selectedSoundDevice,
     resourceSet: resourceSetHint({ getFiles: () => files }),
   };
+  if (template.replayBehavior !== undefined) out.replayBehavior = engine.replayBehavior;
   if (template.rngPolicy !== undefined) out.rngPolicy = { ...ctx.run.rng.policy };
   if (template.amigaRegion !== undefined) out.amigaRegion = engine.amigaRegion;
   if (template.pcDisplay !== undefined && engine.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
@@ -369,6 +370,7 @@ export function openHistoryDrive(
         segment.boot.legacyRoomMemory === true ||
         (effectiveVersion < HISTORY_FORMAT_VERSION && segment.boot.project !== undefined),
       adoptDeclaredScriptSize: segment.boot.adoptDeclaredScriptSize === true,
+      replayBehavior: segment.boot.replayBehavior ?? "1.2.5",
     });
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
     candidate.flags[9] = 1;

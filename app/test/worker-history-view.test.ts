@@ -2157,3 +2157,93 @@ test("older History recordings without gate fields still replay and reject damag
     /semantic fingerprint does not hold/,
   );
 });
+
+test("a released 1.2.5 History restart plays through and Resume here adopts its behavior", () => {
+  // Frozen from the released 1.2.5 worker's full module tree at 31dc3dfb.
+  // The synthetic game's boot resources and all recorded marks remain original.
+  const segments = JSON.parse(
+    readFileSync(new URL("./formats/history-1.2.5-restart.json", import.meta.url), "utf8"),
+  ) as HistorySegment[];
+  const before = structuredClone(segments);
+  const segment = segments[0]!;
+  const replay = replayHistorySegment(segment);
+  assert.equal(replay.error, null);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.incompatible, null);
+  const h = viewHarness(viewGame());
+  h.tick(12);
+  h.send({ type: "pause", paused: true });
+  h.send({
+    type: "historyViewStart",
+    id: 1,
+    recording: asRecording(segments),
+    segment: 0,
+    tick: 100,
+  });
+  const opened = finalView(h.control, 1);
+  assert.equal(opened.diverged, null);
+  assert.equal(opened.canResume, true);
+  h.send({
+    type: "historyViewTake",
+    id: 2,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  const taken = h.control.find((m) => m.type === "historyTaken" && m.id === 2);
+  assert.ok(taken?.type === "historyTaken" && taken.ok);
+  assert.equal(h.ctx.run.engine!.replayBehavior, "1.2.5");
+  h.send({ type: "pause", paused: false });
+  h.tick(20);
+  h.send({ type: "pause", paused: true });
+  const resumed = collectSegments(h.control).at(-1)!;
+  assert.equal(
+    resumed.boot.replayBehavior,
+    "1.2.5",
+    "the resumed recording keeps its execution rules",
+  );
+  const continued = replayHistorySegment(resumed);
+  assert.equal(continued.error, null);
+  assert.equal(continued.diverged, null);
+  assert.equal(continued.incompatible, null);
+  continued.ctx.fns.stopTimers();
+  assert.deepEqual(segments, before, "released marks and fingerprints remain unchanged");
+  replay.ctx.fns.stopTimers();
+  h.ctx.fns.stopTimers();
+});
+
+test("new History segments stamp the 1.2.6 behavior and retain the screen across restart", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        `if (!isset(f200)) { set(f200); load.pic(v250); draw.pic(v250); show.pic();
+       set.key(0,59,1); if (!isset(f6)) { status.line.on(); display(8,0,"KEPT"); } }
+     if (controller(c1)) { set(f16); restart.game(); } return;`,
+      ],
+      (c) => c.putResource("picture", 0, Uint8Array.of(255)),
+    ),
+  );
+  h.tick(20);
+  h.send({ type: "key", code: 0x3b00 });
+  h.tick(150);
+  h.send({ type: "pause", paused: true });
+  const recording = validateHistoryRecording(asRecording(collectSegments(h.control)));
+  const segment = recording.segments[0]!;
+  assert.equal(segment.boot.replayBehavior, "1.2.6");
+  assert.throws(
+    () =>
+      validateHistoryRecording({
+        ...recording,
+        segments: [{ ...segment, boot: { ...segment.boot, replayBehavior: "future" } }],
+      }),
+    /replay behavior is unknown/,
+  );
+  const replay = replayHistorySegment(segment);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.error, null);
+  assert.equal(replay.incompatible, null);
+  assert.equal(decodeSave(replay.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled, 1);
+  replay.ctx.fns.stopTimers();
+  h.ctx.fns.stopTimers();
+});

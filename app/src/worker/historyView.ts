@@ -472,6 +472,7 @@ export function createHistoryView(
       ...(scratch.boot.project !== undefined ? { project: scratch.boot.project } : {}),
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
+      replayBehavior: engine.replayBehavior,
       ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),
       ...(engine.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(engine.adoptsDeclaredScriptSize ? { adoptDeclaredScriptSize: true as const } : {}),
