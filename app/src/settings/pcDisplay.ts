@@ -31,7 +31,8 @@ export function createPcDisplaySettings(
     display.value = value;
   }
   events?.addEventListener("storage", (event) => {
-    if ((event as StorageEvent).key === KEY) display.value = readPcDisplay(storage);
+    const key = (event as StorageEvent).key;
+    if (key === null || key === KEY) display.value = readPcDisplay(storage);
   });
   return { display: readonly(display), setDisplay };
 }

@@ -27,8 +27,8 @@ export function createAmigaRegionSettings(
     region.value = value;
   }
   events?.addEventListener("storage", (event) => {
-    if ((event as StorageEvent).key === "monotio_agi.amigaRegion")
-      region.value = readAmigaRegion(storage);
+    const key = (event as StorageEvent).key;
+    if (key === null || key === "monotio_agi.amigaRegion") region.value = readAmigaRegion(storage);
   });
   return { region: readonly(region), setRegion };
 }

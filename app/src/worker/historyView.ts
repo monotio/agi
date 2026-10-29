@@ -465,17 +465,15 @@ export function createHistoryView(
     }
     const files = new Map(engine.containerFiles);
     if (scratch.boot.authoredWords) files.set("WORDS.TOK", scratch.boot.authoredWords);
-    // Takeover starts a new recording under the current execution rules.
-    // The image and replay state preserve the viewed moment; the behavior
-    // option only governs subsequent operations (docs/fidelity.md,
-    // "Original restart state boundary"). The scratch drive and old tape
-    // keep their recorded rules and fingerprints.
+    // Authenticate this captured moment under the scratch drive's recorded
+    // rules. adoptResumePoint shares the transition to current live rules
+    // with Undo rewind; the scratch and retained tape stay unchanged.
     const boot = stampBoot({
       files: Object.fromEntries([...files].map(([name, data]) => [name, bytesToBase64(data)])),
       ...(scratch.boot.project !== undefined ? { project: scratch.boot.project } : {}),
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
-      replayBehavior: "1.2.6",
+      replayBehavior: engine.replayBehavior,
       ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),
       ...(engine.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(engine.adoptsDeclaredScriptSize ? { adoptDeclaredScriptSize: true as const } : {}),
@@ -542,7 +540,7 @@ export function createHistoryView(
       type: "historyTaken",
       id: msg.id,
       ok: true,
-      boot,
+      boot: stampBoot({ ...boot, replayBehavior: ctx.run.engine!.replayBehavior }),
       ...(session !== undefined ? { session } : {}),
     });
   }

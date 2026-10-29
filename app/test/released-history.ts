@@ -1,7 +1,7 @@
 /** Real-worker takeover of the immutable, released 1.2.5 restart recording. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import type { HistorySegment } from "../../src/agent/history.ts";
+import { stampBoot, type HistorySegment } from "../../src/agent/history.ts";
 import { createWorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
@@ -81,4 +81,22 @@ export function takeReleasedRestart(h: ReturnType<typeof releasedRestartHarness>
   assert.ok(taken?.type === "historyTaken" && taken.ok);
   h.send({ type: "pause", paused: false });
   h.tick();
+}
+
+/** Undo rewind from a genuine noncold checkpoint, with the released rules omitted. */
+export function restoreReleasedRestart(h: ReturnType<typeof releasedRestartHarness>) {
+  const segment = h.segments[0]!;
+  const anchor = segment.anchors.find((entry) => entry.image !== undefined);
+  assert.ok(anchor, "the released recording has a noncold checkpoint");
+  const boot = stampBoot({ ...segment.boot, ...anchor });
+  assert.ok(boot.image);
+  assert.equal(boot.replayBehavior, undefined);
+  const before = structuredClone(boot);
+  h.send({ type: "historyViewRestore", id: 20, boot, from: null });
+  const restored = h.control.findLast((message) => message.type === "historyViewRestored");
+  assert.ok(restored?.type === "historyViewRestored" && restored.ok);
+  assert.deepEqual(boot, before, "Undo rewind preserves the original bytes and fingerprint");
+  h.send({ type: "pause", paused: false });
+  h.tick();
+  return boot;
 }
