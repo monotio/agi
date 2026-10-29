@@ -128,12 +128,15 @@ editor requests suggestions.
 `app/e2e/lazy-authoring.spec.ts` walks the same path in a browser, on the
 development server and on the production build. It checks which source modules
 each requested script carries. Separately,
-`app/e2e/perf-budgets.spec.ts` bounds boot long tasks and editor frame and input
-times. Its tests are tagged `@perf`: `npm --prefix app run e2e` leaves them out,
-and `npm --prefix app run e2e:perf` runs them alone on one worker, so no other
-test shares the machine they measure; CI gives them a separate Linux job.
-Change a budget only on purpose: edit it beside its measured value and give the
-reason in the commit.
+`app/e2e/perf-budgets.spec.ts` bounds cold-boot preparation work and checks
+editor outcomes. Draft edits bound whole-game builds per key or stroke, and map
+tests require warm opens to reuse prepared pictures. Elapsed boot, frame and
+input samples are retained as `performance-*.json` trends. There is currently no
+same-job main baseline, so those timings do not decide regressions or emit
+regression warnings. The `@perf` tests run alone on one worker through
+`npm --prefix app run e2e:perf`; the ordinary browser command leaves them out,
+and CI gives them a separate Linux job. Change a work bound only on purpose and
+give the reason in the commit.
 
 ### CI verification
 

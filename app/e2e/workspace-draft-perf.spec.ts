@@ -1,3 +1,4 @@
+import { countWork } from "./workCounts.ts";
 import { recordPerformance } from "./performanceTrend.ts";
 import { DEADLINES } from "./deadlines.ts";
 import { workspaceDocument } from "./workspaceShared.ts";
@@ -26,6 +27,12 @@ test(
     await page.setViewportSize({ width: 1440, height: 900 });
     await isolateStorage(page);
     const { files } = loadGame("sq1-amiga", { interpreterFiles: true });
+    const rebuilds = await countWork(
+      page,
+      /\/src\/authoring\/projectDocuments\.ts(?:\?|$)/,
+      "function compileProjectDocuments(input) {",
+      "whole-game-build",
+    );
     await page.goto("/");
     await cacheGame(page, {
       projectId: testProjectId("sq1-draft-perf"),
@@ -52,6 +59,7 @@ test(
     await workspaceSaved(page);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
+    const buildsBeforeKeys = await rebuilds();
     const before = await mainTime(cdp);
     const keys = "An unfinished draft waits for the creator";
     for (const key of keys) {
@@ -59,6 +67,12 @@ test(
       await page.evaluate(() => new Promise(requestAnimationFrame));
     }
     await workspaceSaved(page);
+    const keyBuilds = (await rebuilds()) - buildsBeforeKeys;
+    expect(buildsBeforeKeys, "the compiler probe observed workspace setup").toBeGreaterThan(0);
+    expect(
+      keyBuilds,
+      "at most one whole-game build per key plus the pending draft",
+    ).toBeLessThanOrEqual(keys.length + 1);
     const keyMs = ((await mainTime(cdp)) - before) / keys.length;
     // Imported art can be edited without entering its room or changing interpreter state.
     const show = page.getByTestId("workspace-show-game");
@@ -73,6 +87,7 @@ test(
     await studio.locator('[data-tool="brush"]').click();
     await studio.locator('.workspace-palette [data-colour="4"]').click();
     const box = (await studio.locator(".studio-pane").boundingBox())!;
+    const buildsBeforeStrokes = await rebuilds();
     const start = await mainTime(cdp);
     const strokes = 12;
     for (let stroke = 0; stroke < strokes; stroke++) {
@@ -80,8 +95,13 @@ test(
       await page.evaluate(() => new Promise(requestAnimationFrame));
     }
     await workspaceSaved(page);
+    const strokeBuilds = (await rebuilds()) - buildsBeforeStrokes;
+    expect(
+      strokeBuilds,
+      "at most one whole-game build per stroke plus the pending draft",
+    ).toBeLessThanOrEqual(strokes + 1);
     const strokeMs = ((await mainTime(cdp)) - start) / strokes;
-    await recordPerformance("draft-edits", { keyMs, strokeMs });
+    await recordPerformance("draft-edits", { keyMs, strokeMs, keyBuilds, strokeBuilds });
     expect(await workspaceDocument(page, "logic:0")).toContain(keys);
     await expect(page.getByTestId("workspace-pending")).toBeVisible();
   },

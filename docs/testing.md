@@ -443,8 +443,9 @@ Performance tests assert bounded work and visible outcomes, such as one frame ca
 per burst of pointer moves, unchanged thumbnails during a drag, committed pixels and
 bounded history bytes. Elapsed samples use `recordPerformance` and are retained as
 `performance-*.json` artifacts even on successful CI runs. Each sample includes the
-test and browser project. CI emits a warning that these samples have no same-job main
-baseline yet. Relative regression warnings require measuring main in that same job;
+test and browser project. The reporter states once per worker that these samples
+have no same-job main baseline; this is informational. Relative regression warnings
+require measuring main in that same job;
 comparing absolute times across runners is not a gate.
 
 A tag at the end of a test title selects its extra or separate runs. Linux WebKit is one config,

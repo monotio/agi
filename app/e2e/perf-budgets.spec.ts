@@ -1,3 +1,4 @@
+import { countWork } from "./workCounts.ts";
 import { recordPerformance } from "./performanceTrend.ts";
 import { DEADLINES } from "./deadlines.ts";
 import { expect, test } from "./test.ts";
@@ -158,6 +159,12 @@ test(
   "a cold boot of the catalog tutorial reaches its first frame without long jank",
   PERF,
   async ({ page }) => {
+    const preparation = await countWork(
+      page,
+      /\/src\/library\/gamePreview\.ts(?:\?|$)/,
+      'async function previewGame(game, profile, source = "zip") {',
+      "boot-preparation",
+    );
     await playTutorial(page);
     await expect
       .poll(
@@ -177,6 +184,7 @@ test(
       eventMax: sample.eventMax,
     });
     expect(probe.firstFrameAt).not.toBeNull();
+    expect(await preparation(), "one preparation of the selected cold boot").toBe(1);
   },
 );
 
