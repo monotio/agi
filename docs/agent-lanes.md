@@ -9,12 +9,15 @@ Tasks that depend on the same files usually belong in one lane or in sequence.
 ## Model roster
 
 Record what a model did in this repository here; a vendor benchmark is a lead, not
-evidence. `run-lane.sh` starts only the presets below. Claude models run as native
+evidence. Choose by task and the owner's current quota. Match reasoning effort to
+the task: low or medium for UI, copy, docs and well-specified fixes; high for
+storage, save and sync, worker and engine internals, and complex architecture.
+`run-lane.sh` starts only the presets below. Claude models run as native
 Agent-tool subagents and never go through it.
 
 | Model (how it runs)                                      | Use it for                                              | Watch for                                                                                                                                                                                              |
 | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GPT-6.1 Sol (`sol-low`, `sol-medium`, `sol-high`, Codex) | Engine, worker, integration and red-first fixes (high)  | Long final reports: read its diff, not its summary                                                                                                                                                     |
+| GPT-6.1 Sol (`sol-low`, `sol-medium`, `sol-high`, Codex) | Engine, worker, integration and well-specified fixes    | Long final reports: read its diff, not its summary                                                                                                                                                     |
 | GPT-6 Astra (`astra-high`, Codex)                        | Reviews, design and diagnosis; it can also fix          |                                                                                                                                                                                                        |
 | Devin SWE-2 (`swe2-high`)                                | Mechanical lanes such as dependency bumps and renames   | Only `swe-2-high`: every other Devin model bills API spend. It stalled for 6 hours on UI work. `run-lane.sh` can return while `devin acp` keeps running, so check `pgrep -fl devin` before relaunching |
 | Gemini 4 Argon (`argon-high`, agy)                       | Reviews                                                 | Slow and token-heavy as an implementer; prints only when the run ends, so an empty log is not a hang                                                                                                   |
@@ -31,7 +34,9 @@ brief or the checks change too; a stronger model is never the diagnosis.
 ### Review rule
 
 A different vendor reviews where quota allows; otherwise a different model of the
-same vendor, and the review says which.
+same vendor, and the review says which. Choose review effort for the risk and
+scope: deep design and whole-change reviews suit high effort; narrow checks need
+less.
 
 ## Prepare
 
@@ -132,6 +137,12 @@ Steps 3 and 4 apply to implementation lanes.
 ## Every lane
 
 - Every wait loop has a deadline.
+- In zsh, an unquoted `$var` does not word-split. Pass multiple arguments with an
+  array, such as `specs=(a b)` followed by `command "${specs[@]}"`.
+- The headed `split-wipe.spec.ts` run needs the full Chromium build. Install it
+  with `npm --prefix app exec -- playwright install chromium`, including after a
+  Playwright bump. Update `scripts/ci/playwright-image.txt` with the bump too, as
+  [browser CI](testing.md#ci-browser-checks) describes.
 - A lane stops its own background processes and servers before it finishes, by
   PID, never by name.
 - Each lane writes in its own worktree. `run-lane.sh` refuses to relaunch a lane
@@ -255,6 +266,15 @@ combined head before pushing; CI on that push is the final Linux verdict: lanes 
 their own can collide, and the specs each lane touched will not show it. Review the whole change for failure paths,
 a second page sharing storage, and closing before a write commits where those
 behaviors apply. Verify browser changes in the real app and inspect screenshots.
+Run the deciding gate on a quiet machine, with lane and reviewer tests stopped,
+on a stable head whose inputs stay unchanged throughout the run.
 The orchestrator owns merge, review and final verification even when individual
 lanes pass. Remove completed worktrees and branches after integration and any
 required owner acceptance.
+
+At each release's end, measure main-thread steps from the session transcript, CI
+runs and post-merge failures with `gh run list` and failed-run logs, and local
+gate wall time from gate summary files. Keep the comparison in the private
+release report. Targets are under 200 main-thread steps, about two CI runs per
+release and zero post-merge failures; compare gate wall time under similar load
+to find workflow regressions.
