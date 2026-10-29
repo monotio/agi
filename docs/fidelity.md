@@ -2235,8 +2235,14 @@ The 3.002.149 fixture versions and shared handler ranges are compared in
 f15. Both timeout and key acknowledgement reach the v21 clear at 0x2008. `print` on 2.089
 (`0x1ade` → `0x1ba9`), 2.230 (`0x1a20` → `0x1aeb`) and 2.272 (`0x1abc` → `0x1b87`) calls the same
 shared routine, which zeroes v21 on its timed exit (fact, static; the decoded images in
-[Original restart state boundary](#original-restart-state-boundary)); that routine has no f15
-test. The engine's f15 handling on these three builds and on 2.001 is not yet established.
+[Original restart state boundary](#original-restart-state-boundary)).
+
+**Early f15 behavior (fact; engine diverges).** The shared routines at `0x1ba9` (2.089),
+`0x1aeb` (2.230) and `0x1b87` (2.272) have no f15 test, so f15 never makes a print
+non-blocking on those builds. The engine still leaves their print windows non-blocking
+while retaining f15; [message-modes.test.ts](../test/message-modes.test.ts) pins that
+current behavior. Matching these originals remains outstanding. Print f15 behavior on
+2.001 is not established.
 
 **Tests:** [mh2-profile.test.ts](../test/mh2-profile.test.ts),
 [message-modes.test.ts](../test/message-modes.test.ts),
@@ -3590,7 +3596,9 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   `restart()` when the prompt is accepted (field `originalRestartRestore`);
   `confirmCursor` is `"erased"` only on the Amiga profiles, so on PC and IIgs
   the cursor stays visible through the prompt and the original's conditional
-  `WriteCur` is not reproduced.
+  `WriteCur` is not reproduced. Whether the original's accepted `CancelLine`
+  clears the input row when input is disabled is unverified; the engine calls
+  `drawInputRow()`, which blanks that row while input is disabled.
 - **F-persistence-03 (fact; engine matches).** Restore tail (PC `RestoreGame`:
   `2.001` `0x21e8..0x22f2`, `2.089` `0x240a..0x24d1`, `2.230` `0x234c..0x2417`,
   `2.272` `0x23e8..0x24b3`, `2.411` `0x24c5..0x2590`, `2.439` `0x24cb..0x2596`,
