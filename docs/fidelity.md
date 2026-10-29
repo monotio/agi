@@ -3186,13 +3186,18 @@ after the enable (the strip is drawn only when the menu opens).
 ### Original restart state boundary
 
 History segments written before 1.2.6 keep the released 1.2.5 execution rules
-for restart, restore, confirmation prompts and early-PC print modes. New sessions
-use the fidelity below. The optional History boot field `replayBehavior` records
-that choice, including after Resume here; omission means 1.2.5. The engine carries
-one session option through replacement engines. Released marks, checkpoint bytes
-and fingerprints remain unchanged. This extends the existing History version by
-an optional field, following the authored script-buffer precedent, rather than
-changing the meaning of an older recording.
+for restart, restore, confirmation prompts, early-PC print modes and repeated
+`submit.menu` calls while playing the recorded part. The optional History boot
+field `replayBehavior` records that choice; omission means 1.2.5. Resume here
+preserves the captured state and continuation, then starts a new segment with
+1.2.6 rules. These rules affect subsequent operations, without reinterpreting the
+state already built by the old recording. Live sessions, autosaves and project
+checkpoints therefore use 1.2.6, including after reopening or reimporting; their
+progress records need no behavior field. Replacement engines carry the live
+session's option. Released marks, checkpoint bytes and fingerprints remain
+unchanged. This extends the existing History version by an optional field,
+following the authored script-buffer precedent, rather than changing the meaning
+of an older recording.
 
 **Evidence class:** routine execution (Unicorn 2.1.4) of the complete
 accepted `restart.game` branch, from the handler entry read off each

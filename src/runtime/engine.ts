@@ -923,7 +923,7 @@ export class Engine {
    * edits"). Never set for an original release.
    */
   readonly adoptsDeclaredScriptSize: boolean;
-  /** Released History sessions keep the execution rules their writer used. */
+  /** Recorded History segments replay with their writer's rules; live takeover uses 1.2.6. */
   readonly replayBehavior: "1.2.5" | "1.2.6";
   /** Durable legacy project policy, independent of editable boot conventions. */
   readonly legacyRoomMemory: boolean;

@@ -465,14 +465,17 @@ export function createHistoryView(
     }
     const files = new Map(engine.containerFiles);
     if (scratch.boot.authoredWords) files.set("WORDS.TOK", scratch.boot.authoredWords);
-    // The adopted position's semantic fingerprint rides the boot so the
-    // segment it opens verifies the same resume point on replay.
+    // Takeover starts a new recording under the current execution rules.
+    // The image and replay state preserve the viewed moment; the behavior
+    // option only governs subsequent operations (docs/fidelity.md,
+    // "Original restart state boundary"). The scratch drive and old tape
+    // keep their recorded rules and fingerprints.
     const boot = stampBoot({
       files: Object.fromEntries([...files].map(([name, data]) => [name, bytesToBase64(data)])),
       ...(scratch.boot.project !== undefined ? { project: scratch.boot.project } : {}),
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
-      replayBehavior: engine.replayBehavior,
+      replayBehavior: "1.2.6",
       ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),
       ...(engine.pcDisplay === "cga-rgb" ? { pcDisplay: "cga-rgb" as const } : {}),
       ...(engine.adoptsDeclaredScriptSize ? { adoptDeclaredScriptSize: true as const } : {}),

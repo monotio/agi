@@ -7,6 +7,9 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
+- Resume here in an older History recording starts with the current interpreter
+  fixes. Restart behaves the same after reopening an autosave or importing a
+  project checkpoint.
 - Downloaded pending edits can be restored with Add game → ZIP file to the unchanged original
   project, with Undo history. The discard dialog keeps its actions together on desktop.
 - On PC interpreters 2.001 to 2.272, messages wait even when the game sets
