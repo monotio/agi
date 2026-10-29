@@ -811,3 +811,26 @@ test("malformed host presentation is rejected without touching bytes or the runn
     assert.deepEqual(engine.textCells, text);
   }
 });
+
+test("released autosave convention: unfixed priority is zero, counts come from the loaded view, and replay carries live priority", () => {
+  // Host image bytes participate in released History fingerprints. Authentic
+  // saves carry raw records; this convention must keep its separate meaning.
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  engine.tick();
+  // Default bands: baseline 120 gives 5 + floor((120 - 48) * 10 / 120) = 11.
+  assert.equal(engine.screenObjects[0]!.priority, 11);
+  const snapshot = engine.autosaveImage();
+  assert.ok(snapshot);
+  const record = decodeSave(decodeHostImage(snapshot).image, engine.profile).objects[0]!;
+  assert.deepEqual(
+    { priority: record.priority, loopCount: record.loopCount, celCount: record.celCount },
+    { priority: 0, loopCount: 1, celCount: 1 },
+    "the released host record convention: the loaded view has one loop with one cel",
+  );
+  assert.equal(
+    engine.captureReplayState().objectExtras[0]!.priority,
+    11,
+    "the computed priority rides in objectExtras",
+  );
+});

@@ -24,6 +24,7 @@ import type { GameContainer } from "../../src/types.ts";
 import {
   HISTORY_FORMAT_VERSION,
   historyBootSemantic,
+  historyAnchorSemantic,
   historyFingerprint,
   stampBoot,
   historySyncDigest,
@@ -2071,3 +2072,88 @@ for (const sound of [false, true]) {
     assert.deepEqual(boot, before, "restoring keeps the released record unchanged");
   });
 }
+
+test("3.002.086: History restores between allowed and blocked menus and hold movement", () => {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+    if (!isset(f200)) { set(f200); set(f14); load.pic(v250); draw.pic(v250); show.pic();
+      set.menu("Game"); set.menu.item("Look", 1); submit.menu(); set.key(27, 0, 1); }
+    if (controller(c1)) { menu.input(); }
+    if (isset(f201)) { reset(f201); allow.menu(0); hold.key(); }
+    return;
+  `,
+      { dictionary: new Map(), profile: PROFILES["3.002.086"] },
+    ).payload,
+  );
+  game.putResource("picture", 0, Uint8Array.of(0xff));
+  const h = viewHarness(game, { profile: "3.002.086" });
+  h.tick(2);
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 701 });
+  const earlier = h.control.find((m) => m.type === "historyRetained" && m.id === 701);
+  assert.ok(earlier?.type === "historyRetained" && earlier.boot != null);
+  h.send({ type: "pause", paused: false });
+  h.send({ type: "debugWrite", id: 0, flags: [[201, 1]] });
+  h.tick(2);
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 702 });
+  const later = h.control.find((m) => m.type === "historyRetained" && m.id === 702);
+  assert.ok(later?.type === "historyRetained" && later.boot != null);
+  for (const [id, retained, release, menu] of [
+    [703, earlier, 0, "menu"],
+    [704, later, 1, null],
+    [705, earlier, 0, "menu"],
+  ] as const) {
+    assert.ok(retained.boot != null);
+    h.send({ type: "historyViewRestore", id, boot: retained.boot, from: retained.from });
+    const restored = h.control.find((m) => m.type === "historyViewRestored" && m.id === id);
+    assert.ok(
+      restored?.type === "historyViewRestored" && restored.ok,
+      "the recorded checkpoint restores",
+    );
+    const engine = h.ctx.run.engine!;
+    assert.equal(engine.releaseGate, release, "History restores the movement mode");
+    h.send({ type: "pause", paused: false });
+    h.send({ type: "key", code: 27 });
+    h.tick(2);
+    assert.equal(engine.modalKind, menu, "History restores whether the menu can open");
+    if (engine.modalKind !== null) {
+      h.send({ type: "key", code: 27 });
+      h.tick();
+    }
+    h.send({ type: "pause", paused: true });
+  }
+});
+
+test("older History recordings without gate fields still replay and reject damaged anchors", () => {
+  const { recording } = playedSession();
+  const segment = structuredClone(recording.segments[0]!);
+  for (const checkpoint of [segment.boot, ...segment.anchors]) {
+    if (!checkpoint.replay) continue;
+    delete checkpoint.replay.menuGate;
+    delete checkpoint.replay.releaseGate;
+    checkpoint.fingerprint = historyFingerprint(
+      checkpoint === segment.boot
+        ? historyBootSemantic(segment.boot)
+        : historyAnchorSemantic(checkpoint as HistoryAnchor),
+    );
+  }
+  const before = structuredClone(segment);
+  for (let anchor = 0; anchor < segment.anchors.length; anchor++) {
+    const replayed = replayHistorySegment(segment, { anchor });
+    assert.equal(replayed.error, null, "omitted gates retain the released restore behavior");
+    assert.equal(replayed.diverged, null);
+    assert.equal(replayed.incompatible, null);
+  }
+  assert.deepEqual(segment, before, "replay leaves the older recording unchanged");
+  const damaged = structuredClone(segment);
+  damaged.anchors[0]!.rng ^= 1;
+  assert.match(
+    replayHistorySegment(damaged, { anchor: 0 }).error ?? "",
+    /semantic fingerprint does not hold/,
+  );
+});

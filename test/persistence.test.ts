@@ -2677,6 +2677,12 @@ describe("save object records as the original copies them", () => {
     );
     const exported = decodeOriginalSav(exportOriginalSav(engine), engine.profile).objects[1]!;
     assert.equal(exported.priority, band, "an exported .SAV carries the same record");
+    assert.equal(
+      exported.loopCount,
+      1,
+      "an exported .SAV keeps the bound loop count after discard",
+    );
+    assert.equal(exported.celCount, 1, "an exported .SAV keeps the bound cel count after discard");
     engine.flags[203] = 1;
     engine.tick();
     assert.equal(engine.screenObjects[1]!.priority, band, "the priority survives the restore");

@@ -184,6 +184,9 @@ export interface EngineReplayState {
   menuFinalized: boolean;
   menuHeading: number;
   menuRequested: boolean;
+  /** Host input gates; omitted recordings keep the values left by restoreImage. */
+  menuGate?: number;
+  releaseGate?: number;
   objectExtras: { priority: number }[];
   /**
    * Exact decoded-view residency and allocation order at a harness boundary.
@@ -538,6 +541,8 @@ export function validateEngineReplayState(
     "booterClockPhase",
     "pictureRevealInstant",
     "joystick",
+    "menuGate",
+    "releaseGate",
   ].filter((key) => value !== null && typeof value === "object" && Object.hasOwn(value, key));
   const s = record(value, [...fields, ...optional]);
   if (optional.includes("version") && s["version"] !== 1 && s["version"] !== REPLAY_STATE_VERSION)
@@ -619,6 +624,8 @@ export function validateEngineReplayState(
       ? { pictureRevealInstant: bool(s["pictureRevealInstant"]) }
       : {}),
     ...(joystick ? { joystick } : {}),
+    ...(s["menuGate"] !== undefined ? { menuGate: number(s["menuGate"], 0, 255) } : {}),
+    ...(s["releaseGate"] !== undefined ? { releaseGate: number(s["releaseGate"], 0, 255) } : {}),
     clockRemainderMs: number(
       s["clockRemainderMs"],
       0,

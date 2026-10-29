@@ -2235,8 +2235,14 @@ The 3.002.149 fixture versions and shared handler ranges are compared in
 f15. Both timeout and key acknowledgement reach the v21 clear at 0x2008. `print` on 2.089
 (`0x1ade` → `0x1ba9`), 2.230 (`0x1a20` → `0x1aeb`) and 2.272 (`0x1abc` → `0x1b87`) calls the same
 shared routine, which zeroes v21 on its timed exit (fact, static; the decoded images in
-[Original restart state boundary](#original-restart-state-boundary)); that routine has no f15
-test. The engine's f15 handling on these three builds and on 2.001 is not yet established.
+[Original restart state boundary](#original-restart-state-boundary)).
+
+**Early f15 behavior (fact; engine diverges).** The shared routines at `0x1ba9` (2.089),
+`0x1aeb` (2.230) and `0x1b87` (2.272) have no f15 test, so f15 never makes a print
+non-blocking on those builds. The engine still leaves their print windows non-blocking
+while retaining f15; [message-modes.test.ts](../test/message-modes.test.ts) pins that
+current behavior. Matching these originals remains outstanding. Print f15 behavior on
+2.001 is not established.
 
 **Tests:** [mh2-profile.test.ts](../test/mh2-profile.test.ts),
 [message-modes.test.ts](../test/message-modes.test.ts),
@@ -3368,10 +3374,13 @@ view byte +7; reference word +8; loop/count bytes +0xa/+0xb; reference +0xc; cel
 bytes +0xe/+0xf; reference words +0x10/+0x12/+0x14; previous x/y +0x16/+0x18;
 width/height +0x1a/+0x1c; step-size/cycle-time/cycle-count/direction/motion/cycle/priority
 bytes +0x1e..0x24; flag word +0x25; four parameter bytes +0x27..0x2a.
-A restore reads the menu-gate and key-gate words back only on the layouts that carry them
+A game's restore reads the menu-gate and key-gate words back only on the layouts that carry them
 (3.002.102 and later); on every other layout the live gates survive, as they do in the
 original, whose block 1 does not reach them (`block1CarriesGates`). KQ4 3.002.086's menu
-therefore opens after a restore.
+therefore keeps its live menu setting after the game's restore. Host restores (History,
+autosave and Play from Create) carry both gates in optional replay-state fields `menuGate`
+and `releaseGate`, including on layouts without gate words. Older recordings omit them
+and keep the values left by image restoration; their stored fingerprints remain unchanged.
 Native motion numbers normal/wander/follow/move are 0/1/2/3; cycle numbers forward/
 end-of-loop/reverse-loop/reverse-cycle are 0/1/2/3. Object flag meanings are in the
 [original flag table](#startup-and-reconstruction-execution); the new boundary converts
@@ -3587,7 +3596,9 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   `restart()` when the prompt is accepted (field `originalRestartRestore`);
   `confirmCursor` is `"erased"` only on the Amiga profiles, so on PC and IIgs
   the cursor stays visible through the prompt and the original's conditional
-  `WriteCur` is not reproduced.
+  `WriteCur` is not reproduced. Whether the original's accepted `CancelLine`
+  clears the input row when input is disabled is unverified; the engine calls
+  `drawInputRow()`, which blanks that row while input is disabled.
 - **F-persistence-03 (fact; engine matches).** Restore tail (PC `RestoreGame`:
   `2.001` `0x21e8..0x22f2`, `2.089` `0x240a..0x24d1`, `2.230` `0x234c..0x2417`,
   `2.272` `0x23e8..0x24b3`, `2.411` `0x24c5..0x2590`, `2.439` `0x24cb..0x2596`,
