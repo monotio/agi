@@ -15,7 +15,7 @@ Agent-tool subagents and never go through it.
 | Model (how it runs)                                      | Use it for                                              | Watch for                                                                                                                                                                                              |
 | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | GPT-6.1 Sol (`sol-low`, `sol-medium`, `sol-high`, Codex) | Engine, worker, integration and red-first fixes (high)  | Long final reports: read its diff, not its summary                                                                                                                                                     |
-| GPT-6 Astra (`astra-high`, Codex)                        | Reviews, design and diagnosis                           | Read-only use                                                                                                                                                                                          |
+| GPT-6 Astra (`astra-high`, Codex)                        | Reviews, design and diagnosis; it can also fix          |                                                                                                                                                                                                        |
 | Devin SWE-2 (`swe2-high`)                                | Mechanical lanes such as dependency bumps and renames   | Only `swe-2-high`: every other Devin model bills API spend. It stalled for 6 hours on UI work. `run-lane.sh` can return while `devin acp` keeps running, so check `pgrep -fl devin` before relaunching |
 | Gemini 4 Argon (`argon-high`, agy)                       | Reviews                                                 | Slow and token-heavy as an implementer; prints only when the run ends, so an empty log is not a hang                                                                                                   |
 | Kimi K3.1 Pro (`kimi-high`, omp)                         | Bounded implementation with a clear acceptance test     | Read its diff line by line; brief it to run every spec that mounts the touched component                                                                                                               |
@@ -23,10 +23,10 @@ Agent-tool subagents and never go through it.
 
 ### Escalation ladder
 
-A lane that fails review or the gate gets its fix on a stronger model: Devin → Sol
-high → Astra high. Sol low or medium goes to Sol high. The fix lane's report names
-the root cause (for example, only new tests were run) so the brief or the checks
-change too; a stronger model is never the diagnosis.
+When a lane fails review or the gate, consider giving the fix to a stronger
+model: Devin → Sol high → Astra high. Sol low or medium goes to Sol high. The fix
+lane's report names the root cause (for example, only new tests were run) so the
+brief or the checks change too; a stronger model is never the diagnosis.
 
 ### Review rule
 
@@ -120,12 +120,14 @@ Every brief points here. A lane:
    mismatch.
 3. Writes the cheapest meaningful test first and watches it fail before the fix.
 4. Commits locally with plain messages and never pushes.
-5. Writes its report to the path in the brief, opening with at most 150 words:
-   verdict, commits, gates and open questions. Then file changes, fail-first
-   evidence, deleted tests and replacements, screenshots inspected, failures and
-   uncertainties.
+5. Writes its report to the path in the brief, opening as
+   [Working together](../AGENTS.md#working-together) specifies. Then file changes,
+   fail-first evidence, deleted tests and replacements, screenshots inspected,
+   failures and uncertainties.
 6. Backs every claim in the report with a tool result from its own session, and
    reports unverified work as unverified.
+
+Steps 3 and 4 apply to implementation lanes.
 
 ## Every lane
 
@@ -135,8 +137,10 @@ Every brief points here. A lane:
 - Each lane writes in its own worktree. `run-lane.sh` refuses to relaunch a lane
   while its previous run is still alive, because a detached agent can outlive its
   runner.
-- Run browsers headless. A headed browser on a shared workstation takes keyboard
-  focus from whoever is working there; use a container or ask first.
+- Run browsers headless by default; a headed browser or native GPU capture is
+  allowed where docs/testing.md needs it (Linux WebKit canvas captures). A headed
+  browser on a shared workstation takes keyboard focus, so ask first or use a
+  container.
 
 ## Run and wait
 
@@ -158,9 +162,10 @@ gpt-6.1-sol|gpt-6-astra -c model_reasoning_effort="..."`; `swe2-high` runs `devi
 the prompt "Read and follow the brief at <absolute path> exactly." Configure
 paid usage limits in your chosen tool before launching it.
 
-A lane must commit in its worktree and launch Playwright browsers. Codex's
-workspace sandbox blocks both (it keeps `.git` read-only, and Chromium cannot
-start inside it), so Codex presets pass `--dangerously-bypass-approvals-and-sandbox`.
+An implementation lane must commit in its worktree, and a lane running browser
+checks must launch Playwright browsers. Codex's workspace sandbox blocks both
+(it keeps `.git` read-only, and Chromium cannot start inside it), so Codex
+presets pass `--dangerously-bypass-approvals-and-sandbox`.
 Only the person who owns the machine can approve running them.
 
 The worktree defaults to `<lanes-dir>/<name>` and must be on branch `lane/<name>`.
@@ -190,9 +195,9 @@ determine whether the task succeeded.
   any scope changes with the orchestrator. Preserve other contributors' work;
   never use `git stash`, `git reset`, path checkout or path restore in a shared
   tree. Commit coherent changes with plain messages explaining what and why.
-- Write the cheapest meaningful regression test and observe it fail before
-  implementing the behavior. Prefer exact structure, bytes or pixels, then
-  content. In browser tests, assert visibility before reading text. Name the
+- An implementation lane writes the cheapest meaningful regression test and
+  observes it fail before implementing the behavior. Prefer exact structure,
+  bytes or pixels, then content. In browser tests, assert visibility before reading text. Name the
   replacement test or behavior whenever deleting or rewriting a test, and
   explain why the old assertion was dropped.
 - Keep timeouts, retries and skips unchanged in a lane. The orchestrator may
@@ -220,10 +225,11 @@ determine whether the task succeeded.
   coverage. Inspect them before claiming the result. Tests write screenshots
   through `test.info().outputPath(...)`; copy report evidence separately into
   the private folder. Use before and after pairs when comparing a change.
-- Begin the report with a summary of at most 150 words: verdict, commits,
-  observed gates, and open questions. Follow with file changes,
-  fail-first evidence, test replacements, screenshot evidence, failures and
-  uncertainties. Keep private reports out of git.
+- A review or read-only lane may write its own assigned report file under
+  `.local/`, and nothing else.
+- Open the report as [Working together](../AGENTS.md#working-together) specifies,
+  followed by file changes, fail-first evidence, test replacements, screenshot
+  evidence, failures and uncertainties. Keep private reports out of git.
 
 ## Orchestrate
 

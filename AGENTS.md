@@ -65,7 +65,7 @@ fails under CI load. Gather every review finding (automated threads, outside rev
 whole-change review) before pushing, because each push reruns the whole CI matrix.
 
 Ask before pushing, opening or merging pull requests, tagging, deleting shared branches, spending on
-paid model or image APIs, or acting outside the repository.
+paid model or image APIs, or taking actions outside the repository that change or publish something.
 
 Before a release candidate is accepted, answer every automated review thread against the code. Then
 review the whole change once for failure paths, a second tab, and closing before a write commits;
@@ -169,7 +169,7 @@ saves.
 
 The audience includes children building their first game, so copy is plain and calm.
 
-- Headings and labels name a thing in one or two words. Body text says what a thing is or does,
+- Use short, calm headings and labels that name the thing clearly. Body text says what a thing is or does,
   briefly and positively. The `plain-copy-*` ast-grep rules flag definitions by negation and dash
   asides.
 - Say a thing once. A label, caption or action repeated on every item of a list belongs in the
