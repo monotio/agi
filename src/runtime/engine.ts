@@ -3380,7 +3380,12 @@ export class Engine {
     );
     saved.window = win;
     stampWindow(this.text, win, lines, attr(0, 15));
-    if (!forceAcknowledgement && this.flags[15] !== 0) {
+    // Early PC print uses the same mode selection as its confirmations.
+    // Amiga 2.082 ordinary print retains its separate f15 path.
+    // docs/fidelity.md: Print handler output modes (F-text-print-modes-early).
+    const modes =
+      this.profile.presentation === "pc" ? this.profile.confirmPromptModes : "timed-and-f15";
+    if (!forceAcknowledgement && modes === "timed-and-f15" && this.flags[15] !== 0) {
       // A print that opens a non-blocking window consumes f15 as it returns.
       // docs/fidelity.md: print-handler-output-modes
       if (this.profile.printConsumesF15) this.flags[15] = 0;
@@ -3394,7 +3399,7 @@ export class Engine {
         // blocking print and for version alike; the engine-owned
         // confirmations and the pause window wait without a timeout.
         remainingMs:
-          (!forceAcknowledgement || timed) && this.vars[21] !== 0
+          (!forceAcknowledgement || timed) && modes !== "none" && this.vars[21] !== 0
             ? (this.vars[21]! * this.timing.gameSecondMs) / 2
             : null,
         pauseClock,
