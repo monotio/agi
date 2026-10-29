@@ -18,7 +18,7 @@ Agent-tool subagents and never go through it.
 | Model (how it runs)                                      | Use it for                                              | Watch for                                                                                                                                                                                              |
 | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | GPT-6.1 Sol (`sol-low`, `sol-medium`, `sol-high`, Codex) | Engine, worker, integration and well-specified fixes    | Long final reports: read its diff, not its summary                                                                                                                                                     |
-| GPT-6 Astra (`astra-high`, Codex)                        | Reviews, design and diagnosis; it can also fix          |                                                                                                                                                                                                        |
+| GPT-6 Astra (`astra-high`, Codex)                        | Reviews, design and diagnosis; it can also fix          | Same vendor as Sol: pair it with another vendor's reviewer on Sol-built deep changes when quota allows                                                                                                 |
 | Devin SWE-2 (`swe2-high`)                                | Mechanical lanes such as dependency bumps and renames   | Only `swe-2-high`: every other Devin model bills API spend. It stalled for 6 hours on UI work. `run-lane.sh` can return while `devin acp` keeps running, so check `pgrep -fl devin` before relaunching |
 | Gemini 4 Argon (`argon-high`, agy)                       | Reviews                                                 | Slow and token-heavy as an implementer; prints only when the run ends, so an empty log is not a hang                                                                                                   |
 | Kimi K3.1 Pro (`kimi-high`, omp)                         | Bounded implementation with a clear acceptance test     | Read its diff line by line; brief it to run every spec that mounts the touched component                                                                                                               |
@@ -29,7 +29,19 @@ Agent-tool subagents and never go through it.
 When a lane fails review or the gate, consider giving the fix to a stronger
 model: Devin → Sol high → Astra high. Sol low or medium goes to Sol high. The fix
 lane's report names the root cause (for example, only new tests were run) so the
-brief or the checks change too; a stronger model is never the diagnosis.
+brief or the checks change too; a stronger model is never the diagnosis. After two
+fix rounds in the same mechanism, stop and check the design from the player's side
+before a third: reviews that check code against its brief never question the
+design itself.
+
+### Agent CLI facts
+
+- `agy -p` with `--dangerously-skip-permissions` runs unattended and has no print
+  timeout by default. `--output-format json` returns a `conversation_id`; resume a
+  lane with `--conversation <id>`. Never use `--mode auto` or `--mode accept-edits`
+  unattended, because both pause for confirmation. `--sandbox` denies file reads in
+  print mode.
+- Resume a Devin lane that stopped after planning with `devin -c -p`.
 
 ### Review rule
 
