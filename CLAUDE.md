@@ -37,8 +37,10 @@ to notes about working in Claude Code.
   step, and start the next phase from it instead of letting a long session compact.
 - Post a short update when something changes: a gate result, a decision, a blocker. Define a term
   the first time it appears, and let a subagent read long reports and return a short verdict.
-- Evidence screenshots come from headless Playwright. Use the browser extension for interactive QA
-  only, and not while the owner is typing on the same machine: a headed browser takes focus.
+- Evidence screenshots come from headless Playwright; a headed browser or native GPU capture is
+  allowed where docs/testing.md needs it (Linux WebKit canvas captures). Use the browser extension
+  for interactive QA only. On a shared workstation a headed browser takes focus, so ask first or
+  use a container.
 - QA with paid keys runs on a dev server started with `AGI_DEV_KEYS=1` from a login shell
   (`zsh -ic '... npm run dev'`), so the owner's keys are in its environment. Before handing QA to
   an agent, confirm AI settings show a key. A QA run that finds no key reports a setup fault to
