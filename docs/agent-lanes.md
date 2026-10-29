@@ -132,8 +132,9 @@ Every brief points here. A lane:
 - Every wait loop has a deadline.
 - A lane stops its own background processes and servers before it finishes, by
   PID, never by name.
-- One writer per checkout: `run-lane.sh` refuses to start while another lane's
-  recorded PID is alive for the same worktree.
+- Each lane writes in its own worktree. `run-lane.sh` refuses to relaunch a lane
+  while its previous run is still alive, because a detached agent can outlive its
+  runner.
 - Run browsers headless. A headed browser on a shared workstation takes keyboard
   focus from whoever is working there; use a container or ask first.
 

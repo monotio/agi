@@ -92,16 +92,6 @@ live() {
   return 0
 }
 
-# One writer per checkout.
-for other in "$pids"/*.worktree; do
-  [ -f "$other" ] || continue
-  other_name=$(basename "$other" .worktree)
-  [ "$other_name" != "$name" ] || continue
-  if [ "$(cat "$other")" = "$worktree" ] && live "$other_name"; then
-    fail "Lane $other_name is still running in $worktree; one writer per checkout."
-  fi
-done
-
 if [ -e "$log" ] && [ "$rerun" -ne 1 ]; then
   fail "Lane log already exists: $log (archive it or pass --rerun)."
 fi

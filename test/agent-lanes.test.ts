@@ -219,20 +219,20 @@ test("an explicit worktree is accepted on any branch, the main checkout included
   assert.equal(recorded().at(-1), join(lanes, "fine"));
 });
 
-test("a second lane on a worktree with a live lane is refused until the first ends", () => {
+test("a lane cannot be relaunched while its previous run lives, and other lanes may share its worktree", () => {
+  // The recorded incident: a detached agent kept working after its runner returned, so a
+  // relaunch would have put two copies of one lane side by side. Different lanes in one
+  // worktree are the orchestrator's choice (read-only probes, for example).
   writeFileSync(hold, "");
   const first = runLane(["first", "sol-high", brief(), repo]);
   assert.equal(first.status, 0, first.stderr);
   const pid = Number(readFileSync(join(notes(), "pids", "first.pid"), "utf8"));
   process.kill(pid, 0);
-  const second = runLane(["second", "astra-high", brief(), repo]);
-  assert.equal(second.status, 1);
-  assert.match(second.stderr, /Lane first is still running in .*one writer per checkout/);
-  assert.equal(existsSync(join(notes(), "reports", "second.log")), false);
-  // A different checkout is not blocked by it.
-  mkdirSync(join(sandbox, "elsewhere"), { recursive: true });
+  const relaunch = runLane(["--rerun", "first", "sol-high", brief(), repo]);
+  assert.equal(relaunch.status, 1);
+  assert.match(relaunch.stderr, /Lane pid still exists/);
   assert.equal(
-    runLane(["--wait", "third", "sol-high", brief(), join(sandbox, "elsewhere")], {
+    runLane(["--wait", "second", "astra-high", brief(), repo], {
       FAKE_HOLD_FILE: join(sandbox, "no-hold"),
     }).status,
     0,
@@ -241,7 +241,7 @@ test("a second lane on a worktree with a live lane is refused until the first en
   for (let i = 0; i < 100 && !existsSync(join(notes(), "pids", "first.exit")); i++) {
     spawnSync("sleep", ["0.1"]);
   }
-  assert.equal(runLane(["--wait", "second", "astra-high", brief(), repo]).status, 0);
+  assert.equal(runLane(["--wait", "--rerun", "first", "sol-high", brief(), repo]).status, 0);
 });
 
 test("--rerun archives the stopped run's log, pid, identity, exit and worktree files", () => {
