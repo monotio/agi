@@ -14,6 +14,10 @@ to notes about working in Claude Code.
   `pgrep -f <pattern>` loop can match its own command line and never end.
 - Knowledge goes in the repo. Local memory holds only facts specific to one machine and private
   context the owner keeps out of the public repo.
+- Put every question, approval and sign-off to the owner through `AskUserQuestion`, never in prose:
+  mark the recommended option and give the reason for it in the option's description. Group long
+  lists (for example Decisions to confirm) into a few questions, with an option to go through a
+  group item by item.
 - If the permission classifier denies an action, immediately ask the owner through
   `AskUserQuestion`, naming the action and what it touches. Explain the denial and request approval;
   retry only after approval. Never work around it or leave it for the final summary.
