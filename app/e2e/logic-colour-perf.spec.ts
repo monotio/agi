@@ -1,3 +1,5 @@
+import { recordPerformance } from "./performanceTrend.ts";
+import { DEADLINES } from "./deadlines.ts";
 import type { Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
@@ -23,7 +25,9 @@ async function basic(page: Page) {
       profileId: "2.936",
     });
   }, host);
-  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible({
+    timeout: DEADLINES.editor,
+  });
 }
 
 test("LOGIC superseding a semantic request keeps previous tokens", async ({ page }) => {
@@ -150,7 +154,9 @@ for (const [name, hash, key] of [
         },
       },
     );
-    await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+    await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible({
+      timeout: DEADLINES.editor,
+    });
     const result = await page.evaluate(async () => {
       const h = (window as unknown as PerfWindow).logicPerf;
       await h.tokens();
@@ -199,10 +205,13 @@ for (const [name, hash, key] of [
       };
     });
     console.log(`[logic-perf] ${name} ${selected} ${JSON.stringify(result)}`);
-    expect(Math.max(...result.costs)).toBeLessThan(50);
-    expect(result.checked).toBeLessThan(450);
+    await recordPerformance("logic-colour", {
+      editMs: result.costs,
+      checkedMs: result.checked,
+      colourMs: result.colourMs,
+    });
+    expect(result.lexical).toBe(true);
     expect(result.comment).toBe(true);
     expect(result.colourMs).not.toBeNull();
-    expect(result.colourMs!).toBeLessThan(450);
   });
 }

@@ -1,3 +1,4 @@
+import { DEADLINES } from "./deadlines.ts";
 import { test, expect } from "./test.ts";
 import type { Page } from "@playwright/test";
 import type { editor as monacoEditor } from "monaco-editor/editor/editor.api";
@@ -53,10 +54,10 @@ test("the LOGIC editor's context menu draws above the workspace @webkit-desktop"
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("part-room:1:logic").click();
   const editor = page.getByTestId("workspace-logic-editor");
-  await expect(editor).toBeVisible();
+  await expect(editor.locator(".monaco-editor")).toBeVisible({ timeout: DEADLINES.editor });
   // In a short window the menu is taller than the editor and reaches up over the
   // tabs and the context row.
   const area = (await editor.boundingBox())!;
@@ -103,9 +104,11 @@ test("Find references opens the app uses list from the menu and keyboard @webkit
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("part-room:1:logic").click();
-  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible({
+    timeout: DEADLINES.editor,
+  });
   await page.evaluate(async () => {
     const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
     const editor = monaco.editor.getEditors().find((editor) => editor.getDomNode()?.offsetParent)!;
@@ -178,10 +181,10 @@ test("completion near the top of a short editor is drawn whole, and typing shows
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("part-room:1:logic").click();
   const editor = page.getByTestId("workspace-logic-editor");
-  await expect(editor).toBeVisible();
+  await expect(editor.locator(".monaco-editor")).toBeVisible({ timeout: DEADLINES.editor });
   await holdNextCompletion(page);
   const area = (await editor.boundingBox())!;
   await page.mouse.click(area.x + 200, area.y + area.height - 12);
@@ -247,9 +250,11 @@ test("completion resumes inside a word and accepts its existing suffix @webkit-d
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("part-room:1:logic").click();
-  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible({
+    timeout: DEADLINES.editor,
+  });
   await holdNextCompletion(page);
   await page.evaluate(async () => {
     const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
@@ -313,9 +318,11 @@ test("completion resumes while the previous list is still showing @webkit-deskto
   await page.goto("/#create-adventure");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("part-room:1:logic").click();
-  await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+  await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible({
+    timeout: DEADLINES.editor,
+  });
   await page.evaluate(async () => {
     const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
     const editor = monaco.editor
@@ -346,9 +353,11 @@ for (const key of ["Escape", "Home"]) {
     await page.goto("/#create-adventure");
     await page.getByTestId("local-create-kind-starter").click();
     await page.getByRole("button", { name: "Start building", exact: true }).click();
-    await waitForRoom(page, 1);
+    await waitForRoom(page, 1, { coldBoot: true });
     await page.getByTestId("part-room:1:logic").click();
-    await expect(page.getByTestId("workspace-logic-editor")).toBeVisible();
+    await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible({
+      timeout: DEADLINES.editor,
+    });
     await holdNextCompletion(page);
     await page.evaluate(async () => {
       const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");

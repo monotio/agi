@@ -37,7 +37,7 @@ npm run test:app                              # app unit tests
 npm run test:e2e                              # Playwright on its own `vite --mode test` server
 npm --prefix app run e2e -- e2e/<file>.spec.ts               # one browser spec
 npm --prefix app run e2e:webkit                              # WebKit: tests tagged @webkit-desktop or @phone
-npm --prefix app run e2e:perf                 # timing budgets, alone on one worker
+npm --prefix app run e2e:perf                 # performance trends, alone on one worker
 npm --prefix app run build && npm run check:bundle           # build and bundle boundaries
 ```
 
@@ -215,9 +215,11 @@ The audience includes children building their first game, so copy is plain and c
 - A recurring model failure becomes a stored bad case in `evals/fixtures/bad-cases/`, replayed by
   `npm run eval:replay`. A recurring code defect becomes a lint or ast-grep rule or a permanent
   test.
-- Budgets are a heads-up: a bundle over budget warns and fails only 10% beyond it, and timing
-  budgets keep about three times the worst measured run. Raise a budget when its warning recurs, not
-  by the size of one change.
+- Budgets are a heads-up: a bundle over budget warns and fails only 10% beyond it. Raise a bundle
+  budget when its warning recurs, not by the size of one change. Browser performance asserts work
+  counts and observable results; elapsed times are JSON trends, never single-run pass/fail budgets.
+  Warn on a large relative regression only against main measured in the same job. Step deadlines
+  come from the shared helper by kind of work and allow slow machines to finish; only hangs fail.
 - In-app agent authority lives in code: tools are deny-by-default, the assembler and container
   validate last, and destructive actions are previewed. Validate model and prompt changes against
   the stored bad cases within the authorized spend, and report paid-run limits. Limits on agents

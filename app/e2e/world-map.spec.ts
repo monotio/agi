@@ -1,3 +1,5 @@
+import { DEADLINES } from "./deadlines.ts";
+import { recordPerformance } from "./performanceTrend.ts";
 import { expect, test } from "./test.ts";
 import type { Page } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
@@ -720,7 +722,9 @@ test("cold open, warm open and select stay fast on the largest synthetic map", a
     await expect(page.getByTestId("world-map")).toBeVisible();
     await page.getByTestId("btn-world-plan").click();
     await expect(page.getByTestId("world-map")).toBeVisible();
-    await expect(page.locator(".map-list-item").nth(200)).toBeVisible();
+    await expect(page.locator(".map-list-item").nth(200)).toBeVisible({
+      timeout: DEADLINES.analysis,
+    });
   };
 
   const coldMs = await timed(openMap);
@@ -740,10 +744,7 @@ test("cold open, warm open and select stay fast on the largest synthetic map", a
   ] as const) {
     info.annotations.push({ type: `map ${name} (ms, 256 rooms, chromium)`, description: `${ms}` });
   }
-  // Provisional targets: warm open < 200 ms, feedback < 100 ms. The hard bound
-  // is a smoke ceiling so the run reports the measured value, not a guess.
-  expect(warmMs).toBeLessThan(2000);
-  expect(selectMs).toBeLessThan(1000);
+  await recordPerformance("world-map-dense", { coldMs, warmMs, selectMs });
   await page.screenshot({ path: test.info().outputPath("world-map-dense-256.png") });
 });
 
@@ -800,7 +801,7 @@ test("a pictured map past the old static cache stays responsive", async ({ page 
     await expect(page.getByTestId("world-map")).toBeVisible();
     await page.getByTestId("btn-world-plan").click();
     await expect(page.getByTestId("world-map")).toBeVisible();
-    await expect(thumbs).toHaveCount(ROOMS, { timeout: 5000 });
+    await expect(thumbs).toHaveCount(ROOMS, { timeout: DEADLINES.analysis });
   };
 
   const coldMs = await timed(openMap);
@@ -823,7 +824,6 @@ test("a pictured map past the old static cache stays responsive", async ({ page 
       description: `${ms}`,
     });
   }
-  expect(warmMs).toBeLessThan(2000);
-  expect(selectMs).toBeLessThan(1000);
+  await recordPerformance("world-map-pictured", { coldMs, warmMs, selectMs });
   await page.screenshot({ path: test.info().outputPath("world-map-pictured-140.png") });
 });

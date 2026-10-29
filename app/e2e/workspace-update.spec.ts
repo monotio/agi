@@ -1,3 +1,4 @@
+import { DEADLINES } from "./deadlines.ts";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./test.ts";
 import { isolateStorage, waitForRoom, workspaceSaved, textHook } from "./engineProbe.ts";
@@ -17,9 +18,9 @@ async function starter(page: Page): Promise<void> {
     .fill("Update proof");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
-  await waitForRoom(page, 1);
+  await waitForRoom(page, 1, { coldBoot: true });
   if (page.viewportSize()!.width <= 600) await page.getByTestId("workspace-parts").click();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect(page.getByTestId("parts-list")).toBeVisible({ timeout: DEADLINES.project });
   await expect
     .poll(() =>
       page.evaluate(
@@ -283,7 +284,7 @@ test("reopening restores a saved draft and its dot while the game keeps its last
   await replaceWorkspaceDocument(page, "logic:1", `// Restored draft\n${before}`, false);
   await workspaceSaved(page);
   await page.reload();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect(page.getByTestId("parts-list")).toBeVisible({ timeout: DEADLINES.project });
   await expect(page.getByTestId("part-room:1:logic").getByLabel("Pending change")).toBeVisible();
   expect(await runningWorkspaceDocument(page, "logic:1")).toBe(before);
   await openWorkspaceLogic(page);

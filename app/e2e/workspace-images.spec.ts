@@ -1,3 +1,4 @@
+import { DEADLINES } from "./deadlines.ts";
 import { test, expect } from "./test.ts";
 import { isolateStorage, workspaceUpdated, textHook } from "./engineProbe.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
@@ -18,7 +19,7 @@ async function start(page: Page) {
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
-  await expect(page.getByTestId("input-line")).toBeEnabled();
+  await expect(page.getByTestId("input-line")).toBeEnabled({ timeout: DEADLINES.project });
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect
     .poll(() =>
@@ -64,9 +65,11 @@ test("trace an attachment and draw over it with normal tools @phone", async ({ p
   await start(page);
   await blankRoom(page);
   await page.getByTestId("part-room:1:picture:1").click();
-  await page.getByRole("button", { name: "Trace an image", exact: true }).click({ timeout: 8000 });
+  await page
+    .getByRole("button", { name: "Trace an image", exact: true })
+    .click({ timeout: DEADLINES.image });
   await upload(page);
-  await expect(page.getByTestId("trace-opacity")).toBeVisible();
+  await expect(page.getByTestId("trace-opacity")).toBeVisible({ timeout: DEADLINES.image });
   await workspaceUpdated(page);
   await page.getByTestId("trace-opacity").fill("0.7");
   await expect
@@ -162,7 +165,7 @@ test("trace an attachment and draw over it with normal tools @phone", async ({ p
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.7");
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(page.getByTestId("trace-opacity")).toBeVisible();
+  await expect(page.getByTestId("trace-opacity")).toBeVisible({ timeout: DEADLINES.image });
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.4");
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(page.getByTestId("trace-opacity")).toHaveValue("0.7");
@@ -195,9 +198,9 @@ test("make a four-cel walk loop and preview it on the running hero @phone", asyn
   await page.getByTestId("part-view:0").click();
   await page
     .getByRole("button", { name: "Make cels from an image", exact: true })
-    .click({ timeout: 8000 });
+    .click({ timeout: DEADLINES.image });
   await upload(page);
-  await expect(page.getByTestId("image-cel")).toHaveCount(4);
+  await expect(page.getByTestId("image-cel")).toHaveCount(4, { timeout: DEADLINES.image });
   const toggle = page.getByRole("button", { name: "Pause animation", exact: true });
   await expect(toggle.locator("svg")).toBeVisible();
   await toggle.click();
@@ -281,7 +284,7 @@ test("make a four-cel walk loop and preview it on the running hero @phone", asyn
         if (previewStarted && colour !== undefined) colours.add(colour);
         return [...colours].sort((a, b) => a - b);
       },
-      { intervals: [80], timeout: 8000 },
+      { intervals: [80], timeout: DEADLINES.image },
     )
     .toEqual([4, 6]);
   await imageShot(page, "walk-preview");
@@ -375,7 +378,9 @@ test("Generate sends one styled request and Use image opens tracing @webkit-desk
   await page.locator('[data-layer="visual"] canvas').hover();
   const normalCanvas = (await page.locator('[data-layer="visual"] canvas').boundingBox())!;
   const normalEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
-  await page.getByRole("button", { name: "Generate", exact: true }).click({ timeout: 8000 });
+  await page
+    .getByRole("button", { name: "Generate", exact: true })
+    .click({ timeout: DEADLINES.image });
   await page.getByTestId("generate-prompt").fill("A tree reference");
   await page.getByTestId("generate-review").click();
   await expect(page.getByTestId("generate-review-sheet")).toHaveCount(0);
@@ -408,7 +413,7 @@ test("Generate sends one styled request and Use image opens tracing @webkit-desk
   await page.evaluate(
     () => (window as unknown as { traceAdmission: Promise<void> }).traceAdmission,
   );
-  await expect(page.getByTestId("trace-opacity")).toBeVisible();
+  await expect(page.getByTestId("trace-opacity")).toBeVisible({ timeout: DEADLINES.image });
   await expect(page.getByTestId("generate-offer")).toBeHidden();
   // Flush the admitted image before checking its saved document.
   await page.evaluate(() =>
@@ -486,7 +491,7 @@ for (const viewport of [
     await page.getByTestId("part-view:0").click();
     await page.getByRole("button", { name: "Make cels from an image", exact: true }).click();
     await upload(page);
-    await expect(page.getByTestId("image-cel")).toHaveCount(4);
+    await expect(page.getByTestId("image-cel")).toHaveCount(4, { timeout: DEADLINES.image });
     const preview = page.getByTestId("image-preview-hero");
     await expect(preview).toHaveText("Preview on hero");
     await preview.scrollIntoViewIfNeeded();

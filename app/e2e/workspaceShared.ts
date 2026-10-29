@@ -11,6 +11,7 @@ import {
   workspaceUpdated,
 } from "./engineProbe.ts";
 import { expect } from "./test.ts";
+import { DEADLINES } from "./deadlines.ts";
 
 export async function focusWorkspaceGame(page: Page): Promise<void> {
   // Agent enables when the Create command adapter has registered its commands.
@@ -52,7 +53,7 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
   if (await show.isVisible()) await show.click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
   await expect(editor.locator('.monaco-editor[role="code"]')).toBeVisible({
-    timeout: FIRST_LOAD_BUDGET_MS,
+    timeout: DEADLINES.editor,
   });
   return editor;
 }

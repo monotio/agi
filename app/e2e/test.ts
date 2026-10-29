@@ -1,4 +1,14 @@
-import { test as base, devices, expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  test as base,
+  devices,
+  expect as baseExpect,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
+
+import { DEADLINES } from "./deadlines.ts";
+
+const expect = baseExpect.configure({ timeout: DEADLINES.ui });
 
 /**
  * Specs that import synthetic, uncatalogued games meet the interpreter-profile
@@ -145,7 +155,7 @@ export const test = base.extend<
   ],
   // The GPU stage draws the picture players see, but most tests read the flat
   // frame copy (engineProbe.ts). Chromium creates the stage only for a test
-  // that sets `test.use({ gpuStage: true })` and for the timing budgets (@perf);
+  // that sets `test.use({ gpuStage: true })` and for performance measurements (@perf);
   // so does desktop WebKit, while phone WebKit always creates it. Test mode reads
   // the flag; builds ignore it.
   gpuStage: [false, { scope: "test", option: true }],

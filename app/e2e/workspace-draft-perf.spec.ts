@@ -1,3 +1,6 @@
+import { recordPerformance } from "./performanceTrend.ts";
+import { DEADLINES } from "./deadlines.ts";
+import { workspaceDocument } from "./workspaceShared.ts";
 import { expect, test } from "./test.ts";
 import { fixtureSkip } from "../../test/fixtures.ts";
 import { loadGame } from "../../test/game-fixture.ts";
@@ -36,11 +39,13 @@ test(
     await expect(page.getByTestId("input-line")).toBeVisible();
     await enterCreateMode(page);
     await expect(page.getByTestId("parts-list")).toBeVisible();
-    await expect(page.getByTestId("parts-list")).toHaveAttribute("data-analysis", "resolved");
+    await expect(page.getByTestId("parts-list")).toHaveAttribute("data-analysis", "resolved", {
+      timeout: DEADLINES.analysis,
+    });
     await page.getByTestId("part-logic:0").click();
-    await expect(
-      page.getByTestId("workspace-logic-editor").locator(".monaco-editor"),
-    ).toBeVisible();
+    await expect(page.getByTestId("workspace-logic-editor").locator(".monaco-editor")).toBeVisible({
+      timeout: DEADLINES.editor,
+    });
     await focusWorkspaceLogic(page);
     await workspaceDocumentEnd(page);
     await page.keyboard.insertText("\n// ");
@@ -76,13 +81,8 @@ test(
     }
     await workspaceSaved(page);
     const strokeMs = ((await mainTime(cdp)) - start) / strokes;
-    console.log(`[draft-perf] keystroke=${keyMs.toFixed(2)}ms stroke=${strokeMs.toFixed(2)}ms`);
-    await test.info().attach("main-thread-per-edit", {
-      body: JSON.stringify({ keyMs, strokeMs }),
-      contentType: "application/json",
-    });
-    // Includes rendering and background saves; three times the measured headroom.
-    expect(keyMs).toBeLessThan(100);
-    expect(strokeMs).toBeLessThan(180);
+    await recordPerformance("draft-edits", { keyMs, strokeMs });
+    expect(await workspaceDocument(page, "logic:0")).toContain(keys);
+    await expect(page.getByTestId("workspace-pending")).toBeVisible();
   },
 );
