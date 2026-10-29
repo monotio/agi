@@ -3278,6 +3278,10 @@ and a persistent window stays open. The first picture after the restart
 dissolves from the kept screen on Amiga and IIgs. The priority plane is not
 rewritten (the restarted game draws a picture before any depth test needs it),
 and the engine takes no History checkpoint until the restarted game draws.
+Host capture tracks whether the surface has a reconstruction witness separately
+from replay length: a resource load, overlay or undrawn authoring request cannot
+make the retained room capturable. The next `draw.pic` replaces the surface and
+restores capture eligibility, subject to the usual continuation and replay limits.
 The engine still empties the script's active pairs and checkpoint, the
 event queue and the block rectangle, and stops tracing; the original keeps
 the first two until the restarted game's `new.room` resets them and leaves
@@ -4900,8 +4904,13 @@ addresses come from the earlier pass and were not re-verified.
   **Host recordings.** An authentic restore rebinds each object's packed loop from the save
   image, so its facing follows the original. A host restore (History, autosave, recordings)
   re-parses every recorded view, which resets the packed headers to the file's orientation, so
-  the engine records each loaded packed view's loop orientation, mirror bit and mirrored state
-  in the replay state (`viewCache.loops`, packed `2.230` only) and puts it back. A recording made
+  the engine records each loaded packed view's loop orientation and mirror bit, plus mirror
+  parity per unique loaded cel, in the replay state (`viewCache.loops`, packed `2.230` only)
+  and puts it back. Distinct loop headers can share only some cel offsets, so cel parity is
+  independent of the headers and shared cels are restored once. The synthetic partial-alias
+  regression keeps a private cel's pixels `[3,4]` after another loop mirrors its shared cel;
+  this establishes the supported layout's host-resume contract, not its prevalence in games.
+  A recording made
   before 1.2.6 has none: the restore selects each active object's loop and cel in object order,
   which reproduces a single alias but not a longer selection history, and its fingerprint is
   checked without the field. Tests: [view-mirror-boundary.test.ts](../test/view-mirror-boundary.test.ts),
