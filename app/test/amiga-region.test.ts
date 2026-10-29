@@ -60,3 +60,13 @@ test("Amiga timing follows another tab's stored choice and removal", () => {
   change("monotio_agi.amigaRegion");
   assert.equal(settings.region.value, "ntsc");
 });
+
+test("clearing storage in another tab resets Amiga timing to NTSC", () => {
+  let saved: string | null = "pal";
+  const events = new EventTarget();
+  const settings = createAmigaRegionSettings({ getItem: () => saved, setItem() {} }, events);
+  assert.equal(settings.region.value, "pal");
+  saved = null;
+  events.dispatchEvent(Object.assign(new Event("storage"), { key: null }));
+  assert.equal(settings.region.value, "ntsc");
+});

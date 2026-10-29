@@ -153,6 +153,10 @@ test("Amiga timing follows another tab and still changes when storage refuses wr
   await expect(region).toHaveValue("pal");
   await other.evaluate(() => localStorage.removeItem("monotio_agi.amigaRegion"));
   await expect(region).toHaveValue("ntsc");
+  await other.evaluate(() => localStorage.setItem("monotio_agi.amigaRegion", "pal"));
+  await expect(region).toHaveValue("pal");
+  await other.evaluate(() => localStorage.clear());
+  await expect(region).toHaveValue("ntsc");
   await page.evaluate(() => {
     const set = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
