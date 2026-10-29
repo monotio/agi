@@ -19,6 +19,7 @@ export function prepareProjectRestart(
   pcDisplay?: PcDisplay,
   /** The running session's host option `adoptDeclaredScriptSize`; a cold boot keeps it. */
   adoptDeclaredScriptSize = false,
+  replayBehavior: Engine["replayBehavior"] = "1.2.6",
 ): Engine {
   const files = canonicalizeCandidateFiles(candidate.files);
   const profile = detectProfileDecision(files, candidate.profile ?? fallbackProfile).profile;
@@ -34,6 +35,7 @@ export function prepareProjectRestart(
   const words = files.get("WORDS.TOK");
   return new Engine(container, host, words === undefined ? new Map() : stageDictionary(words), {
     profile,
+    replayBehavior,
     ...(pcDisplay ? { pcDisplay } : {}),
     ...(adoptDeclaredScriptSize ? { adoptDeclaredScriptSize } : {}),
   });

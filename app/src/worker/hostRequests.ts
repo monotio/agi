@@ -293,6 +293,7 @@ export function createHostRequests(ctx: WorkerContext) {
                 profile: ctx.run.engine.profile,
                 pcDisplay: ctx.run.engine.pcDisplay,
                 adoptDeclaredScriptSize: ctx.run.engine.adoptsDeclaredScriptSize,
+                replayBehavior: ctx.run.engine.replayBehavior,
                 legacyRoomMemory: ctx.run.engine.legacyRoomMemory,
               },
             );
