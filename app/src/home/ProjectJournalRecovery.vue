@@ -8,9 +8,13 @@ import {
   readProjectSaveRecoveries,
 } from "../project/projectSaveJournal.ts";
 import UiButton from "../ui/UiButton.vue";
+import UiDialog from "../ui/UiDialog.vue";
 
 const { projectId } = defineProps<{ projectId: ProjectId | undefined }>();
 const error = ref("");
+const discardOpen = ref(false);
+const discardError = ref("");
+const discardEntries = ref<ReturnType<typeof readProjectSaveRecoveries>>([]);
 const recoveries = ref<ReturnType<typeof readProjectSaveRecoveries>>([]);
 const notices = computed(() => [
   ...new Set(
@@ -34,7 +38,14 @@ function refresh(): void {
     recoveries.value = [];
   }
 }
-watch(() => projectId, refresh, { immediate: true });
+watch(
+  () => projectId,
+  () => {
+    discardOpen.value = false;
+    refresh();
+  },
+  { immediate: true },
+);
 onMounted(() => {
   window.addEventListener("storage", refresh);
   window.addEventListener(PROJECT_SAVE_JOURNAL_EVENT, refresh);
@@ -43,18 +54,28 @@ onUnmounted(() => {
   window.removeEventListener("storage", refresh);
   window.removeEventListener(PROJECT_SAVE_JOURNAL_EVENT, refresh);
 });
-function discard(): void {
-  if (projectId) discardProjectSaveRecoveries(localStorage, projectId, recoveries.value);
-  refresh();
+function askDiscard(): void {
+  discardEntries.value = [...recoveries.value];
+  discardError.value = "";
+  discardOpen.value = true;
 }
-async function download(): Promise<void> {
+function discard(): void {
+  try {
+    if (projectId) discardProjectSaveRecoveries(localStorage, projectId, discardEntries.value);
+    discardOpen.value = false;
+    refresh();
+  } catch {
+    discardError.value = "Browser storage could not discard these edits. Try Discard edits again.";
+  }
+}
+async function download(entries = recoveries.value): Promise<void> {
   error.value = "";
   try {
-    const entries = recoveries.value.map(({ raw }, index) => ({
+    const files = entries.map(({ raw }, index) => ({
       name: `recovery-data/journal-${index + 1}.json`,
       data: new TextEncoder().encode(raw),
     }));
-    const url = URL.createObjectURL(new Blob([buildZip(entries)], { type: "application/zip" }));
+    const url = URL.createObjectURL(new Blob([buildZip(files)], { type: "application/zip" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = "agi-unsaved-edits.zip";
@@ -72,7 +93,27 @@ async function download(): Promise<void> {
     <p v-for="notice in notices" :key="notice">{{ notice }}</p>
     <p>Download pending edits to keep a copy.</p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <UiButton size="sm" @click="download">Download pending edits</UiButton>
-    <UiButton size="sm" @click="discard">Discard edits</UiButton>
+    <UiButton size="sm" @click="download()">Download pending edits</UiButton>
+    <UiButton size="sm" @click="askDiscard">Discard edits</UiButton>
   </div>
+  <UiDialog
+    v-model:open="discardOpen"
+    title="Discard edits?"
+    size="sm"
+    data-testid="discard-edits-dialog"
+  >
+    <p>
+      These pending edits will be removed from this browser. They may be your only copy. This cannot
+      be undone.
+    </p>
+    <p v-if="discardError" role="alert">{{ discardError }}</p>
+    <p v-if="error" role="alert">{{ error }}</p>
+    <template #footer>
+      <UiButton autofocus @click="discardOpen = false">Cancel</UiButton>
+      <UiButton variant="ghost" icon="download" @click="download(discardEntries)"
+        >Download pending edits first</UiButton
+      >
+      <UiButton variant="danger" @click="discard">Discard edits</UiButton>
+    </template>
+  </UiDialog>
 </template>

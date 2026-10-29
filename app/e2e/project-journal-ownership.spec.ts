@@ -161,7 +161,10 @@ test("removal clears ended journals before a recreated project opens", async ({
   expect(result).toEqual({ title: "Recreated", raw: null });
 });
 
-test("a stale journal in the live lifetime offers discard in Create and Home", async ({ page }) => {
+test("pending edits require a choice before irreversible discard @phone @webkit-desktop", async ({
+  page,
+  context,
+}) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page
@@ -217,6 +220,84 @@ test("a stale journal in the live lifetime offers discard in Create and Home", a
     .getByTestId(`saved-game-card-${original.id}`)
     .getByRole("button", { name: "Discard edits" })
     .click();
+  const dialog = page.getByTestId("discard-edits-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("This cannot be undone.");
+  expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(original.raw);
+  for (const [width, height] of [
+    [1063, 815],
+    [1440, 900],
+    [390, 844],
+  ]) {
+    await page.setViewportSize({ width: width!, height: height! });
+    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath(`discard-edits-${width}.png`) });
+  }
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(original.raw);
+  const discard = page
+    .getByTestId(`saved-game-card-${original.id}`)
+    .getByRole("button", { name: "Discard edits", exact: true });
+  await discard.click();
+  await page.reload();
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(original.raw);
+  await discard.click();
+  const downloading = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Download pending edits first", exact: true }).click();
+  expect((await downloading).suggestedFilename()).toBe("agi-unsaved-edits.zip");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await discard.click();
+  // A second tab can add edits while the choice is open. Confirmation covers
+  // only the bytes shown when the dialog opened.
+  const other = await context.newPage();
+  await other.goto("/");
+  await other.evaluate(async ({ key, raw }) => {
+    const { markProjectSaveRecovery } = await import("/src/project/projectSaveJournal.ts");
+    localStorage.setItem(key, raw + " ");
+    markProjectSaveRecovery(localStorage, key, "Project changed in another tab");
+  }, original);
+  await dialog.getByRole("button", { name: "Discard edits", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
+    original.raw + " ",
+  );
+  await other.evaluate(async ({ key, raw }) => {
+    const { markProjectSaveRecovery } = await import("/src/project/projectSaveJournal.ts");
+    localStorage.setItem(key, raw!);
+    markProjectSaveRecovery(localStorage, key, "Project changed in another tab");
+  }, original);
+  await expect(discard).toBeVisible();
+  await discard.click();
+  await page.evaluate(() => {
+    const remove = Storage.prototype.removeItem;
+    Storage.prototype.removeItem = function (key) {
+      if (key.startsWith("monotio_agi.project-writes.")) throw new Error("Browser refused removal");
+      return remove.call(this, key);
+    };
+    Object.assign(window, {
+      restoreRemoval: () => {
+        Storage.prototype.removeItem = remove;
+      },
+    });
+  });
+  await dialog.getByRole("button", { name: "Discard edits", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toHaveText(
+    "Browser storage could not discard these edits. Try Discard edits again.",
+  );
+  for (const [width, height] of [
+    [1063, 815],
+    [1440, 900],
+    [390, 844],
+  ]) {
+    await page.setViewportSize({ width: width!, height: height! });
+    await page.screenshot({ path: test.info().outputPath(`discard-edits-failed-${width}.png`) });
+  }
+  expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(original.raw);
+  await page.evaluate(() => (window as unknown as { restoreRemoval(): void }).restoreRemoval());
+  await dialog.getByRole("button", { name: "Discard edits", exact: true }).click();
   await expect(page.getByTestId("pending-edit-recovery")).toBeHidden();
   expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBeNull();
   expect(
