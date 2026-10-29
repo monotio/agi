@@ -671,7 +671,7 @@ test("F-IN-15: DoMenu Home and End select disabled endpoints only on verified pr
   }
 });
 
-test("F-picture-04: show.pri.screen preserves text window across all 18 binary-verified profiles", () => {
+test("F-picture-04: show.pri.screen preserves the window state each profile's print leaves", () => {
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const profile = PROFILES[id];
     const container = createContainer();
@@ -691,11 +691,19 @@ test("F-picture-04: show.pri.screen preserves text window across all 18 binary-v
     const engine = new Engine(container, host, DICT, { profile });
     host.engine = engine;
     engine.tick();
+    // F-text-print-modes-early: early PC print blocks and closes on ack,
+    // so show.pri.screen reaches an empty overlay on those profiles.
+    const persistent = !["2.001", "2.089", "2.230", "2.272"].includes(id);
+    assert.equal(
+      engine.getPresentation().windowOverlay.some((b) => b !== 0),
+      persistent,
+      id,
+    );
     assert.equal(host.showPriCalls, 1, id);
     engine.ackPrint();
     assert.equal(
       engine.getPresentation().windowOverlay.some((b) => b !== 0),
-      true,
+      persistent,
       `${id}: windowOverlay after show.pri.screen`,
     );
   }
