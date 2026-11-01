@@ -24,7 +24,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
     "monaco-editor": "0.57.0",
-    "openai": "^7.39.0",
+    "openai": "^7.45.1",
     "three": "^0.186.1",
     "vue": "^3.5.44"
   },
