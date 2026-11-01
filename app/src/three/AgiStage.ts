@@ -74,6 +74,24 @@ const CAM_Y = 0.42;
 const LAYER_SPREAD = 0.4;
 export type { StagePick };
 
+/** Release the stage's canvas as well as Three.js's rendering resources, even after a failed start. */
+async function disposeRenderer(renderer: WebGPURenderer): Promise<void> {
+  const backend = renderer.backend as {
+    isWebGLBackend?: boolean;
+    getContext?: () => WebGL2RenderingContext | null;
+    dispose?: () => Promise<void>;
+  };
+  const context = backend.isWebGLBackend ? backend.getContext?.() : null;
+  try {
+    if (renderer.initialized) await renderer.dispose();
+    else await backend.dispose?.();
+  } finally {
+    // Since r187 (three.js #34688), a supplied canvas belongs to the caller:
+    // dispose() leaves its context alive. This stage owns that canvas's lifetime.
+    context?.getExtension("WEBGL_lose_context")?.loseContext();
+  }
+}
+
 /** The CRT tube's character. Sigmas are in frame pixels. */
 const CRT = {
   ...CRT_GLASS,
@@ -854,13 +872,7 @@ export class AgiStage {
         return new AgiStage(renderer, gpu, canvas);
       } catch {
         try {
-          // dispose() restarts initialization through setAnimationLoop on a
-          // failed renderer, leaving a rejected promise outside its return value.
-          if (renderer?.initialized) await renderer.dispose();
-          else {
-            const backend = renderer?.backend as { dispose?: () => Promise<void> } | undefined;
-            await backend?.dispose?.();
-          }
+          if (renderer) await disposeRenderer(renderer);
         } catch {
           // fall through to next backend
         }
@@ -950,7 +962,7 @@ export class AgiStage {
     this.texture.dispose();
     this.glowTexture.dispose();
     try {
-      void this.renderer.dispose().catch(() => {
+      void disposeRenderer(this.renderer).catch(() => {
         // A failed backend can also reject asynchronous teardown.
       });
     } catch {

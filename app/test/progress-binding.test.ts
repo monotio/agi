@@ -328,10 +328,10 @@ test("bindProgressTarget stamps the ephemeral field and clears refusals", () => 
 });
 
 test("bindSavedProgressTarget binds the body's live epoch, refuses missing and deleted", async (t) => {
-  installLocalStorageMock(t);
   const id = testProjectId("bind-target-project");
-  const files = { "WORDS.TOK": Uint8Array.of(1, 2), LOGDIR: Uint8Array.of(3) };
   t.after(() => clearCachedGame(id).catch(() => {}));
+  installLocalStorageMock(t);
+  const files = { "WORDS.TOK": Uint8Array.of(1, 2), LOGDIR: Uint8Array.of(3) };
 
   assert.equal(await bindSavedProgressTarget(id), null, "no body, no target");
 
