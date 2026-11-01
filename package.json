@@ -78,25 +78,26 @@
       "dompurify": "3.4.17"
     },
     "typed-rest-client": {
-      "qs": "6.16.0"
-    }
+      "qs": "6.17.1"
+    },
+    "minimatch": "11.0.3"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.51.0",
     "@eslint/js": "^10.0.1",
-    "@stryker-mutator/core": "^10.0.0",
-    "@types/node": "^26.6.5",
+    "@stryker-mutator/core": "^10.1.1",
+    "@types/node": "^26.6.6",
     "dependency-cruiser": "^18.7.0",
-    "eslint": "^10.13.0",
-    "eslint-plugin-vue": "^10.11.1",
-    "globals": "^17.13.0",
-    "knip": "^6.42.1",
-    "npm-run-all2": "^9.0.3",
+    "eslint": "^10.14.0",
+    "eslint-plugin-vue": "^10.12.0",
+    "globals": "^17.14.0",
+    "knip": "^6.44.1",
+    "npm-run-all2": "^9.0.4",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.0",
-    "vscode-languageserver": "10.1.2",
-    "vscode-languageserver-protocol": "3.18.4",
+    "typescript-eslint": "^8.72.1",
+    "vscode-languageserver": "11.0.0",
+    "vscode-languageserver-protocol": "3.18.5",
     "vue-eslint-parser": "^10.4.1"
   },
   "allowScripts": {

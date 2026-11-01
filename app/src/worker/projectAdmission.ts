@@ -316,7 +316,7 @@ function validateCandidate(
 }
 
 /** Establish the boot image from verified source or exact native documents. */
-export function initializeProjectAdmission(
+function initializeProjectAdmission(
   ctx: WorkerContext,
   lane: ProjectAdmissionState,
   workspace: unknown,

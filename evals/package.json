@@ -15,6 +15,11 @@
     "test": "npm run eval:replay"
   },
   "devDependencies": {
-    "promptfoo": "^0.124.1"
+    "promptfoo": "^0.125.1"
+  },
+  "overrides": {
+    "glob": "14.0.3",
+    "minimatch": "11.0.3",
+    "basic-ftp": "6.2.4"
   }
 }
