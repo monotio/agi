@@ -24,7 +24,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
     "monaco-editor": "0.57.0",
-    "openai": "^7.39.0",
+    "openai": "^7.47.0",
     "three": "^0.186.1",
     "vue": "^3.5.44"
   },
@@ -34,7 +34,7 @@
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/compiler-dom": "^3.5.44",
     "typescript": "~6.0.3",
-    "vite": "^8.3.4",
-    "vue-tsc": "3.3.11"
+    "vite": "^8.3.5",
+    "vue-tsc": "3.3.14"
   }
 }
