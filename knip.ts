@@ -59,10 +59,6 @@ const config: KnipConfig = {
         "providers/genesis-session.ts",
       ],
       project: ["**/*.ts"],
-      // promptfoo is invoked through `npm --prefix evals run eval`; the binary
-      // and dependency are real, only invisible to static analysis.
-      ignoreDependencies: ["promptfoo"],
-      ignoreBinaries: ["promptfoo"],
     },
   },
 };
