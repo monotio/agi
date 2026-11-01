@@ -113,7 +113,7 @@ below.
 | Text, windows and fonts       | [binary-decoded](#original-window-and-status-line-text); the font [recreates the Tandy 1000 SX BIOS design pixel for pixel](#text-beyond-ascii); IBM-BIOS machines draw a different design, not yet recreated | [binary-decoded](#original-window-and-status-line-text); Topaz 8 is [recreated pixel for pixel](#amiga-screen-font-and-pointer) | [binary-decoded](#original-window-and-status-line-text), [MAME cross-checked](#apple-iigs-presentation); the player's `AGIFONT`, or the project font as a fallback |
 | Palette and display adapters  | [binary-decoded](#pc-fonts-and-display-adapters) (the DOS overlays' dispatch verified; the 2.001 booter's adapter census is open; not every adapter offered)                                                  | [binary-decoded](#amiga-screen-font-and-pointer)                                                                                | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
 | Screen geometry               | [binary-decoded](#original-window-and-status-line-text)                                                                                                                                                       | binary-decoded, [MAME cross-checked](#amiga-screen-font-and-pointer)                                                            | binary-decoded, [MAME cross-checked](#apple-iigs-presentation)                                                                                                     |
-| Menus                         | [binary-decoded](#original-input-menu-and-modal-handling) (interaction; layout from the specification)                                                                                                        | binary-decoded, [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                                                 | binary-decoded, [MAME cross-checked](#apple-iigs-presentation); native menus not yet reproduced                                                                    |
+| Menus                         | [binary-decoded](#original-input-menu-and-modal-handling) (interaction; layout from the specification); [kept across restart and restore](#original-menu-across-restart-and-restore)                          | binary-decoded, [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                                                 | binary-decoded, [MAME cross-checked](#apple-iigs-presentation); native menus not yet reproduced                                                                    |
 | Save and restore dialogs      | [binary-decoded](#original-save-and-restart-audit) (files, timing and keys; selector from the specification)                                                                                                  | binary-decoded, [MAME cross-checked](#original-amiga-save-and-restore-dialogs)                                                  | binary-decoded, [MAME cross-checked](#original-save-file-interoperability); the Standard File window not yet reproduced                                            |
 | Keyboard                      | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                                                                     | [binary-decoded](#original-input-menu-and-modal-handling)                                                                       | [binary-decoded](#original-input-menu-and-modal-handling)                                                                                                          |
 | Mouse and touch               | [binary-decoded](#original-click-to-walk) (no pointer input)                                                                                                                                                  | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#original-amiga-menu-strip-and-pull-downs)                      | [binary-decoded](#original-click-to-walk), [MAME cross-checked](#apple-iigs-presentation); the original pointer stays divergent                                    |
@@ -137,7 +137,8 @@ Planned for a later release:
 - the IBM PC BIOS 8 × 8 design for EGA and CGA (the recreated font is the
   [Tandy 1000 SX design](#pc-fonts-and-display-adapters))
 - the Apple IIgs
-  [native menus and the Standard File window](#apple-iigs-presentation)
+  [native menus and the Standard File window](#apple-iigs-presentation), and
+  the buttons of its [restart dialog](#persistence-verdicts)
 - resumable checkpoints taken while a native menu is open
 - the `.SAV` panel
 - a disk-prompt setting (the originals'
@@ -498,7 +499,12 @@ random-number state is not among them. Restoring reads the blocks back, replays
 the resource-loading history, and resumes loaded logic at saved offsets. A
 successful restore or restart sets f12 or f6 and restarts logic 0 in the same
 cycle, abandoning the old script position. Restart keeps the random stream and
-the sound preference. The game signature that `set.game.id` sets names the save
+the sound preference. Restart and restore both keep the game's menu, which is
+not part of a save, and both leave every menu item enabled; the game disables
+items again itself. Restart clears variables, flags, controllers and objects
+but leaves the screen, the status line, text mode, the script buffer size, key
+mappings and strings, and the last command for echo as they were; the old room
+stays on screen until the restarted game draws. The game signature that `set.game.id` sets names the save
 files and is part of the first block, so a restore brings it back; the save
 selector lists only files carrying the running game's signature.
 
@@ -510,6 +516,8 @@ as an ordinary message window.
 **Evidence:**
 [Original save and restart audit](#original-save-and-restart-audit),
 [Startup and reconstruction execution](#startup-and-reconstruction-execution),
+[Original menu across restart and restore](#original-menu-across-restart-and-restore),
+[Original restart state boundary](#original-restart-state-boundary),
 [Game signature across restore](#game-signature-across-restore)
 and [Restore error window](#restore-error-window).
 
@@ -1044,16 +1052,15 @@ xmas-dos-2.230 AGI.EXE       875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de133224
 xmas-dos-2.230 AGIDATA.OVL   33a327736deb611df48d0d3232c1958b00af1b1cae5fba45ed3aadf88871af8a
 xmas-dos-2.272 AGI.EXE       a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a
 xmas-dos-2.272 AGIDATA.OVL   2e2a695a4da7d545c52ea0c01556d198b6d0c3f7eba19e6cbc2b65642616ec40
-kq2-dos-2.411 AGIDATA.OVL    44ff0a357fa1c764e1b187aa3abcc25433b982e12ba8f735bf510fd5bb7991aa
+kq2-dos-2.411 AGIDATA.OVL    1201f66b68f7f6e4ec24abadee5e6fe2d4390315cc56605d8b0b1e7828c96631
 lsl1-dos-2.440 AGI decoded   c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676
-lsl1-dos-2.440 AGIDATA.OVL   b9999fd6f49e8a7f5cb6fd5f8ca8948853cd2565134e699b6a839524c64fb093
-pq1 AGI (MZ, 2.903, 37664B)  db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7
-pq1 START.EXE (6160B stub)   6105828191e90d111a14a44149a3a8a359ef9eb4a8fdbe11f0fb4446f435d05a
+lsl1-dos-2.440 AGIDATA.OVL   5b696520d68d6b843711184a63c85cc313818e08cd0afc0452225a97939483a4
+pq1 START.EXE (MZ, 2.903, 39424B)  db97accc32e48bac0c759a6364f48790830c90f14a1486be53d1f0b7899730a7
 pq1 AGIDATA.OVL              df46a3f13c360045b2d355e97bfad6cb6e1df77ee614fed7b4b1f89778425db3
 kq1-dos-2.917 AGIDATA.OVL    f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383
 kq3-dos-2.936 AGIDATA.OVL    b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9
-kq4-dos-3.002.086 AGIDATA    0bc3db5c56c8e0f18757007ce7b703d3ef97b4bc2f5fa82a5967f17226d615c0
-demopac4-3.002.102 AGIDATA   f05c83c5be50793b2ef8c6b21a35c867121e9d0ba566f9cb3601980d012071a8
+kq4-dos-3.002.086 AGIDATA    9738d643dd284d622cee7ee9897a4578ab27d376487ef38ed835c14dcf88d733
+demopac4-3.002.102 AGIDATA   1251a5365d5c74232bfb8b01819f85c31ff25c9cd358e942e349a055bc588ea1
 mh1-dos-3.002.107 AGIDATA    bb22a87cd215ed52154d49754493e0eb2f6be5688411d8f3b7ac17c417ddae1f
 gr1-dos-3.002.149 AGIDATA    914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804
 ```
@@ -2201,8 +2208,9 @@ newlines.
 
 ### Print handler output modes
 
-A print that opens a non-blocking window (f15 set) consumes f15 as it returns, so the next print
-blocks again (profile flag `printConsumesF15`). A timed print (v21 half-seconds) zeroes v21 when its
+On builds supporting f15 output mode, a print that opens a non-blocking window (f15 set)
+consumes f15 as it returns on later PC builds, so the next print blocks again
+(profile flag `printConsumesF15`). A timed print (v21 half-seconds) zeroes v21 when its
 window closes, by timeout or key (profile flag `timedPrintClearsV21`).
 
 KQ4's keyless intro re-arms f15 for every window and reaches interactive play without a keypress.
@@ -2213,6 +2221,10 @@ KQ4's keyless intro re-arms f15 for every window and reaches interactive play wi
 
 | Interpreter build     | f15 reset | v21 clear |
 | --------------------- | --------- | --------- |
+| 2.001                 | —         | —         |
+| 2.089                 | —         | 0x1c24    |
+| 2.230                 | —         | 0x1b66    |
+| 2.272                 | —         | 0x1c02    |
 | 2.411                 | 0x1cb9    | 0x1d2d    |
 | 2.440                 | 0x1ccf    | 0x1d43    |
 | 2.917 / 2.936         | 0x1d0c    | 0x1d80    |
@@ -2222,8 +2234,46 @@ KQ4's keyless intro re-arms f15 for every window and reaches interactive play wi
 
 The 3.002.149 fixture versions and shared handler ranges are compared in
 [mh2-profile.test.ts](../test/mh2-profile.test.ts). At 0x1f94, the call through 0x7804/0x7828 clears
-f15. Both timeout and key acknowledgement reach the v21 clear at 0x2008. Profiles 2.089, 2.230 and
-2.272 retain f15 and v21; their print handlers have not been verified for these side effects.
+f15. Both timeout and key acknowledgement reach the v21 clear at 0x2008. `print` on 2.089
+(`0x1ade` → `0x1ba9`), 2.230 (`0x1a20` → `0x1aeb`) and 2.272 (`0x1abc` → `0x1b87`) calls the same
+shared routine, which zeroes v21 on its timed exit (fact, static; the decoded images in
+[Original restart state boundary](#original-restart-state-boundary)).
+
+**F-text-print-modes-early (fact; engine matches).** Ordinary `print` and `print.v`
+on PC `2.001` call the shared message routine at `0x1b15` (calls at `0x1ade`
+and `0x1b09`). It opens the window, unconditionally waits at `0x40a9`, closes
+at `0x1b38 → 0x1c6d`, and returns. It tests neither f15 nor v21 and clears
+neither. `print.at` and `print.at.v` are beyond this build's action bound.
+On `2.089`, `2.230` and `2.272`, all four print actions reach the shared
+message routine at `0x1ba9`, `0x1aeb` and `0x1b87`; the positioned helpers
+call it at `0x1b91`, `0x1ad3` and `0x1b6f`. None tests f15. These three
+routines test v21 at `0x1bbf`, `0x1b01` and `0x1b9d`, wait for the timer at
+DS `0x129:0x12b` to reach its initial value plus v21 × 10, or for Enter or
+Esc, then zero v21 at `0x1c24`, `0x1b66` and `0x1c02` and close the window.
+The poll returns −1 for other keys, which are dequeued and discarded.
+Native type-1 key words `0x0101`/`0x0301` map to Enter and
+`0x0201`/`0x0401` to Esc before polling (`0x3ea6`, `0x3e2a`, `0x3e88`).
+These numeric aliases do not establish which physical devices produce them.
+
+Static reading and 672 bounded original-code executions cover the ordinary
+handlers, shared wait, event reader, accept/abort normalizer and dequeue,
+with synthetic message lookup, graphics calls, input flush, events and
+clock ticks. f15 `{0,1}`, v21 `{0,4}`, and twelve input cases confirm that
+f15 never skips the wait, 2.001 ignores v21, and all three timed builds
+zero v21 on timeout and both acknowledgement keys. These runs do not test
+drawing, hardware timing or long-timer wraparound. Executable SHA-256: `2.001`
+`424da51a6c161cca8c7dfb9fd78e94b89a1d5301640c845999b54128d1bcd2dd`,
+`2.089` `e31e5e8611c81d58ba2a8fcc63ecdf7ded767814324c66dfd73b6452f7199cb4`,
+`2.230` `875547deb3d83b7ed2dd7578d357f43b6a5843a9ac8de1332245df9f60ff4570`,
+`2.272` `a0c26b5dee86b6761d0996f463d9bed2b93ff356aa4fbb56a55d369501fb588a`;
+see [Verified inputs](#verified-inputs). Code addresses are MZ load-module offsets.
+
+Engine: PC ordinary print shares the `confirmPromptModes` gate with
+confirmations: `"none"` on 2.001 and `"timed"` on 2.089/2.230/2.272.
+`printConsumesF15` stays false on all four; `timedPrintClearsV21` stays false
+on 2.001 and true on the other three. Amiga 2.082 ordinary print keeps its
+separate f15 path. These mode choices follow the original control flow;
+the bounded executions alone would not prove indefinite waiting.
 
 **Tests:** [mh2-profile.test.ts](../test/mh2-profile.test.ts),
 [message-modes.test.ts](../test/message-modes.test.ts),
@@ -3004,8 +3054,12 @@ reset execute. No reseed occurs in this measured reset path, including when
 RNG is zero. The two builds passed 24 combined save/restore and restart cases.
 
 Restart peripheral intercepts are SQ2 `0x5234,0x382e,0x3726,0x30d6,0x930e,0x37f7`
-and GR1 `0x5467,0x3b00,0x3ad9,0x3a29,0x341c,0x9648`; synthetic resource-loading
-intercepts are SQ2 0x3113 and GR1 0x3459. The
+and GR1 `0x5467,0x3b00,0x3ad9,0x3a29,0x341c,0x9648`: StopSnd, CursorState (GR1
+only), EraseCur, CancelLine, CloseHandles, EnableAllItems and WriteCur (SQ2
+only); synthetic resource-loading intercepts are SQ2 0x3113 and GR1 0x3459.
+EnableAllItems is game-visible state, not presentation: because the probe
+stubbed it, its restart cases never observed the menu
+([Original menu across restart and restore](#original-menu-across-restart-and-restore)). The
 [reconstruction and startup execution](#startup-and-reconstruction-execution)
 extends this boundary in these two builds; it does not establish other profiles
 or full-machine startup.
@@ -3022,7 +3076,14 @@ consume→save→consume→restore→consume against the current stream, and res
 at RNG zero followed by a random call: restart consumes no BIOS input; the
 subsequent call consumes exactly one. f9/f6 and timing-word behavior are
 protected through record→seek→resume. Original save block 2 copies raw object
-records; the parameter bank uses the offsets proven in the
+records, so the engine writes each object's last computed band priority, fixed
+or not, and the loop and cel counts its view and loop binding stored, which
+stay after the view is discarded (`ScreenObject.loopCount`/`celCount`), in
+`save.game` images and exported `.SAV` files alike. Host images (History,
+autosave, recordings) keep their released record convention, priority only
+when fixed and counts from the loaded view, so recorded images and their
+fingerprints keep their bytes; the live priority rides in the host envelope.
+The parameter bank uses the offsets proven in the
 [motion audit](#original-motion-and-animation-audit). The released image codec retains private flag packing; the separate
 [original-file API](#original-save-file-interoperability) converts it and verifies
 controlled writer/reader interoperability. Bit 0x8000 still has no established
@@ -3033,6 +3094,201 @@ and excludes it from authentic saves.
 python scripts/probe-interpreter-lifecycle.py /tmp/agi-fixed-sq2.bin
 python scripts/probe-interpreter-lifecycle.py games/gr1/AGI
 ```
+
+### Original menu across restart and restore
+
+**Evidence class:** routine execution (Unicorn 2.1.4) of the complete
+accepted `restart.game` branch in all fifteen PC builds and all six Amiga
+builds, and of the successful restore tail in the eleven PC builds with
+menus, each with the build's own data segment and a write hook on the whole
+address space; the Amiga menu routine executed on a synthetic strip;
+static disassembly of the menu constructors in every build and of the IIgs
+`1.014` paths (`SQ2.SYS16` `e1a2788f92cb7622…`, no Toolbox code executed).
+Executables: KQ2 2.411 `d99938d6622ef185…`, BC 2.439 `e717bfe1059eff8c…`,
+LSL1 2.440 `c70e2f327eaad8db…`, PQ1 2.903 `db97accc32e48bac…`, MUMG 2.915
+`6ee9d44b87e11dd3…`, KQ1 2.917 `bf53a4f98e32a7fe…`, KQ3 2.936
+`4b50c681c224326e…`, KQ4 3.002.086 `b9b27b403015bb18…`, DEMOPAC4 3.002.102
+`7cf6eac9d5bbfbd9…`, MH1 3.002.107 `ed8b58d354e10b06…`, GR1 3.002.149
+`12a52b728b1b1f8d…` (decoded load modules); Amiga 2.082 `80c6b0c4912a4ca5…`,
+2.176 `62b17ac8049a982e…`, 2.202 `557215fbbf431193…`, 2.310
+`72ddbb3ecda804b8…`, 2.316 `7bfa2f36616923a4…`, 2.333 `5ce3b163bd32ee02…`.
+
+**Facts.** The accepted restart branch and the successful restore tail
+each call one routine that enables every item of every heading that has
+items. On PC it walks the heading ring from the strip head and, for each
+heading whose `+0xa` word is nonzero, writes 1 to the `+0xa` word of each of
+its items (GR1 `0x9648`). The heading word marks a heading with items:
+`set.menu` writes 1 and `set.menu`/`submit.menu` write 0 to a heading left
+without items (GR1 `0x94a0..0x94a6`, `0x95fd..0x9603`); PC AGI has no
+heading enable, and the routine writes no heading word. Neither path writes
+the strip head, the submitted flag, the current heading and item, or the
+menu-request latch: each of the strip head and the submitted flag has one
+writer in the whole executable, in `set.menu` and `submit.menu`. The menu
+lives in heap below the mark that `submit.menu` sets (MarkHeap, GR1
+`0x168c`), and the restart's heap reset (GR1 `0x169b`) returns to that mark.
+`set.menu` and `set.menu.item` return at once while the submitted flag is 1
+(GR1 `0x9473`, `0x952d`), so a game that runs its menu code again adds
+nothing. `submit.menu` has no such guard: running it again puts the current
+heading and item back to the first (GR1 `0x960b..0x9618`, static). The
+routine runs only on acceptance and after all save blocks were read; a
+declined prompt, an open failure and a short read jump past it.
+
+| Build                     | Enable all items | Restart call  | Restore call  | Strip head  | Submitted   |
+| ------------------------- | ---------------- | ------------- | ------------- | ----------- | ----------- |
+| 2.411                     | `0x8d63`         | `0x2495`      | `0x2600`      | DS `0x1ac1` | DS `0x1abf` |
+| 2.439                     | `0x8e84`         | `0x24b3`      | `0x261e`      | DS `0x1b6e` | DS `0x1b6c` |
+| 2.440                     | `0x8e8c`         | `0x24bb`      | `0x2626`      | DS `0x1b6e` | DS `0x1b6c` |
+| 2.903                     | `0x9234`         | `0x24f1`      | `0x268c`      | DS `0x1d00` | DS `0x1cfe` |
+| 2.915                     | `0x9233`         | `0x24f6`      | `0x2691`      | DS `0x1d22` | DS `0x1d20` |
+| 2.917                     | `0x9247`         | `0x24f8`      | `0x2693`      | DS `0x1d22` | DS `0x1d20` |
+| 2.936                     | `0x930e`         | `0x24f8`      | `0x2693`      | DS `0x1d2c` | DS `0x1d2a` |
+| 3.002.086                 | `0x974f`         | `0x27b7`      | `0x2970`      | DS `0x1daa` | DS `0x1da8` |
+| 3.002.102                 | `0x9775`         | `0x27cd`      | `0x2986`      | DS `0x1dba` | DS `0x1db8` |
+| 3.002.107                 | `0x97b1`         | `0x27cd`      | `0x2986`      | DS `0x1dbc` | DS `0x1dba` |
+| 3.002.149                 | `0x9648`         | `0x276c`      | `0x2925`      | DS `0x1b71` | DS `0x1b6f` |
+| Amiga 2.082               | `h159+0x300`     | `h45+0x9e`    | `h47+0x1a6`   | `h160+0`    | `h160+0x16` |
+| Amiga 2.176               | `h221+0x2ba`     | `h63+0xb2`    | `h66+0x1b0`   | `h222+0`    | `h223+0x16` |
+| Amiga 2.202               | `h221+0x2e8`     | `h63+0xb2`    | `h66+0x1b0`   | `h223+0`    | `h223+0x16` |
+| Amiga 2.310, 2.316, 2.333 | `h221+0x2e8`     | `h63+0xbc`    | `h66+0x1de`   | `h223+0`    | `h223+0x16` |
+| IIgs 1.014                | `seg3+0x1319`    | `seg2+0x03a2` | `seg2+0x0215` | `$00a4`     | `$00a2`     |
+
+With a planted three-heading menu (one heading without items, two items
+disabled) every PC build ends both paths with all items enabled and the
+heading words, strip head and submitted flag unchanged. The Amiga routine
+calls Intuition `OnMenu` (LVO −192) once per item with `menu & 0x1f |
+item << 5` and subitem 0, the number `enable.item` passes; on the synthetic
+strip each build made exactly one call per item and none for the headings.
+The Amiga menu records come from `AllocRemember`, outside the AGI heap the
+restart rewinds. The IIgs routine calls Toolbox `$300F` (EnableMItem) with
+`id | 0x100` per item and makes no EnableMenu or DrawMenuBar call; its menu
+records come from the C allocator (main+0x2dad), outside the interpreter
+heap. PC 2.001, 2.089 and 2.230 have no menu, and 2.272's menu actions
+build none; their restart branches have no menu call. No save image holds
+item states on any platform.
+
+**Inference.** Intuition's `OnMenu` with subitem 0 on an item without
+subitems enables the item; either way the effect equals `enable.item` on
+every item.
+
+**Engine contract.** On an accepted restart the engine keeps the menu, its
+submitted state, its current heading and item and the menu request, and
+enables every item (`menuActions: "full"`). The game's own `restore.game`
+enables every item after the blocks are read. Host restores (History,
+autosave) restore the recorded menu exactly. Running `submit.menu` again
+puts the current heading and every heading's current item back to the
+first. Test: [menu.test.ts](../test/menu.test.ts),
+[native-menu.test.ts](../test/native-menu.test.ts) and
+[lifecycle-equivalence.test.ts](../test/lifecycle-equivalence.test.ts).
+
+**Not established.** Full-machine execution; the menu's on-screen redraw
+after the enable (the strip is drawn only when the menu opens).
+
+### Original restart state boundary
+
+History segments written before 1.2.6 keep the released 1.2.5 execution rules
+for restart, restore, confirmation prompts, early-PC print modes and repeated
+`submit.menu` calls while playing the recorded part. The optional History boot
+field `replayBehavior` records that choice; omission means 1.2.5. Resume here
+preserves the captured state and continuation, then starts a new segment with
+1.2.6 rules. These rules affect subsequent operations, without reinterpreting the
+state already built by the old recording. Live sessions, autosaves and project
+checkpoints therefore use 1.2.6, including after reopening or reimporting; their
+progress records need no behavior field. Replacement engines carry the live
+session's option. Released marks, checkpoint bytes and fingerprints remain
+unchanged. This extends the existing History version by an optional field,
+following the authored script-buffer precedent, rather than changing the meaning
+of an older recording.
+
+**Evidence class:** routine execution (Unicorn 2.1.4) of the complete
+accepted `restart.game` branch, from the handler entry read off each
+build's action table (slot `0x80`) to its `ret`, in all fifteen PC builds
+with each build's own `AGIDATA.OVL` as the data segment (2.001: the
+booter's data record) and a write hook over the whole address space; only
+the confirmation, the OBJECT loader and the cursor glyph writer were
+intercepted. All six Amiga builds executed the same way under the 68000
+model (the prompt, the OBJECT loader and decrypt, the input-row character
+drawer and the 2.31x title-bar redraw stubbed). IIgs `1.014` static.
+Executables as in [Original menu across restart and
+restore](#original-menu-across-restart-and-restore), plus 2.001 DDP
+`424da51a6c161cca…`, 2.089 SQ1 `e31e5e8611c81d58…`, 2.230 `875547deb3d83b7e…`
+and 2.272 `a0c26b5dee86b676…` (decoded).
+
+**Facts.** Every build's accepted restart returns 0 (the bytecode
+continuation is abandoned) and writes only: vars, flags, the timer dword,
+player control := 1, last picture := 0 and block enabled := 0 in the state
+block, the object table and inventory pointers, the controllers, the cache
+heads (the logic list truncated after its head node), the heap pointer and
+v8, f6, f9 by the saved preference, and the cursor word. No write lands
+outside the data segment on PC: no video memory and no picture buffer. It
+writes none of: horizon, block rectangle coordinates, script capacity and
+active count, the script checkpoint, key map, strings, text colours and
+attribute, input enable and row, prompt character, status enable and row,
+picture base and bottom rows, menu gate and key gate (3.002.102+),
+text-mode byte, priority base and table, `open.dialogue` state, echo
+buffer, event queue, window state, trace-active state, and the logic-0
+cache node, whose scan-start word (`+6`, written by `set.scan.start`, GR1
+`0x154a`) therefore survives. 2.001 has no CancelLine call
+(`0x2176..0x21e7`), so a partly typed line survives its restart. Amiga
+2.310, 2.316 and 2.333 save v7 before ResetAll and put it back after
+(`h63+0x50`, `+0xc2`; executed: v7 = 77 before and after), then redraw the
+title-bar status (`h63+0xcc` → `h82+0x42c`); 2.082, 2.176, 2.202 and the
+IIgs zero v7 with the other variables. The Amiga `configure.screen` row
+words (2.202 `+0x404..+0x409`) are not written. The prompt is the shared message routine, so
+f15 and v21 apply to it ([F-persistence-prompt-modes](#persistence-verdicts)).
+
+| Build                | Restart entry | ResetAll       | Prompt routine |
+| -------------------- | ------------- | -------------- | -------------- |
+| 2.001                | `0x2176`      | `0x106d`       | `0x1b15`       |
+| 2.089                | `0x22ab`      | `0x0ed6`       | `0x1ba9`       |
+| 2.230                | `0x21ed`      | `0x0e50`       | `0x1aeb`       |
+| 2.272                | `0x2289`      | `0x0e7c`       | `0x1b87`       |
+| 2.411                | `0x241f`      | `0x0f6a`       | `0x1c95`       |
+| 2.439                | `0x242d`      | `0x0f6a`       | `0x1ca3`       |
+| 2.440                | `0x2435`      | `0x0f72`       | `0x1cab`       |
+| 2.903                | `0x246b`      | `0x0fa0`       | `0x1ce1`       |
+| 2.915                | `0x2470`      | `0x0fa5`       | `0x1ce6`       |
+| 2.917, 2.936         | `0x2472`      | `0x0fa5`       | `0x1ce8`       |
+| 3.002.086            | `0x272b`      | `0x11e4`       | `0x1fa1`       |
+| 3.002.102, 3.002.107 | `0x2741`      | `0x11fa`       | `0x1fb7`       |
+| 3.002.149            | `0x26e0`      | `0x11b3`       | `0x1f70`       |
+| Amiga 2.082          | `h45+0x000`   | `h23+0x74`     | `h40+0x150`    |
+| Amiga 2.176, 2.202   | `h63+0x000`   | `h33+0x7a`     | `h57+0x150`    |
+| Amiga 2.310, 2.316   | `h63+0x000`   | `h33+0x7a`     | `h57+0x150`    |
+| Amiga 2.333          | `h63+0x000`   | `h33+0x8e`     | `h57+0x150`    |
+| IIgs 1.014           | `seg2+0x0311` | `initseg+0x69` | `seg2+0x2239`  |
+
+**Engine contract.** `restart()` writes the same set: it keeps the script
+capacity, text mode, the status line, the echo line, horizon, priority base
+and table, the key-release gate, the input width and the Amiga picture top,
+keeps logic 0 and its scan start across the cache reset, and sets player
+control. Profile fields:
+
+| Field                  | Value                                                                                             | Evidence                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `restartCancelsLine`   | false on `2.001`, true on every other build                                                       | the 2.001 restart branch has no CancelLine          |
+| `confirmPromptModes`   | `none` on `2.001`; `timed` on `2.089`, `2.230`, `2.272`, `amiga-2.082`; `timed-and-f15` elsewhere | [F-persistence-prompt-modes](#persistence-verdicts) |
+| `restartKeepsMaxScore` | true on `amiga-2.310`, `amiga-2.316`, `amiga-2.333`                                               | v7 saved at `h63+0x50`, restored at `+0xc2`         |
+
+No write lands on the screen, so the engine keeps the shown frame: the cels
+on screen become part of the picture surface, counted as stamps like
+`add.to.pic`'s (CGA cel colours included), the text and window pixels a cel
+was drawn over go with it, and text written later stays on top. The status
+line redraws with the reset score, the input row shows the cancelled line,
+and a persistent window stays open. The first picture after the restart
+dissolves from the kept screen on Amiga and IIgs. The priority plane is not
+rewritten (the restarted game draws a picture before any depth test needs it),
+and the engine takes no History checkpoint until the restarted game draws.
+Host capture tracks whether the surface has a reconstruction witness separately
+from replay length: a resource load, overlay or undrawn authoring request cannot
+make the retained room capturable. The next `draw.pic` replaces the surface and
+restores capture eligibility, subject to the usual continuation and replay limits.
+The engine still empties the script's active pairs and checkpoint, the
+event queue and the block rectangle, and stops tracing; the original keeps
+the first two until the restarted game's `new.room` resets them and leaves
+the others to `new.room` or the save image, so a player sees no difference.
+
+**Not established.** Full-machine execution; the trace-active state; the
+2.001 `max.drawn.objects` storage address.
 
 ### Original save-file interoperability
 
@@ -3167,6 +3423,13 @@ view byte +7; reference word +8; loop/count bytes +0xa/+0xb; reference +0xc; cel
 bytes +0xe/+0xf; reference words +0x10/+0x12/+0x14; previous x/y +0x16/+0x18;
 width/height +0x1a/+0x1c; step-size/cycle-time/cycle-count/direction/motion/cycle/priority
 bytes +0x1e..0x24; flag word +0x25; four parameter bytes +0x27..0x2a.
+A game's restore reads the menu-gate and key-gate words back only on the layouts that carry them
+(3.002.102 and later); on every other layout the live gates survive, as they do in the
+original, whose block 1 does not reach them (`block1CarriesGates`). KQ4 3.002.086's menu
+therefore keeps its live menu setting after the game's restore. Host restores (History,
+autosave and Play from Create) carry both gates in optional replay-state fields `menuGate`
+and `releaseGate`, including on layouts without gate words. Older recordings omit them
+and keep the values left by image restoration; their stored fingerprints remain unchanged.
 Native motion numbers normal/wander/follow/move are 0/1/2/3; cycle numbers forward/
 end-of-loop/reverse-loop/reverse-cycle are 0/1/2/3. Object flag meanings are in the
 [original flag table](#startup-and-reconstruction-execution); the new boundary converts
@@ -3358,17 +3621,21 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   the boot-time data image initializes them.
 - **F-persistence-02 (fact; engine diverges on PC/IIgs).** Restart prompt
   cursor and `CancelLine` ordering (PC `RestartGame`: `2.001` `0x2176`,
-  `2.089` `0x22ab`, `2.230` `0x21ed`, `2.272` `0x2289`, `2.411` `0x2366`,
-  `2.439` `0x236c`, `2.440` `0x2374`, `2.903` `0x246d`, `2.915`/`2.917`/`2.936`
-  `0x2472`, `3.002.086` `0x272b`, `3.002.102`/`3.002.107` `0x2741`,
-  `3.002.149` `0x26e0`; Amiga: `2.082` `h45+0x000`, `2.176..2.333`
-  `h63+0x000`; IIgs `1.014` `seg2+0x01e8`): in every binary, `CancelLine` is
+  `2.089` `0x22ab`, `2.230` `0x21ed`, `2.272` `0x2289`, `2.411` `0x241f`,
+  `2.439` `0x242d`, `2.440` `0x2435`, `2.903` `0x246b`, `2.915` `0x2470`,
+  `2.917`/`2.936` `0x2472`, `3.002.086` `0x272b`, `3.002.102`/`3.002.107`
+  `0x2741`, `3.002.149` `0x26e0`, each from its build's action table at
+  `DS:0x61b` slot `0x80`; Amiga: `2.082` `h45+0x000`, `2.176..2.333`
+  `h63+0x000`; IIgs `1.014` `seg2+0x0311`): in every binary, `CancelLine` is
   never called before the confirmation prompt or on the cancelled branch; it
   runs only on the accepted branch after `WaitAcAb != 0` or the `f16` bypass
   (e.g. `2.089` `0x22d1`, `2.936` `0x24a8`, `3.002.149` `0x2721`, Amiga `2.082`
-  `h45+0x052`, `2.176..2.333` `h63+0x064`, IIgs `1.014` `seg2+0x0242`), so
+  `h45+0x052`, `2.176..2.333` `h63+0x064`, IIgs `1.014` `seg2+0x035d`), so
   declining `restart.game` leaves `INLINE` (`editLine`) and the typed command
-  row intact across all twenty profiles. For cursor visibility, all builds
+  row intact across all twenty profiles. PC `2.001` has no `CancelLine` call at
+  all (`0x2176..0x21e7`), so its accepted restart keeps a partly typed line
+  too (`restartCancelsLine: false`; [Original restart state
+  boundary](#original-restart-state-boundary)). For cursor visibility, all builds
   call `EraseCur` before the prompt; PC `3.002.086..3.002.149` save
   `CursorState()` to `[bp-6]` before `EraseCur` and at the tail call `WriteCur`
   if `[bp-2] != 0 || [bp-6] != 0`, whereas PC `2.089..2.936`, Amiga
@@ -3378,16 +3645,20 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   `restart()` when the prompt is accepted (field `originalRestartRestore`);
   `confirmCursor` is `"erased"` only on the Amiga profiles, so on PC and IIgs
   the cursor stays visible through the prompt and the original's conditional
-  `WriteCur` is not reproduced.
+  `WriteCur` is not reproduced. Whether the original's accepted `CancelLine`
+  clears the input row when input is disabled is unverified; the engine calls
+  `drawInputRow()`, which blanks that row while input is disabled.
 - **F-persistence-03 (fact; engine matches).** Restore tail (PC `RestoreGame`:
   `2.001` `0x21e8..0x22f2`, `2.089` `0x240a..0x24d1`, `2.230` `0x234c..0x2417`,
   `2.272` `0x23e8..0x24b3`, `2.411` `0x24c5..0x2590`, `2.439` `0x24cb..0x2596`,
   `2.440` `0x24d3..0x259e`, `2.903` `0x2642..0x2692`, `2.915` `0x2647..0x2697`,
   `2.917`/`2.936` `0x2647..0x2699`, `3.002.086` `0x2912..0x2976`,
   `3.002.102`/`3.002.107` `0x2928..0x298c`, `3.002.149` `0x28c7..0x292b`;
-  Amiga: `2.082` `h47+0x000..0x290`, `2.176`/`2.202` `h65+0x000..0x288`,
-  `2.310`/`2.316` `h65+0x000..0x2a8`, `2.333` `h65+0x000..0x294`; IIgs `1.014`
-  `savegameseg+0x036e..0x04a8`): after reading the save blocks and closing the
+  Amiga: `2.082` `h47+0x000..0x290`, `2.176`/`2.202` `h66+0x000..0x288`,
+  `2.310`/`2.316` `h66+0x000..0x2a8`, `2.333` `h66+0x000..0x294` (on
+  `2.176..2.333` `h65` is an empty hunk at `h66`'s base); IIgs `1.014`
+  `restore.game` `seg2+0x0000..0x0272`, tail `seg2+0x01bc..0x0272`, from the
+  action table at ~arrays+0x3fe slot `0x7e`): after reading the save blocks and closing the
   file, **PC `2.903..3.002.149`** (`2.903` `0x264a..0x2674`, `2.915`
   `0x264f..0x2679`, `2.917`/`2.936` `0x2651..0x267b`, `3.002.086`
   `0x292e..0x2958`, `3.002.102`/`3.002.107` `0x2944..0x296e`, `3.002.149`
@@ -3398,11 +3669,20 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   `2.001..2.440`, Amiga `2.082..2.333`, and IIgs `1.014`** have no post-read
   `v20`/`v22`/`v26`/`f11` rewrite (`restoreRewritesMachineState: false`),
   preserving those four values from the save file's `VARS`/`FLAGS` blocks. All
-  builds run reconstruction, `ClearControl`, and (`2.089+`, Amiga, IIgs)
-  `Set(12)` (`f12 = 1`); `f2`/`f4`/`v19` are not touched — `f2`/`f4` are cleared
+  builds run reconstruction, which ends with EraseCur, CancelLine, showing the
+  picture buffer, the status line and the input row (GR1 `0x6d40` → `0x3ad9`,
+  `0x6d43` → `0x3a29`, `0x6d46` → `0x576f`, then `0x380f` and `0x3b66`; Amiga
+  2.202 h156+0x28e..0x2b2), so the edit line empties while the echo buffer,
+  which lies outside the save blocks, survives; then `ClearControl`, and (`2.089+`, Amiga, IIgs)
+  `Set(12)` (`f12 = 1`), then CloseHandles (`2.230+`, Amiga, IIgs) and
+  EnableAllItems (PC `2.411+`, Amiga, IIgs; [Original menu across restart and
+  restore](#original-menu-across-restart-and-restore)); `f2`/`f4`/`v19` are not touched — `f2`/`f4` are cleared
   at every main-cycle top (e.g. kq3 `0x161`/`0x16B`). Engine: the authentic
   restore tail clears controllers, applies the per-profile machine-state
-  rewrite when `restoreRewritesMachineState` is true, and sets `f12`, leaving
+  rewrite when `restoreRewritesMachineState` is true, sets `f12` and enables
+  every menu item, counts the restored picture as shown (host restores keep
+  their recorded value), empties the edit line
+  and keeps the echo line, leaving
   `f2`/`f4` to the next cycle top and never writing `v19`; host-image restores
   (history, autosave) always keep the recorded machine vars intact.
 - **F-persistence-04 (fact; engine matches).** Timer across persistence
@@ -3411,28 +3691,68 @@ Static disassembly of the decoded KQ3 2.936 image, MH1 3.002.107 and GR1
   sub-tick remainder word. Accepted restart zeroes both words (0x24DB);
   restore reloads the dword wholesale inside block 1 and leaves it untouched.
 - **F-persistence-05 (fact; engine matches).** Restart/quit prompts (PC
-  `2.001..3.002.149`, Amiga `2.082..2.333`, IIgs `1.014`): on PC and IIgs
-  (`main+0x02d0` → `seg2+0x2239`), restart = `"Press ENTER to restart\nthe
-game.\n\nPress ESC to continue\nthis game."` (e.g. kq3 `DS+0xADB`, IIgs
-  `seg2+0x604c`), and quit (`2.272+`, IIgs; PC `2.001..2.230` `0x0265` exit
-  immediately with no operand via `exitAlwaysImmediate: true`) = `"Press ENTER
-to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`, IIgs
-  `main+0x2299`). Both text prompts use `WindowPrint` with height/width 0
-  (auto-size) and `WaitAcAb`, and `quit(1)` skips the prompt on every build with
-  an operand. On Amiga `2.082..2.333`, `restart.game` (`2.082` `h45+0x000`,
-  `2.176..2.333` `h63+0x000`) passes `"Restart the game?"` (`2.082` `h35+0x2d`,
-  `2.176..2.333` `h49+0x2d`) with Intuition gadget labels `"Restart"`/`"Cancel"`
-  (`h46+0x00`/`+0x08`, `h64+0x00`/`+0x08`) to `WindowPrint` (`h40+0x150` /
-  `h57+0x150`), and `quit` (`2.082` `h2+0x18e`, `2.176`/`2.202` `h2+0x1c2`,
-  `2.310..2.333` `h2+0x1ce`) passes `"Quit the game, or continue?"` (`h3+0x00`)
-  with gadget labels `"Quit"`/`"Continue"` (`h3+0x25`/`+0x2a`); no Amiga binary
-  contains `"Do you want to quit?"`. Engine: `confirmSessionAction` renders
-  `"Restart the game?\n\nRestart    Cancel"` and
-  `"Quit the game, or continue?\n\nQuit               Continue"` on Amiga
-  profiles (`windowFrameGeometry === "amiga"`) and the PC/IIgs Enter/Escape
-  confirmation strings on all other profiles, with Enter accepting and Escape
-  cancelling across all profiles (fields `originalRestartRestore` and
-  `exitAlwaysImmediate`).
+  `2.001..3.002.149`, Amiga `2.082..2.333`, IIgs `1.014`): on PC, restart =
+  `"Press ENTER to restart\nthe game.\n\nPress ESC to continue\nthis game."`
+  (e.g. kq3 `DS+0xADB`), and quit (`2.272+`, IIgs; PC `2.001..2.230` `0x0265`
+  exit immediately with no operand via `exitAlwaysImmediate: true`) =
+  `"Press ENTER to quit.\nPress ESC to keep playing."` (e.g. kq3 `DS+0x5E3`,
+  IIgs `main+0x2299`, ~arrays+0x10db, through `main+0x02d0` →
+  `seg2+0x2239`). Both PC text prompts use `WindowPrint` with height/width 0
+  (auto-size) and `WaitAcAb`, and `quit(1)` skips the prompt on every build
+  with an operand. On Amiga `2.082..2.333`, `restart.game` (`2.082`
+  `h45+0x000`, `2.176..2.333` `h63+0x000`) passes `"Restart the game?"`
+  (`2.082` `h35+0x2d`, `2.176..2.333` `h49+0x2d`) with Intuition gadget labels
+  `"Restart"`/`"Cancel"` (`h46+0x00`/`+0x08`, `h64+0x00`/`+0x08`) to
+  `WindowPrint` (`h40+0x150` / `h57+0x150`), and `quit` (`2.082` `h2+0x18e`,
+  `2.176`/`2.202` `h2+0x1c2`, `2.310..2.333` `h2+0x1ce`) passes `"Quit the
+game, or continue?"` (`h3+0x00`) with gadget labels `"Quit"`/`"Continue"`
+  (`h3+0x25`/`+0x2a`); no Amiga binary contains `"Do you want to quit?"`. On
+  IIgs `1.014` (`SQ2.SYS16` `e1a2788f92cb7622…`), `restart.game`
+  (`seg2+0x0311`) passes three far pointers to the dialog routine
+  `seg2+0x2239` (`seg2+0x0336..0x0348`): ~arrays+0x1271 `"Restart the game?"`
+  and the labels ~arrays+0x1496 `"Restart"` and ~arrays+0x149e `"Cancel"`; the
+  binary holds no `"Press ENTER to restart"` string. Engine:
+  `confirmSessionAction` renders `"Restart the game?\n\n\nRestart    Cancel"`
+  on Amiga and IIgs profiles (`windowFrameGeometry` `"amiga"` or `"iigs"`),
+  `"Quit the game, or continue?\n\n\nQuit               Continue"` on Amiga
+  profiles, and the PC Enter/Escape strings otherwise, with Enter accepting
+  and Escape cancelling across all profiles while neither f15 nor v21 applies
+  (F-persistence-prompt-modes; fields `originalRestartRestore`,
+  `exitAlwaysImmediate` and `confirmPromptModes`). The IIgs dialog's button geometry is not
+  established, so its labels are plain text with no click targets.
+- **F-persistence-prompt-modes (fact; engine matches).** The restart and quit
+  confirmations call the shared message routine `print` uses, so f15 and v21
+  apply to them. Calls: PC restart `2.001` `0x218d → 0x1b15`, `2.089`
+  `0x22c2 → 0x1ba9`, `2.230` `0x2204 → 0x1aeb`, `2.272` `0x22a0 → 0x1b87`,
+  `2.411` `0x2436 → 0x1c95`, `2.936` `0x2499 → 0x1ce8`, `3.002.149`
+  `0x270d → 0x1f70`; quit (`2.272+`) calls the same routine, for example
+  `2.411` `0x0263`, `2.936` `0x0296`, `3.002.149` `0x028f`. Amiga: restart
+  h63+0x3a (`2.082` h45+0x26) and quit h2+0x1ba / +0x1ee / +0x1fa → WindowPrint
+  h57+0x150 (`2.082` h40+0x150). IIgs `1.014`: restart seg2+0x0348 and quit
+  main+0x0309 → seg2+0x2239. **f15** (PC `2.411..3.002.149`, Amiga
+  `2.176..2.333`, IIgs): if f15 is set, the routine clears it and returns
+  accept at once, leaving the window open (`2.411` `0x1cab..0x1cc6`, GR1
+  `0x1f86..0x1fa1`, Amiga h57+0x184..0x1b8, IIgs seg2+0x2275..0x22a5); 2.31x
+  also sets h59+0xc and the IIgs `$1590`. PC `2.001..2.272` and Amiga `2.082`
+  have no f15 test. **v21** (every build except PC `2.001`): if v21 ≠ 0, the
+  routine waits until `timer + v21 × 10` or until its accept/abort poll
+  returns Enter (1) or Esc (0), then returns accept either way and sets
+  v21 := 0 (`2.089` `0x1c24`, `2.411` `0x1d2d`, `3.002.149` `0x2008`; Amiga
+  h57+0x204 / +0x20c, `2.082` h40+0x1cc; IIgs seg2+0x2340). Other keys are
+  dequeued and dropped (`3.002.149` `0x4744`). **v21 = 0**: the routine blocks
+  until Enter (accept) or Esc (cancel); on Amiga the first gadget
+  (`"Restart"`, GadgetID 2) posts Enter and the second (`"Cancel"`, ID 3)
+  posts Esc (h106+0x158..0x1a8; `2.082` h78+0x148..0x192). Every handler
+  accepts on a result of 1; quit with operand 1 skips the prompt. Not
+  established: the IIgs button path (inference from the Amiga: Enter and
+  Esc), full-machine runs. Engine: field `confirmPromptModes` (`"none"` on
+  `2.001`, `"timed"` on `2.089..2.272` and Amiga `2.082`, `"timed-and-f15"`
+  elsewhere). With f15 set, `confirmSessionAction` opens the prompt as the
+  persistent window, clears f15 and accepts. With v21 set it parks a timed
+  confirmation whose window closes after v21 half-seconds, as a timed print
+  does; the close answers Enter, Enter or Esc accept early, other keys are
+  dropped, and v21 is zeroed. Tests: [original-lifecycle.test.ts](../test/original-lifecycle.test.ts),
+  [worker-confirm-gadgets.test.ts](../app/test/worker-confirm-gadgets.test.ts).
 - **F-persistence-05-gadgets (fact; engine matches the rectangles).** Amiga
   WindowPrint gadget geometry, read off all six executables (`Sierra` 2.082
   `80c6b0c4912a4ca5…` h40 `9f9e04710ff4e18c…`; `KQ2` 2.176
@@ -3530,7 +3850,11 @@ readers restore the region `set.game.id` writes
 
 **Engine contract.** `applyRestore` reinstates the signature from the image's
 first seven block-1 bytes, up to the first NUL, for `restore.game` and host
-resumes alike; the engine selector keeps the strict filter. The engine compares
+resumes alike; the engine selector keeps the strict filter. It reads the
+signature from the block that carries it: block 1 on PC and Amiga, block 2 on
+the Apple IIgs, whose image holds the 0x38-byte ~globals lead block first
+([Bounds, objects and the save image](#bounds-objects-and-the-save-image-fact)),
+so an IIgs game lists its own saves and no PC image. The engine compares
 all seven bytes where the original stops at the NUL; the two agree on every
 image the engine writes, since it zero-pads the area. App storage keys saves by
 game and slot, not by the signature-stemmed name, so a save written under a
@@ -4577,6 +4901,21 @@ addresses come from the earlier pass and were not re-verified.
   loop 1 now give the same first nonpacked blit when no blit intervenes. Native repeated blits
   outside the orientation mask still toggle, as the recorded native contract requires.
 
+  **Host recordings.** An authentic restore rebinds each object's packed loop from the save
+  image, so its facing follows the original. A host restore (History, autosave, recordings)
+  re-parses every recorded view, which resets the packed headers to the file's orientation, so
+  the engine records each loaded packed view's loop orientation and mirror bit, plus mirror
+  parity per unique loaded cel, in the replay state (`viewCache.loops`, packed `2.230` only)
+  and puts it back. Distinct loop headers can share only some cel offsets, so cel parity is
+  independent of the headers and shared cels are restored once. The synthetic partial-alias
+  regression keeps a private cel's pixels `[3,4]` after another loop mirrors its shared cel;
+  this establishes the supported layout's host-resume contract, not its prevalence in games.
+  A recording made
+  before 1.2.6 has none: the restore selects each active object's loop and cel in object order,
+  which reproduces a single alias but not a longer selection history, and its fingerprint is
+  checked without the field. Tests: [view-mirror-boundary.test.ts](../test/view-mirror-boundary.test.ts),
+  [worker-view-orientation.test.ts](../app/test/worker-view-orientation.test.ts).
+
   **Authoring translation.** The builder and Screen object Studio carry the same packed-header and
   mirror-mask capabilities as the reader. An authored mirror becomes independent reversed
   cels when either loop index lies outside the stable native range, the profile has no
@@ -5119,6 +5458,8 @@ behavior were confirmed independently at the addresses given (**fact**):
 | 2.082, 2.176+, 2.31x | `palette`                    | `amiga-2.082`, `amiga`, `amiga-2.31x` | the 16×3 nibble table each build loads with SetRGB4 (same section)                                                                                           |
 | all                  | `inputLineOrder`             | `prompt-edit-cursor`                  | `ShowInput` prints string 0, the edit buffer, then the cursor byte (Sierra h63+0x360, 2.176+ h85+0x366/+0x36a)                                               |
 | all                  | `confirmCursor`              | `erased`                              | RestartGame calls EraseCur before the prompt and WriteCur at the tail (F-persistence-02: Sierra h45, 2.176+ h63)                                             |
+| 2.082, 2.176+        | `confirmPromptModes`         | `timed`, `timed-and-f15`              | WindowPrint tests v21 on every build (h40+0x17a, h57+0x1b2) and f15 from 2.176 (h57+0x184); [F-persistence-prompt-modes](#persistence-verdicts)              |
+| 2.310, 2.316, 2.333  | `restartKeepsMaxScore`       | true                                  | RestartGame saves v7 before ResetAll and puts it back (h63+0x50, h63+0xc2); [Original restart state boundary](#original-restart-state-boundary)              |
 
 Fields whose slot is above a build's dispatch bound (see the table above)
 never run there: `menuInteractionGate`, `releaseGateAction`,
@@ -6952,7 +7293,7 @@ Values that change behavior, confirmed at the addresses given (**fact**):
 | `inputLineEditCap`            | `iigs-39`               | `EditLine` (`seg2+0x16f8..0x1726`): `min(var[24], 39 - strlen(s0) - (cursor != 0))`                                          |
 | `keypadWordsNormalized`       | false                   | `ButtonToChar` (`eventseg+0x351..0x39d`) maps `0x0101..0x0401 -> 0x0d` without PC keypad scan words                          |
 | `playerControlMotionClear`    | `on-control-transition` | `player.control` (`motionseg+0x02b2`): `lda $011d; bne ret` skips clearing ego motion `+0x38` when `$011d` is already 1      |
-| `restoreRewritesMachineState` | false                   | `RestoreGame` (`savegameseg+0x036e..0x04a2`) writes `f12 = 1` without touching `v20`, `v22`, `v26`, or `f11`                 |
+| `restoreRewritesMachineState` | false                   | `restore.game` (`seg2+0x0000..0x0272`, tail `seg2+0x01bc..`) writes `f12 = 1` without touching `v20`, `v22`, `v26`, or `f11` |
 
 `timedPrintClearsV21` stays true: the timed wait (`seg2+0x22a8`, v21 at
 `$0302f3`) zeroes v21 as it closes (`seg2+0x2340`). `menuInteractionGate`
@@ -6980,7 +7321,7 @@ false, `targetMotionDeferred` false, `inventorySelector` true,
 (`statusseg+0x07a1..0x0861`),
 `parserStopsAtTenthWord` true (`main+0x1f35`), `originalInputCapacity` true
 (`seg2+0x16f8..0x1726`), `originalRestartRestore` true
-(`seg2+0x01e8`, `savegameseg+0x036e`), and `soundStopsBeforeFault` true
+(`restart.game` `seg2+0x0311`, `restore.game` `seg2+0x0000`), and `soundStopsBeforeFault` true
 (`soundseg+0x004a`).
 `soundEnvelope` is inert: the IIgs driver has no Paula envelope.
 

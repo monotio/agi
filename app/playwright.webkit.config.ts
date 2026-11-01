@@ -15,8 +15,8 @@ import base from "./playwright.config.ts";
  */
 export default defineConfig({
   ...base,
-  // Timing budgets cannot hold under the parallel suite's load: `@perf` belongs
-  // to `e2e:perf`, which runs alone on one worker, whatever other tags a test adds.
+  // Comparable performance trends need an isolated run: `@perf` belongs to
+  // `e2e:perf`, which runs alone on one worker, whatever other tags a test adds.
   grepInvert: /@perf/,
   projects: [
     {

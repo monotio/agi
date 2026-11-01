@@ -642,3 +642,84 @@ test("Amiga: a rejected write shows its notice in a window and the game goes on"
     true,
   );
 });
+
+test("an Apple IIgs game lists its own saves, and a PC save with the same signature stays out", () => {
+  // Player-visible rule: an IIgs game lists its saves. The IIgs image holds
+  // the 0x38-byte ~globals lead block first and the set.game.id signature
+  // at the start of the second block (docs/fidelity.md "Game signature
+  // across restore").
+  const source = `if (!isset(f200)) { set(f200); set.game.id("SQ2"); }
+     if (isset(f12)) { assignn(v101, 1); return; }
+     if (isset(f201)) { reset(f201); restore.game(); }
+     return;`;
+  const image = (profile: "iigs-1.014" | "2.936", description: string): Uint8Array => {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: new Map(), profile: PROFILES[profile] }).payload,
+    );
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+      },
+      new Map(),
+      { profile },
+    );
+    engine.tick();
+    const bytes = engine.serialize();
+    bytes.fill(0, 0, 31);
+    for (let i = 0; i < description.length; i++) bytes[i] = description.charCodeAt(i);
+    return bytes;
+  };
+  const slots = [
+    { slot: 1, bytes: image("2.936", "PC GAME") },
+    { slot: 2, bytes: image("iigs-1.014", "IIGS GAME") },
+  ];
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(source, { dictionary: new Map(), profile: PROFILES["iigs-1.014"] }).payload,
+  );
+  const reads: (number | undefined)[] = [];
+  const screens: string[] = [];
+  const engine: Engine = new Engine(
+    container,
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+      listSaveGames: () => slots,
+      waitKey() {
+        screens.push(Array.from({ length: 25 }, (_, r) => engine.textRow(r)).join("\n"));
+        return 0x0d;
+      },
+      restoreGame(slot) {
+        reads.push(slot);
+        return slots.find((s) => s.slot === slot)?.bytes ?? null;
+      },
+    },
+    new Map(),
+    { profile: "iigs-1.014" },
+  );
+  engine.tick();
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.match(screens[0] ?? "", /IIGS GAME/, "the IIgs save is listed");
+  assert.doesNotMatch(screens[0] ?? "", /PC GAME/, "the PC save is not");
+  assert.deepEqual(reads, [2]);
+  // The IIgs restore ends in the dissolve; logic 0 runs again after it.
+  for (let t = 0; t < 40 && engine.vars[101] === 0; t++) {
+    engine.advanceClock(100);
+    engine.tick();
+  }
+  assert.equal(engine.vars[101], 1, "the restored game runs with f12");
+});

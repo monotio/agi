@@ -76,16 +76,20 @@ test("useSaveSlotController handles saveList, saveWrite, and restore lifecycle",
   assert.equal(controller.handleSaveSlotRequest("saveList", {}), "[]");
 
   // Save to slot 1: image must be base64 string
-  const testPayload = btoa("0123456789012345678901234567890123456789extra-data-after-40-bytes");
+  const testPayload = btoa("0123456789012345678901234567890123456789" + "save-body".repeat(100));
   const writeRes = controller.handleSaveSlotRequest("saveWrite", { slot: 1, image: testPayload });
   assert.equal(writeRes, "true");
 
-  // Listing saves returns truncated 40-byte image
+  // Listing saves returns a bounded prefix, independent of the full body size
   const listJson = controller.handleSaveSlotRequest("saveList", {}) as string;
   const list = JSON.parse(listJson) as Array<{ slot: number; image: string }>;
   assert.equal(list.length, 1);
   assert.equal(list[0]?.slot, 1);
-  assert.equal(atob(list[0]?.image ?? ""), "0123456789012345678901234567890123456789");
+  const prefix = atob(list[0]?.image ?? "");
+  assert.ok(prefix.length >= 40, "the first-block signature fits");
+  assert.ok(prefix.length <= 98, "the IIgs second-block signature bounds the transport");
+  assert.ok(prefix.length < atob(testPayload).length);
+  assert.ok(atob(testPayload).startsWith(prefix));
 
   // Restore returns full payload
   const restored = await controller.handleSaveSlotRequest("restore", { slot: 1 });

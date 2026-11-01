@@ -92,7 +92,7 @@ const QUIZ: Record<string, string> = {
   "not an astronaut": "a",
 };
 
-function ageQuiz(run: Speedrun): void {
+export function ageQuiz(run: Speedrun): void {
   run.advance(60);
   run.verify("Title screen", { room: 1, score: 0 });
   run.answerNumber(30);

@@ -1,3 +1,5 @@
+import { recordPerformance } from "./performanceTrend.ts";
+import { DEADLINES } from "./deadlines.ts";
 import { installPointerFrameMeasurement, measurePointerFrames } from "./gesturePerf.ts";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
@@ -37,7 +39,7 @@ test("large image cel drags keep pointer work within a cel @perf", async ({ page
     mimeType: "image/png",
     buffer: Buffer.from(encodePngRgba(1024, 1024, rgba)),
   });
-  await expect(page.getByTestId("image-cel")).toHaveCount(8);
+  await expect(page.getByTestId("image-cel")).toHaveCount(8, { timeout: DEADLINES.image });
   await page.getByRole("button", { name: "Pause animation", exact: true }).click();
   await page.getByTestId("image-preview-hero").click();
   const thumbnails = page.getByTestId("prepared-cel-thumbnail");
@@ -45,6 +47,7 @@ test("large image cel drags keep pointer work within a cel @perf", async ({ page
     images.map((image) => (image as HTMLImageElement).src),
   );
   const cel = page.getByRole("button", { name: "Cel 1", exact: true });
+  await cel.click({ position: { x: 10, y: 12 }, trial: true });
   const bounds = (await cel.boundingBox())!;
   await page.mouse.move(bounds.x + 10, bounds.y + 12);
   await page.mouse.down();
@@ -58,9 +61,12 @@ test("large image cel drags keep pointer work within a cel @perf", async ({ page
           ...document.querySelectorAll<HTMLImageElement>('[data-testid="prepared-cel-thumbnail"]'),
         ].map((image) => image.src);
       const before = thumbnails();
-      const batches = Array.from({ length: 12 }, (_, i) => [
-        { x: rect.x + 11 + i, y: rect.y + 12 },
-      ]);
+      const batches = Array.from({ length: 12 }, (_, i) =>
+        Array.from({ length: 8 }, (_, move) => ({
+          x: rect.x + 10 + i + (move + 1) / 8,
+          y: rect.y + 12,
+        })),
+      );
       return { batches, before };
     });
   const samples = await page
@@ -89,9 +95,11 @@ test("large image cel drags keep pointer work within a cel @perf", async ({ page
       return Math.round(12 / (sheet.getBoundingClientRect().width / 1024));
     });
   await page.mouse.up();
-  console.log("cel pointer timings ms", JSON.stringify(samples));
-  // Handler + cel effects peaked at 2 ms in Linux WebKit; allow three times that cost.
-  expect(Math.max(...samples)).toBeLessThan(6);
+  await recordPerformance("pointer-frames", { workMs: samples.map((sample) => sample.workMs) });
+  expect(
+    samples.map((sample) => sample.callbacks),
+    "one callback for each burst of moves",
+  ).toEqual(Array.from({ length: 12 }, () => 1));
   await expect(thumbnails.first()).not.toHaveAttribute("src", before[0]!);
   const after = await thumbnails.evaluateAll((images) =>
     images.map((image) => (image as HTMLImageElement).src),

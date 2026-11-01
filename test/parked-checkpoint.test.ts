@@ -88,6 +88,85 @@ function gameWith(body: string) {
   return container;
 }
 
+for (const capture of ["autosave", "recording", "authoring"] as const) {
+  test(`${capture}: a post-restart load cannot authorize a checkpoint that loses the retained picture`, () => {
+    const container = createContainer();
+    container.putResource("picture", 1, PICTURE_1);
+    container.putResource("picture", 2, Uint8Array.of(0xf0, 2, 0xf8, 0, 0, 0xff));
+    container.putResource("view", 3, Uint8Array.of(0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0, 0x51, 0));
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+      if (isset(f6)) {
+        load.view(3);
+        print("A new adventure awaits");
+        assignn(v50, 2); load.pic(v50); draw.pic(v50); show.pic();
+        print("The replacement room");
+        return;
+      }
+      if (equaln(v80, 1)) { set(f16); restart.game(); }
+      if (!isset(f200)) {
+        set(f200); assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+        load.view(3); animate.obj(o1); set.view(o1, 3); position(o1, 73, 91); draw(o1);
+      }
+      return;
+    `,
+        { dictionary: new Map() },
+      ).payload,
+    );
+    const engineHost = new SuspendingHost();
+    const engine = new Engine(container, engineHost, new Map());
+    const imageOf = () =>
+      capture === "autosave"
+        ? engine.autosaveImage()
+        : engine.recordingImage(capture === "authoring");
+    const checkPixels = (image: Uint8Array) => {
+      const fresh = new Engine(container, new SuspendingHost(), new Map());
+      fresh.restoreImage(image, { preservePresentation: true });
+      assert.deepEqual(
+        fresh.getFrame().visual,
+        engine.getFrame().visual,
+        "all picture pixels survive",
+      );
+      assert.deepEqual(fresh.textCells, engine.textCells, "all text cells survive");
+      if (capture !== "autosave") {
+        fresh.restoreReplayState(engine.captureReplayState(capture === "authoring"));
+        assert.deepEqual(
+          fresh.getFrame().visual,
+          engine.getFrame().visual,
+          "recorded picture pixels survive",
+        );
+        assert.deepEqual(fresh.textCells, engine.textCells, "recorded text survives");
+      }
+    };
+    engine.tick();
+    engine.vars[80] = 1;
+    engine.tick();
+    assert.equal(engine.modalKind, "print");
+    assert.equal(engine.getFrame().visual[20 * 160 + 30], 1, "the blue room remains visible");
+    assert.equal(
+      engine.getFrame().visual[91 * 160 + 73],
+      5,
+      "the old actor remains on the picture",
+    );
+    // Capturing the retained display is allowed only if it can be restored
+    // exactly. Deferring until a replacement draw is also safe.
+    const retained = imageOf();
+    if (retained) checkPixels(retained);
+    else assert.throws(() => engine.captureReplayState(capture === "authoring"), /resumable/);
+
+    engineHost.keys.push(13);
+    engine.tick();
+    assert.equal(engine.modalKind, "print");
+    assert.equal(engine.getFrame().visual[20 * 160 + 30], 2);
+    const replacement = imageOf();
+    assert.ok(replacement, "the first fully reconstructable replacement is capturable");
+    checkPixels(replacement);
+  });
+}
+
 test("autosave while a print window is up round-trips the window and the pass", () => {
   const container = gameWith(`increment(v60);\nprint(1);\nassignn(v101, 7);`);
   const engine = new Engine(container, new SuspendingHost(), new Map());
@@ -316,7 +395,7 @@ test("a malformed continuation is rejected without mutating the engine", () => {
   assert.deepEqual(engine.serialize(), before, "rejection left the state untouched");
 });
 
-test("2.089 persistent window partially erased by view keeps identical border pixels across checkpoint then show.pic", () => {
+test("2.411 persistent window partially erased by view restores identical border pixels before show.pic closes it", () => {
   const container = createContainer();
   container.putResource("picture", 1, PICTURE_1);
   // 1x1 opaque cel (color 2, transparent 15) so position(o1, 72, 76) covers 320x200 pixels
@@ -352,10 +431,12 @@ test("2.089 persistent window partially erased by view keeps identical border pi
 
   // Uninterrupted run: park on have.key, then deliver key and run show.pic().
   const liveHost = new SuspendingHost();
-  const live = new Engine(container, liveHost, new Map(), { profile: "2.089" });
+  const live = new Engine(container, liveHost, new Map(), { profile: "2.411" });
   live.tick();
   assert.equal(live.awaitingKey, true);
   assert.equal(live.getPresentation().windowOverlay[84 * 320 + 144], 0);
+  assert.equal(live.getPresentation().windowOverlay[84 * 320 + 145], 0);
+  assert.equal(live.getPresentation().windowOverlay[84 * 320 + 146], 5);
   const checkpointImage = live.autosaveImage()!;
   assert.notEqual(checkpointImage, null);
   const recordingImage = live.recordingImage()!;
@@ -367,21 +448,23 @@ test("2.089 persistent window partially erased by view keeps identical border pi
   assert.equal(live.vars[102], 9);
 
   // Restored from host autosave checkpoint, then resumed into show.pic().
-  const fromAutosave = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.089" });
+  const fromAutosave = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.411" });
   fromAutosave.restoreImage(checkpointImage);
   assert.equal(fromAutosave.getPresentation().windowOverlay[84 * 320 + 144], 0);
+  assert.equal(fromAutosave.getPresentation().windowOverlay[84 * 320 + 145], 0);
+  assert.equal(fromAutosave.getPresentation().windowOverlay[84 * 320 + 146], 5);
   fromAutosave.deliverHostAnswer(0x20);
   fromAutosave.tick();
   assert.equal(fromAutosave.vars[102], 9);
-  // Hand-computed overlay pixels at 320x200 after show.pic:
-  // (144, 84) was under the erased view so it stays transparent (0);
-  // (146, 84) is the adjacent red top border bar pixel (5 = EGA 4 + 1) and stays red.
+  // 2.411 supports persistent print; show.pic then closes the entire window
+  // (docs/fidelity.md "Print handler output modes"). Both the erased
+  // (144, 84) and adjacent red border (146, 84) are transparent afterwards.
   const liveOverlay = live.getPresentation().windowOverlay;
   const autoOverlay = fromAutosave.getPresentation().windowOverlay;
   assert.equal(liveOverlay[84 * 320 + 144], 0);
-  assert.equal(liveOverlay[84 * 320 + 146], 5);
+  assert.equal(liveOverlay[84 * 320 + 146], 0);
   assert.equal(autoOverlay[84 * 320 + 144], 0);
-  assert.equal(autoOverlay[84 * 320 + 146], 5);
+  assert.equal(autoOverlay[84 * 320 + 146], 0);
   assert.deepEqual(
     fromAutosave.getFrame().visual,
     live.getFrame().visual,
@@ -394,15 +477,18 @@ test("2.089 persistent window partially erased by view keeps identical border pi
   );
 
   // Restored from recording image + replay state, then resumed into show.pic().
-  const fromReplay = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.089" });
+  const fromReplay = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.411" });
   fromReplay.restoreImage(recordingImage);
   fromReplay.restoreReplayState(checkpointReplay);
   assert.equal(fromReplay.getPresentation().windowOverlay[84 * 320 + 144], 0);
+  assert.equal(fromReplay.getPresentation().windowOverlay[84 * 320 + 145], 0);
+  assert.equal(fromReplay.getPresentation().windowOverlay[84 * 320 + 146], 5);
   fromReplay.deliverHostAnswer(0x20);
   fromReplay.tick();
+  assert.equal(fromReplay.vars[102], 9);
   const replayOverlay = fromReplay.getPresentation().windowOverlay;
   assert.equal(replayOverlay[84 * 320 + 144], 0);
-  assert.equal(replayOverlay[84 * 320 + 146], 5);
+  assert.equal(replayOverlay[84 * 320 + 146], 0);
   assert.deepEqual(
     fromReplay.getFrame().visual,
     live.getFrame().visual,
@@ -415,7 +501,7 @@ test("2.089 persistent window partially erased by view keeps identical border pi
   );
 });
 
-test("2.089 add.to.pic clears window-border overlay only on painted pixels, keeping adjacent (146,84) red", () => {
+test("2.411 add.to.pic clears window-border overlay only on painted pixels, keeping adjacent (146,84) red", () => {
   const container = createContainer();
   container.putResource("picture", 1, PICTURE_1);
   // 1x1 opaque cel (color 2, transparent 15).
@@ -445,7 +531,7 @@ test("2.089 add.to.pic clears window-border overlay only on painted pixels, keep
     ).payload,
   );
 
-  const engine = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.089" });
+  const engine = new Engine(container, new SuspendingHost(), new Map(), { profile: "2.411" });
   engine.tick();
   const overlay = engine.getPresentation().windowOverlay;
   // Picture pixel (72, 76) covers 320x200 screen pixels (144, 84) and (145, 84) only.

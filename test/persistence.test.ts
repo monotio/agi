@@ -21,6 +21,7 @@ import { createContainer, openContainer } from "../src/container/container.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
+import { decodeOriginalSav, exportOriginalSav } from "../src/runtime/savFile.ts";
 import { findFixture, fixtureSkip } from "./fixtures.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -1487,6 +1488,7 @@ describe("restart", () => {
     engine.tick();
     assert.equal(engine.vars[100], 42);
     assert.equal(engine.flags[9], 1);
+    const shown = engine.getFrame();
 
     host.inputQueue.push("mutate");
     engine.tick();
@@ -1502,9 +1504,11 @@ describe("restart", () => {
     const replay = (engine as unknown as { replay: unknown[] }).replay;
     assert.equal(replay.length, 0, "the replay sequence is cleared");
     assert.deepEqual(engine.readObjects(), [], "no object is still animated");
-    // The picture surface is back to its startup fill (visual 15, priority 4).
-    assert.deepEqual([...new Set(engine.surface.visual)], [15]);
-    assert.deepEqual([...new Set(engine.surface.priority)], [4]);
+    // The screen is kept until the game draws: the picture and the cel the
+    // interpreter blitted into it stay; the priority plane stays the
+    // picture's (docs/fidelity.md "Original restart state boundary").
+    assert.deepEqual(Array.from(engine.getFrame().visual), Array.from(shown.visual));
+    assert.deepEqual(Array.from(engine.surface.priority), Array.from(shown.priority));
   });
 
   test("2.411 never bypasses the prompt, so restart.game leaves state alone", () => {
@@ -2398,5 +2402,380 @@ describe("restart.game CancelLine ordering across PC, Amiga and IIgs profiles", 
         `${profile}: default SCRIPTSIZE = 50 pairs`,
       );
     }
+  });
+});
+
+describe('the restart state boundary (docs/fidelity.md "Original restart state boundary")', () => {
+  class RestartHost extends RecordingHost {
+    keys: number[] = [];
+    waitKey(): number {
+      return 0x0d;
+    }
+    override takeKeys(): number[] {
+      return this.keys.splice(0);
+    }
+  }
+
+  function boot(source: string, profile: keyof typeof PROFILES = "2.936") {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    const host = new RestartHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    return { engine, host };
+  }
+
+  test("restart keeps the status line, the script buffer size and the last command for echo", () => {
+    // Player-visible rule: Restart keeps the game's settings the original
+    // leaves alone. The accepted restart writes no status-enable word, no
+    // script capacity and no echo buffer (GR1 DS:0x3f9, DS:0x141, DS:0xdef),
+    // and ResetAll sets player control to 1 (GR1 DS:0x139).
+    const { engine, host } = boot(`
+      if (!isset(f200)) {
+        set(f200);
+        if (!isset(f6)) { script.size(30); status.line.on(); accept.input(); program.control(); }
+        set(f16);
+      }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      if (isset(f202)) { reset(f202); echo.line(); }
+      return;
+    `);
+    host.inputQueue.push("look");
+    engine.tick();
+    const resets = engine.runResetSerial;
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.notEqual(engine.runResetSerial, resets, "the restart was accepted");
+    const save = decodeSave(engine.serialize(), engine.profile);
+    assert.equal(save.replayCapacity, 30, "the script buffer keeps its size");
+    assert.equal(save.statusEnabled, 1, "the status line stays on");
+    assert.equal(save.directionCoupling, 1, "player control is back on");
+    assert.match(engine.textRow(save.statusRow), /Score:0/, "the status line shows");
+    engine.flags[202] = 1;
+    engine.tick();
+    assert.equal(engine.inputEdit, "look", "echo.line retypes the last command");
+  });
+
+  test("logic 0 resumes at its scan start after a restart", () => {
+    // The cache reset keeps logic 0's node, scan-start word included
+    // (GR1 0x1305 truncates after the head; set.scan.start writes +6).
+    const { engine } = boot(`
+      if (isset(f6)) { assignn(v121, 1); }
+      if (!isset(f200)) { set(f200); set(f16); }
+      if (isset(f210)) { reset(f210); set.scan.start(); }
+      if (isset(f6)) { assignn(v123, 1); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `);
+    engine.flags[210] = 1;
+    engine.tick();
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.vars[123], 1, "the restarted pass ran from the scan start");
+    assert.equal(engine.vars[121], 0, "the code before the scan start did not run");
+  });
+
+  test("2.001 keeps a partly typed line across an accepted restart", () => {
+    // The 2.001 restart branch has no CancelLine (0x2176..0x21e7).
+    const source = `
+      if (!isset(f200)) { set(f200); accept.input(); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `;
+    for (const [profile, kept] of [
+      ["2.001", "ab"],
+      ["2.089", ""],
+    ] as const) {
+      const { engine, host } = boot(source, profile);
+      host.keys.push(0x61, 0x62);
+      engine.tick();
+      const resets = engine.runResetSerial;
+      engine.flags[201] = 1;
+      engine.tick();
+      assert.notEqual(engine.runResetSerial, resets, `${profile}: the restart was accepted`);
+      assert.equal(engine.inputEdit, kept, `${profile}: the typed line after restart`);
+    }
+  });
+
+  test("Amiga 2.310, 2.316 and 2.333 keep the maximum score v7 across restart", () => {
+    // 2.31x saves v7 before ResetAll and puts it back (h63+0x50 / +0xc2);
+    // 2.082..2.202 zero it with the other variables.
+    const source = `
+      if (!isset(f200)) { set(f200); if (!isset(f6)) { assignn(v7, 77); } set(f16); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `;
+    for (const [profile, v7] of [
+      ["amiga-2.310", 77],
+      ["amiga-2.316", 77],
+      ["amiga-2.333", 77],
+      ["amiga-2.202", 0],
+      ["2.936", 0],
+    ] as const) {
+      const { engine } = boot(source, profile);
+      engine.flags[201] = 1;
+      engine.tick();
+      assert.equal(engine.flags[200], 1, `${profile}: the restarted pass ran`);
+      assert.equal(engine.vars[7], v7, `${profile}: v7 after restart`);
+    }
+  });
+
+  test("Amiga restart keeps the picture top configure.screen set", () => {
+    // The configure.screen row words (2.202 +0x404..+0x409) are not in the
+    // restart's write set.
+    const { engine } = boot(
+      `
+      if (!isset(f200)) { set(f200); if (!isset(f6)) { configure.screen(1, 22, 0); } set(f16); }
+      if (isset(f201)) { reset(f201); restart.game(); }
+      return;
+    `,
+      "amiga-2.202",
+    );
+    assert.equal(engine.displayBase, 1);
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.flags[200], 1, "the restarted pass ran");
+    assert.equal(engine.displayBase, 1, "the picture top is kept");
+  });
+});
+
+describe('the restore tail (docs/fidelity.md "Persistence verdicts", F-persistence-03)', () => {
+  function boot(source: string, profile: keyof typeof PROFILES = "2.936") {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    container.putResource("picture", 1, PICTURE);
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    return { engine, host };
+  }
+
+  const SOURCE = `
+    if (!isset(f200)) {
+      set(f200);
+      assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+      accept.input();
+    }
+    if (isset(f201)) { reset(f201); save.game(); }
+    if (isset(f202)) { reset(f202); restore.game(); }
+    if (isset(f203)) { reset(f203); echo.line(); }
+    return;
+  `;
+
+  test("after Restore the picture is on screen and History can take a checkpoint at once", () => {
+    // The reconstruction ends by showing the picture buffer (GR1 0x6d46 ->
+    // 0x576f), so the restored room counts as shown before any show.pic.
+    const { engine } = boot(SOURCE);
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    assert.equal(engine.readState().pictureShown, true);
+  });
+
+  test("Restore keeps the last command for echo.line", () => {
+    // The echo buffer (GR1 DS:0xdef) lies outside the save blocks and no
+    // writer runs on the restore path; CancelLine empties only the edit line.
+    const { engine, host } = boot(SOURCE);
+    host.inputQueue.push("look");
+    engine.tick();
+    engine.flags[201] = 1;
+    engine.tick();
+    host.inputQueue.push("jump");
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    assert.equal(engine.inputEdit, "", "the edit line is empty after restore");
+    engine.flags[203] = 1;
+    engine.tick();
+    assert.equal(engine.inputEdit, "jump", "echo.line retypes the last command");
+  });
+
+  test("on 3.002.086 the menu opens after a restore", () => {
+    // Player-visible rule: KQ4's menu works after Restore. The 3.002.086
+    // state block has no menu-gate word, so the live gate survives the
+    // restore (docs/fidelity.md "PC state and objects").
+    const { engine } = boot(
+      `
+      if (!isset(f200)) {
+        set(f200);
+        set.menu("File"); set.menu.item("Save", 1); submit.menu(); set(f14);
+      }
+      if (isset(f201)) { reset(f201); save.game(); }
+      if (isset(f202)) { reset(f202); restore.game(); }
+      if (isset(f204)) { reset(f204); menu.input(); }
+      return;
+    `,
+      "3.002.086",
+    );
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    engine.flags[204] = 1;
+    engine.tick();
+    engine.tick();
+    assert.equal(engine.modalKind, "menu");
+  });
+});
+
+describe("save object records as the original copies them", () => {
+  test("a save made after an object's view was unloaded restores the object as the original would", () => {
+    // Player-visible rule: block 2 copies the raw object records; the
+    // priority byte holds the last computed band priority of an object
+    // without a fixed priority, and the loop and cel counts written when the
+    // view and loop were bound stay after the view is discarded
+    // (docs/fidelity.md "PC state and objects": +0x24, +0xa/+0xb, +0xe/+0xf).
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `
+        if (!isset(f200)) {
+          set(f200);
+          load.view(3);
+          animate.obj(o1);
+          set.view(o1, 3);
+          position(o1, 40, 120);
+          draw(o1);
+        }
+        if (isset(f201)) { reset(f201); discard.view(3); }
+        if (isset(f202)) { reset(f202); save.game(); }
+        if (isset(f203)) { reset(f203); restore.game(); }
+        return;
+      `,
+        { dictionary: DICT },
+      ).payload,
+    );
+    container.putResource("view", 3, VIEW_CEL);
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT);
+    host.engine = engine;
+    engine.tick();
+    engine.tick();
+    const band = engine.screenObjects[1]!.priority;
+    assert.ok(band > 4, "the object has a computed band priority");
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[202] = 1;
+    engine.tick();
+    const record = decodeSave(host.saved!, engine.profile).objects[1]!;
+    assert.deepEqual(
+      { priority: record.priority, loopCount: record.loopCount, celCount: record.celCount },
+      { priority: band, loopCount: 1, celCount: 1 },
+    );
+    const exported = decodeOriginalSav(exportOriginalSav(engine), engine.profile).objects[1]!;
+    assert.equal(exported.priority, band, "an exported .SAV carries the same record");
+    assert.equal(
+      exported.loopCount,
+      1,
+      "an exported .SAV keeps the bound loop count after discard",
+    );
+    assert.equal(exported.celCount, 1, "an exported .SAV keeps the bound cel count after discard");
+    engine.flags[203] = 1;
+    engine.tick();
+    assert.equal(engine.screenObjects[1]!.priority, band, "the priority survives the restore");
+  });
+});
+
+describe('restart keeps the screen (docs/fidelity.md "Original restart state boundary")', () => {
+  // Player-visible rule: Restart does not blank the screen; the old room
+  // stays until the new one appears. The accepted restart writes no video
+  // memory or picture buffer on any build.
+  const SOURCE = `
+    if (isset(f210)) { reset(f210); assignn(v51, 2); load.pic(v51); draw.pic(v51); show.pic(); }
+    if (isset(f6)) { set(f200); return; }
+    if (!isset(f200)) {
+      set(f200);
+      assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+      display(5, 0, "UNDER");
+      load.view(3); animate.obj(o1); set.view(o1, 3); position(o1, 0, 39); draw(o1);
+      display(10, 0, "HELLO");
+      status.line.on();
+      set(f16);
+    }
+    if (isset(f201)) { reset(f201); restart.game(); }
+    return;
+  `;
+
+  function boot(profile: keyof typeof PROFILES = "2.936") {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(SOURCE, { dictionary: DICT, profile: PROFILES[profile] }).payload,
+    );
+    container.putResource("picture", 1, PICTURE);
+    container.putResource("picture", 2, OTHER_PICTURE);
+    container.putResource("view", 3, VIEW_CEL);
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT, { profile });
+    host.engine = engine;
+    engine.tick();
+    for (let t = 0; t < 40 && engine.modalKind !== null; t++) {
+      engine.advanceClock(100);
+      engine.tick();
+    }
+    return engine;
+  }
+
+  test("the picture, the cels on it and the text stay until the restarted game draws", () => {
+    const engine = boot();
+    const shown = Array.from(engine.getFrame().visual);
+    const celPixels = Array.from(engine.getCelPixels());
+    assert.ok(celPixels.includes(1), "the cel is on screen");
+    assert.match(engine.textRow(10), /^HELLO/);
+    const resets = engine.runResetSerial;
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.notEqual(engine.runResetSerial, resets, "the restart was accepted");
+    assert.deepEqual(engine.readObjects(), [], "the objects were reset");
+    assert.deepEqual(Array.from(engine.getFrame().visual), shown, "the frame is unchanged");
+    assert.deepEqual(Array.from(engine.getCelPixels()), celPixels, "the cel keeps its cel colours");
+    assert.match(engine.textRow(10), /^HELLO/, "text stays");
+    assert.match(engine.textRow(0), /Score:0/, "the status line stays");
+    // The restarted game draws its room: the kept screen goes.
+    engine.flags[210] = 1;
+    engine.tick();
+    assert.notDeepEqual(Array.from(engine.getFrame().visual), shown);
+    assert.ok(!engine.getCelPixels().includes(1), "no stamp survives draw.pic");
+  });
+
+  test("text a cel was drawn over stays hidden; text written after it stays on top", () => {
+    const engine = boot();
+    // VIEW_CEL is 3 pixels wide at (0, 39): picture row 39 is text row 5
+    // (display base 1, 8 pixel rows each), columns 0 and 1.
+    assert.equal(engine.textRow(5).slice(0, 5), "UNDER");
+    const before = engine.getPresentation().text.slice();
+    assert.equal(before[5 * 40 * 2], 0, "the cel hides the text it was drawn over");
+    assert.notEqual(before[(5 * 40 + 2) * 2], 0, "beside the cel the text shows");
+    engine.flags[201] = 1;
+    engine.tick();
+    const after = engine.getPresentation().text;
+    for (let cell = 5 * 40; cell < 5 * 40 + 5; cell++)
+      assert.equal(after[cell * 2], before[cell * 2], `cell ${cell} looks the same`);
+    assert.match(engine.textRow(10), /^HELLO/);
+  });
+
+  test("amiga-2.202: the first picture after a restart dissolves from the kept screen", () => {
+    const engine = boot("amiga-2.202");
+    const shown = Array.from(engine.getFrame().visual);
+    engine.flags[201] = 1;
+    engine.tick();
+    engine.flags[210] = 1;
+    engine.tick();
+    assert.equal(engine.modalKind, "dissolve");
+    assert.deepEqual(Array.from(engine.getFrame().visual), shown, "the dissolve starts from it");
   });
 });

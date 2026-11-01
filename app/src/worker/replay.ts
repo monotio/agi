@@ -237,6 +237,7 @@ export function createReplay(ctx: WorkerContext) {
         amigaRegion: ctx.boot.amigaRegion,
         pcDisplay: ctx.boot.pcDisplay,
         adoptDeclaredScriptSize: ctx.boot.adoptDeclaredScriptSize,
+        replayBehavior: ctx.run.engine!.replayBehavior,
         legacyRoomMemory: ctx.boot.legacyRoomMemory,
       },
     );
@@ -320,6 +321,7 @@ export function createReplay(ctx: WorkerContext) {
         amigaRegion: ctx.boot.amigaRegion,
         pcDisplay: ctx.boot.pcDisplay,
         adoptDeclaredScriptSize: ctx.boot.adoptDeclaredScriptSize,
+        replayBehavior: ctx.run.engine!.replayBehavior,
         legacyRoomMemory: ctx.boot.legacyRoomMemory,
       },
     );

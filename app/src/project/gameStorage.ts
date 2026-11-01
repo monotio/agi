@@ -35,6 +35,8 @@ import {
   clearProjectSaveJournals,
   hasUnresolvedProjectSaveJournal,
   resumeProjectSaveJournals,
+  rebaseProjectJournalSuccessor,
+  type JournalEntry,
 } from "./projectSaveJournal.ts";
 import {
   conversationUpdateOf,
@@ -1093,6 +1095,16 @@ export async function commitProject(
   journalHash?: string,
   automatic?: AutomaticProjectWrite,
 ): Promise<ProjectCommitResult | undefined> {
+  return writeProjectCommit(input, journalHash, automatic);
+}
+
+/** Run the same admission and History preparation against durable or staged records. */
+async function writeProjectCommit(
+  input: ProjectCommitRequest,
+  journalHash?: string,
+  automatic?: AutomaticProjectWrite,
+  stage?: ProjectRestoreStage,
+): Promise<ProjectCommitResult | undefined> {
   const ownJournalKey = automatic?.ownJournalKey;
   // Ownership precedes every await, including waiting behind another writer.
   const { projectHistory: offeredHistory, ...inputData } = input.data;
@@ -1132,7 +1144,7 @@ export async function commitProject(
   const candidateHash = sha256Hex(
     new TextEncoder().encode(JSON.stringify(projectCommitContent(request))),
   );
-  return serializeWrite(request.projectId, async () => {
+  const publish = async () => {
     readableIndex(request.projectId);
     const data: CachedGameData = {
       ...request.data,
@@ -1147,7 +1159,8 @@ export async function commitProject(
     const history = historyModule.checkedProjectHistory(data);
     if (history !== undefined) data.projectHistory = history;
     const receiptKey = `commit/${request.projectId}/${request.commitId}`;
-    const committed = await updateBodyRecords<
+    const update = stage?.update ?? updateBodyRecords;
+    const committed = await update<
       | {
           receipt: ProjectCommitReceipt;
           body: StoredGameBody;
@@ -1333,6 +1346,7 @@ export async function commitProject(
       ],
     );
     if (committed === undefined) return undefined;
+    if (stage !== undefined) return { receipt: structuredClone(committed.receipt), warnings: [] };
     const warnings: "indexRepairPending"[] = [];
     try {
       // An old retry must refresh from the current body, never its old candidate.
@@ -1351,7 +1365,8 @@ export async function commitProject(
         fingerprint: committed.receipt.saved.authoring,
       });
     return { receipt: structuredClone(committed.receipt), warnings };
-  });
+  };
+  return stage === undefined ? serializeWrite(request.projectId, publish) : publish();
 }
 
 export function serializeWrite<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -1422,17 +1437,20 @@ export function runInWriteTurn<T>(
 async function recoverProjectJournal(
   capture: ProjectJournalCapture,
   automatic?: AutomaticProjectWrite,
+  stage?: ProjectRestoreStage,
 ): Promise<{ receipt: ProjectCommitReceipt } | undefined> {
   const { hash, ...intent } = capture;
   if (sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(intent)))) !== hash)
     throw Object.assign(new Error("Invalid pending project write identity."), {
       name: "ProjectJournalDecodeError",
     });
-  const base = await serializeWrite(capture.base.projectId, async () => {
-    const rows = await readBodyRecordSet([
-      `commit/${capture.identity.projectId}/${capture.identity.commitId}`,
-      `lifetime/${capture.identity.projectId}`,
-    ]);
+  const inspect = async () => {
+    const rows =
+      stage?.rows ??
+      (await readBodyRecordSet([
+        `commit/${capture.identity.projectId}/${capture.identity.commitId}`,
+        `lifetime/${capture.identity.projectId}`,
+      ]));
     const committed = rows.get(
       `commit/${capture.identity.projectId}/${capture.identity.commitId}`,
     ) as StoredProjectCommit | undefined;
@@ -1456,9 +1474,25 @@ async function recoverProjectJournal(
       return { receipt: committed.receipt };
     }
     let lifetime: string | null = null;
-    const data = await readBody(capture.base.projectId, (value) => {
-      lifetime = value;
-    });
+    let data: CachedGameData | null;
+    if (stage !== undefined) {
+      lifetime = liveLifetime(
+        stage.rows.get(`lifetime/${capture.base.projectId}`) as HistoryLifetime | undefined,
+      );
+      const body = stage.rows.get(capture.base.projectId) as StoredGameBody | undefined;
+      data = body === undefined ? null : readStoredBody(body, capture.base.projectId);
+      if (data !== null && body?.editHistory !== undefined) {
+        const { hydrateProjectHistory } = await import("./projectHistoryStorage.ts");
+        data.projectHistory = hydrateProjectHistory(
+          capture.base.projectId,
+          body.editHistory,
+          stage.rows,
+        );
+      }
+    } else
+      data = await readBody(capture.base.projectId, (value) => {
+        lifetime = value;
+      });
     if (data === null || lifetime !== capture.base.lifetime)
       throw new ProjectDeletedError("This project was removed or replaced by another window.");
     if (
@@ -1471,14 +1505,17 @@ async function recoverProjectJournal(
         storedBody(data),
       );
     return { data };
-  });
+  };
+  const base = await (stage === undefined
+    ? serializeWrite(capture.base.projectId, inspect)
+    : inspect());
   if ("receipt" in base) return { receipt: base.receipt! };
   const { rebuildProjectJournal } = await import("./projectSessionCore.ts");
   const rebuilt = await rebuildProjectJournal(base.data!, capture, {
     commit: commitProject,
     fingerprint: authoringFingerprint,
   });
-  return commitProject(rebuilt, capture.hash, automatic);
+  return writeProjectCommit(rebuilt, capture.hash, automatic, stage);
 }
 
 export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGameData | null> {
@@ -2559,4 +2596,182 @@ export async function reconcileGameIndex(): Promise<void> {
       if (data === undefined) localStorage.removeItem(key);
     });
   }
+}
+
+interface ProjectRestoreStage {
+  readonly rows: Map<string, unknown>;
+  readonly puts: Map<string, unknown>;
+  readonly deletes: Set<string>;
+  readonly update: typeof updateBodyRecords;
+}
+
+/** Prepare every receipt and History write without opening a writable transaction. */
+function projectRestoreStage(original: Map<string, unknown>): ProjectRestoreStage {
+  const rows = structuredClone(new Map(original));
+  const puts = new Map<string, unknown>();
+  const deletes = new Set<string>();
+  async function read(keys: readonly string[]): Promise<void> {
+    const missing = keys.filter((key) => !original.has(key) && !puts.has(key) && !deletes.has(key));
+    if (missing.length === 0) return;
+    const loaded = await readBodyRecordSet(missing);
+    for (const key of missing) {
+      original.set(key, loaded.get(key));
+      rows.set(key, structuredClone(loaded.get(key)));
+    }
+  }
+  const update: typeof updateBodyRecords = async (key, operation, guards) => {
+    const checks = guards === undefined ? [] : Array.isArray(guards) ? guards : [guards];
+    await read([key, ...checks.map((guard) => guard.key)]);
+    for (const guard of checks) guard.check(rows.get(guard.key));
+    const offered = operation(rows.get(key));
+    if ("complete" in offered) await read(offered.reads);
+    const outcome =
+      "complete" in offered
+        ? offered.complete(new Map(offered.reads.map((key) => [key, rows.get(key)])))
+        : offered;
+    // A project from before History may have orphan blobs that the normal
+    // header-based write path does not read. Downloads cannot replace them
+    // without checking their stored version and immutable content too.
+    await read([
+      ...(outcome.puts ?? []).map((value) => (value as { projectId: string }).projectId),
+      ...(outcome.deletes ?? []),
+    ]);
+    for (const key of outcome.deletes ?? []) {
+      rows.delete(key);
+      puts.delete(key);
+      deletes.add(key);
+    }
+    for (const value of outcome.puts ?? []) {
+      const offered = value as { projectId: string; format?: string; content?: unknown };
+      const key = offered.projectId;
+      const existing = rows.get(key) as
+        { projectId?: string; format?: string; version?: number; content?: unknown } | undefined;
+      if (offered.format === "monotio.agi.project-history-blob" && existing !== undefined) {
+        if (
+          existing.projectId !== key ||
+          existing.format !== offered.format ||
+          existing.version !== 1 ||
+          JSON.stringify(encodeJournalValue(existing.content)) !==
+            JSON.stringify(encodeJournalValue(offered.content))
+        )
+          throw Object.assign(
+            new Error("This stored History blob has an unsupported version or different content."),
+            { name: "ProjectJournalDecodeError" },
+          );
+        continue;
+      }
+      rows.set(key, value);
+      puts.set(key, value);
+      deletes.delete(key);
+    }
+    return outcome.result;
+  };
+  return { rows, puts, deletes, update };
+}
+
+/** A downloaded journal is durable retry data; publish its entire recovery atomically. */
+export function restoreProjectJournals(
+  id: ProjectId,
+  groups: readonly (readonly JournalEntry[])[],
+): Promise<void> {
+  const captures = structuredClone(groups);
+  return serializeWrite(id, async () => {
+    const receiptKeys = [
+      ...new Set(
+        captures.flatMap((entries) =>
+          entries.map(
+            (entry) =>
+              `commit/${id}/${entry.capture?.identity.commitId ?? entry.request!.commitId}`,
+          ),
+        ),
+      ),
+    ];
+    const snapshot = await readBodyRecords(id, (raw) => [
+      `lifetime/${id}`,
+      ...receiptKeys,
+      ...historyBlobKeys(id, (raw as StoredGameBody).editHistory),
+    ]);
+    if (snapshot.head === undefined)
+      throw new ProjectDeletedError("The original project is missing.");
+    const originalBody = readStoredBody(snapshot.head, id);
+    readLibrary(originalBody);
+    const original = new Map(snapshot.records);
+    original.set(id, snapshot.head);
+    for (const key of [
+      `lifetime/${id}`,
+      ...receiptKeys,
+      ...historyBlobKeys(id, (snapshot.head as StoredGameBody).editHistory),
+    ])
+      if (!original.has(key)) original.set(key, undefined);
+    const stage = projectRestoreStage(original);
+    let saved: ProjectCommitReceipt["saved"] | undefined;
+    for (const entries of captures) {
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index]!;
+        const result =
+          entry.capture !== undefined
+            ? await recoverProjectJournal(entry.capture, undefined, stage)
+            : await writeProjectCommit(entry.request!, undefined, undefined, stage);
+        if (result === undefined) throw new Error("Project recovery did not produce a receipt.");
+        if (saved === undefined || result.receipt.saved.generation > saved.generation)
+          saved = result.receipt.saved;
+        rebaseProjectJournalSuccessor(entry, entries[index + 1], result.receipt);
+      }
+    }
+    const restored = stage.rows.get(id) as StoredGameBody;
+    if (
+      saved === undefined ||
+      generationOf(restored) !== saved.generation ||
+      restored.library?.revision !== saved.revision ||
+      authoringFingerprint(restored.authoringState, restored.workspace) !== saved.authoring ||
+      liveLifetime(stage.rows.get(`lifetime/${id}`) as HistoryLifetime | undefined) !==
+        saved.lifetime
+    )
+      throw new ConcurrencyConflictError(
+        "The original project changed after these edits were saved.",
+        restored,
+      );
+    const changed = stage.puts.size !== 0 || stage.deletes.size !== 0;
+    const expectedRows = new Map(
+      [...original].map(([key, value]) => [key, JSON.stringify(encodeJournalValue(value))]),
+    );
+    const final = await updateBodyRecords(id, (raw) => {
+      const current = raw as StoredGameBody | undefined;
+      if (current === undefined) throw new ProjectDeletedError("The original project was removed.");
+      if (JSON.stringify(encodeJournalValue(current)) !== expectedRows.get(id))
+        throw new ConcurrencyConflictError(
+          "The original project changed during recovery.",
+          current,
+        );
+      return {
+        reads: [...expectedRows.keys()].filter((key) => key !== id),
+        complete: (rows) => {
+          for (const [key, expected] of expectedRows) {
+            if (key === id || JSON.stringify(encodeJournalValue(rows.get(key))) === expected)
+              continue;
+            if (key === `lifetime/${id}`)
+              throw new ProjectDeletedError("The original project was reimported.");
+            throw new ConcurrencyConflictError("The project changed during recovery.", current);
+          }
+          return {
+            result: stage.rows.get(id) as StoredGameBody,
+            puts: [...stage.puts.values()],
+            deletes: [...stage.deletes],
+          };
+        },
+      };
+    });
+    if (!changed) return;
+    try {
+      localStorage.setItem(getStorageKey(id), JSON.stringify(storedIndex(final)));
+    } catch {
+      /* The committed body stays authoritative if its index cannot be refreshed. */
+    }
+    announceProjectWrite({
+      projectId: id,
+      generation: final.generation!,
+      revision: final.library!.revision,
+      fingerprint: authoringFingerprint(final.authoringState, final.workspace),
+    });
+  });
 }

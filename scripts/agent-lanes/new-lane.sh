@@ -1,4 +1,6 @@
 #!/bin/sh
+# Creates a lane worktree on branch lane/<name>; run-lane.sh runs an agent in it
+# (docs/agent-lanes.md).
 set -eu
 
 fail() {
@@ -21,7 +23,7 @@ else
 fi
 branch=lane/$name
 git show-ref --verify --quiet "refs/heads/$branch" && fail "Lane branch already exists: $branch"
-lanes=${AGI_LANES_DIR:-../agi-lanes}
+lanes=${AGI_LANES_DIR:-$HOME/repos/agi-wt}
 mkdir -p "$lanes"
 lanes=$(cd "$lanes" && pwd -P)
 worktree=$lanes/$name

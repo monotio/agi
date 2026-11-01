@@ -13,18 +13,29 @@ export function readAmigaRegion(storage?: Pick<Storage, "getItem">): AmigaRegion
 }
 
 /** The presentation clock preference, shared by Settings and the audio graph. */
-export function createAmigaRegionSettings(storage: Pick<Storage, "getItem" | "setItem">) {
+export function createAmigaRegionSettings(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  events?: Pick<EventTarget, "addEventListener">,
+) {
   const region = ref<AmigaRegion>(readAmigaRegion(storage));
   function setRegion(value: AmigaRegion): void {
-    storage.setItem("monotio_agi.amigaRegion", value);
+    try {
+      storage.setItem("monotio_agi.amigaRegion", value);
+    } catch {
+      // The choice still applies to this tab's next start.
+    }
     region.value = value;
   }
+  events?.addEventListener("storage", (event) => {
+    const key = (event as StorageEvent).key;
+    if (key === null || key === "monotio_agi.amigaRegion") region.value = readAmigaRegion(storage);
+  });
   return { region: readonly(region), setRegion };
 }
 
 let settings: ReturnType<typeof createAmigaRegionSettings> | undefined;
 
 export function useAmigaRegion() {
-  settings ??= createAmigaRegionSettings(localStorage);
+  settings ??= createAmigaRegionSettings(localStorage, globalThis);
   return settings;
 }

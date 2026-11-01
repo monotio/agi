@@ -237,3 +237,89 @@ test("2.936: the PC prompt has no gadgets; clicks are dropped, a tap cancels, ke
   assert.equal(esc.engine().vars[81], 1, "Escape cancels the restart");
   assert.equal(esc.engine().inputEdit, "look");
 });
+
+// Player rule: a restart prompt reached while a timed message is pending (v21)
+// accepts when its time runs out, with no key (docs/fidelity.md "Persistence
+// verdicts", F-persistence-prompt-modes); a History replay reaches the same
+// restart from the recorded clock.
+test("2.936: a timed restart prompt accepts when its time runs out, live and in a History replay", () => {
+  const container = gameContainer([
+    `if (isset(f6)) { assignn(v90, 1); return; }
+     if (!isset(f200)) { set(f200); set.key(0, 59, 1); }
+     if (controller(c1)) { assignn(v21, 2); restart.game(); assignn(v81, 1); return; }
+     return;`,
+  ]);
+  const control: WorkerControl[] = [];
+  const presentation: WorkerPresentation[] = [];
+  let now = 0;
+  const ctx: WorkerContext = createWorkerContext({
+    control: (message) => control.push(message),
+    presentation: (message) => presentation.push(message),
+    now: () => now,
+  });
+  ctx.host = createEngineHost(ctx);
+  const send = (msg: WorkerInbound): void => onWorkerMessage(ctx, msg);
+  send({ type: "boot", profile: "2.936", files: Object.fromEntries(container.files), words: [] });
+  ctx.fns.stopTimers();
+  const tick = (n: number): void => {
+    for (let i = 0; i < n; i++) {
+      now += 1000 / 60;
+      ctx.fns.hostTick();
+    }
+  };
+  const engine = () => ctx.run.engine!;
+  tick(1);
+  send({ type: "key", code: F1 });
+  tick(1);
+  assert.equal(engine().modalKind, "print", "the prompt shows");
+  assert.equal(ctx.run.input.keyWaiting, true, "the page shows the key wait");
+  tick(30);
+  assert.equal(engine().vars[90], 0, "half the time: still waiting");
+  tick(40);
+  assert.equal(engine().vars[90], 1, "the timeout restarted the game");
+  assert.equal(engine().vars[81], 0, "the old pass never resumed");
+  assert.equal(engine().modalKind, null);
+  assert.equal(ctx.run.input.keyWaiting, false, "the page no longer waits for a key");
+  tick(2);
+  send({ type: "pause", paused: true });
+  const [segment] = collectSegments(control);
+  assert.ok(segment);
+  const outcome = replayHistorySegment(segment);
+  assert.equal(outcome.error, null);
+  assert.equal(outcome.diverged, null, "every sync mark held");
+  assert.equal(outcome.ctx.run.engine!.vars[90], 1, "the replay restarted on the same clock");
+  ctx.fns.stopTimers();
+});
+
+test("2.936: a timed confirmation expiring after key delivery clears the page wait at any tick entry", () => {
+  for (const action of [1, 2] as const) {
+    const s = confirmSession("2.936");
+    s.engine().vars[21] = 2;
+    s.open(action);
+    assert.equal(s.ctx.run.input.keyWaiting, true);
+    // Delivery and clock are separate engine boundaries; the worker's resumed
+    // tick must publish completion even when it runs outside a host poll.
+    s.engine().deliverHostAnswer(0x61);
+    s.engine().advanceClock(1100);
+    s.ctx.fns.tickEngine();
+    assert.equal(s.engine().awaitingKey, false, "expiry never leaves an invisible key wait");
+    assert.equal(s.ctx.run.input.keyWaiting, false, "the page stops waiting at the resumed tick");
+    assert.equal(action === 1 ? s.engine().vars[90] === 1 : s.quitPosted(), true);
+  }
+});
+
+test("amiga-2.316: Cancel and Continue accept a timed confirmation", () => {
+  for (const action of [1, 2] as const) {
+    const s = confirmSession("amiga-2.316");
+    s.engine().vars[21] = 2;
+    s.open(action);
+    s.send({ type: "click", ...(action === 1 ? CANCEL : CONTINUE) });
+    assert.equal(
+      action === 1 ? s.engine().vars[90] === 1 : s.quitPosted(),
+      true,
+      "the timed shared message routine accepts the gadget's Escape answer",
+    );
+    assert.equal(s.engine().awaitingKey, false);
+    assert.equal(s.ctx.run.input.keyWaiting, false);
+  }
+});

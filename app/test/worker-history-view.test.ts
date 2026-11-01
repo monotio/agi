@@ -11,6 +11,11 @@ await Promise.all(["amiga-2.082", "amiga-2.202", "amiga-2.310"].map((id) => load
  * session byte-identical: the scratch never touches it.
  */
 import { test } from "node:test";
+import {
+  releasedRestartHarness,
+  takeReleasedRestart,
+  restoreReleasedRestart,
+} from "./released-history.ts";
 import { readFileSync } from "node:fs";
 import { releasedSound, assertSoundContinuation } from "../../test/released-sound.ts";
 import { Engine } from "../../src/runtime/engine.ts";
@@ -24,6 +29,7 @@ import type { GameContainer } from "../../src/types.ts";
 import {
   HISTORY_FORMAT_VERSION,
   historyBootSemantic,
+  historyAnchorSemantic,
   historyFingerprint,
   stampBoot,
   historySyncDigest,
@@ -2071,3 +2077,258 @@ for (const sound of [false, true]) {
     assert.deepEqual(boot, before, "restoring keeps the released record unchanged");
   });
 }
+
+test("3.002.086: History restores between allowed and blocked menus and hold movement", () => {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+    if (!isset(f200)) { set(f200); set(f14); load.pic(v250); draw.pic(v250); show.pic();
+      set.menu("Game"); set.menu.item("Look", 1); submit.menu(); set.key(27, 0, 1); }
+    if (controller(c1)) { menu.input(); }
+    if (isset(f201)) { reset(f201); allow.menu(0); hold.key(); }
+    return;
+  `,
+      { dictionary: new Map(), profile: PROFILES["3.002.086"] },
+    ).payload,
+  );
+  game.putResource("picture", 0, Uint8Array.of(0xff));
+  const h = viewHarness(game, { profile: "3.002.086" });
+  h.tick(2);
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 701 });
+  const earlier = h.control.find((m) => m.type === "historyRetained" && m.id === 701);
+  assert.ok(earlier?.type === "historyRetained" && earlier.boot != null);
+  h.send({ type: "pause", paused: false });
+  h.send({ type: "debugWrite", id: 0, flags: [[201, 1]] });
+  h.tick(2);
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRetain", id: 702 });
+  const later = h.control.find((m) => m.type === "historyRetained" && m.id === 702);
+  assert.ok(later?.type === "historyRetained" && later.boot != null);
+  for (const [id, retained, release, menu] of [
+    [703, earlier, 0, "menu"],
+    [704, later, 1, null],
+    [705, earlier, 0, "menu"],
+  ] as const) {
+    assert.ok(retained.boot != null);
+    h.send({ type: "historyViewRestore", id, boot: retained.boot, from: retained.from });
+    const restored = h.control.find((m) => m.type === "historyViewRestored" && m.id === id);
+    assert.ok(
+      restored?.type === "historyViewRestored" && restored.ok,
+      "the recorded checkpoint restores",
+    );
+    const engine = h.ctx.run.engine!;
+    assert.equal(engine.releaseGate, release, "History restores the movement mode");
+    h.send({ type: "pause", paused: false });
+    h.send({ type: "key", code: 27 });
+    h.tick(2);
+    assert.equal(engine.modalKind, menu, "History restores whether the menu can open");
+    if (engine.modalKind !== null) {
+      h.send({ type: "key", code: 27 });
+      h.tick();
+    }
+    h.send({ type: "pause", paused: true });
+  }
+});
+
+test("older History recordings without gate fields still replay and reject damaged anchors", () => {
+  const { recording } = playedSession();
+  const segment = structuredClone(recording.segments[0]!);
+  for (const checkpoint of [segment.boot, ...segment.anchors]) {
+    if (!checkpoint.replay) continue;
+    delete checkpoint.replay.menuGate;
+    delete checkpoint.replay.releaseGate;
+    checkpoint.fingerprint = historyFingerprint(
+      checkpoint === segment.boot
+        ? historyBootSemantic(segment.boot)
+        : historyAnchorSemantic(checkpoint as HistoryAnchor),
+    );
+  }
+  const before = structuredClone(segment);
+  for (let anchor = 0; anchor < segment.anchors.length; anchor++) {
+    const replayed = replayHistorySegment(segment, { anchor });
+    assert.equal(replayed.error, null, "omitted gates retain the released restore behavior");
+    assert.equal(replayed.diverged, null);
+    assert.equal(replayed.incompatible, null);
+  }
+  assert.deepEqual(segment, before, "replay leaves the older recording unchanged");
+  const damaged = structuredClone(segment);
+  damaged.anchors[0]!.rng ^= 1;
+  assert.match(
+    replayHistorySegment(damaged, { anchor: 0 }).error ?? "",
+    /semantic fingerprint does not hold/,
+  );
+});
+
+test("a released 1.2.5 History restart replays unchanged and Resume here starts 1.2.6", () => {
+  // Frozen from the released 1.2.5 worker's full module tree at 31dc3dfb.
+  // The synthetic game's boot resources and all recorded marks remain original.
+  const segments = JSON.parse(
+    readFileSync(new URL("./formats/history-1.2.5-restart.json", import.meta.url), "utf8"),
+  ) as HistorySegment[];
+  const before = structuredClone(segments);
+  const segment = segments[0]!;
+  const replay = replayHistorySegment(segment);
+  assert.equal(replay.error, null);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.incompatible, null);
+  const h = viewHarness(viewGame());
+  h.tick(12);
+  h.send({ type: "pause", paused: true });
+  h.send({
+    type: "historyViewStart",
+    id: 1,
+    recording: asRecording(segments),
+    segment: 0,
+    tick: 100,
+  });
+  const opened = finalView(h.control, 1);
+  assert.equal(opened.diverged, null);
+  assert.equal(opened.canResume, true);
+  const viewedEngine = h.ctx.view.drive!.ctx.run.engine!;
+  assert.equal(viewedEngine.replayBehavior, "1.2.5", "the old part uses its recorded rules");
+  const viewedImage = viewedEngine.recordingImage();
+  const viewedReplay = viewedEngine.captureReplayState();
+  h.send({
+    type: "historyViewTake",
+    id: 2,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  const taken = h.control.find((m) => m.type === "historyTaken" && m.id === 2);
+  assert.ok(taken?.type === "historyTaken" && taken.ok);
+  assert.deepEqual(
+    h.ctx.run.engine!.recordingImage(),
+    viewedImage,
+    "takeover keeps the built state",
+  );
+  assert.deepEqual(
+    h.ctx.run.engine!.captureReplayState(),
+    viewedReplay,
+    "takeover keeps the continuation",
+  );
+  assert.equal(h.ctx.run.engine!.replayBehavior, "1.2.6");
+  h.send({ type: "pause", paused: false });
+  h.tick(20);
+  h.send({ type: "pause", paused: true });
+  const resumed = collectSegments(h.control).at(-1)!;
+  assert.equal(
+    resumed.boot.replayBehavior,
+    "1.2.6",
+    "the resumed recording starts with the current execution rules",
+  );
+  const continued = replayHistorySegment(resumed);
+  assert.equal(continued.error, null);
+  assert.equal(continued.diverged, null);
+  assert.equal(continued.incompatible, null);
+  continued.ctx.fns.stopTimers();
+  assert.deepEqual(segments, before, "released marks and fingerprints remain unchanged");
+  replay.ctx.fns.stopTimers();
+  h.ctx.fns.stopTimers();
+});
+
+test("new History segments stamp the 1.2.6 behavior and retain the screen across restart", () => {
+  const h = viewHarness(
+    gameContainer(
+      [
+        `if (!isset(f200)) { set(f200); load.pic(v250); draw.pic(v250); show.pic();
+       set.key(0,59,1); if (!isset(f6)) { status.line.on(); display(8,0,"KEPT"); } }
+     if (controller(c1)) { set(f16); restart.game(); } return;`,
+      ],
+      (c) => c.putResource("picture", 0, Uint8Array.of(255)),
+    ),
+  );
+  h.tick(20);
+  h.send({ type: "key", code: 0x3b00 });
+  h.tick(150);
+  h.send({ type: "pause", paused: true });
+  const recording = validateHistoryRecording(asRecording(collectSegments(h.control)));
+  const segment = recording.segments[0]!;
+  assert.equal(segment.boot.replayBehavior, "1.2.6");
+  assert.throws(
+    () =>
+      validateHistoryRecording({
+        ...recording,
+        segments: [{ ...segment, boot: { ...segment.boot, replayBehavior: "future" } }],
+      }),
+    /replay behavior is unknown/,
+  );
+  const replay = replayHistorySegment(segment);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.error, null);
+  assert.equal(replay.incompatible, null);
+  assert.equal(decodeSave(replay.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled, 1);
+  replay.ctx.fns.stopTimers();
+  h.ctx.fns.stopTimers();
+});
+
+test("Resume here uses the same 1.2.6 restart rules before and after autosave and reopen", (t) => {
+  const uninterrupted = releasedRestartHarness(t);
+  takeReleasedRestart(uninterrupted);
+  uninterrupted.send({ type: "flush", id: 3 });
+  const saved = uninterrupted.presentation.findLast((message) => message.type === "autosave");
+  assert.ok(saved?.type === "autosave");
+  const reopened = releasedRestartHarness(t, {
+    restoreImage: saved.image,
+    restoreMenus: saved.menus,
+    ...(saved.rng ? { restoreRng: saved.rng } : {}),
+  });
+  assert.ok(reopened.control.some((message) => message.type === "restored" && message.ok));
+  for (const run of [uninterrupted, reopened]) {
+    run.send({ type: "key", code: 0x3b00 });
+    run.tick(150);
+    run.send({ type: "pause", paused: true });
+  }
+  const status = (run: typeof uninterrupted) =>
+    decodeSave(run.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled;
+  assert.equal(status(uninterrupted), status(reopened), "reopening keeps the restart behavior");
+  for (const run of [uninterrupted, reopened]) {
+    assert.equal(status(run), 1, "the status line survives restart under 1.2.6");
+    assert.equal(run.ctx.run.engine!.replayBehavior, "1.2.6");
+    assert.equal(collectSegments(run.control).at(-1)!.boot.replayBehavior, "1.2.6");
+  }
+});
+
+test("Undo rewind of a noncold released original uses current restart rules across autosave and reopen", (t) => {
+  const live = releasedRestartHarness(t);
+  const before = structuredClone(live.segments);
+  const boot = restoreReleasedRestart(live);
+  assert.equal(live.ctx.run.engine!.replayBehavior, "1.2.6");
+  live.send({ type: "flush", id: 21 });
+  const saved = live.presentation.findLast((message) => message.type === "autosave");
+  assert.ok(saved?.type === "autosave");
+  const reopened = releasedRestartHarness(t, {
+    restoreImage: saved.image,
+    restoreMenus: saved.menus,
+    ...(saved.rng ? { restoreRng: saved.rng } : {}),
+  });
+  assert.ok(reopened.control.some((message) => message.type === "restored" && message.ok));
+  for (const run of [live, reopened]) {
+    run.send({ type: "key", code: 0x3b00 });
+    run.tick(150);
+    run.send({ type: "pause", paused: true });
+    assert.equal(
+      decodeSave(run.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled,
+      1,
+      "the status line survives the next restart",
+    );
+    assert.equal(collectSegments(run.control).at(-1)!.boot.replayBehavior, "1.2.6");
+  }
+  const replay = replayHistorySegment(live.segments[0]!);
+  t.after(() => replay.ctx.fns.stopTimers());
+  assert.equal(replay.error, null);
+  assert.equal(replay.diverged, null);
+  assert.equal(replay.ctx.run.engine!.replayBehavior, "1.2.5");
+  assert.equal(
+    decodeSave(replay.ctx.run.engine!.serialize(), PROFILES["2.936"]).statusEnabled,
+    0,
+    "historical playback keeps the released restart result",
+  );
+  assert.equal(boot.replayBehavior, undefined);
+  assert.deepEqual(live.segments, before, "historical playback preserves the released recording");
+});

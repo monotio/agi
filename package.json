@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "private": true,
   "workspaces": [
@@ -37,6 +37,9 @@
     "check:bundle": "node --experimental-strip-types scripts/check-bundle-budget.ts",
     "verify:deploy": "node --experimental-strip-types scripts/verify-deploy.ts",
     "test": "node --test --experimental-strip-types 'test/*.test.ts'",
+    "lane:new": "scripts/agent-lanes/new-lane.sh",
+    "lane:run": "scripts/agent-lanes/run-lane.sh",
+    "lane:status": "node scripts/agent-lanes/status.mjs",
     "test:app": "node --test --experimental-strip-types 'app/test/*.test.ts'",
     "test:e2e": "npm --prefix app run e2e",
     "prove:walkthrough": "node --experimental-strip-types scripts/walkthrough.ts",
@@ -72,7 +75,7 @@
   },
   "overrides": {
     "monaco-editor": {
-      "dompurify": "3.4.16"
+      "dompurify": "3.4.17"
     },
     "typed-rest-client": {
       "qs": "6.16.0"

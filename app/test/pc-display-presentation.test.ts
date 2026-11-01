@@ -116,3 +116,13 @@ test("the Screen choice persists, survives broken storage and reaches a second t
   fallback.setDisplay("cga-rgb");
   assert.equal(fallback.display.value, "cga-rgb");
 });
+
+test("clearing storage in another tab resets the Screen choice to EGA", () => {
+  let saved: string | null = "cga-rgb";
+  const events = new EventTarget();
+  const settings = createPcDisplaySettings({ getItem: () => saved, setItem() {} }, events);
+  assert.equal(settings.display.value, "cga-rgb");
+  saved = null;
+  events.dispatchEvent(Object.assign(new Event("storage"), { key: null }));
+  assert.equal(settings.display.value, "ega");
+});

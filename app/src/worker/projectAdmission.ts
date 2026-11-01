@@ -719,6 +719,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
             engine.containerFiles,
             engine.pcDisplay,
             engine.adoptsDeclaredScriptSize,
+            engine.replayBehavior,
           );
       } catch (error) {
         settleRefused(error instanceof Error ? error.message : String(error));

@@ -136,3 +136,37 @@ test("PC profiles keep the Amiga region choice hidden @phone", async ({ page }) 
   await expect(page.getByTestId("toggle-sound-mode")).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Amiga timing" })).toHaveCount(0);
 });
+
+test("Amiga timing follows another tab and still changes when storage refuses writes @phone @webkit-desktop", async ({
+  page,
+  context,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await bootSoundGame(page);
+  await openAdvanced(page);
+  const region = page.getByRole("combobox", { name: "Amiga timing" });
+  await expect(region).toBeVisible();
+  const other = await context.newPage();
+  await other.goto("/");
+  await other.evaluate(() => localStorage.setItem("monotio_agi.amigaRegion", "pal"));
+  await expect(region).toHaveValue("pal");
+  await other.evaluate(() => localStorage.removeItem("monotio_agi.amigaRegion"));
+  await expect(region).toHaveValue("ntsc");
+  await other.evaluate(() => localStorage.setItem("monotio_agi.amigaRegion", "pal"));
+  await expect(region).toHaveValue("pal");
+  await other.evaluate(() => localStorage.clear());
+  await expect(region).toHaveValue("ntsc");
+  await page.evaluate(() => {
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "monotio_agi.amigaRegion")
+        throw new DOMException("Full storage", "QuotaExceededError");
+      return set.call(this, key, value);
+    };
+  });
+  await region.selectOption("pal");
+  await expect(region).toHaveValue("pal");
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.amigaRegion"))).toBeNull();
+  expect(errors).toEqual([]);
+});

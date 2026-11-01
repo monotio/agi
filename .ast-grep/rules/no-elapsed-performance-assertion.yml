@@ -1,0 +1,33 @@
+id: no-elapsed-performance-assertion
+language: ts
+severity: error
+message: >-
+  Record elapsed performance as a JSON trend. Assert work counts or observable results instead of a machine-speed ceiling.
+files:
+  # Pacing conformance in cycle-clock and sound-audition has a separate contract.
+  - app/e2e/*perf*.spec.ts
+  - app/e2e/history-bench.spec.ts
+  - app/e2e/world-map.spec.ts
+rule:
+  all:
+    - any:
+        - pattern: expect($VALUE).toBeLessThan($$$)
+        - pattern: expect($VALUE, $$$).toBeLessThan($$$)
+        - pattern: expect($VALUE).toBeLessThanOrEqual($$$)
+        - pattern: expect($VALUE, $$$).toBeLessThanOrEqual($$$)
+    - has:
+        stopBy: end
+        any:
+          - pattern: performance.now()
+          - pattern: Date.now()
+          - all:
+              - any:
+                  - kind: identifier
+                  - kind: property_identifier
+              - regex: "(Ms|P50|P95|frameMax|eventMax|longTaskTotal)$"
+          - all:
+              - pattern: Math.max(...$TIMES)
+              - has:
+                  stopBy: end
+                  kind: identifier
+                  regex: "^(samples|costs|cpu)$"

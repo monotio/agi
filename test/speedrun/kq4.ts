@@ -49,7 +49,7 @@ type Segment = readonly [name: string, play: (run: Speedrun) => void];
  * and accepts any word whose upper-case letter sum matches the stored byte.
  * The route's seed deals question 51, whose manual word is "fear".
  */
-function manualCheck(run: Speedrun): void {
+export function manualCheck(run: Speedrun): void {
   run.until(() => run.engine.flags[224] !== 0, 600, "manual question shown");
   assert.equal(run.engine.vars[115], 51, "seeded manual question");
   for (const ch of "fear\r") {

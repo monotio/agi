@@ -5,6 +5,7 @@ import { PROFILES } from "../../src/runtime/profile.ts";
 import { buildView, parseView } from "../../src/view/view.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { buildZip } from "../src/archive/zip.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import {
   closeWorkspaceEditor,
   downloadFromSettings,
@@ -127,9 +128,10 @@ test("Studio keeps early-profile imported art and plays its newly added mirror a
   await page
     .getByTestId("game-zip-input")
     .setInputFiles({ name: "Mirror export.zip", mimeType: "application/zip", buffer: archive });
+  // The original card also says Imported copy while its saved progress binds.
+  // Open the newly imported resource revision regardless of that card's Play/Resume state.
   await page
-    .getByRole("article")
-    .filter({ hasText: "Imported copy" })
+    .getByTestId(`saved-game-card-imported-${await gameRevision(exported.files)}`)
     .getByRole("button", { name: "Play", exact: true })
     .click();
   await expect.poll(async () => (await textHook(page)).profile).toBe(profile.id);

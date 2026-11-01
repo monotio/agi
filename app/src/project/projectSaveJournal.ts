@@ -12,7 +12,7 @@ import {
 } from "./projectJournalCapture.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 
-interface JournalEntry {
+export interface JournalEntry {
   request?: ProjectCommitRequest;
   capture?: ProjectJournalCapture;
   attempted: boolean;
@@ -25,6 +25,11 @@ function entryIdentity(entry: JournalEntry): string {
 function readEntries(storage: Storage, key: string): JournalEntry[] {
   const raw = storage.getItem(key);
   if (raw === null) return [];
+  return decodeProjectSaveJournal(raw);
+}
+
+/** Read the same envelope from browser storage or a pending-edits download. */
+export function decodeProjectSaveJournal(raw: string): JournalEntry[] {
   try {
     const journal = JSON.parse(raw) as { version: number; entries: unknown };
     if (journal.version !== 1 && journal.version !== 2)
@@ -230,6 +235,34 @@ export function markProjectSaveRecovery(storage: Storage, key: string, reason: s
   changed();
 }
 
+/** An unattempted successor continues from its predecessor's exact saved image. */
+export function rebaseProjectJournalSuccessor(
+  entry: JournalEntry,
+  successor: JournalEntry | undefined,
+  previous: ProjectCommitReceipt | undefined,
+): void {
+  if (successor && !successor.attempted && previous !== undefined) {
+    if (successor.capture !== undefined && entry.capture !== undefined) {
+      const { hash: _hash, ...capture } = successor.capture;
+      const next = {
+        ...capture,
+        base: previous.saved,
+        baseImage: entry.capture.image,
+        identity: { ...capture.identity, expected: previous.saved },
+        operations:
+          capture.base.generation === entry.capture.base.generation &&
+          capture.base.lifetime === entry.capture.base.lifetime
+            ? capture.operations.slice(entry.capture.operations.length)
+            : capture.operations,
+      };
+      successor.capture = {
+        ...next,
+        hash: sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(next)))),
+      };
+    } else successor.request = { ...successor.request!, expected: previous.saved };
+  }
+}
+
 /** Replay exact attempted requests; only an unattempted successor takes its predecessor's receipt. */
 export function resumeProjectSaveJournals(
   storage: Storage,
@@ -340,26 +373,7 @@ export function resumeProjectSaveJournals(
           current.splice(index, 1);
           // Keep the successor's resolved base durable before dropping its predecessor.
           const successor = current[index];
-          if (successor && !successor.attempted && previous !== undefined) {
-            if (successor.capture !== undefined && entry.capture !== undefined) {
-              const { hash: _hash, ...capture } = successor.capture;
-              const next = {
-                ...capture,
-                base: previous.saved,
-                baseImage: entry.capture.image,
-                identity: { ...capture.identity, expected: previous.saved },
-                operations:
-                  capture.base.generation === entry.capture.base.generation &&
-                  capture.base.lifetime === entry.capture.base.lifetime
-                    ? capture.operations.slice(entry.capture.operations.length)
-                    : capture.operations,
-              };
-              successor.capture = {
-                ...next,
-                hash: sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(next)))),
-              };
-            } else successor.request = { ...successor.request!, expected: previous.saved };
-          }
+          rebaseProjectJournalSuccessor(entry, successor, previous);
           writeProjectSaveJournal(storage, key, current);
           entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
         }

@@ -1,3 +1,4 @@
+import { DEADLINES } from "./deadlines.ts";
 import { test, expect } from "./test.ts";
 import {
   isolateStorage,
@@ -112,16 +113,16 @@ for (const width of [1440, 390]) {
     await composer.fill("Add a welcome sign");
     await page.getByTestId("agent-send").click();
     const result = page.getByTestId("agent-result-preview");
-    await expect(result).toBeVisible();
+    await expect(result).toBeVisible({ timeout: DEADLINES.agent });
     // The first code diff loads Monaco: while a run's first tests start together, the dev server
-    // answers its 300-odd module requests slowly, so it gets the 30 s budget of a first LOGIC
-    // editor mount.
-    await expect(result.getByTestId("agent-code-diff")).toBeVisible({ timeout: 30_000 });
+    // answers its 300-odd module requests slowly, so it gets the shared lazy-editor
+    // deadline.
+    await expect(result.getByTestId("agent-code-diff")).toBeVisible({ timeout: DEADLINES.editor });
     await expect(result.getByTestId("agent-art-review")).toBeVisible();
     await result.getByRole("button", { name: "Back to chat", exact: true }).click();
     await composer.fill("My next question stays here");
     await page.getByTestId("agent-view-result").click();
-    await expect(result).toBeVisible();
+    await expect(result).toBeVisible({ timeout: DEADLINES.agent });
     if (width === 390) expect((await result.boundingBox())!.width).toBe(390);
     await result.getByTestId("agent-approve").click();
     await expect(result).toBeHidden();
@@ -139,7 +140,7 @@ for (const width of [1440, 390]) {
       page.getByRole("button", { name: "Restore to before this", exact: true }),
     ).toHaveCount(0);
     await page.getByTestId("agent-view-result").click();
-    await expect(result.getByTestId("agent-code-diff")).toBeVisible();
+    await expect(result.getByTestId("agent-code-diff")).toBeVisible({ timeout: DEADLINES.editor });
     await result.getByRole("button", { name: "Back to chat", exact: true }).click();
     if (width === 390) await page.getByTestId("agent-panel-close").click();
     await page.getByRole("radio", { name: "Create", exact: true }).click();
@@ -156,7 +157,7 @@ for (const width of [1440, 390]) {
     await replaceWorkspaceDocument(page, "logic:0", `${boot}\n// Later human edit\n`);
     if (width === 390) await openWorkspaceAgent(page);
     await page.getByTestId("agent-view-result").click();
-    await expect(result).toBeVisible();
+    await expect(result).toBeVisible({ timeout: DEADLINES.agent });
     await expect(result.getByTestId("agent-earlier-version")).toBeVisible();
     await expect(result.getByTestId("agent-code-diff")).not.toContainText("Later human edit");
     await expect(result.getByTestId("agent-approve")).toHaveCount(0);
@@ -289,7 +290,7 @@ test("coordinated tests proposal has a native test review @webkit-desktop", asyn
   await page.getByTestId("agent-message").fill("Add a starting score test");
   await page.getByTestId("agent-send").click();
   const tests = page.getByTestId("agent-result-preview").getByTestId("agent-tests-review");
-  await expect(tests).toBeVisible();
+  await expect(tests).toBeVisible({ timeout: DEADLINES.agent });
   await expect(tests.getByRole("row", { name: "Starting score 1 1", exact: true })).toBeVisible();
   await expect(page.getByTestId("agent-approve")).toBeEnabled();
 });

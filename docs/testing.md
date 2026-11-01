@@ -304,7 +304,7 @@ with local fixtures.
 
 Run `npm run check` and the affected specs locally, then push a branch covered by
 CI for the Linux verdict. CI prints `nproc` and memory and uses two
-ordinary Playwright workers per job. Performance budgets and the CPU-throttled
+ordinary Playwright workers per job. Performance measurements and the CPU-throttled
 storage benchmark run alone on one worker; production tests also keep one
 worker. Retries stay at zero so every failure is visible.
 
@@ -319,6 +319,11 @@ in a context the test opens. Each is checked once, just before it closes, while 
 worker can still answer.
 The production suites in `app/production/` reuse some of these specs against a built app,
 which has no test hooks, so the check has nothing to read there and passes.
+`npm --prefix app run e2e:production` runs the functional production checks in either browser
+and excludes `@perf`. `npm --prefix app run e2e:production:perf` runs the production Update
+measurements in Chromium on one worker. Run it alone after the other suites; CI runs it
+sequentially after the development performance checks in their isolated job, using the built
+site artifact. Both performance runs retain timing trends on successful runs.
 
 The Chromium suite is split into ten spec groups using measured durations in
 `scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
@@ -329,8 +334,8 @@ median measured weight. The longest specs are
 assigned first to the lightest group. JSON report artifacts retain per-test
 durations for rebalancing. Each spec runs in exactly one group with every test
 selected by the ordinary suite configuration. The benchmark remains part of
-the required browser gate and manual diagnostics. Timing budgets and
-storage each have their own job, with timing tests first after runner setup.
+the required browser gate and manual diagnostics. Performance measurements and
+storage each have their own job, with performance tests first after runner setup.
 Browser suite jobs allow 45 minutes, about three times the observed healthy
 desktop shard duration. The former 15-minute limit cancelled a shard after 118
 tests passed and seven skipped, with its last test still running. This job allowance
@@ -367,8 +372,8 @@ Run the CI helper tests (`python3 -m unittest discover -s scripts/ci -p 'test_*.
 then compare the Linux screenshot artifacts and timing results with the previous
 image. Browser jobs print their font inventory. Screenshot artifacts retain PNGs
 from successful tests as well as failed ones; JSON reports retain measured test
-durations. Keep screenshot expectations and timing budgets tied to the observed
-behavior.
+durations. Keep screenshot expectations tied to observed behavior and compare performance
+trends under the same workload.
 
 Pull requests run each applicable suite once, with zero retries. Repetition is an
 explicit diagnostic action: use **Browser diagnostics** in GitHub Actions and
@@ -383,7 +388,7 @@ The diagnostic workflow has no schedule. It retains browser reports and updates
 a diagnostic flake issue when a test has both passing and failing attempts.
 Consistent failures remain failures. Only that report job has `issues: write`.
 
-Timing and storage diagnostics run alone on one worker. Selection and reporting
+Performance and storage diagnostics run alone on one worker. Selection and reporting
 helpers have their own regression tests:
 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/ci -p 'test_*.py'`.
 
@@ -420,7 +425,7 @@ completion runs on the specific game edition and interpreter profile.
 
 ### Browser suites, tags and widths
 
-`npm --prefix app run e2e` runs every test in Chromium except the timing budgets and the full
+`npm --prefix app run e2e` runs every test in Chromium except the performance measurements and the full
 walkthrough set, which have their own Chromium scripts, so every test is protected there. Tests
 run in parallel across files and within them (`fullyParallel`); a file whose tests share state
 declares `test.describe.configure({ mode: "serial" })` with the reason in a comment. Failure traces keep
@@ -429,15 +434,29 @@ the DOM. Chromium and desktop WebKit run with reduced motion, so clicks do not w
 animations, and phone WebKit runs with full motion; a test whose rule needs motion opts out with
 `page.emulateMedia({ reducedMotion: "no-preference" })` and says why.
 
+Heavy steps use the named hang deadlines in `app/e2e/deadlines.ts`: project boot,
+lazy editors, image preparation, room analysis, saves and agent results. The shared
+expect default covers ordinary UI changes. A deadline leaves room for loaded machines;
+it does not measure responsiveness.
+
+Performance tests assert bounded work and visible outcomes, such as one frame callback
+per burst of pointer moves, unchanged thumbnails during a drag, committed pixels and
+bounded history bytes. Elapsed samples use `recordPerformance` and are retained as
+`performance-*.json` artifacts even on successful CI runs. Each sample includes the
+test and browser project. The reporter states once per worker that these samples
+have no same-job main baseline; this is informational. Relative regression warnings
+require measuring main in that same job;
+comparing absolute times across runners is not a gate.
+
 A tag at the end of a test title selects its extra or separate runs. Linux WebKit is one config,
 `app/playwright.webkit.config.ts`, with one project per WebKit tag:
 
-| Tag                 | Project          | Script                                      | Runs                                                                                                          |
-| ------------------- | ---------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review.            |
-| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.             |
-| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Timing budgets, alone on one worker. The WebKit config skips `@perf`, so the tag wins over either WebKit tag. |
-| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                              |
+| Tag                 | Project          | Script                                      | Runs                                                                                                                    |
+| ------------------- | ---------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `@webkit-desktop`   | `desktop-webkit` | `npm --prefix app run e2e:webkit-desktop`   | Visible workspace behavior that needs a WebKit check: editors, keyboard controls and agent review.                      |
+| `@phone`            | `iphone-webkit`  | `npm --prefix app run e2e:phone`            | Touch input, menus, settings and dialogs, where WebKit pointer, focus and Escape handling matter.                       |
+| `@perf`             | Chromium         | `npm --prefix app run e2e:perf`             | Performance measurements, alone on one worker. The WebKit config skips `@perf`, so the tag wins over either WebKit tag. |
+| `@walkthrough-full` | Chromium         | `npm --prefix app run e2e:walkthrough-full` | Walkthrough tapes replayed whole; see [walkthroughs](#running-the-walkthroughs).                                        |
 
 `npm --prefix app run e2e:webkit` runs both WebKit projects in one invocation. A test carrying both
 WebKit tags runs once in each project, and the config selects a tagged test from its existing
@@ -829,18 +848,13 @@ A missing static path is not evidence of an interpreter defect.
 
 ## Recorded game tests
 
-A game test is a project document about the game. Saving, editing or deleting a
-test uses project history, Undo and autosave, and sends nothing to the running
-game's worker. Test writes leave game admission and pending updates unchanged.
-
-Write tests first: rooms, words and objects may be named before they exist.
-Saving checks the tests document's structure. Running checks game references and
-reports missing resources by name.
-
-Tests never block a game edit. Deleting a room offers **Also delete tests that
-use this room**, checked by default. Clear it to keep the tests; those tests
-will fail when run. A recorded setup's object locations do not make its
-test use those rooms. The room and optional test deletions share one Undo.
+[Tests in Create](create.md#tests) explains writing tests before the game and
+deleting rooms with their tests. Test writes use project history, Undo and
+autosave, send nothing to the running game's worker, and leave game admission
+and pending updates unchanged. Saving checks document structure; running checks
+game references and reports missing resources by name. A recorded setup's object
+locations do not make its test use those rooms. The room and optional test
+deletions share one Undo.
 
 Recorded game tests store a host snapshot and a bounded operation tape in
 `TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
@@ -850,16 +864,12 @@ this contract, including project export/import. Successful authoring mutations
 rerun affected tests conservatively; the verdict reports any tests not run.
 Stored tests travel only in project archives.
 
-The Agent may finish while tests are red when it gives every failing test a
-reason, and every existing test it changed or deleted too. The reply opens with
-`N tests fail: name, name` or `All N tests pass.` and lists each `test: reason`;
-review shows the same lines. The check runs the tests as Apply would leave them,
-including the Agent's proposed test changes. A turn that hands over no documents
-gets no test check. The Agent never weakens or deletes a test on its own. A test
-change the creator asks for appears in review as its own line with the old and
-new room, steps and checks, and it needs the creator's Apply even with
-Auto-approve on; new tests may apply automatically. None of this blocks the
-creator's own edits.
+[Agent handover](ai.md#working-with-the-agent) describes test status, failure
+reasons and review. The check runs tests as Apply would leave them, including
+proposed test changes; a turn that hands over no documents gets no test check.
+Review lists changed tests with their old and new room, steps and checks. Those
+edits need the creator's Apply even with Auto-approve on; new tests may apply
+automatically.
 
 `read_game_tests` lists compact summaries or pages of editable JSON definitions;
 opaque snapshots and replay tapes stay out of model responses. Merge edits

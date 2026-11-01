@@ -1033,17 +1033,19 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
         checkRow1Bottom: true,
       },
       {
-        name: "restart.game: resets displayBaseRow to 0 and status.line.on/off follow profile gate",
+        // The configure.screen row words are outside the restart's write set
+        // (docs/fidelity.md "Original restart state boundary").
+        name: "restart.game: keeps displayBaseRow, so status.line.off blacks rows 0..10",
         act: () => {
           keys.push(0x0d);
           engine.flags[210] = 1;
           tickPast(engine);
-          assert.equal(engine.displayBase, 0, `${profile.id}: restart displayBase is 0`);
+          assert.equal(engine.displayBase, 2, `${profile.id}: restart keeps displayBase 2`);
           engine.flags[201] = 1;
           tickPast(engine);
         },
         statusBar: null,
-        rows0to10: gatedAtPicTop0 ? "unfilled" : "black",
+        rows0to10: "black",
         checkRow1Bottom: true,
       },
     ];
@@ -1078,7 +1080,9 @@ test("Amiga status state table across all six profiles: cold start, configure.sc
   }
 });
 
-test("accepted restart.game preserves picture top on PC 2.936 and IIgs 1.014 while resetting Amiga to 0", async () => {
+// Every build keeps the configured picture top across restart (docs/fidelity.md
+// "Original restart state boundary": the Amiga row words are not written).
+test("accepted restart.game preserves picture top on PC 2.936, IIgs 1.014 and Amiga", async () => {
   const { Engine } = await import("../../src/runtime/engine.ts");
   const { createContainer } = await import("../../src/container/container.ts");
   const { assembleLogic } = await import("../../src/logic/assembler.ts");
@@ -1086,7 +1090,7 @@ test("accepted restart.game preserves picture top on PC 2.936 and IIgs 1.014 whi
   for (const [profileId, expectedAfterRestart] of [
     ["2.936", 2],
     ["iigs-1.014", 2],
-    ["amiga-2.202", 0],
+    ["amiga-2.202", 2],
   ] as const) {
     const profile = PROFILES[profileId]!;
     const container = createContainer();

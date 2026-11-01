@@ -4,6 +4,7 @@
  * matching hostAnswer message delivers the response and resumes the pass.
  * Pure functions of the worker context — importable under Node.
  */
+import { saveCandidatePrefix } from "../../../src/runtime/persistence.ts";
 import { Engine, HostWait } from "../../../src/runtime/engine.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 import { buildWordsTok, parseWordsTok } from "../../../src/logic/words.ts";
@@ -92,7 +93,7 @@ export function createHostRequests(ctx: WorkerContext) {
           response = JSON.stringify(
             Object.entries(run.scratchSlots).map(([slot, save]) => ({
               slot: Number(slot),
-              image: bytesToBase64(base64ToBytes(save.image).slice(0, 40)),
+              image: bytesToBase64(saveCandidatePrefix(base64ToBytes(save.image))),
             })),
           );
         if (op === "saveWrite") {
@@ -293,6 +294,7 @@ export function createHostRequests(ctx: WorkerContext) {
                 profile: ctx.run.engine.profile,
                 pcDisplay: ctx.run.engine.pcDisplay,
                 adoptDeclaredScriptSize: ctx.run.engine.adoptsDeclaredScriptSize,
+                replayBehavior: ctx.run.engine.replayBehavior,
                 legacyRoomMemory: ctx.run.engine.legacyRoomMemory,
               },
             );

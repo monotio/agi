@@ -38,6 +38,10 @@ import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
  * on boots and anchors — none of them expressible in a released version.
  * Boots may also carry `adoptDeclaredScriptSize` (1.2.5, an optional field
  * at the same version; absent replays as before).
+ * `replayBehavior` (1.2.6) selects execution rules; omission keeps 1.2.5
+ * behavior without changing released state or fingerprints. Resume here
+ * starts a new segment with 1.2.6 rules and preserves the captured state.
+ * No version bump is needed: the old meaning is represented by omission.
  * Version 2 added debugger boundaries and complete project admission
  * events; version-2 tapes may carry sync marks in either form — the
  * released combined `digest` or the split `state` + `text` digests — and
@@ -318,6 +322,8 @@ export interface HistoryBoot {
   amigaRegion?: "ntsc" | "pal";
   /** The PC display the segment ran on (src/runtime/display.ts); absent is EGA. */
   pcDisplay?: "cga-rgb";
+  /** Execution rules of this recorded segment; omission means the released 1.2.5 rules. */
+  replayBehavior?: "1.2.5" | "1.2.6";
   /**
    * The segment's engine ran with the authored-project host option
    * `adoptDeclaredScriptSize` (docs/fidelity.md, "Authored script buffer on
@@ -522,6 +528,7 @@ export interface HistoryFingerprint {
 export interface HistorySemanticState {
   amigaRegion?: "ntsc" | "pal";
   pcDisplay?: "cga-rgb";
+  replayBehavior?: "1.2.5" | "1.2.6";
   adoptDeclaredScriptSize?: true;
   legacyRoomMemory?: true;
   documentId?: string;
@@ -587,6 +594,7 @@ export function historyBootSemantic(
   if (boot.rngPolicy !== undefined) out.rngPolicy = boot.rngPolicy;
   if (boot.amigaRegion === "pal") out.amigaRegion = "pal";
   if (boot.pcDisplay === "cga-rgb") out.pcDisplay = "cga-rgb";
+  if (boot.replayBehavior !== undefined) out.replayBehavior = boot.replayBehavior;
   if (boot.adoptDeclaredScriptSize === true) out.adoptDeclaredScriptSize = true;
   if (boot.legacyRoomMemory === true) out.legacyRoomMemory = true;
   if (boot.project !== undefined) out.documentId = boot.project.documentId;
@@ -1139,6 +1147,12 @@ export function validateHistoryBoot(
     fail("boot legacyRoomMemory must be true.");
   if (value["adoptDeclaredScriptSize"] !== undefined && value["adoptDeclaredScriptSize"] !== true)
     fail("boot adoptDeclaredScriptSize must be true.");
+  if (
+    value["replayBehavior"] !== undefined &&
+    value["replayBehavior"] !== "1.2.5" &&
+    value["replayBehavior"] !== "1.2.6"
+  )
+    fail("boot replay behavior is unknown.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
   const out: Omit<HistoryBoot, "fingerprint"> = {
@@ -1148,6 +1162,9 @@ export function validateHistoryBoot(
         return [name, b64(data, `boot file ${name}`)];
       }),
     ),
+    ...(value["replayBehavior"] !== undefined
+      ? { replayBehavior: value["replayBehavior"] as "1.2.5" | "1.2.6" }
+      : {}),
     dictionary: dictionary(value["dictionary"]),
     authorRooms: value["authorRooms"] === true,
     ...(value["profile"] !== undefined ? { profile: profileId(value["profile"]) } : {}),

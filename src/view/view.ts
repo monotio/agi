@@ -458,6 +458,61 @@ export function parseView(
   return view;
 }
 
+/**
+ * Packed orientation state in a host recording (docs/fidelity.md F-VIEWS-01).
+ * Loop headers carry orientation (`o`) and mirrorability (`m`). Cel parity is
+ * separate: distinct headers may share only some of their loaded cels.
+ */
+export interface PackedViewState {
+  loops: { o: number; m: boolean }[];
+  /** Mirror parity in first-seen loop/cel order, once per unique loaded cel. */
+  cels: boolean[];
+}
+
+/**
+ * The packed view's loaded orientation state, or null for a
+ * view without packed loop headers, whose cels orient at every blit.
+ */
+export function captureViewState(view: AgiView): PackedViewState | null {
+  const loaded = loadedViews.get(view);
+  if (!loaded?.packed) return null;
+  const seenCels = new Set<ViewCel>();
+  const cels: boolean[] = [];
+  const loops = loaded.loops.map((loop) => {
+    for (const { cel } of loop.cels) {
+      if (seenCels.has(cel)) continue;
+      seenCels.add(cel);
+      cels.push(cel.mirrored);
+    }
+    return { o: loop.orientation, m: loop.mirrorable };
+  });
+  return { loops, cels };
+}
+
+/**
+ * Put a recorded packed orientation state back on a freshly parsed view.
+ * Aliased loops share one loaded loop and shared cels mirror once.
+ */
+export function restoreViewState(view: AgiView, state: PackedViewState): void {
+  const loaded = loadedViews.get(view);
+  if (!loaded?.packed) return;
+  const seenLoops = new Set<LoadedLoop>();
+  const seenCels = new Set<ViewCel>();
+  let celIndex = 0;
+  loaded.loops.forEach((loop, index) => {
+    const recorded = state.loops[index];
+    if (!recorded || seenLoops.has(loop)) return;
+    seenLoops.add(loop);
+    loop.orientation = recorded.o;
+    loop.mirrorable = recorded.m;
+    for (const { cel } of loop.cels) {
+      if (seenCels.has(cel)) continue;
+      seenCels.add(cel);
+      if (cel.mirrored !== state.cels[celIndex++]) mirrorPixels(cel);
+    }
+  });
+}
+
 /** Read the current shared row image without triggering an orientation change. */
 export function readViewCel(view: AgiView, loop: number, cel: number): ViewCel | undefined {
   const loaded = loadedViews.get(view);

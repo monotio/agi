@@ -1,0 +1,16 @@
+id: no-elapsed-performance-assertion
+valid:
+  - "expect(messages).toBeLessThan(10);"
+  - "expect(pixels).toEqual(expected);"
+  - "recordPerformance('boot', { elapsedMs: performance.now() - start });"
+  - "expect(audioContext.currentTime - start).toBeLessThan(2);"
+  - "expect(result.bytesPerCommit).toBeLessThan(256 * 1024);"
+  - "expect(callbacks.length).toBeLessThanOrEqual(1);"
+invalid:
+  - "expect(performance.now() - start).toBeLessThan(50);"
+  - "expect(Date.now() - start, 'boot ms').toBeLessThan(1000);"
+  - "expect(performance.now() - start, 'edit ms').toBeLessThanOrEqual(50);"
+  - "expect(result.checkedMs).toBeLessThan(450);"
+  - "expect(result.frameP95, 'frames').toBeLessThan(50);"
+  - "expect(warmMs).toBeLessThan(2000);"
+  - "expect(Math.max(...samples)).toBeLessThan(6);"

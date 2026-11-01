@@ -670,6 +670,30 @@ export interface AgiProfile {
    */
   readonly originalRestartRestore: boolean;
   /**
+   * The accepted restart cancels the partly typed input line (CancelLine):
+   * false on 2.001, whose restart branch has no CancelLine call, true on
+   * every other build (docs/fidelity.md "Original restart state boundary").
+   */
+  readonly restartCancelsLine: boolean;
+  /**
+   * The accepted restart puts v7 (the maximum score) back after ResetAll:
+   * true on Amiga 2.310, 2.316 and 2.333 (h63+0x50 save, h63+0xc2 restore),
+   * false elsewhere (docs/fidelity.md "Original restart state boundary").
+   */
+  readonly restartKeepsMaxScore: boolean;
+  /**
+   * Message modes PC print and the restart and quit confirmations honor;
+   * both confirmations call the shared message routine print uses.
+   * "timed": a nonzero v21 closes the message and accepts a confirmation
+   * when its v21 half-seconds pass or on Enter or Esc, dropping other
+   * keys, and zeroes v21. "timed-and-f15" also accepts at once while f15 is
+   * set, clearing f15 and leaving the window open. "none" on 2.001; "timed"
+   * on 2.089..2.272 and Amiga 2.082; "timed-and-f15" on PC 2.411+, Amiga
+   * 2.176+ and the IIgs (docs/fidelity.md "Persistence verdicts",
+   * F-persistence-prompt-modes; "Print handler output modes").
+   */
+  readonly confirmPromptModes: "none" | "timed" | "timed-and-f15";
+  /**
    * Whether the authentic RestoreGame tail rewrites v20, v26, v22 and
    * conditional f11 after reading the save blocks: true in PC 2.903..3.002.149
    * and false in PC 2.001..2.440, Amiga 2.082..2.333, and IIgs 1.014, where
@@ -793,6 +817,9 @@ const BASE_2936: AgiProfile = {
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
   originalRestartRestore: true,
+  restartCancelsLine: true,
+  restartKeepsMaxScore: false,
+  confirmPromptModes: "timed-and-f15",
   restoreRewritesMachineState: true,
   defaultScriptBufferPairs: 50,
   scriptSizeResetsSequence: true,
@@ -828,10 +855,13 @@ const BASE_EARLY: AgiProfile = {
   inventorySelector: false,
   showPictureClearsF15: false,
   printConsumesF15: false,
-  timedPrintClearsV21: false,
+  // 2.089..2.272 print through the shared message routine, which zeroes v21
+  // on its timed exit (docs/fidelity.md "Print handler output modes").
+  timedPrintClearsV21: true,
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   restartPromptBypassedByF16: false,
+  confirmPromptModes: "timed",
   restoreRewritesMachineState: false,
   heapDiagnosticExtraLine: false,
   sound: "early-2.089",
@@ -915,6 +945,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   // Fields not listed here were checked against the handlers and match the
   // base; docs/fidelity.md "Amiga profile fields verified from the handlers".
   restoreRewritesMachineState: false,
+  restartKeepsMaxScore: true,
   saveBlock3Xor: false,
   patternProfile: "center-row-320",
   heapDiagnosticExtraLine: false,
@@ -932,6 +963,9 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_EARLY,
     id: "2.001",
     frameTiming: "booter-int1c",
+    restartCancelsLine: false,
+    confirmPromptModes: "none",
+    timedPrintClearsV21: false,
     // The booter dispatch is bounded at 0x90, below the later 2.089 bound.
     // docs/fidelity.md: PC booter action 0x8f (max.drawn.objects).
     maxAction: 0x90,
@@ -1115,6 +1149,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...BASE_EARLY,
     ...AMIGA_INVENTORY,
     id: "amiga-2.176",
+    confirmPromptModes: "timed-and-f15",
     maxAction: 0xa9,
     clickMove: "amiga",
     motionCounters: "word",

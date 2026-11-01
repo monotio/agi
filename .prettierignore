@@ -17,3 +17,6 @@ app/public/walkthroughs/
 .ast-grep/rule-tests/__snapshots__/
 
 .local/
+
+# Local agent permissions can contain machine-specific settings.
+.claude/settings.local.json

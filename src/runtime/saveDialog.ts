@@ -69,6 +69,8 @@ export interface SaveDialogPlatform {
   gameId: string;
   /** The Amiga input editor's cursor glyph. */
   cursor: number;
+  /** The save block that opens with the game signature (2 on the Apple IIgs). */
+  signatureBlock?: 1 | 2;
 }
 
 /**
@@ -200,7 +202,9 @@ function buildSlots(d: SaveDialog, files: SaveSlot[]): void {
   d.slots = [];
   for (let slot = 1; slot <= 12; slot++) {
     const file = files.find(
-      (candidate) => candidate.slot === slot && saveSignatureMatches(candidate.bytes, d.signature),
+      (candidate) =>
+        candidate.slot === slot &&
+        saveSignatureMatches(candidate.bytes, d.signature, d.platform.signatureBlock),
     );
     if (d.mode === "restore" && !file) continue;
     let description: string | null = null;

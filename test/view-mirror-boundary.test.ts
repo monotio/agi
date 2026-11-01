@@ -340,3 +340,109 @@ for (const id of ["2.936", "2.411"] as const) {
     );
   });
 }
+
+// Player rule: jumping back in History keeps which way an actor faces on the
+// early PC builds. Packed 2.230 mirrors whole loops at SetLoop only, so the
+// loaded view's orientation is state a host recording must carry
+// (docs/fidelity.md F-VIEWS-01).
+test("packed 2.230: a History restore keeps a mirrored actor's facing", () => {
+  const profile = PROFILES["2.230"];
+  const pair = buildView({ loops: [{ cels: [cel] }, { mirrorLoop: 0 }] }, profile);
+  const three = Uint8Array.from([0, 0, 3, 0, 0, 11, 0, 11, 0, 11, 0, ...pair.slice(9)]);
+  const row = (e: Engine) => [...e.getFrame().visual.slice(80 * 160 + 20, 80 * 160 + 23)];
+  const resume = (from: Engine, payload: Uint8Array, strip = false): Engine => {
+    const image = from.recordingImage(true);
+    assert.ok(image);
+    const replay = from.captureReplayState(true) as unknown as {
+      viewCache: { loops?: unknown };
+    };
+    if (strip) delete replay.viewCache.loops;
+    const container = createContainer();
+    container.putResource("view", 1, payload);
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic("return;", { dictionary: new Map(), profile }).payload,
+    );
+    const fresh = new Engine(container, host, new Map(), { profile });
+    fresh.restoreImage(image);
+    fresh.restoreReplayState(replay);
+    return fresh;
+  };
+
+  const mirrored = engineFor(pair, profile, "set.loop(o0, 1);");
+  assert.deepEqual(row(mirrored), [15, 2, 1]);
+  assert.deepEqual(row(resume(mirrored, pair)), [15, 2, 1], "the recorded orientation");
+  assert.deepEqual(
+    row(resume(mirrored, pair, true)),
+    [15, 2, 1],
+    "an older recording without it rebinds each object's loop",
+  );
+
+  // Through two aliases the block ends unmirrored on loop 2; a fresh
+  // selection of loop 2 would mirror it. Only the recorded state knows.
+  const via = engineFor(three, profile, "set.loop(o0, 1); set.loop(o0, 2);");
+  assert.deepEqual(row(via), [1, 2, 15]);
+  assert.deepEqual(row(resume(via, three)), [1, 2, 15]);
+});
+
+test("packed 2.230: History preserves private cel pixels when another loop shares only some cels", () => {
+  const profile = PROFILES["2.230"];
+  // Separate loop headers: loop 0 contains shared A and private B;
+  // loop 1 contains only A. Selecting loop 1 flips A without flipping B.
+  const payload = Uint8Array.of(
+    0,
+    0,
+    2,
+    0,
+    0,
+    9,
+    0,
+    14,
+    0,
+    0xc2,
+    8,
+    0,
+    14,
+    0,
+    0xc1,
+    3,
+    0,
+    2,
+    1,
+    0,
+    0x11,
+    0x21,
+    0,
+    2,
+    1,
+    0,
+    0x31,
+    0x41,
+    0,
+  );
+  const engine = engineFor(
+    payload,
+    profile,
+    `
+    set.cel(o0, 1);
+    animate.obj(o1); set.view(o1, 1); set.loop(o1, 1);
+  `,
+  );
+  const row = (e: Engine) => [...e.getFrame().visual.slice(80 * 160 + 20, 80 * 160 + 22)];
+  assert.deepEqual(row(engine), [3, 4]);
+  const image = engine.recordingImage(true);
+  assert.ok(image);
+  const replay = JSON.parse(JSON.stringify(engine.captureReplayState(true)));
+  const container = createContainer();
+  container.putResource("view", 1, payload);
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("return;", { dictionary: new Map(), profile }).payload,
+  );
+  const restored = new Engine(container, host, new Map(), { profile });
+  restored.restoreImage(image);
+  restored.restoreReplayState(replay);
+  assert.deepEqual(row(restored), [3, 4], "the private cel keeps its original facing");
+});

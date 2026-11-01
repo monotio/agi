@@ -32,6 +32,10 @@ export function createCycle(ctx: WorkerContext) {
     if (ctx.fns.debugStoppedHeld()) return false;
     const armedSerial = engine.executionControlActive ? engine.completedCycleSerial : null;
     run();
+    // Timed confirmations can finish at any resumed tick entry, including
+    // host answers and queued input outside the host poll.
+    if (ctx.run.input.keyWaiting && !engine.awaitingKey && !engine.hostInteractionPending)
+      ctx.fns.setKeyWaiting(false);
     observeSentence(
       ctx,
       undefined,

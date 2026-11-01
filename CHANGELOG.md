@@ -3,6 +3,43 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.2.6] - 2026-10-29
+
+### Fixed
+
+- Resume here in an older History recording starts with the current interpreter
+  fixes. Restart behaves the same after reopening an autosave or importing a
+  project checkpoint.
+- Downloaded pending edits can be restored with Add game → ZIP file to the unchanged original
+  project, with Undo history. The discard dialog keeps its actions together on desktop.
+- On PC interpreters 2.001 to 2.272, messages wait even when the game sets
+  its leave-window flag. On 2.001, messages also wait for a key when the
+  game sets a message timer, as the original does.
+- After Restart, the game's menu is still there, and after Restart or
+  Restore every menu item is enabled until the game disables it again.
+- Apple IIgs games ask "Restart the game?" with Restart and Cancel, as the
+  original does.
+- Restart keeps what the original keeps: the status line stays on, the
+  script buffer keeps its size, the last command can still be echoed, the
+  Amiga picture top stays where the game put it, and Amiga games from 2.310
+  on keep their maximum score.
+- After Restore, the last command can still be echoed, the King's Quest IV
+  menu opens again, and History can take a checkpoint at once.
+- Apple IIgs games list their own saves in the Restore window.
+- Saves record each object's priority and loop and cel counts as the original
+  writes them, so an object restores with the priority it had.
+- A restart or quit prompt that appears while a timed message is pending
+  accepts when the time runs out or on Enter or Esc, and with the game's
+  leave-window flag set it accepts at once, as the originals do.
+- On PC interpreters 2.089 to 2.272, a timed message clears its timer
+  variable when it closes, as the original does.
+- Restart no longer blanks the screen: the old room, its text and the status
+  line stay until the restarted game draws.
+  Autosave and History wait for a replacement picture before capturing that
+  retained screen, including when the game loads resources or opens a message.
+- On PC interpreter 2.230, jumping back in History keeps which way an actor
+  faces, including VIEW loops that share only some cels.
+
 ## [1.2.5] - 2026-10-20
 
 ### Added

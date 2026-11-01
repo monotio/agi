@@ -907,7 +907,9 @@ a.publisher:hover > span {
     z-index: calc(var(--z-dock) - 1);
   }
 }
-.shell-notices:not(:empty) {
+/* Native dialogs stay mounted while closed and open on the top layer.
+   Only in-flow notices reserve space between the bar and the game. */
+.shell-notices:has(> :not(dialog)) {
   padding: var(--space-2) var(--space-4);
 }
 .copy-created-anchor {

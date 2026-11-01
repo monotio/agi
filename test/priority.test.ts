@@ -105,7 +105,9 @@ test("save/restore does not serialize a priority table or replay its rebuild", (
   assert.deepEqual(Array.from(engine.vars.slice(60, 62)), [6, 6]);
 });
 
-test("accepted restart restores startup priority bands", () => {
+test("accepted restart keeps the priority bands set.pri.base built", () => {
+  // The priority base and its table are outside the restart's write set
+  // (KQ3 2.936 DS:0x124a; docs/fidelity.md "Original restart state boundary").
   const engine = game(`
     if (!isset(f6)) { set.pri.base(68); set(f16); restart.game(); }
     ${sample([47, 60, 68])}
@@ -113,7 +115,7 @@ test("accepted restart restores startup priority bands", () => {
   `);
   engine.tick();
   engine.tick();
-  assert.deepEqual(Array.from(engine.vars.slice(60, 63)), [4, 6, 6]);
+  assert.deepEqual(Array.from(engine.vars.slice(60, 63)), [4, 4, 5]);
 });
 
 const objects = `

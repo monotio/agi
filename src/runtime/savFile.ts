@@ -239,6 +239,9 @@ export function exportOriginalSav(engine: Engine, description?: string): Uint8Ar
   if (host.continuation || engine.modalOpen)
     throw new RangeError("Finish the open game interaction before exporting a save");
   const state = decodeSave(host.image, engine.profile);
+  // The host image keeps its released object-record convention; the file
+  // carries the records as save.game writes them (raw priority and counts).
+  state.objects = decodeSave(engine.serialize(), engine.profile).objects;
   if (description !== undefined) state.description = description;
   return encodeOriginalSav(state, engine.profile);
 }
