@@ -227,6 +227,7 @@ test("a lost GPU context leaves the flat picture, and the next game gets the sta
 test("a GPU context lost while the stage starts leaves the flat picture @webkit-desktop", async ({
   page,
 }) => {
+  await countGpuContexts(page);
   await page.addInitScript(() => {
     const listen = HTMLCanvasElement.prototype.addEventListener;
     HTMLCanvasElement.prototype.addEventListener = function (
@@ -246,6 +247,7 @@ test("a GPU context lost while the stage starts leaves the flat picture @webkit-
   await expect(flat).toBeVisible();
   await expect(page.getByTestId("gpu-canvas")).toBeHidden();
   await expect.poll(() => bluePixels(page, flat)).toBeGreaterThan(1000);
+  await expect.poll(() => liveGpuContexts(page)).toBe(0);
 });
 
 test.describe("without the GPU stage", () => {

@@ -84,6 +84,42 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
   });
 });
 
+test("Anthropic resumes conversations using the current Messages API contract", async (t) => {
+  let headers: Headers | undefined;
+  let body: Record<string, unknown> | undefined;
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+    headers = new Headers(init?.headers);
+    body = JSON.parse(String(init?.body));
+    return new Response(
+      providerSse("anthropic", {
+        id: "resumed",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "Ready" }],
+        usage: { input_tokens: 10, output_tokens: 1 },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  const conversation = createAnthropicConversation(
+    { provider: "anthropic", model: "claude-opus-5-5", apiKey: "placeholder" },
+    [
+      { role: "user", content: "Look around" },
+      { role: "assistant", content: [{ type: "text", text: "A quiet room" }] },
+    ],
+  );
+  assert.equal((await conversation.sendUserMessage("Continue")).text, "Ready");
+  // https://platform.claude.com/docs/en/api/migration-2026-10-21
+  assert.equal(headers?.get("anthropic-version"), "2026-10-21");
+  for (const parameter of ["temperature", "top_p", "top_k"])
+    assert.ok(!Object.hasOwn(body ?? {}, parameter), `${parameter} is no longer accepted`);
+  assert.deepEqual(body?.["messages"], [
+    { role: "user", content: "Look around" },
+    { role: "assistant", content: [{ type: "text", text: "A quiet room" }] },
+    { role: "user", content: "Continue" },
+  ]);
+});
+
 test("Anthropic reports total input including cache and closes unfinished tool turns", async (t) => {
   const requests: Record<string, unknown>[] = [];
   let count = 0;

@@ -29,7 +29,7 @@ const DEPTH_GADGET_ART: readonly string[] = [
 ];
 
 /** Pens of both depth gadgets, row-major, `AMIGA_TITLE_BAR_ROWS` rows of 34. */
-export const AMIGA_DEPTH_GADGETS: Uint8Array = (() => {
+const AMIGA_DEPTH_GADGETS: Uint8Array = (() => {
   const width = 2 * AMIGA_DEPTH_GADGET_WIDTH;
   const out = new Uint8Array(AMIGA_TITLE_BAR_ROWS * width);
   DEPTH_GADGET_ART.forEach((row, y) => {
