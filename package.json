@@ -79,7 +79,8 @@
     },
     "typed-rest-client": {
       "qs": "6.16.1"
-    }
+    },
+    "minimatch": "11.0.3"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.51.0",
