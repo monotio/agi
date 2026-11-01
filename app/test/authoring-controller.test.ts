@@ -2379,8 +2379,9 @@ test("Agent opens on Connect AI at once when no model is connected, before the e
  * Whatever this tab saves next must not replace that record.
  */
 async function staleTab(t: { after: (fn: () => void) => void }, name: string) {
-  installLocalStorageMock(t);
   const projectId = testProjectId(name);
+  t.after(() => clearCachedGame(projectId));
+  installLocalStorageMock(t);
   const files = createTestFiles();
   await saveAuthoredGame(projectId, {
     title: "Two tabs",
@@ -2389,7 +2390,6 @@ async function staleTab(t: { after: (fn: () => void) => void }, name: string) {
     files,
     words: [],
   });
-  t.after(() => void clearCachedGame(projectId));
   const game: BootedGame = {
     installed: false,
     projectId,
@@ -2481,11 +2481,11 @@ test("a stale tab's world-plan save refuses as stale and never saves over the ne
 });
 
 test("the plan's boolean save contract reports a refused project flush and Retry saves it", async (t) => {
-  installLocalStorageMock(t);
   const projectId = testProjectId("plan-project-refusal");
+  t.after(() => clearCachedGame(projectId));
+  installLocalStorageMock(t);
   const files = createTestFiles();
   await saveAuthoredGame(projectId, { title: "Plan", files, words: [] });
-  t.after(() => void clearCachedGame(projectId));
   const data = (await loadAuthoredGame(projectId))!;
   const game: BootedGame = {
     installed: false,
@@ -2791,8 +2791,9 @@ test("a stale tab's history adoption refuses as stale and never rolls the newer 
 });
 
 test("a history adoption with no session stores the adopted files over the record it booted on", async (t) => {
-  installLocalStorageMock(t);
   const projectId = testProjectId("adopt-no-session");
+  t.after(() => clearCachedGame(projectId));
+  installLocalStorageMock(t);
   const files = createTestFiles();
   const later = openContainer(new Map(Object.entries(files)));
   later.putResource("logic", 2, assembleLogic("return;", { dictionary: new Map() }).payload);
@@ -2804,7 +2805,6 @@ test("a history adoption with no session stores the adopted files over the recor
     files: laterFiles,
     words: [],
   });
-  t.after(() => void clearCachedGame(projectId));
   const game: BootedGame = {
     installed: false,
     projectId,

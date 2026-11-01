@@ -1,4 +1,9 @@
 import type { KnipConfig } from "knip";
+import { existsSync } from "node:fs";
+
+// CI and ordinary contributors install only root/app. Knip can map the
+// promptfoo binary to its package only after the optional evals install.
+const evalsInstalled = existsSync("evals/node_modules/promptfoo/package.json");
 
 const config: KnipConfig = {
   workspaces: {
@@ -47,6 +52,9 @@ const config: KnipConfig = {
       project: ["src/**/*.{ts,vue}", "e2e/**/*.ts", "test/**/*.ts", "production/**/*.ts"],
     },
     evals: {
+      ...(evalsInstalled
+        ? {}
+        : { ignoreDependencies: ["promptfoo"], ignoreBinaries: ["promptfoo"] }),
       entry: [
         // promptfoo TS configs referenced by `npm --prefix evals run eval`.
         "configs/*.ts",
