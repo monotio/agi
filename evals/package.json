@@ -19,6 +19,7 @@
   },
   "overrides": {
     "glob": "14.0.3",
-    "minimatch": "11.0.3"
+    "minimatch": "11.0.3",
+    "basic-ftp": "6.2.4"
   }
 }
