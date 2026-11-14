@@ -26,7 +26,7 @@
     "monaco-editor": "0.57.0",
     "openai": "^7.47.0",
     "three": "^0.187.0",
-    "vue": "^3.5.44"
+    "vue": "^3.5.45"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
