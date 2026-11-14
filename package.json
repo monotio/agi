@@ -83,22 +83,22 @@
     "minimatch": "11.0.3"
   },
   "devDependencies": {
-    "@ast-grep/cli": "0.51.0",
+    "@ast-grep/cli": "0.51.1",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.1.1",
     "@types/node": "^26.6.6",
-    "dependency-cruiser": "^18.7.0",
+    "dependency-cruiser": "^18.7.2",
     "eslint": "^10.14.0",
-    "eslint-plugin-vue": "^10.12.0",
+    "eslint-plugin-vue": "^10.12.1",
     "globals": "^17.14.0",
-    "knip": "^6.44.1",
+    "knip": "^6.45.0",
     "npm-run-all2": "^9.0.4",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.1",
+    "typescript-eslint": "^8.72.2",
     "vscode-languageserver": "11.0.0",
     "vscode-languageserver-protocol": "3.18.5",
-    "vue-eslint-parser": "^10.4.1"
+    "vue-eslint-parser": "^10.4.2"
   },
   "allowScripts": {
     "@ast-grep/cli@0.51.0": true
