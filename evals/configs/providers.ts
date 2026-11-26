@@ -13,12 +13,16 @@ import {
 } from "../../src/agent/toolTransport.ts";
 
 export const MODEL_IDS = {
+  gpt62Sol: "gpt-6.2-sol",
+  gpt62Astra: "gpt-6.2-astra",
+  gpt61Terra: "gpt-6.1-terra",
   gpt61Sol: "gpt-6.1-sol",
   gpt6Astra: "gpt-6-astra",
   gpt6Sol: "gpt-6-sol",
   gpt6Luna: "gpt-6-luna",
   claudeOpus55: "claude-opus-5-5",
   claudeSonnet55: "claude-sonnet-5-5",
+  claudeFable52: "claude-fable-5-2",
   claudeFable51: "claude-fable-5-1",
 };
 

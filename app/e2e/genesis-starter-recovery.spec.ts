@@ -28,7 +28,7 @@ async function connectDefaultOpenAi(page: Page): Promise<void> {
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await dialog.getByTestId("provider-select").selectOption("openai");
-  await expect(dialog.getByTestId("model-select")).toHaveValue("gpt-6.1-sol");
+  await expect(dialog.getByTestId("model-select")).toHaveValue("gpt-6.2-sol");
   await dialog.getByTestId("api-key-input").fill("test-placeholder");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
@@ -150,7 +150,7 @@ test("a refused genesis offers Open starter and opens a real editable starter pr
   // The provider config a refusal left behind stays as the player saved it.
   await openAiSettings(page);
   await expect(page.getByTestId("ai-settings-dialog").getByTestId("model-select")).toHaveValue(
-    "gpt-6.1-sol",
+    "gpt-6.2-sol",
   );
   await page.keyboard.press("Escape");
 

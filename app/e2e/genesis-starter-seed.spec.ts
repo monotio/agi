@@ -20,7 +20,7 @@ async function connectDefaultOpenAi(page: Page): Promise<void> {
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await dialog.getByTestId("provider-select").selectOption("openai");
-  await expect(dialog.getByTestId("model-select")).toHaveValue("gpt-6.1-sol");
+  await expect(dialog.getByTestId("model-select")).toHaveValue("gpt-6.2-sol");
   await dialog.getByTestId("api-key-input").fill("test-placeholder");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
@@ -81,7 +81,7 @@ test("genesis through the real create entry is offered the installed Boilerplate
   // One provider request, no retries, on the shipped default model — and the
   // prompt it carried describes the Boilerplate already installed, not a void.
   expect(requests).toHaveLength(1);
-  expect(requests[0]!["model"]).toBe("gpt-6.1-sol");
+  expect(requests[0]!["model"]).toBe("gpt-6.2-sol");
   const sent = JSON.stringify(requests[0]);
   expect(sent).toContain("agihere.boilerplate");
   expect(sent).toContain("2.936");

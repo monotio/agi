@@ -9,17 +9,21 @@ import {
 } from "../src/agent/modelEffort.ts";
 
 test("every model gets an explicit pinned default effort", () => {
+  assert.equal(defaultModelEffort("gpt-6.2-sol"), "medium");
+  assert.equal(defaultModelEffort("gpt-6.2-astra"), "medium");
+  assert.equal(defaultModelEffort("gpt-6.1-terra"), "medium");
   assert.equal(defaultModelEffort("gpt-6.1-sol"), "medium");
   assert.equal(defaultModelEffort("gpt-6-sol"), "medium");
   // Medium supports multistep Opus/Sonnet work; Fable starts at high.
   assert.equal(defaultModelEffort("claude-opus-5-5"), "medium");
   assert.equal(defaultModelEffort("claude-sonnet-5-5"), "medium");
+  assert.equal(defaultModelEffort("claude-fable-5-2"), "high");
   assert.equal(defaultModelEffort("claude-fable-5-1"), "high");
   assert.equal(defaultModelEffort("gpt-6-astra"), "medium");
 });
 
 test("effort none is offered only where the shipped OpenAI models accept it", () => {
-  assert.deepEqual(modelEffortOptions("gpt-6-sol"), [
+  assert.deepEqual(modelEffortOptions("gpt-6.1-terra"), [
     "none",
     "low",
     "medium",
@@ -27,18 +31,27 @@ test("effort none is offered only where the shipped OpenAI models accept it", ()
     "xhigh",
     "max",
   ]);
-  assert.deepEqual(modelEffortOptions("gpt-6-luna"), modelEffortOptions("gpt-6-sol"));
+  assert.deepEqual(modelEffortOptions("gpt-6-luna"), modelEffortOptions("gpt-6.1-terra"));
+  assert.deepEqual(modelEffortOptions("gpt-6-sol"), modelEffortOptions("gpt-6.1-terra"));
   // Models that require reasoning, and ids outside the shipped catalog (retired
-  // ones included), get the mandatory levels. GPT-6.1 Sol accepts no none.
-  for (const model of ["gpt-6.1-sol", "gpt-6-astra", "claude-opus-5-5", "gpt-5.6-sol"])
+  // ones included), get the mandatory levels. GPT-6.2 Sol and Astra accept no none.
+  for (const model of [
+    "gpt-6.2-sol",
+    "gpt-6.2-astra",
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "claude-opus-5-5",
+    "claude-fable-5-2",
+    "gpt-5.6-sol",
+  ])
     assert.deepEqual(modelEffortOptions(model), ["low", "medium", "high", "xhigh", "max"], model);
 });
 
 test("resolveModelEffort applies the pinned default and rejects unsupported pairs", () => {
-  assert.equal(resolveModelEffort("gpt-6.1-sol"), "medium");
-  assert.throws(() => resolveModelEffort("gpt-6.1-sol", "none"), /none is not supported/);
-  assert.equal(resolveModelEffort("gpt-6-sol"), "medium");
-  assert.equal(resolveModelEffort("gpt-6-sol", "none"), "none");
+  assert.equal(resolveModelEffort("gpt-6.2-sol"), "medium");
+  assert.throws(() => resolveModelEffort("gpt-6.2-sol", "none"), /none is not supported/);
+  assert.equal(resolveModelEffort("gpt-6.1-terra"), "medium");
+  assert.equal(resolveModelEffort("gpt-6.1-terra", "none"), "none");
   assert.equal(resolveModelEffort("claude-opus-5-5"), "medium");
   assert.throws(() => resolveModelEffort("claude-opus-5-5", "none"), /none is not supported/);
 });

@@ -67,7 +67,13 @@ test("lower bounds round down to cents and identify reported fractions of a cent
 test("cached image input is charged once at the cached rate", () => {
   // 2,000 text × $5/M + 2,000 fresh images × $8/M + 1,000 cached × $2/M
   // + 1,200 output × $30/M = $0.064.
-  for (const model of ["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])
+  for (const model of [
+    "gpt-image-2",
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.6-sunburst",
+    "gpt-image-2.6-flare",
+  ])
     assert.deepEqual(
       imageReportedSpend(model, {
         inputTextTokens: 2000,

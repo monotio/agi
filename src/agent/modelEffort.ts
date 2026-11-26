@@ -6,7 +6,7 @@ export type ModelProvider = "anthropic" | "openai" | "stub";
 /** The model each provider starts with, in the app and in the evaluation scripts. */
 export const DEFAULT_MODELS: Record<ModelProvider, string> = {
   anthropic: "claude-opus-5-5",
-  openai: "gpt-6.1-sol",
+  openai: "gpt-6.2-sol",
   stub: "offline-stub",
 };
 
@@ -19,13 +19,13 @@ export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[
   anthropic: [
     { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
-    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+    { id: "claude-fable-5-2", label: "Claude Fable 5.2" },
     { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
   ],
   openai: [
-    { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
-    { id: "gpt-6-astra", label: "GPT-6 Astra" },
-    { id: "gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "gpt-6.2-sol", label: "GPT-6.2 Sol" },
+    { id: "gpt-6.2-astra", label: "GPT-6.2 Astra" },
+    { id: "gpt-6.1-terra", label: "GPT-6.1 Terra" },
     { id: "gpt-6-luna", label: "GPT-6 Luna" },
   ],
   stub: [{ id: "offline-stub", label: "Demo" }],
@@ -92,14 +92,15 @@ export interface ModelCapability {
 /**
  * The tested capability table. Prices are the providers' standard API list
  * prices in USD per million tokens at the time of this release.
- * https://developers.openai.com/api/docs/models/gpt-6.1-sol
- * https://developers.openai.com/api/docs/pricing
- * https://developers.openai.com/api/docs/models/gpt-6-astra
- * https://developers.openai.com/api/docs/models/gpt-6-sol
+ * https://developers.openai.com/api/docs/models/gpt-6.2-sol
+ * https://developers.openai.com/api/docs/models/gpt-6.2-astra
+ * https://developers.openai.com/api/docs/models/gpt-6.1-terra
  * https://developers.openai.com/api/docs/models/gpt-6-luna
+ * https://developers.openai.com/api/docs/pricing
  * https://platform.claude.com/docs/en/about-claude/pricing
  * https://platform.claude.com/docs/en/models/opus-5-5/overview
  * https://platform.claude.com/docs/en/models/sonnet-5-5/overview
+ * https://platform.claude.com/docs/en/models/fable-5-2/overview
  * https://platform.claude.com/docs/en/models/haiku-5-5/overview
  */
 export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
@@ -130,8 +131,21 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     strictSchema: false,
     summarizedThinking: true,
     serverFallback: true,
-    price: { input: 2, output: 10 },
+    price: { input: 2, output: 10, cacheRead: 0.1 },
   },
+  "claude-fable-5-2": {
+    provider: "anthropic",
+    maxOutputTokens: 128000,
+    maxInputTokens: 1000000,
+    effort: REASONING_LEVELS,
+    defaultEffort: "high",
+    caching: "breakpoint",
+    strictSchema: false,
+    summarizedThinking: true,
+    serverFallback: true,
+    price: { input: 8, output: 40, cacheRead: 0.2 },
+  },
+  // Superseded in the picker by Fable 5.2; kept for historical transcripts and eval snapshots.
   "claude-fable-5-1": {
     provider: "anthropic",
     maxOutputTokens: 128000,
@@ -160,9 +174,39 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
       longContext: { above: 100000, inputFactor: 5, outputFactor: 5 },
     },
   },
-  // The app's OpenAI default. Unlike the original Sol it always reasons —
-  // none is not offered — and its listed cache-read rate is $0.10/M, not 10%
-  // of input. Tool calling needs the Responses API, which this client uses.
+  // The app's OpenAI default. Like 6.1 Sol it always reasons — none is not
+  // offered — and its listed cache-read rate is $0.10/M (5% of input).
+  "gpt-6.2-sol": {
+    provider: "openai",
+    maxOutputTokens: 128000,
+    maxInputTokens: 922000,
+    effort: REASONING_LEVELS,
+    defaultEffort: "medium",
+    caching: "implicit",
+    strictSchema: true,
+    price: { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, cacheRead: 0.1 },
+  },
+  "gpt-6.2-astra": {
+    provider: "openai",
+    maxOutputTokens: 128000,
+    maxInputTokens: 922000,
+    effort: REASONING_LEVELS,
+    defaultEffort: "medium",
+    caching: "implicit",
+    strictSchema: true,
+    price: { input: 8, output: 40, longContext: OPENAI_LONG_CONTEXT, cacheRead: 0.4 },
+  },
+  "gpt-6.1-terra": {
+    provider: "openai",
+    maxOutputTokens: 128000,
+    maxInputTokens: 922000,
+    effort: OPTIONAL_REASONING_LEVELS,
+    defaultEffort: "medium",
+    caching: "implicit",
+    strictSchema: true,
+    price: { input: 1, output: 5, longContext: OPENAI_LONG_CONTEXT, cacheRead: 0.05 },
+  },
+  // Superseded in the picker by 6.2 Sol / 6.2 Astra; kept for historical transcripts and evals.
   "gpt-6.1-sol": {
     provider: "openai",
     maxOutputTokens: 128000,

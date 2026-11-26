@@ -39,7 +39,7 @@ export async function openRoomGenerationGame(page: Page): Promise<{ release(): v
   await page.goto("/");
   await configureAi(page, {
     provider: "openai",
-    model: "gpt-6-sol",
+    model: "gpt-6.2-sol",
     key: "test-placeholder",
     budget: 5,
   });

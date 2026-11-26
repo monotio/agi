@@ -31,7 +31,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate @
   await expect(dialog).toBeVisible();
   await expect(page.getByTestId("error-panel")).toHaveCount(0);
   await dialog.getByTestId("provider-select").selectOption("openai");
-  await dialog.getByTestId("model-select").selectOption("gpt-6-sol");
+  await dialog.getByTestId("model-select").selectOption("gpt-6.2-sol");
   await expect(dialog.getByTestId("effort-select")).toHaveValue("medium");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
   await dialog.getByTestId("effort-select").selectOption("low");

@@ -359,7 +359,7 @@ test("Generate sends one styled request and Use image opens tracing @webkit-desk
   await page.route("**/api/test-images/v1/images/generations", async (route) => {
     requests++;
     const request = route.request().postDataJSON();
-    expect(request.model).toBe("gpt-image-2.5-sunburst");
+    expect(request.model).toBe("gpt-image-2.6-sunburst");
     expect(request.n).toBe(1);
     expect(request.prompt).toContain("Sierra AGI");
     expect(request.prompt).toContain("A tree reference");

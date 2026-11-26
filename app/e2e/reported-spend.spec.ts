@@ -18,7 +18,7 @@ async function start(page: Page) {
   await configureAi(page, {
     provider: "openai",
     key: "test-placeholder",
-    model: "gpt-6-sol",
+    model: "gpt-6.2-sol",
     budget: 5,
   });
 }

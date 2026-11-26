@@ -27,13 +27,14 @@ function fakeLiveEnv(t: { after: (fn: () => void) => void }) {
   process.env["ANTHROPIC_API_KEY"] = "sk-ant-test-placeholder";
 }
 
-test("GPT-6.1 Sol is the distinct default id beside the original Sol", () => {
+test("GPT-6.2 Sol is the default OpenAI id with current flagship and visual tiers", () => {
+  assert.equal(MODEL_IDS.gpt62Sol, "gpt-6.2-sol");
   assert.equal(MODEL_IDS.gpt61Sol, "gpt-6.1-sol");
-  assert.notEqual(MODEL_IDS.gpt61Sol, MODEL_IDS.gpt6Sol);
-  assert.equal(DEFAULT_MODELS.openai, MODEL_IDS.gpt61Sol);
-  assert.equal(MODEL_OPTIONS.openai[0]?.id, MODEL_IDS.gpt61Sol);
-  const capability = MODEL_CAPABILITIES[MODEL_IDS.gpt61Sol];
-  assert.ok(capability, "gpt-6.1-sol has a capability entry");
+  assert.notEqual(MODEL_IDS.gpt62Sol, MODEL_IDS.gpt6Sol);
+  assert.equal(DEFAULT_MODELS.openai, MODEL_IDS.gpt62Sol);
+  assert.equal(MODEL_OPTIONS.openai[0]?.id, MODEL_IDS.gpt62Sol);
+  const capability = MODEL_CAPABILITIES[MODEL_IDS.gpt62Sol];
+  assert.ok(capability, "gpt-6.2-sol has a capability entry");
   assert.equal(capability.provider, "openai");
   assert.equal(capability.caching, "implicit");
   assert.equal(capability.strictSchema, true);
@@ -46,8 +47,16 @@ test("GPT-6.1 Sol is the distinct default id beside the original Sol", () => {
     longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
     cacheRead: 0.1,
   });
-  // The original Sol keeps its optional-none capability and stays selectable.
-  assert.ok(MODEL_OPTIONS.openai.some((option) => option.id === MODEL_IDS.gpt6Sol));
+  // GPT-6.1 Terra is selectable and keeps optional-none reasoning; superseded Sol keeps its entry.
+  assert.ok(MODEL_OPTIONS.openai.some((option) => option.id === MODEL_IDS.gpt61Terra));
+  assert.deepEqual(MODEL_CAPABILITIES[MODEL_IDS.gpt61Terra]?.effort, [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]);
   assert.deepEqual(MODEL_CAPABILITIES[MODEL_IDS.gpt6Sol]?.effort, [
     "none",
     "low",

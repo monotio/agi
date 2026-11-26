@@ -292,7 +292,7 @@ test("review freezes the detached summary, titles and consulted context; inputs 
     ...BASE_INPUT,
     kind: "variation",
     role: "character",
-    model: "gpt-image-2.5-flare",
+    model: "gpt-image-2.6-flare",
     asset: asset.record.identity,
     references: refs,
   };

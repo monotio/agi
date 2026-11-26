@@ -159,7 +159,7 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests[0])).toContain("Private genesis idea");
     expect(JSON.stringify(requests[0])).toContain("Continue our garden.");
-    expect(requests[1]?.["model"]).toBe("gpt-6.1-sol");
+    expect(requests[1]?.["model"]).toBe("gpt-6.2-sol");
     const continuationDownload = other.waitForEvent("download");
     await openGameOptions(other, "settings-menu");
     await other.getByTestId("btn-download-game").click();

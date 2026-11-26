@@ -3,7 +3,11 @@ import type { OpenAiImageUsage } from "./openaiImageProvider.ts";
 
 /** The same token rates used to pause image requests at the shared budget. */
 function imageTokenRates(model: string) {
-  if (model === "gpt-image-2" || model.startsWith("gpt-image-2.5-"))
+  if (
+    model === "gpt-image-2" ||
+    model.startsWith("gpt-image-2.5-") ||
+    model.startsWith("gpt-image-2.6-")
+  )
     return { text: 5, image: 8, cached: 2, output: 30 };
   return null;
 }
