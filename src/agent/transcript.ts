@@ -21,9 +21,15 @@ export function validateTranscript(
     } else if (value && typeof value === "object") {
       for (const [key, child] of Object.entries(value)) {
         if (
-          ["__proto__", "prototype", "constructor", "instructions", "system", "developer"].includes(
-            key,
-          )
+          [
+            "__proto__",
+            "prototype",
+            "constructor",
+            "instructions",
+            "system",
+            "developer",
+            "systemInstruction",
+          ].includes(key)
         )
           throw new Error("Invalid conversation field.");
         inspect(child, depth + 1);
@@ -127,8 +133,91 @@ export function validateTranscript(
       }
     }
   }
-  if (!["openai", "anthropic", "stub"].includes(provider))
+  if (!["openai", "anthropic", "gemini", "stub"].includes(provider))
     throw new Error("Unsupported project conversation provider.");
+  if (provider === "gemini") {
+    const pendingGemini: { id?: string; name: string }[] = [];
+    const validateInlineData = (rawData: unknown): void => {
+      const data = record(rawData);
+      if (
+        !["image/png", "image/jpeg", "image/webp"].includes(String(data["mimeType"])) ||
+        typeof data["data"] !== "string" ||
+        !/^[A-Za-z0-9+/=]+$/.test(data["data"]) ||
+        (data["displayName"] !== undefined && typeof data["displayName"] !== "string")
+      )
+        throw new Error("Project images must be embedded in the archive.");
+    };
+    for (const raw of messages) {
+      const item = record(raw);
+      const role = item["role"];
+      if (role !== "user" && role !== "model")
+        throw new Error("Project conversations may contain only user and model messages.");
+      if (pendingGemini.length && role !== "user")
+        throw new Error("Archived tool calls require a following user result message.");
+      const parts = item["parts"];
+      if (!Array.isArray(parts)) throw new Error("Invalid conversation message content.");
+      for (const rawPart of parts) {
+        const part = record(rawPart);
+        if (part["thoughtSignature"] !== undefined) string(part["thoughtSignature"]);
+        if (part["thought"] !== undefined && typeof part["thought"] !== "boolean")
+          throw new Error("Invalid conversation state block.");
+        if (part["functionCall"] !== undefined) {
+          if (role !== "model") throw new Error("Invalid archived tool call role.");
+          const fc = record(part["functionCall"]);
+          string(fc["name"]);
+          if (!fc["name"]) throw new Error("Invalid archived tool call.");
+          record(fc["args"]);
+          if (fc["id"] !== undefined) {
+            string(fc["id"]);
+            if (!fc["id"] || pendingGemini.some((entry) => entry.id === fc["id"]))
+              throw new Error("Duplicate archived tool call.");
+            pendingGemini.push({ id: fc["id"] as string, name: fc["name"] as string });
+          } else {
+            pendingGemini.push({ name: fc["name"] as string });
+          }
+        } else if (part["functionResponse"] !== undefined) {
+          if (role !== "user") throw new Error("Invalid archived tool result role.");
+          const fr = record(part["functionResponse"]);
+          string(fr["name"]);
+          record(fr["response"]);
+          let matched: number;
+          if (fr["id"] !== undefined) {
+            string(fr["id"]);
+            matched = pendingGemini.findIndex((entry) => entry.id === fr["id"]);
+          } else {
+            matched = pendingGemini.findIndex((entry) => entry.name === fr["name"]);
+          }
+          if (matched === -1) throw new Error("Archived tool result has no matching call.");
+          pendingGemini.splice(matched, 1);
+          if (fr["parts"] !== undefined) {
+            if (!Array.isArray(fr["parts"]))
+              throw new Error("Invalid conversation message content.");
+            for (const media of fr["parts"]) {
+              const mediaPart = record(media);
+              if (mediaPart["inlineData"] === undefined)
+                throw new Error("Unsupported archived message block or attachment.");
+              validateInlineData(mediaPart["inlineData"]);
+            }
+          }
+        } else if (part["inlineData"] !== undefined) {
+          if (role === "user" && pendingGemini.length)
+            throw new Error("Archived tool calls require paired results before user text.");
+          validateInlineData(part["inlineData"]);
+        } else if (part["text"] !== undefined) {
+          if (role === "user" && pendingGemini.length)
+            throw new Error("Archived tool calls require paired results before user text.");
+          string(part["text"]);
+        } else {
+          throw new Error("Unsupported archived message block or attachment.");
+        }
+      }
+    }
+    if (pendingGemini.length && !allowPending)
+      throw new Error(
+        "This project has an unfinished tool turn. Save it after generation completes.",
+      );
+    return messages;
+  }
   for (const raw of messages) {
     const item = record(raw);
     const role = item["role"];

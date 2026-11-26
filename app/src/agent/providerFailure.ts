@@ -3,7 +3,7 @@
  * classified here, once, for every surface that shows a failed request; the
  * provider's own text stays on the error as `raw` for Activity and diagnostics.
  */
-export type ProviderName = "anthropic" | "openai";
+export type ProviderName = "anthropic" | "openai" | "gemini";
 
 export type ProviderFailureKind =
   | "key"
@@ -17,7 +17,11 @@ export type ProviderFailureKind =
   | "timeout"
   | "general";
 
-const PROVIDER_LABEL: Record<ProviderName, string> = { anthropic: "Anthropic", openai: "OpenAI" };
+const PROVIDER_LABEL: Record<ProviderName, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Google Gemini",
+};
 
 /** What the SDK reports about a failed request: its status, error code and error type. */
 export interface ProviderFailureFields {
@@ -42,6 +46,14 @@ const KIND_BY_CODE: Record<string, ProviderFailureKind> = {
   overloaded_error: "unavailable",
   api_error: "unavailable",
   server_error: "unavailable",
+  API_KEY_INVALID: "key",
+  UNAUTHENTICATED: "key",
+  PERMISSION_DENIED: "permission",
+  RESOURCE_EXHAUSTED: "rate-limit",
+  NOT_FOUND: "model",
+  UNAVAILABLE: "unavailable",
+  INTERNAL: "unavailable",
+  DEADLINE_EXCEEDED: "timeout",
 };
 
 /** Classify by error code or type first, since OpenAI reports quota as a 429, then by status. */

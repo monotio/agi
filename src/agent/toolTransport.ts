@@ -253,6 +253,107 @@ export function anthropicToolResult(
   };
 }
 
+interface GeminiInlineData {
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  data: string;
+  displayName?: string;
+}
+
+export type GeminiPart =
+  | { text: string; thought?: boolean; thoughtSignature?: string }
+  | { inlineData: GeminiInlineData }
+  | {
+      functionCall: { name: string; args: Record<string, unknown>; id?: string };
+      thoughtSignature?: string;
+    }
+  | {
+      functionResponse: {
+        name: string;
+        id?: string;
+        response: Record<string, unknown>;
+        parts?: { inlineData: GeminiInlineData }[];
+      };
+    };
+
+export interface GeminiToolDeclaration {
+  name: string;
+  description: string;
+  parametersJsonSchema: ToolDefinition["parameters"];
+}
+
+/** Converts the shared catalog to Gemini v1beta functionDeclarations using standard JSON Schema. */
+export function geminiToolDefinitions(tools: readonly ToolDefinition[]): GeminiToolDeclaration[] {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parametersJsonSchema: tool.parameters,
+  }));
+}
+
+/** Converts a user message and optional attached images into Gemini content parts. */
+export function geminiUserParts(content: ToolContent): GeminiPart[] {
+  const parts: GeminiPart[] = [{ text: content.text }];
+  for (const image of content.images) {
+    parts.push({ text: image.caption });
+    parts.push({
+      inlineData: {
+        mimeType: image.mime ?? "image/png",
+        data: imageBase64(image.png),
+      },
+    });
+  }
+  return parts;
+}
+
+/**
+ * Builds one Gemini functionResponse part. Images travel as multimodal
+ * `functionResponse.parts` referenced from the structured JSON payload so binary
+ * bytes stay out of text and remain visible to the model.
+ */
+export function geminiToolResponse(
+  name: string,
+  result: AgentToolResult,
+  wireId?: string,
+): Extract<GeminiPart, { functionResponse: unknown }> {
+  const content = splitToolResult(result);
+  let parsed: Record<string, unknown>;
+  try {
+    const raw: unknown = JSON.parse(content.text);
+    parsed =
+      raw && typeof raw === "object" && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : { output: content.text };
+  } catch {
+    parsed = { output: content.text };
+  }
+  const mediaParts: { inlineData: GeminiInlineData }[] = [];
+  if (content.images.length) {
+    const refs: { caption: string; image: { $ref: string } }[] = [];
+    for (const [index, image] of content.images.entries()) {
+      const mimeType = image.mime ?? "image/png";
+      const ext = mimeType.split("/")[1] ?? "png";
+      const displayName = `${name}-image-${index + 1}.${ext}`;
+      refs.push({ caption: image.caption, image: { $ref: displayName } });
+      mediaParts.push({
+        inlineData: {
+          mimeType,
+          displayName,
+          data: imageBase64(image.png),
+        },
+      });
+    }
+    parsed = { ...parsed, renderedImages: refs };
+  }
+  return {
+    functionResponse: {
+      name,
+      ...(wireId ? { id: wireId } : {}),
+      response: parsed,
+      ...(mediaParts.length ? { parts: mediaParts } : {}),
+    },
+  };
+}
+
 /** Debugging keeps byte counts; the actual image remains in the provider request. */
 export function serializeAgentLog(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) =>

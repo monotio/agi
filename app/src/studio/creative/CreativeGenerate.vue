@@ -22,6 +22,8 @@ import type {
   OpenAiImageRole,
 } from "./openaiImageProvider.ts";
 import { formatSpent, type ReportedSpend } from "../../agent/reportedSpend.ts";
+import { providerUsageUrl } from "../../../../src/agent/modelEffort.ts";
+import { useOptionalAiSettings } from "../../settings/useAiSettings.ts";
 import { OPENAI_IMAGE_LIMITS } from "./openaiImageProvider.ts";
 import { imageStylePrompt, SIERRA_IMAGE_STYLE } from "../../../../src/creative/imageStyle.ts";
 import UiSwitch from "../../ui/UiSwitch.vue";
@@ -48,7 +50,7 @@ interface Snapshot {
   readonly spend: ReportedSpend | null;
   readonly budgetPaused: boolean;
   readonly offerStale: boolean;
-  readonly credentialReady: boolean;
+  readonly version: number;
   readonly composite: boolean;
   readonly sources: readonly CreativeGenerationSourceOption[];
   readonly references: readonly CreativeGenerationReferenceOption[];
@@ -64,7 +66,7 @@ function readController(): Snapshot {
     spend: controller.spend,
     budgetPaused: controller.budgetPaused,
     offerStale: controller.offerStale,
-    credentialReady: controller.credentialReady(),
+    version: controller.version,
     composite: controller.editComposite() !== null,
     sources: controller.sourceOptions(),
     references: controller.referenceOptions(),
@@ -79,7 +81,6 @@ const notice = computed(() => state.value.notice);
 const failure = computed(() => state.value.failure);
 const offer = computed(() => state.value.offer);
 const offerStale = computed(() => state.value.offerStale);
-const credentialReady = computed(() => state.value.credentialReady);
 
 onBeforeUnmount(() => {
   unsubscribe();
@@ -90,7 +91,7 @@ const models = controller.provider.models;
 const modelIds = Object.keys(models);
 const kind = ref<OpenAiImageKind>("generate");
 const role = ref<OpenAiImageRole>(initialRole);
-const model = ref<string>(modelIds[0] ?? "");
+const model = ref<string>(controller.defaultModel() || modelIds[0] || "");
 const prompt = ref("");
 const styleEnabled = ref(true);
 const styleTarget = computed(() => (role.value === "room" ? "picture" : "view"));
@@ -103,13 +104,28 @@ const assetKey = ref("");
 const referenceKeys = ref<string[]>([]);
 const selection = ref({ x: 0, y: 0, width: 1, height: 1 });
 
+const aiSettingsApi = useOptionalAiSettings();
 const capability = computed(() => models[model.value]);
+const modelProvider = computed(() => capability.value?.provider ?? "openai");
+const credentialReady = computed(() => {
+  void state.value.version;
+  void aiSettingsApi?.aiSettings.value;
+  return controller.credentialReady(model.value);
+});
 
-const KIND_OPTIONS = [
+const KIND_OPTIONS = computed(() => [
   { value: "generate" as const, label: "Generate", testid: "generate-kind-generate" },
   { value: "variation" as const, label: "Variation", testid: "generate-kind-variation" },
-  { value: "edit" as const, label: "Edit", testid: "generate-kind-edit" },
-];
+  {
+    value: "edit" as const,
+    label: "Edit",
+    testid: "generate-kind-edit",
+    disabled: capability.value?.mask === false,
+    ...(capability.value?.mask === false
+      ? { title: "Choose an OpenAI image model for mask editing." }
+      : {}),
+  },
+]);
 const ROLE_OPTIONS: readonly { value: OpenAiImageRole; label: string }[] = [
   { value: "room", label: "Room" },
   { value: "character", label: "Character" },
@@ -150,6 +166,7 @@ watch(
       background.value = caps.backgrounds[0] ?? "";
     if (initialRole !== "room" && caps.backgrounds.includes("transparent"))
       background.value = "transparent";
+    if (kind.value === "edit" && caps.mask === false) kind.value = "variation";
     if (!usesFidelity.value) inputFidelity.value = "";
   },
   { immediate: true },
@@ -212,18 +229,21 @@ const selectionValid = computed(() => {
   return s.x + s.width <= raster.width && s.y + s.height <= raster.height;
 });
 
-/* --- The detached offer preview: a blob URL for the exact PNG bytes. --- */
+/* --- The detached offer preview: a blob URL for the returned image bytes. --- */
 const offerUrl = ref("");
 watch(
-  () => offer.value?.encodedBytes ?? state.value.partialImage,
-  (next) => {
+  [
+    () => offer.value?.encodedBytes ?? state.value.partialImage,
+    () => offer.value?.encoded.mime ?? "image/png",
+  ] as const,
+  ([bytes, mime]) => {
     if (offerUrl.value !== "") URL.revokeObjectURL(offerUrl.value);
     offerUrl.value =
-      next === null
+      bytes === null
         ? ""
         : URL.createObjectURL(
-            new Blob([next.slice().buffer as ArrayBuffer], {
-              type: "image/png",
+            new Blob([bytes.slice().buffer as ArrayBuffer], {
+              type: mime,
             }),
           );
   },
@@ -317,7 +337,7 @@ function bytes(value: number): string {
 
 const compositeNote = computed(() => state.value.phase === "offer" && state.value.composite);
 
-const noKey = computed(() => !credentialReady.value || failure.value?.reason === "no-key");
+const noKey = computed(() => !credentialReady.value);
 </script>
 
 <template>
@@ -343,7 +363,8 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       {{ notice }}
     </p>
     <p v-if="noKey" class="generate__note" data-testid="generate-key">
-      Add an OpenAI key in AI settings to generate images.
+      Add {{ modelProvider === "gemini" ? "a Google Gemini" : "an OpenAI" }} key in AI settings to
+      generate images.
       <UiButton
         size="sm"
         variant="ghost"
@@ -395,16 +416,20 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         <p class="generate__hint" data-testid="generate-style">
           {{ SIERRA_IMAGE_STYLE[styleTarget] }}
         </p>
-        <p class="generate__hint">Format: PNG · One image per request</p>
+        <p class="generate__hint">
+          {{
+            modelProvider === "gemini"
+              ? "One image per request"
+              : "Format: PNG · One image per request"
+          }}
+        </p>
         <ul class="generate__limits">
           <li>{{ OPENAI_IMAGE_LIMITS.maxInputImages }} input images</li>
           <li>{{ bytes(OPENAI_IMAGE_LIMITS.maxInputBytesTotal) }} total input</li>
           <li>{{ bytes(OPENAI_IMAGE_LIMITS.maxEncodedBytes) }} per image</li>
           <li>{{ OPENAI_IMAGE_LIMITS.maxPromptLength }} prompt characters</li>
         </ul>
-        <a href="https://platform.openai.com/usage" target="_blank" rel="noopener"
-          >See your usage</a
-        >
+        <a :href="providerUsageUrl(modelProvider)" target="_blank" rel="noopener">See your usage</a>
         <UiSegmented v-model="kind" label="Request kind" :options="KIND_OPTIONS" block size="sm" />
         <div class="generate__row">
           <label class="generate__field">
@@ -653,7 +678,9 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       <p v-if="state.spend" class="generate__spent" data-testid="generate-spent">
         {{ formatSpent(state.spend) }}
       </p>
-      <a href="https://platform.openai.com/usage" target="_blank" rel="noopener">See your usage</a>
+      <a :href="providerUsageUrl(offer.summary.provider)" target="_blank" rel="noopener"
+        >See your usage</a
+      >
       <img
         v-if="offerUrl !== ''"
         :src="offerUrl"

@@ -96,3 +96,36 @@ test("a finished message without reported usage says so instead of waiting", () 
     "$0.01+ / $5 spent",
   );
 });
+
+test("Gemini image spend prices input, text/thinking output, and image output separately", () => {
+  // Nano Banana 2: 2,000 input * $0.50/M + 1,000 text * $3/M + 1,000 image * $60/M
+  // = $0.001 + $0.003 + $0.060 = $0.064.
+  assert.deepEqual(
+    imageReportedSpend("gemini-3.1-flash-image", {
+      inputTextTokens: 1000,
+      inputImageTokens: 1000,
+      outputTextTokens: 1000,
+      outputImageTokens: 1000,
+    }),
+    { amount: 0.064, priceKnown: true, incomplete: false },
+  );
+  // Nano Banana Pro: 1,000 input * $2/M + 1,000 text * $12/M + 1,000 image * $120/M
+  // = $0.002 + $0.012 + $0.120 = $0.134.
+  assert.deepEqual(
+    imageReportedSpend("gemini-3-pro-image", {
+      inputTextTokens: 1000,
+      inputImageTokens: 0,
+      outputTextTokens: 1000,
+      outputImageTokens: 1000,
+    }),
+    { amount: 0.134, priceKnown: true, incomplete: false },
+  );
+  // Missing image output token count stays incomplete even when text tokens were reported.
+  const partial = imageReportedSpend("gemini-3.1-flash-image", {
+    inputTextTokens: 1000,
+    inputImageTokens: 0,
+    outputTextTokens: 1000,
+  });
+  assert.equal(partial.incomplete, true);
+  assert.equal(partial.amount, 0.0035);
+});

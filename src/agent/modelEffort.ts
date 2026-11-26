@@ -1,12 +1,13 @@
 /** Provider-supported effort levels, shared by the app and authoring evaluations. */
 export type ModelEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
-export type ModelProvider = "anthropic" | "openai" | "stub";
+export type ModelProvider = "anthropic" | "openai" | "gemini" | "stub";
 
 /** The model each provider starts with, in the app and in the evaluation scripts. */
 export const DEFAULT_MODELS: Record<ModelProvider, string> = {
   anthropic: "claude-opus-5-5",
   openai: "gpt-6.2-sol",
+  gemini: "gemini-4-neon",
   stub: "offline-stub",
 };
 
@@ -28,11 +29,31 @@ export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[
     { id: "gpt-6.1-terra", label: "GPT-6.1 Terra" },
     { id: "gpt-6-luna", label: "GPT-6 Luna" },
   ],
+  gemini: [
+    { id: "gemini-4-neon", label: "Gemini 4 Neon" },
+    { id: "gemini-4-carbon", label: "Gemini 4 Carbon" },
+    { id: "gemini-4-hydrogen", label: "Gemini 4 Hydrogen" },
+  ],
   stub: [{ id: "offline-stub", label: "Demo" }],
 };
 
+const PROVIDER_USAGE_URLS: Record<Exclude<ModelProvider, "stub">, string> = {
+  openai: "https://platform.openai.com/usage",
+  anthropic: "https://console.anthropic.com/settings/usage",
+  gemini: "https://aistudio.google.com/usage",
+};
+
+/** Billing and usage dashboard URL for one provider. */
+export function providerUsageUrl(provider?: string): string {
+  if (provider === "anthropic" || provider === "gemini" || provider === "openai")
+    return PROVIDER_USAGE_URLS[provider];
+  return PROVIDER_USAGE_URLS.openai;
+}
+
 const REASONING_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const OPTIONAL_REASONING_LEVELS: readonly ModelEffort[] = ["none", ...REASONING_LEVELS];
+const GEMINI_EXTENDED_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhigh"];
+const GEMINI_STANDARD_LEVELS: readonly ModelEffort[] = ["low", "medium", "high"];
 
 /** USD per million tokens: provider list prices at the time of this release. */
 interface ModelPrice {
@@ -247,6 +268,40 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     strictSchema: true,
     price: { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT },
   },
+  // Gemini 4 shares a 1M (1,048,576) unified context window with 65,536
+  // synchronous output tokens and automatic 95%-discount implicit caching.
+  // https://ai.google.dev/gemini-api/docs/models
+  // https://ai.google.dev/gemini-api/docs/pricing
+  "gemini-4-neon": {
+    provider: "gemini",
+    maxOutputTokens: 65536,
+    maxInputTokens: 983040,
+    effort: GEMINI_EXTENDED_LEVELS,
+    defaultEffort: "high",
+    caching: "implicit",
+    strictSchema: false,
+    price: { input: 3, output: 15, cacheRead: 0.15 },
+  },
+  "gemini-4-carbon": {
+    provider: "gemini",
+    maxOutputTokens: 65536,
+    maxInputTokens: 983040,
+    effort: GEMINI_STANDARD_LEVELS,
+    defaultEffort: "medium",
+    caching: "implicit",
+    strictSchema: false,
+    price: { input: 4, output: 20, cacheRead: 0.2 },
+  },
+  "gemini-4-hydrogen": {
+    provider: "gemini",
+    maxOutputTokens: 65536,
+    maxInputTokens: 983040,
+    effort: GEMINI_EXTENDED_LEVELS,
+    defaultEffort: "high",
+    caching: "implicit",
+    strictSchema: false,
+    price: { input: 1.5, output: 7.5, cacheRead: 0.075 },
+  },
   "offline-stub": {
     provider: "stub",
     maxOutputTokens: 128000,
@@ -269,11 +324,16 @@ export function modelCapability(model: string, provider?: ModelProvider): ModelC
   if (listed) return listed;
   return {
     provider: provider ?? "stub",
-    maxOutputTokens: 128000,
-    maxInputTokens: provider === "anthropic" ? 1000000 : 922000,
-    effort: REASONING_LEVELS,
+    maxOutputTokens: provider === "gemini" ? 65536 : 128000,
+    maxInputTokens: provider === "anthropic" ? 1000000 : provider === "gemini" ? 983040 : 922000,
+    effort: provider === "gemini" ? GEMINI_STANDARD_LEVELS : REASONING_LEVELS,
     defaultEffort: provider === "anthropic" ? "high" : "medium",
-    caching: provider === "anthropic" ? "breakpoint" : provider === "openai" ? "implicit" : "none",
+    caching:
+      provider === "anthropic"
+        ? "breakpoint"
+        : provider === "openai" || provider === "gemini"
+          ? "implicit"
+          : "none",
     strictSchema: provider === "openai",
     ...(provider === "anthropic" ? { serverFallback: true as const } : {}),
   };

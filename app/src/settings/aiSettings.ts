@@ -5,7 +5,7 @@ import {
   type ModelEffort,
 } from "../../../src/agent/modelEffort.ts";
 
-export type AiSettingsProvider = "openai" | "anthropic" | "stub";
+export type AiSettingsProvider = "openai" | "anthropic" | "gemini" | "stub";
 
 interface AiProviderSettings {
   model: string;
@@ -28,15 +28,18 @@ type AllowedModels = Record<AiSettingsProvider, readonly string[]>;
 
 export const AI_SETTINGS_KEY = "monotio_agi.aiSettings";
 
+const PROVIDERS = ["openai", "anthropic", "gemini", "stub"] as const;
+
 /** Ids the settings dialog offers; any other stored id would render a blank model select. */
 const KNOWN_MODEL_IDS: AllowedModels = {
   openai: MODEL_OPTIONS.openai.map((option) => option.id),
   anthropic: MODEL_OPTIONS.anthropic.map((option) => option.id),
+  gemini: MODEL_OPTIONS.gemini.map((option) => option.id),
   stub: MODEL_OPTIONS.stub.map((option) => option.id),
 };
 
 function provider(value: unknown, allowStub: boolean): AiSettingsProvider | null {
-  if (value === "openai" || value === "anthropic") return value;
+  if (value === "openai" || value === "anthropic" || value === "gemini") return value;
   return allowStub && value === "stub" ? value : null;
 }
 
@@ -54,6 +57,11 @@ function defaults(models: DefaultModels): AiSettings {
         model: models.anthropic,
         apiKey: "",
         effort: defaultModelEffort(models.anthropic, "anthropic"),
+      },
+      gemini: {
+        model: models.gemini,
+        apiKey: "",
+        effort: defaultModelEffort(models.gemini, "gemini"),
       },
       stub: { model: models.stub, apiKey: "", effort: defaultModelEffort(models.stub, "stub") },
     },
@@ -87,7 +95,7 @@ export function loadAiSettings(
   const value = storedRecord(storage);
   if (!value || value["version"] !== 1) return settings;
   const profiles = value["profiles"] as Record<string, unknown> | undefined;
-  for (const name of ["openai", "anthropic", "stub"] as const) {
+  for (const name of PROVIDERS) {
     const profile = profiles?.[name] as Record<string, unknown> | undefined;
     const target = settings.profiles[name];
     const model = typeof profile?.["model"] === "string" ? profile["model"].trim() : "";
@@ -114,7 +122,7 @@ export function validateAiSettings(storage: SettingsStorage, settings: AiSetting
   if (settings.version !== 1) throw new Error("Unsupported AI settings version.");
   const selected = provider(settings.provider, true);
   if (!selected) throw new Error("Choose an AI provider.");
-  for (const name of ["openai", "anthropic", "stub"] as const) {
+  for (const name of PROVIDERS) {
     if (!settings.profiles[name].model.trim()) throw new Error(`Choose a model for ${name}.`);
     if (!modelEffortOptions(settings.profiles[name].model).includes(settings.profiles[name].effort))
       throw new Error(`Choose a supported reasoning effort for ${name}.`);
@@ -133,6 +141,7 @@ export function copyAiSettings(settings: AiSettings): AiSettings {
     profiles: {
       openai: { ...settings.profiles.openai },
       anthropic: { ...settings.profiles.anthropic },
+      gemini: { ...settings.profiles.gemini },
       stub: { ...settings.profiles.stub },
     },
   };

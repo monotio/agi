@@ -12,6 +12,7 @@
 import { AgentRun, DEFAULT_TASK_BUDGET_USD, type AgentRunState } from "./agentRun.ts";
 import {
   createAnthropicConversation,
+  createGeminiConversation,
   createOpenAiConversation,
   type LlmConfig,
   type LlmTurnResult,
@@ -865,5 +866,7 @@ function defaultConversation(config: LlmConfig, run: AgentRun): UnifiedConversat
     return createOpenAiConversation(config, undefined, undefined, run, PROJECT_AGENT_TOOLS);
   if (config.provider === "anthropic")
     return createAnthropicConversation(config, undefined, run, PROJECT_AGENT_TOOLS);
+  if (config.provider === "gemini")
+    return createGeminiConversation(config, undefined, run, PROJECT_AGENT_TOOLS);
   return createProjectAgentStub("");
 }

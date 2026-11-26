@@ -1,7 +1,12 @@
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
+import {
+  createAnthropicConversation,
+  createGeminiConversation,
+  createOpenAiConversation,
+} from "../src/agent/llmClient.ts";
+import { ProviderRequestError } from "../src/agent/providerFailure.ts";
 import { MODEL_CAPABILITIES, MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
 
@@ -397,19 +402,347 @@ test("Anthropic accounts for compaction usage in addition to the message", async
   assert.equal(usage?.cacheWrite5m, 50);
 });
 
-for (const provider of ["openai", "anthropic"] as const) {
+for (const provider of ["openai", "anthropic", "gemini"] as const) {
   test(`${provider} legacy interruption records use structured user actions`, () => {
     const config = { provider, model: "test", apiKey: "offline" };
     const conversation =
       provider === "openai"
         ? createOpenAiConversation(config)
-        : createAnthropicConversation(config);
+        : provider === "gemini"
+          ? createGeminiConversation(config)
+          : createAnthropicConversation(config);
     conversation.recordInterruption!("Cancelled before adoption.");
-    const message = conversation.getTranscript().at(-1) as { role: string; content: string };
+    const message = conversation.getTranscript().at(-1) as {
+      role: string;
+      content?: string;
+      parts?: { text: string }[];
+    };
     assert.equal(message.role, "user");
-    const event = JSON.parse(message.content) as Record<string, unknown>;
+    const raw = provider === "gemini" ? message.parts![0]!.text : message.content!;
+    const event = JSON.parse(raw) as Record<string, unknown>;
     assert.equal(event["format"], "monotio.agi.user-action");
     assert.equal(event["decision"], "interruption");
     assert.equal(event["explanation"], "Cancelled before adoption.");
   });
 }
+
+test("Gemini sends x-goog-api-key header, echoes thoughtSignature verbatim, and tracks usage + tools", async (t) => {
+  const seenUrls: string[] = [];
+  const seenKeys: (string | null)[] = [];
+  const requests: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (input: unknown, init?: RequestInit) => {
+    seenUrls.push(String(input));
+    seenKeys.push(new Headers(init?.headers).get("x-goog-api-key"));
+    requests.push(JSON.parse(String(init?.body)));
+    const turn = requests.length;
+    if (turn === 1) {
+      return new Response(
+        providerSse("gemini", [
+          {
+            responseId: "resp-1",
+            modelVersion: "gemini-4-neon",
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [{ text: "Inspecting room 1", thought: true }],
+                },
+              },
+            ],
+          },
+          {
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [
+                    {
+                      functionCall: { name: "read_room", args: { room: 1 } },
+                      thoughtSignature: "sig-turn-1",
+                    },
+                  ],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 200,
+              candidatesTokenCount: 12,
+              thoughtsTokenCount: 28,
+              cachedContentTokenCount: 150,
+            },
+          },
+        ]),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }
+    return new Response(
+      providerSse("gemini", {
+        responseId: "resp-2",
+        modelVersion: "gemini-4-neon",
+        candidates: [
+          {
+            content: { role: "model", parts: [{ text: "Room 1 verified." }] },
+            finishReason: "STOP",
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 260,
+          candidatesTokenCount: 8,
+          thoughtsTokenCount: 2,
+          cachedContentTokenCount: 200,
+        },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+
+  const conversation = createGeminiConversation({
+    provider: "gemini",
+    model: "gemini-4-neon",
+    apiKey: "gm-secret-key",
+    effort: "xhigh",
+  });
+  conversation.setAvailableTools(["read_room"]);
+  const first = await conversation.sendUserMessage("Check room 1");
+  assert.equal(first.toolCalls.length, 1);
+  assert.equal(first.toolCalls[0]!.name, "read_room");
+  assert.deepEqual(first.usage, {
+    input: 200,
+    output: 40,
+    cachedInput: 150,
+    cacheWriteInput: 0,
+    ordinaryInput: 50,
+    reasoningOutput: 28,
+  });
+
+  conversation.appendToolResults([
+    {
+      toolCallId: first.toolCalls[0]!.id,
+      result: {
+        success: true,
+        message: "ok",
+        images: [{ png: new Uint8Array([137, 80, 78, 71]), caption: "Frame" }],
+      },
+    },
+  ]);
+  conversation.setAvailableTools([]);
+  const second = await conversation.complete();
+  assert.equal(second.text, "Room 1 verified.");
+  assert.equal(
+    seenUrls.every((u) => !u.includes("gm-secret-key")),
+    true,
+    "key never in URL",
+  );
+  assert.deepEqual(seenKeys, ["gm-secret-key", "gm-secret-key"]);
+  assert.deepEqual(requests[0]?.["tools"], requests[1]?.["tools"], "tool catalog stays constant");
+  assert.deepEqual(requests[0]?.["toolConfig"], {
+    functionCallingConfig: { mode: "AUTO", allowedFunctionNames: ["read_room"] },
+  });
+  assert.deepEqual(requests[1]?.["toolConfig"], {
+    functionCallingConfig: { mode: "NONE" },
+  });
+  assert.deepEqual(
+    (requests[0]?.["generationConfig"] as { thinkingConfig?: unknown }).thinkingConfig,
+    { thinkingLevel: "XHIGH" },
+  );
+  // thoughtSignature from turn 1 is echoed verbatim in turn 2 contents.
+  const secondContents = requests[1]?.["contents"] as { role: string; parts: unknown[] }[];
+  assert.match(JSON.stringify(secondContents[1]), /"thoughtSignature":"sig-turn-1"/);
+  assert.match(JSON.stringify(secondContents[2]), /"displayName":"read_room-image-1.png"/);
+  assert.deepEqual(conversation.getUsage?.(), {
+    input: 460,
+    output: 50,
+    cachedInput: 350,
+    cacheWriteInput: 0,
+    ordinaryInput: 110,
+    reasoningOutput: 30,
+  });
+});
+
+test("Gemini classifies auth/quota/size HTTP errors and closes pending calls on MAX_TOKENS and SAFETY", async (t) => {
+  let mode: "invalid-key" | "quota" | "too-large" | "max-tokens" | "safety" | "ok" = "invalid-key";
+  const requests: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+    requests.push(JSON.parse(String(init?.body)));
+    if (mode === "invalid-key")
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 400,
+            message: "API key not valid. Please pass a valid API key.",
+            status: "INVALID_ARGUMENT",
+            details: [{ reason: "API_KEY_INVALID" }],
+          },
+        }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    if (mode === "quota")
+      return new Response(
+        JSON.stringify({
+          error: { code: 429, message: "Quota exceeded", status: "RESOURCE_EXHAUSTED" },
+        }),
+        { status: 429, headers: { "content-type": "application/json", "retry-after": "0" } },
+      );
+    if (mode === "too-large")
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 400,
+            message: "The input token count exceeds the maximum number of tokens allowed.",
+            status: "INVALID_ARGUMENT",
+          },
+        }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    if (mode === "max-tokens")
+      return new Response(
+        providerSse("gemini", {
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [{ functionCall: { id: "c-max", name: "write_view", args: {} } }],
+              },
+              finishReason: "MAX_TOKENS",
+            },
+          ],
+          usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 10 },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    if (mode === "safety")
+      return new Response(
+        providerSse("gemini", {
+          candidates: [{ content: { role: "model", parts: [] }, finishReason: "SAFETY" }],
+          usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 0 },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    return new Response(
+      providerSse("gemini", {
+        candidates: [
+          { content: { role: "model", parts: [{ text: "Recovered" }] }, finishReason: "STOP" },
+        ],
+        usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 3 },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+
+  const make = () =>
+    createGeminiConversation({ provider: "gemini", model: "gemini-4-neon", apiKey: "bad" });
+
+  await assert.rejects(
+    make().sendUserMessage("hi"),
+    (err: unknown) => err instanceof ProviderRequestError && err.kind === "key",
+  );
+  mode = "quota";
+  await assert.rejects(
+    make().sendUserMessage("hi"),
+    (err: unknown) => err instanceof ProviderRequestError && err.kind === "rate-limit",
+  );
+  mode = "too-large";
+  await assert.rejects(
+    make().sendUserMessage("hi"),
+    (err: unknown) => err instanceof ProviderRequestError && err.kind === "too-large",
+  );
+
+  const conv = make();
+  mode = "max-tokens";
+  await assert.rejects(conv.sendUserMessage("draw"), /output limit/i);
+  mode = "safety";
+  await assert.rejects(conv.sendUserMessage("again"), /declined/i);
+  mode = "ok";
+  const recovered = await conv.sendUserMessage("smaller");
+  assert.equal(recovered.text, "Recovered");
+  assert.match(JSON.stringify(requests.at(-1)?.["contents"]), /not executed/i);
+});
+
+test("Gemini rejects premature SSE EOF without persisting partial calls, aborts active streams, and scrubs keys", async (t) => {
+  let scenario: "eof" | "abort" | "leak" = "eof";
+  t.mock.method(globalThis, "fetch", async () => {
+    if (scenario === "leak") {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 400,
+            message: "API key not valid: gm-secret-text-key",
+            status: "INVALID_ARGUMENT",
+            details: [{ reason: "API_KEY_INVALID" }],
+          },
+        }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (scenario === "eof") {
+      // Stream ends cleanly without finishReason or blockReason after emitting a partial functionCall.
+      return new Response(
+        providerSse("gemini", {
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [{ functionCall: { name: "write_view", args: { num: 1 } } }],
+              },
+            },
+          ],
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            providerSse("gemini", {
+              candidates: [{ content: { role: "model", parts: [{ text: "Halfway" }] } }],
+            }),
+          ),
+        );
+      },
+    });
+    return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+  });
+
+  const eofConv = createGeminiConversation({
+    provider: "gemini",
+    model: "gemini-4-neon",
+    apiKey: "gm-secret-text-key",
+  });
+  await assert.rejects(eofConv.sendUserMessage("draw"), /ended before completing/i);
+  assert.equal(eofConv.getTranscript().length, 1, "partial model turn is not persisted on EOF");
+
+  scenario = "leak";
+  await assert.rejects(
+    createGeminiConversation({
+      provider: "gemini",
+      model: "gemini-4-neon",
+      apiKey: "  gm-secret-text-key  ",
+    }).sendUserMessage("hi"),
+    (err: unknown) => {
+      assert.ok(err instanceof ProviderRequestError);
+      assert.equal(err.kind, "key");
+      assert.ok(!err.raw.includes("gm-secret-text-key"), "API key is scrubbed from raw error");
+      return true;
+    },
+  );
+
+  scenario = "abort";
+  const abortController = new AbortController();
+  const fakeRun = {
+    request: <T>(fn: (signal: AbortSignal, maxTokens: number) => Promise<T>) =>
+      fn(abortController.signal, 65536),
+    updateProgress() {
+      abortController.abort(new DOMException("Stopped", "AbortError"));
+    },
+    recordStreamUsage() {},
+    markUsageIncomplete() {},
+  };
+  const abortConv = createGeminiConversation(
+    { provider: "gemini", model: "gemini-4-neon", apiKey: "gm-secret-text-key" },
+    undefined,
+    fakeRun as never,
+  );
+  await assert.rejects(abortConv.sendUserMessage("stream"), /Stopped|Abort/i);
+});

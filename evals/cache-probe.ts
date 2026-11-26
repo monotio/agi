@@ -68,7 +68,7 @@ function parseArgs(argv: string[]): Args {
     provider: "stub",
     diagnostics: false,
     scenarios: [],
-    shapes: ["anthropic", "openai"],
+    shapes: ["anthropic", "openai", "gemini"],
     out: "evals/results/cache",
   };
   for (let i = 0; i < argv.length; i++) {
@@ -99,18 +99,23 @@ function parseArgs(argv: string[]): Args {
   if (args.dryRun) args.provider = "stub";
   if (args.provider === "stub" && !args.dryRun)
     throw new Error(
-      "Use --dry-run for the offline probe or --provider anthropic|openai for a live run.",
+      "Use --dry-run for the offline probe or --provider anthropic|openai|gemini for a live run.",
     );
-  if (args.provider !== "stub" && args.provider !== "anthropic" && args.provider !== "openai")
-    throw new Error(`--provider takes anthropic or openai, not ${String(args.provider)}.`);
+  if (
+    args.provider !== "stub" &&
+    args.provider !== "anthropic" &&
+    args.provider !== "openai" &&
+    args.provider !== "gemini"
+  )
+    throw new Error(`--provider takes anthropic, openai or gemini, not ${String(args.provider)}.`);
   if (!args.scenarios.length)
     args.scenarios = args.dryRun ? SCENARIOS.map((scenario) => scenario.id) : LIVE_SCENARIOS;
   for (const id of args.scenarios)
     if (!SCENARIOS.some((scenario) => scenario.id === id))
       throw new Error(`Unknown scenario ${id}; known: ${SCENARIOS.map((s) => s.id).join(", ")}.`);
   for (const shape of args.shapes)
-    if (shape !== "anthropic" && shape !== "openai")
-      throw new Error(`--shape takes anthropic and/or openai, not ${shape}.`);
+    if (shape !== "anthropic" && shape !== "openai" && shape !== "gemini")
+      throw new Error(`--shape takes anthropic, openai and/or gemini, not ${shape}.`);
   if (args.provider !== "stub") {
     const model = args.model ?? DEFAULT_MODELS[args.provider];
     if (!MODEL_CAPABILITIES[model]?.price)
@@ -130,10 +135,12 @@ function liveConfig(args: Args, budgetUsd: number): LlmConfig {
   const apiKey =
     provider === "openai"
       ? (process.env["OPENAI_API_KEY"] ?? "")
-      : (process.env["ANTHROPIC_API_KEY"] ?? "");
+      : provider === "gemini"
+        ? (process.env["GEMINI_API_KEY"] ?? "")
+        : (process.env["ANTHROPIC_API_KEY"] ?? "");
   if (!apiKey)
     throw new Error(
-      `Set ${provider === "openai" ? "OPENAI" : "ANTHROPIC"}_API_KEY for a live run.`,
+      `Set ${provider === "openai" ? "OPENAI" : provider === "gemini" ? "GEMINI" : "ANTHROPIC"}_API_KEY for a live run.`,
     );
   return {
     provider,

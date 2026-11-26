@@ -36,7 +36,7 @@ const CACHEABLE_FLOOR: Record<string, number> = {
 };
 
 for (const scenario of SCENARIOS)
-  for (const shape of ["anthropic", "openai"] as const)
+  for (const shape of ["anthropic", "openai", "gemini"] as const)
     test(`${scenario.id} keeps an append-only prefix in the ${shape} shape`, async () => {
       const conversations = await probeScenario(scenario, shape, DEFAULT_MODELS[shape]);
       assert.ok(conversations.flat().length >= 4, "expected a multi-request scenario");

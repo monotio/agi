@@ -1,8 +1,9 @@
 import { validateTranscript } from "../../../src/agent/transcript.ts";
 import type { AgentRun } from "./agentRun.ts";
 /**
- * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Sonnet 5.5 / Fable 5.1) and OpenAI
- * (GPT-6 Astra / Sol / Luna) directly from the browser with prompt caching.
+ * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Sonnet 5.5 / Fable 5.2 / Haiku 5.5),
+ * OpenAI (GPT-6.2 Sol / Astra / Terra / Luna), and Google Gemini (Gemini 4 Neon / Carbon /
+ * Hydrogen) directly from the browser with prompt caching.
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
@@ -26,6 +27,10 @@ import {
   anthropicToolContent,
   anthropicToolDefinitions,
   anthropicToolResult,
+  geminiToolDefinitions,
+  geminiToolResponse,
+  geminiUserParts,
+  type GeminiPart,
   type OpenAiToolBlock,
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
@@ -36,7 +41,7 @@ import {
   DEFAULT_MODELS,
 } from "../../../src/agent/modelEffort.ts";
 
-export type ProviderType = "anthropic" | "openai" | "stub";
+export type ProviderType = "anthropic" | "openai" | "gemini" | "stub";
 
 export interface LlmConfig {
   provider: ProviderType;
@@ -1024,6 +1029,588 @@ export function createOpenAiConversation(
     },
     getTranscript(): unknown[] {
       return JSON.parse(JSON.stringify(input));
+    },
+    getSessionId(): string {
+      return sessionId;
+    },
+    getUsage(): LlmUsage {
+      return { ...totalUsage };
+    },
+  };
+}
+
+interface GeminiContent {
+  role: "user" | "model";
+  parts: GeminiPart[];
+}
+
+interface GeminiUsageMetadata {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+  cachedContentTokenCount?: number;
+}
+
+interface GeminiChunk {
+  responseId?: string;
+  modelVersion?: string;
+  candidates?: {
+    content?: { role?: string; parts?: GeminiPart[] };
+    finishReason?: string;
+  }[];
+  promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
+  usageMetadata?: GeminiUsageMetadata;
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+    details?: { reason?: string }[];
+  };
+}
+
+function geminiUsage(usage: GeminiUsageMetadata | undefined): LlmUsage {
+  const input = usage?.promptTokenCount ?? 0;
+  const cachedInput = usage?.cachedContentTokenCount ?? 0;
+  const reasoningOutput = usage?.thoughtsTokenCount ?? 0;
+  const output = (usage?.candidatesTokenCount ?? 0) + reasoningOutput;
+  return {
+    input,
+    output,
+    cachedInput,
+    cacheWriteInput: 0,
+    ordinaryInput: Math.max(0, input - cachedInput),
+    ...(reasoningOutput > 0 ? { reasoningOutput } : {}),
+  };
+}
+
+function scrubGeminiSecret(text: string, secret: string): string {
+  const trimmed = secret.trim();
+  return trimmed ? text.split(trimmed).join("[key]") : text;
+}
+
+function classifyGeminiHttpError(
+  status: number,
+  bodyText: string,
+  secret = "",
+): ProviderRequestError {
+  let code: string | undefined;
+  let type: string | undefined;
+  let message = bodyText.trim() || `HTTP ${status}`;
+  try {
+    const parsed: unknown = JSON.parse(bodyText);
+    const errObj = Array.isArray(parsed)
+      ? (parsed[0] as { error?: GeminiChunk["error"] } | undefined)?.error
+      : (parsed as { error?: GeminiChunk["error"] } | undefined)?.error;
+    if (errObj) {
+      message = errObj.message || message;
+      type = errObj.status;
+      code = errObj.details?.find((detail) => typeof detail?.reason === "string")?.reason;
+    }
+  } catch {
+    // Non-JSON proxy or gateway error; classify by HTTP status.
+  }
+  if (/api key not valid|api_key_invalid/i.test(message)) code = "API_KEY_INVALID";
+  else if (
+    /token count exceeds|exceeds the maximum number of tokens|request payload size/i.test(message)
+  )
+    code = "request_too_large";
+  const kind = classifyProviderFailure({ status, code, type });
+  return new ProviderRequestError(kind, "gemini", scrubGeminiSecret(message, secret), { status });
+}
+
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return (
+    error instanceof Error && (error.name === "AbortError" || error.name === "APIUserAbortError")
+  );
+}
+
+function retryDelayMs(response: Response | null, attempt: number): number {
+  const retryAfter = response?.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(30_000, seconds * 1000);
+  }
+  return 500 * 2 ** attempt;
+}
+
+async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Creates a Google Gemini 4 multi-turn conversation directly over `fetch` + SSE
+ * (`v1beta/models/{model}:streamGenerateContent?alt=sse`).
+ *
+ * Transcript history is strictly append-only and preserves `thoughtSignature`
+ * verbatim on model parts so multi-turn function calls validate and automatic
+ * implicit prefix caching (95% discount) hits on every turn.
+ */
+export function createGeminiConversation(
+  config: LlmConfig,
+  initialTranscript?: unknown[],
+  run?: AgentRun,
+  catalog?: readonly ToolDefinition[],
+  initialSessionId?: string,
+): UnifiedConversation {
+  const catalogForSession = catalog ? catalog.map((tool) => structuredClone(tool)) : AGENT_TOOLS;
+  const declarations = geminiToolDefinitions(catalogForSession);
+  let allowedNames: readonly string[] | undefined;
+  const totalUsage: LlmUsage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
+  const catalogHash = fnv1a(JSON.stringify(declarations));
+  const promptHash = fnv1a(config.systemPrompt ?? AGI_SYSTEM_PROMPT);
+  const sessionId = initialSessionId || crypto.randomUUID();
+  let requestCount = 0;
+  let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
+
+  const contents: GeminiContent[] = Array.isArray(initialTranscript)
+    ? JSON.parse(JSON.stringify(validateTranscript(initialTranscript, "gemini", true)))
+    : [];
+  const callMeta = new Map<string, { name: string; wireId?: string }>();
+
+  function closePending(reason: string): void {
+    const pending: { name: string; wireId?: string }[] = [];
+    for (const item of contents) {
+      for (const part of item.parts) {
+        if ("functionCall" in part) {
+          pending.push({
+            name: part.functionCall.name,
+            ...(part.functionCall.id ? { wireId: part.functionCall.id } : {}),
+          });
+        } else if ("functionResponse" in part) {
+          const idx = part.functionResponse.id
+            ? pending.findIndex((entry) => entry.wireId === part.functionResponse.id)
+            : pending.findIndex((entry) => entry.name === part.functionResponse.name);
+          if (idx !== -1) pending.splice(idx, 1);
+        }
+      }
+    }
+    if (!pending.length) return;
+    contents.push({
+      role: "user",
+      parts: pending.map((entry) => ({
+        functionResponse: {
+          name: entry.name,
+          ...(entry.wireId ? { id: entry.wireId } : {}),
+          response: { success: false, error: `Tool call was not executed: ${reason}` },
+        },
+      })),
+    });
+  }
+
+  async function step(): Promise<LlmTurnResult> {
+    validateTranscript(contents, "gemini");
+    const requestIndex = ++requestCount;
+    const toolContent = pendingToolContent;
+    pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
+    const model = config.model || DEFAULT_MODELS.gemini;
+    const effort = resolveModelEffort(model, config.effort, "gemini");
+    const baseUrl = getDevBaseUrl("/api/gemini") ?? "https://generativelanguage.googleapis.com";
+    const url = `${baseUrl}/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+    let firstEventMs: number | undefined;
+    let responseMs = 0;
+    let usageIncomplete = false;
+
+    const send = async (
+      signal?: AbortSignal,
+      maxTokens = modelCapability(model, "gemini").maxOutputTokens,
+    ) => {
+      const startedAt = performance.now();
+      const body = JSON.stringify({
+        systemInstruction: { parts: [{ text: config.systemPrompt ?? AGI_SYSTEM_PROMPT }] },
+        contents,
+        ...(declarations.length ? { tools: [{ functionDeclarations: declarations }] } : {}),
+        ...(allowedNames !== undefined
+          ? {
+              toolConfig: {
+                functionCallingConfig: allowedNames.length
+                  ? { mode: "AUTO", allowedFunctionNames: [...allowedNames] }
+                  : { mode: "NONE" },
+              },
+            }
+          : {}),
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          thinkingConfig: { thinkingLevel: effort.toUpperCase() },
+        },
+      });
+
+      const secret = config.apiKey.trim();
+      let response: Response | null = null;
+      let activeTimeout: AbortController | null = null;
+      let activeTimer: ReturnType<typeof setTimeout> | undefined;
+      let activeOnOuterAbort: (() => void) | undefined;
+      const clearActiveAbort = () => {
+        if (activeTimer !== undefined) {
+          clearTimeout(activeTimer);
+          activeTimer = undefined;
+        }
+        if (activeOnOuterAbort) {
+          signal?.removeEventListener("abort", activeOnOuterAbort);
+          activeOnOuterAbort = undefined;
+        }
+      };
+
+      const maxRetries = 2;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const timeout = new AbortController();
+        const timer = setTimeout(
+          () => timeout.abort(new DOMException("Timeout", "TimeoutError")),
+          600_000,
+        );
+        const onOuterAbort = () => timeout.abort(signal?.reason);
+        signal?.addEventListener("abort", onOuterAbort, { once: true });
+        activeTimeout = timeout;
+        activeTimer = timer;
+        activeOnOuterAbort = onOuterAbort;
+        try {
+          if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+          response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-goog-api-key": secret,
+            },
+            body,
+            signal: timeout.signal,
+          });
+        } catch (error) {
+          clearActiveAbort();
+          if (timeout.signal.aborted && !signal?.aborted)
+            throw new ProviderRequestError("timeout", "gemini", "Request timed out.", {
+              cause: error,
+            });
+          if (isAbortError(error, signal)) throw error;
+          if (attempt < maxRetries) {
+            await sleepWithAbort(retryDelayMs(null, attempt), signal);
+            continue;
+          }
+          throw new ProviderRequestError(
+            "offline",
+            "gemini",
+            scrubGeminiSecret(error instanceof Error ? error.message : String(error), secret),
+            { cause: error },
+          );
+        }
+        if (response.ok) break;
+        const retryable = [429, 500, 502, 503, 504].includes(response.status);
+        let errorText: string;
+        try {
+          errorText = await response.text();
+        } catch {
+          errorText = "";
+        } finally {
+          clearActiveAbort();
+        }
+        if (retryable && attempt < maxRetries) {
+          await sleepWithAbort(retryDelayMs(response, attempt), signal);
+          continue;
+        }
+        throw classifyGeminiHttpError(response.status, errorText, secret);
+      }
+
+      if (!response?.body) {
+        clearActiveAbort();
+        throw new ProviderRequestError("unavailable", "gemini", "Empty response stream.");
+      }
+
+      const parts: GeminiPart[] = [];
+      let finishReason: string | undefined;
+      let blockReason: string | undefined;
+      let blockMessage: string | undefined;
+      let responseId: string | undefined;
+      let modelVersion: string | undefined;
+      let latestUsage: GeminiUsageMetadata | undefined;
+
+      const pushPart = (part: GeminiPart): void => {
+        if ("text" in part) {
+          if (part.thought) run?.updateProgress("thinking");
+          else if (part.text) run?.updateProgress("text", part.text);
+          const prev = parts[parts.length - 1];
+          if (
+            prev &&
+            "text" in prev &&
+            Boolean(prev.thought) === Boolean(part.thought) &&
+            !prev.thoughtSignature &&
+            !part.thoughtSignature
+          ) {
+            prev.text += part.text;
+          } else {
+            parts.push({
+              text: part.text,
+              ...(part.thought !== undefined ? { thought: part.thought } : {}),
+              ...(part.thoughtSignature ? { thoughtSignature: part.thoughtSignature } : {}),
+            });
+          }
+          return;
+        }
+        if ("functionCall" in part) {
+          run?.updateProgress("tool", "", part.functionCall.name);
+          parts.push({
+            functionCall: {
+              name: part.functionCall.name,
+              args:
+                part.functionCall.args &&
+                typeof part.functionCall.args === "object" &&
+                !Array.isArray(part.functionCall.args)
+                  ? part.functionCall.args
+                  : {},
+              ...(part.functionCall.id ? { id: part.functionCall.id } : {}),
+            },
+            ...(part.thoughtSignature ? { thoughtSignature: part.thoughtSignature } : {}),
+          });
+          return;
+        }
+        if ("inlineData" in part) {
+          parts.push(part);
+          return;
+        }
+        const sig = (part as { thoughtSignature?: unknown }).thoughtSignature;
+        if (typeof sig === "string" && sig.length > 0) {
+          parts.push({ text: "", thoughtSignature: sig });
+        }
+      };
+
+      const reader = response.body.getReader();
+      const cancelOnAbort = () => {
+        void reader.cancel().catch(() => undefined);
+      };
+      activeTimeout?.signal.addEventListener("abort", cancelOnAbort, { once: true });
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let dataLines: string[] = [];
+      const flushEvent = () => {
+        if (!dataLines.length) return;
+        const payload = dataLines.join("\n").trim();
+        dataLines = [];
+        if (!payload || payload === "[DONE]") return;
+        const chunk = JSON.parse(payload) as GeminiChunk;
+        if (firstEventMs === undefined) firstEventMs = performance.now() - startedAt;
+        run?.updateProgress();
+        if (chunk.error) {
+          throw classifyGeminiHttpError(
+            chunk.error.code ?? 500,
+            JSON.stringify({ error: chunk.error }),
+            secret,
+          );
+        }
+        if (chunk.responseId) responseId = chunk.responseId;
+        if (chunk.modelVersion) modelVersion = chunk.modelVersion;
+        if (chunk.usageMetadata) {
+          latestUsage = chunk.usageMetadata;
+          run?.recordStreamUsage(geminiUsage(latestUsage), model);
+        }
+        if (chunk.promptFeedback?.blockReason) {
+          blockReason = chunk.promptFeedback.blockReason;
+          blockMessage = chunk.promptFeedback.blockReasonMessage;
+        }
+        const candidate = chunk.candidates?.[0];
+        if (candidate?.content?.parts) {
+          for (const part of candidate.content.parts) pushPart(part);
+        }
+        if (candidate?.finishReason) finishReason = candidate.finishReason;
+      };
+
+      try {
+        while (true) {
+          if (activeTimeout?.signal.aborted) {
+            throw activeTimeout.signal.reason ?? new DOMException("Aborted", "AbortError");
+          }
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (line === "") flushEvent();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+          }
+        }
+        if (activeTimeout?.signal.aborted) {
+          throw activeTimeout.signal.reason ?? new DOMException("Aborted", "AbortError");
+        }
+        buffer += decoder.decode();
+        if (buffer.startsWith("data:")) dataLines.push(buffer.slice(5).trimStart());
+        flushEvent();
+        if (!finishReason && !blockReason) {
+          throw new Error("The stream closed without a completion status.");
+        }
+        responseMs = performance.now() - startedAt;
+        if (!latestUsage) {
+          usageIncomplete = true;
+          run?.markUsageIncomplete();
+        }
+        recordUsage(geminiUsage(latestUsage), totalUsage);
+        return {
+          parts,
+          finishReason,
+          blockReason,
+          blockMessage,
+          responseId,
+          modelVersion,
+          latestUsage,
+        };
+      } catch (error) {
+        usageIncomplete = true;
+        responseMs = performance.now() - startedAt;
+        run?.markUsageIncomplete();
+        if (activeTimeout?.signal.aborted && !signal?.aborted) {
+          throw new ProviderRequestError("timeout", "gemini", "Request timed out.", {
+            cause: error,
+          });
+        }
+        if (isAbortError(error, signal)) throw error;
+        if (error instanceof ProviderRequestError) throw error;
+        throw new Error(
+          `The provider stream ended before completing the response. No partial tools were executed. (${scrubGeminiSecret(error instanceof Error ? error.message : String(error), secret)})`,
+          { cause: error },
+        );
+      } finally {
+        activeTimeout?.signal.removeEventListener("abort", cancelOnAbort);
+        clearActiveAbort();
+        reader.releaseLock();
+      }
+    };
+
+    const result = await (run ? run.request(send) : send());
+    const usage = geminiUsage(result.latestUsage);
+    const hitShare = cacheHitShare(usage);
+    const telemetry: LlmRequestTelemetry = {
+      provider: "gemini",
+      sessionId,
+      model: result.modelVersion ?? model,
+      ...(result.responseId ? { requestId: result.responseId } : {}),
+      requestIndex,
+      promptHash,
+      catalogHash,
+      ...(firstEventMs !== undefined ? { timeToFirstEventMs: firstEventMs } : {}),
+      responseMs,
+      usage,
+      ...(hitShare === undefined ? {} : { cacheHitShare: hitShare }),
+      usageIncomplete,
+      toolResultTextBytes: toolContent.textBytes,
+      imageCount: toolContent.imageCount,
+      imagePixels: toolContent.imagePixels,
+    };
+
+    if (result.parts.length) {
+      contents.push({ role: "model", parts: result.parts });
+    }
+
+    if (result.blockReason) {
+      const reason = result.blockMessage || `Request blocked by Gemini (${result.blockReason}).`;
+      closePending(reason);
+      throw new LlmRefusalError(reason, usage, telemetry);
+    }
+
+    if (
+      result.finishReason &&
+      ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"].includes(
+        result.finishReason,
+      )
+    ) {
+      const reason = `The model declined to complete the turn (${result.finishReason}).`;
+      closePending(reason);
+      throw new LlmRefusalError(reason, usage, telemetry);
+    }
+
+    if (result.finishReason === "MAX_TOKENS") {
+      const reason =
+        "The provider response reached its output limit before completion. Partial tool arguments were not executed.";
+      closePending(reason);
+      throw new LlmResponseError(reason, usage, telemetry);
+    }
+
+    if (result.finishReason && result.finishReason !== "STOP") {
+      const reason = `The model stopped before completing the turn (${result.finishReason}).`;
+      closePending(reason);
+      throw new LlmResponseError(reason, usage, telemetry);
+    }
+
+    const textParts: string[] = [];
+    const toolCalls: ToolCallItem[] = [];
+    let callOrdinal = 0;
+    for (const part of result.parts) {
+      if ("text" in part && !part.thought) textParts.push(part.text);
+      else if ("functionCall" in part) {
+        const wireId = part.functionCall.id;
+        const localId = wireId || `gemini-call-${requestIndex}-${++callOrdinal}`;
+        callMeta.set(localId, {
+          name: part.functionCall.name,
+          ...(wireId ? { wireId } : {}),
+        });
+        toolCalls.push({
+          id: localId,
+          name: part.functionCall.name,
+          input: part.functionCall.args,
+        });
+      }
+    }
+
+    return {
+      text: textParts.join("").trim(),
+      toolCalls,
+      ...(result.finishReason ? { stopReason: result.finishReason } : {}),
+      usage,
+      telemetry,
+      outcome: "completed",
+    };
+  }
+
+  return {
+    setAvailableTools(names) {
+      allowedNames = names
+        ? [...names].filter((name) => catalogForSession.some((tool) => tool.name === name))
+        : undefined;
+    },
+    async sendUserMessage(
+      text: string,
+      images?: readonly AgentToolImage[],
+    ): Promise<LlmTurnResult> {
+      closePending("the previous turn ended before the harness executed it.");
+      contents.push({ role: "user", parts: geminiUserParts({ text, images: images ?? [] }) });
+      return step();
+    },
+    appendToolResults(results): void {
+      let textBytes = 0;
+      let imageCount = 0;
+      let imagePixels = 0;
+      const responseParts: GeminiPart[] = [];
+      for (const r of results) {
+        const split = splitToolResult(r.result);
+        textBytes += split.text.length;
+        for (const image of split.images) {
+          imageCount++;
+          imagePixels += pngPixels(image.png);
+        }
+        const meta = callMeta.get(r.toolCallId);
+        callMeta.delete(r.toolCallId);
+        const name = meta?.name ?? r.toolCallId;
+        responseParts.push(geminiToolResponse(name, r.result, meta?.wireId));
+      }
+      if (responseParts.length) contents.push({ role: "user", parts: responseParts });
+      pendingToolContent = { textBytes, imageCount, imagePixels };
+    },
+    complete(): Promise<LlmTurnResult> {
+      return step();
+    },
+    recordInterruption(text: string): void {
+      closePending(text);
+      contents.push({ role: "user", parts: [{ text: userActionText(text) }] });
+    },
+    getTranscript(): unknown[] {
+      return JSON.parse(JSON.stringify(contents));
     },
     getSessionId(): string {
       return sessionId;

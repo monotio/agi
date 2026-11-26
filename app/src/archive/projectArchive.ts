@@ -256,7 +256,8 @@ export function readProjectContext(
     throw new Error("This project conversation version is not supported.");
   if (
     hasConversation &&
-    (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
+    (!["openai", "anthropic", "gemini", "stub"].includes(raw.provider) ||
+      typeof raw.model !== "string")
   )
     throw new Error("Invalid project model metadata.");
   if (hasConversation) knownFields(raw.conversation, ["formatVersion", "messages"]);
@@ -353,6 +354,15 @@ export function readProjectContext(
     if (value && typeof value === "object") {
       const object = value as Record<string, unknown>;
       if (typeof object["projectImage"] === "string") {
+        if (object["geminiInlineData"] !== undefined) {
+          knownFields(object, ["projectImage", "geminiInlineData", "displayName"]);
+          if (typeof object["geminiInlineData"] !== "boolean") {
+            throw new Error("Invalid project image reference.");
+          }
+          if (object["displayName"] !== undefined && typeof object["displayName"] !== "string") {
+            throw new Error("Invalid project image reference.");
+          }
+        }
         const path = object["projectImage"];
         if (!/^IMAGES\/[a-f0-9]{64}\.(png|jpeg|webp)$/.test(path)) {
           throw new Error("Invalid project image reference.");
@@ -386,6 +396,7 @@ export function readProjectContext(
   if (raw.references !== undefined) scanRaw(raw.references);
   if (envelope.chats !== undefined) scanRaw(envelope.chats);
 
+  const base64Cache = new Map<string, string>();
   const attachmentCache = new Map<string, unknown>();
 
   function restore(value: unknown): unknown {
@@ -394,18 +405,31 @@ export function readProjectContext(
       const object = value as Record<string, unknown>;
       if (typeof object["projectImage"] === "string") {
         const path = object["projectImage"];
+        const mime = `image/${path.split(".").pop()}`;
+        let b64 = base64Cache.get(path);
+        if (b64 === undefined) {
+          const image = entries.get(`${root}${path}`.toUpperCase())!;
+          let binary = "";
+          for (const byte of image) binary += String.fromCharCode(byte);
+          b64 = btoa(binary);
+          base64Cache.set(path, b64);
+        }
+        if (object["geminiInlineData"]) {
+          return {
+            mimeType: mime,
+            data: b64,
+            ...(typeof object["displayName"] === "string"
+              ? { displayName: object["displayName"] }
+              : {}),
+          };
+        }
         const isAnthropic = Boolean(object["anthropicSource"]);
         const cacheKey = `${isAnthropic ? "anthropic:" : "data:"}${path}`;
         const cached = attachmentCache.get(cacheKey);
         if (cached !== undefined) return cached;
-
-        const image = entries.get(`${root}${path}`.toUpperCase())!;
-        let binary = "";
-        for (const byte of image) binary += String.fromCharCode(byte);
-        const mime = `image/${path.split(".").pop()}`;
         const encoded = isAnthropic
-          ? { type: "base64", media_type: mime, data: btoa(binary) }
-          : `data:${mime};base64,${btoa(binary)}`;
+          ? { type: "base64", media_type: mime, data: b64 }
+          : `data:${mime};base64,${b64}`;
         attachmentCache.set(cacheKey, encoded);
         return encoded;
       }

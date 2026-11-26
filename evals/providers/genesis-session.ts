@@ -21,7 +21,7 @@ import { RESOURCE_KINDS } from "../../src/types.ts";
 import type { LlmConfig, LlmUsage } from "../../app/src/agent/llmClient.ts";
 import type { AgentSessionState, AgentToolResult } from "../../src/agent/agentState.ts";
 
-export type EffortProvider = "openai" | "anthropic";
+export type EffortProvider = "openai" | "anthropic" | "gemini";
 export interface EffortStage {
   promptVariant: "lean" | "current";
   effort?: LlmConfig["effort"];
@@ -43,11 +43,14 @@ export interface RequestMessage {
 export interface ProviderBody {
   instructions?: unknown;
   system?: unknown;
+  systemInstruction?: unknown;
   tools?: RequestTool[];
   input?: RequestMessage[] | string;
   messages?: RequestMessage[];
+  contents?: RequestMessage[];
   reasoning?: { effort?: unknown };
   output_config?: { effort?: unknown };
+  generationConfig?: { thinkingConfig?: { thinkingLevel?: unknown } };
   [key: string]: unknown;
 }
 export interface GenesisOptions {
@@ -99,12 +102,19 @@ function promptSectionEstimates(body: ProviderBody, provider: EffortProvider) {
   const system =
     provider === "openai"
       ? textOf(body.instructions)
-      : textOf(
-          Array.isArray(body.system)
-            ? body.system.map((part: { text?: unknown } | null) => part?.text ?? "")
-            : body.system,
-        );
-  const user = provider === "openai" ? textOf(body.input) : textOf(body.messages);
+      : provider === "gemini"
+        ? textOf(body.systemInstruction)
+        : textOf(
+            Array.isArray(body.system)
+              ? body.system.map((part: { text?: unknown } | null) => part?.text ?? "")
+              : body.system,
+          );
+  const user =
+    provider === "openai"
+      ? textOf(body.input)
+      : provider === "gemini"
+        ? textOf(body.contents)
+        : textOf(body.messages);
   const tools = textOf(body.tools);
   const section = (text: string) => ({
     characters: text.length,
@@ -152,7 +162,9 @@ export function requestWithBody(
 function apiKey(provider: EffortProvider) {
   return provider === "openai"
     ? (process.env["OPENAI_API_KEY"] ?? "")
-    : (process.env["ANTHROPIC_API_KEY"] ?? "");
+    : provider === "gemini"
+      ? (process.env["GEMINI_API_KEY"] ?? "")
+      : (process.env["ANTHROPIC_API_KEY"] ?? "");
 }
 
 function outputDirectory(options: GenesisOptions) {
@@ -182,8 +194,8 @@ async function exclusiveFetch<T>(work: () => Promise<T>): Promise<T> {
 
 export async function runGenesisSession(options: GenesisOptions) {
   const provider = options.provider;
-  if (provider !== "openai" && provider !== "anthropic")
-    throw new Error("Genesis effort evaluation requires provider openai or anthropic.");
+  if (provider !== "openai" && provider !== "anthropic" && provider !== "gemini")
+    throw new Error("Genesis effort evaluation requires provider openai, anthropic or gemini.");
   // A run with an injected fetch is a test; a real one needs explicit consent
   // (EVAL_LIVE=1 and the budget variable), whatever keys the environment holds.
   const budgetUsd =
@@ -195,7 +207,9 @@ export async function runGenesisSession(options: GenesisOptions) {
           `genesis (${options.promptVariant ?? "default"}) with ${provider} ${options.model}`,
         );
   if (typeof options.fetchImpl !== "function" && !apiKey(provider))
-    throw new Error(`Missing ${provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"}.`);
+    throw new Error(
+      `Missing ${provider === "openai" ? "OPENAI_API_KEY" : provider === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY"}.`,
+    );
 
   return exclusiveFetch(async () => {
     const lane = safeName(
@@ -424,7 +438,9 @@ export async function runGenesisSession(options: GenesisOptions) {
       effectiveEffort:
         (provider === "openai"
           ? firstRequest.body?.reasoning?.effort
-          : firstRequest.body?.output_config?.effort) ?? null,
+          : provider === "gemini"
+            ? firstRequest.body?.generationConfig?.thinkingConfig?.thinkingLevel
+            : firstRequest.body?.output_config?.effort) ?? null,
       promptVariant: options.promptVariant ?? "lean",
       // The base template revision this build of the harness seeded, so the
       // matrix compares the run's logic 0 against the template it saw rather
@@ -440,7 +456,9 @@ export async function runGenesisSession(options: GenesisOptions) {
             system: sha256(
               provider === "openai"
                 ? textOf(firstRequest.body.instructions)
-                : textOf(firstRequest.body.system),
+                : provider === "gemini"
+                  ? textOf(firstRequest.body.systemInstruction)
+                  : textOf(firstRequest.body.system),
             ),
             tools: sha256(textOf(firstRequest.body.tools)),
           }
@@ -515,7 +533,7 @@ export default class GenesisSessionProvider {
     context: { vars: { caseName: string; repeat?: number | string; templateText: string } },
   ) {
     const { provider, model } = this.config;
-    if ((provider !== "openai" && provider !== "anthropic") || !model)
+    if ((provider !== "openai" && provider !== "anthropic" && provider !== "gemini") || !model)
       throw new Error("Genesis provider configuration requires a provider and model.");
     const report = await runGenesisSession({
       ...this.config,

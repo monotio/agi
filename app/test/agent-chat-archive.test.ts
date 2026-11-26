@@ -154,3 +154,109 @@ for (const provider of ["openai", "anthropic"] as const) {
     }
   });
 }
+
+test("Gemini transcripts archive inlineData images with distinct displayNames and strip signatures across providers", async () => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]).toString("base64");
+  const transcript = [
+    {
+      role: "user",
+      parts: [
+        { text: "Inspect this frame" },
+        { inlineData: { mimeType: "image/png", data: pngBytes } },
+      ],
+    },
+    {
+      role: "model",
+      parts: [
+        { text: "Checking...", thought: true },
+        {
+          functionCall: { id: "c1", name: "read_room", args: { room: 1 } },
+          thoughtSignature: "opaque-sig-1",
+        },
+      ],
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            id: "c1",
+            name: "read_room",
+            response: {
+              success: true,
+              images: [
+                { caption: "first", image: { $ref: "room-a.png" } },
+                { caption: "second", image: { $ref: "room-b.png" } },
+              ],
+            },
+            parts: [
+              { inlineData: { mimeType: "image/png", displayName: "room-a.png", data: pngBytes } },
+              { inlineData: { mimeType: "image/png", displayName: "room-b.png", data: pngBytes } },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      role: "model",
+      parts: [{ text: "Room 1 looks good." }],
+    },
+  ];
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;", words: "[]" },
+    profileId: "2.936",
+  });
+  const chats = readAgentChats({
+    format: "monotio.agi.chats",
+    version: 1,
+    active: "g",
+    chats: [
+      {
+        id: "g",
+        title: "Gemini check",
+        provider: "gemini",
+        model: "gemini-4-neon",
+        transcript,
+        messages: [],
+      },
+    ],
+  });
+  const zip = await buildProjectZip({
+    projectId: requireProjectId("gemini-archive"),
+    title: "Gemini",
+    authoredAt: "",
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    chats,
+  });
+  const opened = await readGameZip(zip);
+  const restored = opened.project!.chats!.chats[0]!.transcript;
+  assert.deepEqual(restored, transcript);
+  assert.deepEqual(
+    continuationTranscript(
+      { provider: "gemini", model: "gemini-4-neon", transcript: restored },
+      "gemini",
+      "gemini-4-neon",
+    ),
+    transcript,
+  );
+  const switchedToOpenAi = continuationTranscript(
+    { provider: "gemini", model: "gemini-4-neon", transcript: restored },
+    "openai",
+    "gpt-6.2-sol",
+  );
+  assert.ok(!JSON.stringify(switchedToOpenAi).includes("opaque-sig-1"));
+  assert.match(JSON.stringify(switchedToOpenAi), /Room 1 looks good/);
+  const switchedToGemini = continuationTranscript(
+    {
+      provider: "openai",
+      model: "gpt-6.2-sol",
+      transcript: [{ role: "user", content: "Make a lighthouse" }],
+    },
+    "gemini",
+    "gemini-4-neon",
+  ) as { role: string; parts: { text: string }[] }[];
+  assert.equal(switchedToGemini[0]?.role, "user");
+  assert.match(switchedToGemini[0]?.parts[0]?.text ?? "", /Make a lighthouse/);
+});

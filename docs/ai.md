@@ -1,12 +1,12 @@
 # Building with AI
 
-AGI IS HERE can connect to an OpenAI or Anthropic model as a co-author. The agent plans a world,
+AGI IS HERE can connect to an OpenAI, Anthropic or Google Gemini model as a co-author. The agent plans a world,
 builds rooms while you play, answers questions and edits any part of a game with you. Everything it
 writes is a standard AGI resource.
 
 ## Connect a provider
 
-Add an OpenAI or Anthropic API key in AI settings. The app talks to your provider directly from the
+Add an OpenAI, Anthropic or Google Gemini API key in AI settings. The app talks to your provider directly from the
 browser. The key is saved in browser storage and sent only to the provider you choose, along with
 the game content each request needs. [Security](../SECURITY.md) covers storage and data flow.
 

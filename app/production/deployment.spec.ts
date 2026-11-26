@@ -84,6 +84,7 @@ test("production origin, worker and provider policy", async ({ page, request }) 
   const policy = response?.headers()["content-security-policy"] ?? "";
   expect(policy).toContain("https://api.openai.com");
   expect(policy).toContain("https://api.anthropic.com");
+  expect(policy).toContain("https://generativelanguage.googleapis.com");
   expect(policy).not.toContain("unsafe-eval");
   await expect(page.getByRole("heading", { name: "AGI IS HERE." })).toBeVisible();
   await expect(page.getByTestId("installed-game-select")).toBeHidden();

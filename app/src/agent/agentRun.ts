@@ -12,6 +12,7 @@ import { sha256Hex } from "../../../src/crypto.ts";
 import {
   MODEL_CAPABILITIES,
   modelCapability,
+  providerUsageUrl,
   requestRates,
 } from "../../../src/agent/modelEffort.ts";
 export interface AgentRunState {
@@ -72,10 +73,7 @@ export class AgentRun {
     this.changed = changed;
     this.allowance = budget;
     this.state = {
-      usageUrl:
-        MODEL_CAPABILITIES[model]?.provider === "anthropic"
-          ? "https://console.anthropic.com/settings/usage"
-          : "https://platform.openai.com/usage",
+      usageUrl: providerUsageUrl(MODEL_CAPABILITIES[model]?.provider),
       progress: null,
       status: "idle",
       reason: "",

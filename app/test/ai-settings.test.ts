@@ -31,6 +31,7 @@ class MemoryStorage {
 const defaults = {
   openai: "gpt-default",
   anthropic: "claude-default",
+  gemini: "gemini-default",
   stub: "offline-stub",
 } as const;
 
@@ -70,6 +71,7 @@ test("a stored model outside the allowed list falls back to the default model an
   const explicit = loadAiSettings(storage, defaults, true, {
     openai: ["gpt-current"],
     anthropic: ["claude-kept"],
+    gemini: ["gemini-default"],
     stub: [],
   });
   assert.equal(explicit.profiles.openai.model, defaults.openai);
@@ -77,6 +79,12 @@ test("a stored model outside the allowed list falls back to the default model an
   assert.equal(explicit.profiles.openai.apiKey, "openai-secret", "the key outlives the model");
   assert.equal(explicit.profiles.anthropic.model, "claude-kept");
   assert.equal(explicit.profiles.anthropic.effort, "max");
+  assert.equal(
+    explicit.profiles.gemini.model,
+    defaults.gemini,
+    "legacy records without gemini load defaults",
+  );
+  assert.equal(explicit.profiles.gemini.apiKey, "");
 
   const shipped = MODEL_OPTIONS.openai.find((option) => option.id !== DEFAULT_MODELS.openai)!;
   storage.values.set(AI_SETTINGS_KEY, stored(shipped.id, "claude-retired"));
@@ -112,6 +120,7 @@ test("one atomic record keeps provider keys and models isolated", () => {
     profiles: {
       openai: { model: "gpt-picked", apiKey: "openai-secret", effort: "xhigh" },
       anthropic: { model: "claude-picked", apiKey: "anthropic-secret", effort: "high" },
+      gemini: { model: "gemini-picked", apiKey: "gemini-secret", effort: "high" },
       stub: { model: "offline-stub", apiKey: "", effort: "medium" },
     },
   };
@@ -120,6 +129,7 @@ test("one atomic record keeps provider keys and models isolated", () => {
   const restored = loadAiSettings(storage, defaults, true, {
     openai: ["gpt-picked"],
     anthropic: ["claude-picked"],
+    gemini: ["gemini-picked"],
     stub: [],
   });
   assert.deepEqual(restored, settings);
@@ -136,8 +146,13 @@ test("the app offers the current models, each with its published price and effor
     MODEL_OPTIONS.openai.map((option) => option.id),
     ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6-luna"],
   );
+  assert.deepEqual(
+    MODEL_OPTIONS.gemini.map((option) => option.id),
+    ["gemini-4-neon", "gemini-4-carbon", "gemini-4-hydrogen"],
+  );
   assert.equal(DEFAULT_MODELS.anthropic, "claude-opus-5-5");
   assert.equal(DEFAULT_MODELS.openai, "gpt-6.2-sol");
+  assert.equal(DEFAULT_MODELS.gemini, "gemini-4-neon");
   assert.deepEqual(MODEL_CAPABILITIES["claude-opus-5-5"]?.price, {
     input: 4,
     output: 20,
@@ -194,7 +209,33 @@ test("the app offers the current models, each with its published price and effor
     assert.deepEqual(modelEffortOptions(id), ["low", "medium", "high", "xhigh", "max"]);
     assert.equal(defaultModelEffort(id), "medium");
   }
-  for (const option of [...MODEL_OPTIONS.anthropic, ...MODEL_OPTIONS.openai])
+  assert.deepEqual(MODEL_CAPABILITIES["gemini-4-neon"]?.price, {
+    input: 3,
+    output: 15,
+    cacheRead: 0.15,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["gemini-4-carbon"]?.price, {
+    input: 4,
+    output: 20,
+    cacheRead: 0.2,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["gemini-4-hydrogen"]?.price, {
+    input: 1.5,
+    output: 7.5,
+    cacheRead: 0.075,
+  });
+  // Gemini 4 Neon and Hydrogen offer low..xhigh (default high); Carbon offers low..high (default medium).
+  for (const id of ["gemini-4-neon", "gemini-4-hydrogen"]) {
+    assert.deepEqual(modelEffortOptions(id), ["low", "medium", "high", "xhigh"]);
+    assert.equal(defaultModelEffort(id), "high");
+  }
+  assert.deepEqual(modelEffortOptions("gemini-4-carbon"), ["low", "medium", "high"]);
+  assert.equal(defaultModelEffort("gemini-4-carbon"), "medium");
+  for (const option of [
+    ...MODEL_OPTIONS.anthropic,
+    ...MODEL_OPTIONS.openai,
+    ...MODEL_OPTIONS.gemini,
+  ])
     assert.ok(MODEL_CAPABILITIES[option.id]?.price, `${option.id} has a known price`);
 });
 

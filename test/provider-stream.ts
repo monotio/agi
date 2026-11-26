@@ -3,7 +3,11 @@ export function sseEvent(event: Record<string, unknown>): string {
   return `event: ${String(event["type"])}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-export function providerSse(provider: "openai" | "anthropic", payload: unknown): string {
+export function providerSse(provider: "openai" | "anthropic" | "gemini", payload: unknown): string {
+  if (provider === "gemini") {
+    const chunks = Array.isArray(payload) ? payload : [payload];
+    return chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("");
+  }
   const response = payload as Record<string, unknown>;
   if (provider === "openai") {
     const status = response["status"] ?? "completed";
@@ -42,6 +46,6 @@ export function providerSse(provider: "openai" | "anthropic", payload: unknown):
   return events.map(sseEvent).join("");
 }
 
-export function providerReply(provider: "openai" | "anthropic", payload: unknown) {
+export function providerReply(provider: "openai" | "anthropic" | "gemini", payload: unknown) {
   return { contentType: "text/event-stream", body: providerSse(provider, payload) };
 }

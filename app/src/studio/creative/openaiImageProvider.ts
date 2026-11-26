@@ -91,6 +91,8 @@ export type OpenAiImageFailure =
 
 export class OpenAiImageError extends Error {
   readonly reason: OpenAiImageFailure;
+  /** Which image provider raised this error. */
+  readonly provider?: "openai" | "gemini";
   /** Local sub-reason ("oversize", "mask-alpha", ...) or the provider's error.code. */
   readonly code?: string;
   /** HTTP status when a response arrived. */
@@ -103,6 +105,7 @@ export class OpenAiImageError extends Error {
     reason: OpenAiImageFailure,
     message: string,
     options?: {
+      provider?: "openai" | "gemini";
       code?: string;
       status?: number;
       requestId?: string;
@@ -114,6 +117,7 @@ export class OpenAiImageError extends Error {
     this.name = "OpenAiImageError";
     this.reason = reason;
     this.possiblyCors = options?.possiblyCors ?? false;
+    if (options?.provider !== undefined) this.provider = options.provider;
     if (options?.code !== undefined) this.code = options.code;
     if (options?.status !== undefined) this.status = options.status;
     if (options?.requestId !== undefined) this.requestId = options.requestId;
@@ -142,7 +146,9 @@ function isMinted(error: unknown): error is OpenAiImageError {
 export interface OpenAiImageModel {
   readonly id: string;
   readonly label: string;
-  /** Accepts image inputs on `/v1/images/edits`. */
+  /** Which BYOK provider serves this model; omitted defaults to "openai". */
+  readonly provider?: "openai" | "gemini";
+  /** Accepts image inputs on `/v1/images/edits` or multimodal generation. */
   readonly edits: boolean;
   /** Documented Image API partial-image events. */
   readonly streaming?: boolean;
@@ -284,11 +290,12 @@ interface OpenAiImageMaterialSummary {
  * wire sees.
  */
 export interface OpenAiImageSummary {
-  readonly provider: "openai";
+  readonly provider: "openai" | "gemini";
   readonly kind: OpenAiImageKind;
   readonly role: OpenAiImageRole;
   readonly model: string;
-  readonly endpoint: "/v1/images/generations" | "/v1/images/edits";
+  readonly endpoint:
+    "/v1/images/generations" | "/v1/images/edits" | `/v1beta/models/${string}:generateContent`;
   readonly transport: "json" | "multipart";
   readonly prompt: string;
   readonly promptCodeUnits: number;
@@ -296,7 +303,7 @@ export interface OpenAiImageSummary {
   readonly size: string;
   readonly quality: OpenAiImageQuality;
   readonly background: OpenAiImageBackground;
-  readonly outputFormat: "png";
+  readonly outputFormat: "png" | "image";
   readonly inputFidelity?: "low" | "high";
   /** The asset first (mask order), then the approved references. */
   readonly images: readonly OpenAiImageMaterialSummary[];
@@ -327,6 +334,8 @@ export interface OpenAiImageUsage {
   /** Cached image input, included in inputImageTokens by the provider. */
   readonly inputCachedTokens?: number;
   readonly outputImageTokens?: number;
+  /** Text and thinking output tokens billed separately from image output (Gemini). */
+  readonly outputTextTokens?: number;
 }
 
 /**
@@ -338,11 +347,11 @@ export interface OpenAiImageOffer {
   readonly summary: OpenAiImageSummary;
   /** Descriptor for `encodedBytes`. */
   readonly encoded: BlobRef;
-  /** The exact encoded PNG the provider returned, owned by this offer. */
+  /** The exact encoded image the provider returned, owned by this offer. */
   readonly encodedBytes: Uint8Array;
   readonly width: number;
   readonly height: number;
-  readonly format: "png";
+  readonly format: CreativeImageFormat;
   /** `background: "transparent"` was requested and sent; the PNG may carry alpha. */
   readonly transparent: boolean;
   /** Provider-reported usage, only when actually returned. */

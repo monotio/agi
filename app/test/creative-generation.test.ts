@@ -19,6 +19,7 @@ import {
 } from "../src/studio/creative/openaiImageProvider.ts";
 import {
   createCreativeGeneration,
+  savedGeminiCredential,
   savedOpenAiCredential,
   type CreativeGenerationContext,
   type CreativeGenerationController,
@@ -335,6 +336,7 @@ test("a saved OpenAI profile supplies the key even when another provider is sele
     profiles: {
       openai: { model: "gpt-x", apiKey: "  sk-openai  ", effort: "low" as const },
       anthropic: { model: "claude-x", apiKey: "sk-anthropic", effort: "low" as const },
+      gemini: { model: "gemini-x", apiKey: "gm-key", effort: "low" as const },
       stub: { model: "stub", apiKey: "", effort: "low" as const },
     },
   };
@@ -343,6 +345,7 @@ test("a saved OpenAI profile supplies the key even when another provider is sele
     profiles: {
       openai: { model: "gpt-x", apiKey: "", effort: "low" as const },
       anthropic: { model: "claude-x", apiKey: "sk-anthropic", effort: "low" as const },
+      gemini: { model: "gemini-x", apiKey: "gm-key", effort: "low" as const },
       stub: { model: "stub", apiKey: "stub-key", effort: "low" as const },
     },
   };
@@ -350,6 +353,16 @@ test("a saved OpenAI profile supplies the key even when another provider is sele
     savedOpenAiCredential(() => foreignOnly)(),
     null,
     "another provider's key is never offered",
+  );
+  assert.equal(savedGeminiCredential(() => foreignOnly)(), "gm-key");
+  assert.equal(
+    savedGeminiCredential(() => ({
+      profiles: {
+        ...foreignOnly.profiles,
+        gemini: { model: "gemini-x", apiKey: "   ", effort: "low" as const },
+      },
+    }))(),
+    null,
   );
 });
 
