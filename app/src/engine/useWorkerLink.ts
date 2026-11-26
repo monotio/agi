@@ -251,6 +251,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       frames: (msg) => workerQueries.resolveQuery(msg.id, msg.frames),
       checkpoint: (msg) => workerQueries.resolveQuery(msg.id, msg.image),
       exportFiles: (msg) => workerQueries.resolveQuery(msg.id, msg.files),
+      savExported: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      savImported: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugWritten: (msg) => workerQueries.resolveQuery(msg.id, msg),
       playedHere: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),

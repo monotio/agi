@@ -333,3 +333,14 @@ test("a broken resource replay is rejected before live state or host output chan
     assert.deepEqual(effects, beforeEffects);
   }
 });
+
+test("Amiga PAL import preserves the engine's PAL timing region", () => {
+  const engine = game(PROFILES["amiga-2.202"]);
+  engine.amigaRegion = "pal";
+  engine.tick();
+  const bytes = exportOriginalSav(engine, "PAL room");
+  engine.vars[100] = 99;
+  importOriginalSav(engine, bytes);
+  assert.equal(engine.vars[100], 37);
+  assert.equal(engine.amigaRegion, "pal");
+});

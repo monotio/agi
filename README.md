@@ -115,8 +115,7 @@ change. [Building with AI](docs/ai.md) covers templates, reviews, budgets and pr
 ## Save and share
 
 Games, saves and history live in your browser. The game's own Save and Restore keep their files in the app.
-The engine reads and writes original `.SAV` files for every build except the 2.001 booter;
-importing them in the app is planned. The app also saves as you play, so **Resume** picks up
+**Settings → This game → Save files…** imports and exports original `.SAV` files for every build except the 2.001 booter, including DOS `KQ1SG.1`, Amiga and Apple IIgs saves. The app also saves as you play, so **Resume** picks up
 where you left off.
 
 | Settings → This game → **Download…** | What you get                                                                                                                                                                                                                       |

@@ -26,7 +26,7 @@ workspace and an AI co-author, running in the browser.
 - **Each platform's own presentation.** Palette (including EGA and CGA RGB on PC), font, status line, dissolves and display proportions: 4:3 for PC, IIgs and NTSC Amiga, wider for PAL Amiga, with square pixels as an option.
 - **Amiga and IIgs click-to-walk.** Mouse clicks walk the hero as they do on the originals.
 - **Recreated bitmap fonts.** Pixel-for-pixel recreations of the Tandy 1000 SX BIOS typeface on PC and Topaz 8 on the Amiga. A game's own `AGIFONT` is used when your copy has one.
-- **Original save files.** The engine reads and writes `.SAV` files for every build except the 2.001 booter.
+- **Original save files.** **Settings → This game → Save files…** imports and exports original `.SAV` files (DOS, Amiga and Apple IIgs) for every build except the 2.001 booter.
 
 ## Make games
 
@@ -44,7 +44,7 @@ workspace and an AI co-author, running in the browser.
 ## Editors
 
 - **PICTURE:** Visual and Priority planes as an editable list of vector commands. Lines, fills, brushes, groups and draw order, with a stand-in that shows who stands in front of what. Trace an uploaded or AI-generated reference image behind the art.
-- **VIEW:** Pixel tools, loops and cels, mirrored loops and live previews. Cut cels from a sprite sheet and preview them on the running hero.
+- **VIEW:** Pixel tools, loops and cels, mirrored loops and live previews. Cut cels from a cel sheet and preview them on the running hero.
 - **LOGIC:** Completion, hover documentation, go to definition, a Problems panel, and guided actions for rooms, doors, sentences and sounds.
 - **SOUND:** Three voices and noise in a grid or tracker, with native ticks, divisors and attenuation in view. Import MIDI and SN76489 VGM; export MIDI with per-note pitch bends that play each chip divisor's exact frequency.
 - **WORDS and OBJECT:** Test sentences with the game's parser, see commands that missed during playtests, and edit the inventory.
@@ -54,7 +54,7 @@ workspace and an AI co-author, running in the browser.
 - **Rooms that appear as you walk.** Walk into an unbuilt room and play pauses while the agent writes it, then the hero walks in. The setting is per game.
 - **Change the game while you stand in it.** Ask for an alligator in the moat and the agent rewrites the game's bytecode to put it there.
 - **Real AGI resources.** The agent writes logic, vector pictures with priority and control lines, animated views, vocabulary, inventory and sound.
-- **Reference art generation.** Generate reference images and sprite sheets directly in the workspace with OpenAI or Google Gemini image models, then trace or cut cels from them.
+- **Reference art generation.** Generate reference images and cel sheets directly in the workspace with OpenAI or Google Gemini image models, then trace or cut cels from them.
 - **Review before it lands.** Previews of pictures, frames, sounds and source differences apply as one History step. Auto-approve is available per session.
 - **Self-checking handover.** Compiler messages, rendered previews, playtests and stored game tests run before handover. A failing test needs a stated reason before the agent can finish.
 - **Bring your own key.** OpenAI, Anthropic or Google Gemini, called straight from the browser with no backend server. Each task has a budget you set and shows what the provider reports as spent. See [Building with AI](ai.md) and [Security](../SECURITY.md).
@@ -75,7 +75,6 @@ workspace and an AI co-author, running in the browser.
 
 - Native Apple IIgs menus and the Standard File dialog.
 - Hercules and CGA composite displays.
-- Importing original `.SAV` files through the app UI.
 - Full playthroughs on Amiga and Apple IIgs (six Amiga games and Space Quest II on IIgs are verified to boot into their first room).
 - Measurements on real hardware (evidence so far is decoded original binaries and MAME cross-checks).
 

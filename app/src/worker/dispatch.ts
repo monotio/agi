@@ -420,6 +420,36 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       control({ type: "exportFiles", id: msg.id, files });
       return;
     }
+    if (msg.type === "exportSav") {
+      const generation = ctx.run.generation;
+      const engine = ctx.run.engine;
+      void import("./savFiles.ts")
+        .then(({ handleExportSav }) => handleExportSav(ctx, msg, generation, engine))
+        .catch((error: unknown) => {
+          control({
+            type: "savExported",
+            id: msg.id,
+            bytes: null,
+            error: `Save export could not load: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        });
+      return;
+    }
+    if (msg.type === "importSav") {
+      const generation = ctx.run.generation;
+      const engine = ctx.run.engine;
+      void import("./savFiles.ts")
+        .then(({ handleImportSav }) => handleImportSav(ctx, msg, generation, engine))
+        .catch((error: unknown) => {
+          control({
+            type: "savImported",
+            id: msg.id,
+            ok: false,
+            error: `Save import could not load: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        });
+      return;
+    }
     if (msg.type === "reenter") {
       ctx.fns.onReenter(msg);
       return;

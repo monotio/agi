@@ -364,6 +364,8 @@ export type WorkerInbound =
   | { type: "frames"; id: number; count?: number; stride?: number; since?: number | null }
   | { type: "checkpoint"; id: number }
   | { type: "exportFiles"; id: number }
+  | { type: "exportSav"; id: number; description?: string }
+  | { type: "importSav"; id: number; bytes: Uint8Array }
   | { type: "flush"; id: number }
   | { type: "startRecording"; id: number }
   | { type: "stopRecording"; id: number }
@@ -674,6 +676,8 @@ export type WorkerControl =
   /** Session replacement discarded the active Playtest tape. */
   | { type: "recordingReset" }
   | { type: "exportFiles"; id: number; files: Record<string, Uint8Array> | null }
+  | { type: "savExported"; id: number; bytes: Uint8Array | null; error?: string }
+  | { type: "savImported"; id: number; ok: boolean; room?: number; error?: string }
   | {
       type: "restored";
       ok: boolean;
@@ -1082,6 +1086,8 @@ interface WorkerQueryReplies {
   frames: Extract<WorkerControl, { type: "frames" }>;
   checkpoint: Extract<WorkerControl, { type: "checkpoint" }>;
   exportFiles: Extract<WorkerControl, { type: "exportFiles" }>;
+  exportSav: Extract<WorkerControl, { type: "savExported" }>;
+  importSav: Extract<WorkerControl, { type: "savImported" }>;
   startRecording: Extract<WorkerControl, { type: "recordingStarted" }>;
   stopRecording: Extract<WorkerControl, { type: "recordingStopped" }>;
   replayAdvance: Extract<WorkerControl, { type: "replay" }>;
@@ -1123,6 +1129,8 @@ export interface WorkerQueryPayload {
   frames: WorkerQueryReplies["frames"]["frames"];
   checkpoint: WorkerQueryReplies["checkpoint"]["image"];
   exportFiles: WorkerQueryReplies["exportFiles"]["files"];
+  exportSav: WorkerQueryReplies["exportSav"];
+  importSav: WorkerQueryReplies["importSav"];
   startRecording: WorkerQueryReplies["startRecording"];
   stopRecording: WorkerQueryReplies["stopRecording"];
   replayAdvance: WorkerQueryReplies["replayAdvance"]["observation"];

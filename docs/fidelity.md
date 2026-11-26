@@ -140,7 +140,6 @@ Planned for a later release:
   [native menus and the Standard File window](#apple-iigs-presentation), and
   the buttons of its [restart dialog](#persistence-verdicts)
 - resumable checkpoints taken while a native menu is open
-- the `.SAV` panel
 - a disk-prompt setting (the originals'
   [insert-disk prompts](#original-directory-and-resource-loading))
 - the PC `2.001`–`2.272` direction shadow word

@@ -69,6 +69,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           "Most Sierra games save with F5 and restore with F7. In Create, click the game to use its keys. Click the editor to use F5 for the top run action, or Continue while paused. Create runs pause at breakpoints; Disable breakpoints lets them pass. The app also autosaves, so Resume picks up where you stopped.",
           "Every session records itself. Open History under the game to look back, then Resume from here to play on from that moment. Undo rewind takes you back if you went too far.",
+          "Settings → This game → Save files… imports and exports original Sierra .SAV files (including DOS KQ1SG.1, Amiga and Apple IIgs saves) for every build except the 2.001 booter.",
           "Start over keeps your earlier sessions: Undo start over, offered just after, returns to where you left off, and after that the timeline's mark where you started over is the way back.",
         ],
       },
