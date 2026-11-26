@@ -10,7 +10,7 @@ import { buildView } from "../view/view.ts";
 import { buildObjectFile } from "../agent/agentState.ts";
 import { buildSound } from "../agent/tools.ts";
 
-export const SYNTHETIC_WORDS: [string, number][] = [
+const SYNTHETIC_WORDS: [string, number][] = [
   ["go", 0],
   ["the", 0],
   ["look", 100],
@@ -20,12 +20,6 @@ export const SYNTHETIC_WORDS: [string, number][] = [
   ["answer", 104],
   ["test", 105],
 ];
-
-export const SYNTHETIC_WORDS_HASH =
-  "d00cc5981820a66d3a56c802f8d747a73fe153d394a80463accf313947623fa1";
-
-export const SYNTHETIC_OBJECT_HASH =
-  "f58e6871c43d8639afca350562544a1f040dc94475c545ca069f4e69635d6425";
 
 export interface SyntheticGamePayload {
   files: Record<string, Uint8Array>;

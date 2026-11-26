@@ -1133,8 +1133,10 @@ onBeforeUnmount(() => {
       />
       <div class="agent-panel__context">
         <span v-if="!creating || readOnly" data-testid="agent-read-only">Read only</span>
-        <span v-if="roomName" data-testid="agent-current-room">{{ roomName }}</span
-        ><span v-if="chip" class="agent-panel__context-selection" data-testid="agent-context-chip"
+        <span v-if="roomName" data-testid="agent-current-room">{{ roomName }}</span><span
+          v-if="chip"
+          class="agent-panel__context-selection"
+          data-testid="agent-context-chip"
           >{{ chip.label
           }}<button
             type="button"
@@ -1181,8 +1183,7 @@ onBeforeUnmount(() => {
           variant="primary"
           :disabled="!canSend || !input.trim() || !settings.aiConfigured.value"
           data-testid="agent-send"
-          >{{ busy ? "Send next step" : "Send" }}</UiButton
-        ><span>⌘↵</span>
+          >{{ busy ? "Send next step" : "Send" }}</UiButton><span>⌘↵</span>
       </div>
     </form>
     <section

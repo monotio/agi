@@ -351,8 +351,12 @@ function dismissPopovers(event: KeyboardEvent): void {
         size="sm"
         :disabled="readOnly"
         :title="readOnly ? 'Editing is paused in this tab' : undefined"
-        >{{ moving.merge ? "Merge" : "Move" }}</UiButton
-      ><UiButton size="sm" variant="ghost" @click="moving = undefined">Cancel</UiButton>
+        >{{ moving.merge ? "Merge" : "Move" }}</UiButton><UiButton
+        size="sm"
+        variant="ghost"
+        @click="moving = undefined"
+        >Cancel</UiButton
+      >
     </form>
     <div class="words-body">
       <section :aria-label="VOCABULARY.trySentence.label">
@@ -560,8 +564,9 @@ function dismissPopovers(event: KeyboardEvent): void {
             data-testid="player-sentence"
           >
             <div>
-              <code>{{ entry.text }}</code
-              ><small> ×{{ entry.count }} · {{ numberedLabel("room", entry.room, labels) }}</small>
+              <code>{{ entry.text }}</code><small>
+                ×{{ entry.count }} · {{ numberedLabel("room", entry.room, labels) }}</small
+              >
               <p class="words-note">
                 {{
                   entry.unknown ? `“${entry.unknown}” is a new word` : VOCABULARY.noResponse.label
@@ -575,8 +580,7 @@ function dismissPopovers(event: KeyboardEvent): void {
                 @click="teach(entry.unknown, entry)"
                 :disabled="readOnly"
                 :title="readOnly ? 'Editing is paused in this tab' : undefined"
-                >{{ copy.teach.replace("{word}", entry.unknown) }}</UiButton
-              ><UiButton
+                >{{ copy.teach.replace("{word}", entry.unknown) }}</UiButton><UiButton
                 size="sm"
                 @click="!readOnly && emit('response', entry.room, entry.text)"
                 :disabled="readOnly"
@@ -607,8 +611,9 @@ function dismissPopovers(event: KeyboardEvent): void {
               >{{ VOCABULARY.meanings.label }}</UiExplain
             >
           </h3>
-          <small>{{ meanings.length }}</small
-          ><small class="words-order">{{ VOCABULARY.orderWords.label }}</small>
+          <small>{{ meanings.length }}</small><small class="words-order">{{
+            VOCABULARY.orderWords.label
+          }}</small>
         </div>
         <div
           v-for="group in meanings"

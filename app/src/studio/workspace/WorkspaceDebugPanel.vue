@@ -195,8 +195,7 @@ function editValue(kind: "variable" | "flag", slot: number, event: Event): void 
         <div v-for="watch in debug.state.watches" :key="watch.id" class="workspace-debug-row">
           <span>{{
             numberedExpressionLabel(watch.expression, { bindings: debug.bindings.value })
-          }}</span
-          ><output>{{ watch.value }}</output
+          }}</span><output>{{ watch.value }}</output
           ><UiButton
             size="sm"
             variant="ghost"

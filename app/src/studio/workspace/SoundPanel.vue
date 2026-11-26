@@ -424,8 +424,7 @@ const soundLabel = computed(() =>
         @error="notice = $event"
       />
       <div v-if="!event" class="sound-footer">
-        <span>{{ cursorLabel }}</span
-        ><label
+        <span>{{ cursorLabel }}</span><label
           >{{ VOCABULARY.volume.label
           }}<input
             type="range"

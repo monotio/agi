@@ -711,8 +711,7 @@ function onKey(event: KeyboardEvent): void {
               @click="revealState($event, info)"
               @dblclick.stop.prevent="startRename(`builtin:${info.name}`, info.name)"
             >
-              <span>{{ info.name }}</span
-              ><small>{{ numberedSlot(info.kind, info.num) }}</small>
+              <span>{{ info.name }}</span><small>{{ numberedSlot(info.kind, info.num) }}</small>
             </button>
             <p
               v-if="renaming?.row === `builtin:${info.name}` && renameError"

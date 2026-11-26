@@ -1,11 +1,18 @@
-import { cacheGame, openDeveloperActivity, openGameOptions, openInspector } from "./engineProbe.ts";
+import {
+  cacheGame,
+  loseGpuStage,
+  openDeveloperActivity,
+  openGameOptions,
+  openInspector,
+  prepareGpuLoss,
+  textHook,
+} from "./engineProbe.ts";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
-import { textHook } from "./engineProbe.ts";
 
 // These tests are about the GPU stage, so they create it (e2e/test.ts `gpuStage`).
 test.use({ gpuStage: true });
@@ -197,6 +204,7 @@ test("opening games again and again keeps the picture drawn on one GPU context",
 test("a lost GPU context leaves the flat picture, and the next game gets the stage back @webkit-desktop", async ({
   page,
 }) => {
+  await prepareGpuLoss(page);
   await openSavedAdventure(page);
   await page.getByTestId("btn-resume-cached").click();
   const gpu = page.getByTestId("gpu-canvas");
@@ -204,9 +212,7 @@ test("a lost GPU context leaves the flat picture, and the next game gets the sta
   await expect(gpu).toBeVisible();
   await expect.poll(() => bluePixels(page, gpu)).toBeGreaterThan(1000);
 
-  await gpu.evaluate((canvas: HTMLCanvasElement) =>
-    canvas.getContext("webgl2")!.getExtension("WEBGL_lose_context")!.loseContext(),
-  );
+  await loseGpuStage(gpu);
   await expect(flat).toBeVisible();
   await expect(gpu).toBeHidden();
   await expect.poll(() => bluePixels(page, flat)).toBeGreaterThan(1000);
@@ -228,19 +234,7 @@ test("a GPU context lost while the stage starts leaves the flat picture @webkit-
   page,
 }) => {
   await countGpuContexts(page);
-  await page.addInitScript(() => {
-    const listen = HTMLCanvasElement.prototype.addEventListener;
-    HTMLCanvasElement.prototype.addEventListener = function (
-      this: HTMLCanvasElement,
-      ...args: Parameters<typeof listen>
-    ) {
-      listen.apply(this, args);
-      if (args[0] === "webglcontextlost" && this.dataset["testid"] === "gpu-canvas")
-        queueMicrotask(() =>
-          this.dispatchEvent(new Event("webglcontextlost", { cancelable: true })),
-        );
-    } as typeof listen;
-  });
+  await prepareGpuLoss(page, { loseOnStart: true });
   await openSavedAdventure(page);
   await page.getByTestId("btn-resume-cached").click();
   const flat = page.getByTestId("game-canvas");

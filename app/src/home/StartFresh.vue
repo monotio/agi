@@ -40,9 +40,8 @@ async function confirm(): Promise<void> {
     </UiButton>
     <UiDialog v-model:open="open" title="Start fresh?" size="sm">
       <p class="start-fresh__copy">
-        This app cannot read the saved copy of <strong>{{ title }}</strong
-        >. Start fresh removes that copy, its progress and history from this browser so you can add
-        the game again.
+        This app cannot read the saved copy of <strong>{{ title }}</strong>. Start fresh removes
+        that copy, its progress and history from this browser so you can add the game again.
       </p>
       <p class="start-fresh__copy">Your exported and downloaded files stay as they are.</p>
       <p v-if="error" class="start-fresh__error" role="alert">{{ error }}</p>
