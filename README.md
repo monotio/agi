@@ -9,7 +9,7 @@ This AGI is Sierra's
 behind King's Quest, Space Quest and Leisure Suit Larry, rebuilt from scratch. Play the classics
 from your own copies, build a game by hand, or describe an adventure and play it while an AI agent
 builds the world around you. Everything you make is a real AGI game that you can inspect, download
-and play again.
+and play again. The [feature list](docs/features.md) shows what's built, on one page.
 
 ![The same Knight's Trial brief drawn by five models, from Claude Opus 5.5 to GPT-6 Luna, with what each cost](docs/media/genesis-castles.png)
 
@@ -101,9 +101,9 @@ _PICTURE, LOGIC with Problems, Agent review, and VIEW with cels from an image. T
 
 ## Build with AI
 
-Connect an OpenAI or Anthropic API key and the agent becomes a co-author. **Create with AI** plans a
-world from a themed brief or your own idea and builds the opening room. When you walk into a room
-that does not exist yet, play pauses while the agent writes it.
+Connect an OpenAI, Anthropic or Google Gemini API key and the agent becomes a co-author. **Create
+with AI** plans a world from a themed brief or your own idea and builds the opening room. When you
+walk into a room that does not exist yet, play pauses while the agent writes it.
 
 ![Typing EAST pauses Play while the agent writes the next room, then the hero walks in](docs/media/clip-room-generation.gif)
 
