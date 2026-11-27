@@ -13,11 +13,16 @@ import {
   anthropicToolContent,
   anthropicToolDefinitions,
   anthropicToolResult,
+  geminiToolDefinitions,
+  geminiToolResponse,
+  geminiUserParts,
   projectToolResult,
   PROVIDER_IMAGE_BYTES,
   PROVIDER_IMAGE_EDGE,
   serializeAgentLog,
 } from "../src/agent/toolTransport.ts";
+import { validateTranscript } from "../src/agent/transcript.ts";
+import { migrateAgentChats } from "../src/agent/chats.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
@@ -924,4 +929,99 @@ test("diagnostic reads return a complete ordinary diagnostic", () => {
   assert.equal(read.success, true, read.error ?? "");
   assert.equal(read.details?.["nextOffset"], null);
   assert.ok(read.message?.includes(detail));
+});
+
+test("Gemini tool transport encodes multimodal functionResponse parts with $ref and validates transcripts", () => {
+  const declarations = geminiToolDefinitions(AGENT_TOOLS);
+  assert.equal(declarations.length, AGENT_TOOLS.length);
+  assert.ok(declarations.every((d) => typeof d.name === "string" && d.parametersJsonSchema));
+
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const response = geminiToolResponse(
+    "read_room",
+    {
+      success: true,
+      message: "Rendered",
+      images: [{ png, caption: "Room 1" }],
+    },
+    "call-1",
+  );
+  assert.deepEqual(response, {
+    functionResponse: {
+      id: "call-1",
+      name: "read_room",
+      response: {
+        success: true,
+        message: "Rendered",
+        renderedImages: [{ caption: "Room 1", image: { $ref: "read_room-image-1.png" } }],
+      },
+      parts: [
+        {
+          inlineData: {
+            mimeType: "image/png",
+            displayName: "read_room-image-1.png",
+            data: "iVBORw==",
+          },
+        },
+      ],
+    },
+  });
+
+  const userParts = geminiUserParts({ text: "Look here", images: [{ png, caption: "Sketch" }] });
+  assert.deepEqual(userParts, [
+    { text: "Look here" },
+    { text: "Sketch" },
+    { inlineData: { mimeType: "image/png", data: "iVBORw==" } },
+  ]);
+
+  const valid = [
+    { role: "user", parts: userParts },
+    {
+      role: "model",
+      parts: [
+        { text: "Internal reasoning", thought: true },
+        {
+          functionCall: { id: "call-1", name: "read_room", args: { room: 1 } },
+          thoughtSignature: "sig-abc",
+        },
+      ],
+    },
+    { role: "user", parts: [response] },
+    { role: "model", parts: [{ text: "All set." }] },
+  ];
+  assert.equal(validateTranscript(valid, "gemini").length, 4);
+  const migrated = migrateAgentChats({
+    provider: "gemini",
+    model: "gemini-4-neon",
+    transcript: valid,
+  });
+  assert.deepEqual(
+    migrated.chats[0]?.messages.map(({ role, text }) => ({ role, text })),
+    [
+      { role: "user", text: "Look here\nSketch" },
+      { role: "assistant", text: "All set." },
+    ],
+  );
+
+  // Rejects unpaired functionResponse, forbidden systemInstruction, and invalid roles.
+  assert.throws(
+    () =>
+      validateTranscript(
+        [{ role: "user", parts: [{ functionResponse: { name: "read_room", response: {} } }] }],
+        "gemini",
+      ),
+    /no matching call/i,
+  );
+  assert.throws(
+    () =>
+      validateTranscript(
+        [{ role: "user", parts: [{ text: "hi" }], systemInstruction: {} }],
+        "gemini",
+      ),
+    /Invalid conversation field/i,
+  );
+  assert.throws(
+    () => validateTranscript([{ role: "assistant", parts: [{ text: "wrong role" }] }], "gemini"),
+    /user and model/i,
+  );
 });

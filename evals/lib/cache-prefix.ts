@@ -12,7 +12,7 @@
  * length / 4 is a rough token count and an image counts what it costs.
  */
 
-export type StreamProvider = "anthropic" | "openai";
+export type StreamProvider = "anthropic" | "openai" | "gemini";
 
 /** Characters per estimated token, for text and for image placeholders alike. */
 const CHARS_PER_TOKEN = 4;
@@ -73,6 +73,19 @@ function canonical(value: unknown): unknown {
     const data = record["image_url"].replace(/^data:[^,]*,/, "");
     return { type: "input_image", image: imagePlaceholder(data) };
   }
+  if (typeof record["inlineData"] === "object" && record["inlineData"]) {
+    const inline = record["inlineData"] as Record<string, unknown>;
+    if (typeof inline["data"] === "string")
+      return {
+        inlineData: {
+          mimeType: inline["mimeType"],
+          ...(typeof inline["displayName"] === "string"
+            ? { displayName: inline["displayName"] }
+            : {}),
+          image: imagePlaceholder(inline["data"]),
+        },
+      };
+  }
   const out: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(record))
     if (!STRIPPED_KEYS.has(key)) out[key] = canonical(item);
@@ -86,6 +99,27 @@ function itemLabel(provider: StreamProvider, item: Record<string, unknown>, inde
       ? [...new Set((content as { type: string }[]).map((block) => block.type))].join("+")
       : "text";
     return `message[${index}] ${String(item["role"])} ${kinds}`;
+  }
+  if (provider === "gemini") {
+    const parts = item["parts"];
+    const kinds = Array.isArray(parts)
+      ? [
+          ...new Set(
+            (parts as Record<string, unknown>[]).map((part) =>
+              "functionCall" in part
+                ? "functionCall"
+                : "functionResponse" in part
+                  ? "functionResponse"
+                  : "inlineData" in part
+                    ? "inlineData"
+                    : part["thought"]
+                      ? "thought"
+                      : "text",
+            ),
+          ),
+        ].join("+")
+      : "text";
+    return `contents[${index}] ${String(item["role"])} ${kinds}`;
   }
   const kind = "role" in item ? `${String(item["role"])} message` : String(item["type"]);
   return `input[${index}] ${kind}`;
@@ -101,6 +135,12 @@ function promptStream(provider: StreamProvider, body: Record<string, unknown>): 
     const messages = (body["messages"] ?? []) as Record<string, unknown>[];
     messages.forEach((message, index) =>
       parts.push({ label: itemLabel(provider, message, index), text: stringify(message) }),
+    );
+  } else if (provider === "gemini") {
+    parts.push({ label: "system", text: stringify(body["systemInstruction"] ?? "") });
+    const contents = (body["contents"] ?? []) as Record<string, unknown>[];
+    contents.forEach((content, index) =>
+      parts.push({ label: itemLabel(provider, content, index), text: stringify(content) }),
     );
   } else {
     parts.push({ label: "instructions", text: String(body["instructions"] ?? "") });
@@ -118,13 +158,22 @@ function promptStream(provider: StreamProvider, body: Record<string, unknown>): 
   const effort =
     provider === "anthropic"
       ? String((body["output_config"] as { effort?: string } | undefined)?.effort ?? "")
-      : String((body["reasoning"] as { effort?: string } | undefined)?.effort ?? "");
+      : provider === "gemini"
+        ? String(
+            (
+              body["generationConfig"] as
+                { thinkingConfig?: { thinkingLevel?: string } } | undefined
+            )?.thinkingConfig?.thinkingLevel ?? "",
+          )
+        : String((body["reasoning"] as { effort?: string } | undefined)?.effort ?? "");
   return {
     text,
     segments,
     params: {
       model: String(body["model"] ?? ""),
-      toolChoice: JSON.stringify(body["tool_choice"] ?? null),
+      toolChoice: JSON.stringify(
+        provider === "gemini" ? (body["toolConfig"] ?? null) : (body["tool_choice"] ?? null),
+      ),
       effort,
     },
   };

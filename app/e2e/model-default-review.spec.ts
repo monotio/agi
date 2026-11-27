@@ -1,7 +1,7 @@
 import { expect, test, reviewShot } from "./test.ts";
 import { isolateStorage, openAiSettings } from "./engineProbe.ts";
 
-test("new OpenAI setups default to GPT-6.1 Sol and keep explicit GPT-6 Sol comparisons", async ({
+test("new OpenAI setups default to GPT-6.2 Sol and keep explicit GPT-6.1 Terra comparisons", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -19,12 +19,12 @@ test("new OpenAI setups default to GPT-6.1 Sol and keep explicit GPT-6 Sol compa
   await dialog.getByTestId("provider-select").selectOption("openai");
   const model = dialog.getByTestId("model-select");
   const effort = dialog.getByTestId("effort-select");
-  await expect(model).toHaveValue("gpt-6.1-sol");
+  await expect(model).toHaveValue("gpt-6.2-sol");
   await expect(effort).toHaveValue("medium");
   await expect(effort.locator('option[value="none"]')).toHaveCount(0);
-  await expect(model.locator('option[value="gpt-6-sol"]')).toHaveText("GPT-6 Sol");
-  await reviewShot(page, "gpt61-sol-default");
-  await model.selectOption("gpt-6-sol");
+  await expect(model.locator('option[value="gpt-6.1-terra"]')).toHaveText("GPT-6.1 Terra");
+  await reviewShot(page, "gpt62-sol-default");
+  await model.selectOption("gpt-6.1-terra");
   await effort.selectOption("none");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
@@ -33,9 +33,9 @@ test("new OpenAI setups default to GPT-6.1 Sol and keep explicit GPT-6 Sol compa
   ).toBeVisible();
   await page.reload();
   await openAiSettings(page);
-  await expect(model).toHaveValue("gpt-6-sol");
+  await expect(model).toHaveValue("gpt-6.1-terra");
   await expect(effort).toHaveValue("none");
-  await model.selectOption("gpt-6.1-sol");
+  await model.selectOption("gpt-6.2-sol");
   await expect(effort).toHaveValue("medium");
   await expect(effort.locator('option[value="none"]')).toHaveCount(0);
   expect(calls).toBe(0);

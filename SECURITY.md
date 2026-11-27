@@ -14,14 +14,14 @@ receive fixes before release; update to the latest patch within your minor.
 ## Data and credentials
 
 AGI IS HERE runs in the browser. Your provider key is stored in localStorage
-for the app's origin and sent to your chosen provider, OpenAI or Anthropic.
+for the app's origin and sent to your chosen provider, OpenAI, Anthropic or Google Gemini.
 Production calls the provider directly; the development server proxies requests
 locally. Creating and remixing send relevant game source, messages, rendered
 previews and authoring conversation to that provider. Provider calls use your
 account and are subject to the provider's data handling policies.
 
 Image generation sends the prompt and any selected reference images to the
-OpenAI images API using your OpenAI key. Generated images stay in the project
+OpenAI images API or the Google Gemini API using the matching provider key. Generated images stay in the project
 and can become native PICTURE or VIEW resources. **Details** selects the model,
 quality and size; **Generate** submits the request. Agent requests and images
 share a task budget, initially $5. The app displays actual provider-reported
@@ -52,8 +52,8 @@ from both. Downloads are local files; sharing them is a separate action.
   Review them before attaching them to an issue.
 
 The shipped [CSP and security headers](app/staticwebapp.config.json) restrict
-scripts and workers to the app origin and provider connections to OpenAI and
-Anthropic. Self-hosters should apply these headers; see [hosting](docs/hosting.md).
+scripts and workers to the app origin and provider connections to OpenAI,
+Anthropic and Google Gemini. Self-hosters should apply these headers; see [hosting](docs/hosting.md).
 
 `AGI_DEV_KEYS` is a development-only convenience for provider keys from the
 local environment. Vite serves it only to loopback requests in development;

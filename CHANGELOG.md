@@ -3,6 +3,34 @@
 Changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Released notes are also available on [GitHub Releases](https://github.com/monotio/agi/releases).
 
+## [1.3.0-rc.1] - 2026-11-27
+
+### Added
+
+- Google Gemini 4 models (`Gemini 4 Neon`, `Gemini 4 Carbon`, `Gemini 4 Hydrogen`)
+  for the in-app agent, plus Gemini image generation (`Gemini 3.1 Flash Image
+(Nano Banana 2)`, `Gemini 3 Pro Image (Nano Banana Pro)`) for reference art
+  and cel sheets, connected straight from the browser.
+- Original `.SAV` import and export under **Settings → This game → Save files…**
+  for every supported DOS, Amiga and Apple IIgs build (all profiles except PC
+  booter `2.001`), accepting original Sierra filenames such as `KQ1SG.1`.
+- A concise [feature list](docs/features.md) covering play, interpreter
+  compatibility, editors and the AI co-author.
+
+### Changed
+
+- Refreshed the OpenAI, Anthropic and OpenAI image generation model pickers to
+  current frontier releases (`GPT-6.2 Sol`, `GPT-6.2 Astra`, `GPT-6.1 Terra`,
+  `GPT-6 Luna`, `Claude Opus 5.5`, `Claude Sonnet 5.5`, `Claude Fable 5.2`,
+  `Claude Haiku 5.5`, `GPT Image 2.6 Sunburst`, `GPT Image 2.6 Flare`,
+  `GPT Image 2`).
+- Updated dependencies across the root workspace, `app/` and `evals/`.
+
+### Fixed
+
+- Importing an original `.SAV` file in an Amiga PAL game preserves PAL timing
+  instead of resetting to NTSC.
+
 ## [1.2.6] - 2026-10-29
 
 ### Fixed

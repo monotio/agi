@@ -78,8 +78,9 @@ async function discardChanges(): Promise<void> {
         :aria-current="editor.selectedLaunch.value === choice.id ? 'true' : undefined"
         @click="editor.selectLaunch.value?.(choice.id)"
       >
-        <span aria-hidden="true">{{ editor.selectedLaunch.value === choice.id ? "✓" : "" }}</span
-        >{{ choice.name }}
+        <span aria-hidden="true">{{ editor.selectedLaunch.value === choice.id ? "✓" : "" }}</span>{{
+          choice.name
+        }}
       </button>
       <div role="separator" />
       <button

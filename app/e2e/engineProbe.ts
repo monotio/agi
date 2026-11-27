@@ -906,3 +906,95 @@ export async function gameHint(page: Page, id: string): Promise<Locator> {
   await expect(page.getByTestId("game-key-help")).toBeVisible();
   return page.getByTestId(id);
 }
+
+/**
+ * Hook WebGPU device creation (and, when `loseOnStart` is set, WebGL2 listener
+ * attachment) so GPU-loss tests work on both WebGL2 and WebGPU browsers.
+ */
+export async function prepareGpuLoss(
+  page: Page,
+  options: { loseOnStart?: boolean } = {},
+): Promise<void> {
+  await page.addInitScript(({ loseOnStart }) => {
+    const triggers: (() => void)[] = [];
+    const target = globalThis as { __agiLoseGpuDevices?: () => number };
+    target.__agiLoseGpuDevices = () => {
+      const pending = triggers.splice(0, triggers.length);
+      for (const trigger of pending) trigger();
+      return pending.length;
+    };
+
+    const gpu = (
+      navigator as Navigator & {
+        gpu?: { requestAdapter?: (...args: unknown[]) => Promise<unknown> };
+      }
+    ).gpu;
+    if (gpu && typeof gpu.requestAdapter === "function") {
+      const lostByDevice = new WeakMap<object, Promise<{ reason: string; message: string }>>();
+      const deviceProto = (globalThis as { GPUDevice?: { prototype: object } }).GPUDevice
+        ?.prototype;
+      const lostDesc = deviceProto
+        ? Object.getOwnPropertyDescriptor(deviceProto, "lost")
+        : undefined;
+      if (deviceProto && lostDesc?.get) {
+        const originalGet = lostDesc.get;
+        Object.defineProperty(deviceProto, "lost", {
+          configurable: true,
+          get(this: object) {
+            return lostByDevice.get(this) ?? (originalGet.call(this) as unknown);
+          },
+        });
+      }
+      const adapterProto = (
+        globalThis as {
+          GPUAdapter?: { prototype: { requestDevice?: (...args: unknown[]) => Promise<object> } };
+        }
+      ).GPUAdapter?.prototype;
+      if (adapterProto && typeof adapterProto.requestDevice === "function") {
+        const requestDevice = adapterProto.requestDevice;
+        adapterProto.requestDevice = async function (...args: unknown[]) {
+          const device = await requestDevice.apply(this, args);
+          let lose = () => {};
+          const simulated = new Promise<{ reason: string; message: string }>((resolve) => {
+            lose = () => resolve({ reason: "unknown", message: "Simulated GPU device loss" });
+          });
+          const realLost = lostDesc?.get
+            ? (lostDesc.get.call(device) as Promise<{ reason: string; message: string }>)
+            : new Promise<{ reason: string; message: string }>(() => {});
+          lostByDevice.set(device, Promise.race([realLost, simulated]));
+          if (loseOnStart) queueMicrotask(lose);
+          else triggers.push(lose);
+          return device;
+        };
+      }
+    }
+
+    if (loseOnStart) {
+      const listen = HTMLCanvasElement.prototype.addEventListener;
+      HTMLCanvasElement.prototype.addEventListener = function (
+        this: HTMLCanvasElement,
+        ...args: Parameters<typeof listen>
+      ) {
+        listen.apply(this, args);
+        if (args[0] === "webglcontextlost" && this.dataset["testid"] === "gpu-canvas")
+          queueMicrotask(() =>
+            this.dispatchEvent(new Event("webglcontextlost", { cancelable: true })),
+          );
+      } as typeof listen;
+    }
+  }, options);
+}
+
+/** Drop the active GPU stage's WebGL2 context or WebGPU device. */
+export async function loseGpuStage(gpu: Locator): Promise<void> {
+  await gpu.evaluate((canvas: HTMLCanvasElement) => {
+    const gl = canvas.getContext("webgl2");
+    if (gl) {
+      gl.getExtension("WEBGL_lose_context")!.loseContext();
+      return;
+    }
+    const lost =
+      (globalThis as { __agiLoseGpuDevices?: () => number }).__agiLoseGpuDevices?.() ?? 0;
+    if (lost === 0) throw new Error("No active WebGL2 context or WebGPU device found to lose.");
+  });
+}

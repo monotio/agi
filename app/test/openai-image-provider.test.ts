@@ -469,6 +469,17 @@ test("capability refusals are typed unsupported and never reach the wire", async
       },
       "unsupported",
     ],
+    // gpt-image-2.6 handles reference fidelity automatically and omits input_fidelity.
+    [
+      {
+        model: "gpt-image-2.6-sunburst",
+        kind: "edit",
+        size: "1024x1024",
+        inputFidelity: "high",
+        asset: material(PNG_16x16),
+      },
+      "unsupported",
+    ],
     [{ model: NO_EDIT.id, kind: "edit", asset: material(PNG_1x1) }, "unsupported"],
     [
       {
@@ -912,7 +923,7 @@ test("documented image prompts, inputs and custom sizes reach paid review", () =
   const provider = createOpenAiImageProvider({ credentials: () => "placeholder" });
   const prepared = provider.prepare(
     request({
-      model: "gpt-image-2.5-sunburst",
+      model: "gpt-image-2.6-sunburst",
       size: "2048x2048",
       prompt: "x".repeat(32000),
       references: Array.from({ length: 16 }, (_, i) =>
@@ -937,7 +948,7 @@ test("image quality and pixel count extend the whole-job timeout", async (t) => 
     });
     const pending = errorOf(
       provider.submit(
-        provider.prepare(request({ model: "gpt-image-2.5-sunburst", quality, size })),
+        provider.prepare(request({ model: "gpt-image-2.6-sunburst", quality, size })),
       ),
     );
     await testScheduler.yield();

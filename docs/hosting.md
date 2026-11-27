@@ -9,7 +9,8 @@ copy.
 Run `npm ci` at the root, then `npm run build`, and serve `app/dist` over HTTPS. Copy the security and cache
 headers from [app/staticwebapp.config.json](../app/staticwebapp.config.json):
 CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and
-`Cache-Control`. Keep `https://api.openai.com` and `https://api.anthropic.com` in
+`Cache-Control`. Keep `https://api.openai.com`, `https://api.anthropic.com` and
+`https://generativelanguage.googleapis.com` in
 CSP `connect-src` so browser provider requests can reach them. The CSP permits
 local workers, blob media and image previews, and restricts scripts to the app's
 origin. Configure the `/assets/*` immutable cache rule alongside the default

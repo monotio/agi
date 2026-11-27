@@ -20,6 +20,7 @@ import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createAnthropicConversation,
+  createGeminiConversation,
   createOpenAiConversation,
   LlmResponseError,
   type LlmTurnResult,
@@ -107,7 +108,7 @@ const GENESIS_TOOLS = AGENT_TOOLS;
 
 interface CliArgs {
   template: string;
-  provider: "openai" | "anthropic" | "stub";
+  provider: "openai" | "anthropic" | "gemini" | "stub";
   model: string;
   apiKey: string;
   effort?: ModelEffort;
@@ -142,11 +143,16 @@ function parseCliArgs(): CliArgs {
   if (!options["provider"]) {
     if (process.env["OPENAI_API_KEY"]) provider = "openai";
     else if (process.env["ANTHROPIC_API_KEY"]) provider = "anthropic";
+    else if (process.env["GEMINI_API_KEY"]) provider = "gemini";
   }
 
   const apiKey =
     options["api-key"] ||
-    (provider === "openai" ? process.env["OPENAI_API_KEY"] : process.env["ANTHROPIC_API_KEY"]) ||
+    (provider === "openai"
+      ? process.env["OPENAI_API_KEY"]
+      : provider === "gemini"
+        ? process.env["GEMINI_API_KEY"]
+        : process.env["ANTHROPIC_API_KEY"]) ||
     "";
 
   const model = options["model"] || (provider === "stub" ? "stub" : DEFAULT_MODELS[provider]);
@@ -372,7 +378,9 @@ export async function runProviderGenesis(
   const conversation =
     args.provider === "anthropic"
       ? createAnthropicConversation(config)
-      : createOpenAiConversation(config);
+      : args.provider === "gemini"
+        ? createGeminiConversation(config)
+        : createOpenAiConversation(config);
   let message: string | undefined = prompt;
   let spent = 0;
   let turn = 0;

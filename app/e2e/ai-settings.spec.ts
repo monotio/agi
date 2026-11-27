@@ -4,6 +4,7 @@ import {
   enterPlayMode,
   isolateStorage,
   openAiSettings,
+  openWorkspaceAgent,
   textHook,
   waitForRoom,
 } from "./engineProbe.ts";
@@ -31,7 +32,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate @
   await expect(dialog).toBeVisible();
   await expect(page.getByTestId("error-panel")).toHaveCount(0);
   await dialog.getByTestId("provider-select").selectOption("openai");
-  await dialog.getByTestId("model-select").selectOption("gpt-6-sol");
+  await dialog.getByTestId("model-select").selectOption("gpt-6.2-sol");
   await expect(dialog.getByTestId("effort-select")).toHaveValue("medium");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
   await dialog.getByTestId("effort-select").selectOption("low");
@@ -467,4 +468,69 @@ test("AI settings save while the game never answers the Agent's opening", async 
   await expect(dialog).toBeHidden({ timeout: 15_000 });
   await expect(page.getByTestId("agent-message")).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("Google Gemini settings persist and stream an agent reply via x-goog-api-key", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  let capturedKey: string | null = null;
+  let capturedThinking: unknown;
+  await page.route("**/api/gemini/v1beta/models/*:streamGenerateContent*", async (route) => {
+    const req = route.request();
+    capturedKey = req.headers()["x-goog-api-key"] ?? null;
+    const body = req.postDataJSON() as {
+      generationConfig?: { thinkingConfig?: { thinkingLevel?: string } };
+    };
+    capturedThinking = body.generationConfig?.thinkingConfig;
+    await route.fulfill(
+      providerReply("gemini", {
+        responseId: "resp-gem-e2e",
+        modelVersion: "gemini-4-neon",
+        candidates: [
+          {
+            content: {
+              role: "model",
+              parts: [{ text: "Gemini sees the lobby clearly." }],
+            },
+            finishReason: "STOP",
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 1000,
+          candidatesTokenCount: 200,
+          thoughtsTokenCount: 100,
+          cachedContentTokenCount: 0,
+        },
+      }),
+    );
+  });
+
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("Gemini check");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
+
+  await openAiSettings(page);
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await dialog.getByTestId("provider-select").selectOption("gemini");
+  await expect(dialog.getByTestId("model-select")).toHaveValue("gemini-4-neon");
+  await expect(dialog.getByTestId("effort-select")).toHaveValue("high");
+  await dialog.getByTestId("api-key-input").fill("test-gemini-key");
+  await dialog.getByTestId("effort-select").selectOption("xhigh");
+  await dialog.getByTestId("ai-settings-save").click();
+  await expect(dialog).toBeHidden();
+
+  await openWorkspaceAgent(page);
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel.getByTestId("agent-message")).toBeEnabled();
+  await panel.getByTestId("agent-message").fill("Describe this room.");
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(panel).toContainText("Gemini sees the lobby clearly.");
+  expect(capturedKey).toBe("test-gemini-key");
+  expect(capturedThinking).toEqual({ thinkingLevel: "XHIGH" });
 });

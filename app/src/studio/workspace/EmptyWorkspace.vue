@@ -7,7 +7,7 @@
  */
 import "./workspace.css";
 import { frameTask } from "../../ui/frameTask.ts";
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from "vue";
 import {
   emptyStageBootFailure,
   emptyStageSession,
@@ -94,6 +94,12 @@ async function start(
     busy.value = false;
   }
 }
+const stage = useTemplateRef("stage");
+onMounted(() => {
+  if (!document.activeElement || document.activeElement === document.body) {
+    stage.value?.focus({ preventScroll: true });
+  }
+});
 onBeforeUnmount(() => {
   active = false;
 });
@@ -155,7 +161,13 @@ function resize(event: PointerEvent): void {
 </script>
 
 <template>
-  <section class="empty-project" aria-label="Create" data-testid="empty-project-stage">
+  <section
+    ref="stage"
+    class="empty-project"
+    tabindex="-1"
+    aria-label="Create"
+    data-testid="empty-project-stage"
+  >
     <PlayBar
       :blank="project.title"
       :settings-open="false"
@@ -246,6 +258,9 @@ function resize(event: PointerEvent): void {
   flex-direction: column;
   width: 100%;
   height: var(--layout-height, 100dvh);
+}
+.empty-project:focus {
+  outline: none;
 }
 .empty-project > .shell-body {
   display: grid;

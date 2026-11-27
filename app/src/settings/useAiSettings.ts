@@ -193,3 +193,7 @@ export function useAiSettings(): AiSettingsApi {
   if (!api) throw new Error("useAiSettings: App.vue did not provide the AI settings controller");
   return api;
 }
+
+export function useOptionalAiSettings(): AiSettingsApi | null {
+  return inject(aiSettingsKey, null);
+}

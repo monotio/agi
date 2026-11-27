@@ -92,16 +92,17 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await settings.click();
   await expect(sound).toHaveAttribute("aria-checked", "false");
 
-  // The sheet's game section offers Download… and Start over.
+  // The sheet's game section offers Download…, Save files… and Start over.
   const gameItems = page
     .getByTestId("settings-menu-menu")
     .getByRole("region", { name: "This game", exact: true });
   await expect(gameItems.getByTestId("btn-edit-game")).toHaveCount(0);
   await expect(gameItems.getByTestId("btn-download-game")).toBeVisible();
+  await expect(gameItems.getByTestId("btn-save-files")).toBeVisible();
   await expect(gameItems.getByTestId("btn-start-over")).toBeVisible();
   await expect(page.getByTestId("btn-look-back")).toBeHidden();
   await expect(page.getByTestId("btn-record-test")).toBeHidden();
-  await expect(gameItems.getByRole("button")).toHaveCount(2);
+  await expect(gameItems.getByRole("button")).toHaveCount(3);
   await page.keyboard.press("Escape");
   await expect(settings).toHaveAttribute("aria-expanded", "false");
 

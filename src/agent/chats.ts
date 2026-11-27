@@ -99,19 +99,30 @@ function transcriptMessages(transcript: unknown[], prefix: string): AgentChatMes
   for (const [index, item] of transcript.entries()) {
     if (!item || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
-    const role = record["role"];
-    if (role !== "user" && role !== "assistant") continue;
-    const content = record["text"] ?? record["content"];
+    const rawRole = record["role"];
+    const role =
+      rawRole === "model"
+        ? "assistant"
+        : rawRole === "user" || rawRole === "assistant"
+          ? rawRole
+          : null;
+    if (!role) continue;
+    const content = record["text"] ?? record["content"] ?? record["parts"];
     const text =
       typeof content === "string"
         ? content
         : Array.isArray(content)
           ? content
               .filter(
-                (block) =>
-                  block &&
-                  ["text", "input_text", "output_text"].includes(block.type) &&
-                  typeof block.text === "string",
+                (block): block is { type?: unknown; text: string; thought?: unknown } =>
+                  Boolean(block) &&
+                  typeof block === "object" &&
+                  typeof (block as { text?: unknown }).text === "string" &&
+                  !(block as { thought?: unknown }).thought &&
+                  ((block as { type?: unknown }).type === undefined ||
+                    ["text", "input_text", "output_text"].includes(
+                      String((block as { type?: unknown }).type),
+                    )),
               )
               .map((block) => block.text)
               .join("\n")
@@ -269,7 +280,7 @@ export function readAgentChats(value: unknown): AgentChats {
       typeof chat.id !== "string" ||
       ids.has(chat.id) ||
       typeof chat.title !== "string" ||
-      !["stub", "openai", "anthropic"].includes(chat.provider) ||
+      !["stub", "openai", "anthropic", "gemini"].includes(chat.provider) ||
       typeof chat.model !== "string" ||
       !Array.isArray(chat.transcript) ||
       !Array.isArray(chat.messages)

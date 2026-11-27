@@ -25,6 +25,7 @@ Choose a guide for the task you want to do.
 
 ## Reference
 
+- [Feature list](features.md): what's built, on one page.
 - [LOGIC language and commands](logic-language.md).
 - [Keyboard shortcuts](create.md#keyboard-shortcuts); **Help → Keyboard
   shortcuts** in the app lists the registered keys.

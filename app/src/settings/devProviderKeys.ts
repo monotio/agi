@@ -32,8 +32,10 @@ export function devKeysFromEnv(env: Readonly<Record<string, string | undefined>>
   const keys: DevKeys = {};
   const openai = env["OPENAI_API_KEY"]?.trim();
   const anthropic = env["ANTHROPIC_API_KEY"]?.trim();
+  const gemini = env["GEMINI_API_KEY"]?.trim();
   if (openai) keys.openai = openai;
   if (anthropic) keys.anthropic = anthropic;
+  if (gemini) keys.gemini = gemini;
   return keys;
 }
 
@@ -56,7 +58,7 @@ export async function settingsWithDevKeys(
   }
   const next = copyAiSettings(settings);
   let changed = false;
-  for (const provider of ["openai", "anthropic"] as const) {
+  for (const provider of ["openai", "anthropic", "gemini"] as const) {
     const key = keys[provider];
     if (typeof key === "string" && key && !next.profiles[provider].apiKey) {
       next.profiles[provider].apiKey = key;
@@ -64,7 +66,7 @@ export async function settingsWithDevKeys(
     }
   }
   if (!next.profiles[next.provider].apiKey) {
-    const keyed = (["openai", "anthropic"] as const).find((p) => next.profiles[p].apiKey);
+    const keyed = (["openai", "anthropic", "gemini"] as const).find((p) => next.profiles[p].apiKey);
     if (keyed) {
       next.provider = keyed;
       changed = true;

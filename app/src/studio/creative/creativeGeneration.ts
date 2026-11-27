@@ -78,6 +78,19 @@ export function savedOpenAiCredential(
   };
 }
 
+/**
+ * The saved Google Gemini profile's key, whatever text provider is selected.
+ * Reads only `profiles.gemini` so another provider's key never leaves.
+ */
+export function savedGeminiCredential(
+  read: () => Pick<AiSettings, "profiles"> | null,
+): () => string | null {
+  return () => {
+    const key = read()?.profiles.gemini.apiKey.trim();
+    return key === undefined || key === "" ? null : key;
+  };
+}
+
 /** Everything a review consulted, as comparable tokens the host computes. */
 export interface CreativeGenerationContext {
   /** The open workspace incarnation; a moved or reopened workspace changes it. */
@@ -160,8 +173,10 @@ export interface CreativeGenerationHost {
   raster(
     identity: VersionRef,
   ): Promise<{ readonly record: CreativeSource; readonly pixels: Uint8Array } | null>;
-  /** The saved OpenAI profile holds a key. Called for UI hints and submit. */
-  hasCredential(): boolean;
+  /** The profile for the selected model holds a key. Called for UI hints and submit. */
+  hasCredential(model?: string): boolean;
+  /** Preferred starting image model id for the current settings and saved keys. */
+  defaultModel?(): string | undefined;
   /** Open the existing AI settings so the user can save a key. */
   openSettings(): void;
   /** Track actual usage on the task that sent this request. */
@@ -267,7 +282,7 @@ function failureText(error: unknown): [message: string, detail?: string] {
   const raw = error instanceof Error ? error.message : String(error);
   if (error instanceof OpenAiImageError) {
     const kind = openAiImageFailureKind(error.reason, error.status);
-    if (kind !== undefined) return [providerFailureMessage(kind, "openai"), raw];
+    if (kind !== undefined) return [providerFailureMessage(kind, error.provider ?? "openai"), raw];
   }
   return [raw];
 }
@@ -340,8 +355,10 @@ export interface CreativeGenerationController {
   readonly disposed: boolean;
   readonly version: number;
   subscribe(listener: () => void): () => void;
-  /** The saved OpenAI profile can sign a request. */
-  credentialReady(): boolean;
+  /** The saved profile for `model` (or any image provider if omitted) can sign a request. */
+  credentialReady(model?: string): boolean;
+  /** The initial model to select in the form. */
+  defaultModel(): string;
   /** Open the existing AI settings. */
   openSettings(): void;
   /** Asset pick-list entries for the form. */
@@ -522,8 +539,16 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
     }
   }
 
-  credentialReady(): boolean {
-    return this.host.hasCredential();
+  credentialReady(model?: string): boolean {
+    return this.host.hasCredential(model);
+  }
+
+  defaultModel(): string {
+    const preferred = this.host.defaultModel?.();
+    if (preferred !== undefined && Object.hasOwn(this.provider.models, preferred)) return preferred;
+    const ids = Object.keys(this.provider.models);
+    const keyed = ids.find((id) => this.host.hasCredential(id));
+    return keyed ?? ids[0] ?? "";
   }
 
   openSettings(): void {
@@ -844,8 +869,11 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       // the full context itself, so a move that lands while consulted
       // material reads run still refuses the send.
       await this.checkContext(review.record.context);
-      if (!this.host.hasCredential())
-        throw fail("no-key", "Generation needs a saved OpenAI API key.");
+      if (!this.host.hasCredential(review.record.summary.model)) {
+        const providerLabel =
+          review.record.summary.provider === "gemini" ? "Google Gemini" : "OpenAI";
+        throw fail("no-key", `Generation needs a saved ${providerLabel} API key.`);
+      }
       if (job.cancelled) throw fail("cancelled", "The request was cancelled.");
       settle = this.host.startRequest?.(review.record.summary);
       this.spendState = this.host.currentSpend?.() ?? null;

@@ -31,6 +31,7 @@ class MemoryStorage {
 const defaults = {
   openai: "gpt-default",
   anthropic: "claude-default",
+  gemini: "gemini-default",
   stub: "offline-stub",
 } as const;
 
@@ -70,6 +71,7 @@ test("a stored model outside the allowed list falls back to the default model an
   const explicit = loadAiSettings(storage, defaults, true, {
     openai: ["gpt-current"],
     anthropic: ["claude-kept"],
+    gemini: ["gemini-default"],
     stub: [],
   });
   assert.equal(explicit.profiles.openai.model, defaults.openai);
@@ -77,6 +79,12 @@ test("a stored model outside the allowed list falls back to the default model an
   assert.equal(explicit.profiles.openai.apiKey, "openai-secret", "the key outlives the model");
   assert.equal(explicit.profiles.anthropic.model, "claude-kept");
   assert.equal(explicit.profiles.anthropic.effort, "max");
+  assert.equal(
+    explicit.profiles.gemini.model,
+    defaults.gemini,
+    "legacy records without gemini load defaults",
+  );
+  assert.equal(explicit.profiles.gemini.apiKey, "");
 
   const shipped = MODEL_OPTIONS.openai.find((option) => option.id !== DEFAULT_MODELS.openai)!;
   storage.values.set(AI_SETTINGS_KEY, stored(shipped.id, "claude-retired"));
@@ -112,6 +120,7 @@ test("one atomic record keeps provider keys and models isolated", () => {
     profiles: {
       openai: { model: "gpt-picked", apiKey: "openai-secret", effort: "xhigh" },
       anthropic: { model: "claude-picked", apiKey: "anthropic-secret", effort: "high" },
+      gemini: { model: "gemini-picked", apiKey: "gemini-secret", effort: "high" },
       stub: { model: "offline-stub", apiKey: "", effort: "medium" },
     },
   };
@@ -120,6 +129,7 @@ test("one atomic record keeps provider keys and models isolated", () => {
   const restored = loadAiSettings(storage, defaults, true, {
     openai: ["gpt-picked"],
     anthropic: ["claude-picked"],
+    gemini: ["gemini-picked"],
     stub: [],
   });
   assert.deepEqual(restored, settings);
@@ -130,23 +140,34 @@ test("the app offers the current models, each with its published price and effor
   // Provider model pages and list prices at the time of this release.
   assert.deepEqual(
     MODEL_OPTIONS.anthropic.map((option) => option.id),
-    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-5-5"],
+    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2", "claude-haiku-5-5"],
   );
   assert.deepEqual(
     MODEL_OPTIONS.openai.map((option) => option.id),
-    ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
+    ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6-luna"],
+  );
+  assert.deepEqual(
+    MODEL_OPTIONS.gemini.map((option) => option.id),
+    ["gemini-4-neon", "gemini-4-carbon", "gemini-4-hydrogen"],
   );
   assert.equal(DEFAULT_MODELS.anthropic, "claude-opus-5-5");
-  assert.equal(DEFAULT_MODELS.openai, "gpt-6.1-sol");
+  assert.equal(DEFAULT_MODELS.openai, "gpt-6.2-sol");
+  assert.equal(DEFAULT_MODELS.gemini, "gemini-4-neon");
   assert.deepEqual(MODEL_CAPABILITIES["claude-opus-5-5"]?.price, {
     input: 4,
     output: 20,
     cacheRead: 0.2,
   });
-  // Sonnet 5.5 reads cache at the default 10% of input: $0.20.
+  // Sonnet 5.5 lists cache reads at 5% of input ($0.10/M).
   assert.deepEqual(MODEL_CAPABILITIES["claude-sonnet-5-5"]?.price, {
     input: 2,
     output: 10,
+    cacheRead: 0.1,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["claude-fable-5-2"]?.price, {
+    input: 8,
+    output: 40,
+    cacheRead: 0.2,
   });
   // Haiku 5.5 has a second rate card for prompts over 100K tokens.
   assert.deepEqual(MODEL_CAPABILITIES["claude-haiku-5-5"]?.price, {
@@ -154,45 +175,80 @@ test("the app offers the current models, each with its published price and effor
     output: 0.5,
     longContext: { above: 100000, inputFactor: 5, outputFactor: 5 },
   });
-  // GPT-6.1 Sol lists cache reads at 5% of input ($0.10/M), not the usual 10%.
-  assert.deepEqual(MODEL_CAPABILITIES["gpt-6.1-sol"]?.price, {
+  // GPT-6.2 Sol, Astra and 6.1 Terra list cache reads at 5% of input.
+  assert.deepEqual(MODEL_CAPABILITIES["gpt-6.2-sol"]?.price, {
     input: 2,
     output: 10,
     longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
     cacheRead: 0.1,
   });
-  assert.deepEqual(MODEL_CAPABILITIES["gpt-6-sol"]?.price, {
-    input: 2,
-    output: 10,
+  assert.deepEqual(MODEL_CAPABILITIES["gpt-6.2-astra"]?.price, {
+    input: 8,
+    output: 40,
     longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
+    cacheRead: 0.4,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["gpt-6.1-terra"]?.price, {
+    input: 1,
+    output: 5,
+    longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
+    cacheRead: 0.05,
   });
   assert.deepEqual(MODEL_CAPABILITIES["gpt-6-luna"]?.price, {
     input: 0.1,
     output: 0.5,
     longContext: { above: 272000, inputFactor: 2, outputFactor: 1.5 },
   });
-  // GPT-6 Sol and Luna accept none through max and default to medium.
-  for (const id of ["gpt-6-sol", "gpt-6-luna"]) {
+  // GPT-6.1 Terra and Luna accept none through max and default to medium.
+  for (const id of ["gpt-6.1-terra", "gpt-6-luna"]) {
     assert.deepEqual(modelEffortOptions(id), ["none", "low", "medium", "high", "xhigh", "max"]);
     assert.equal(defaultModelEffort(id), "medium");
   }
-  // GPT-6.1 Sol requires reasoning: none and minimal are not offered.
-  assert.deepEqual(modelEffortOptions("gpt-6.1-sol"), ["low", "medium", "high", "xhigh", "max"]);
-  assert.equal(defaultModelEffort("gpt-6.1-sol"), "medium");
-  for (const option of [...MODEL_OPTIONS.anthropic, ...MODEL_OPTIONS.openai])
+  // GPT-6.2 Sol and Astra require reasoning: none is not offered.
+  for (const id of ["gpt-6.2-sol", "gpt-6.2-astra"]) {
+    assert.deepEqual(modelEffortOptions(id), ["low", "medium", "high", "xhigh", "max"]);
+    assert.equal(defaultModelEffort(id), "medium");
+  }
+  assert.deepEqual(MODEL_CAPABILITIES["gemini-4-neon"]?.price, {
+    input: 3,
+    output: 15,
+    cacheRead: 0.15,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["gemini-4-carbon"]?.price, {
+    input: 4,
+    output: 20,
+    cacheRead: 0.2,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["gemini-4-hydrogen"]?.price, {
+    input: 1.5,
+    output: 7.5,
+    cacheRead: 0.075,
+  });
+  // Gemini 4 Neon and Hydrogen offer low..xhigh (default high); Carbon offers low..high (default medium).
+  for (const id of ["gemini-4-neon", "gemini-4-hydrogen"]) {
+    assert.deepEqual(modelEffortOptions(id), ["low", "medium", "high", "xhigh"]);
+    assert.equal(defaultModelEffort(id), "high");
+  }
+  assert.deepEqual(modelEffortOptions("gemini-4-carbon"), ["low", "medium", "high"]);
+  assert.equal(defaultModelEffort("gemini-4-carbon"), "medium");
+  for (const option of [
+    ...MODEL_OPTIONS.anthropic,
+    ...MODEL_OPTIONS.openai,
+    ...MODEL_OPTIONS.gemini,
+  ])
     assert.ok(MODEL_CAPABILITIES[option.id]?.price, `${option.id} has a known price`);
 });
 
-test("fresh settings default to GPT-6.1 Sol at medium without writing storage", () => {
+test("fresh settings default to GPT-6.2 Sol at medium without writing storage", () => {
   const storage = new MemoryStorage();
   const loaded = loadAiSettings(storage, DEFAULT_MODELS, true);
   assert.equal(loaded.provider, "openai");
-  assert.equal(loaded.profiles.openai.model, "gpt-6.1-sol");
+  assert.equal(loaded.profiles.openai.model, "gpt-6.2-sol");
   assert.equal(loaded.profiles.openai.effort, "medium");
   assert.equal(storage.values.size, 0);
 });
 
-test("a stored GPT-6 Sol at effort none stays selected; GPT-6.1 Sol refuses none on save", () => {
+test("a stored GPT-6.1 Terra at effort none stays selected; GPT-6.2 Sol refuses none on save", () => {
   const storage = new MemoryStorage();
   storage.values.set(
     AI_SETTINGS_KEY,
@@ -200,14 +256,14 @@ test("a stored GPT-6 Sol at effort none stays selected; GPT-6.1 Sol refuses none
       version: 1,
       provider: "openai",
       profiles: {
-        openai: { model: "gpt-6-sol", apiKey: "openai-secret", effort: "none" },
+        openai: { model: "gpt-6.1-terra", apiKey: "openai-secret", effort: "none" },
         anthropic: { model: "claude-opus-5-5", apiKey: "", effort: "medium" },
         stub: { model: "offline-stub", apiKey: "", effort: "medium" },
       },
     }),
   );
   const loaded = loadAiSettings(storage, DEFAULT_MODELS, true);
-  assert.equal(loaded.profiles.openai.model, "gpt-6-sol");
+  assert.equal(loaded.profiles.openai.model, "gpt-6.1-terra");
   assert.equal(loaded.profiles.openai.effort, "none");
   saveAiSettings(storage, loaded);
   assert.equal(
@@ -220,7 +276,7 @@ test("a stored GPT-6 Sol at effort none stays selected; GPT-6.1 Sol refuses none
         ...loaded,
         profiles: {
           ...loaded.profiles,
-          openai: { ...loaded.profiles.openai, model: "gpt-6.1-sol", effort: "none" },
+          openai: { ...loaded.profiles.openai, model: "gpt-6.2-sol", effort: "none" },
         },
       }),
     /supported reasoning effort/i,

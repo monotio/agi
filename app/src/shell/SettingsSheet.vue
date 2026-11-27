@@ -9,7 +9,15 @@
  * close it. Keys pressed inside never reach the game (App.vue skips events
  * from dialogs).
  */
-import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  useId,
+  useTemplateRef,
+} from "vue";
 import GameDownloadDialog from "../home/GameDownloadDialog.vue";
 import { useLogicFormatSettings } from "../settings/logicFormat.ts";
 import { useAmigaRegion } from "../settings/amigaRegion.ts";
@@ -46,6 +54,8 @@ const emit = defineEmits<{
   /** Open Developer activity, which no screen keeps on the page. */
   "developer-activity": [];
 }>();
+
+const SaveFilesDialog = defineAsyncComponent(() => import("../saves/SaveFilesDialog.vue"));
 
 const { state, resumeAudio, toggleMute, setAudioMode, currentGame } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings } = useAiSettings();
@@ -182,6 +192,30 @@ function onDownloadClosed(): void {
   trigger?.focus({ preventScroll: true });
 }
 
+const saveFilesRequested = ref(false);
+const saveFilesOpen = ref(false);
+const saveFilesDisabledReason = computed(() => {
+  if (state.profile === "2.001")
+    return "PC booter 2.001 saves to floppy disk sectors; it has no standalone .SAV file.";
+  if (state.powerUp.busy) return "Wait for the active agent task to finish.";
+  if (state.historyView.active) return "Return to live play before using save files.";
+  if (state.walkthrough.active) return "Stop the walkthrough before using save files.";
+  return "";
+});
+function openSaveFiles(): void {
+  if (saveFilesDisabledReason.value) return;
+  close("stay");
+  saveFilesRequested.value = true;
+  saveFilesOpen.value = true;
+}
+function onSaveFilesClosed(reason: "done" | "imported"): void {
+  if (reason === "imported" && state.phase === "running") {
+    bridge.focusGameInput();
+    return;
+  }
+  trigger?.focus({ preventScroll: true });
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", onOutsidePointerDown, true);
   window.removeEventListener("keydown", onWindowKeydown, true);
@@ -302,6 +336,16 @@ defineExpose({ toggle, close, open });
         </button>
         <button
           type="button"
+          class="settings-row"
+          data-testid="btn-save-files"
+          :disabled="saveFilesDisabledReason !== ''"
+          :title="saveFilesDisabledReason"
+          @click="openSaveFiles"
+        >
+          <span>Save files…<small>Import or export an original .SAV file</small></span>
+        </button>
+        <button
+          type="button"
           class="settings-row settings-row--danger"
           data-testid="btn-start-over"
           @click="act(() => emit('start-over'))"
@@ -406,6 +450,12 @@ defineExpose({ toggle, close, open });
     test-id="settings-download-dialog"
     @choose="(project) => emit('export-zip', project)"
     @closed="onDownloadClosed"
+  />
+  <SaveFilesDialog
+    v-if="saveFilesRequested"
+    v-model:open="saveFilesOpen"
+    :title="currentGame()?.title ?? 'This game'"
+    @closed="onSaveFilesClosed"
   />
 </template>
 

@@ -35,7 +35,7 @@ export function captureLive(provider: ScriptProvider, diagnostics: boolean): Cap
     const body = JSON.parse(raw) as Record<string, unknown>;
     bodies.push(structuredClone(body));
     let request = init;
-    if (diagnostics) {
+    if (diagnostics && provider !== "gemini") {
       const headers = new Headers(init?.headers);
       if (provider === "anthropic") {
         const betas = headers.get("anthropic-beta");

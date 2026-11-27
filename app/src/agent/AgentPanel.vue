@@ -42,6 +42,7 @@ import { sameProjectContent, type ProjectContent } from "../../../src/authoring/
 import { compileCapturedResource, capturedResourceDocuments } from "./agentResultPreview.ts";
 import { resourceRenderingDependencies } from "./agentResults.ts";
 import { formatSpent } from "./reportedSpend.ts";
+import { providerUsageUrl } from "../../../src/agent/modelEffort.ts";
 import { resolveAgentTarget } from "./agentNavigation.ts";
 import {
   approveCapturedReview,
@@ -934,12 +935,7 @@ onBeforeUnmount(() => {
         >Playtest</UiButton
       >
       <a
-        :href="
-          task?.usageUrl ??
-          (current?.provider === 'anthropic'
-            ? 'https://console.anthropic.com/settings/usage'
-            : 'https://platform.openai.com/usage')
-        "
+        :href="task?.usageUrl ?? providerUsageUrl(current?.provider)"
         target="_blank"
         rel="noopener"
         >Provider usage</a
@@ -1133,8 +1129,10 @@ onBeforeUnmount(() => {
       />
       <div class="agent-panel__context">
         <span v-if="!creating || readOnly" data-testid="agent-read-only">Read only</span>
-        <span v-if="roomName" data-testid="agent-current-room">{{ roomName }}</span
-        ><span v-if="chip" class="agent-panel__context-selection" data-testid="agent-context-chip"
+        <span v-if="roomName" data-testid="agent-current-room">{{ roomName }}</span><span
+          v-if="chip"
+          class="agent-panel__context-selection"
+          data-testid="agent-context-chip"
           >{{ chip.label
           }}<button
             type="button"
@@ -1181,8 +1179,7 @@ onBeforeUnmount(() => {
           variant="primary"
           :disabled="!canSend || !input.trim() || !settings.aiConfigured.value"
           data-testid="agent-send"
-          >{{ busy ? "Send next step" : "Send" }}</UiButton
-        ><span>⌘↵</span>
+          >{{ busy ? "Send next step" : "Send" }}</UiButton><span>⌘↵</span>
       </div>
     </form>
     <section

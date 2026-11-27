@@ -13,8 +13,15 @@ const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 test("verified models expose input/output ceilings and multistep effort defaults", () => {
   for (const capability of Object.values(MODEL_CAPABILITIES)) {
     if (capability.provider === "stub") continue;
-    assert.equal(capability.maxOutputTokens, 128000);
-    assert.equal(capability.maxInputTokens, capability.provider === "openai" ? 922000 : 1000000);
+    assert.equal(capability.maxOutputTokens, capability.provider === "gemini" ? 65536 : 128000);
+    assert.equal(
+      capability.maxInputTokens,
+      capability.provider === "openai"
+        ? 922000
+        : capability.provider === "gemini"
+          ? 983040
+          : 1000000,
+    );
   }
   assert.equal(defaultModelEffort("claude-sonnet-5-5"), "medium");
 });

@@ -156,6 +156,20 @@ export async function collectProjectArchiveEntries(
           anthropicSource: true,
         };
       }
+      if (
+        typeof object["data"] === "string" &&
+        typeof object["mimeType"] === "string" &&
+        /^image\/(png|jpeg|webp)$/.test(object["mimeType"]) &&
+        Object.keys(object).every((key) => ["mimeType", "data", "displayName"].includes(key))
+      ) {
+        return {
+          projectImage: await attach(object["data"], object["mimeType"]),
+          geminiInlineData: true,
+          ...(typeof object["displayName"] === "string"
+            ? { displayName: object["displayName"] }
+            : {}),
+        };
+      }
       return Object.fromEntries(
         await Promise.all(
           Object.entries(object).map(async ([key, child]) => [key, await visit(child)]),
@@ -190,7 +204,7 @@ export async function collectProjectArchiveEntries(
   if (
     hasConversation &&
     (typeof provider !== "string" ||
-      !["openai", "anthropic", "stub"].includes(provider) ||
+      !["openai", "anthropic", "gemini", "stub"].includes(provider) ||
       typeof model !== "string")
   )
     throw new Error("Invalid project model metadata.");

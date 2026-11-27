@@ -76,7 +76,7 @@ test("captured art survives reload while a model handoff sends source outcomes w
     ),
   );
   await workspaceSaved(page);
-  await configureAi(page, { provider: "openai", model: "gpt-6.1-sol", key: "test-placeholder" });
+  await configureAi(page, { provider: "openai", model: "gpt-6.2-sol", key: "test-placeholder" });
   await page.getByRole("radio", { name: "Play", exact: true }).click();
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   let requests = 0;
@@ -141,7 +141,7 @@ test("captured art survives reload while a model handoff sends source outcomes w
   await expect(preview.getByTestId("agent-earlier-version")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("captured-reference-after-reload.png") });
   await preview.getByRole("button", { name: "Back to chat", exact: true }).click();
-  await configureAi(page, { provider: "openai", model: "gpt-6-sol", key: "test-placeholder" });
+  await configureAi(page, { provider: "openai", model: "gpt-6.1-terra", key: "test-placeholder" });
   await page.getByTestId("agent-message").fill("Continue");
   await page.getByTestId("agent-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("Continued.");

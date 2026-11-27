@@ -63,6 +63,7 @@ defineExpose({ show, close });
       <UiSelect id="ai-provider" v-model="draft.provider" block data-testid="provider-select">
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
+        <option value="gemini">Google Gemini</option>
         <option v-if="allowStub" value="stub">Offline test provider</option>
       </UiSelect>
       <label for="ai-model">Model</label>
@@ -104,7 +105,9 @@ defineExpose({ show, close });
             :href="
               draft.provider === 'anthropic'
                 ? 'https://platform.claude.com/settings/keys'
-                : 'https://platform.openai.com/api-keys'
+                : draft.provider === 'gemini'
+                  ? 'https://aistudio.google.com/apikey'
+                  : 'https://platform.openai.com/api-keys'
             "
             target="_blank"
             rel="noopener noreferrer"
@@ -121,7 +124,14 @@ defineExpose({ show, close });
         />
         <p class="privacy-note" data-testid="api-key-note">
           Saved in this browser and sent only to
-          {{ draft.provider === "anthropic" ? "Anthropic" : "OpenAI" }} with each request.
+          {{
+            draft.provider === "anthropic"
+              ? "Anthropic"
+              : draft.provider === "gemini"
+                ? "Google Gemini"
+                : "OpenAI"
+          }}
+          with each request.
         </p>
       </template>
       <label for="task-budget">Budget per task · USD</label>

@@ -1771,6 +1771,36 @@ export function useEngine(
     currentGame: lifecycle.currentGame,
     getBootedGame: lifecycle.getBootedGame,
     exportCurrentGame: lifecycle.exportCurrentGame,
+    exportOriginalSavFile: (description?: string) =>
+      link.query("exportSav", description === undefined ? {} : { description }, 10_000),
+    importOriginalSavFile: async (
+      bytes: Uint8Array,
+    ): Promise<{
+      ok: boolean;
+      room?: number;
+      error?: string;
+      storageWarning?: string;
+    }> => {
+      const reply = await link.query("importSav", { bytes }, 10_000);
+      if (!reply.ok) {
+        return {
+          ok: false,
+          ...(reply.error ? { error: reply.error } : {}),
+        };
+      }
+      const flush = await autosaveController.flushAutosaveDetailed(3_000);
+      const durable = flush.status === "saved";
+      return {
+        ok: true,
+        ...(reply.room !== undefined ? { room: reply.room } : {}),
+        ...(!durable
+          ? {
+              storageWarning:
+                "The save loaded in this tab, but browser storage could not save it. Save inside the game or export a backup before leaving.",
+            }
+          : {}),
+      };
+    },
     recoverHistory: () => link.query("historyRecover"),
     startTestRecording,
     stopTestRecording,

@@ -81,8 +81,8 @@ function onDialogClose(): void {
         Studio or WinAGI usually target 2.917 or 2.936. If you are unsure, keep the default.
       </p>
       <p v-else class="profile-picker-intro">
-        Current profile: <strong>{{ current }}</strong
-        >. A running game restarts from its latest autosave under the new profile.
+        Current profile: <strong>{{ current }}</strong>. A running game restarts from its latest
+        autosave under the new profile.
       </p>
 
       <label for="profile-select">Interpreter profile</label>

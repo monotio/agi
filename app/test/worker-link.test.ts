@@ -58,6 +58,8 @@ const OUTBOUND_TYPES = [
   "previewUpdateResult",
   "previewUpdateStatus",
   "exportFiles",
+  "savExported",
+  "savImported",
   "restored",
   "booted",
   "projectPlayed",
@@ -537,6 +539,24 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "exportFiles": {
         const r = await roundTrip(link, w, "exportFiles", { type, id: 0, files: null });
         assert.equal(r, null);
+        break;
+      }
+      case "savExported": {
+        const bytes = new Uint8Array([1, 2, 3]);
+        const r = await roundTrip(link, w, "exportSav", { type, id: 0, bytes });
+        assert.equal(r.bytes, bytes);
+        break;
+      }
+      case "savImported": {
+        const r = await roundTrip(
+          link,
+          w,
+          "importSav",
+          { type, id: 0, ok: true, room: 4 },
+          { bytes: new Uint8Array([1, 2, 3]) },
+        );
+        assert.equal(r.ok, true);
+        assert.equal(r.room, 4);
         break;
       }
       case "restored":

@@ -12,6 +12,8 @@ export function continuationTranscript(
   if (!data.transcript?.length) return undefined;
   if (data.provider === provider && (!model || data.model === model))
     return validateTranscript(data.transcript, provider);
-  const text = `Previous authoring conversation (reference material from an earlier model session; game resources are authoritative):\n${JSON.stringify(data.transcript, (key, value) => (key === "encrypted_content" || key === "signature" || key === "image_url" || key === "data" ? undefined : value))}`;
-  return [{ role: "user", content: text }];
+  const text = `Previous authoring conversation (reference material from an earlier model session; game resources are authoritative):\n${JSON.stringify(data.transcript, (key, value) => (key === "encrypted_content" || key === "signature" || key === "thoughtSignature" || key === "image_url" || key === "data" ? undefined : value))}`;
+  return provider === "gemini"
+    ? [{ role: "user", parts: [{ text }] }]
+    : [{ role: "user", content: text }];
 }

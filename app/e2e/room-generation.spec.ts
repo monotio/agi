@@ -23,7 +23,7 @@ async function openGame(page: Page, mode: "Play" | "Create") {
   await page.goto("/");
   await configureAi(page, {
     provider: "openai",
-    model: "gpt-6-sol",
+    model: "gpt-6.2-sol",
     key: "test-placeholder",
     budget: 5,
   });

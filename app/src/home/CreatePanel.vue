@@ -236,8 +236,7 @@ async function onAiCreated(title: string): Promise<void> {
               :data-testid="`template-${template.id}`"
               @click="selectedTemplateId = template.id"
             >
-              <strong>{{ template.title }}</strong
-              ><span>{{ template.description }}</span>
+              <strong>{{ template.title }}</strong><span>{{ template.description }}</span>
             </button>
             <button
               type="button"

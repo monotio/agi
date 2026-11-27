@@ -15,6 +15,7 @@ import { beginProviderTask } from "./providerBudget.ts";
 import { DEFAULT_TASK_BUDGET_USD, AgentRun, type AgentRunState } from "./agentRun.ts";
 import {
   createAnthropicConversation,
+  createGeminiConversation,
   createOpenAiConversation,
   LlmResponseError,
   LlmRefusalError,
@@ -187,6 +188,8 @@ function conversation(
     return createOpenAiConversation(config, transcript, sessionId, run, catalog);
   if (config.provider === "anthropic")
     return createAnthropicConversation(config, transcript, run, catalog, sessionId);
+  if (config.provider === "gemini")
+    return createGeminiConversation(config, transcript, run, catalog, sessionId);
   return stubConversation(transcript);
 }
 /** Offline authoring uses real validation and admission, with a deterministic resource edit. */

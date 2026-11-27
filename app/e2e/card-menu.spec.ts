@@ -280,9 +280,10 @@ test("the in-game Settings sheet has one Download… opening the same dialog", a
     .getByRole("region", { name: "This game", exact: true });
   await expect(section.getByTestId("btn-edit-game")).toHaveCount(0);
   await expect(section.getByTestId("btn-download-game")).toBeVisible();
+  await expect(section.getByTestId("btn-save-files")).toBeVisible();
   await expect(section.getByTestId("btn-start-over")).toBeVisible();
   await expect(section.getByTestId("btn-export-game")).toHaveCount(0);
-  await expect(section.getByRole("button")).toHaveCount(2);
+  await expect(section.getByRole("button")).toHaveCount(3);
 
   await section.getByTestId("btn-download-game").click();
   const dialog = page.getByTestId("settings-download-dialog");

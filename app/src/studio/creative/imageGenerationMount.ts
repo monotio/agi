@@ -4,10 +4,12 @@ import type { ProjectImageInput } from "../../../../src/creative/imageOperations
 import { CREATIVE_SOURCE_FORMAT, type CreativeSource } from "../../../../src/creative/catalog.ts";
 import {
   createCreativeGeneration,
+  savedGeminiCredential,
   savedOpenAiCredential,
   GenerationRefusal,
 } from "./creativeGeneration.ts";
 import { createOpenAiImageProvider, type OpenAiImageProvider } from "./openaiImageProvider.ts";
+import { createGeminiImageProvider, createMultiImageProvider } from "./geminiImageProvider.ts";
 import { loadAiSettings } from "../../settings/aiSettings.ts";
 import {
   beginProviderBudget,
@@ -25,9 +27,32 @@ export function createImageGenerationMount(input: {
   provider?: OpenAiImageProvider;
 }) {
   let account = beginProviderBudget(Number(localStorage.getItem("monotio_agi.taskBudget") ?? 5));
-  const credential = savedOpenAiCredential(() =>
-    loadAiSettings(localStorage, DEFAULT_MODELS, import.meta.env.MODE === "test"),
-  );
+  const readSettings = () =>
+    loadAiSettings(localStorage, DEFAULT_MODELS, import.meta.env.MODE === "test");
+  const openaiCredential = savedOpenAiCredential(readSettings);
+  const geminiCredential = savedGeminiCredential(readSettings);
+  const provider =
+    input.provider ??
+    createMultiImageProvider([
+      createOpenAiImageProvider({ credentials: openaiCredential }),
+      createGeminiImageProvider({ credentials: geminiCredential }),
+    ]);
+  const hasKeyForModel = (model?: string): boolean => {
+    if (model !== undefined && Object.hasOwn(provider.models, model)) {
+      const target = provider.models[model]?.provider ?? "openai";
+      return target === "gemini" ? geminiCredential() !== null : openaiCredential() !== null;
+    }
+    return openaiCredential() !== null || geminiCredential() !== null;
+  };
+  const preferredModel = (): string | undefined => {
+    const settings = readSettings();
+    const hasOpenAi = openaiCredential() !== null;
+    const hasGemini = geminiCredential() !== null;
+    if (settings.provider === "gemini" && hasGemini) return "gemini-3.1-flash-image";
+    if (hasOpenAi) return "gpt-image-2.6-sunburst";
+    if (hasGemini) return "gemini-3.1-flash-image";
+    return undefined;
+  };
   const context = () => ({
     workspaceId: input.session.runToken,
     closed: !input.current(),
@@ -40,14 +65,15 @@ export function createImageGenerationMount(input: {
     workspaceVersion: 0,
   });
   return createCreativeGeneration({
-    provider: input.provider ?? createOpenAiImageProvider({ credentials: credential }),
+    provider,
     host: {
       context: async () => context(),
       sources: () => [],
       board: () => [],
       material: async () => null,
       raster: async () => null,
-      hasCredential: () => credential() !== null,
+      hasCredential: hasKeyForModel,
+      defaultModel: preferredModel,
       openSettings: input.openSettings,
       continueBudget() {
         extendProviderBudget(account);

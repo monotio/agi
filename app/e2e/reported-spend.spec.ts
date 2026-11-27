@@ -1,5 +1,5 @@
 import { expect, test } from "./test.ts";
-import { configureAi, isolateStorage, openWorkspaceAgent } from "./engineProbe.ts";
+import { configureAi, isolateStorage, openAiSettings, openWorkspaceAgent } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { encodePngRgba } from "../../src/creative/composite.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
@@ -18,7 +18,7 @@ async function start(page: Page) {
   await configureAi(page, {
     provider: "openai",
     key: "test-placeholder",
-    model: "gpt-6-sol",
+    model: "gpt-6.2-sol",
     budget: 5,
   });
 }
@@ -355,4 +355,84 @@ test("a background task retains foreground reply spend", async ({ page }) => {
     release();
     await page.evaluate(() => (Reflect.get(window, "releaseBackgroundSave") as () => void)());
   }
+});
+
+test("Gemini image generation defaults for Gemini-only keys, disables mask edits, and reports spend", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("Gemini image proof");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
+
+  await openAiSettings(page);
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await dialog.getByTestId("provider-select").selectOption("gemini");
+  await dialog.getByTestId("api-key-input").fill("gemini-only-key");
+  await dialog.getByTestId("task-budget").fill("5");
+  await dialog.getByTestId("ai-settings-save").click();
+  await expect(dialog).toBeHidden();
+
+  let capturedKey: string | null = null;
+  await page.route(
+    "**/api/test-gemini-images/v1beta/models/gemini-3.1-flash-image:generateContent",
+    async (route) => {
+      capturedKey = route.request().headers()["x-goog-api-key"] ?? null;
+      const pixels = new Uint8Array(64 * 48 * 4);
+      for (let i = 0; i < pixels.length; i += 4) pixels.set([85, 170, 85, 255], i);
+      await route.fulfill({
+        json: {
+          responseId: "resp-gem-img",
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "image/png",
+                      data: Buffer.from(encodePngRgba(64, 48, pixels)).toString("base64"),
+                    },
+                  },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 2000,
+            candidatesTokenCount: 1100,
+            thoughtsTokenCount: 1000,
+            totalTokenCount: 4100,
+            promptTokensDetails: [{ modality: "TEXT", tokenCount: 2000 }],
+            candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1100 }],
+          },
+        },
+      });
+    },
+  );
+
+  await page.getByTestId("part-room:1:picture:1").click();
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(page.getByTestId("generate-key")).toBeHidden();
+  await page.getByTestId("generate-options").click();
+  await expect(page.getByTestId("generate-model")).toHaveValue("gemini-3.1-flash-image");
+  await expect(page.getByTestId("generate-kind-edit")).toBeDisabled();
+  await page.getByTestId("generate-prompt").fill("A mossy stone arch");
+  await page.getByTestId("generate-review").click();
+  await expect(page.getByTestId("generate-offer")).toBeVisible();
+  // 2,000 * $0.50/M + 1,000 * $3/M + 1,100 * $60/M = $0.001 + $0.003 + $0.066 = $0.07.
+  await expect(page.getByTestId("generate-spent")).toHaveText("$0.07 of $5 spent");
+  await expect(
+    page.getByTestId("generate-offer").getByRole("link", { name: "See your usage", exact: true }),
+  ).toHaveAttribute("href", "https://aistudio.google.com/usage");
+  expect(capturedKey).toBe("gemini-only-key");
+  await page.getByTestId("generate-use").click();
+  await expect(page.getByTestId("trace-opacity")).toBeVisible();
 });

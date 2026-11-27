@@ -43,7 +43,7 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
   });
   await page.route("**/api/openai/v1/responses", async (route) => {
     const request = ++requests;
-    expect(route.request().postDataJSON().model).toBe("gpt-6.1-sol");
+    expect(route.request().postDataJSON().model).toBe("gpt-6.2-sol");
     expect(route.request().postDataJSON().max_output_tokens).toBe(128000);
     expect(route.request().postDataJSON().context_management).toEqual([
       { type: "compaction", compact_threshold: 691500 },
@@ -89,7 +89,7 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
   try {
     await page.goto("/");
     await openAiSettings(page);
-    await expect(page.getByTestId("model-select")).toHaveValue("gpt-6.1-sol");
+    await expect(page.getByTestId("model-select")).toHaveValue("gpt-6.2-sol");
     await page.getByTestId("ai-settings-cancel").click();
     await page.getByTestId("game-zip-input").setInputFiles({
       name: "task.zip",
@@ -187,9 +187,9 @@ test("unknown spend sends without guessing a price in the real assistant", async
   const modelModule = `/@fs${new URL("../../src/agent/modelEffort.ts", import.meta.url).pathname}`;
   await page.evaluate(async (path) => {
     const { MODEL_CAPABILITIES } = await import(path);
-    delete MODEL_CAPABILITIES["gpt-6-sol"].price;
+    delete MODEL_CAPABILITIES["gpt-6.2-sol"].price;
   }, modelModule);
-  await configureAi(page, { provider: "openai", model: "gpt-6-sol", key: "placeholder" });
+  await configureAi(page, { provider: "openai", model: "gpt-6.2-sol", key: "placeholder" });
   await page.getByTestId("agent-message").fill("Inspect this room.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-message")).toBeEnabled();

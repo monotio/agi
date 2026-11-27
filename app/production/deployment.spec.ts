@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { textHook } from "../e2e/engineProbe.ts";
+import { loseGpuStage, prepareGpuLoss, textHook } from "../e2e/engineProbe.ts";
 
 test("bundled tutorial previews and plays on the production origin without a provider", async ({
   page,
@@ -18,6 +18,7 @@ test("bundled tutorial previews and plays on the production origin without a pro
     },
   );
   // Builds ignore the browser-test flag that keeps the flat picture: players get the GPU stage.
+  await prepareGpuLoss(page);
   await page.addInitScript(() => {
     (globalThis as { __AGI_SKIP_GPU_STAGE__?: boolean }).__AGI_SKIP_GPU_STAGE__ = true;
   });
@@ -57,9 +58,7 @@ test("bundled tutorial previews and plays on the production origin without a pro
   // even while the game is paused and sends no new frame.
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
-  await gpu.evaluate((canvas: HTMLCanvasElement) =>
-    canvas.getContext("webgl2")!.getExtension("WEBGL_lose_context")!.loseContext(),
-  );
+  await loseGpuStage(gpu);
   await expect(flat).toBeVisible();
   await expect(gpu).toBeHidden();
   const flatColours = () =>
@@ -85,6 +84,7 @@ test("production origin, worker and provider policy", async ({ page, request }) 
   const policy = response?.headers()["content-security-policy"] ?? "";
   expect(policy).toContain("https://api.openai.com");
   expect(policy).toContain("https://api.anthropic.com");
+  expect(policy).toContain("https://generativelanguage.googleapis.com");
   expect(policy).not.toContain("unsafe-eval");
   await expect(page.getByRole("heading", { name: "AGI IS HERE." })).toBeVisible();
   await expect(page.getByTestId("installed-game-select")).toBeHidden();

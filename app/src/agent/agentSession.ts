@@ -78,6 +78,7 @@ import {
 } from "../../../src/agent/worldPlan.ts";
 import {
   createAnthropicConversation,
+  createGeminiConversation,
   LlmResponseError,
   createOpenAiConversation,
   type LlmConfig,
@@ -326,6 +327,15 @@ export class AgentSession implements AgentHandler {
         this.retainedTranscript,
         sessionId,
         this.task,
+      );
+      this.stubFallback = null;
+    } else if (config.provider === "gemini" && config.apiKey.trim()) {
+      this.conversation = createGeminiConversation(
+        this.config,
+        this.retainedTranscript,
+        this.task,
+        undefined,
+        sessionId,
       );
       this.stubFallback = null;
     } else if (config.provider === "stub" && config.stubScript) {
@@ -1290,6 +1300,8 @@ Answer the player's question using evidence from inspection when needed. For hin
         this.conversation = createOpenAiConversation(this.config, [], undefined, this.task);
       else if (this.config.provider === "anthropic" && this.config.apiKey.trim())
         this.conversation = createAnthropicConversation(this.config, [], this.task);
+      else if (this.config.provider === "gemini" && this.config.apiKey.trim())
+        this.conversation = createGeminiConversation(this.config, [], this.task);
       try {
         return await this.prepareRoom(req, beforeAdopt, attachments);
       } finally {

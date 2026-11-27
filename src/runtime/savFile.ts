@@ -228,7 +228,9 @@ export function importOriginalSav(engine: Engine, bytes: Uint8Array): void {
     )
   )
     throw new RangeError("Original save inventory differs from this game");
+  const amigaRegion = engine.amigaRegion;
   engine.restoreImage(encodeSave(state, engine.profile));
+  engine.amigaRegion = amigaRegion;
 }
 
 /** Export a running game at a boundary representable by an original interpreter. */

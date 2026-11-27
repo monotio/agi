@@ -613,12 +613,13 @@ async function tabTo(page: Page, target: Locator): Promise<void> {
       const state = await target.evaluateAll((elements, visited) => {
         const active = document.activeElement;
         if (elements.some((element) => element === active)) return "reached";
-        if (!active || visited.has(active)) return "cycle";
+        if (!active || visited.has(active))
+          return `cycle:${active ? `${active.tagName}[data-testid=${active.getAttribute("data-testid")}]` : "null"}`;
         visited.add(active);
         return "continue";
       }, visited);
       if (state === "reached") return;
-      if (state === "cycle") throw new Error(`Keyboard cannot reach ${target}`);
+      if (state.startsWith("cycle:")) throw new Error(`Keyboard cannot reach ${target} (${state})`);
       await page.keyboard.press(tab);
     }
   } finally {

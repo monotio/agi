@@ -8,13 +8,19 @@ import {
 } from "../src/settings/devProviderKeys.ts";
 import type { AiSettings } from "../src/settings/aiSettings.ts";
 
-function settings(provider: AiSettings["provider"], openaiKey = "", anthropicKey = ""): AiSettings {
+function settings(
+  provider: AiSettings["provider"],
+  openaiKey = "",
+  anthropicKey = "",
+  geminiKey = "",
+): AiSettings {
   return {
     version: 1,
     provider,
     profiles: {
       openai: { model: "gpt-6.1-sol", apiKey: openaiKey, effort: "medium" },
       anthropic: { model: "claude-sonnet-5-5", apiKey: anthropicKey, effort: "medium" },
+      gemini: { model: "gemini-4-neon", apiKey: geminiKey, effort: "high" },
       stub: { model: "stub", apiKey: "", effort: "medium" },
     },
   };
@@ -36,9 +42,13 @@ test("only this machine, addressed as localhost, gets the keys", () => {
 });
 
 test("the server hands out present provider keys only", () => {
-  assert.deepEqual(devKeysFromEnv({ OPENAI_API_KEY: " sk-a ", ANTHROPIC_API_KEY: "" }), {
-    openai: "sk-a",
-  });
+  assert.deepEqual(
+    devKeysFromEnv({ OPENAI_API_KEY: " sk-a ", ANTHROPIC_API_KEY: "", GEMINI_API_KEY: " gm-k " }),
+    {
+      openai: "sk-a",
+      gemini: "gm-k",
+    },
+  );
   assert.deepEqual(devKeysFromEnv({}), {});
 });
 
@@ -59,6 +69,13 @@ test("a keyless current provider switches to a provider with a key", async () =>
   );
   assert.equal(next?.provider, "anthropic");
   assert.equal(next?.profiles.anthropic.apiKey, "dev-anthropic");
+
+  const geminiNext = await settingsWithDevKeys(
+    settings("openai"),
+    respond({ gemini: "dev-gemini" }),
+  );
+  assert.equal(geminiNext?.provider, "gemini");
+  assert.equal(geminiNext?.profiles.gemini.apiKey, "dev-gemini");
 });
 
 test("nothing changes without an answer or with every key already set", async () => {

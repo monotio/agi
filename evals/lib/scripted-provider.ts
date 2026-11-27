@@ -14,7 +14,7 @@ import { providerSse } from "../../test/provider-stream.ts";
 import type { AgentToolImage, AgentToolResult } from "../../src/agent/agentState.ts";
 import type { LlmTurnResult, UnifiedConversation } from "../../app/src/agent/llmClient.ts";
 
-export type ScriptProvider = "anthropic" | "openai";
+export type ScriptProvider = "anthropic" | "openai" | "gemini";
 
 /** One provider request, as the client built it. */
 export interface CapturedRequest {
@@ -199,8 +199,83 @@ function consumeOpenAi(
   return { turn: turn ?? script.complete() };
 }
 
+/** Feed the Gemini contents added since `seen` to the script. */
+function consumeGemini(
+  contents: readonly Record<string, unknown>[],
+  seen: number,
+  script: Script,
+): Consumed {
+  let turn: Promise<LlmTurnResult> | null = null;
+  for (const item of contents.slice(seen)) {
+    if (item["role"] !== "user") continue;
+    const parts = (item["parts"] ?? []) as Record<string, unknown>[];
+    const responses = parts.filter((part) => "functionResponse" in part);
+    if (responses.length) {
+      script.appendToolResults(
+        responses.map((part) => {
+          const fr = part["functionResponse"] as {
+            id?: string;
+            name: string;
+            response?: Record<string, unknown>;
+            parts?: { inlineData?: { data?: string; displayName?: string } }[];
+          };
+          const images: AgentToolImage[] = [];
+          for (const sub of fr.parts ?? []) {
+            if (typeof sub.inlineData?.data === "string") {
+              images.push({
+                png: base64Bytes(sub.inlineData.data),
+                caption: sub.inlineData.displayName ?? "",
+              });
+            }
+          }
+          const raw = (fr.response ?? {}) as unknown as AgentToolResult;
+          return {
+            toolCallId: fr.id ?? fr.name,
+            result: images.length ? { ...raw, images } : raw,
+          };
+        }),
+      );
+      turn = null;
+    } else {
+      const text = parts
+        .filter((part) => typeof part["text"] === "string")
+        .map((part) => String(part["text"]))
+        .join("\n");
+      const images = parts.filter((part) => "inlineData" in part).length;
+      turn = script.sendUserMessage(text, images ? placeholders(images) : undefined);
+    }
+  }
+  return { turn: turn ?? script.complete() };
+}
+
 /** The provider's streamed response for one scripted turn. */
 function render(provider: ScriptProvider, turn: LlmTurnResult, index: number): string {
+  if (provider === "gemini") {
+    const parts: Record<string, unknown>[] = [{ text: `Step ${index}.`, thought: true }];
+    if (turn.text) parts.push({ text: turn.text });
+    for (const [callIndex, call] of turn.toolCalls.entries()) {
+      parts.push({
+        functionCall: { id: call.id, name: call.name, args: call.input },
+        ...(callIndex === 0 ? { thoughtSignature: `sig-${index}` } : {}),
+      });
+    }
+    return providerSse("gemini", {
+      responseId: `resp_${index}`,
+      modelVersion: "scripted",
+      candidates: [
+        {
+          content: { role: "model", parts },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 0,
+        candidatesTokenCount: 0,
+        thoughtsTokenCount: 0,
+        cachedContentTokenCount: 0,
+      },
+    });
+  }
   if (provider === "anthropic") {
     const content: Record<string, unknown>[] = [
       // Opus 5.5, Sonnet 5.5 and Fable 5.1 return their notes between tool calls as
@@ -278,20 +353,27 @@ export function installScriptedProvider(provider: ScriptProvider): ScriptedProvi
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     requests.push({ provider, body });
     const index = requests.length;
-    const items = (provider === "anthropic" ? body["messages"] : body["input"]) as Record<
-      string,
-      unknown
-    >[];
+    const items = (
+      provider === "anthropic"
+        ? body["messages"]
+        : provider === "gemini"
+          ? body["contents"]
+          : body["input"]
+    ) as Record<string, unknown>[];
     const { turn } =
       provider === "anthropic"
         ? consumeAnthropic(items, seen, script)
-        : consumeOpenAi(items, seen, script);
+        : provider === "gemini"
+          ? consumeGemini(items, seen, script)
+          : consumeOpenAi(items, seen, script);
     const result = await turn;
     // The client appends its own response before the next request: one
     // agent message, or one reasoning item plus one per text and call.
     seen =
       items.length +
-      (provider === "anthropic" ? 1 : 1 + (result.text ? 1 : 0) + result.toolCalls.length);
+      (provider === "anthropic" || provider === "gemini"
+        ? 1
+        : 1 + (result.text ? 1 : 0) + result.toolCalls.length);
     return new Response(render(provider, result, index), {
       headers: { "content-type": "text/event-stream" },
     });
